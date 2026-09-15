@@ -26,6 +26,10 @@ dist-ssr/
 *.tsbuildinfo
 .vite/
 
+### Local runtime data ###
+# SQLite 数据库文件目录（delveforge.persistence.database-file 默认位置）
+data/
+
 ### Logs ###
 logs/
 *.log

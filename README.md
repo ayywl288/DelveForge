@@ -66,4 +66,27 @@ mvnw.cmd verify
 java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar
 ```
 
+## Database
+
+MVP 使用 SQLite，数据库文件位置由配置属性 `delveforge.persistence.database-file` 决定，
+默认值为 `./data/delveforge.db`（相对路径相对于进程工作目录，缺失的父目录会在启动时自动创建）。
+
+可通过命令行参数或环境变量覆盖：
+
+```bash
+java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar \
+  --delveforge.persistence.database-file=/path/to/delveforge.db
+```
+
+```bash
+export DELVEFORGE_PERSISTENCE_DATABASE_FILE=/path/to/delveforge.db
+```
+
+Schema 由 Flyway 在启动时自动迁移，迁移文件位于
+`backend/delveforge-infrastructure/src/main/resources/db/migration`，
+命名格式为 `V{版本}__{描述}.sql`。已发布的迁移文件不可修改，只能追加新版本。
+
+SQLite、MyBatis-Plus 与 Flyway 只允许出现在 `delveforge-infrastructure`。
+Domain 与 Application 模块不得出现这些技术类型的依赖。
+
 更详细的架构边界与开发规范见 `AGENTS.md` 与 `docs/ARCHITECTURE.md`。

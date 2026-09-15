@@ -1,0 +1,19 @@
+delveforge:
+  persistence:
+    # SQLite 数据库文件位置。
+    #
+    # 环境相关值必须可配置，不得硬编码进业务逻辑（AGENTS.md §8.9）。
+    # 可通过以下任一方式覆盖：
+    #   命令行：--delveforge.persistence.database-file=/abs/path/delveforge.db
+    #   环境变量：DELVEFORGE_PERSISTENCE_DATABASE_FILE
+    #
+    # 相对路径相对于进程工作目录，缺失的父目录会在启动时创建。
+    database-file: ./data/delveforge.db
+
+spring:
+  application:
+    name: delveforge
+
+  flyway:
+    # Flyway migration 位于 Infrastructure 模块的 classpath 下。
+    locations: classpath:db/migration

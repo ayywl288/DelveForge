@@ -46,6 +46,17 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
         <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
+
+        <!--
+            Persistence 技术栈（ARCHITECTURE.md 2.2）。
+
+            sqlite-jdbc 与 flyway-core 的版本由 Spring Boot BOM 托管，此处不覆盖。
+            MyBatis-Plus 不在 Spring Boot BOM 内，因此显式固定版本。
+
+            注意：Flyway 11.x 的 SQLite 支持内置于 flyway-core，
+            不存在独立的 flyway-database-sqlite 构件，无需额外引入。
+        -->
+        <mybatis-plus.version>3.5.17</mybatis-plus.version>
     </properties>
 
     <build>

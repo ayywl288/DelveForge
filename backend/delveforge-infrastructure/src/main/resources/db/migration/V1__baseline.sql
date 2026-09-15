@@ -1,0 +1,11 @@
+-- DelveForge Flyway 基线迁移。
+--
+-- M0 阶段尚未定义任何领域对象，因此本迁移刻意不创建业务表。
+-- 它的作用是建立并验证 migration 管线本身：
+-- Flyway 会据此创建 flyway_schema_history 表并记录本次迁移，
+-- 从而证明 SQLite 上的迁移流程可正常执行。
+--
+-- 具体业务表（User Profile / Software Asset / Repository Profile /
+-- Product Direction / Evolution Plan / Evolution Step 等）在 M1 及之后
+-- 随对应领域对象一起，以新增迁移文件的方式引入。
+-- 本文件已应用后不得修改，只能追加后续版本。

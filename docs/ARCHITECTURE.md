@@ -245,6 +245,24 @@ Module Dependency Rules：
 - 不为每个 Architecture Module 建立独立 Maven Module。
 - 不创建无明确业务语义的通用 `delveforge-common` Module。
 
+Persistence 基础结构：
+
+```
+数据库位置     配置属性 delveforge.persistence.database-file
+               （默认值与覆盖方式见 delveforge-app 的 application.yml）
+DataSource     delveforge-infrastructure 的 SqliteDataSourceConfiguration
+Mapper 位置    com.ayywl.delveforge.infrastructure.persistence 及其子包
+Mapper 装配    由 delveforge-app 的 Composition Root 扫描
+Migration      delveforge-infrastructure 的 src/main/resources/db/migration
+               命名 V{版本}__{描述}.sql，已发布的迁移不可修改
+```
+
+SQLite、MyBatis-Plus 与 Flyway 只允许出现在 `delveforge-infrastructure` 内。
+Domain / Application 不得出现这些技术类型的依赖。
+
+具体业务表随 M1 及之后的对应领域对象以新增迁移的方式引入。
+`delveforge-domain` / `delveforge-application` 不提供通用 Repository 抽象。
+
 Maven Module 控制主要 Architecture Layer Boundary。
 
 每个 Module 内部继续按照 Feature / Domain Concept 组织代码。

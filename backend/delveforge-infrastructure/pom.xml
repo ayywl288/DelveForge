@@ -32,6 +32,38 @@
             <artifactId>delveforge-domain</artifactId>
             <version>${project.version}</version>
         </dependency>
+
+        <!--
+            Persistence 技术栈只允许出现在 Infrastructure 边界内，
+            不得泄漏到 Domain / Application（RULE-ARCH-002、RULE-ARCH-003）。
+            版本见根 pom 的 mybatis-plus.version 与 Spring Boot BOM。
+        -->
+
+        <!-- SQLite JDBC 驱动 -->
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+        </dependency>
+
+        <!-- MyBatis-Plus Spring Boot 集成，提供 SqlSessionFactory 等自动装配 -->
+        <dependency>
+            <groupId>com.baomidou</groupId>
+            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+            <version>${mybatis-plus.version}</version>
+        </dependency>
+
+        <!-- Flyway schema migration，SQLite 支持内置于 flyway-core -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
+        <!-- Infrastructure 测试需要真实启动 Spring 上下文以验证自动装配链路 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
