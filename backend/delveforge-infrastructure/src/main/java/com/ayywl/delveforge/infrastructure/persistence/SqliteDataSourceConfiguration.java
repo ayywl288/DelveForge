@@ -5,9 +5,8 @@ import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import javax.sql.DataSource;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,18 +17,17 @@ import org.springframework.context.annotation.Configuration;
  * （RULE-ARCH-002、RULE-ARCH-003）。Domain / Application 不得引用本类或任何
  * SQLite、MyBatis-Plus、Flyway 类型。
  *
- * <p>数据库位置来自配置属性 {@code delveforge.persistence.database-file}，
- * 不硬编码在代码中（AGENTS.md §8.9）。配置默认值见
- * {@code delveforge-app/src/main/resources/application.yml}。
+ * <p>数据库位置来自 {@link PersistenceProperties}，不硬编码在代码中（AGENTS.md §8.9）。
+ * 配置默认值与覆盖方式见 {@code delveforge-app/src/main/resources/application.yml}。
  */
 @Configuration(proxyBeanMethods = false)
+@EnableConfigurationProperties(PersistenceProperties.class)
 public class SqliteDataSourceConfiguration {
 
     @Bean
-    public DataSource dataSource(
-            @Value("${delveforge.persistence.database-file}") String databaseFile) throws IOException {
+    public DataSource dataSource(PersistenceProperties properties) throws IOException {
 
-        Path databasePath = Paths.get(databaseFile).toAbsolutePath().normalize();
+        Path databasePath = properties.databaseFile().toAbsolutePath().normalize();
         createParentDirectory(databasePath);
 
         // 连接池参数暂不调优：SQLite 的并发与 journal mode 取舍需要真实负载证据，

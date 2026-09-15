@@ -89,4 +89,31 @@ Schema 由 Flyway 在启动时自动迁移，迁移文件位于
 SQLite、MyBatis-Plus 与 Flyway 只允许出现在 `delveforge-infrastructure`。
 Domain 与 Application 模块不得出现这些技术类型的依赖。
 
+## Logging
+
+默认日志级别为 `INFO`。排查问题时可临时按包开启，例如：
+
+```bash
+java -jar ... --logging.level.com.ayywl.delveforge.<package>=DEBUG
+```
+
+不要整体打开 `com.ayywl.delveforge=DEBUG`：Mapper 接口位于
+`com.ayywl.delveforge.infrastructure.persistence`，该包打开 DEBUG 会让 MyBatis
+打印 SQL 与绑定参数值，其中可能包含用户数据。排查结束后请恢复。
+
+日志格式约定为 `operation=<操作> path=<资源标识> result=<结果> exception=<异常类型链 + 堆栈位置>`。
+日志记录的是异常类型与堆栈位置，**不记录异常 message 与原因链**——
+这些文本可能嵌入请求内容、用户数据或第三方 SDK 原始返回中的凭据，
+且无法在记录前可靠判定。
+
+日志中禁止出现 API Key / Token / Credential、完整源码、完整 Prompt 或模型响应、成批用户数据，
+该规则**不区分日志级别**。
+
+`org.springframework.web`、`org.apache.tomcat`、`org.apache.coyote` 在 `application.yml`
+中被固定为 `INFO`：它们在 DEBUG 下会输出未经筛选的原始异常文本或请求头，
+且该输出发生在应用代码之外，无法通过 `@RestControllerAdvice` 拦截。
+这些固定是最低保障，不是完整清单。
+
+配置 / 错误处理 / 日志的完整约定见 `docs/ARCHITECTURE.md` §6.2。
+
 更详细的架构边界与开发规范见 `AGENTS.md` 与 `docs/ARCHITECTURE.md`。

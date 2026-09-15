@@ -17,3 +17,44 @@ spring:
   flyway:
     # Flyway migration 位于 Infrastructure 模块的 classpath 下。
     locations: classpath:db/migration
+
+logging:
+  level:
+    root: INFO
+
+    # DelveForge 自身默认 INFO。
+    #
+    # 排查问题时可以按包临时打开，例如：
+    #   --logging.level.com.ayywl.delveforge.userdiscovery=DEBUG
+    #
+    # 注意：不要整体打开 com.ayywl.delveforge=DEBUG。
+    # Mapper 接口位于 com.ayywl.delveforge.infrastructure.persistence，
+    # 该包打开 DEBUG 会让 MyBatis 打印 SQL 与绑定参数值，
+    # 其中可能包含 User Profile 等用户数据。排查结束后必须恢复。
+    com.ayywl.delveforge: INFO
+
+    # 以下框架包在 DEBUG 下会打印未经筛选的原始文本，其中可能包含凭据，
+    # 因此固定为 INFO，不随 root 级别变化：
+    #
+    #   org.springframework.web
+    #     ExceptionHandlerExceptionResolver 在 DEBUG 下输出
+    #     "Resolved [<异常.toString()>]"，异常 message 会被完整打印。
+    #     该日志发生在 @RestControllerAdvice 之外，应用代码无法拦截。
+    #   org.apache.tomcat / org.apache.coyote
+    #     在 DEBUG 下会输出请求头，其中可能包含 Authorization。
+    #
+    # 这里是最低保障，不是完整清单。新增技术组件时应确认其 DEBUG 输出内容。
+    # 确需排查时可在命令行针对性覆盖：
+    #   --logging.level.org.springframework.web=DEBUG
+    org.springframework.web: INFO
+    org.apache.tomcat: INFO
+    org.apache.coyote: INFO
+
+  # 不配置请求体 / 响应体输出，也不引入任何 Payload 级日志。
+  #
+  # 日志中禁止出现（不区分级别）：
+  #   API Key / Token / Credential
+  #   完整源码文件
+  #   完整 Prompt 或完整模型响应
+  #   成批用户数据
+  # 需要在日志中标识配置值时，只记录是否存在或已脱敏后的形式。

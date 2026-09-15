@@ -163,7 +163,7 @@ End-to-End Completion
 - [x] 建立 AI Gateway 抽象边界。
 - [x] 建立 Workspace Gateway 抽象边界。
 - [x] 建立基础 Persistence 能力。
-- [ ] 建立统一配置、错误处理与日志基础设施。
+- [x] 建立统一配置、错误处理与日志基础设施。
 - [ ] 建立自动化测试基础设施。
 - [x] 确定 MVP 阶段 Java / Python 的职责边界。
 - [x] 确定 JDK 基线：Java 21。
@@ -773,12 +773,12 @@ Pre-Implementation
 - [x] 确定 MVP Working Copy 默认技术方案。
 - [x] 确定 Initial LLM Provider 与第一版默认模型。
 - [x] 建立初始工程目录与 Maven Module。
-- [ ] 建立 Application / Domain / Infrastructure 基础结构。
+- [x] 建立 Application / Domain / Infrastructure 基础结构。
 - [x] 建立 AI Gateway 最小抽象。
 - [x] 建立 Workspace Gateway 最小抽象。
 - [x] 建立基础 Persistence 能力。
 - [ ] 建立 Frontend 基础工程。
-- [ ] 建立统一配置、错误处理与日志基础设施。
+- [x] 建立统一配置、错误处理与日志基础设施。
 - [ ] 建立 Build 与 Test 基础流程。
 
 ### Next

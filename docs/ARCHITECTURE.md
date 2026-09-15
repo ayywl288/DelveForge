@@ -300,6 +300,80 @@ Architecture Module 与 Maven Module 不要求一一对应。
 
 例如 User Discovery、Repository Analysis、Opportunity Discovery 与 Evolution 是业务 / 架构边界，但 MVP 中不分别建立独立 Maven Module。
 
+### 6.2 Cross-Cutting Infrastructure
+
+配置 / 错误处理 / 日志的约定如下。
+
+**Configuration**
+
+```
+配置类命名     {Concern}Properties，使用 @ConfigurationProperties record
+归属           由消费该配置的 Module 自己声明并通过 @EnableConfigurationProperties 启用
+默认值         application.yml，不在代码中兜底
+环境相关值     API Key / 数据库路径 / LLM Endpoint 与 Model / Workspace Root
+               一律通过配置提供，不得硬编码进业务代码
+```
+
+技术配置按边界归属：SQLite / Provider 等专有配置留在 Infrastructure。
+Domain / Application 不出现任何技术配置类型。
+
+**Error Handling**
+
+```
+异常来源                                  HTTP       ApiErrorCode
+IllegalArgumentException                 400        INVALID_REQUEST
+AiGatewayException                       502        EXTERNAL_CAPABILITY_UNAVAILABLE
+WorkspaceException                       500        INTERNAL_ERROR
+Spring MVC 协议层异常                      由框架决定   INVALID_REQUEST / INTERNAL_ERROR
+  （405 / 415 / 400 请求体无法解析等）
+其余未预期异常                             500        INTERNAL_ERROR
+```
+
+映射集中在一处（`delveforge-app` 的 error 包），Controller 不承担异常分类与错误构造。
+
+协议层异常的状态码与响应头由框架决定，映射层只替换响应体。
+自行重建响应会丢失 `Allow`、`Accept` 等协议头。
+
+响应体不携带异常 message、堆栈、原因链或框架生成的细节文本——
+这些内容可能包含请求内容、用户数据或第三方 SDK 的原始返回。
+
+**Logging**
+
+```
+日志格式      operation=<操作> path=<资源标识> result=<结果>
+              exception=<异常类型链 + 堆栈位置>
+默认级别      INFO；不使用 DEBUG 作为默认值
+记录内容      异常类型链与堆栈位置（类名 / 方法名 / 文件名 / 行号）
+不记录内容    异常 message 与原因链文本 —— 任何日志级别
+固定级别的包  org.springframework.web / org.apache.tomcat / org.apache.coyote
+禁止记录      API Key / Token / Credential、完整源码、完整 Prompt 或模型响应、成批用户数据
+```
+
+日志级别不是例外：`AGENTS.md` §8.8 禁止记录凭据的规则不区分级别，
+因此不存在「DEBUG 下可以记录原始异常文本」的例外。
+
+```
+不记录异常文本的原因
+    异常 message 与原因链可能是调用方输入、用户数据或第三方 SDK 的原始返回，
+    无法在记录前可靠判定其中是否含凭据。
+    异常类型链与堆栈位置是代码标识，不承载运行时数据，足以定位失败点。
+
+不使用 DEBUG 作为默认级别的原因
+    Mapper 位于 com.ayywl.delveforge.infrastructure.persistence，
+    该包打开 DEBUG 会让 MyBatis 打印 SQL 与绑定参数值，其中可能包含用户数据。
+
+固定框架包级别的原因
+    这些包的 DEBUG 输出发生在应用代码之外，无法通过 @RestControllerAdvice 拦截：
+      org.springframework.web     ExceptionHandlerExceptionResolver 输出
+                                  "Resolved [<异常.toString()>]"
+      org.apache.tomcat          DEBUG 下输出请求头，可能包含 Authorization
+      org.apache.coyote
+```
+
+上述固定是最低保障，不是完整清单；引入新的技术组件时应确认其 DEBUG 输出内容。
+
+M0 不引入 ELK / OpenTelemetry / Tracing 等超出范围的观测能力。
+
 ---
 
 ## 7. Dependency Rules
