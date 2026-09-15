@@ -184,16 +184,16 @@ End-to-End Completion
 
 **Acceptance Criteria**
 
-- [ ] 项目能够在全新开发环境中成功构建。
-- [ ] 应用能够正常启动。
-- [ ] 自动化测试框架可以运行。
-- [ ] Maven Module 依赖关系符合既定架构边界。
-- [ ] Domain Module 不依赖 Application、Infrastructure 或 App。
-- [ ] Application Module 不依赖 Infrastructure 或 App。
-- [ ] 业务模块不直接依赖具体 LLM Provider SDK。
-- [ ] 业务模块不直接执行 Git / Shell / Filesystem 操作。
+- [x] 项目能够在全新开发环境中成功构建。
+- [x] 应用能够正常启动。
+- [x] 自动化测试框架可以运行。
+- [x] Maven Module 依赖关系符合既定架构边界。
+- [x] Domain Module 不依赖 Application、Infrastructure 或 App。
+- [x] Application Module 不依赖 Infrastructure 或 App。
+- [x] 业务模块不直接依赖具体 LLM Provider SDK。
+- [x] 业务模块不直接执行 Git / Shell / Filesystem 操作。
 - [x] Frontend 与 Backend 可以在本地开发环境中独立启动并完成基本通信。
-- [ ] 新开发者或 Coding Agent 可以依据现有文档理解基本模块边界和构建方式。
+- [x] 新开发者或 Coding Agent 可以依据现有文档理解基本模块边界和构建方式。
 
 **Out of Scope**
 
@@ -708,7 +708,7 @@ Step SUCCEEDED
 
 | Milestone | Goal | Status |
 |---|---|---|
-| M0 | Project Foundation | IN_PROGRESS |
+| M0 | Project Foundation | DONE |
 | M1 | Discovery Inputs | TODO |
 | M2 | Product Direction Discovery | TODO |
 | M3 | Evolution Planning & Working Copy | TODO |
@@ -754,40 +754,15 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 当前处于：
 
 ```text
-Pre-Implementation
-→ M0 — Project Foundation
+M1 — Discovery Inputs
 ```
+
+M0 的执行清单已归档到 §9 Completed Milestones，不再在此处维护。
 
 ### Current
 
-- [x] 完成并确认 ROADMAP.md 的 MVP Milestone 与主要技术决策。
-- [x] 明确 MVP 第一阶段用户交互方式与最终产品形态。
-- [x] 明确 Java / Python 在 MVP 中的职责边界。
-- [x] 确定 Java 21 + Maven + Maven Wrapper 技术基线。
-- [x] 确定 com.ayywl.delveforge Java Root Package。
-- [x] 确定 Monorepo Repository Structure。
-- [x] 确定 Backend 四模块 Maven Multi-Module Structure。
-- [x] 确定 Feature-first Code Organization。
-- [x] 确定 Frontend 技术栈：Vue 3 + TypeScript + Vite。
-- [x] 确定 MVP Persistence 技术方案。
-- [x] 确定 MVP Working Copy 默认技术方案。
-- [x] 确定 Initial LLM Provider 与第一版默认模型。
-- [x] 建立初始工程目录与 Maven Module。
-- [x] 建立 Application / Domain / Infrastructure 基础结构。
-- [x] 建立 AI Gateway 最小抽象。
-- [x] 建立 Workspace Gateway 最小抽象。
-- [x] 建立基础 Persistence 能力。
-- [x] 建立 Frontend 基础工程。
-- [x] 建立统一配置、错误处理与日志基础设施。
-- [x] 建立 Build 与 Test 基础流程。
-
-### Next
-
-M0 完成后优先进入：
-
-```text
-M1 — Discovery Inputs
-```
+M1 的具体 Task 尚未拆分。按本文件约定，Task 应在对应 Milestone 即将开始时，
+根据当时已有代码状态进一步拆分。
 
 近期首先实现：
 
@@ -797,6 +772,14 @@ M1 — Discovery Inputs
 - [ ] Software Asset 注册。
 - [ ] Local Repository 只读 Workspace 能力。
 - [ ] Repository Profile 生成链路。
+
+### Next
+
+M1 完成后优先进入：
+
+```text
+M2 — Product Direction Discovery
+```
 
 当前不提前将 M2 之后的所有实现细节拆分为 Task。
 
@@ -1543,10 +1526,15 @@ DECIDED
 | Decision                                    | Current State | Target                     |
 | ------------------------------------------- | ------------- | -------------------------- |
 | AI Framework 路线与版本基线                 | DEFERRED      | 首次实现真实 AI Adapter 前 |
-| AI Gateway 第一版具体 Adapter Design        | OPEN          | M0                         |
-| Workspace Gateway 第一版具体 Adapter Design | OPEN          | M0                         |
-| Initial Database Schema                     | OPEN          | M0 / M1                    |
-| Frontend / Backend Development API Contract | OPEN          | M0 / M1                    |
+| AI Gateway 第一版具体 Adapter Design        | OPEN          | M1                         |
+| Workspace Gateway 只读 Adapter              | OPEN          | M1                         |
+| Workspace Gateway mutation Adapter          | OPEN          | M3                         |
+| Initial Database Schema                     | OPEN          | M1                         |
+| Frontend / Backend Development API Contract | OPEN          | M1                         |
+
+Workspace 拆成两行，因为两者的前置条件不同：Repository Analysis（M1）只需要
+只读能力；mutation Adapter 要等 M3 出现 Working Copy 与 Evolution Execution
+之后才有真实调用方。M0 关闭时不为此提前实现 Adapter。
 
 #### AI Framework 路线与版本基线
 
@@ -1592,11 +1580,60 @@ Desktop Shell Technology 已明确延后，不属于 M0 Blocker。
 
 ## 9. Completed Milestones
 
-当前暂无 Completed Milestone。
-
 完成 Milestone 后保留历史记录，不从 Roadmap 删除。
 
-记录格式：
+### M0 — Project Foundation
+
+**Completed**
+
+```text
+2026-09-15
+```
+
+**Outcome**
+
+```text
+Backend 四个 Maven Module 与依赖方向，由 maven-enforcer 在构建期校验
+Application 层的 AI Gateway 与 Workspace Gateway 抽象（读写能力分离）
+SQLite + MyBatis-Plus + Flyway 的 Persistence 基础与迁移管线
+统一配置绑定、错误映射与日志规则
+Vue 3 + TypeScript + Vite 的 Frontend 基础工程与最小通信链路
+
+Acceptance Criteria 全部验证通过。全新克隆执行 ./mvnw clean verify
+与 npm ci && npm run build 均成功，40 个自动化测试通过。
+```
+
+**Lessons Learned**
+
+```text
+原设计问题
+- 日志与凭据规则最初按"异常来源"分类，依赖对未来代码写法的假设，
+  不是可执行保证；改为只记录异常类型链与堆栈位置
+- 日志最初记录原始请求 URI，而路径可能承载用户输入或凭据；
+  改为记录路由模板，未匹配时使用兜底 pattern 或固定标识
+- 框架自身可能在应用代码之外输出敏感运行时文本
+  （实测 ExceptionHandlerExceptionResolver、Tomcat 的 DEBUG 输出），
+  仅修改应用代码不足以满足安全要求，必须在配置层面固定其级别
+
+被验证的假设
+- 拆分为两个 Port 能让只读流程在编译期拿不到写能力
+- 使用官方脚手架而非自行挑选版本是必要的：Vite 8 配套的 TypeScript
+  为 6.x，而当时 npm 上最新为 7.x，自行选择存在兼容风险
+
+被推翻的假设
+- "Windows 上本地可执行 ./mvnw" 不等于 "Git 中记录了可执行位"。
+  实际记录为 100644，Linux / macOS 全新克隆会直接失败。
+  Git 的文件模式必须单独验证，不能由本地可运行推断
+
+后续调整
+- Workspace mutation capability 尚未绑定 Working Copy 授权作用域，
+  见 ADR-0001，M3 / M4 必须重新评估
+- AI Framework 路线与版本基线尚未验证，见 §8.7
+```
+
+---
+
+以下为记录格式，供后续 Milestone 使用：
 
 ### Mx — Milestone Name
 
