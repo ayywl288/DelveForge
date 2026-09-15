@@ -23,6 +23,16 @@
             <artifactId>delveforge-domain</artifactId>
             <version>${project.version}</version>
         </dependency>
+
+        <!--
+            Application 层测试只验证 Port 边界与编排行为，使用 fake 代替外部能力，
+            因此不引入 Spring / Spring Boot，保持纯 JUnit 单元测试。
+        -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

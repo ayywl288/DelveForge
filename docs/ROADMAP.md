@@ -160,8 +160,8 @@ End-to-End Completion
 - [x] 建立可构建、可运行的项目骨架。
 - [x] 根据 `ARCHITECTURE.md` 建立主要模块边界。
 - [ ] 建立 Application / Use Case Orchestration 基础结构。
-- [ ] 建立 AI Gateway 抽象边界。
-- [ ] 建立 Workspace Gateway 抽象边界。
+- [x] 建立 AI Gateway 抽象边界。
+- [x] 建立 Workspace Gateway 抽象边界。
 - [ ] 建立基础 Persistence 能力。
 - [ ] 建立统一配置、错误处理与日志基础设施。
 - [ ] 建立自动化测试基础设施。
@@ -774,8 +774,8 @@ Pre-Implementation
 - [x] 确定 Initial LLM Provider 与第一版默认模型。
 - [x] 建立初始工程目录与 Maven Module。
 - [ ] 建立 Application / Domain / Infrastructure 基础结构。
-- [ ] 建立 AI Gateway 最小抽象。
-- [ ] 建立 Workspace Gateway 最小抽象。
+- [x] 建立 AI Gateway 最小抽象。
+- [x] 建立 Workspace Gateway 最小抽象。
 - [ ] 建立基础 Persistence 能力。
 - [ ] 建立 Frontend 基础工程。
 - [ ] 建立统一配置、错误处理与日志基础设施。
@@ -1508,6 +1508,8 @@ com.ayywl.delveforge.application
 ├── opportunitydiscovery
 ├── evolution
 └── port
+    ├── ai
+    └── workspace
 com.ayywl.delveforge.infrastructure
 ├── ai
 ├── persistence

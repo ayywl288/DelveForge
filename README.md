@@ -1,4 +1,4 @@
-EvoForge (Formerly: Hobby2Project) helps developers discover what to build and forge existing software assets into products they actually want.
+DelveForge (Formerly: Hobby2Project) helps developers discover what to build and forge existing software assets into products they actually want.
 
 DelveForge：Delve into the user and existing assets → Forge a product.   ||   Delve for possibilities, forge them into products. || Delve what’s worth building. Forge it into something truly yours.
 

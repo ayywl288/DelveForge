@@ -264,6 +264,8 @@ com.ayywl.delveforge.application
 ├── opportunitydiscovery
 ├── evolution
 └── port
+    ├── ai
+    └── workspace
 
 com.ayywl.delveforge.infrastructure
 ├── ai
@@ -309,6 +311,7 @@ Evolution ──────────┬────────────�
 - Repository Analysis 只能依赖 Workspace 的只读能力，不得获得代码写入、删除或修改权限。
 - Opportunity Discovery 不得直接修改 Repository，也不应依赖 Workspace 的写能力。
 - Evolution Execution 是 MVP 中唯一允许请求 Workspace 写能力的业务流程。
+- Workspace 的只读能力与代码修改能力在 Application 层拆分为两个 Port，使上述限制在类型层面成立：只读流程的依赖中不存在修改能力，而不是仅靠调用约定保证。
 - Application / Agent Orchestrator 可以协调各业务模块，但业务模块不得反向依赖 Orchestrator。
 - 跨模块协作应通过公开接口和明确的数据模型完成，不得通过直接读取或修改其他模块拥有的数据库表实现。
 - 禁止循环依赖。
