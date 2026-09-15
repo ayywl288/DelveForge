@@ -374,6 +374,34 @@ Spring MVC 协议层异常                      由框架决定   INVALID_REQUES
 
 M0 不引入 ELK / OpenTelemetry / Tracing 等超出范围的观测能力。
 
+### 6.3 Frontend / Backend 连接方式
+
+```
+Frontend 调用     一律使用相对路径 /api/...
+开发环境          Vite dev server 将 /api 代理到本地 Backend
+                  （代理目标由 .env.development 的 BACKEND_DEV_URL 决定）
+Backend           不为开发环境开放 CORS
+```
+
+Frontend 代码不持有任何环境相关的 Backend 地址：
+
+```
+BACKEND_DEV_URL 刻意不加 VITE_ 前缀
+→ Vite 只把 VITE_ 前缀的变量注入浏览器端产物
+→ 该地址只用于 dev server 代理配置，不进入前端代码
+```
+
+Backend 侧只为连通性验证提供一个不承载业务语义的技术性端点：
+
+```
+GET /api/system/connectivity
+→ { service, status, timestamp }
+```
+
+该端点不探测数据库或 Provider 等下游依赖，避免把连通性检查变成对下游可用性的隐式承诺。
+
+生产环境的 Frontend 托管方式尚未决定，随 Desktop Shell 一并确定。
+
 ---
 
 ## 7. Dependency Rules

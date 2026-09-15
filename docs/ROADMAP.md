@@ -192,7 +192,7 @@ End-to-End Completion
 - [ ] Application Module 不依赖 Infrastructure 或 App。
 - [ ] 业务模块不直接依赖具体 LLM Provider SDK。
 - [ ] 业务模块不直接执行 Git / Shell / Filesystem 操作。
-- [ ] Frontend 与 Backend 可以在本地开发环境中独立启动并完成基本通信。
+- [x] Frontend 与 Backend 可以在本地开发环境中独立启动并完成基本通信。
 - [ ] 新开发者或 Coding Agent 可以依据现有文档理解基本模块边界和构建方式。
 
 **Out of Scope**
@@ -777,7 +777,7 @@ Pre-Implementation
 - [x] 建立 AI Gateway 最小抽象。
 - [x] 建立 Workspace Gateway 最小抽象。
 - [x] 建立基础 Persistence 能力。
-- [ ] 建立 Frontend 基础工程。
+- [x] 建立 Frontend 基础工程。
 - [x] 建立统一配置、错误处理与日志基础设施。
 - [ ] 建立 Build 与 Test 基础流程。
 

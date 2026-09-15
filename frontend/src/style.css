@@ -1,0 +1,95 @@
+:root {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  line-height: 1.5;
+  color: #1f2933;
+  background-color: #f7f9fb;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.75rem;
+}
+
+.subtitle {
+  margin-top: 0.25rem;
+  color: #6b7280;
+}
+
+.panel {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border: 1px solid #e3e8ee;
+  border-radius: 0.5rem;
+  background-color: #ffffff;
+}
+
+.status {
+  margin: 0;
+  font-weight: 600;
+}
+
+.status--checking {
+  color: #6b7280;
+}
+
+.status--connected {
+  color: #1a7f37;
+}
+
+.status--failed {
+  color: #b42318;
+}
+
+.detail {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 1rem;
+  margin: 1rem 0 0;
+  font-size: 0.875rem;
+}
+
+.detail dt {
+  color: #6b7280;
+}
+
+.detail dd {
+  margin: 0;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  word-break: break-all;
+}
+
+.error {
+  margin: 1rem 0 0;
+  color: #b42318;
+  font-size: 0.875rem;
+}
+
+button {
+  margin-top: 1.25rem;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #d0d7de;
+  border-radius: 0.375rem;
+  background-color: #ffffff;
+  font: inherit;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background-color: #f3f4f6;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}

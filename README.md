@@ -11,8 +11,10 @@ DelveForge/
 │   ├── delveforge-application/     Use Case、编排与 AI / Workspace / Persistence Port
 │   ├── delveforge-infrastructure/  外部能力 Adapter（AI、Persistence、Git、Shell 等）
 │   └── delveforge-app/             Spring Boot Bootstrap、REST API 与依赖装配
+├── frontend/                       Vue 3 + TypeScript + Vite（Web UI）
 ├── docs/                           产品、架构、领域与 Roadmap 文档
-└── pom.xml                         Maven 聚合根
+├── pom.xml                         Maven 聚合根
+└── mvnw / mvnw.cmd                 Maven Wrapper
 ```
 
 Module 依赖方向必须保持为：
@@ -115,5 +117,31 @@ java -jar ... --logging.level.com.ayywl.delveforge.<package>=DEBUG
 这些固定是最低保障，不是完整清单。
 
 配置 / 错误处理 / 日志的完整约定见 `docs/ARCHITECTURE.md` §6.2。
+
+## Frontend
+
+`frontend/` 是 DelveForge 的 Web UI，使用 Vue 3 + TypeScript + Vite，
+包管理器为 npm（`package-lock.json` 已提交）。
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+开发服务器默认 `http://localhost:5173`，会把 `/api` 代理到本地 Backend
+（默认 `http://localhost:8080`，由 `frontend/.env.development` 的 `BACKEND_DEV_URL` 决定）。
+
+因此前端代码始终使用相对路径 `/api/...`，不持有 Backend 地址，Backend 也无需开放 CORS。
+
+生产构建（含类型检查）：
+
+```bash
+cd frontend
+npm run build
+```
+
+Frontend 只负责用户交互与展示；领域规则、Repository 操作与 Git / Filesystem / Shell
+等本地能力全部在后端。详见 `frontend/README.md`。
 
 更详细的架构边界与开发规范见 `AGENTS.md` 与 `docs/ARCHITECTURE.md`。
