@@ -180,7 +180,7 @@ End-to-End Completion
 - [x] 确定 MVP Persistence 技术方案：SQLite + MyBatis-Plus + Flyway。
 - [x] 确定 MVP Working Copy 默认技术方案：Independent Local Git Clone。
 - [x] 确定 Initial LLM Provider：DeepSeek，并以 DeepSeek V4.1 Flash 作为第一版默认模型。
-- [ ] 对需要长期保留的重要架构决策建立 ADR。
+- [x] 对需要长期保留的重要架构决策建立 ADR。
 
 **Acceptance Criteria**
 
@@ -1540,12 +1540,47 @@ DECIDED
 
 后续仍需要在实际 M0 Implementation 中逐步明确：
 
-| Decision                                    | Current State | Target  |
-| ------------------------------------------- | ------------- | ------- |
-| AI Gateway 第一版具体 Adapter Design        | OPEN          | M0      |
-| Workspace Gateway 第一版具体 Adapter Design | OPEN          | M0      |
-| Initial Database Schema                     | OPEN          | M0 / M1 |
-| Frontend / Backend Development API Contract | OPEN          | M0 / M1 |
+| Decision                                    | Current State | Target                     |
+| ------------------------------------------- | ------------- | -------------------------- |
+| AI Framework 路线与版本基线                 | DEFERRED      | 首次实现真实 AI Adapter 前 |
+| AI Gateway 第一版具体 Adapter Design        | OPEN          | M0                         |
+| Workspace Gateway 第一版具体 Adapter Design | OPEN          | M0                         |
+| Initial Database Schema                     | OPEN          | M0 / M1                    |
+| Frontend / Backend Development API Contract | OPEN          | M0 / M1                    |
+
+#### AI Framework 路线与版本基线
+
+当前采用 Spring Boot 3.5.16 + Spring AI 1.1.x，作为**临时兼容性基线**，
+而不是长期必须维持的架构决策。
+
+需要明确当前证据的边界：
+
+```text
+已验证    Spring Boot 3.5.16 + SQLite + MyBatis-Plus + Flyway
+           （Persistence 基础已建成并通过集成测试）
+
+尚未验证  Spring AI 与 Spring AI Alibaba 本身
+           当前代码库中不存在任何 Spring AI 依赖，也没有真实 Adapter。
+           该版本组合只是与已验证基线兼容的**候选方案**，
+           不是"已经跑通过"的技术选型。
+```
+
+选择该候选组合的直接原因是 Spring AI Alibaba 的稳定版只到 1.1.2.x，其 2.x 尚为
+milestone；而 `ARCHITECTURE.md` 写明优先基于 Spring AI / Spring AI Alibaba
+实现 AI 集成，把不确定的 milestone 引入 MVP 核心链路并不划算。
+
+当前不为此建立 ADR：M0 阶段无法合理判断后续是否真正需要 Spring AI Alibaba
+提供的 Agent / Graph / Multi-Agent 等额外能力，也不应为尚未出现的需求做技术预测。
+
+首次实现真实 AI Adapter **之前**，必须评估：
+
+```text
+Spring AI Core 是否已足够满足需求（Spring AI 自带 DeepSeek 支持）
+是否确实需要 Spring AI Alibaba 的额外能力
+当时的 Spring AI Alibaba 2.x / Spring Boot 4.x 生态是否已经稳定
+```
+
+根据评估结果再决定最终 AI Framework 路线、是否升级版本，以及是否需要 ADR。
 
 这些事项属于接近具体实现时才能合理确定的设计，不阻止 Initial Project Structure 与 `AGENTS.md` 的建立。
 

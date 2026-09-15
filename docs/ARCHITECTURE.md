@@ -42,9 +42,12 @@
 - **Repository Strategy:** Monorepo。
 - **Backend Module Structure:** Maven Multi-Module，初始拆分为 `delveforge-domain`、`delveforge-application`、`delveforge-infrastructure`、`delveforge-app`。
 - **Code Organization:** Maven Module 负责主要 Architecture Layer Boundary，各 Module 内部优先按照 Feature / Domain Concept 组织代码。
-- **AI / Agent Integration:** 优先基于 Spring AI 1.1.2 / Spring AI Alibaba 1.1.2.2 能力实现，但业务模块只能依赖内部 AI Gateway 抽象。
-  - 版本线仍保持在 Spring Boot 3.5.x，不切换到 Spring Boot 4.x / Spring AI 2.x。原因是 Spring AI Alibaba 稳定版线只在 3.5.x 上提供，切换到 4.x 会使 AI Gateway 依赖 milestone 版本。
-  - 后续 AI Gateway 的 Adapter 同样必须保持内部抽象边界：业务模块不得直接依赖具体 Provider SDK 或 Spring AI Alibaba 实现类型。
+- **AI / Agent Integration:** 优先基于 Spring AI / Spring AI Alibaba 能力实现，但业务模块只能依赖内部 AI Gateway 抽象。
+  - **当前是临时兼容性基线，不是已确定的长期选型。** 候选组合为 Spring AI 1.1.2 / Spring AI Alibaba 1.1.2.2，配合 Spring Boot 3.5.x。
+  - 该组合**尚未在项目中验证**：当前代码库不存在任何 Spring AI 依赖，也没有真实 Adapter。已验证的只有 Spring Boot 3.5.16 + SQLite + MyBatis-Plus + Flyway。
+  - 不切换到 Spring Boot 4.x / Spring AI 2.x 的原因是 Spring AI Alibaba 稳定版线只在 3.5.x 上提供，切换会使 AI Gateway 依赖 milestone 版本。
+  - 最终路线与是否升级版本，在首次实现真实 AI Adapter 前评估，见 `ROADMAP.md` §8.7。
+  - 无论最终选择哪条路线，AI Gateway 的 Adapter 都必须保持内部抽象边界：业务模块不得直接依赖具体 Provider SDK 或 Spring AI Alibaba 实现类型。
 - **Architecture Style:** Modular Monolith。
 - **Database:** SQLite。
 - **Persistence Access:** MyBatis-Plus。
@@ -372,24 +375,42 @@ Spring MVC 协议层异常                      由框架决定   INVALID_REQUES
 
 上述固定是最低保障，不是完整清单；引入新的技术组件时应确认其 DEBUG 输出内容。
 
+本节规则的原因、代价与重新评估条件见 [ADR-0002](decisions/0002-structural-only-exception-logging.md)。
+
 M0 不引入 ELK / OpenTelemetry / Tracing 等超出范围的观测能力。
 
 ### 6.3 Frontend / Backend 连接方式
 
+**当前开发阶段采用的方式：**
+
 ```
-Frontend 调用     一律使用相对路径 /api/...
-开发环境          Vite dev server 将 /api 代理到本地 Backend
-                  （代理目标由 .env.development 的 BACKEND_DEV_URL 决定）
+Frontend 调用     使用相对路径 /api/...
+转发              Vite dev server 将 /api 代理到本地 Backend
+代理目标          .env.development 的 BACKEND_DEV_URL
 Backend           不为开发环境开放 CORS
 ```
 
-Frontend 代码不持有任何环境相关的 Backend 地址：
+目的是避免 Frontend 源码绑定具体 Backend 地址：
 
 ```
 BACKEND_DEV_URL 刻意不加 VITE_ 前缀
 → Vite 只把 VITE_ 前缀的变量注入浏览器端产物
 → 该地址只用于 dev server 代理配置，不进入前端代码
 ```
+
+**正式运行形态尚未决定。** 以下问题都是开放的，随 Desktop Shell 一并确定：
+
+```
+Frontend 产物如何托管
+API 地址在运行期如何解析
+是否需要同源
+与 Desktop Shell 如何集成
+```
+
+当前实现不排除任何一种运行期形态。候选方式包括但不限于：前端产物由 Backend 托管、
+本地 web server、custom protocol、IPC、运行期注入 API base。
+
+Desktop Shell 选型时必须重新评估这套连接模型。
 
 Backend 侧只为连通性验证提供一个不承载业务语义的技术性端点：
 
@@ -399,8 +420,6 @@ GET /api/system/connectivity
 ```
 
 该端点不探测数据库或 Provider 等下游依赖，避免把连通性检查变成对下游可用性的隐式承诺。
-
-生产环境的 Frontend 托管方式尚未决定，随 Desktop Shell 一并确定。
 
 ### 6.4 Build / Test 验证入口
 
@@ -455,7 +474,7 @@ Evolution ──────────┬────────────�
 - Repository Analysis 只能依赖 Workspace 的只读能力，不得获得代码写入、删除或修改权限。
 - Opportunity Discovery 不得直接修改 Repository，也不应依赖 Workspace 的写能力。
 - Evolution Execution 是 MVP 中唯一允许请求 Workspace 写能力的业务流程。
-- Workspace 的只读能力与代码修改能力在 Application 层拆分为两个 Port，使上述限制在类型层面成立：只读流程的依赖中不存在修改能力，而不是仅靠调用约定保证。
+- Workspace 的只读能力与代码修改能力在 Application 层拆分为两个 Port，使上述限制在类型层面成立：只读流程的依赖中不存在修改能力，而不是仅靠调用约定保证。取舍、已知缺口与重新评估条件见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
 - Application / Agent Orchestrator 可以协调各业务模块，但业务模块不得反向依赖 Orchestrator。
 - 跨模块协作应通过公开接口和明确的数据模型完成，不得通过直接读取或修改其他模块拥有的数据库表实现。
 - 禁止循环依赖。
@@ -642,3 +661,26 @@ Evolution Step explicitly confirmed by user
 ```
 
 时，Evolution Execution 才允许请求 Workspace 的代码修改能力。
+
+---
+
+## 9. Architecture Decisions
+
+重大且长期的架构决策记录在 `docs/decisions/`，本节只维护索引。
+
+| ADR | Decision | Status |
+| --- | --- | --- |
+| [0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md) | Workspace 读写能力在 Application 边界拆分 | Accepted |
+| [0002](decisions/0002-structural-only-exception-logging.md) | 异常日志只记录结构信息，防止运行时数据泄漏 | Accepted |
+
+以下事项经过评审后**决定不建立 ADR**，结论保留在本文件或 `docs/ROADMAP.md` 中：
+
+```text
+AI Gateway 边界形态         已被 AGENTS.md RULE-DOM-003、DOMAIN_MODEL 12.12 与
+                            AiGateway javadoc 覆盖；
+                            真实 Adapter 实现时必然重新评估
+
+Frontend / Backend 连接方式  开发期实现细节，见 6.3
+```
+
+已延后、尚未形成决策的事项见 `docs/ROADMAP.md` §8.7。
