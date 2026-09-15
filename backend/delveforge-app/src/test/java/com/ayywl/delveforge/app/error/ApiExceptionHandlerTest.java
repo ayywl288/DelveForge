@@ -15,6 +15,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -43,6 +44,9 @@ class ApiExceptionHandlerTest {
      * 任何日志级别、任何分支都不得把它写进日志。
      */
     private static final String CREDENTIAL_LIKE = "Bearer sk-live-must-never-be-logged";
+
+    /** 形态上像凭据的路径片段，URL 安全，用于验证路径不会经由日志泄漏。 */
+    private static final String PATH_MARKER = "sk-live-path-marker";
 
     private MockMvc mockMvc;
 
@@ -137,6 +141,23 @@ class ApiExceptionHandlerTest {
     }
 
     /**
+     * 已匹配路由时，日志记录路由模板而不是原始 URI。
+     *
+     * <p>路径变量可能承载用户输入、资源名称或凭据，
+     * 而日志的留存与传播范围不受调用方控制（ADR-0002）。
+     */
+    @Test
+    void matchedRouteLogsTemplateInsteadOfRawUri(CapturedOutput output) throws Exception {
+        mockMvc.perform(get("/probe/asset/" + PATH_MARKER))
+                .andExpect(status().isBadRequest());
+
+        assertFalse(output.getOut().contains(PATH_MARKER),
+                "路径变量中的内容不得写入日志");
+        assertTrue(output.getOut().contains("path=/probe/asset/{name}"),
+                "日志应记录路由模板而不是原始请求 URI");
+    }
+
+    /**
      * Spring MVC 自身的协议层异常已有明确状态码语义，不能被兜底分支压成 500。
      */
     @Test
@@ -225,6 +246,11 @@ class ApiExceptionHandlerTest {
         @GetMapping("/unexpected")
         void unexpected() {
             throw new IllegalStateException("内部细节: " + CREDENTIAL_LIKE);
+        }
+
+        @GetMapping("/asset/{name}")
+        void assetByName(@PathVariable String name) {
+            throw new IllegalArgumentException("按名称查询失败: " + name);
         }
 
         @PostMapping("/post-only")

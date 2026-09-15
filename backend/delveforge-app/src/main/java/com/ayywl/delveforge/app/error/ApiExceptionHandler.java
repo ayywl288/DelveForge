@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -59,6 +60,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static final String WORKSPACE_FAILURE_MESSAGE = "本地能力调用失败，详细信息见服务端日志";
     private static final String INTERNAL_ERROR_MESSAGE = "服务内部错误，详细信息见服务端日志";
 
+    /** 未匹配到任何路由时，日志中使用的固定路径标识。 */
+    private static final String UNMATCHED_ROUTE = "<unmatched>";
+
     /**
      * 请求参数或请求体不满足 Application / Domain 的输入约束。
      *
@@ -69,12 +73,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiErrorResponse handleInvalidRequest(IllegalArgumentException exception,
                                                  HttpServletRequest request) {
-        String path = request.getRequestURI();
         log.warn("operation=interface.request path={} result=INVALID_REQUEST exception={}",
-                path, describe(exception));
+                loggedRoute(request), describe(exception));
 
         return new ApiErrorResponse(
-                ApiErrorCode.INVALID_REQUEST, INVALID_REQUEST_MESSAGE, path, Instant.now());
+                ApiErrorCode.INVALID_REQUEST, INVALID_REQUEST_MESSAGE,
+                request.getRequestURI(), Instant.now());
     }
 
     /**
@@ -84,14 +88,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_GATEWAY)
     public ApiErrorResponse handleAiGatewayFailure(AiGatewayException exception,
                                                    HttpServletRequest request) {
-        String path = request.getRequestURI();
         log.error("operation=interface.request path={} capability=ai-gateway result=FAILED exception={}",
-                path, describe(exception));
+                loggedRoute(request), describe(exception));
 
         return new ApiErrorResponse(
                 ApiErrorCode.EXTERNAL_CAPABILITY_UNAVAILABLE,
                 AI_GATEWAY_FAILURE_MESSAGE,
-                path,
+                request.getRequestURI(),
                 Instant.now());
     }
 
@@ -104,12 +107,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ApiErrorResponse handleWorkspaceFailure(WorkspaceException exception,
                                                    HttpServletRequest request) {
-        String path = request.getRequestURI();
         log.error("operation=interface.request path={} capability=workspace result=FAILED exception={}",
-                path, describe(exception));
+                loggedRoute(request), describe(exception));
 
         return new ApiErrorResponse(
-                ApiErrorCode.INTERNAL_ERROR, WORKSPACE_FAILURE_MESSAGE, path, Instant.now());
+                ApiErrorCode.INTERNAL_ERROR, WORKSPACE_FAILURE_MESSAGE,
+                request.getRequestURI(), Instant.now());
     }
 
     /**
@@ -125,17 +128,16 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
         HttpStatus status = HttpStatus.resolve(statusCode.value());
         HttpStatus resolved = (status != null) ? status : HttpStatus.INTERNAL_SERVER_ERROR;
-        String path = pathOf(request);
 
         ApiErrorCode code = resolved.is4xxClientError()
                 ? ApiErrorCode.INVALID_REQUEST
                 : ApiErrorCode.INTERNAL_ERROR;
 
         log.warn("operation=interface.request path={} result=PROTOCOL_ERROR status={} exception={}",
-                path, resolved.value(), describe(exception));
+                loggedRoute(request), resolved.value(), describe(exception));
 
         return new ResponseEntity<>(
-                new ApiErrorResponse(code, messageFor(code), path, Instant.now()),
+                new ApiErrorResponse(code, messageFor(code), requestPath(request), Instant.now()),
                 headers,
                 resolved);
     }
@@ -146,12 +148,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiErrorResponse> handleUnexpected(Exception exception,
                                                              HttpServletRequest request) {
-        String path = request.getRequestURI();
         log.error("operation=interface.request path={} result=UNEXPECTED_ERROR exception={}",
-                path, describe(exception));
+                loggedRoute(request), describe(exception));
 
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(new ApiErrorResponse(
-                ApiErrorCode.INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE, path, Instant.now()));
+                ApiErrorCode.INTERNAL_ERROR, INTERNAL_ERROR_MESSAGE,
+                request.getRequestURI(), Instant.now()));
     }
 
     /**
@@ -199,10 +201,40 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         };
     }
 
-    private static String pathOf(WebRequest request) {
+    /**
+     * 日志中使用的安全路径标识。
+     *
+     * <p>不记录原始请求 URI：路径本身可能承载用户输入、资源名称或凭据
+     * （例如 {@code /api/assets/<用户提供的名称>}），而日志的留存与传播范围
+     * 不受发起请求的调用方控制（ADR-0002）。
+     *
+     * <p>因此只记录实际匹配到的路由模板。未匹配到业务路由时，记录的可能是框架
+     * 兜底 pattern（例如静态资源处理器的 {@code /**}）；连兜底 pattern 都不存在时
+     * 使用固定标识。两者都不包含调用方提供的路径内容。
+     */
+    private static String loggedRoute(HttpServletRequest request) {
+        Object matchedPattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
+        return (matchedPattern != null) ? matchedPattern.toString() : UNMATCHED_ROUTE;
+    }
+
+    private static String loggedRoute(WebRequest request) {
+        if (request instanceof ServletWebRequest servletWebRequest) {
+            return loggedRoute(servletWebRequest.getRequest());
+        }
+        return UNMATCHED_ROUTE;
+    }
+
+    /**
+     * 写入响应体的请求路径。
+     *
+     * <p>这里保留原始 URI：它回传给的是发起本次请求的调用方，
+     * 该调用方本就持有这个值，不构成向第三方披露。
+     * 日志路径的限制与理由见 {@link #loggedRoute(HttpServletRequest)}。
+     */
+    private static String requestPath(WebRequest request) {
         if (request instanceof ServletWebRequest servletWebRequest) {
             return servletWebRequest.getRequest().getRequestURI();
         }
-        return request.getDescription(false);
+        return UNMATCHED_ROUTE;
     }
 }
