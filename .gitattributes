@@ -1,0 +1,11 @@
+# 默认按文本处理，由 Git 自动判断是否转换换行符
+* text=auto
+
+# Maven Wrapper 与 Shell 脚本必须以 LF 保存，否则在 Windows 上无法执行
+mvnw text eol=lf
+*.sh text eol=lf
+
+# Windows 批处理脚本保留 CRLF
+mvnw.cmd text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf

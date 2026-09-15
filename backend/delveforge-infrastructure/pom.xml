@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.ayywl.delveforge</groupId>
+        <artifactId>delveforge</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>delveforge-infrastructure</artifactId>
+    <name>delveforge-infrastructure</name>
+    <description>DeepSeek、Persistence、Git、Filesystem、Shell、Build / Test 等外部能力 Adapter</description>
+
+    <dependencies>
+        <!--
+            Infrastructure 实现 Application 定义的 Outbound Port（RULE-ARCH-004）。
+            domain 由 application 传递引入，此处仍显式声明，
+            以保持与 ARCHITECTURE.md 记录的依赖关系一致。
+        -->
+        <dependency>
+            <groupId>com.ayywl.delveforge</groupId>
+            <artifactId>delveforge-application</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.ayywl.delveforge</groupId>
+            <artifactId>delveforge-domain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <configuration>
+                    <rules>
+                        <bannedDependencies>
+                            <excludes>
+                                <!-- Infrastructure 不得依赖 Composition Root -->
+                                <exclude>com.ayywl.delveforge:delveforge-app</exclude>
+                            </excludes>
+                        </bannedDependencies>
+                    </rules>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

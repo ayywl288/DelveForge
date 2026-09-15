@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.5.16</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.ayywl.delveforge</groupId>
+    <artifactId>delveforge</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>DelveForge</name>
+    <description>Delve into the user and existing assets, forge them into products.</description>
+
+    <!--
+        Monorepo aggregator.
+
+        Backend 由四个 Maven Module 组成，用于约束 ARCHITECTURE.md 定义的
+        Architecture Layer Boundary：
+            delveforge-domain         不依赖其他 DelveForge Module
+            delveforge-application    依赖 domain
+            delveforge-infrastructure 依赖 application / domain
+            delveforge-app            组装 application / infrastructure
+    -->
+    <modules>
+        <module>backend/delveforge-domain</module>
+        <module>backend/delveforge-application</module>
+        <module>backend/delveforge-infrastructure</module>
+        <module>backend/delveforge-app</module>
+    </modules>
+
+    <properties>
+        <!-- Core Language / Runtime：Java 21（ARCHITECTURE.md 2.2） -->
+        <java.version>21</java.version>
+
+        <!-- 源码编码固定为 UTF-8，避免不同开发环境出现中文文档与源码乱码 -->
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
+    </properties>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <!--
+                    只声明版本与执行绑定，具体规则由各 Module 自行声明。
+
+                    RULE-ARCH-001 要求 Module 之间不得出现反向依赖。
+                    该规则本应由编译期依赖方向天然保证，但 Maven 允许通过传递依赖
+                    意外引入，因此在构建期显式校验。
+
+                    规则保持最小化：只约束 DelveForge 自身的 Module 依赖方向，
+                    不建立面向未来的技术依赖黑名单。
+                -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>${maven-enforcer-plugin.version}</version>
+                    <executions>
+                        <execution>
+                            <id>enforce-module-dependency-rules</id>
+                            <goals>
+                                <goal>enforce</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+</project>

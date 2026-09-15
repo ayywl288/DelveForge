@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.ayywl.delveforge</groupId>
+        <artifactId>delveforge</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>delveforge-domain</artifactId>
+    <name>delveforge-domain</name>
+    <description>Aggregate、Entity、Value Object、Domain Service、Domain Policy、Domain Event 与核心 Invariant</description>
+
+    <!--
+        该 Module 不依赖其他 DelveForge Maven Module。
+        同时不得依赖具体实现技术（RULE-ARCH-002），因此这里不引入任何依赖。
+    -->
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <configuration>
+                    <rules>
+                        <bannedDependencies>
+                            <excludes>
+                                <exclude>com.ayywl.delveforge:delveforge-application</exclude>
+                                <exclude>com.ayywl.delveforge:delveforge-infrastructure</exclude>
+                                <exclude>com.ayywl.delveforge:delveforge-app</exclude>
+                            </excludes>
+                        </bannedDependencies>
+                    </rules>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

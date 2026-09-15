@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.ayywl.delveforge</groupId>
+        <artifactId>delveforge</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>delveforge-application</artifactId>
+    <name>delveforge-application</name>
+    <description>Use Case、Application Service、Orchestration，以及 AI / Workspace / Persistence Port</description>
+
+    <dependencies>
+        <!-- Application 可以依赖 Domain（RULE-ARCH-001） -->
+        <dependency>
+            <groupId>com.ayywl.delveforge</groupId>
+            <artifactId>delveforge-domain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <configuration>
+                    <rules>
+                        <bannedDependencies>
+                            <excludes>
+                                <!-- Application 不得依赖具体实现，也不得依赖 Composition Root -->
+                                <exclude>com.ayywl.delveforge:delveforge-infrastructure</exclude>
+                                <exclude>com.ayywl.delveforge:delveforge-app</exclude>
+                            </excludes>
+                        </bannedDependencies>
+                    </rules>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

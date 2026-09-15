@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.ayywl.delveforge</groupId>
+        <artifactId>delveforge</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>delveforge-app</artifactId>
+    <name>delveforge-app</name>
+    <description>Spring Boot Bootstrap、REST API、Configuration、Dependency Wiring 与 Interface Adapter</description>
+
+    <dependencies>
+        <!-- Composition Root：组装 Application 与 Infrastructure（RULE-ARCH-005） -->
+        <dependency>
+            <groupId>com.ayywl.delveforge</groupId>
+            <artifactId>delveforge-application</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.ayywl.delveforge</groupId>
+            <artifactId>delveforge-infrastructure</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Interface Adapter 层：提供 REST / API 入口 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- 生成可执行 Spring Boot Jar -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!--
+                app 是 Composition Root，不再被任何 Module 依赖，
+                因此这里不需要 bannedDependencies 约束。
+            -->
+        </plugins>
+    </build>
+
+</project>
