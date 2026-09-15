@@ -36,16 +36,65 @@ delveforge-app  →  delveforge-application + delveforge-infrastructure
 - JDK 21（必须）
 - 无需预先安装 Maven，仓库自带 Maven Wrapper
 
-## Build & Test
+## Verification
+
+项目验证由两条独立的命令链组成。两者都能在全新环境中重复执行，
+不依赖真实 LLM、开发数据库或任何本地用户数据。
+
+### Backend
 
 ```bash
 ./mvnw verify
 ```
 
-Windows 下使用：
+Windows 下使用 `mvnw.cmd verify`。该命令在仓库根目录执行，覆盖当前 Backend 的完整验证范围：
 
-```bat
-mvnw.cmd verify
+```text
+编译四个 Module
+maven-enforcer 校验模块依赖方向（RULE-ARCH-001），违反即失败
+执行全部自动化测试
+打包 delveforge-app 可执行 Jar
+```
+
+开发期做定向迭代时，可以只跑受影响的部分：
+
+```bash
+# 某个 Module 的测试（-am 一并构建它依赖的 Module）
+./mvnw -pl backend/delveforge-application -am test
+
+# 某个测试类
+./mvnw -pl backend/delveforge-app -am test \
+  -Dtest=ApiExceptionHandlerTest -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm ci          # 按 package-lock.json 干净安装
+npm run build   # vue-tsc 类型检查 + Vite 生产构建
+```
+
+Frontend 当前没有 lint 与 test script，也没有引入 ESLint / Vitest：
+目前只有 `App.vue` 与一个 API 调用模块，没有值得单独测试的业务逻辑；
+类型错误已由 `vue-tsc` 与 tsconfig 的 `noUnusedLocals` / `noUnusedParameters` 覆盖。
+再评估的时机见 `frontend/README.md`。
+
+### 测试组织
+
+| Module | 测试内容 | 依赖外部技术 |
+| --- | --- | --- |
+| `delveforge-domain` | 暂无（模块内尚无领域代码） | — |
+| `delveforge-application` | Port 契约与取值约束，在 Port 边界使用 fake | 否，纯 JUnit |
+| `delveforge-infrastructure` | 真实 SQLite + Flyway + MyBatis-Plus 集成 | 是，`target/` 下的临时数据库 |
+| `delveforge-app` | 上下文装配、HTTP 端点、错误映射、配置绑定 | 仅 Web 层，数据库同为临时文件 |
+
+```text
+Application 测试   在 Port 边界使用 fake，不引入 Spring，也不依赖 Infrastructure
+Infrastructure 测试 必须使用真实技术，不能只用 Mock 代替（AGENTS.md 10.3）
+数据库测试          一律使用 target/test-databases/<uuid>/ 下的临时 SQLite 文件，
+                    不接触开发者本地数据库，也不写入仓库工作目录
+LLM                自动化测试不调用真实模型，相关能力通过 Port 边界替身验证
 ```
 
 ## Run
@@ -134,14 +183,8 @@ npm run dev
 
 因此前端代码始终使用相对路径 `/api/...`，不持有 Backend 地址，Backend 也无需开放 CORS。
 
-生产构建（含类型检查）：
-
-```bash
-cd frontend
-npm run build
-```
-
 Frontend 只负责用户交互与展示；领域规则、Repository 操作与 Git / Filesystem / Shell
-等本地能力全部在后端。详见 `frontend/README.md`。
+等本地能力全部在后端。完整验证命令与测试约定见上方 [Verification](#verification)，
+更多细节见 `frontend/README.md`。
 
 更详细的架构边界与开发规范见 `AGENTS.md` 与 `docs/ARCHITECTURE.md`。

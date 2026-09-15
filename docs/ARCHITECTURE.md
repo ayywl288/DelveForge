@@ -402,6 +402,30 @@ GET /api/system/connectivity
 
 生产环境的 Frontend 托管方式尚未决定，随 Desktop Shell 一并确定。
 
+### 6.4 Build / Test 验证入口
+
+```
+Backend    ./mvnw verify      编译 + 模块依赖校验 + 全部测试 + 打包
+Frontend   npm ci && npm run build   类型检查 + 生产构建
+```
+
+两条命令链相互独立，都能在全新环境中重复执行，且不依赖真实 LLM、
+开发数据库或用户本地数据。
+
+测试按 Module 划分职责：
+
+```
+delveforge-application      Port 契约，在 Port 边界使用 fake，不引入 Spring
+delveforge-infrastructure   真实 SQLite / Flyway / MyBatis-Plus 集成
+delveforge-app              上下文装配 / HTTP 端点 / 错误映射 / 配置绑定
+```
+
+需要数据库的测试使用 `target/test-databases/<uuid>/` 下的临时 SQLite 文件。
+
+当前未引入 CI/CD、Coverage Gate、Failsafe 阶段拆分与 E2E 平台；
+Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
+与 `frontend/README.md`。
+
 ---
 
 ## 7. Dependency Rules

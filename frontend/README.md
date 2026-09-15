@@ -48,6 +48,35 @@ npm run build
 npm run preview
 ```
 
+## 当前的验证范围
+
+可重复执行的完整前端验证：
+
+```bash
+npm ci
+npm run build
+```
+
+暂未引入 lint 与 test，这不是遗漏：
+
+```text
+test   当前只有 App.vue 与 api/system.ts，没有值得单独测试的业务逻辑。
+       为一个连通性检查引入 Vitest / Jest 不划算。
+
+lint   vue-tsc 已覆盖类型错误，tsconfig 的 noUnusedLocals /
+       noUnusedParameters 也已开启。再引入 ESLint 意味着多维护一套
+       配置与依赖版本，当前收益不足。
+```
+
+再评估的时机：
+
+```text
+出现第一个真实业务 UI（M1 之后）        → 评估是否引入 lint
+出现可独立测试的前端逻辑（解析、状态转换等） → 评估是否引入 test
+```
+
+届时再评估，而不是提前把工具链铺开。
+
 ## 目录结构
 
 ```text
