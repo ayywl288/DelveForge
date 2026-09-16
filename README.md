@@ -84,7 +84,7 @@ Frontend 当前没有 lint 与 test script，也没有引入 ESLint / Vitest：
 
 | Module | 测试内容 | 依赖外部技术 |
 | --- | --- | --- |
-| `delveforge-domain` | 暂无（模块内尚无领域代码） | — |
+| `delveforge-domain` | User Profile 等领域规则与状态语义，纯 JUnit | 否，纯 JUnit |
 | `delveforge-application` | Port 契约与取值约束，在 Port 边界使用 fake | 否，纯 JUnit |
 | `delveforge-infrastructure` | 真实 SQLite + Flyway + MyBatis-Plus 集成 | 是，`target/` 下的临时数据库 |
 | `delveforge-app` | 上下文装配、HTTP 端点、错误映射、配置绑定 | 仅 Web 层，数据库同为临时文件 |

@@ -18,8 +18,20 @@
 
     <!--
         该 Module 不依赖其他 DelveForge Maven Module。
-        同时不得依赖具体实现技术（RULE-ARCH-002），因此这里不引入任何依赖。
+        同时不得依赖具体实现技术（RULE-ARCH-002），因此这里不引入任何运行时依赖。
     -->
+
+    <dependencies>
+        <!--
+            领域规则必须能脱离 Infrastructure 独立验证（AGENTS.md §10.1），
+            因此测试只使用纯 JUnit，不引入 Spring、数据库或任何外部能力。
+        -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 
     <build>
         <plugins>

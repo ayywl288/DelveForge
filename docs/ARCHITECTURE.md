@@ -434,6 +434,7 @@ Frontend   npm ci && npm run build   类型检查 + 生产构建
 测试按 Module 划分职责：
 
 ```
+delveforge-domain           领域规则与状态语义，纯 JUnit
 delveforge-application      Port 契约，在 Port 边界使用 fake，不引入 Spring
 delveforge-infrastructure   真实 SQLite / Flyway / MyBatis-Plus 集成
 delveforge-app              上下文装配 / HTTP 端点 / 错误映射 / 配置绑定
