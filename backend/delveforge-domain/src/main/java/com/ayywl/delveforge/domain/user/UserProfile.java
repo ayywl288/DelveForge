@@ -174,13 +174,15 @@ public class UserProfile {
     /**
      * 记录一条支撑 Profile 判断的 Evidence。
      *
-     * <p>Evidence 是 Profile 的重要领域内容（DOMAIN_MODEL.md §3.1），并处于
-     * User Profile Aggregate 的一致性边界内（§11.3）：它决定某个 revision
-     * 对应的判断依据是什么（§10.3 要求确定 revision 能够追溯当时的 Profile 状态）。
-     * 因此本操作与其他内容更新遵循相同规则：受状态约束，并在判断依据确实发生
-     * 变化时推进 {@code revision}。
+     * <p>按 DOMAIN_MODEL.md §6.1 的 Revision 触发规则，{@code revision} 同时覆盖六个
+     * 内容区与 Aggregate 内的 Evidence 集合：Evidence 记录“为什么形成当前判断”，
+     * 因此记录一条与集合中已有条目完整值不同的 Evidence 会推进 {@code revision}，
+     * 即使六个内容区没有变化。
      *
-     * <p>已经记录过的相同 Evidence 不再重复记录，也不会因此推进 {@code revision}。
+     * <p>完整值相同的 Evidence 视为重复：集合与 {@code revision} 都不变。
+     * 去重按完整 Value Object 比较，不按 {@code sourceRef} 合并、替换或确认已有条目。
+     *
+     * <p>本操作与其余内容更新适用相同的状态约束（§6.1）。
      *
      * @param evidence 待记录的 Evidence，不得为 {@code null}
      * @throws IllegalArgumentException evidence 为 {@code null}

@@ -1161,6 +1161,53 @@ stateDiagram-v2
 - 用户重新开始探索后，可以从 CONFIRMED 回到 EXPLORING。
 - 已经生成的 Product Direction 仍然保留其原始 `userProfileRevision`，不会因为 Profile 后续更新而改变分析历史。
 
+#### Revision 触发规则
+
+`revision` 定位的是某个确定版本的 User Profile 领域状态，因此它同时覆盖两类内容：
+
+```text
+六个内容区      interests / behaviors / painPoints /
+                technicalCapabilities / projectGoals / constraints
+
+Evidence 集合   Aggregate 内支撑当前判断的依据
+```
+
+具体规则：
+
+- 六个内容区中任一区的内容发生实际变化时，`revision` 必须增加。
+- 记录一条与集合中已有 Evidence 完整值不同的 Evidence 时，`revision` 必须增加。
+- 记录一条与集合中已有 Evidence 完整值相同的 Evidence 时，集合与 `revision` 都不变。
+- Evidence 的完整值不同即视为不同依据；不按 `sourceRef` 合并、替换或覆盖已有条目。
+
+因此：
+
+```text
+UserProfileId + revision
+        ↓
+确定的结构化内容
++
+确定的判断依据集合
+```
+
+选择该口径的原因：
+
+```text
+Evidence 记录“为什么形成当前判断”。
+即使六个内容区没有变化，判断依据本身发生变化也值得保留为不同版本。
+让 UserProfileId + revision 同时定位结构化内容与判断依据，
+比另行建立一套 Evidence 历史机制更直接。
+```
+
+Evidence 的修改与其余 Profile 内容适用相同的状态约束：
+
+```text
+EXPLORING / REVIEWING   允许
+CONFIRMED               不允许直接修改
+```
+
+当前不定义 Evidence 的纠正、撤销与确认流程，也不定义历史 Profile 状态的持久化
+实现方式；§10.3 只规定其必须满足的可追溯语义。
+
 ### 6.2 Product Direction State
 
 Product Direction 生成后首先作为候选方向存在。
@@ -3615,6 +3662,10 @@ ProductDirection.userProfileRevision = 3
 因此：
 
 > 被领域对象引用过的 User Profile revision 必须能够重新获取其当时的内容。
+
+这里的「内容」按 §6.1 的 revision 口径理解：既包括六个内容区，也包括该 revision
+对应的 Evidence 集合。因此历史状态的恢复必须同时还原当时的判断依据，
+而不能只还原结构化内容、再去读取当前最新的 Evidence。
 
 具体实现可以采用：
 
