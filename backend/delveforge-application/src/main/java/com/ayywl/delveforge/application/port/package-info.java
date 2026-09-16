@@ -5,10 +5,9 @@
  * Application 不得直接引用具体 Adapter 类型。按能力分为：
  *
  * <pre>
- * port.ai          AI Gateway 抽象
- * port.workspace   Workspace Gateway 抽象
+ * port.ai             AI Gateway 抽象
+ * port.workspace      Workspace Gateway 抽象
+ * port.persistence    Persistence Repository 抽象
  * </pre>
- *
- * <p>Persistence Repository 接口尚未建立，将在 M0 的 Persistence Task 中补充。
  */
 package com.ayywl.delveforge.application.port;
