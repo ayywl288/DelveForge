@@ -107,6 +107,15 @@ DELVEFORGE_PERSISTENCE_DATABASE_FILE=/path/to/delveforge.db
 --logging.level.com.ayywl.delveforge.<package>=DEBUG
 ```
 
+User Discovery 需要 DeepSeek 凭据，只能由环境变量提供，不写入仓库或配置文件：
+
+```bash
+export DEEPSEEK_API_KEY=<your-key>    # Windows PowerShell: $env:DEEPSEEK_API_KEY="<your-key>"
+```
+
+未设置时服务仍可正常启动与使用其它端点，只有 `explore` 会失败。
+Endpoint 与模型 ID 同样可配置，默认值见 `application.yml`。
+
 排查问题时不要整体打开 `com.ayywl.delveforge=DEBUG`。
 
 配置、日志与凭据的完整约定见 `docs/ARCHITECTURE.md` §6.2；

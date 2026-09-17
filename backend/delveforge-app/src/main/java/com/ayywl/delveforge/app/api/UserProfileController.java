@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.app.api;
 
 import com.ayywl.delveforge.application.userdiscovery.CreateUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.ExploreUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.GetUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileRequest;
 import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileUseCase;
@@ -22,14 +23,15 @@ import org.springframework.web.bind.annotation.RestController;
  * User Profile 业务端点。
  *
  * <pre>
- * POST   /api/user-profiles        创建空的 EXPLORING Profile
- * GET    /api/user-profiles/{id}   读取当前（最新）revision
- * PATCH  /api/user-profiles/{id}   结构化 partial update
+ * POST   /api/user-profiles                 创建空的 EXPLORING Profile
+ * GET    /api/user-profiles/{id}            读取当前（最新）revision
+ * PATCH  /api/user-profiles/{id}            结构化 partial update
+ * POST   /api/user-profiles/{id}/explore    提交一轮用户输入，由 AI 提出建议后更新
  * </pre>
  *
  * <p>Controller 保持轻量（RULE-ARCH-005）：解析请求、映射为 Application Use Case 的输入、
- * 把结果映射为响应。它不判断内容是否合法、不计算 revision、不参与状态转换——
- * 这些由 Application 与 Domain 决定，失败由
+ * 把结果映射为响应。它不判断内容是否合法、不计算 revision、不参与状态转换、
+ * 也不接触任何 AI 调用——这些由 Application 与 Domain 决定，失败由
  * {@code com.ayywl.delveforge.app.error} 统一翻译。
  *
  * <p>{@code revision} 是否推进完全由 Domain 决定：即使 PATCH 提交的内容与当前完全一致，
@@ -42,13 +44,16 @@ public class UserProfileController {
     private final CreateUserProfileUseCase createUserProfileUseCase;
     private final GetUserProfileUseCase getUserProfileUseCase;
     private final UpdateUserProfileUseCase updateUserProfileUseCase;
+    private final ExploreUserProfileUseCase exploreUserProfileUseCase;
 
     public UserProfileController(CreateUserProfileUseCase createUserProfileUseCase,
                                  GetUserProfileUseCase getUserProfileUseCase,
-                                 UpdateUserProfileUseCase updateUserProfileUseCase) {
+                                 UpdateUserProfileUseCase updateUserProfileUseCase,
+                                 ExploreUserProfileUseCase exploreUserProfileUseCase) {
         this.createUserProfileUseCase = createUserProfileUseCase;
         this.getUserProfileUseCase = getUserProfileUseCase;
         this.updateUserProfileUseCase = updateUserProfileUseCase;
+        this.exploreUserProfileUseCase = exploreUserProfileUseCase;
     }
 
     @PostMapping
@@ -66,6 +71,18 @@ public class UserProfileController {
     public UserProfileResponse patch(@PathVariable String id,
                                      @RequestBody UserProfilePatchRequest request) {
         return toResponse(updateUserProfileUseCase.update(toApplicationRequest(id, request)));
+    }
+
+    /**
+     * 提交一轮用户输入，由 AI 提出建议后更新 Profile。
+     *
+     * <p>AI 调用发生在 Use Case 内部；本层只负责把原始输入交出去，
+     * 既不接触 Provider，也不解析模型输出。
+     */
+    @PostMapping("/{id}/explore")
+    public UserProfileResponse explore(@PathVariable String id,
+                                       @RequestBody ExploreUserProfileRequest request) {
+        return toResponse(exploreUserProfileUseCase.explore(new UserProfileId(id), request.input()));
     }
 
     private static UpdateUserProfileRequest toApplicationRequest(String id,

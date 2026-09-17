@@ -1,9 +1,12 @@
 package com.ayywl.delveforge.app.config;
 
+import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.userdiscovery.CreateUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.ExploreUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.GetUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileUseCase;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -32,5 +35,18 @@ public class UserProfileUseCaseConfiguration {
     @Bean
     public UpdateUserProfileUseCase updateUserProfileUseCase(UserProfileRepository userProfileRepository) {
         return new UpdateUserProfileUseCase(userProfileRepository);
+    }
+
+    /**
+     * {@link AiGateway} 由 Infrastructure 的 Provider Adapter 提供；
+     * {@link ObjectMapper} 由 Spring Boot 的 Jackson 自动装配提供，用于构造请求上下文与
+     * 解析模型输出。
+     */
+    @Bean
+    public ExploreUserProfileUseCase exploreUserProfileUseCase(
+            UserProfileRepository userProfileRepository,
+            AiGateway aiGateway,
+            ObjectMapper objectMapper) {
+        return new ExploreUserProfileUseCase(userProfileRepository, aiGateway, objectMapper);
     }
 }

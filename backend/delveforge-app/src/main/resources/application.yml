@@ -10,6 +10,22 @@ delveforge:
     # 相对路径相对于进程工作目录，缺失的父目录会在启动时创建。
     database-file: ./data/delveforge.db
 
+  ai:
+    deepseek:
+      # DeepSeek 的 OpenAI 兼容 API。Endpoint 与 Model 属于环境相关值，
+      # 必须可配置，不得硬编码进业务代码（RULE-ARCH-008、AGENTS.md §8.9）。
+      base-url: https://api.deepseek.com
+      model: deepseek-flash
+
+      # API Key 只从外部配置 / 环境变量读取，不进入源码仓库。
+      #
+      # 这里刻意使用「缺失时解析为空字符串」的形式，使不含凭据的环境（例如测试）
+      # 也能完成上下文装配；真正调用时才会因缺少 Key 而失败。
+      api-key: ${DEEPSEEK_API_KEY:}
+
+      # 单次调用的连接与读超时。
+      timeout: 60s
+
 spring:
   application:
     name: delveforge
