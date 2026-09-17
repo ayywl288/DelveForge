@@ -14,6 +14,9 @@ public enum ApiErrorCode {
     /** 请求本身不合法，调用方可以修正后重试。 */
     INVALID_REQUEST,
 
+    /** 请求指向的领域对象不存在。 */
+    NOT_FOUND,
+
     /** DelveForge 依赖的外部能力当前不可用。 */
     EXTERNAL_CAPABILITY_UNAVAILABLE,
 

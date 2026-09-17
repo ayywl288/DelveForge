@@ -2,6 +2,7 @@ package com.ayywl.delveforge.app.error;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
+import com.ayywl.delveforge.application.userdiscovery.UserProfileNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import org.slf4j.Logger;
@@ -56,6 +57,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static final String LINE_SEPARATOR = System.lineSeparator();
 
     private static final String INVALID_REQUEST_MESSAGE = "请求内容不合法，详细信息见服务端日志";
+    private static final String NOT_FOUND_MESSAGE = "指定的资源不存在";
     private static final String AI_GATEWAY_FAILURE_MESSAGE = "外部 AI 能力调用失败，详细信息见服务端日志";
     private static final String WORKSPACE_FAILURE_MESSAGE = "本地能力调用失败，详细信息见服务端日志";
     private static final String INTERNAL_ERROR_MESSAGE = "服务内部错误，详细信息见服务端日志";
@@ -78,6 +80,24 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
         return new ApiErrorResponse(
                 ApiErrorCode.INVALID_REQUEST, INVALID_REQUEST_MESSAGE,
+                request.getRequestURI(), Instant.now());
+    }
+
+    /**
+     * 请求指向的领域对象不存在。
+     *
+     * <p>与 {@link IllegalArgumentException} 区分：调用方的请求形态是合法的，
+     * 只是目标当前不存在，属于可预期的业务失败，不是服务端错误。
+     */
+    @ExceptionHandler(UserProfileNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiErrorResponse handleNotFound(UserProfileNotFoundException exception,
+                                           HttpServletRequest request) {
+        log.warn("operation=interface.request path={} result=NOT_FOUND exception={}",
+                loggedRoute(request), describe(exception));
+
+        return new ApiErrorResponse(
+                ApiErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE,
                 request.getRequestURI(), Instant.now());
     }
 
@@ -196,6 +216,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static String messageFor(ApiErrorCode code) {
         return switch (code) {
             case INVALID_REQUEST -> INVALID_REQUEST_MESSAGE;
+            case NOT_FOUND -> NOT_FOUND_MESSAGE;
             case EXTERNAL_CAPABILITY_UNAVAILABLE -> AI_GATEWAY_FAILURE_MESSAGE;
             case INTERNAL_ERROR -> INTERNAL_ERROR_MESSAGE;
         };
