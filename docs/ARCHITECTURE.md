@@ -325,12 +325,16 @@ Domain / Application 不出现任何技术配置类型。
 ```
 异常来源                                  HTTP       ApiErrorCode
 IllegalArgumentException                 400        INVALID_REQUEST
+UserProfileNotFoundException             404        NOT_FOUND
 AiGatewayException                       502        EXTERNAL_CAPABILITY_UNAVAILABLE
 WorkspaceException                       500        INTERNAL_ERROR
 Spring MVC 协议层异常                      由框架决定   INVALID_REQUEST / INTERNAL_ERROR
   （405 / 415 / 400 请求体无法解析等）
 其余未预期异常                             500        INTERNAL_ERROR
 ```
+
+`UserProfileNotFoundException` 表示调用方的请求形态合法、但目标当前不存在，
+与 `IllegalArgumentException`（请求本身不合法）区分开。
 
 映射集中在一处（`delveforge-app` 的 error 包），Controller 不承担异常分类与错误构造。
 
@@ -412,7 +416,7 @@ API 地址在运行期如何解析
 
 Desktop Shell 选型时必须重新评估这套连接模型。
 
-Backend 侧只为连通性验证提供一个不承载业务语义的技术性端点：
+除业务端点（见 6.5）外，Backend 另提供一个不承载业务语义的连通性端点：
 
 ```
 GET /api/system/connectivity
@@ -445,6 +449,61 @@ delveforge-app              上下文装配 / HTTP 端点 / 错误映射 / 配�
 当前未引入 CI/CD、Coverage Gate、Failsafe 阶段拆分与 E2E 平台；
 Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
 与 `frontend/README.md`。
+
+### 6.5 Backend API Contract（当前范围）
+
+下表是当前已经实现的业务端点。它随对应业务能力一起扩展，
+不为尚未实现的领域能力预先定义接口。
+
+| Method  | Path                      | 说明                                                  | 成功 | 失败 |
+| ------- | ------------------------- | ----------------------------------------------------- | ---- | ---- |
+| `POST`  | `/api/user-profiles`      | 创建一个空的 `EXPLORING` User Profile                 | 201  | —    |
+| `GET`   | `/api/user-profiles/{id}` | 返回当前（最新）revision 的 Profile                   | 200  | 404  |
+| `PATCH` | `/api/user-profiles/{id}` | 结构化 partial update，返回更新后的 Profile           | 200  | 400 / 404 |
+
+**PATCH 语义**
+
+```text
+字段缺失或为 null   本次不更新该区，保持原值
+字段存在（含 []）   该值是该区更新后的完整内容，整区替换——不是追加 / 合并
+additionalEvidence  逐条新增的 Evidence，不是替换整个集合
+```
+
+`revision` 由 Domain 决定：只有实际内容发生变化才推进，接口不计算也不保证递增次数。
+`status` 当前只读，状态转换尚未实现。
+
+本接口不提供历史 revision 查询，`GET` 始终返回当前 revision。
+历史内容快照由 Persistence 保留，等出现真实消费者时再决定以何种形式暴露。
+
+**响应体**
+
+```json
+{
+  "id": "...",
+  "status": "EXPLORING",
+  "revision": 1,
+  "interests": [],
+  "behaviors": [],
+  "painPoints": [],
+  "technicalCapabilities": [],
+  "projectGoals": [],
+  "constraints": [],
+  "evidence": [
+    {
+      "sourceType": "USER_INPUT",
+      "sourceRef": "...",
+      "claim": "...",
+      "confidence": null,
+      "confirmed": true
+    }
+  ]
+}
+```
+
+`status` 与 `sourceType` 使用 Domain 的取值，接口层不引入同义词
+（RULE-DOM-001）。未知取值会被反序列化拒绝，并映射为 400 `INVALID_REQUEST`。
+
+DTO 定义在 `delveforge-app` 的 `api` 包，不暴露 Persistence 数据对象。
 
 ---
 
