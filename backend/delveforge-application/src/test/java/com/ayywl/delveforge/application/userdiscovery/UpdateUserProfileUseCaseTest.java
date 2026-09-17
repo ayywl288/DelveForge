@@ -7,6 +7,7 @@ import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+import com.ayywl.delveforge.domain.user.UserProfileStatus;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -140,6 +141,26 @@ class UpdateUserProfileUseCaseTest {
         assertEquals(List.of(), profile.projectGoals());
         assertEquals(INITIAL_REVISION, profile.revision());
         assertEquals(1, repository.saveCount(), "Domain 拒绝后不得保存");
+    }
+
+    /**
+     * CONFIRMED 只能通过重建得到：本 Task 之前不存在合法的构造入口，
+     * 因此该分支当时无法覆盖（见 Task 2 的已知未验证项）。
+     */
+    @Test
+    void rejectsUpdateOfConfirmedProfile() {
+        UserProfile confirmed = UserProfile.reconstitute(
+                PROFILE_ID, UserProfileStatus.CONFIRMED, 3,
+                List.of("兴趣"), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+        repository.save(confirmed);
+        int savesBefore = repository.saveCount();
+
+        assertThrows(IllegalStateException.class,
+                () -> useCase.update(painPointsOnly(List.of("痛点"))));
+
+        assertEquals(List.of("兴趣"), confirmed.interests());
+        assertEquals(3, confirmed.revision());
+        assertEquals(savesBefore, repository.saveCount(), "Domain 拒绝后不得保存");
     }
 
     @Test
