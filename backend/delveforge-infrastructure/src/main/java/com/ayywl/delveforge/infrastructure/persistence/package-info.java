@@ -20,9 +20,11 @@
  *
  * <h2>当前状态</h2>
  *
- * <p>本包目前只建立 Persistence 基础：数据源装配、迁移管线与 MyBatis-Plus 集成。
- * 具体领域对象的 Repository Port、Persistence Adapter 与业务表在 M1 及之后
- * 随对应领域对象一起引入，当前不预先设计业务 Schema，也不提供
- * {@code BaseRepository} 一类的通用持久化抽象。
+ * <p>本包保存 Persistence 基础：数据源装配、迁移管线与 MyBatis-Plus 集成。
+ *
+ * <p>具体领域对象的 Persistence Adapter 按领域对象各自成包——例如
+ * {@code userprofile}——使 Mapper 扫描范围与职责边界保持清晰。
+ * 这里不提供 {@code BaseRepository} / {@code GenericRepository} 一类通用持久化抽象：
+ * 每个 Adapter 只实现对应 Port 声明的操作。
  */
 package com.ayywl.delveforge.infrastructure.persistence;
