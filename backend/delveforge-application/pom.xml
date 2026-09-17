@@ -25,6 +25,18 @@
         </dependency>
 
         <!--
+            解析 AI 返回的结构化输出。
+
+            AiGateway 的契约是「返回未经解析的原始内容，由 Application 完成解析与校验」，
+            因此 JSON 解析属于本层职责。这里只引入解析库本身，不引入 Spring：
+            本层仍不依赖容器，测试保持纯 JUnit。
+        -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
+        <!--
             Application 层测试只验证 Port 边界与编排行为，使用 fake 代替外部能力，
             因此不引入 Spring / Spring Boot，保持纯 JUnit 单元测试。
         -->
