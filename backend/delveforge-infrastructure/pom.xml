@@ -58,6 +58,26 @@
             <artifactId>flyway-core</artifactId>
         </dependency>
 
+        <!--
+            DeepSeek Adapter 需要的能力（ADR-0003）：一个 HTTP 客户端 + 一个 JSON 解析器。
+            两个库都已经通过 delveforge-app 的 spring-boot-starter-web 存在于本项目，
+            这里只是把依赖显式声明到真正使用它的模块。
+
+            不引入 Spring AI / Spring AI Alibaba：当前 Gate 只需要一次
+            messages → JSON completion，框架能力用不到。
+
+            注意只引入 spring-web，不引入 spring-boot-starter-web，
+            避免把 Servlet 容器带进 Infrastructure。
+        -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+
         <!-- Infrastructure 测试需要真实启动 Spring 上下文以验证自动装配链路 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
