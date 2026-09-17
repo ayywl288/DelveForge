@@ -42,12 +42,12 @@
 - **Repository Strategy:** Monorepo。
 - **Backend Module Structure:** Maven Multi-Module，初始拆分为 `delveforge-domain`、`delveforge-application`、`delveforge-infrastructure`、`delveforge-app`。
 - **Code Organization:** Maven Module 负责主要 Architecture Layer Boundary，各 Module 内部优先按照 Feature / Domain Concept 组织代码。
-- **AI / Agent Integration:** 优先基于 Spring AI / Spring AI Alibaba 能力实现，但业务模块只能依赖内部 AI Gateway 抽象。
-  - **当前是临时兼容性基线，不是已确定的长期选型。** 候选组合为 Spring AI 1.1.2 / Spring AI Alibaba 1.1.2.2，配合 Spring Boot 3.5.x。
-  - 该组合**尚未在项目中验证**：当前代码库不存在任何 Spring AI 依赖，也没有真实 Adapter。已验证的只有 Spring Boot 3.5.16 + SQLite + MyBatis-Plus + Flyway。
-  - 不切换到 Spring Boot 4.x / Spring AI 2.x 的原因是 Spring AI Alibaba 稳定版线只在 3.5.x 上提供，切换会使 AI Gateway 依赖 milestone 版本。
-  - 最终路线与是否升级版本，在首次实现真实 AI Adapter 前评估，见 `ROADMAP.md` §8.7。
-  - 无论最终选择哪条路线，AI Gateway 的 Adapter 都必须保持内部抽象边界：业务模块不得直接依赖具体 Provider SDK 或 Spring AI Alibaba 实现类型。
+- **AI / Agent Integration:** 业务模块只能依赖内部 AI Gateway 抽象；首个真实 Adapter 直接调用 DeepSeek 的 OpenAI 兼容 HTTP API，**不引入 Spring AI / Spring AI Alibaba**（[ADR-0003](decisions/0003-first-ai-adapter-uses-deepseek-http-api.md)）。
+  - Adapter 使用 `RestClient`（`spring-web`）与 Jackson；两者本来就通过 `delveforge-app` 的 `spring-boot-starter-web` 存在于本项目，只是显式声明到真正使用它们的模块。
+  - 不引入 AI Framework 的依据是当前需求与框架能力不匹配：只需要一次 `messages → JSON completion`，而 Tool Calling、多模型路由、Streaming 与 Agent 能力都在当前范围之外（AGENTS.md §8.3）。
+  - **该选择被 AI Gateway Port 隔离**：更换 Provider 或改用 AI Framework 都只影响 Infrastructure 内的 Adapter。
+  - 重新评估的条件见 ADR-0003：出现 Tool Calling / 多 Provider / Agent 需求，或升级到 Spring Boot 4.x 时。
+  - 无论走哪条路线，业务模块都不得直接依赖具体 Provider SDK、Provider 专有 API 类型或 Spring AI Alibaba 实现类型。
 - **Architecture Style:** Modular Monolith。
 - **Database:** SQLite。
 - **Persistence Access:** MyBatis-Plus。
@@ -455,11 +455,27 @@ Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
 下表是当前已经实现的业务端点。它随对应业务能力一起扩展，
 不为尚未实现的领域能力预先定义接口。
 
-| Method  | Path                      | 说明                                                  | 成功 | 失败 |
-| ------- | ------------------------- | ----------------------------------------------------- | ---- | ---- |
-| `POST`  | `/api/user-profiles`      | 创建一个空的 `EXPLORING` User Profile                 | 201  | —    |
-| `GET`   | `/api/user-profiles/{id}` | 返回当前（最新）revision 的 Profile                   | 200  | 404  |
-| `PATCH` | `/api/user-profiles/{id}` | 结构化 partial update，返回更新后的 Profile           | 200  | 400 / 404 |
+| Method  | Path                             | 说明                                                       | 成功 | 失败 |
+| ------- | -------------------------------- | ---------------------------------------------------------- | ---- | ---- |
+| `POST`  | `/api/user-profiles`             | 创建一个空的 `EXPLORING` User Profile                      | 201  | —    |
+| `GET`   | `/api/user-profiles/{id}`        | 返回当前（最新）revision 的 Profile                        | 200  | 404  |
+| `PATCH` | `/api/user-profiles/{id}`        | 结构化 partial update，返回更新后的 Profile                | 200  | 400 / 404 |
+| `POST`  | `/api/user-profiles/{id}/explore`| 提交一轮用户自然语言输入，由 AI 提出建议后更新，返回更新后的 Profile | 200  | 400 / 404 / 502 |
+
+**explore 语义**
+
+```text
+请求体    {"input": "<本轮用户输入的原文>"}
+```
+
+系统把「当前 Profile + 本轮输入」交给 AI Gateway，得到结构化 Proposal，再交给
+Aggregate 决定是否接受。AI 只提出建议：
+
+- 模型不能指定 Evidence 的来源：来源固定为本轮用户输入，`confirmed` 固定为 `false`；
+- Proposal 里不合法的内容会被 Aggregate 拒绝，整个请求失败且不写入任何内容；
+- `revision` 是否推进仍由 Domain 判断。
+
+AI 调用失败或返回内容无法解析时返回 502，与其它外部能力失败一致。
 
 **PATCH 语义**
 
@@ -732,13 +748,14 @@ Evolution Step explicitly confirmed by user
 | --- | --- | --- |
 | [0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md) | Workspace 读写能力在 Application 边界拆分 | Accepted |
 | [0002](decisions/0002-structural-only-exception-logging.md) | 异常日志只记录结构信息，防止运行时数据泄漏 | Accepted |
+| [0003](decisions/0003-first-ai-adapter-uses-deepseek-http-api.md) | 首个 AI Adapter 直接调用 DeepSeek HTTP API，不引入 Spring AI | Accepted |
 
 以下事项经过评审后**决定不建立 ADR**，结论保留在本文件或 `docs/ROADMAP.md` 中：
 
 ```text
-AI Gateway 边界形态         已被 AGENTS.md RULE-DOM-003、DOMAIN_MODEL 12.12 与
-                            AiGateway javadoc 覆盖；
-                            真实 Adapter 实现时必然重新评估
+AI Gateway 边界形态         「边界该不该存在、长什么样」已被 AGENTS.md RULE-DOM-003、
+                            DOMAIN_MODEL 12.12 与 AiGateway javadoc 覆盖；
+                            「首个真实 Adapter 走哪条技术路线」由 ADR-0003 记录
 
 Frontend / Backend 连接方式  开发期实现细节，见 6.3
 ```

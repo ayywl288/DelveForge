@@ -1525,12 +1525,12 @@ DECIDED
 
 | Decision                                    | Current State | Target                     |
 | ------------------------------------------- | ------------- | -------------------------- |
-| AI Framework 路线与版本基线                 | DEFERRED      | 首次实现真实 AI Adapter 前 |
-| AI Gateway 第一版具体 Adapter Design        | OPEN          | M1                         |
+| AI Framework 路线与版本基线                 | **DECIDED**   | 见 ADR-0003                |
+| AI Gateway 第一版具体 Adapter Design        | **DONE**      | M1 Task 5                  |
 | Workspace Gateway 只读 Adapter              | OPEN          | M1                         |
 | Workspace Gateway mutation Adapter          | OPEN          | M3                         |
-| Initial Database Schema                     | OPEN          | M1                         |
-| Frontend / Backend Development API Contract | OPEN          | M1                         |
+| Initial Database Schema                     | **DONE**      | M1 Task 3                  |
+| Frontend / Backend Development API Contract | **DONE**      | M1 Task 4                  |
 
 Workspace 拆成两行，因为两者的前置条件不同：Repository Analysis（M1）只需要
 只读能力；mutation Adapter 要等 M3 出现 Working Copy 与 Evolution Execution
@@ -1538,39 +1538,30 @@ Workspace 拆成两行，因为两者的前置条件不同：Repository Analysis
 
 #### AI Framework 路线与版本基线
 
-当前采用 Spring Boot 3.5.16 + Spring AI 1.1.x，作为**临时兼容性基线**，
-而不是长期必须维持的架构决策。
+**已决定：不引入 Spring AI / Spring AI Alibaba。**
+首个真实 AI Adapter 直接调用 DeepSeek 的 OpenAI 兼容 HTTP API，见
+[ADR-0003](decisions/0003-first-ai-adapter-uses-deepseek-http-api.md)。
 
-需要明确当前证据的边界：
-
-```text
-已验证    Spring Boot 3.5.16 + SQLite + MyBatis-Plus + Flyway
-           （Persistence 基础已建成并通过集成测试）
-
-尚未验证  Spring AI 与 Spring AI Alibaba 本身
-           当前代码库中不存在任何 Spring AI 依赖，也没有真实 Adapter。
-           该版本组合只是与已验证基线兼容的**候选方案**，
-           不是"已经跑通过"的技术选型。
-```
-
-选择该候选组合的直接原因是 Spring AI Alibaba 的稳定版只到 1.1.2.x，其 2.x 尚为
-milestone；而 `ARCHITECTURE.md` 写明优先基于 Spring AI / Spring AI Alibaba
-实现 AI 集成，把不确定的 milestone 引入 MVP 核心链路并不划算。
-
-当前不为此建立 ADR：M0 阶段无法合理判断后续是否真正需要 Spring AI Alibaba
-提供的 Agent / Graph / Multi-Agent 等额外能力，也不应为尚未出现的需求做技术预测。
-
-首次实现真实 AI Adapter **之前**，必须评估：
+M0 时把该决策标记为 DEFERRED 的理由是「首次实现真实 AI Adapter 之前必须评估」。
+M1 Task 5 完成评估，结论如下：
 
 ```text
-Spring AI Core 是否已足够满足需求（Spring AI 自带 DeepSeek 支持）
-是否确实需要 Spring AI Alibaba 的额外能力
-当时的 Spring AI Alibaba 2.x / Spring Boot 4.x 生态是否已经稳定
+需求侧     当前只需要一次 messages → JSON completion。
+           Tool Calling、多模型路由、Streaming、Agent 能力均在当前范围之外。
+
+版本侧     Spring AI 2.0.x 要求 Spring Boot 4.x / Spring Framework 7；
+           项目基线是 Spring Boot 3.5.16，因此选择 Spring AI 就等同于绑定 1.1.x，
+           并在将来升级 Boot 4 时再迁移一次。
+           Spring AI Alibaba 稳定线同样停在 Spring Boot 3.5.x。
+
+能力侧     DeepSeek 只支持 {"type":"json_object"}，不支持严格 json_schema，
+           结构化输出的解析与校验无论如何都由 DelveForge 自己完成
+           （这本来就是 AiGateway 契约里划给 Application 的职责）。
 ```
 
-根据评估结果再决定最终 AI Framework 路线、是否升级版本，以及是否需要 ADR。
-
-这些事项属于接近具体实现时才能合理确定的设计，不阻止 Initial Project Structure 与 `AGENTS.md` 的建立。
+因此原候选基线（Spring AI 1.1.2 / Spring AI Alibaba 1.1.2.2）**未被采用**。
+该决定被 AI Gateway Port 隔离：将来出现上述需求、或升级到 Spring Boot 4.x 时，
+只需替换 Infrastructure 内的 Adapter，业务代码不受影响。
 
 Desktop Shell Technology 已明确延后，不属于 M0 Blocker。
 
