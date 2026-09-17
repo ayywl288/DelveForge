@@ -18,13 +18,14 @@ import java.util.List;
  * 在允许的状态下更新结构化的 Profile 内容
  * 内容或判断依据发生实际变化时推进 revision
  * 记录支撑 Profile 判断的 Evidence
+ * 按已保存的状态重建（reconstitute）User Profile
  * </pre>
  *
  * <p>不包含：用户输入如何被转换为这些结构化内容、Sufficiency Assessment、
  * Review / Confirm 流程，以及 §6.1 中决定状态如何变化的部分。这些由后续实现引入。
  *
- * <p>本类不承载任何持久化语义。历史 revision 如何保存与重新获取
- * （DOMAIN_MODEL.md §10.3）属于 Persistence 设计，不由本类型表达。
+ * <p>本类不承载任何持久化语义：{@link #reconstitute} 只是重建入口，
+ * 历史 revision 如何保存与重新获取（DOMAIN_MODEL.md §10.3）属于 Persistence 设计。
  */
 public class UserProfile {
 
@@ -54,6 +55,73 @@ public class UserProfile {
      */
     public static UserProfile create(UserProfileId id) {
         return new UserProfile(id);
+    }
+
+    /**
+     * 按已保存的状态重建一个 User Profile。
+     *
+     * <p>本入口用于 Persistence 从存储中恢复已有 Profile，不用于创建新的 Profile——
+     * 新建请使用 {@link #create(UserProfileId)}。它一次性接管完整状态，没有逐字段的
+     * 修改入口，因此不构成绕过 Aggregate 规则的任意 mutation API：
+     *
+     * <pre>
+     * 可以重建   任意合法的 status / revision 组合，包括 CONFIRMED
+     * 不能重建   status 为 null、revision &lt; 1、内容区含空值、Evidence 含 null
+     * </pre>
+     *
+     * <p>重建不改变 {@code revision}：恢复出的就是保存时的那个版本，
+     * 因此重复保存与重新加载都不会制造额外 revision。
+     *
+     * <p>本方法只校验取值的合法性，不重新判定生命周期规则——被重建的
+     * {@code status} 本身就是要恢复的领域状态。
+     *
+     * @param id                    身份，不得为 {@code null}
+     * @param status                保存时的状态，不得为 {@code null}
+     * @param revision              保存时的版本，不得小于初始 revision
+     * @param interests             兴趣与关注领域
+     * @param behaviors             真实存在的行为与使用场景
+     * @param painPoints            希望解决的问题或不满意之处
+     * @param technicalCapabilities 当前具备的开发与技术能力
+     * @param projectGoals          希望通过项目实现的目标
+     * @param constraints           影响项目方向选择的重要约束
+     * @param evidence              该 revision 对应的判断依据集合
+     * @throws IllegalArgumentException 任一参数不满足上述约束
+     */
+    public static UserProfile reconstitute(
+            UserProfileId id,
+            UserProfileStatus status,
+            int revision,
+            List<String> interests,
+            List<String> behaviors,
+            List<String> painPoints,
+            List<String> technicalCapabilities,
+            List<String> projectGoals,
+            List<String> constraints,
+            List<Evidence> evidence) {
+
+        if (id == null) {
+            throw new IllegalArgumentException("User Profile 必须指定 id");
+        }
+        if (status == null) {
+            throw new IllegalArgumentException("重建 User Profile 必须指定 status");
+        }
+        if (revision < INITIAL_REVISION) {
+            throw new IllegalArgumentException(
+                    "重建 User Profile 的 revision 不能小于 " + INITIAL_REVISION + ": " + revision);
+        }
+
+        UserProfile profile = new UserProfile(id);
+        profile.status = status;
+        profile.revision = revision;
+        profile.interests = normalizeSection(interests, "interests");
+        profile.behaviors = normalizeSection(behaviors, "behaviors");
+        profile.painPoints = normalizeSection(painPoints, "painPoints");
+        profile.technicalCapabilities =
+                normalizeSection(technicalCapabilities, "technicalCapabilities");
+        profile.projectGoals = normalizeSection(projectGoals, "projectGoals");
+        profile.constraints = normalizeSection(constraints, "constraints");
+        profile.evidence = normalizeEvidence(evidence);
+        return profile;
     }
 
     private UserProfile(UserProfileId id) {
@@ -259,6 +327,23 @@ public class UserProfile {
                         "User Profile 的 " + sectionName + " 不能包含空值");
             }
             normalized.add(value);
+        }
+        return List.copyOf(normalized);
+    }
+
+    /**
+     * 校验并固化一组 Evidence，使重建出的集合不可再由外部修改。
+     */
+    private static List<Evidence> normalizeEvidence(List<Evidence> evidence) {
+        if (evidence == null) {
+            throw new IllegalArgumentException("User Profile 的 evidence 不能为 null");
+        }
+        List<Evidence> normalized = new ArrayList<>(evidence.size());
+        for (Evidence item : evidence) {
+            if (item == null) {
+                throw new IllegalArgumentException("User Profile 的 evidence 不能包含 null");
+            }
+            normalized.add(item);
         }
         return List.copyOf(normalized);
     }

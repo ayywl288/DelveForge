@@ -19,6 +19,9 @@ class UserProfileTest {
 
     private static final List<String> VALUES = List.of("结构化内容");
 
+    private static final Evidence EVIDENCE = new Evidence(
+            EvidenceSourceType.USER_INPUT, "user-answer-1", "用户长期自己找图片做头像", null, true);
+
     @Test
     void createsProfileWithInitialIdentityRevisionAndStatus() {
         UserProfile profile = UserProfile.create(PROFILE_ID);
@@ -205,6 +208,95 @@ class UserProfileTest {
 
         assertEquals(List.of(), profile.evidence());
         assertEquals(INITIAL_REVISION, profile.revision());
+    }
+
+    @Test
+    void reconstitutesSavedStateWithoutAdvancingRevision() {
+        UserProfile profile = UserProfile.reconstitute(
+                PROFILE_ID,
+                UserProfileStatus.REVIEWING,
+                5,
+                List.of("兴趣 A", "兴趣 B"),
+                List.of("行为"),
+                List.of("痛点"),
+                List.of("能力"),
+                List.of("目标"),
+                List.of("约束"),
+                List.of(EVIDENCE));
+
+        assertEquals(PROFILE_ID, profile.id());
+        assertEquals(UserProfileStatus.REVIEWING, profile.status());
+        assertEquals(5, profile.revision(), "重建恢复的是保存时的 revision，不得推进");
+        assertEquals(List.of("兴趣 A", "兴趣 B"), profile.interests());
+        assertEquals(List.of("行为"), profile.behaviors());
+        assertEquals(List.of("痛点"), profile.painPoints());
+        assertEquals(List.of("能力"), profile.technicalCapabilities());
+        assertEquals(List.of("目标"), profile.projectGoals());
+        assertEquals(List.of("约束"), profile.constraints());
+        assertEquals(List.of(EVIDENCE), profile.evidence());
+    }
+
+    @Test
+    void reconstitutesConfirmedProfileAndKeepsItsStateRules() {
+        UserProfile profile = reconstituteSections(
+                UserProfileStatus.CONFIRMED, 2, List.of("兴趣"));
+
+        assertEquals(UserProfileStatus.CONFIRMED, profile.status());
+
+        assertThrows(IllegalStateException.class,
+                () -> profile.updateInterests(List.of("新兴趣")));
+
+        assertEquals(List.of("兴趣"), profile.interests());
+        assertEquals(2, profile.revision());
+    }
+
+    @Test
+    void reconstitutedProfileContinuesFromRestoredRevision() {
+        UserProfile profile = reconstituteSections(
+                UserProfileStatus.EXPLORING, 3, List.of("兴趣"));
+
+        profile.updateInterests(List.of("新兴趣"));
+
+        assertEquals(4, profile.revision(), "重建后的 Profile 从恢复的 revision 继续，而不是从 1 重新开始");
+    }
+
+    @Test
+    void rejectsReconstitutionWithoutStatus() {
+        assertThrows(IllegalArgumentException.class,
+                () -> reconstituteSections(null, 1, List.of()));
+    }
+
+    @Test
+    void rejectsReconstitutionWithRevisionBelowInitial() {
+        assertThrows(IllegalArgumentException.class,
+                () -> reconstituteSections(UserProfileStatus.EXPLORING, 0, List.of()));
+    }
+
+    @Test
+    void rejectsReconstitutionWithBlankSectionEntry() {
+        assertThrows(IllegalArgumentException.class,
+                () -> reconstituteSections(UserProfileStatus.EXPLORING, 1, List.of("兴趣", " ")));
+    }
+
+    @Test
+    void rejectsReconstitutionWithNullEvidence() {
+        assertThrows(IllegalArgumentException.class,
+                () -> UserProfile.reconstitute(PROFILE_ID, UserProfileStatus.EXPLORING, 1,
+                        List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null));
+    }
+
+    @Test
+    void rejectsReconstitutionWithoutIdentity() {
+        assertThrows(IllegalArgumentException.class,
+                () -> UserProfile.reconstitute(null, UserProfileStatus.EXPLORING, 1,
+                        List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
+    }
+
+    /** 只提供 interests，其余内容区与 Evidence 为空的重建输入。 */
+    private static UserProfile reconstituteSections(UserProfileStatus status, int revision,
+                                                    List<String> interests) {
+        return UserProfile.reconstitute(PROFILE_ID, status, revision, interests,
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     /**
