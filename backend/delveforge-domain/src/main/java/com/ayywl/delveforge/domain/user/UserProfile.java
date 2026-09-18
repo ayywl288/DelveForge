@@ -18,11 +18,12 @@ import java.util.List;
  * 在允许的状态下更新结构化的 Profile 内容
  * 内容或判断依据发生实际变化时推进 revision
  * 记录支撑 Profile 判断的 Evidence
+ * EXPLORING → REVIEWING 状态转移
  * 按已保存的状态重建（reconstitute）User Profile
  * </pre>
  *
- * <p>不包含：用户输入如何被转换为这些结构化内容、Sufficiency Assessment、
- * Review / Confirm 流程，以及 §6.1 中决定状态如何变化的部分。这些由后续实现引入。
+ * <p>不包含：用户输入如何被转换为这些结构化内容、Sufficiency Assessment（是否「信息足够」
+ * 由 Application 结合 AI 建议判断），以及 §6.1 中其余的状态转换。这些由后续实现引入。
  *
  * <p>本类不承载任何持久化语义：{@link #reconstitute} 只是重建入口，
  * 历史 revision 如何保存与重新获取（DOMAIN_MODEL.md §10.3）属于 Persistence 设计。
@@ -148,7 +149,7 @@ public class UserProfile {
      *
      * @param interests 新的完整内容，不得为 {@code null}，元素不得为 {@code null} 或空白
      * @throws IllegalArgumentException 参数不满足上述约束
-     * @throws IllegalStateException    当前状态不允许修改 Profile 内容
+     * @throws UserProfileStateException 当前状态不允许修改 Profile 内容
      */
     public void updateInterests(List<String> interests) {
         requireProfileUpdateAllowed();
@@ -164,7 +165,7 @@ public class UserProfile {
      * 更新用户真实存在的行为与使用场景。
      *
      * @throws IllegalArgumentException 参数为 {@code null}，或元素为 {@code null} 或空白
-     * @throws IllegalStateException    当前状态不允许修改 Profile 内容
+     * @throws UserProfileStateException 当前状态不允许修改 Profile 内容
      */
     public void updateBehaviors(List<String> behaviors) {
         requireProfileUpdateAllowed();
@@ -180,7 +181,7 @@ public class UserProfile {
      * 更新用户希望解决的问题或不满意之处。
      *
      * @throws IllegalArgumentException 参数为 {@code null}，或元素为 {@code null} 或空白
-     * @throws IllegalStateException    当前状态不允许修改 Profile 内容
+     * @throws UserProfileStateException 当前状态不允许修改 Profile 内容
      */
     public void updatePainPoints(List<String> painPoints) {
         requireProfileUpdateAllowed();
@@ -196,7 +197,7 @@ public class UserProfile {
      * 更新用户当前具备的开发与技术能力。
      *
      * @throws IllegalArgumentException 参数为 {@code null}，或元素为 {@code null} 或空白
-     * @throws IllegalStateException    当前状态不允许修改 Profile 内容
+     * @throws UserProfileStateException 当前状态不允许修改 Profile 内容
      */
     public void updateTechnicalCapabilities(List<String> technicalCapabilities) {
         requireProfileUpdateAllowed();
@@ -212,7 +213,7 @@ public class UserProfile {
      * 更新用户希望通过项目实现的目标。
      *
      * @throws IllegalArgumentException 参数为 {@code null}，或元素为 {@code null} 或空白
-     * @throws IllegalStateException    当前状态不允许修改 Profile 内容
+     * @throws UserProfileStateException 当前状态不允许修改 Profile 内容
      */
     public void updateProjectGoals(List<String> projectGoals) {
         requireProfileUpdateAllowed();
@@ -228,7 +229,7 @@ public class UserProfile {
      * 更新影响项目方向选择的重要约束。
      *
      * @throws IllegalArgumentException 参数为 {@code null}，或元素为 {@code null} 或空白
-     * @throws IllegalStateException    当前状态不允许修改 Profile 内容
+     * @throws UserProfileStateException 当前状态不允许修改 Profile 内容
      */
     public void updateConstraints(List<String> constraints) {
         requireProfileUpdateAllowed();
@@ -255,7 +256,7 @@ public class UserProfile {
      *
      * @param evidence 待记录的 Evidence，不得为 {@code null}
      * @throws IllegalArgumentException evidence 为 {@code null}
-     * @throws IllegalStateException    当前状态不允许修改 Profile 内容
+     * @throws UserProfileStateException 当前状态不允许修改 Profile 内容
      */
     public void recordEvidence(Evidence evidence) {
         requireProfileUpdateAllowed();
@@ -269,6 +270,29 @@ public class UserProfile {
         updated.add(evidence);
         this.evidence = List.copyOf(updated);
         advanceRevision();
+    }
+
+    /**
+     * 把 Profile 从 {@link UserProfileStatus#EXPLORING} 推进到
+     * {@link UserProfileStatus#REVIEWING}（DOMAIN_MODEL.md §6.1）。
+     *
+     * <p>只有 {@code EXPLORING} 是这条转移的合法起点：§6.1 里「信息足够 → REVIEWING」
+     * 只从 EXPLORING 出发。{@code REVIEWING} 与 {@code CONFIRMED} 都不是它的起点，
+     * 因此这里拒绝，而不是静默忽略。
+     *
+     * <p>状态变化不推进 {@code revision}：revision 只由六个内容区与 Evidence 的实际变化
+     * 推进（§6.1 的 Revision 触发规则），状态本身不在其中。
+     *
+     * <p>是否「信息足够」不由本方法判断——它只负责这条状态转移在领域上是否被允许。
+     *
+     * @throws UserProfileStateException 当前状态不是 {@code EXPLORING}
+     */
+    public void beginReview() {
+        if (status != UserProfileStatus.EXPLORING) {
+            throw new UserProfileStateException(
+                    "User Profile 当前状态不允许进入 REVIEWING: " + status);
+        }
+        this.status = UserProfileStatus.REVIEWING;
     }
 
     public UserProfileId id() {
@@ -356,7 +380,7 @@ public class UserProfile {
      */
     private void requireProfileUpdateAllowed() {
         if (!status.allowsProfileUpdate()) {
-            throw new IllegalStateException(
+            throw new UserProfileStateException(
                     "User Profile 当前状态不允许修改内容: " + status);
         }
     }

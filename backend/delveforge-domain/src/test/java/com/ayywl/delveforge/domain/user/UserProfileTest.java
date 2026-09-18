@@ -243,7 +243,7 @@ class UserProfileTest {
 
         assertEquals(UserProfileStatus.CONFIRMED, profile.status());
 
-        assertThrows(IllegalStateException.class,
+        assertThrows(UserProfileStateException.class,
                 () -> profile.updateInterests(List.of("新兴趣")));
 
         assertEquals(List.of("兴趣"), profile.interests());
@@ -290,6 +290,57 @@ class UserProfileTest {
         assertThrows(IllegalArgumentException.class,
                 () -> UserProfile.reconstitute(null, UserProfileStatus.EXPLORING, 1,
                         List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
+    }
+
+    @Test
+    void beginsReviewFromExploringWithoutAdvancingRevision() {
+        UserProfile profile = UserProfile.create(PROFILE_ID);
+        profile.updateInterests(List.of("兴趣"));
+        int revisionBefore = profile.revision();
+
+        profile.beginReview();
+
+        assertEquals(UserProfileStatus.REVIEWING, profile.status());
+        assertEquals(revisionBefore, profile.revision(), "状态变化不推进 revision");
+    }
+
+    /**
+     * §6.1 里「信息足够 → REVIEWING」只从 EXPLORING 出发，因此其余状态一律拒绝。
+     */
+    @Test
+    void rejectsBeginReviewFromReviewing() {
+        UserProfile profile = reconstituteSections(
+                UserProfileStatus.REVIEWING, 2, List.of("兴趣"));
+
+        assertThrows(UserProfileStateException.class, profile::beginReview);
+
+        assertEquals(UserProfileStatus.REVIEWING, profile.status());
+        assertEquals(2, profile.revision());
+    }
+
+    @Test
+    void rejectsBeginReviewFromConfirmed() {
+        UserProfile profile = reconstituteSections(
+                UserProfileStatus.CONFIRMED, 2, List.of("兴趣"));
+
+        assertThrows(UserProfileStateException.class, profile::beginReview);
+
+        assertEquals(UserProfileStatus.CONFIRMED, profile.status());
+        assertEquals(List.of("兴趣"), profile.interests());
+    }
+
+    /**
+     * REVIEWING 允许继续修改内容（§6.1 的 REVIEWING → REVIEWING：用户纠正 Profile）。
+     */
+    @Test
+    void allowsContentUpdateAfterBeginReview() {
+        UserProfile profile = UserProfile.create(PROFILE_ID);
+        profile.beginReview();
+
+        profile.updateInterests(List.of("兴趣"));
+
+        assertEquals(UserProfileStatus.REVIEWING, profile.status());
+        assertEquals(List.of("兴趣"), profile.interests());
     }
 
     /** 只提供 interests，其余内容区与 Evidence 为空的重建输入。 */
