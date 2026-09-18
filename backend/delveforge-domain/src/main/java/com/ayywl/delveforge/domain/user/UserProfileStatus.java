@@ -3,18 +3,18 @@ package com.ayywl.delveforge.domain.user;
 /**
  * User Profile 的生命周期状态（DOMAIN_MODEL.md §6.1）。
  *
- * <p>本类型只表达状态本身，以及状态对 Profile 内容修改的约束。§6.1 定义的转换中：
+ * <p>本类型只表达状态本身，以及状态对 Profile 内容修改的约束。§6.1 定义的转换
+ * 全部由 Aggregate Root 提供入口：
  *
  * <pre>
- * EXPLORING → REVIEWING   信息足够           已实现（UserProfile.beginReview）
- * REVIEWING → EXPLORING   继续探索           尚未实现
- * REVIEWING → REVIEWING   用户纠正 Profile   尚未实现
- * REVIEWING → CONFIRMED   用户确认 Profile   尚未实现
- * CONFIRMED → EXPLORING   重新开始探索       尚未实现
+ * EXPLORING → REVIEWING   信息足够           UserProfile.beginReview
+ * REVIEWING → EXPLORING   继续探索           UserProfile.continueDiscovery
+ * REVIEWING → REVIEWING   用户纠正 Profile   内容更新本身，无需状态转移入口
+ * REVIEWING → CONFIRMED   用户确认 Profile   UserProfile.confirm（须携带所确认的 revision）
+ * CONFIRMED → EXPLORING   重新开始探索       UserProfile.reopenDiscovery
  * </pre>
  *
- * <p>其余转换分别由后续的 Review / Confirm 与 Reopen Discovery 相关实现引入。
- * 转换入口一律放在 Aggregate Root 上，本类型不提供转换方法。
+ * <p>转换入口一律放在 Aggregate Root 上，本类型不提供转换方法。
  */
 public enum UserProfileStatus {
 

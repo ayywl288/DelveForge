@@ -343,6 +343,109 @@ class UserProfileTest {
         assertEquals(List.of("兴趣"), profile.interests());
     }
 
+    @Test
+    void continuesDiscoveryFromReviewingWithoutAdvancingRevision() {
+        UserProfile profile = reconstituteSections(UserProfileStatus.REVIEWING, 2, List.of("兴趣"));
+
+        profile.continueDiscovery();
+
+        assertEquals(UserProfileStatus.EXPLORING, profile.status());
+        assertEquals(2, profile.revision(), "状态变化不推进 revision");
+        assertEquals(List.of("兴趣"), profile.interests(), "退回探索不删除内容");
+    }
+
+    @Test
+    void confirmsFromReviewingWithoutAdvancingRevision() {
+        UserProfile profile = reconstituteSections(UserProfileStatus.REVIEWING, 2, List.of("兴趣"));
+
+        profile.confirm(2);
+
+        assertEquals(UserProfileStatus.CONFIRMED, profile.status());
+        assertEquals(2, profile.revision(), "状态变化不推进 revision");
+        assertEquals(List.of("兴趣"), profile.interests());
+    }
+
+    /**
+     * 确认必须绑定用户实际查看的版本：期间内容又变化过时拒绝，而不是默默确认最新版本。
+     */
+    @Test
+    void rejectsConfirmWithStaleRevision() {
+        UserProfile profile = reconstituteSections(UserProfileStatus.REVIEWING, 3, List.of("兴趣"));
+
+        assertThrows(UserProfileStateException.class, () -> profile.confirm(2));
+
+        assertEquals(UserProfileStatus.REVIEWING, profile.status());
+        assertEquals(3, profile.revision());
+    }
+
+    @Test
+    void reopensDiscoveryFromConfirmedWithoutAdvancingRevision() {
+        UserProfile profile = reconstituteSections(UserProfileStatus.CONFIRMED, 2, List.of("兴趣"));
+
+        profile.reopenDiscovery();
+
+        assertEquals(UserProfileStatus.EXPLORING, profile.status());
+        assertEquals(2, profile.revision(), "状态变化不推进 revision");
+        assertEquals(List.of("兴趣"), profile.interests(), "重新开启探索不删除内容");
+    }
+
+    /**
+     * 确认必须来自一次 Review：不能从 EXPLORING 直接跳到已确认。
+     */
+    @Test
+    void rejectsConfirmFromExploring() {
+        UserProfile profile = UserProfile.create(PROFILE_ID);
+
+        assertThrows(UserProfileStateException.class, () -> profile.confirm(INITIAL_REVISION));
+
+        assertEquals(UserProfileStatus.EXPLORING, profile.status());
+        assertEquals(INITIAL_REVISION, profile.revision());
+    }
+
+    @Test
+    void rejectsConfirmFromConfirmed() {
+        UserProfile profile = reconstituteSections(UserProfileStatus.CONFIRMED, 2, List.of("兴趣"));
+
+        assertThrows(UserProfileStateException.class, () -> profile.confirm(2));
+
+        assertEquals(UserProfileStatus.CONFIRMED, profile.status());
+    }
+
+    @Test
+    void rejectsContinueDiscoveryOutsideReviewing() {
+        UserProfile exploring = UserProfile.create(PROFILE_ID);
+        assertThrows(UserProfileStateException.class, exploring::continueDiscovery);
+        assertEquals(UserProfileStatus.EXPLORING, exploring.status());
+
+        UserProfile confirmed = reconstituteSections(UserProfileStatus.CONFIRMED, 2, List.of("兴趣"));
+        assertThrows(UserProfileStateException.class, confirmed::continueDiscovery);
+        assertEquals(UserProfileStatus.CONFIRMED, confirmed.status());
+    }
+
+    @Test
+    void rejectsReopenDiscoveryOutsideConfirmed() {
+        UserProfile exploring = UserProfile.create(PROFILE_ID);
+        assertThrows(UserProfileStateException.class, exploring::reopenDiscovery);
+
+        UserProfile reviewing = reconstituteSections(UserProfileStatus.REVIEWING, 2, List.of("兴趣"));
+        assertThrows(UserProfileStateException.class, reviewing::reopenDiscovery);
+        assertEquals(UserProfileStatus.REVIEWING, reviewing.status());
+    }
+
+    /**
+     * 重新开启探索之后，内容重新允许修改，并按实际变化推进 revision。
+     */
+    @Test
+    void allowsContentUpdateAgainAfterReopeningDiscovery() {
+        UserProfile profile = reconstituteSections(UserProfileStatus.CONFIRMED, 2, List.of("兴趣"));
+        profile.reopenDiscovery();
+
+        profile.updateInterests(List.of("新兴趣"));
+
+        assertEquals(List.of("新兴趣"), profile.interests());
+        assertEquals(3, profile.revision());
+    }
+
     /** 只提供 interests，其余内容区与 Evidence 为空的重建输入。 */
     private static UserProfile reconstituteSections(UserProfileStatus status, int revision,
                                                     List<String> interests) {

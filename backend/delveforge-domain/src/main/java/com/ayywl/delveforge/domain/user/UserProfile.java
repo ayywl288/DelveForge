@@ -18,12 +18,12 @@ import java.util.List;
  * 在允许的状态下更新结构化的 Profile 内容
  * 内容或判断依据发生实际变化时推进 revision
  * 记录支撑 Profile 判断的 Evidence
- * EXPLORING → REVIEWING 状态转移
+ * §6.1 定义的全部状态转换
  * 按已保存的状态重建（reconstitute）User Profile
  * </pre>
  *
- * <p>不包含：用户输入如何被转换为这些结构化内容、Sufficiency Assessment（是否「信息足够」
- * 由 Application 结合 AI 建议判断），以及 §6.1 中其余的状态转换。这些由后续实现引入。
+ * <p>不包含：用户输入如何被转换为这些结构化内容，以及 Sufficiency Assessment
+ * （是否「信息足够」由 Application 结合 AI 建议判断）。这些由 Application 承担。
  *
  * <p>本类不承载任何持久化语义：{@link #reconstitute} 只是重建入口，
  * 历史 revision 如何保存与重新获取（DOMAIN_MODEL.md §10.3）属于 Persistence 设计。
@@ -293,6 +293,85 @@ public class UserProfile {
                     "User Profile 当前状态不允许进入 REVIEWING: " + status);
         }
         this.status = UserProfileStatus.REVIEWING;
+    }
+
+    /**
+     * 把 Profile 从 {@link UserProfileStatus#REVIEWING} 退回
+     * {@link UserProfileStatus#EXPLORING}：用户在 Review 阶段选择继续探索
+     * （DOMAIN_MODEL.md §6.1 的「REVIEWING → EXPLORING：Continue discovery」）。
+     *
+     * <p>只有 {@code REVIEWING} 是这条转移的合法起点。用户明确确认之后的退回走
+     * {@link #reopenDiscovery()}，两者是不同的转移，因此这里不为 {@code CONFIRMED} 开后门。
+     *
+     * <p>状态变化不推进 {@code revision}（§6.1 的 Revision 触发规则只覆盖六个内容区与
+     * Evidence）。退回 EXPLORING 之后，Profile 内容重新允许修改。
+     *
+     * @throws UserProfileStateException 当前状态不是 {@code REVIEWING}
+     */
+    public void continueDiscovery() {
+        if (status != UserProfileStatus.REVIEWING) {
+            throw new UserProfileStateException(
+                    "User Profile 当前状态不允许继续探索: " + status);
+        }
+        this.status = UserProfileStatus.EXPLORING;
+    }
+
+    /**
+     * 把 Profile 从 {@link UserProfileStatus#REVIEWING} 推进到
+     * {@link UserProfileStatus#CONFIRMED}：用户明确确认当前 Profile
+     * （DOMAIN_MODEL.md §6.1 的「REVIEWING → CONFIRMED：User confirms profile」）。
+     *
+     * <p>只有 {@code REVIEWING} 是这条转移的合法起点：确认必须是用户在一次 Review 之后
+     * 做出的显式决定，不能从 {@code EXPLORING} 直接跳到已确认。
+     *
+     * <h2>确认必须绑定用户实际查看的版本</h2>
+     *
+     * <p>调用方必须给出用户做出决定时所看的 {@code expectedRevision}。确认的意义是
+     * 「用户同意这一版内容」；如果期间内容又变化过，当前 revision 已经不是用户看过的
+     * 那一版，此时确认不再代表用户的真实决定，因此拒绝而不是默默确认服务端的最新版本。
+     *
+     * <p>状态变化不推进 {@code revision}，因此确认之后的 Profile 就是
+     * 「{@code CONFIRMED} @ {@code expectedRevision}」——这个组合构成后续
+     * Product Direction Discovery 的稳定基线：确认之后内容不再允许修改，
+     * 该 revision 对应的内容快照也已经被 Persistence 保留（§10.3）。
+     *
+     * <p>本方法只负责这条状态转移是否被允许；「用户是否真的按下了确认」属于
+     * Application 的显式请求，不由领域模型推测。
+     *
+     * @param expectedRevision 用户确认时所依据的 revision，必须等于当前 {@code revision}
+     * @throws UserProfileStateException 当前状态不是 {@code REVIEWING}，
+     *                                   或 {@code expectedRevision} 与当前 revision 不一致
+     */
+    public void confirm(int expectedRevision) {
+        if (status != UserProfileStatus.REVIEWING) {
+            throw new UserProfileStateException(
+                    "User Profile 当前状态不允许确认: " + status);
+        }
+        if (revision != expectedRevision) {
+            throw new UserProfileStateException(
+                    "确认所依据的 revision 已过期: 期望 " + expectedRevision
+                            + "，当前 revision 为 " + revision);
+        }
+        this.status = UserProfileStatus.CONFIRMED;
+    }
+
+    /**
+     * 把 Profile 从 {@link UserProfileStatus#CONFIRMED} 退回
+     * {@link UserProfileStatus#EXPLORING}：用户重新开启探索
+     * （DOMAIN_MODEL.md §6.1 的「CONFIRMED → EXPLORING：Reopen discovery」）。
+     *
+     * <p>只有 {@code CONFIRMED} 是这条转移的合法起点。这只是取消「已确认」这一状态，
+     * 不删除任何内容，也不改变 {@code revision}——重新探索产生的第一个内容变化才会
+     * 推进出一个新版本。
+     *
+     * @throws UserProfileStateException 当前状态不是 {@code CONFIRMED}
+     */
+    public void reopenDiscovery() {
+        if (status != UserProfileStatus.CONFIRMED) {
+            throw new UserProfileStateException(
+                    "User Profile 当前状态不允许重新开启探索: " + status);
+        }
+        this.status = UserProfileStatus.EXPLORING;
     }
 
     public UserProfileId id() {

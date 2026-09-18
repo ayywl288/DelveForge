@@ -8,6 +8,8 @@ package com.ayywl.delveforge.domain.user;
  * <pre>
  * CONFIRMED 状态下修改 Profile 内容
  * 非 EXPLORING 状态下进入 REVIEWING
+ * 非 REVIEWING 状态下确认 Profile
+ * 确认所依据的 revision 与当前 revision 不一致（用户看的版本已经过期）
  * </pre>
  *
  * <p>它既不是输入格式错误（{@link IllegalArgumentException}），也不是技术故障，
