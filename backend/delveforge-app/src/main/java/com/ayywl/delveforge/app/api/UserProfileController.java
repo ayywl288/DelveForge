@@ -1,9 +1,12 @@
 package com.ayywl.delveforge.app.api;
 
 import com.ayywl.delveforge.application.userdiscovery.AssessProfileSufficiencyUseCase;
+import com.ayywl.delveforge.application.userdiscovery.ConfirmUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.ContinueDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.CreateUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.ExploreUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.GetUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.ReopenDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.SufficiencyAssessment;
 import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileRequest;
 import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileUseCase;
@@ -48,17 +51,26 @@ public class UserProfileController {
     private final UpdateUserProfileUseCase updateUserProfileUseCase;
     private final ExploreUserProfileUseCase exploreUserProfileUseCase;
     private final AssessProfileSufficiencyUseCase assessProfileSufficiencyUseCase;
+    private final ConfirmUserProfileUseCase confirmUserProfileUseCase;
+    private final ContinueDiscoveryUseCase continueDiscoveryUseCase;
+    private final ReopenDiscoveryUseCase reopenDiscoveryUseCase;
 
     public UserProfileController(CreateUserProfileUseCase createUserProfileUseCase,
                                  GetUserProfileUseCase getUserProfileUseCase,
                                  UpdateUserProfileUseCase updateUserProfileUseCase,
                                  ExploreUserProfileUseCase exploreUserProfileUseCase,
-                                 AssessProfileSufficiencyUseCase assessProfileSufficiencyUseCase) {
+                                 AssessProfileSufficiencyUseCase assessProfileSufficiencyUseCase,
+                                 ConfirmUserProfileUseCase confirmUserProfileUseCase,
+                                 ContinueDiscoveryUseCase continueDiscoveryUseCase,
+                                 ReopenDiscoveryUseCase reopenDiscoveryUseCase) {
         this.createUserProfileUseCase = createUserProfileUseCase;
         this.getUserProfileUseCase = getUserProfileUseCase;
         this.updateUserProfileUseCase = updateUserProfileUseCase;
         this.exploreUserProfileUseCase = exploreUserProfileUseCase;
         this.assessProfileSufficiencyUseCase = assessProfileSufficiencyUseCase;
+        this.confirmUserProfileUseCase = confirmUserProfileUseCase;
+        this.continueDiscoveryUseCase = continueDiscoveryUseCase;
+        this.reopenDiscoveryUseCase = reopenDiscoveryUseCase;
     }
 
     @PostMapping
@@ -99,6 +111,41 @@ public class UserProfileController {
     @PostMapping("/{id}/sufficiency-assessment")
     public SufficiencyAssessmentResponse assessSufficiency(@PathVariable String id) {
         return toResponse(assessProfileSufficiencyUseCase.assess(new UserProfileId(id)));
+    }
+
+    /**
+     * 用户明确确认当前 Profile（REVIEWING → CONFIRMED）。
+     *
+     * <p>这是人类决策边界：它只能由调用方的显式请求触发，AI 流程没有通往这里的路径。
+     *
+     * <p>请求必须携带用户确认时所依据的 revision；内容在用户查看之后又变化过时，
+     * Domain 会拒绝这次确认并返回 409，而不是默默确认服务端的最新版本。
+     * 确认不推进 revision，因此返回的 {@code status} 与 {@code revision} 组合就是
+     * 后续 Product Direction Discovery 可以引用的稳定基线。
+     */
+    @PostMapping("/{id}/confirm")
+    public UserProfileResponse confirm(@PathVariable String id,
+                                       @RequestBody ConfirmUserProfileRequest request) {
+        if (request.revision() == null) {
+            throw new IllegalArgumentException("确认请求必须携带所依据的 revision");
+        }
+        return toResponse(confirmUserProfileUseCase.confirm(new UserProfileId(id), request.revision()));
+    }
+
+    /**
+     * 用户在 Review 阶段选择继续探索（REVIEWING → EXPLORING）。
+     */
+    @PostMapping("/{id}/continue-discovery")
+    public UserProfileResponse continueDiscovery(@PathVariable String id) {
+        return toResponse(continueDiscoveryUseCase.continueDiscovery(new UserProfileId(id)));
+    }
+
+    /**
+     * 用户重新开启探索（CONFIRMED → EXPLORING）。
+     */
+    @PostMapping("/{id}/reopen-discovery")
+    public UserProfileResponse reopenDiscovery(@PathVariable String id) {
+        return toResponse(reopenDiscoveryUseCase.reopenDiscovery(new UserProfileId(id)));
     }
 
     private static SufficiencyAssessmentResponse toResponse(SufficiencyAssessment assessment) {

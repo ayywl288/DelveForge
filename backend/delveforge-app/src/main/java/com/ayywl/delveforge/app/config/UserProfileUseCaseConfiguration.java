@@ -3,9 +3,12 @@ package com.ayywl.delveforge.app.config;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.userdiscovery.AssessProfileSufficiencyUseCase;
+import com.ayywl.delveforge.application.userdiscovery.ConfirmUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.ContinueDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.CreateUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.ExploreUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.GetUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.ReopenDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileUseCase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
@@ -57,5 +60,20 @@ public class UserProfileUseCaseConfiguration {
             AiGateway aiGateway,
             ObjectMapper objectMapper) {
         return new AssessProfileSufficiencyUseCase(userProfileRepository, aiGateway, objectMapper);
+    }
+
+    @Bean
+    public ConfirmUserProfileUseCase confirmUserProfileUseCase(UserProfileRepository userProfileRepository) {
+        return new ConfirmUserProfileUseCase(userProfileRepository);
+    }
+
+    @Bean
+    public ContinueDiscoveryUseCase continueDiscoveryUseCase(UserProfileRepository userProfileRepository) {
+        return new ContinueDiscoveryUseCase(userProfileRepository);
+    }
+
+    @Bean
+    public ReopenDiscoveryUseCase reopenDiscoveryUseCase(UserProfileRepository userProfileRepository) {
+        return new ReopenDiscoveryUseCase(userProfileRepository);
     }
 }

@@ -469,6 +469,9 @@ Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
 | `PATCH` | `/api/user-profiles/{id}`        | 结构化 partial update，返回更新后的 Profile                | 200  | 400 / 404 |
 | `POST`  | `/api/user-profiles/{id}/explore`| 提交一轮用户自然语言输入，由 AI 提出建议后更新，返回更新后的 Profile | 200  | 400 / 404 / 502 |
 | `POST`  | `/api/user-profiles/{id}/sufficiency-assessment` | 评估当前 Profile 信息是否足够进入 Review 阶段 | 200 | 404 / 502 |
+| `POST`  | `/api/user-profiles/{id}/confirm` | 用户确认 Profile（`REVIEWING → CONFIRMED`），请求体须携带所依据的 revision | 200 | 400 / 404 / 409 |
+| `POST`  | `/api/user-profiles/{id}/continue-discovery` | 用户选择继续探索（`REVIEWING → EXPLORING`） | 200 | 404 / 409 |
+| `POST`  | `/api/user-profiles/{id}/reopen-discovery` | 用户重新开启探索（`CONFIRMED → EXPLORING`） | 200 | 404 / 409 |
 
 **explore 语义**
 
@@ -504,6 +507,36 @@ sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是�
 会被解析层拒绝，按 502 处理且不改变任何状态。
 
 评估结果当前不持久化，每次调用都会重新评估。
+
+**Review / Confirm 语义**
+
+Review 阶段复用已有的 `GET`：它已经返回完整的内容、`status` 与 `revision`，
+不为「Review」另建一套读取模型。用户在这个界面上可以做三件事：
+
+```text
+PATCH  {id}                修正内容      状态保持 REVIEWING；实际变化才推进 revision
+POST   {id}/continue-discovery  继续探索  REVIEWING → EXPLORING
+POST   {id}/reopen-discovery    重新探索  CONFIRMED → EXPLORING
+POST   {id}/confirm             确认      REVIEWING → CONFIRMED
+       请求体 {"revision": <用户查看时所依据的 revision>}
+```
+
+- 三个动作都是**人类决策**，只能由调用方的显式请求触发；AI 流程（`explore`、
+  `sufficiency-assessment`）没有通往 `CONFIRMED` 的路径。
+- **确认必须绑定用户实际查看的版本。** 确认的意义是「用户同意了这一版内容」，
+  而不是「确认服务端当前碰巧是什么版本」。请求体缺少 `revision` 是请求形状错误（400）；
+  `revision` 与当前 revision 不一致说明内容在用户查看之后又变化过，此时确认不再代表
+  用户的真实决定，返回 409 且不写入任何内容。继续探索与重新探索不表达对内容的认可，
+  因此不需要绑定 revision。
+- 状态转换本身不推进 `revision`（§6.1 的 Revision 触发规则只覆盖内容与 Evidence）。
+  因此确认结果是「`CONFIRMED` @ 确认时的 `revision`」：该 revision 的内容快照已由
+  Persistence 保留，确认之后内容修改被拒绝，这个组合构成 Product Direction Discovery
+  可以稳定引用的基线。
+- 非法起始状态一律 409 `CONFLICT`（例如在 `EXPLORING` 直接确认、在 `CONFIRMED`
+  再次确认），不会落到 500。
+- `UserProfileConfirmed`（`DOMAIN_MODEL.md` §9.1）是这一事实的领域表达。当前不引入
+  事件机制，该语义由「状态被持久化 + revision 被保留」承载；事件如何传播仍属于
+  §14.10 的未决问题。
 
 **PATCH 语义**
 
