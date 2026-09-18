@@ -1,6 +1,8 @@
 package com.ayywl.delveforge.application.userdiscovery;
 
+import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.domain.user.UserProfile;
+import com.ayywl.delveforge.domain.user.UserProfileId;
 
 /**
  * 构造 User Profile 的隔离候选副本。
@@ -15,6 +17,19 @@ import com.ayywl.delveforge.domain.user.UserProfile;
 final class UserProfileCandidates {
 
     private UserProfileCandidates() {
+    }
+
+    /**
+     * 按标识取出已有 Profile，并返回它的隔离候选副本。
+     *
+     * <p>供「只需要拿到候选副本、不需要读取原对象内容」的 Use Case 使用，
+     * 使「改动必须落在副本上」这条约束只存在于一处，不会被某条路径漏掉。
+     *
+     * @throws UserProfileNotFoundException Profile 不存在
+     */
+    static UserProfile loadCopy(UserProfileRepository repository, UserProfileId userProfileId) {
+        return copyOf(repository.findById(userProfileId)
+                .orElseThrow(() -> new UserProfileNotFoundException(userProfileId)));
     }
 
     static UserProfile copyOf(UserProfile profile) {

@@ -15,6 +15,7 @@ import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+import com.ayywl.delveforge.domain.user.UserProfileStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
@@ -118,6 +119,23 @@ class ExploreUserProfileUseCaseTest {
 
         assertEquals(revisionBefore, updated.revision(),
                 "无实际变化时不得由本层人为推进 revision");
+    }
+
+    /**
+     * AI 流程不能改变 Profile 状态：无论模型输出什么，explore 都只改内容。
+     *
+     * <p>确认（REVIEWING → CONFIRMED）只能由用户显式请求触发，
+     * AI 侧不存在通往它的路径。
+     */
+    @Test
+    void neverChangesProfileStatus() {
+        UserProfile profile = seedProfile();
+        aiGateway.respond("{\"interests\":[\"兴趣\"],\"status\":\"CONFIRMED\"}");
+
+        UserProfile updated = useCase.explore(PROFILE_ID, USER_INPUT);
+
+        assertEquals(UserProfileStatus.EXPLORING, updated.status());
+        assertEquals(UserProfileStatus.EXPLORING, profile.status());
     }
 
     @Test
