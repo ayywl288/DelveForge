@@ -3,6 +3,7 @@ package com.ayywl.delveforge.application.userdiscovery;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.user.UserProfile;
+import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -39,7 +40,7 @@ public class UpdateUserProfileUseCase {
      * @return 更新后的 Profile
      * @throws UserProfileNotFoundException 目标 Profile 不存在
      * @throws IllegalArgumentException     输入不满足 Aggregate 的内容约束
-     * @throws IllegalStateException        当前状态不允许修改 Profile 内容
+     * @throws UserProfileStateException   当前状态不允许修改 Profile 内容
      */
     public UserProfile update(UpdateUserProfileRequest request) {
         UserProfile profile = userProfileRepository.findById(request.profileId())

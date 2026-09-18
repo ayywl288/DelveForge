@@ -10,6 +10,7 @@ import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.user.UserProfile;
+import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -116,7 +117,7 @@ public class ExploreUserProfileUseCase {
      * @throws UserProfileNotFoundException 目标 Profile 不存在
      * @throws AiGatewayException           AI 调用失败，或返回内容无法解析
      * @throws IllegalArgumentException     建议不满足 Aggregate 的内容约束
-     * @throws IllegalStateException        当前状态不允许修改 Profile
+     * @throws UserProfileStateException   当前状态不允许修改 Profile
      */
     public UserProfile explore(UserProfileId userProfileId, String userInput) {
         if (userInput == null || userInput.isBlank()) {
@@ -131,32 +132,11 @@ public class ExploreUserProfileUseCase {
 
         // 先应用到隔离的候选副本：Aggregate 拒绝任何一条建议时，从 Repository 读到的
         // 那个对象不会被留下半更新状态，即使调用方随后重新读取同一实例也看到原状。
-        UserProfile candidate = isolatedCandidateOf(profile);
+        UserProfile candidate = UserProfileCandidates.copyOf(profile);
         applyProposal(candidate, proposal, userInput);
 
         userProfileRepository.save(candidate);
         return candidate;
-    }
-
-    /**
-     * 按当前状态构造一个隔离的候选副本。
-     *
-     * <p>使用 {@code reconstitute} 而不是逐字段复制：它就是「按已知状态重建一个
-     * User Profile」，重建出的对象拥有完整的领域语义与规则，后续更新行为与普通
-     * Aggregate 完全一致。
-     */
-    private static UserProfile isolatedCandidateOf(UserProfile profile) {
-        return UserProfile.reconstitute(
-                profile.id(),
-                profile.status(),
-                profile.revision(),
-                profile.interests(),
-                profile.behaviors(),
-                profile.painPoints(),
-                profile.technicalCapabilities(),
-                profile.projectGoals(),
-                profile.constraints(),
-                profile.evidence());
     }
 
     private AiRequest buildRequest(UserProfile profile, String userInput) {
@@ -175,7 +155,7 @@ public class ExploreUserProfileUseCase {
      */
     private String describeContext(UserProfile profile, String userInput) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("currentUserProfile", currentContent(profile));
+        payload.put("currentUserProfile", ProfilePromptContext.currentContent(profile));
         payload.put("currentUserInput", userInput);
 
         try {
@@ -183,17 +163,6 @@ public class ExploreUserProfileUseCase {
         } catch (JsonProcessingException exception) {
             throw new AiGatewayException("无法构造 AI 请求内容", exception);
         }
-    }
-
-    private static Map<String, Object> currentContent(UserProfile profile) {
-        Map<String, Object> content = new LinkedHashMap<>();
-        content.put("interests", profile.interests());
-        content.put("behaviors", profile.behaviors());
-        content.put("painPoints", profile.painPoints());
-        content.put("technicalCapabilities", profile.technicalCapabilities());
-        content.put("projectGoals", profile.projectGoals());
-        content.put("constraints", profile.constraints());
-        return content;
     }
 
     private static void applyProposal(UserProfile profile,

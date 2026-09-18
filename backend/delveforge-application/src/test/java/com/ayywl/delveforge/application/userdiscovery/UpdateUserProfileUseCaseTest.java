@@ -8,6 +8,7 @@ import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStatus;
+import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -155,7 +156,7 @@ class UpdateUserProfileUseCaseTest {
         repository.save(confirmed);
         int savesBefore = repository.saveCount();
 
-        assertThrows(IllegalStateException.class,
+        assertThrows(UserProfileStateException.class,
                 () -> useCase.update(painPointsOnly(List.of("痛点"))));
 
         assertEquals(List.of("兴趣"), confirmed.interests());
