@@ -27,73 +27,73 @@ class UpdateUserProfileUseCaseTest {
 
     @Test
     void appliesOnlyProvidedSections() {
-        UserProfile profile = seedProfile();
-        profile.updateInterests(List.of("兴趣"));
-        profile.updateBehaviors(List.of("行为"));
-        int revisionBefore = profile.revision();
+        UserProfile seeded = seedProfile();
+        seeded.updateInterests(List.of("兴趣"));
+        seeded.updateBehaviors(List.of("行为"));
+        int revisionBefore = seeded.revision();
 
-        useCase.update(interestsOnly(List.of("新兴趣")));
+        UserProfile updated = useCase.update(interestsOnly(List.of("新兴趣")));
 
-        assertEquals(List.of("新兴趣"), profile.interests());
-        assertEquals(List.of("行为"), profile.behaviors(), "未提供的区必须保持原值");
-        assertEquals(revisionBefore + 1, profile.revision());
+        assertEquals(List.of("新兴趣"), updated.interests());
+        assertEquals(List.of("行为"), updated.behaviors(), "未提供的区必须保持原值");
+        assertEquals(revisionBefore + 1, updated.revision());
     }
 
     @Test
     void replacesProvidedSectionInsteadOfMerging() {
-        UserProfile profile = seedProfile();
-        profile.updateInterests(List.of("兴趣 A", "兴趣 B"));
-        int revisionBefore = profile.revision();
+        UserProfile seeded = seedProfile();
+        seeded.updateInterests(List.of("兴趣 A", "兴趣 B"));
+        int revisionBefore = seeded.revision();
 
-        useCase.update(interestsOnly(List.of("兴趣 C")));
+        UserProfile updated = useCase.update(interestsOnly(List.of("兴趣 C")));
 
-        assertEquals(List.of("兴趣 C"), profile.interests(), "提供的内容是该区更新后的完整状态，不是增量");
-        assertEquals(revisionBefore + 1, profile.revision());
+        assertEquals(List.of("兴趣 C"), updated.interests(), "提供的内容是该区更新后的完整状态，不是增量");
+        assertEquals(revisionBefore + 1, updated.revision());
     }
 
     @Test
     void clearsSectionWhenProvidedContentIsEmpty() {
-        UserProfile profile = seedProfile();
+        seedProfile();
         useCase.update(interestsOnly(List.of("兴趣")));
 
-        useCase.update(interestsOnly(List.of()));
+        UserProfile updated = useCase.update(interestsOnly(List.of()));
 
-        assertEquals(List.of(), profile.interests());
+        assertEquals(List.of(), updated.interests());
     }
 
     @Test
     void doesNotAdvanceRevisionWhenProvidedContentIsUnchanged() {
-        UserProfile profile = seedProfile();
-        useCase.update(painPointsOnly(List.of("痛点")));
-        int revisionAfterUpdate = profile.revision();
+        seedProfile();
+        UserProfile afterFirstUpdate = useCase.update(painPointsOnly(List.of("痛点")));
+        int revisionAfterUpdate = afterFirstUpdate.revision();
 
-        useCase.update(allSectionsOf(profile));
+        UserProfile updated = useCase.update(allSectionsOf(afterFirstUpdate));
 
-        assertEquals(revisionAfterUpdate, profile.revision(),
+        assertEquals(revisionAfterUpdate, updated.revision(),
                 "提供与当前完全相同的值时，Application 不得人为推进 revision");
     }
 
     @Test
     void advancesRevisionOncePerActuallyChangedSection() {
-        UserProfile profile = seedProfile();
-        int revisionBefore = profile.revision();
+        UserProfile seeded = seedProfile();
+        int revisionBefore = seeded.revision();
 
-        useCase.update(new UpdateUserProfileRequest(PROFILE_ID,
+        UserProfile updated = useCase.update(new UpdateUserProfileRequest(PROFILE_ID,
                 List.of("兴趣"), null, List.of("痛点"), null, List.of("目标"), null, null));
 
-        assertEquals(revisionBefore + 3, profile.revision(),
+        assertEquals(revisionBefore + 3, updated.revision(),
                 "revision 按实际变化的区数推进，由 Aggregate 决定而非 Application 每次调用加一");
     }
 
     @Test
     void loadsProfileByIdentityAndLeavesOtherProfilesUntouched() {
-        UserProfile target = seedProfile();
+        seedProfile();
         UserProfile other = UserProfile.create(OTHER_PROFILE_ID);
         repository.save(other);
 
-        useCase.update(painPointsOnly(List.of("痛点")));
+        UserProfile updated = useCase.update(painPointsOnly(List.of("痛点")));
 
-        assertEquals(List.of("痛点"), target.painPoints());
+        assertEquals(List.of("痛点"), updated.painPoints());
         assertEquals(List.of(), other.painPoints());
         assertEquals(INITIAL_REVISION, other.revision());
     }
@@ -112,14 +112,14 @@ class UpdateUserProfileUseCaseTest {
 
     @Test
     void recordsAdditionalEvidenceThroughAggregate() {
-        UserProfile profile = seedProfile();
+        seedProfile();
         Evidence evidence = new Evidence(
                 EvidenceSourceType.USER_INPUT, "user-answer-1", "用户关注图片处理", null, true);
 
-        useCase.update(evidenceOnly(List.of(evidence)));
+        UserProfile updated = useCase.update(evidenceOnly(List.of(evidence)));
 
-        assertEquals(List.of(evidence), profile.evidence());
-        assertEquals(INITIAL_REVISION + 1, profile.revision());
+        assertEquals(List.of(evidence), updated.evidence());
+        assertEquals(INITIAL_REVISION + 1, updated.revision());
     }
 
     @Test
@@ -142,6 +142,41 @@ class UpdateUserProfileUseCaseTest {
         assertEquals(List.of(), profile.projectGoals());
         assertEquals(INITIAL_REVISION, profile.revision());
         assertEquals(1, repository.saveCount(), "Domain 拒绝后不得保存");
+    }
+
+    /**
+     * 回归：前面几个内容区合法、后面一个被 Aggregate 拒绝时，从 Repository 读到的对象
+     * 不得留下半更新——第一个区已经被应用到内存对象上，正是这里要防住的情况。
+     */
+    @Test
+    void doesNotLeaveHalfUpdatedProfileWhenSectionIsRejectedMidway() {
+        UserProfile profile = seedProfile();
+        int revisionBefore = profile.revision();
+        int savesBefore = repository.saveCount();
+
+        assertThrows(IllegalArgumentException.class, () -> useCase.update(
+                new UpdateUserProfileRequest(PROFILE_ID,
+                        List.of("这个区会先被应用"), List.of("  "), null, null, null, null, null)));
+
+        assertNothingChanged(profile, revisionBefore, savesBefore);
+    }
+
+    /**
+     * 回归：六个内容区都合法、最后由 Evidence 触发拒绝时同样不得留下半更新。
+     */
+    @Test
+    void doesNotLeaveHalfUpdatedProfileWhenEvidenceIsRejected() {
+        UserProfile profile = seedProfile();
+        int revisionBefore = profile.revision();
+        int savesBefore = repository.saveCount();
+
+        assertThrows(IllegalArgumentException.class, () -> useCase.update(
+                new UpdateUserProfileRequest(PROFILE_ID,
+                        List.of("这个区会先被应用"), null, null, null, null, null,
+                        List.of(new Evidence(
+                                EvidenceSourceType.USER_INPUT, "user-answer-1", "  ", null, true)))));
+
+        assertNothingChanged(profile, revisionBefore, savesBefore);
     }
 
     /**
@@ -179,6 +214,19 @@ class UpdateUserProfileUseCaseTest {
         UserProfile profile = UserProfile.create(PROFILE_ID);
         repository.save(profile);
         return profile;
+    }
+
+    /**
+     * 断言 Profile 完全没有被改动：原对象与重新读取的内容都保持原状，也没有写入。
+     */
+    private void assertNothingChanged(UserProfile original, int revisionBefore, int savesBefore) {
+        assertEquals(List.of(), original.interests(), "原对象不得被修改");
+        assertEquals(revisionBefore, original.revision(), "原对象的 revision 不得变化");
+
+        UserProfile reloaded = repository.findById(PROFILE_ID).orElseThrow();
+        assertEquals(List.of(), reloaded.interests(), "重新读取的内容不得变化");
+        assertEquals(revisionBefore, reloaded.revision(), "重新读取的 revision 不得变化");
+        assertEquals(savesBefore, repository.saveCount(), "不得写入");
     }
 
     private static UpdateUserProfileRequest interestsOnly(List<String> interests) {

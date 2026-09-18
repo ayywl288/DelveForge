@@ -19,6 +19,12 @@ import java.util.function.Consumer;
  * 本层也不会人为制造一次 revision 推进——它同样不会试图跳过保存，
  * 因为“是否有实际变化”本就属于 Domain 的判断。
  *
+ * <h2>失败时不留下半更新</h2>
+ *
+ * <p>更新落在隔离的候选副本上，写入只发生在最后一步。前面几个内容区已被接受、
+ * 后面一个被 Aggregate 拒绝时，从 Repository 读到的那个对象不会被留在半更新状态
+ * ——即使调用方随后重新读取同一实例，看到的仍是原状。
+ *
  * <p>本 Use Case 不包含：用户输入如何被转换为结构化更新、Sufficiency Assessment、
  * Review / Correct / Confirm 流程。
  */
@@ -43,24 +49,27 @@ public class UpdateUserProfileUseCase {
      * @throws UserProfileStateException   当前状态不允许修改 Profile 内容
      */
     public UserProfile update(UpdateUserProfileRequest request) {
-        UserProfile profile = userProfileRepository.findById(request.profileId())
-                .orElseThrow(() -> new UserProfileNotFoundException(request.profileId()));
+        // 更新落在隔离的候选副本上，而不是 Repository 返回的那个对象：
+        // 后者同时也是持久化状态的载体，中途失败会让它留在半更新状态。
+        UserProfile candidate = UserProfileCandidates.copyOf(
+                userProfileRepository.findById(request.profileId())
+                        .orElseThrow(() -> new UserProfileNotFoundException(request.profileId())));
 
-        applySection(request.interests(), profile::updateInterests);
-        applySection(request.behaviors(), profile::updateBehaviors);
-        applySection(request.painPoints(), profile::updatePainPoints);
-        applySection(request.technicalCapabilities(), profile::updateTechnicalCapabilities);
-        applySection(request.projectGoals(), profile::updateProjectGoals);
-        applySection(request.constraints(), profile::updateConstraints);
+        applySection(request.interests(), candidate::updateInterests);
+        applySection(request.behaviors(), candidate::updateBehaviors);
+        applySection(request.painPoints(), candidate::updatePainPoints);
+        applySection(request.technicalCapabilities(), candidate::updateTechnicalCapabilities);
+        applySection(request.projectGoals(), candidate::updateProjectGoals);
+        applySection(request.constraints(), candidate::updateConstraints);
 
         if (request.additionalEvidence() != null) {
             for (Evidence evidence : request.additionalEvidence()) {
-                profile.recordEvidence(evidence);
+                candidate.recordEvidence(evidence);
             }
         }
 
-        userProfileRepository.save(profile);
-        return profile;
+        userProfileRepository.save(candidate);
+        return candidate;
     }
 
     /**
