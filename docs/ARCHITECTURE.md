@@ -326,6 +326,7 @@ Domain / Application 不出现任何技术配置类型。
 异常来源                                  HTTP       ApiErrorCode
 IllegalArgumentException                 400        INVALID_REQUEST
 UserProfileNotFoundException             404        NOT_FOUND
+UserProfileStateException                409        CONFLICT
 AiGatewayException                       502        EXTERNAL_CAPABILITY_UNAVAILABLE
 WorkspaceException                       500        INTERNAL_ERROR
 Spring MVC 协议层异常                      由框架决定   INVALID_REQUEST / INTERNAL_ERROR
@@ -335,6 +336,12 @@ Spring MVC 协议层异常                      由框架决定   INVALID_REQUES
 
 `UserProfileNotFoundException` 表示调用方的请求形态合法、但目标当前不存在，
 与 `IllegalArgumentException`（请求本身不合法）区分开。
+
+`UserProfileStateException` 是领域自己的状态冲突类型（例如对已经进入 REVIEWING 的
+Profile 再次执行状态转移、修改 CONFIRMED 的 Profile）。**不要映射通用的
+`IllegalStateException`**：它可能来自 JDK 或第三方库，一律当成 409 会把真正的
+服务端故障伪装成可重试的客户端冲突。其它业务模块出现同类语义时各自提供自己的
+异常类型，而不是共用一个通用基类。
 
 映射集中在一处（`delveforge-app` 的 error 包），Controller 不承担异常分类与错误构造。
 
@@ -461,6 +468,7 @@ Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
 | `GET`   | `/api/user-profiles/{id}`        | 返回当前（最新）revision 的 Profile                        | 200  | 404  |
 | `PATCH` | `/api/user-profiles/{id}`        | 结构化 partial update，返回更新后的 Profile                | 200  | 400 / 404 |
 | `POST`  | `/api/user-profiles/{id}/explore`| 提交一轮用户自然语言输入，由 AI 提出建议后更新，返回更新后的 Profile | 200  | 400 / 404 / 502 |
+| `POST`  | `/api/user-profiles/{id}/sufficiency-assessment` | 评估当前 Profile 信息是否足够进入 Review 阶段 | 200 | 404 / 502 |
 
 **explore 语义**
 
@@ -476,6 +484,26 @@ Aggregate 决定是否接受。AI 只提出建议：
 - `revision` 是否推进仍由 Domain 判断。
 
 AI 调用失败或返回内容无法解析时返回 502，与其它外部能力失败一致。
+
+**sufficiency-assessment 语义**
+
+```text
+请求体    无
+响应体    {"sufficient": …, "missingAreas": [...], "nextQuestion": …, "profileStatus": "…"}
+```
+
+系统把「当前 Profile」交给 AI Gateway，得到一份充分性建议，再决定是否推进状态：
+
+```text
+insufficient   Profile 保持 EXPLORING，不写入、不推进 revision
+sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是否允许 EXPLORING → REVIEWING
+```
+
+模型输出里没有状态字段：AI 只表达「够不够、缺什么、下一问是什么」，
+`profileStatus` 始终由 Domain 决定。模型输出自相矛盾（例如声明足够却列出缺失信息）
+会被解析层拒绝，按 502 处理且不改变任何状态。
+
+评估结果当前不持久化，每次调用都会重新评估。
 
 **PATCH 语义**
 

@@ -1,8 +1,10 @@
 package com.ayywl.delveforge.app.api;
 
+import com.ayywl.delveforge.application.userdiscovery.AssessProfileSufficiencyUseCase;
 import com.ayywl.delveforge.application.userdiscovery.CreateUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.ExploreUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.GetUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.SufficiencyAssessment;
 import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileRequest;
 import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileUseCase;
 import com.ayywl.delveforge.domain.evidence.Evidence;
@@ -45,15 +47,18 @@ public class UserProfileController {
     private final GetUserProfileUseCase getUserProfileUseCase;
     private final UpdateUserProfileUseCase updateUserProfileUseCase;
     private final ExploreUserProfileUseCase exploreUserProfileUseCase;
+    private final AssessProfileSufficiencyUseCase assessProfileSufficiencyUseCase;
 
     public UserProfileController(CreateUserProfileUseCase createUserProfileUseCase,
                                  GetUserProfileUseCase getUserProfileUseCase,
                                  UpdateUserProfileUseCase updateUserProfileUseCase,
-                                 ExploreUserProfileUseCase exploreUserProfileUseCase) {
+                                 ExploreUserProfileUseCase exploreUserProfileUseCase,
+                                 AssessProfileSufficiencyUseCase assessProfileSufficiencyUseCase) {
         this.createUserProfileUseCase = createUserProfileUseCase;
         this.getUserProfileUseCase = getUserProfileUseCase;
         this.updateUserProfileUseCase = updateUserProfileUseCase;
         this.exploreUserProfileUseCase = exploreUserProfileUseCase;
+        this.assessProfileSufficiencyUseCase = assessProfileSufficiencyUseCase;
     }
 
     @PostMapping
@@ -83,6 +88,25 @@ public class UserProfileController {
     public UserProfileResponse explore(@PathVariable String id,
                                        @RequestBody ExploreUserProfileRequest request) {
         return toResponse(exploreUserProfileUseCase.explore(new UserProfileId(id), request.input()));
+    }
+
+    /**
+     * 评估当前 Profile 的信息是否足够进入 Review 阶段。
+     *
+     * <p>是否需要状态转移由 Application 与 Domain 决定；本层只返回结果，
+     * 不判断「足够」的含义，也不接触状态。
+     */
+    @PostMapping("/{id}/sufficiency-assessment")
+    public SufficiencyAssessmentResponse assessSufficiency(@PathVariable String id) {
+        return toResponse(assessProfileSufficiencyUseCase.assess(new UserProfileId(id)));
+    }
+
+    private static SufficiencyAssessmentResponse toResponse(SufficiencyAssessment assessment) {
+        return new SufficiencyAssessmentResponse(
+                assessment.sufficient(),
+                assessment.missingAreas(),
+                assessment.nextQuestion(),
+                assessment.profileStatus());
     }
 
     private static UpdateUserProfileRequest toApplicationRequest(String id,

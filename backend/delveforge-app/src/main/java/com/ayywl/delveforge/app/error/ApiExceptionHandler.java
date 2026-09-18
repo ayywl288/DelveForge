@@ -2,6 +2,7 @@ package com.ayywl.delveforge.app.error;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
+import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import com.ayywl.delveforge.application.userdiscovery.UserProfileNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
@@ -58,6 +59,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final String INVALID_REQUEST_MESSAGE = "请求内容不合法，详细信息见服务端日志";
     private static final String NOT_FOUND_MESSAGE = "指定的资源不存在";
+    private static final String CONFLICT_MESSAGE = "请求与当前状态冲突，详细信息见服务端日志";
     private static final String AI_GATEWAY_FAILURE_MESSAGE = "外部 AI 能力调用失败，详细信息见服务端日志";
     private static final String WORKSPACE_FAILURE_MESSAGE = "本地能力调用失败，详细信息见服务端日志";
     private static final String INTERNAL_ERROR_MESSAGE = "服务内部错误，详细信息见服务端日志";
@@ -98,6 +100,29 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
         return new ApiErrorResponse(
                 ApiErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE,
+                request.getRequestURI(), Instant.now());
+    }
+
+    /**
+     * 领域对象当前状态不允许该操作。
+     *
+     * <p>请求本身可以理解，只是对象当前处于不能执行该操作的状态（例如对已经进入
+     * REVIEWING 的 Profile 再次执行状态转移、修改 CONFIRMED 的 Profile）。
+     * 这属于可预期的冲突，不是服务端故障，因此与
+     * {@link IllegalArgumentException}（请求不合法）和兜底处理（未预期错误）区分开。
+     *
+     * <p>只映射领域自己的状态异常类型，不映射通用的 {@link IllegalStateException}：
+     * 后者可能来自 JDK 或第三方库，把它们一律当成 409 会掩盖真正的服务端错误。
+     */
+    @ExceptionHandler(UserProfileStateException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiErrorResponse handleStateConflict(UserProfileStateException exception,
+                                                HttpServletRequest request) {
+        log.warn("operation=interface.request path={} result=CONFLICT exception={}",
+                loggedRoute(request), describe(exception));
+
+        return new ApiErrorResponse(
+                ApiErrorCode.CONFLICT, CONFLICT_MESSAGE,
                 request.getRequestURI(), Instant.now());
     }
 
@@ -217,6 +242,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return switch (code) {
             case INVALID_REQUEST -> INVALID_REQUEST_MESSAGE;
             case NOT_FOUND -> NOT_FOUND_MESSAGE;
+            case CONFLICT -> CONFLICT_MESSAGE;
             case EXTERNAL_CAPABILITY_UNAVAILABLE -> AI_GATEWAY_FAILURE_MESSAGE;
             case INTERNAL_ERROR -> INTERNAL_ERROR_MESSAGE;
         };

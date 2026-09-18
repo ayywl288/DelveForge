@@ -17,6 +17,9 @@ public enum ApiErrorCode {
     /** 请求指向的领域对象不存在。 */
     NOT_FOUND,
 
+    /** 请求与领域对象当前状态冲突，调整时机或状态后可重试。 */
+    CONFLICT,
+
     /** DelveForge 依赖的外部能力当前不可用。 */
     EXTERNAL_CAPABILITY_UNAVAILABLE,
 

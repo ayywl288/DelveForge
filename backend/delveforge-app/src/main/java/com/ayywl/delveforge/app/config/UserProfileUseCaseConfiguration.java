@@ -2,6 +2,7 @@ package com.ayywl.delveforge.app.config;
 
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.userdiscovery.AssessProfileSufficiencyUseCase;
 import com.ayywl.delveforge.application.userdiscovery.CreateUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.ExploreUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.GetUserProfileUseCase;
@@ -48,5 +49,13 @@ public class UserProfileUseCaseConfiguration {
             AiGateway aiGateway,
             ObjectMapper objectMapper) {
         return new ExploreUserProfileUseCase(userProfileRepository, aiGateway, objectMapper);
+    }
+
+    @Bean
+    public AssessProfileSufficiencyUseCase assessProfileSufficiencyUseCase(
+            UserProfileRepository userProfileRepository,
+            AiGateway aiGateway,
+            ObjectMapper objectMapper) {
+        return new AssessProfileSufficiencyUseCase(userProfileRepository, aiGateway, objectMapper);
     }
 }
