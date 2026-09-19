@@ -23,6 +23,8 @@ import com.ayywl.delveforge.application.userdiscovery.review.ContinueDiscoveryUs
 import com.ayywl.delveforge.application.userdiscovery.review.ReopenDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
+import com.ayywl.delveforge.application.userdiscovery.workflow.RunUserDiscoveryTurnUseCase;
+import com.ayywl.delveforge.application.userdiscovery.workflow.UserDiscoveryTurn;
 
 /**
  * User Profile 业务端点。
@@ -54,6 +56,7 @@ public class UserProfileController {
     private final ConfirmUserProfileUseCase confirmUserProfileUseCase;
     private final ContinueDiscoveryUseCase continueDiscoveryUseCase;
     private final ReopenDiscoveryUseCase reopenDiscoveryUseCase;
+    private final RunUserDiscoveryTurnUseCase runUserDiscoveryTurnUseCase;
 
     public UserProfileController(CreateUserProfileUseCase createUserProfileUseCase,
                                  GetUserProfileUseCase getUserProfileUseCase,
@@ -62,7 +65,8 @@ public class UserProfileController {
                                  AssessProfileSufficiencyUseCase assessProfileSufficiencyUseCase,
                                  ConfirmUserProfileUseCase confirmUserProfileUseCase,
                                  ContinueDiscoveryUseCase continueDiscoveryUseCase,
-                                 ReopenDiscoveryUseCase reopenDiscoveryUseCase) {
+                                 ReopenDiscoveryUseCase reopenDiscoveryUseCase,
+                                 RunUserDiscoveryTurnUseCase runUserDiscoveryTurnUseCase) {
         this.createUserProfileUseCase = createUserProfileUseCase;
         this.getUserProfileUseCase = getUserProfileUseCase;
         this.updateUserProfileUseCase = updateUserProfileUseCase;
@@ -71,6 +75,7 @@ public class UserProfileController {
         this.confirmUserProfileUseCase = confirmUserProfileUseCase;
         this.continueDiscoveryUseCase = continueDiscoveryUseCase;
         this.reopenDiscoveryUseCase = reopenDiscoveryUseCase;
+        this.runUserDiscoveryTurnUseCase = runUserDiscoveryTurnUseCase;
     }
 
     @PostMapping
@@ -114,6 +119,20 @@ public class UserProfileController {
     }
 
     /**
+     * 面向产品的一轮 User Discovery：一轮用户输入完成「提取 → 更新 → 评估 → 必要时进入
+     * Review」。
+     *
+     * <p>整轮作用在同一个候选 Profile 上并只保存一次；任何一步失败都不会留下半轮结果。
+     * 返回的 {@code sufficient} 为 false 时，调用方用 {@code nextQuestion} 向用户提问，
+     * 拿到回答后再发起下一轮——循环跨 HTTP 请求完成，服务端不等待用户。
+     */
+    @PostMapping("/{id}/discovery-turn")
+    public DiscoveryTurnResponse discoveryTurn(@PathVariable String id,
+                                               @RequestBody ExploreUserProfileRequest request) {
+        return toResponse(runUserDiscoveryTurnUseCase.run(new UserProfileId(id), request.input()));
+    }
+
+    /**
      * 用户明确确认当前 Profile（REVIEWING → CONFIRMED）。
      *
      * <p>这是人类决策边界：它只能由调用方的显式请求触发，AI 流程没有通往这里的路径。
@@ -146,6 +165,15 @@ public class UserProfileController {
     @PostMapping("/{id}/reopen-discovery")
     public UserProfileResponse reopenDiscovery(@PathVariable String id) {
         return toResponse(reopenDiscoveryUseCase.reopenDiscovery(new UserProfileId(id)));
+    }
+
+    private static DiscoveryTurnResponse toResponse(UserDiscoveryTurn turn) {
+        SufficiencyAssessment assessment = turn.sufficiency();
+        return new DiscoveryTurnResponse(
+                toResponse(turn.profile()),
+                assessment.sufficient(),
+                assessment.missingAreas(),
+                assessment.nextQuestion());
     }
 
     private static SufficiencyAssessmentResponse toResponse(SufficiencyAssessment assessment) {

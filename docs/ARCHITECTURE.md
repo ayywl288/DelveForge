@@ -280,7 +280,13 @@ com.ayywl.delveforge.domain
 └── evolution
 
 com.ayywl.delveforge.application
-├── userdiscovery
+├── userdiscovery                 按职责分子包，见下
+│   ├── profile                   创建 / 读取 / 结构化更新
+│   ├── exploration               一轮输入 → AI 建议 → Profile 更新
+│   ├── sufficiency               信息是否足够进入 Review
+│   ├── review                    确认 / 继续探索 / 重新开启探索
+│   ├── workflow                  组合成面向产品的一轮 User Discovery
+│   └── shared                    跨子包协作单元（Application 内部）
 ├── repositoryanalysis
 ├── opportunitydiscovery
 ├── evolution
@@ -472,6 +478,7 @@ Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
 | `POST`  | `/api/user-profiles/{id}/confirm` | 用户确认 Profile（`REVIEWING → CONFIRMED`），请求体须携带所依据的 revision | 200 | 400 / 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/continue-discovery` | 用户选择继续探索（`REVIEWING → EXPLORING`） | 200 | 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/reopen-discovery` | 用户重新开启探索（`CONFIRMED → EXPLORING`） | 200 | 404 / 409 |
+| `POST`  | `/api/user-profiles/{id}/discovery-turn` | 一轮 User Discovery：提取 → 更新 → 评估 → 必要时进入 Review | 200 | 400 / 404 / 409 / 502 |
 
 **explore 语义**
 
@@ -507,6 +514,39 @@ sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是�
 会被解析层拒绝，按 502 处理且不改变任何状态。
 
 评估结果当前不持久化，每次调用都会重新评估。
+
+**discovery-turn 语义**
+
+面向产品的主要入口：一次请求完成一整轮 User Discovery。
+
+```text
+请求体    {"input": "<本轮用户输入的原文>"}
+响应体    {"profile": {…}, "sufficient": …, "missingAreas": […], "nextQuestion": …}
+```
+
+```text
+本轮用户输入
+     ↓
+提取      当前 Profile + 输入 → AI 提出建议 → 更新候选 Profile
+     ↓
+评估      对「本轮已经更新过的候选 Profile」判断信息是否足够
+     ↓
+insufficient  保存更新后的 Profile，返回 missingAreas + nextQuestion，仍为 EXPLORING
+sufficient    执行 EXPLORING → REVIEWING，保存 Profile，返回 REVIEWING
+```
+
+- **一轮只保存一次**：整轮作用在同一个候选 Profile 上，只在最后写入。它不是把
+  `explore` 与 `sufficiency-assessment` 串起来——那样会在探索结束后先落一次库，
+  随后的评估失败就会留下「本轮只完成一半」的持久化状态。
+- **评估针对更新后的候选 Profile**：用户这一轮说的信息必须先进入 Profile 再判断够不够。
+- **失败原子性**：提取的 AI 调用/解析失败、内容更新被 Aggregate 拒绝、评估的 AI 调用/解析
+  失败、`beginReview` 被拒绝——四个失败点都不会产生持久化副作用。
+- **循环跨 HTTP 请求**：一轮返回 `nextQuestion`，调用方据此向用户提问，拿到回答后再发起
+  下一轮。服务端不做 `while`、不等待用户、不保存对话记录。
+- `sufficient` 为 true 时 `profile.status` 一定是 `REVIEWING`——由 Domain 决定，
+  不是接口层写死的。
+
+`explore` 与 `sufficiency-assessment` 保留为更细的步骤入口；`discovery-turn` 是它们的组合。
 
 **Review / Confirm 语义**
 
