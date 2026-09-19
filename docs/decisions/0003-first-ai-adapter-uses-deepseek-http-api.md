@@ -140,8 +140,11 @@ AGENTS.md §8.3 要求「除非当前需求证明必要，否则不引入通用�
 
 ### Risks
 
-- **没有真实 DeepSeek 端点上的联调验证。** 自动化测试全部使用 HTTP 替身，
-  真实 Provider 的响应形状变化只有在实际调用时才会暴露。
+- **真实 DeepSeek 端点只经过一次人工冒烟验证。** 自动化测试全部使用 HTTP 替身
+  （AGENTS.md §10.6），真实 Provider 的响应形状变化仍然只有在实际调用时才会暴露。
+  2026-09-19 做过一次人工冒烟：三轮 `discovery-turn` 的真实调用都通过了 extraction 与
+  sufficiency 解析，并走通 `EXPLORING → REVIEWING → CONFIRMED`。
+  它验证了当时的配置与 Prompt，但不构成回归测试，也不覆盖其它模型或 Prompt 变更。
 - **`confidence` 不由模型提供。** 领域模型尚未规定其数值口径，本 Task 让 Adapter 与
   Application 都不臆造该值，Evidence 的 `confidence` 恒为空。
 - 模型仍然可能给出无关或重复的建议；Domain 会拒绝不合法的内容，

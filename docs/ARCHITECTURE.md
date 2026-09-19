@@ -53,7 +53,7 @@
 - **Persistence Access:** MyBatis-Plus。
 - **Schema Migration:** Flyway。
 - **Initial LLM Provider:** DeepSeek。
-- **Initial Model:** DeepSeek V4.1 Flash；具体 Model ID 与 Provider 参数必须配置化。
+- **Initial Model:** Provider 为 DeepSeek API；默认 model id 为 `deepseek-flash`（配置默认值见 `delveforge-app` 的 `application.yml`）。具体 Model ID 与 Provider 参数必须配置化。
 - **Working Copy:** 基于用户本地 Git Repository 创建独立 Local Git Clone，并从 Repository Profile 对应的 `analyzedRevision` 建立演化基线。
 - **Frontend:** Vue 3 + TypeScript + Vite。
 - **MVP User Interaction:** 开发与核心 MVP 验证阶段采用 localhost Web UI + Local Java Backend。

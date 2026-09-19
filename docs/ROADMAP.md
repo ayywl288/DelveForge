@@ -179,7 +179,7 @@ End-to-End Completion
 - [x] 将 Desktop Shell Technology 延后至 Core MVP 稳定后决定。
 - [x] 确定 MVP Persistence 技术方案：SQLite + MyBatis-Plus + Flyway。
 - [x] 确定 MVP Working Copy 默认技术方案：Independent Local Git Clone。
-- [x] 确定 Initial LLM Provider：DeepSeek，并以 DeepSeek V4.1 Flash 作为第一版默认模型。
+- [x] 确定 Initial LLM Provider：DeepSeek；默认 model id 为 `deepseek-flash`。
 - [x] 对需要长期保留的重要架构决策建立 ADR。
 
 **Acceptance Criteria**
@@ -224,14 +224,14 @@ Repository Profile
 
 #### User Discovery
 
-- [ ] 支持创建和持续更新 User Profile。
-- [ ] 支持通过用户交互收集兴趣、行为、痛点、技术能力、项目目标和约束。
-- [ ] 支持 User Profile revision。
-- [ ] 支持 Profile Sufficiency Assessment，判断当前用户信息是否已经足以支持具有个人相关性的 Product Direction Discovery。
-- [ ] 当信息不足时，能够识别重要缺失信息并继续探索。
-- [ ] 当信息足够时，使 User Profile 从 `EXPLORING` 进入 `REVIEWING`。
-- [ ] 支持用户 Review / Correct / Confirm Profile。
-- [ ] 保存关键 Profile 判断对应的 Evidence。
+- [x] 支持创建和持续更新 User Profile。
+- [x] 支持通过用户交互收集兴趣、行为、痛点、技术能力、项目目标和约束。
+- [x] 支持 User Profile revision。
+- [x] 支持 Profile Sufficiency Assessment，判断当前用户信息是否已经足以支持具有个人相关性的 Product Direction Discovery。
+- [x] 当信息不足时，能够识别重要缺失信息并继续探索。
+- [x] 当信息足够时，使 User Profile 从 `EXPLORING` 进入 `REVIEWING`。
+- [x] 支持用户 Review / Correct / Confirm Profile。
+- [x] 保存关键 Profile 判断对应的 Evidence。
 
 #### Repository Analysis
 
@@ -282,11 +282,11 @@ Repository Profile @ analyzedRevision
 
 同时：
 
-- [ ] Profile Sufficiency 不依赖固定对话轮数，而取决于当前信息是否足以支持具有个人相关性的项目方向发现。
-- [ ] 信息不足时系统不会过早结束 User Discovery。
-- [ ] 信息足够后系统不会为了增加对话轮数继续进行无明显价值的探索。
-- [ ] User Profile 必须经过用户确认后才能作为 Product Direction Discovery 的正式输入。
-- [ ] User Profile 后续修改不会覆盖历史上已经被引用的 revision 语义。
+- [x] Profile Sufficiency 不依赖固定对话轮数，而取决于当前信息是否足以支持具有个人相关性的项目方向发现。
+- [x] 信息不足时系统不会过早结束 User Discovery。
+- [x] 信息足够后系统不会为了增加对话轮数继续进行无明显价值的探索。
+- [x] User Profile 必须经过用户确认后才能作为 Product Direction Discovery 的正式输入。
+- [x] User Profile 后续修改不会覆盖历史上已经被引用的 revision 语义。
 - [ ] Repository Profile 可以追溯到确定的 Software Asset 和 analyzedRevision。
 - [ ] Repository Analysis 全程不产生源代码修改。
 
@@ -761,17 +761,15 @@ M0 的执行清单已归档到 §9 Completed Milestones，不再在此处维护�
 
 ### Current
 
-M1 的具体 Task 尚未拆分。按本文件约定，Task 应在对应 Milestone 即将开始时，
-根据当时已有代码状态进一步拆分。
+M1 已拆分为 8 个 Task 并完成其中的 User Discovery 部分，剩余 Repository Analysis。
+按本文件约定，Task 在对应 Milestone 即将开始时根据当时已有代码状态拆分，
+不在此处维护完整 Task 清单。
 
-近期首先实现：
+M1 剩余工作：
 
-- [ ] User Profile 基础领域模型与状态转换。
-- [ ] User Profile revision 与确认流程。
-- [ ] 最小 User Discovery Use Case。
 - [ ] Software Asset 注册。
 - [ ] Local Repository 只读 Workspace 能力。
-- [ ] Repository Profile 生成链路。
+- [ ] Repository Profile 生成与持久化。
 
 ### Next
 
@@ -1256,10 +1254,10 @@ DelveForge MVP 的第一个 LLM Provider Adapter 使用：
 DeepSeek
 ```
 
-初始默认模型选择：
+初始默认 model id：
 
 ```
-DeepSeek V4.1 Flash
+deepseek-flash
 ```
 
 模型名称、API Endpoint、API Key 和其他 Provider 参数必须通过 Configuration 管理，不允许写死在业务代码中。
@@ -1280,7 +1278,7 @@ DeepSeek API
 
 **Rationale**
 
-- DeepSeek V4.1 Flash 具有较低的使用成本和较强的 Agent / Tool Use 能力。
+- DeepSeek 具有较低的使用成本和较强的 Agent / Tool Use 能力。
 - DeepSeek 对国内用户具有较低的接入门槛。
 - Initial Provider 仅作为 MVP Adapter 实现，不改变系统 Provider-Agnostic 的架构原则。
 - 后续应能够在不修改核心业务模块的情况下增加或替换其他 LLM Provider。
