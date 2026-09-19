@@ -93,6 +93,23 @@ A user-requested implementation detail does not automatically override an establ
 
 If the requested behavior conflicts with an existing invariant or safety boundary, explicitly surface the conflict.
 
+**A document's silence is not a decision.**
+
+Absence of a rule is not the same as an established rule.
+
+If you derive a conclusion from the existing documents, that conclusion is an inference — not
+something the documents require. Do not present it as a requirement: not in code comments, not in
+commit messages, and not in new rules.
+
+An inference may still be implemented, but it must be marked as a current choice rather than
+settled semantics. Semantics meant to hold long-term belong in the document that owns them:
+
+```
+Domain semantics      → DOMAIN_MODEL.md
+Architecture rules    → ARCHITECTURE.md
+Long-term decisions   → ADR under docs/decisions/
+```
+
 ## 3. Core Working Principles
 
 ### 3.1 Work Within the Existing Product Direction
@@ -919,6 +936,35 @@ whether retry / rollback / recovery is safe
 
 Technical exceptions should be translated at appropriate boundaries rather than leaked indiscriminately across the system.
 
+**Failure must not leave partial state.**
+
+A multi-step mutation must not expose "half applied" state when it fails. This covers consecutive
+updates inside one Use Case, and Use Cases composed of several steps.
+
+```
+On failure, both the persisted state and any object obtained from a repository must look
+exactly as they did before the operation started.
+"Nothing was written" is not sufficient if the loaded object was mutated.
+```
+
+Two practices satisfy this:
+
+```
+Apply changes to an isolated candidate copy, and commit once at the end
+Finish every AI / external capability call and its parsing before the first mutation
+```
+
+**Use semantically specific exceptions for business failures.**
+
+Generic JDK exception types must not become the carrier of a specific business meaning. Mapping
+"all `IllegalStateException`" to 409, or "all `NullPointerException`" to 400, would let a real
+server fault masquerade as a retryable client conflict, and would stop the Interface layer from
+telling the two apart.
+
+Generic types may still be mapped at the protocol boundary for genuinely generic conditions
+(for example a malformed request body). When a business failure needs its own classification,
+introduce a project-owned exception type and map only that type.
+
 ### 8.8 Logging
 
 Logs should support diagnosis without becoming the source of domain truth.
@@ -1303,6 +1349,18 @@ ROADMAP.md
 ```
 
 Do not force all information into a single document simply to minimize edits.
+
+**Documentation must not claim more than the implementation delivers.**
+
+Documents, comments, and commit messages may only state behavior that actually holds.
+
+```
+Do not write "every X is preserved"   unless the implementation guarantees it
+Do not write "this is enforced by Y"  unless Y really enforces it
+```
+
+When the implementation cannot honor a claim, change the claim or change the implementation.
+A weaker statement that is accurate is better than a stronger one that is false.
 
 ## 13. Final Response Format
 
