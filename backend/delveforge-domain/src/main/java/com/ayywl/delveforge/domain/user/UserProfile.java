@@ -374,6 +374,31 @@ public class UserProfile {
         this.status = UserProfileStatus.EXPLORING;
     }
 
+    /**
+     * 校验当前 Profile 可以开始一轮用户探索（DOMAIN_MODEL.md §8.1 的前置条件：
+     * 「User Profile 应处于允许继续探索的状态」）。
+     *
+     * <p>只有 {@link UserProfileStatus#EXPLORING} 表示系统正在收集用户信息。
+     * {@code REVIEWING} 是「已形成可供用户检查的版本」，{@code CONFIRMED} 是「用户已确认」——
+     * 两者都需要用户显式选择「继续探索」或「重新开启探索」（§6.1）才会回到 EXPLORING，
+     * 而不是被一轮新的 AI 探索悄悄带回去。
+     *
+     * <p>这道校验必须由 Domain 提供：若没有它，同一轮输入会因为模型恰好判断「足够」或
+     * 「不足」而走向不同结局——「足够」时状态转移被拒、「不足」时内容被照常写入。
+     * 那等于让 AI 的结论决定领域状态是否被接受，违反 AI Proposes, Domain Decides。
+     *
+     * <p>它不修改任何内容：内容修正（PATCH）在 REVIEWING 下依然允许
+     * （§6.1 的 REVIEWING → REVIEWING：用户纠正 Profile），受限的是「开始新一轮探索」。
+     *
+     * @throws UserProfileStateException 当前状态不是 {@code EXPLORING}
+     */
+    public void requireExplorationAllowed() {
+        if (status != UserProfileStatus.EXPLORING) {
+            throw new UserProfileStateException(
+                    "User Profile 当前状态不允许继续探索: " + status);
+        }
+    }
+
     public UserProfileId id() {
         return id;
     }

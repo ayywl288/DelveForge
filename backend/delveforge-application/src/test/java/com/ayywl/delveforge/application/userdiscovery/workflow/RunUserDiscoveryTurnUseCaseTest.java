@@ -237,6 +237,42 @@ class RunUserDiscoveryTurnUseCaseTest {
         assertEquals(List.of("Java"), second.profile().technicalCapabilities());
     }
 
+    /**
+     * 回归：一轮探索只能从 EXPLORING 开始。
+     *
+     * <p>否则同一轮输入会因为模型恰好判断「足够」或「不足」而走向不同结局——
+     * 「足够」时状态转移被拒、「不足」时内容被照常写入，等于让 AI 决定领域状态是否被接受。
+     */
+    @Test
+    void rejectsTurnOutsideExploringWithoutCallingAiOrSaving() {
+        for (UserProfileStatus status : List.of(
+                UserProfileStatus.REVIEWING, UserProfileStatus.CONFIRMED)) {
+            InMemoryUserProfileRepository repositoryForStatus = new InMemoryUserProfileRepository();
+            StubAiGateway gateway = new StubAiGateway();
+            RunUserDiscoveryTurnUseCase useCaseForStatus = new RunUserDiscoveryTurnUseCase(
+                    repositoryForStatus,
+                    new ProfileExtraction(gateway, new ObjectMapper()),
+                    new ProfileSufficiencyEvaluator(gateway, new ObjectMapper()));
+
+            UserProfile profile = UserProfile.reconstitute(
+                    PROFILE_ID, status, 3,
+                    List.of("兴趣"), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+            repositoryForStatus.save(profile);
+            int savesBefore = repositoryForStatus.saveCount();
+            gateway.respondWith(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
+
+            assertThrows(UserProfileStateException.class,
+                    () -> useCaseForStatus.run(PROFILE_ID, USER_INPUT), status + " 下不应被接受");
+
+            assertEquals(0, gateway.callCount(), status + " 下不应调用 AI");
+            UserProfile reloaded = repositoryForStatus.findById(PROFILE_ID).orElseThrow();
+            assertEquals(status, reloaded.status());
+            assertEquals(3, reloaded.revision(), status + " 下不得改动内容");
+            assertEquals(List.of("兴趣"), reloaded.interests());
+            assertEquals(savesBefore, repositoryForStatus.saveCount(), status + " 下不得写入");
+        }
+    }
+
     @Test
     void rejectsBlankUserInput() {
         assertThrows(IllegalArgumentException.class, () -> useCase.run(PROFILE_ID, "   "));

@@ -446,6 +446,21 @@ class UserProfileTest {
         assertEquals(3, profile.revision());
     }
 
+    @Test
+    void allowsExplorationOnlyFromExploring() {
+        UserProfile exploring = UserProfile.create(PROFILE_ID);
+        exploring.requireExplorationAllowed();
+
+        UserProfile reviewing = reconstituteSections(UserProfileStatus.REVIEWING, 3, List.of("兴趣"));
+        assertThrows(UserProfileStateException.class, reviewing::requireExplorationAllowed);
+
+        UserProfile confirmed = reconstituteSections(UserProfileStatus.CONFIRMED, 3, List.of("兴趣"));
+        assertThrows(UserProfileStateException.class, confirmed::requireExplorationAllowed);
+
+        assertEquals(UserProfileStatus.REVIEWING, reviewing.status(), "校验不得修改状态");
+        assertEquals(3, reviewing.revision(), "校验不得推进 revision");
+    }
+
     /** 只提供 interests，其余内容区与 Evidence 为空的重建输入。 */
     private static UserProfile reconstituteSections(UserProfileStatus status, int revision,
                                                     List<String> interests) {

@@ -158,6 +158,28 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(jsonPath("$.interests").isEmpty());
     }
 
+    /**
+     * 回归：一轮探索只能从 EXPLORING 开始，REVIEWING / CONFIRMED 下调用应当被 Domain 拒绝。
+     *
+     * <p>否则同一轮输入会因为模型恰好判断「足够」或「不足」而走向不同结局，
+     * 等于让 AI 的结论决定领域状态是否被接受。
+     */
+    @Test
+    void rejectsTurnOutsideExploringWithConflict() throws Exception {
+        String id = createProfile();
+        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
+        mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
+
+        mockMvc.perform(turn(id, "已经进入 Review 了，还想再来一轮"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"));
+
+        mockMvc.perform(get("/api/user-profiles/{id}", id))
+                .andExpect(jsonPath("$.status").value("REVIEWING"))
+                .andExpect(jsonPath("$.revision").value(4))
+                .andExpect(jsonPath("$.interests[0]").value("图片处理"));
+    }
+
     @Test
     void rejectsBlankInput() throws Exception {
         String id = createProfile();

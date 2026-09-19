@@ -85,6 +85,34 @@ class UserProfileExploreEndpointIntegrationTest {
                 .andExpect(jsonPath("$.revision").value(3));
     }
 
+    /**
+     * 回归：`/explore` 保持原有行为——`REVIEWING` 下仍然可以提取并更新内容，
+     * 状态保持 `REVIEWING`。`EXPLORING` 起点限制只加在 `discovery-turn` 上。
+     */
+    @Test
+    void keepsUpdatingContentWhileReviewing() throws Exception {
+        String id = createProfile();
+        given(aiGateway.generate(any())).willReturn(
+                "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"\"}");
+        mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profileStatus").value("REVIEWING"));
+
+        given(aiGateway.generate(any())).willReturn(
+                "{\"interests\":[\"Review 阶段补充的兴趣\"],\"evidenceClaims\":[\"用户在 Review 阶段补充了信息\"]}");
+        mockMvc.perform(explore(id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REVIEWING"))
+                .andExpect(jsonPath("$.interests[0]").value("Review 阶段补充的兴趣"))
+                // 一个内容区 + 一条 Evidence
+                .andExpect(jsonPath("$.revision").value(3));
+
+        mockMvc.perform(get("/api/user-profiles/{id}", id))
+                .andExpect(jsonPath("$.status").value("REVIEWING"))
+                .andExpect(jsonPath("$.revision").value(3))
+                .andExpect(jsonPath("$.interests[0]").value("Review 阶段补充的兴趣"));
+    }
+
     @Test
     void returnsNotFoundForUnknownProfile() throws Exception {
         mockMvc.perform(explore("unknown-profile"))

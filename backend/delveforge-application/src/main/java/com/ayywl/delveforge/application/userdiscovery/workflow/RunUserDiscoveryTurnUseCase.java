@@ -98,6 +98,11 @@ public class RunUserDiscoveryTurnUseCase {
 
         UserProfile candidate = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
 
+        // 先由 Domain 判定「能不能开始一轮探索」：放在提取之前，
+        // 因此非法状态下既不会产生 AI 调用，也不会改动候选 Profile。
+        // 这道约束只属于「整轮」入口 —— ExploreUserProfileUseCase 保持原有行为不变。
+        candidate.requireExplorationAllowed();
+
         profileExtraction.applyTo(candidate, userInput);
         SufficiencyAssessment sufficiency =
                 profileSufficiencyEvaluator.evaluateAndApply(candidate);

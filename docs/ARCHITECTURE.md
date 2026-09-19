@@ -535,6 +535,11 @@ insufficient  保存更新后的 Profile，返回 missingAreas + nextQuestion，
 sufficient    执行 EXPLORING → REVIEWING，保存 Profile，返回 REVIEWING
 ```
 
+- **`discovery-turn` 只能从 `EXPLORING` 开始**：`REVIEWING` 与 `CONFIRMED` 下调用直接 409，
+  不调用 AI、不改动内容。这道校验由 Domain 提供
+  （`UserProfile.requireExplorationAllowed()`）。若没有它，同一轮输入会因为模型恰好判断
+  「足够」或「不足」而走向不同结局——「足够」时状态转移被拒、「不足」时内容被照常写入，
+  等于让 AI 决定领域状态是否被接受。
 - **一轮只保存一次**：整轮作用在同一个候选 Profile 上，只在最后写入。它不是把
   `explore` 与 `sufficiency-assessment` 串起来——那样会在探索结束后先落一次库，
   随后的评估失败就会留下「本轮只完成一半」的持久化状态。
@@ -547,6 +552,8 @@ sufficient    执行 EXPLORING → REVIEWING，保存 Profile，返回 REVIEWING
   不是接口层写死的。
 
 `explore` 与 `sufficiency-assessment` 保留为更细的步骤入口；`discovery-turn` 是它们的组合。
+`explore` 保持原有行为：它只做提取与更新，`REVIEWING` 下仍可调用（状态保持不变）；
+`REVIEWING` 起点限制只加在「整轮」入口 `discovery-turn` 上。
 
 **Review / Confirm 语义**
 
