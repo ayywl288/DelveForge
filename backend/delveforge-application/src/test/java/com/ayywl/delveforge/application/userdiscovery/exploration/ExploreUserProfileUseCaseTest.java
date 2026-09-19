@@ -41,8 +41,8 @@ class ExploreUserProfileUseCaseTest {
 
     private final StubAiGateway aiGateway = new StubAiGateway();
 
-    private final ExploreUserProfileUseCase useCase =
-            new ExploreUserProfileUseCase(repository, aiGateway, new ObjectMapper());
+    private final ExploreUserProfileUseCase useCase = new ExploreUserProfileUseCase(
+            repository, new ProfileExtraction(aiGateway, new ObjectMapper()));
 
     @Test
     void updatesProfileFromProposal() {
@@ -229,11 +229,11 @@ class ExploreUserProfileUseCaseTest {
         ObjectMapper objectMapper = new ObjectMapper();
 
         assertThrows(IllegalArgumentException.class,
-                () -> new ExploreUserProfileUseCase(null, aiGateway, objectMapper));
+                () -> new ExploreUserProfileUseCase(null, new ProfileExtraction(aiGateway, objectMapper)));
         assertThrows(IllegalArgumentException.class,
-                () -> new ExploreUserProfileUseCase(repository, null, objectMapper));
-        assertThrows(IllegalArgumentException.class,
-                () -> new ExploreUserProfileUseCase(repository, aiGateway, null));
+                () -> new ExploreUserProfileUseCase(repository, null));
+        assertThrows(IllegalArgumentException.class, () -> new ProfileExtraction(null, objectMapper));
+        assertThrows(IllegalArgumentException.class, () -> new ProfileExtraction(aiGateway, null));
     }
 
     private UserProfile seedProfile() {

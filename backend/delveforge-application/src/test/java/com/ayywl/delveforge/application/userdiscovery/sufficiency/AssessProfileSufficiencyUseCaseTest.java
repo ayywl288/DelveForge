@@ -50,8 +50,8 @@ class AssessProfileSufficiencyUseCaseTest {
 
     private final StubAiGateway aiGateway = new StubAiGateway();
 
-    private final AssessProfileSufficiencyUseCase useCase =
-            new AssessProfileSufficiencyUseCase(repository, aiGateway, new ObjectMapper());
+    private final AssessProfileSufficiencyUseCase useCase = new AssessProfileSufficiencyUseCase(
+            repository, new ProfileSufficiencyEvaluator(aiGateway, new ObjectMapper()));
 
     @Test
     void keepsExploringAndReturnsQuestionWhenInsufficient() {
@@ -201,11 +201,14 @@ class AssessProfileSufficiencyUseCaseTest {
         ObjectMapper objectMapper = new ObjectMapper();
 
         assertThrows(IllegalArgumentException.class,
-                () -> new AssessProfileSufficiencyUseCase(null, aiGateway, objectMapper));
+                () -> new AssessProfileSufficiencyUseCase(
+                        null, new ProfileSufficiencyEvaluator(aiGateway, objectMapper)));
         assertThrows(IllegalArgumentException.class,
-                () -> new AssessProfileSufficiencyUseCase(repository, null, objectMapper));
+                () -> new AssessProfileSufficiencyUseCase(repository, null));
         assertThrows(IllegalArgumentException.class,
-                () -> new AssessProfileSufficiencyUseCase(repository, aiGateway, null));
+                () -> new ProfileSufficiencyEvaluator(null, objectMapper));
+        assertThrows(IllegalArgumentException.class,
+                () -> new ProfileSufficiencyEvaluator(aiGateway, null));
     }
 
     private UserProfile seedProfile() {
