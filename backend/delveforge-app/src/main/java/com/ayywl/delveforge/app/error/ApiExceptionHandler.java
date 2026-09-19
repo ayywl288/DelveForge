@@ -3,7 +3,6 @@ package com.ayywl.delveforge.app.error;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
-import com.ayywl.delveforge.application.userdiscovery.UserProfileNotFoundException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import org.slf4j.Logger;
@@ -19,6 +18,7 @@ import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoundException;
 
 /**
  * 统一错误映射。

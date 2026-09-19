@@ -1,15 +1,5 @@
 package com.ayywl.delveforge.app.api;
 
-import com.ayywl.delveforge.application.userdiscovery.AssessProfileSufficiencyUseCase;
-import com.ayywl.delveforge.application.userdiscovery.ConfirmUserProfileUseCase;
-import com.ayywl.delveforge.application.userdiscovery.ContinueDiscoveryUseCase;
-import com.ayywl.delveforge.application.userdiscovery.CreateUserProfileUseCase;
-import com.ayywl.delveforge.application.userdiscovery.ExploreUserProfileUseCase;
-import com.ayywl.delveforge.application.userdiscovery.GetUserProfileUseCase;
-import com.ayywl.delveforge.application.userdiscovery.ReopenDiscoveryUseCase;
-import com.ayywl.delveforge.application.userdiscovery.SufficiencyAssessment;
-import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileRequest;
-import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileUseCase;
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
@@ -23,6 +13,16 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ExploreUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.profile.CreateUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.profile.GetUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileRequest;
+import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.review.ConfirmUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.review.ContinueDiscoveryUseCase;
+import com.ayywl.delveforge.application.userdiscovery.review.ReopenDiscoveryUseCase;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
 
 /**
  * User Profile 业务端点。

@@ -62,7 +62,7 @@ public class UserProfile {
      * 按已保存的状态重建一个 User Profile。
      *
      * <p>本入口用于 Persistence 从存储中恢复已有 Profile，也用于在写入前构造一个隔离的
-     * 候选副本（见 {@code ExploreUserProfileUseCase}）；不用于创建新的 Profile——
+     * 候选副本（由 Application 在写入前构造）；不用于创建新的 Profile——
      * 新建请使用 {@link #create(UserProfileId)}。它一次性接管完整状态，没有逐字段的
      * 修改入口，因此不构成绕过 Aggregate 规则的任意 mutation API：
      *

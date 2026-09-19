@@ -5,9 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
-import com.ayywl.delveforge.application.userdiscovery.CreateUserProfileUseCase;
-import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileRequest;
-import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileUseCase;
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.user.UserProfile;
@@ -28,6 +25,9 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
+import com.ayywl.delveforge.application.userdiscovery.profile.CreateUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileRequest;
+import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileUseCase;
 
 /**
  * 验证 {@link SqliteUserProfileRepository} 与真实 SQLite + Flyway + MyBatis-Plus 的集成。

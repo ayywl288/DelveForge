@@ -2,17 +2,17 @@ package com.ayywl.delveforge.app.config;
 
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
-import com.ayywl.delveforge.application.userdiscovery.AssessProfileSufficiencyUseCase;
-import com.ayywl.delveforge.application.userdiscovery.ConfirmUserProfileUseCase;
-import com.ayywl.delveforge.application.userdiscovery.ContinueDiscoveryUseCase;
-import com.ayywl.delveforge.application.userdiscovery.CreateUserProfileUseCase;
-import com.ayywl.delveforge.application.userdiscovery.ExploreUserProfileUseCase;
-import com.ayywl.delveforge.application.userdiscovery.GetUserProfileUseCase;
-import com.ayywl.delveforge.application.userdiscovery.ReopenDiscoveryUseCase;
-import com.ayywl.delveforge.application.userdiscovery.UpdateUserProfileUseCase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ExploreUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.profile.CreateUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.profile.GetUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.review.ConfirmUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.review.ContinueDiscoveryUseCase;
+import com.ayywl.delveforge.application.userdiscovery.review.ReopenDiscoveryUseCase;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
 
 /**
  * User Profile Use Case 的依赖装配。
