@@ -31,13 +31,14 @@ import java.util.Optional;
  *     usageAuthorization 的领域操作——§8 没有定义这类 Domain Operation，
  *     本 Task 不发明它们。
  *
- * readPermission 与 usageAuthorization 各用一个 boolean 表达
- *     §3.2 把两者都描述为「是否」问题：「当前是否允许系统读取和分析该资产」
- *     与「当前是否确认允许复用或二次开发」。因此 §12.6 举出的
- *     usageAuthorization = unclear 落在 usageAuthorized = false。
- *     是否需要在 MVP 中区分「明确不允许」与「尚未确认」，等到实现
- *     AssetUsagePolicy 时再由真实需求确认。
+ * readPermission 用一个 boolean 表达
+ *     §3.2 把它描述为「当前是否允许系统读取和分析该资产」，§12.6 的 Analysis 判定
+ *     也只有 allowed / denied 两种结果。领域模型没有定义 readPermission = unclear
+ *     的含义，因此这里不引入第三种状态。
  * </pre>
+ *
+ * <p>usageAuthorization 则必须区分三种状态（见 {@link UsageAuthorization}）：
+ * 「已明确不允许」与「尚未确认」是两种不同的领域状态，压成同一个取值会丢失领域信息。
  *
  * <p>本类不判断该资产是否允许被复用或作为 Evolution Base。那属于 AssetUsagePolicy
  * （§12.6、INV-A02～INV-A04），不在本 Task 范围内：§12.6 明确
@@ -51,7 +52,7 @@ public class SoftwareAsset {
     private final String location;
     private final boolean readPermissionAllowed;
     private final String licenseInfo;
-    private final boolean usageAuthorized;
+    private final UsageAuthorization usageAuthorization;
 
     /**
      * 登记一个 Software Asset。
@@ -67,7 +68,10 @@ public class SoftwareAsset {
      * @param readPermissionAllowed 当前是否允许系统读取和分析该资产（§3.2 的 readPermission）
      * @param licenseInfo         已知的软件许可证信息；{@code null} 表示当前未知，
      *                            §3.2 只要求该资产「已知的」许可证信息，不要求它必须已知
-     * @param usageAuthorized     当前是否确认允许复用或二次开发（§3.2 的 usageAuthorization）
+     * @param usageAuthorization  当前的使用授权状态（§3.2 的 usageAuthorization），
+     *                            不得为 {@code null}；「尚未确认」由
+     *                            {@link UsageAuthorization#UNCLEAR} 显式表达，
+     *                            不是缺省
      * @throws IllegalArgumentException 任一必填参数缺失或取值不合法
      */
     public static SoftwareAsset create(
@@ -77,10 +81,10 @@ public class SoftwareAsset {
             String location,
             boolean readPermissionAllowed,
             String licenseInfo,
-            boolean usageAuthorized) {
+            UsageAuthorization usageAuthorization) {
 
         return new SoftwareAsset(
-                id, type, source, location, readPermissionAllowed, licenseInfo, usageAuthorized);
+                id, type, source, location, readPermissionAllowed, licenseInfo, usageAuthorization);
     }
 
     private SoftwareAsset(
@@ -90,7 +94,7 @@ public class SoftwareAsset {
             String location,
             boolean readPermissionAllowed,
             String licenseInfo,
-            boolean usageAuthorized) {
+            UsageAuthorization usageAuthorization) {
 
         if (id == null) {
             throw new IllegalArgumentException("Software Asset 必须指定 id");
@@ -108,6 +112,10 @@ public class SoftwareAsset {
             throw new IllegalArgumentException(
                     "Software Asset 的 licenseInfo 要么给出已知内容，要么留为 null 表示未知");
         }
+        if (usageAuthorization == null) {
+            throw new IllegalArgumentException(
+                    "Software Asset 必须指定 usageAuthorization：尚未确认请显式给出 UNCLEAR");
+        }
 
         this.id = id;
         this.type = type;
@@ -115,7 +123,7 @@ public class SoftwareAsset {
         this.location = location;
         this.readPermissionAllowed = readPermissionAllowed;
         this.licenseInfo = licenseInfo;
-        this.usageAuthorized = usageAuthorized;
+        this.usageAuthorization = usageAuthorization;
     }
 
     /**
@@ -180,11 +188,12 @@ public class SoftwareAsset {
     }
 
     /**
-     * 当前是否确认允许复用或二次开发（§3.2 的 {@code usageAuthorization}）。
+     * 当前的使用授权状态（§3.2 的 {@code usageAuthorization}）。
      *
-     * <p>本类只表达这一事实，不据此得出任何「允许复用」或「允许演化」的结论。
+     * <p>ALLOWED、DENIED 与 UNCLEAR 是三种不同的领域状态；本类只表达这一事实，
+     * 不据此得出任何「允许复用」或「允许演化」的结论。
      */
-    public boolean usageAuthorized() {
-        return usageAuthorized;
+    public UsageAuthorization usageAuthorization() {
+        return usageAuthorization;
     }
 }

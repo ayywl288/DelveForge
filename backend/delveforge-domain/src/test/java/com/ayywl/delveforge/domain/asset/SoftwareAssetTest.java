@@ -3,6 +3,7 @@ package com.ayywl.delveforge.domain.asset;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,7 +19,8 @@ class SoftwareAssetTest {
 
     @Test
     void createsAssetWithStableIdentityAndCoreFields() {
-        SoftwareAsset asset = createAsset(ASSET_ID, LOCATION, true, LICENSE_INFO, false);
+        SoftwareAsset asset = createAsset(
+                ASSET_ID, LOCATION, true, LICENSE_INFO, UsageAuthorization.ALLOWED);
 
         assertEquals(ASSET_ID, asset.id());
         assertEquals(SoftwareAssetType.GIT_REPOSITORY, asset.type());
@@ -26,12 +28,12 @@ class SoftwareAssetTest {
         assertEquals(LOCATION, asset.location());
         assertTrue(asset.readPermissionAllowed());
         assertEquals(LICENSE_INFO, asset.licenseInfo().orElseThrow());
-        assertFalse(asset.usageAuthorized());
+        assertEquals(UsageAuthorization.ALLOWED, asset.usageAuthorization());
     }
 
     @Test
     void expressesMvpGitRepositoryAssetFromUserSpecifiedSource() {
-        SoftwareAsset asset = asset(true, null, false);
+        SoftwareAsset asset = asset(true, null, UsageAuthorization.UNCLEAR);
 
         assertEquals(SoftwareAssetType.GIT_REPOSITORY, asset.type());
         assertEquals(SoftwareAssetSource.USER_SPECIFIED, asset.source());
@@ -44,63 +46,112 @@ class SoftwareAssetTest {
      */
     @Test
     void keepsIdentityWhenOtherAttributesDiffer() {
-        SoftwareAsset first = createAsset(ASSET_ID, "E:/projects/one", true, null, false);
-        SoftwareAsset second = createAsset(ASSET_ID, "E:/projects/two", false, LICENSE_INFO, true);
+        SoftwareAsset first = createAsset(ASSET_ID, "E:/projects/one", true, null,
+                UsageAuthorization.UNCLEAR);
+        SoftwareAsset second = createAsset(ASSET_ID, "E:/projects/two", false, LICENSE_INFO,
+                UsageAuthorization.DENIED);
 
         assertEquals(ASSET_ID, first.id());
         assertEquals(ASSET_ID, second.id());
         assertEquals("E:/projects/two", second.location());
         assertFalse(second.readPermissionAllowed());
-        assertTrue(second.usageAuthorized());
+        assertEquals(UsageAuthorization.DENIED, second.usageAuthorization());
     }
 
     @Test
     void expressesUnknownLicenseInformationAsAbsent() {
-        SoftwareAsset asset = asset(true, null, false);
+        SoftwareAsset asset = asset(true, null, UsageAuthorization.UNCLEAR);
 
         assertTrue(asset.licenseInfo().isEmpty(), "未给出的许可证信息表示未知，而不是没有许可证限制");
     }
 
     @Test
+    void expressesUsageAuthorizationAllowed() {
+        SoftwareAsset asset = asset(true, LICENSE_INFO, UsageAuthorization.ALLOWED);
+
+        assertEquals(UsageAuthorization.ALLOWED, asset.usageAuthorization());
+    }
+
+    @Test
+    void expressesUsageAuthorizationDenied() {
+        SoftwareAsset asset = asset(true, LICENSE_INFO, UsageAuthorization.DENIED);
+
+        assertEquals(UsageAuthorization.DENIED, asset.usageAuthorization());
+    }
+
+    @Test
+    void expressesUsageAuthorizationUnclear() {
+        SoftwareAsset asset = asset(true, LICENSE_INFO, UsageAuthorization.UNCLEAR);
+
+        assertEquals(UsageAuthorization.UNCLEAR, asset.usageAuthorization());
+    }
+
+    /**
+     * 「已明确不允许」与「尚未确认」是两种不同的领域状态：
+     * Software Asset 必须能够如实区分它们，而不是把两者压成同一个取值。
+     */
+    @Test
+    void distinguishesUnclearFromDenied() {
+        SoftwareAsset unclear = asset(true, null, UsageAuthorization.UNCLEAR);
+        SoftwareAsset denied = asset(true, null, UsageAuthorization.DENIED);
+
+        assertNotEquals(denied.usageAuthorization(), unclear.usageAuthorization());
+        assertEquals(UsageAuthorization.UNCLEAR, unclear.usageAuthorization(),
+                "尚未确认不得被表达成已明确不允许");
+        assertEquals(UsageAuthorization.DENIED, denied.usageAuthorization(),
+                "已明确不允许不得被表达成尚未确认");
+    }
+
+    @Test
     void rejectsMissingIdentity() {
         assertThrows(IllegalArgumentException.class,
-                () -> createAsset(null, LOCATION, true, null, false));
+                () -> createAsset(null, LOCATION, true, null, UsageAuthorization.UNCLEAR));
     }
 
     @Test
     void rejectsMissingType() {
         assertThrows(IllegalArgumentException.class,
                 () -> SoftwareAsset.create(ASSET_ID, null, SoftwareAssetSource.USER_SPECIFIED,
-                        LOCATION, true, null, false));
+                        LOCATION, true, null, UsageAuthorization.UNCLEAR));
     }
 
     @Test
     void rejectsMissingSource() {
         assertThrows(IllegalArgumentException.class,
                 () -> SoftwareAsset.create(ASSET_ID, SoftwareAssetType.GIT_REPOSITORY, null,
-                        LOCATION, true, null, false));
+                        LOCATION, true, null, UsageAuthorization.UNCLEAR));
     }
 
     @Test
     void rejectsBlankLocation() {
         assertThrows(IllegalArgumentException.class,
-                () -> createAsset(ASSET_ID, "  ", true, null, false));
+                () -> createAsset(ASSET_ID, "  ", true, null, UsageAuthorization.UNCLEAR));
     }
 
     @Test
     void rejectsBlankLicenseInfo() {
         assertThrows(IllegalArgumentException.class,
-                () -> createAsset(ASSET_ID, LOCATION, true, "  ", false));
+                () -> createAsset(ASSET_ID, LOCATION, true, "  ", UsageAuthorization.UNCLEAR));
+    }
+
+    /**
+     * 「尚未确认」必须由调用方显式给出，而不是由缺失参数默认得到——
+     * 否则无法区分「系统尚未确认」与「系统漏填了」。
+     */
+    @Test
+    void rejectsMissingUsageAuthorization() {
+        assertThrows(IllegalArgumentException.class,
+                () -> createAsset(ASSET_ID, LOCATION, true, LICENSE_INFO, null));
     }
 
     @Test
     void allowsAnalysisWhenReadPermissionIsAllowed() {
-        assertAnalysisAllowed(asset(true, LICENSE_INFO, true));
+        assertAnalysisAllowed(asset(true, LICENSE_INFO, UsageAuthorization.ALLOWED));
     }
 
     @Test
     void rejectsAnalysisWhenReadPermissionIsDenied() {
-        assertAnalysisRejected(asset(false, LICENSE_INFO, true));
+        assertAnalysisRejected(asset(false, LICENSE_INFO, UsageAuthorization.ALLOWED));
     }
 
     /**
@@ -110,17 +161,18 @@ class SoftwareAssetTest {
      */
     @Test
     void analysisPermissionDependsOnlyOnReadPermission() {
-        assertAnalysisAllowed(asset(true, LICENSE_INFO, true));
-        assertAnalysisAllowed(asset(true, null, false));
+        assertAnalysisAllowed(asset(true, LICENSE_INFO, UsageAuthorization.ALLOWED));
+        assertAnalysisAllowed(asset(true, null, UsageAuthorization.DENIED));
+        assertAnalysisAllowed(asset(true, null, UsageAuthorization.UNCLEAR));
 
-        assertAnalysisRejected(asset(false, LICENSE_INFO, true));
-        assertAnalysisRejected(asset(false, LICENSE_INFO, false));
-        assertAnalysisRejected(asset(false, null, true));
+        assertAnalysisRejected(asset(false, LICENSE_INFO, UsageAuthorization.ALLOWED));
+        assertAnalysisRejected(asset(false, LICENSE_INFO, UsageAuthorization.DENIED));
+        assertAnalysisRejected(asset(false, null, UsageAuthorization.UNCLEAR));
     }
 
     @Test
     void keepsAssetIntactWhenAnalysisIsRejected() {
-        SoftwareAsset asset = asset(false, LICENSE_INFO, true);
+        SoftwareAsset asset = asset(false, LICENSE_INFO, UsageAuthorization.DENIED);
 
         assertAnalysisRejected(asset);
 
@@ -128,27 +180,29 @@ class SoftwareAssetTest {
         assertEquals(LOCATION, asset.location());
         assertFalse(asset.readPermissionAllowed(), "校验不得改写读取权限");
         assertEquals(LICENSE_INFO, asset.licenseInfo().orElseThrow(), "校验不得改写许可证信息");
-        assertTrue(asset.usageAuthorized(), "校验不得改写使用授权");
+        assertEquals(UsageAuthorization.DENIED, asset.usageAuthorization(), "校验不得改写使用授权");
     }
 
     /**
      * 通过读取前置条件只说明该资产可以被读取和分析：本类不因此推导出「已经允许复用或二次开发」，
-     * 使用授权仍然是它自己声明的事实（DOMAIN_MODEL.md §12.6 的 Readable ≠ Reusable）。
+     * 使用授权仍然是它自己声明的那个状态（DOMAIN_MODEL.md §12.6 的 Readable ≠ Reusable）。
      */
     @Test
     void analysisAllowedDoesNotImplyUsageAuthorization() {
-        SoftwareAsset notAuthorizedForReuse = asset(true, null, false);
+        SoftwareAsset notAuthorizedForReuse = asset(true, null, UsageAuthorization.UNCLEAR);
 
         notAuthorizedForReuse.requireAnalysisAllowed();
 
-        assertFalse(notAuthorizedForReuse.usageAuthorized(),
+        assertEquals(UsageAuthorization.UNCLEAR, notAuthorizedForReuse.usageAuthorization(),
                 "可读取不代表已确认允许复用或二次开发");
     }
 
     private static SoftwareAsset asset(
-            boolean readPermissionAllowed, String licenseInfo, boolean usageAuthorized) {
+            boolean readPermissionAllowed,
+            String licenseInfo,
+            UsageAuthorization usageAuthorization) {
         return createAsset(
-                ASSET_ID, LOCATION, readPermissionAllowed, licenseInfo, usageAuthorized);
+                ASSET_ID, LOCATION, readPermissionAllowed, licenseInfo, usageAuthorization);
     }
 
     private static SoftwareAsset createAsset(
@@ -156,7 +210,7 @@ class SoftwareAssetTest {
             String location,
             boolean readPermissionAllowed,
             String licenseInfo,
-            boolean usageAuthorized) {
+            UsageAuthorization usageAuthorization) {
         return SoftwareAsset.create(
                 id,
                 SoftwareAssetType.GIT_REPOSITORY,
@@ -164,7 +218,7 @@ class SoftwareAssetTest {
                 location,
                 readPermissionAllowed,
                 licenseInfo,
-                usageAuthorized);
+                usageAuthorization);
     }
 
     private static void assertAnalysisAllowed(SoftwareAsset asset) {
