@@ -16,12 +16,15 @@ class WorkspacePortTest {
 
     private static final WorkspaceRef WORKSPACE = new WorkspaceRef("workspace-1");
 
+    /** 假实现只承认这一个已解析的 revision。 */
+    private static final String REVISION = "abc123";
+
     private InMemoryWorkspace workspace() {
         InMemoryWorkspace workspace = new InMemoryWorkspace();
         workspace.givenFile("README.md", "# demo");
         workspace.givenFile("src/main/App.java", "class App {}");
         workspace.givenFile("src/test/AppTest.java", "class AppTest {}");
-        workspace.givenHeadRevision("abc123");
+        workspace.givenHeadRevision(REVISION);
         return workspace;
     }
 
@@ -29,23 +32,36 @@ class WorkspacePortTest {
     void readOnlyCapabilityIsUsableOnItsOwn() {
         WorkspaceReadPort read = workspace();
 
-        assertEquals("abc123", read.headRevision(WORKSPACE));
-        assertEquals("# demo", read.readFile(WORKSPACE, "README.md"));
+        assertTrue(read.isReadableRepository(WORKSPACE));
+        assertEquals(REVISION, read.headRevision(WORKSPACE));
+        assertEquals("# demo", read.readFile(WORKSPACE, REVISION, "README.md"));
+    }
+
+    /**
+     * Repository Analysis 的前置条件检查（DOMAIN_MODEL.md §8.3）需要能够在不读取
+     * 任何内容的情况下判断该位置是否可用。
+     */
+    @Test
+    void reportsWhetherTheLocationIsAReadableRepository() {
+        InMemoryWorkspace notRepository = workspace();
+        notRepository.givenNotRepository();
+
+        assertFalse(notRepository.isReadableRepository(WORKSPACE));
     }
 
     @Test
     void listsEntriesWithinRequestedDepth() {
         WorkspaceReadPort read = workspace();
 
-        List<String> rootDepth1 = read.listEntries(WORKSPACE, "", 1).stream()
+        List<String> rootDepth1 = read.listEntries(WORKSPACE, REVISION, "", 1).stream()
                 .map(WorkspaceEntry::relativePath).toList();
         assertEquals(List.of("README.md", "src"), rootDepth1);
 
-        List<String> rootDepth2 = read.listEntries(WORKSPACE, "", 2).stream()
+        List<String> rootDepth2 = read.listEntries(WORKSPACE, REVISION, "", 2).stream()
                 .map(WorkspaceEntry::relativePath).toList();
         assertEquals(List.of("README.md", "src", "src/main", "src/test"), rootDepth2);
 
-        List<String> srcDepth1 = read.listEntries(WORKSPACE, "src", 1).stream()
+        List<String> srcDepth1 = read.listEntries(WORKSPACE, REVISION, "src", 1).stream()
                 .map(WorkspaceEntry::relativePath).toList();
         assertEquals(List.of("src/main", "src/test"), srcDepth1);
     }
@@ -54,7 +70,7 @@ class WorkspacePortTest {
     void listEntriesMarksDirectories() {
         WorkspaceReadPort read = workspace();
 
-        List<WorkspaceEntry> entries = read.listEntries(WORKSPACE, "", 1);
+        List<WorkspaceEntry> entries = read.listEntries(WORKSPACE, REVISION, "", 1);
 
         WorkspaceEntry src = entries.stream()
                 .filter(entry -> entry.relativePath().equals("src")).findFirst().orElseThrow();
@@ -73,7 +89,7 @@ class WorkspacePortTest {
 
         mutation.writeFile(WORKSPACE, "src/main/App.java", "class App { /* evolved */ }");
 
-        assertEquals("class App { /* evolved */ }", read.readFile(WORKSPACE, "src/main/App.java"));
+        assertEquals("class App { /* evolved */ }", read.readFile(WORKSPACE, REVISION, "src/main/App.java"));
     }
 
     /**
@@ -90,7 +106,23 @@ class WorkspacePortTest {
     void readFailureIsExpressedAsWorkspaceException() {
         WorkspaceReadPort read = workspace();
 
-        assertThrows(WorkspaceException.class, () -> read.readFile(WORKSPACE, "missing.txt"));
+        assertThrows(WorkspaceException.class, () -> read.readFile(WORKSPACE, REVISION, "missing.txt"));
+    }
+
+    /**
+     * 读取必须绑定到调用方已解析的 revision（见 Port 类文档）：可移动的引用名与未知
+     * revision 都被拒绝，避免一次分析在不知不觉中混合多个版本。
+     */
+    @Test
+    void rejectsReadsWithoutAResolvedRevision() {
+        WorkspaceReadPort read = workspace();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> read.readFile(WORKSPACE, "HEAD", "README.md"));
+        assertThrows(IllegalArgumentException.class,
+                () -> read.listEntries(WORKSPACE, "HEAD", "", 1));
+        assertThrows(IllegalArgumentException.class,
+                () -> read.readFile(WORKSPACE, "other-revision", "README.md"));
     }
 
     @Test

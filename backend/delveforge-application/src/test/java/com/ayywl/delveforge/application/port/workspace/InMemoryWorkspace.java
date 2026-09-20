@@ -9,12 +9,18 @@ import java.util.Map;
  *
  * <p>它同时实现只读与修改两个 Port，说明一个 Infrastructure Adapter 可以同时提供两种能力，
  * 而调用方仍然只依赖自己需要的那一个 Port。
+ *
+ * <p>本替身只代表「当前 HEAD 这一个版本」的内容：读取必须带上 {@code givenHeadRevision}
+ * 给出的那个 revision，其他值一律拒绝。这样替身不会比真实 Adapter 宽松——
+ * 真实 Adapter 同样只接受已解析的完整 commit id，不接受可移动的引用名。
  */
 final class InMemoryWorkspace implements WorkspaceReadPort, WorkspaceMutationPort {
 
     private final Map<String, String> files = new LinkedHashMap<>();
 
     private String headRevision = "rev-0";
+
+    private boolean readableRepository = true;
 
     void givenFile(String relativePath, String content) {
         files.put(relativePath, content);
@@ -24,8 +30,19 @@ final class InMemoryWorkspace implements WorkspaceReadPort, WorkspaceMutationPor
         this.headRevision = revision;
     }
 
+    void givenNotRepository() {
+        this.readableRepository = false;
+    }
+
     @Override
-    public List<WorkspaceEntry> listEntries(WorkspaceRef workspace, String relativePath, int maxDepth) {
+    public boolean isReadableRepository(WorkspaceRef workspace) {
+        return readableRepository;
+    }
+
+    @Override
+    public List<WorkspaceEntry> listEntries(
+            WorkspaceRef workspace, String revision, String relativePath, int maxDepth) {
+        requireKnownRevision(revision);
         if (maxDepth <= 0) {
             throw new IllegalArgumentException("maxDepth 必须大于 0");
         }
@@ -51,7 +68,8 @@ final class InMemoryWorkspace implements WorkspaceReadPort, WorkspaceMutationPor
     }
 
     @Override
-    public String readFile(WorkspaceRef workspace, String relativePath) {
+    public String readFile(WorkspaceRef workspace, String revision, String relativePath) {
+        requireKnownRevision(revision);
         String content = files.get(relativePath);
         if (content == null) {
             throw new WorkspaceException("文件不存在: " + relativePath);
@@ -62,6 +80,21 @@ final class InMemoryWorkspace implements WorkspaceReadPort, WorkspaceMutationPor
     @Override
     public String headRevision(WorkspaceRef workspace) {
         return headRevision;
+    }
+
+    /**
+     * 只承认当前 HEAD 那个已解析的 revision。
+     *
+     * <p>与实际 Adapter 一致：不是已解析的完整 commit id 的一律拒绝，因此
+     * {@code HEAD} 或分支名在这里同样通不过。
+     *
+     * <p>替身的已知局限：它只保留一个版本，因此「读取更早的 revision」无法表达
+     * （真实 Adapter 支持，只要该 commit 还在 Repository 中）。
+     */
+    private void requireKnownRevision(String revision) {
+        if (!headRevision.equals(revision)) {
+            throw new IllegalArgumentException("revision 必须是已解析的完整 commit id: " + revision);
+        }
     }
 
     @Override
