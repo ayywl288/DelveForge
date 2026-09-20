@@ -26,10 +26,9 @@ import java.util.Optional;
  *
  * <pre>
  * 不可变
- *     Software Asset 当前没有任何可变领域状态（§6 说明它不定义复杂生命周期），
- *     因此全部字段不可变，本类也不提供修改 location / readPermission /
- *     usageAuthorization 的领域操作——§8 没有定义这类 Domain Operation，
- *     本 Task 不发明它们。
+ *     本 Task 不提供修改 location / readPermission / usageAuthorization 的领域操作
+ *     ——§8 没有定义这类 Domain Operation，本 Task 不发明它们——因此字段全部不可变。
+ *     这不排除将来出现「授权状态变化」的领域操作：那时本类需要相应改变。
  *
  * readPermission 用一个 boolean 表达
  *     §3.2 把它描述为「当前是否允许系统读取和分析该资产」，§12.6 的 Analysis 判定
@@ -75,6 +74,36 @@ public class SoftwareAsset {
      * @throws IllegalArgumentException 任一必填参数缺失或取值不合法
      */
     public static SoftwareAsset create(
+            SoftwareAssetId id,
+            SoftwareAssetType type,
+            SoftwareAssetSource source,
+            String location,
+            boolean readPermissionAllowed,
+            String licenseInfo,
+            UsageAuthorization usageAuthorization) {
+
+        return new SoftwareAsset(
+                id, type, source, location, readPermissionAllowed, licenseInfo, usageAuthorization);
+    }
+
+    /**
+     * 按已保存的状态重建一个 Software Asset。
+     *
+     * <p>本入口用于 Persistence 从存储中恢复已有资产，因此调用点表达的是
+     * 「恢复已保存的资产」，而不是「登记一个新的资产」——后者请使用
+     * {@link #create}。
+     *
+     * <p>Software Asset 当前没有创建之后才可能出现的领域状态（没有 status，也没有
+     * revision），因此本方法接受的取值与 {@link #create} 完全一致，校验也完全一致。
+     * 它不构成绕过 Aggregate 规则的任意 mutation API：重建出的对象没有任何
+     * 可以由外部改写的字段。
+     *
+     * <p>与 {@code UserProfile.reconstitute} 的区别来自领域本身：
+     * User Profile 有 status 与 revision 需要在重建时一并恢复，Software Asset 没有。
+     *
+     * @throws IllegalArgumentException 任一必填参数缺失或取值不合法
+     */
+    public static SoftwareAsset reconstitute(
             SoftwareAssetId id,
             SoftwareAssetType type,
             SoftwareAssetSource source,

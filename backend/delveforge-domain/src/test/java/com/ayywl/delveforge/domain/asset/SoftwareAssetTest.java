@@ -197,6 +197,70 @@ class SoftwareAssetTest {
                 "可读取不代表已确认允许复用或二次开发");
     }
 
+    /**
+     * 按已保存的状态重建：恢复出的资产在身份与全部领域字段上与保存前一致
+     * （这是 Persistence 能够完整还原 Software Asset 的前提）。
+     */
+    @Test
+    void reconstitutesSavedAssetWithoutLosingAnyField() {
+        SoftwareAsset reconstituted = SoftwareAsset.reconstitute(
+                ASSET_ID,
+                SoftwareAssetType.GIT_REPOSITORY,
+                SoftwareAssetSource.USER_SPECIFIED,
+                LOCATION,
+                true,
+                LICENSE_INFO,
+                UsageAuthorization.DENIED);
+
+        assertEquals(ASSET_ID, reconstituted.id());
+        assertEquals(SoftwareAssetType.GIT_REPOSITORY, reconstituted.type());
+        assertEquals(SoftwareAssetSource.USER_SPECIFIED, reconstituted.source());
+        assertEquals(LOCATION, reconstituted.location());
+        assertTrue(reconstituted.readPermissionAllowed());
+        assertEquals(LICENSE_INFO, reconstituted.licenseInfo().orElseThrow());
+        assertEquals(UsageAuthorization.DENIED, reconstituted.usageAuthorization());
+    }
+
+    @Test
+    void reconstitutesAssetWithUnknownLicenseInformation() {
+        SoftwareAsset reconstituted = SoftwareAsset.reconstitute(
+                ASSET_ID,
+                SoftwareAssetType.GIT_REPOSITORY,
+                SoftwareAssetSource.USER_SPECIFIED,
+                LOCATION,
+                false,
+                null,
+                UsageAuthorization.UNCLEAR);
+
+        assertTrue(reconstituted.licenseInfo().isEmpty(), "未知许可证信息仍以缺失表示");
+        assertFalse(reconstituted.readPermissionAllowed());
+        assertEquals(UsageAuthorization.UNCLEAR, reconstituted.usageAuthorization());
+    }
+
+    @Test
+    void rejectsReconstitutionWithoutIdentity() {
+        assertThrows(IllegalArgumentException.class,
+                () -> SoftwareAsset.reconstitute(null,
+                        SoftwareAssetType.GIT_REPOSITORY, SoftwareAssetSource.USER_SPECIFIED,
+                        LOCATION, true, null, UsageAuthorization.UNCLEAR));
+    }
+
+    @Test
+    void rejectsReconstitutionWithBlankLocation() {
+        assertThrows(IllegalArgumentException.class,
+                () -> SoftwareAsset.reconstitute(ASSET_ID,
+                        SoftwareAssetType.GIT_REPOSITORY, SoftwareAssetSource.USER_SPECIFIED,
+                        "  ", true, null, UsageAuthorization.UNCLEAR));
+    }
+
+    @Test
+    void rejectsReconstitutionWithoutUsageAuthorization() {
+        assertThrows(IllegalArgumentException.class,
+                () -> SoftwareAsset.reconstitute(ASSET_ID,
+                        SoftwareAssetType.GIT_REPOSITORY, SoftwareAssetSource.USER_SPECIFIED,
+                        LOCATION, true, null, null));
+    }
+
     private static SoftwareAsset asset(
             boolean readPermissionAllowed,
             String licenseInfo,
