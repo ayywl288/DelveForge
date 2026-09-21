@@ -96,6 +96,77 @@ class RepositoryAnalysisExtractionTest {
                 "请求只携带相对路径，不含宿主机路径分隔形式");
     }
 
+    /**
+     * 依据必须指向本次真正交给模型的文件：指向材料之外的路径意味着这条依据无法定位到
+     * 实际存在的代码或配置（DOMAIN_MODEL.md §3.6），提示词的要求必须由代码兜住。
+     */
+    @Test
+    void rejectsEvidenceReferencingAFileThatWasNotSent() {
+        aiGateway.respond(proposalWithEvidence("""
+                [ { "claim": "项目使用 Spring Boot", "sourceRef": "some/nonexistent/file.java" } ]
+                """));
+
+        assertThrows(AiGatewayException.class, () -> extraction.extract(FILES));
+    }
+
+    /**
+     * 只要有一条依据无法定位，整次分析就被拒绝，而不是丢掉那一条、保留其余部分：
+     * 无法定位依据说明模型这次没有按材料作答，结论整体不可信。
+     */
+    @Test
+    void rejectsWholeProposalWhenAnyEvidenceReferenceIsUnknown() {
+        aiGateway.respond(proposalWithEvidence("""
+                [
+                  { "claim": "项目使用 Spring Boot", "sourceRef": "pom.xml" },
+                  { "claim": "入口类很简单", "sourceRef": "src/main/App.java" },
+                  { "claim": "存在构建脚本", "sourceRef": "build.gradle" }
+                ]
+                """));
+
+        assertThrows(AiGatewayException.class, () -> extraction.extract(FILES));
+    }
+
+    /**
+     * 匹配是精确的：{@code ./pom.xml} 与交给模型的 {@code pom.xml} 不是同一个字符串，
+     * 因此同样被拒绝。本层没有关于「什么算同一个路径」的可靠依据，不做归一化。
+     */
+    @Test
+    void requiresExactPathMatch() {
+        aiGateway.respond(proposalWithEvidence("""
+                [ { "claim": "项目使用 Spring Boot", "sourceRef": "./pom.xml" } ]
+                """));
+
+        assertThrows(AiGatewayException.class, () -> extraction.extract(FILES));
+    }
+
+    /**
+     * 材料中嵌套路径的依据同样合法——校验的是「是否来自本次材料」，不是「是否在根目录」。
+     */
+    @Test
+    void acceptsEvidenceForNestedFileThatWasSent() {
+        aiGateway.respond(proposalWithEvidence("""
+                [ { "claim": "入口类没有依赖", "sourceRef": "src/main/App.java" } ]
+                """));
+
+        RepositoryAnalysisProposal proposal = extraction.extract(FILES);
+
+        assertEquals(
+                List.of(new RepositoryEvidenceProposal("入口类没有依赖", "src/main/App.java")),
+                proposal.evidence());
+    }
+
+    /**
+     * 没有 Evidence 的提议是合法的：某个仓库可能确实得不出可定位的依据。
+     */
+    @Test
+    void acceptsProposalWithoutEvidence() {
+        aiGateway.respond(proposalWithEvidence("[]"));
+
+        RepositoryAnalysisProposal proposal = extraction.extract(FILES);
+
+        assertEquals(List.of(), proposal.evidence());
+    }
+
     @Test
     void rejectsMissingOrEmptyMaterial() {
         aiGateway.respond(VALID_RESPONSE);
@@ -145,6 +216,22 @@ class RepositoryAnalysisExtractionTest {
                 () -> new RepositoryAnalysisExtraction(null, new ObjectMapper()));
         assertThrows(IllegalArgumentException.class,
                 () -> new RepositoryAnalysisExtraction(aiGateway, null));
+    }
+
+    /** 与 {@link #VALID_RESPONSE} 同构、只替换 evidence 部分的模型输出。 */
+    private static String proposalWithEvidence(String evidenceJson) {
+        return """
+                {
+                  "purpose": "个人记账工具",
+                  "techStack": ["Java 21"],
+                  "modules": [],
+                  "capabilities": [],
+                  "reusableAssets": [],
+                  "limitations": [],
+                  "risks": [],
+                  "evidence": %s
+                }
+                """.formatted(evidenceJson);
     }
 
     /** AI Gateway 替身：记录收到的请求，并返回预设内容或抛出预设失败。 */

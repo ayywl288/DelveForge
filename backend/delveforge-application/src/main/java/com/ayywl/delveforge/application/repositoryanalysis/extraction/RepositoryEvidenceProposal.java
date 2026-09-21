@@ -11,6 +11,10 @@ package com.ayywl.delveforge.application.repositoryanalysis.extraction;
  * 因此它的含义保持最小——{@code sourceRef} 就是材料中的一个相对路径，
  * 本 Task 不为它设计更细的定位方式（行号、片段、符号等）。
  *
+ * <p>路径必须确实来自本次交给模型的文件：{@code RepositoryAnalysisExtraction} 在返回提议
+ * 之前会核对这一点，指向材料之外的依据会让整次分析失败。模型可以指出依据在哪里，
+ * 但不能指出一个并不存在的位置。
+ *
  * <p>可信程度与确认状态刻意不由模型给出：模型可以指出「依据在哪里」，
  * 但不能自行断言这条依据有多可信、或者已经被确认。
  *

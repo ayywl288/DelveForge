@@ -9,9 +9,11 @@ import com.ayywl.delveforge.application.port.ai.AiRole;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 把 Repository 材料交给 AI，得到结构化的分析提议。
@@ -39,7 +41,8 @@ import java.util.Map;
  * 由后续的 Application 流程与 {@code RepositoryProfile} Aggregate 判定（RULE-DOM-003）。
  *
  * <p>模型也无法自行决定 Evidence 的可信程度与确认状态：提议里只携带「判断 + 它在
- * Repository 中的位置」。
+ * Repository 中的位置」。而在提议被返回之前，每条依据的路径都会被核对——
+ * 它必须确实来自本次交给模型的文件，否则整次分析被拒绝。
  */
 public final class RepositoryAnalysisExtraction {
 
@@ -107,7 +110,45 @@ public final class RepositoryAnalysisExtraction {
     public RepositoryAnalysisProposal extract(List<RepositorySourceFile> files) {
         requireFiles(files);
 
-        return proposalParser.parse(aiGateway.generate(buildRequest(files)));
+        RepositoryAnalysisProposal proposal =
+                proposalParser.parse(aiGateway.generate(buildRequest(files)));
+        requireEvidenceRefersToSentFiles(proposal, files);
+
+        return proposal;
+    }
+
+    /**
+     * 校验每条 Evidence 的 sourceRef 都指向本次真正交给模型的文件。
+     *
+     * <p>提示词已经要求模型只能引用材料中的路径，但那只是要求：模型完全可以给出一个
+     * 看起来合理、却从未被读取过的路径。那样产生的 Evidence 无法指向实际存在的代码或配置，
+     * 而「依据可追溯」正是 Evidence 存在的意义（DOMAIN_MODEL.md §3.6：
+     * 依据「不应由无法定位依据的模型输出凭空产生」）。因此这条限制必须由代码兜住。
+     *
+     * <p>只要有一条依据的路径不在本次材料中，整次分析就被拒绝，而不是丢掉那一条：
+     * 无法定位的依据说明模型这次没有按材料作答，其结论整体都不可信，
+     * 保留其余部分等于把一份来源已经不可靠的分析当成可用的分析。
+     *
+     * <p>匹配是精确的：路径必须与交给模型的相对路径完全相同。不做归一化——
+     * {@code ./pom.xml} 与 {@code pom.xml}、不同分隔符都算不同路径，
+     * 因为本层没有关于「什么算同一个路径」的可靠依据可依赖。
+     *
+     * @throws AiGatewayException 存在指向本次材料之外文件的 Evidence
+     */
+    private static void requireEvidenceRefersToSentFiles(
+            RepositoryAnalysisProposal proposal, List<RepositorySourceFile> files) {
+
+        Set<String> sentPaths = new HashSet<>(files.size());
+        for (RepositorySourceFile file : files) {
+            sentPaths.add(file.relativePath());
+        }
+
+        for (RepositoryEvidenceProposal evidence : proposal.evidence()) {
+            if (!sentPaths.contains(evidence.sourceRef())) {
+                throw new AiGatewayException(
+                        "AI 提出的依据指向了本次没有提供的文件: " + evidence.sourceRef());
+            }
+        }
     }
 
     /**
