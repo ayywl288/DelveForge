@@ -219,6 +219,56 @@ class RepositoryProfileTest {
         assertThrows(IllegalArgumentException.class, () -> new RepositoryProfileId(null));
     }
 
+    /**
+     * 按已保存的状态重建：恢复出的快照在身份、被分析对象、revision 与全部分析内容上
+     * 与保存前一致（这是 Persistence 能够完整还原一次分析的前提）。
+     */
+    @Test
+    void reconstitutesSavedSnapshotWithoutLosingAnyField() {
+        RepositoryProfile reconstituted = RepositoryProfile.reconstitute(
+                PROFILE_ID,
+                ASSET_ID,
+                REVISION,
+                PURPOSE,
+                List.of("Java 21", "Spring Boot"),
+                List.of("accounting", "reporting"),
+                List.of("记账"),
+                List.of("报表导出"),
+                List.of("无自动化测试"),
+                List.of("模块耦合"),
+                List.of(EVIDENCE));
+
+        assertEquals(PROFILE_ID, reconstituted.id());
+        assertEquals(ASSET_ID, reconstituted.assetId());
+        assertEquals(REVISION, reconstituted.analyzedRevision());
+        assertEquals(PURPOSE, reconstituted.purpose());
+        assertEquals(List.of("Java 21", "Spring Boot"), reconstituted.techStack());
+        assertEquals(List.of("accounting", "reporting"), reconstituted.modules());
+        assertEquals(List.of("记账"), reconstituted.capabilities());
+        assertEquals(List.of("报表导出"), reconstituted.reusableAssets());
+        assertEquals(List.of("无自动化测试"), reconstituted.limitations());
+        assertEquals(List.of("模块耦合"), reconstituted.risks());
+        assertEquals(List.of(EVIDENCE), reconstituted.evidence());
+    }
+
+    @Test
+    void rejectsReconstitutionWithoutAssetOrRevision() {
+        assertThrows(IllegalArgumentException.class, () -> RepositoryProfile.reconstitute(
+                PROFILE_ID, null, REVISION, PURPOSE,
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
+
+        assertThrows(IllegalArgumentException.class, () -> RepositoryProfile.reconstitute(
+                PROFILE_ID, ASSET_ID, "  ", PURPOSE,
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
+    }
+
+    @Test
+    void rejectsReconstitutionWithBlankPurpose() {
+        assertThrows(IllegalArgumentException.class, () -> RepositoryProfile.reconstitute(
+                PROFILE_ID, ASSET_ID, REVISION, " ",
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of()));
+    }
+
     private static RepositoryProfile createProfile(
             RepositoryProfileId id,
             SoftwareAssetId assetId,

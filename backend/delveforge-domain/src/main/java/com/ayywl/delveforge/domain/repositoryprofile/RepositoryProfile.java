@@ -144,6 +144,38 @@ public class RepositoryProfile {
                 normalizeEvidence(evidence));
     }
 
+    /**
+     * 按已保存的状态重建一次分析快照。
+     *
+     * <p>本入口用于 Persistence 从存储中恢复已有快照，因此调用点表达的是
+     * 「恢复这一次分析的结果」，而不是「产生一次新的分析」——后者请使用 {@link #create}。
+     *
+     * <p>Repository Profile 没有创建之后才可能出现的领域状态（没有 status，也没有
+     * revision），因此本方法接受的取值与校验与 {@link #create} 完全一致。
+     * 它不构成绕过 Aggregate 规则的修改入口：重建出的对象没有任何可由外部改写的字段。
+     *
+     * <p>重建不改变任何内容：恢复出的就是保存时的那次分析，因此重复保存与重新加载
+     * 都不会制造出第二次分析。
+     *
+     * @throws IllegalArgumentException 任一必填参数缺失或取值不合法
+     */
+    public static RepositoryProfile reconstitute(
+            RepositoryProfileId id,
+            SoftwareAssetId assetId,
+            String analyzedRevision,
+            String purpose,
+            List<String> techStack,
+            List<String> modules,
+            List<String> capabilities,
+            List<String> reusableAssets,
+            List<String> limitations,
+            List<String> risks,
+            List<Evidence> evidence) {
+
+        return create(id, assetId, analyzedRevision, purpose, techStack, modules, capabilities,
+                reusableAssets, limitations, risks, evidence);
+    }
+
     private RepositoryProfile(
             RepositoryProfileId id,
             SoftwareAssetId assetId,
