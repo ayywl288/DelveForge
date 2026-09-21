@@ -1,7 +1,7 @@
 package com.ayywl.delveforge.application.repositoryanalysis.extraction;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
-import com.ayywl.delveforge.application.userdiscovery.shared.AiJsonObjectReader;
+import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -13,8 +13,9 @@ import java.util.List;
  * <p>{@code AiGateway} 的契约是「返回未经解析的原始内容，由 Application 完成解析与校验」
  * （RULE-DOM-003），本类承担其中的解析部分。
  *
- * <p>「恰好一个 json 对象、其后没有多余内容」这条契约与 User Discovery 的解析器共用同一个
- * 实现（{@link AiJsonObjectReader}），而不是各写一份：它是同一件事，两处实现迟早会分叉。
+ * <p>「恰好一个 json 对象、其后没有多余内容」这条契约与 User Discovery 的解析器共用 AI 边界
+ * 所在的包中的同一个实现（{@link AiJsonObjectReader}），而不是各写一份：它是同一件事，
+ * 两处实现迟早会分叉。
  *
  * <h2>与 User Profile 解析的差别：缺失不等于「不涉及」</h2>
  *

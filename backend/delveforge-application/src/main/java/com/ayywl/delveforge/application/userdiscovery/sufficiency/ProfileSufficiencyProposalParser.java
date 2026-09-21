@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
-import com.ayywl.delveforge.application.userdiscovery.shared.AiJsonObjectReader;
+import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
 
 /**
  * 把 AI 返回的原始文本解析为 {@link ProfileSufficiencyProposal}。

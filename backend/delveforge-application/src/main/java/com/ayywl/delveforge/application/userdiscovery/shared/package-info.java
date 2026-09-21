@@ -2,7 +2,6 @@
  * User Discovery 各子包共用的协作单元。
  *
  * <pre>
- * AiJsonObjectReader     AI 返回内容必须是「恰好一个 json 对象」
  * ProfilePromptContext   把当前 Profile 内容组织成 AI 请求上下文
  * UserProfileCandidates  构造隔离的候选副本，使改动不落在 Repository 返回的对象上
  * </pre>

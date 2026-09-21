@@ -7,5 +7,9 @@
  *
  * <p>本包只定义“模型如何产生语义候选”，不定义“什么样的结果构成合法领域状态”。
  * 返回内容必须经 Application / Domain 校验后才能成为领域状态（RULE-DOM-003）。
+ *
+ * <p>本包还包含 {@code AiJsonObjectReader}：它不是 Port，但定义的是 AI 边界本身的一条契约
+ * ——{@code AiGateway} 返回的原始内容必须是「恰好一个 json 对象、其后没有多余内容」。
+ * 各业务流程的解析器共用它，因此它归属这里，而不是某一个业务流程的包。
  */
 package com.ayywl.delveforge.application.port.ai;
