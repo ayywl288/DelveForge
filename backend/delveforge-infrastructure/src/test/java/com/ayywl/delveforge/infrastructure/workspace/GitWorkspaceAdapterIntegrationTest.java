@@ -10,18 +10,11 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
-import java.util.UUID;
-import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
@@ -37,9 +30,8 @@ import org.junit.jupiter.api.Test;
  */
 class GitWorkspaceAdapterIntegrationTest {
 
-    /** Adapter 只接受绝对位置，因此测试仓库也用绝对路径定位。 */
-    private static final Path BASE_DIRECTORY =
-            Path.of("target", "test-repositories", UUID.randomUUID().toString()).toAbsolutePath();
+    /** 测试仓库的建立与清理（绝对路径：Adapter 只接受绝对位置）。 */
+    private static final GitTestRepositories REPOSITORIES = new GitTestRepositories();
 
     private static final String README_CONTENT = "# legacy tool\n";
 
@@ -54,16 +46,9 @@ class GitWorkspaceAdapterIntegrationTest {
 
     private final GitWorkspaceAdapter adapter = new GitWorkspaceAdapter();
 
-    /**
-     * 删除本次测试建立的 Repository。
-     *
-     * <p>必须显式清理：git 在 Windows 上把对象文件标记为只读，把它们留在 {@code target} 下
-     * 会让下一次 {@code mvn clean} 删不掉 target 而失败。清理范围严格限定在本测试自己的
-     * 目录内，删除前先去掉只读属性。
-     */
     @AfterAll
     static void deleteTestRepositories() throws IOException {
-        deleteRecursively(BASE_DIRECTORY);
+        REPOSITORIES.deleteAll();
     }
 
     @Test
@@ -104,12 +89,12 @@ class GitWorkspaceAdapterIntegrationTest {
         assertEquals(first, second, "同一状态下重复读取必须得到同一个 revision");
         assertEquals(fixture.revision(), first);
 
-        writeFile(fixture.path(), "README.md", "# 第二个版本\n");
-        runGit(fixture.path(), "add", "-A");
-        commit(fixture.path(), "second");
+        GitTestRepositories.writeFile(fixture.path(), "README.md", "# 第二个版本\n");
+        GitTestRepositories.runGit(fixture.path(), "add", "-A");
+        GitTestRepositories.commit(fixture.path(), "second");
 
         String afterCommit = adapter.headRevision(workspace);
-        assertEquals(runGit(fixture.path(), "rev-parse", "HEAD").trim(), afterCommit);
+        assertEquals(GitTestRepositories.runGit(fixture.path(), "rev-parse", "HEAD").trim(), afterCommit);
         assertNotEquals(first, afterCommit, "新 commit 之后 revision 必须随之变化");
     }
 
@@ -124,9 +109,9 @@ class GitWorkspaceAdapterIntegrationTest {
         Fixture fixture = createRepository("dirty");
         WorkspaceRef workspace = workspaceRef(fixture);
 
-        writeFile(fixture.path(), "README.md", "# 尚未提交的修改\n");
-        writeFile(fixture.path(), "untracked.java", "class Untracked {}\n");
-        writeFile(fixture.path(), "ignored.txt", "ignored content\n");
+        GitTestRepositories.writeFile(fixture.path(), "README.md", "# 尚未提交的修改\n");
+        GitTestRepositories.writeFile(fixture.path(), "untracked.java", "class Untracked {}\n");
+        GitTestRepositories.writeFile(fixture.path(), "ignored.txt", "ignored content\n");
 
         assertEquals(fixture.revision(), adapter.headRevision(workspace), "未提交修改不构成新的 revision");
         assertEquals(README_CONTENT, adapter.readFile(workspace, fixture.revision(), "README.md"),
@@ -151,10 +136,10 @@ class GitWorkspaceAdapterIntegrationTest {
 
         String analyzedRevision = adapter.headRevision(workspace);
 
-        writeFile(fixture.path(), "README.md", "# 后来的版本\n");
-        writeFile(fixture.path(), "added.txt", "之后新增的文件\n");
-        runGit(fixture.path(), "add", "-A");
-        commit(fixture.path(), "later");
+        GitTestRepositories.writeFile(fixture.path(), "README.md", "# 后来的版本\n");
+        GitTestRepositories.writeFile(fixture.path(), "added.txt", "之后新增的文件\n");
+        GitTestRepositories.runGit(fixture.path(), "add", "-A");
+        GitTestRepositories.commit(fixture.path(), "later");
 
         assertNotEquals(analyzedRevision, adapter.headRevision(workspace), "测试前提：HEAD 已经移动");
 
@@ -198,9 +183,9 @@ class GitWorkspaceAdapterIntegrationTest {
 
     @Test
     void rejectsLocationThatIsNotAGitRepository() throws Exception {
-        Path notARepository = BASE_DIRECTORY.resolve("plain-directory");
+        Path notARepository = REPOSITORIES.directory("plain-directory");
         Files.createDirectories(notARepository);
-        writeFile(notARepository, "README.md", README_CONTENT);
+        GitTestRepositories.writeFile(notARepository, "README.md", README_CONTENT);
         WorkspaceRef workspace = new WorkspaceRef(notARepository.toString());
 
         assertFalse(adapter.isReadableRepository(workspace));
@@ -214,7 +199,7 @@ class GitWorkspaceAdapterIntegrationTest {
     @Test
     void rejectsMissingLocation() {
         WorkspaceRef workspace =
-                new WorkspaceRef(BASE_DIRECTORY.resolve("does-not-exist").toString());
+                new WorkspaceRef(REPOSITORIES.directory("does-not-exist").toString());
 
         assertFalse(adapter.isReadableRepository(workspace));
         assertThrows(WorkspaceException.class, () -> adapter.headRevision(workspace));
@@ -239,9 +224,7 @@ class GitWorkspaceAdapterIntegrationTest {
      */
     @Test
     void failsClearlyForRepositoryWithoutAnyCommit() throws Exception {
-        Path repository = BASE_DIRECTORY.resolve("empty");
-        Files.createDirectories(repository);
-        runGit(repository, "init", "-q", "--initial-branch=main");
+        Path repository = REPOSITORIES.createEmpty("empty");
         WorkspaceRef workspace = new WorkspaceRef(repository.toString());
 
         assertTrue(adapter.isReadableRepository(workspace));
@@ -258,7 +241,7 @@ class GitWorkspaceAdapterIntegrationTest {
         WorkspaceRef workspace = workspaceRef(fixture);
 
         Path outside = fixture.path().getParent().resolve("outside.txt");
-        writeFile(fixture.path().getParent(), "outside.txt", "仓库外的内容\n");
+        GitTestRepositories.writeFile(fixture.path().getParent(), "outside.txt", "仓库外的内容\n");
         assertTrue(Files.exists(outside), "测试前提：仓库外确实存在这个文件");
 
         assertThrows(IllegalArgumentException.class, () -> adapter.readFile(workspace, fixture.revision(), "../outside.txt"));
@@ -299,7 +282,7 @@ class GitWorkspaceAdapterIntegrationTest {
     void doesNotModifySourceRepository() throws Exception {
         Fixture fixture = createRepository("read-only");
         WorkspaceRef workspace = workspaceRef(fixture);
-        Map<String, String> before = snapshot(fixture.path());
+        Map<String, String> before = GitTestRepositories.snapshot(fixture.path());
 
         adapter.isReadableRepository(workspace);
         adapter.headRevision(workspace);
@@ -307,7 +290,7 @@ class GitWorkspaceAdapterIntegrationTest {
         adapter.listEntries(workspace, fixture.revision(), "src", 1);
         adapter.readFile(workspace, fixture.revision(), "README.md");
 
-        assertEquals(before, snapshot(fixture.path()),
+        assertEquals(before, GitTestRepositories.snapshot(fixture.path()),
                 "Repository Analysis 必须保持只读：源码与 Git 状态都不得被修改");
     }
 
@@ -322,8 +305,8 @@ class GitWorkspaceAdapterIntegrationTest {
 
         byte[] invalidUtf8 = {(byte) 0xFF, (byte) 0xFE, 0x00, 0x01, (byte) 0x80};
         Files.write(fixture.path().resolve("assets.bin"), invalidUtf8);
-        runGit(fixture.path(), "add", "-A");
-        commit(fixture.path(), "binary asset");
+        GitTestRepositories.runGit(fixture.path(), "add", "-A");
+        GitTestRepositories.commit(fixture.path(), "binary asset");
 
         // 该文件是在初次提交之后加进来的，因此必须用新的 revision 读取
         String content =
@@ -359,89 +342,14 @@ class GitWorkspaceAdapterIntegrationTest {
 
     /** 建一个真实 Git Repository 并提交一次，返回位置与提交后的 revision。 */
     private static Fixture createRepository(String name) throws Exception {
-        Path repository = BASE_DIRECTORY.resolve(name);
-        Files.createDirectories(repository);
-        runGit(repository, "init", "-q", "--initial-branch=main");
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("README.md", README_CONTENT);
+        files.put("src/main/App.java", APP_CONTENT);
+        files.put("src/test/AppTest.java", APP_TEST_CONTENT);
+        files.put("docs/说明.md", DOC_CONTENT);
+        files.put(".gitignore", "ignored.txt\n");
 
-        writeFile(repository, "README.md", README_CONTENT);
-        writeFile(repository, "src/main/App.java", APP_CONTENT);
-        writeFile(repository, "src/test/AppTest.java", APP_TEST_CONTENT);
-        writeFile(repository, "docs/说明.md", DOC_CONTENT);
-        writeFile(repository, ".gitignore", "ignored.txt\n");
-
-        runGit(repository, "add", "-A");
-        commit(repository, "initial");
-
-        return new Fixture(repository, runGit(repository, "rev-parse", "HEAD").trim());
-    }
-
-    /**
-     * 递归删除测试自己建立的 Repository。
-     *
-     * <p>先去掉只读属性再删：git 在 Windows 上把 {@code .git/objects} 下的文件标为只读，
-     * 直接删会失败，残留物会让后续 {@code mvn clean} 删不掉 target。
-     * {@code setWritable(true)} 在 Windows 上对应清除只读属性，在其他平台则设置写位。
-     */
-    private static void deleteRecursively(Path root) throws IOException {
-        if (!Files.exists(root)) {
-            return;
-        }
-        try (Stream<Path> paths = Files.walk(root)) {
-            // 逆序：先删文件与深层目录，最后才删目录本身
-            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
-                path.toFile().setWritable(true);
-                Files.deleteIfExists(path);
-            }
-        }
-    }
-
-    private static void writeFile(Path root, String relativePath, String content) throws IOException {
-        Path target = root.resolve(relativePath);
-        Files.createDirectories(target.getParent());
-        Files.writeString(target, content, StandardCharsets.UTF_8);
-    }
-
-    private static void commit(Path repository, String message) throws Exception {
-        runGit(repository, "-c", "user.email=test@delveforge.local",
-                "-c", "user.name=DelveForge Test", "commit", "-q", "-m", message);
-    }
-
-    /**
-     * 仓库全部文件的内容、大小与修改时间。
-     *
-     * <p>修改时间也参与比较：只比较内容会漏掉「被重写但内容相同」的写操作。
-     */
-    private static Map<String, String> snapshot(Path root) throws IOException {
-        Map<String, String> state = new TreeMap<>();
-        try (Stream<Path> paths = Files.walk(root)) {
-            for (Path path : paths.filter(Files::isRegularFile).toList()) {
-                state.put(root.relativize(path).toString(),
-                        sha256(path) + "|" + Files.size(path) + "|"
-                                + Files.getLastModifiedTime(path).toMillis());
-            }
-        }
-        return state;
-    }
-
-    private static String sha256(Path path) throws IOException {
-        try {
-            return HexFormat.of().formatHex(
-                    MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path)));
-        } catch (java.security.NoSuchAlgorithmException e) {
-            throw new IllegalStateException("运行环境缺少 SHA-256 实现", e);
-        }
-    }
-
-    /** 在测试里驱动真实的 git 命令，用于建立 fixture 与核对结果。 */
-    private static String runGit(Path repository, String... arguments) throws Exception {
-        List<String> command = new ArrayList<>(List.of("git", "-C", repository.toString()));
-        command.addAll(List.of(arguments));
-
-        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        if (process.waitFor() != 0) {
-            throw new IllegalStateException("git 命令失败: " + command + "\n" + output);
-        }
-        return output;
+        Path repository = REPOSITORIES.createCommitted(name, files);
+        return new Fixture(repository, GitTestRepositories.headRevision(repository));
     }
 }
