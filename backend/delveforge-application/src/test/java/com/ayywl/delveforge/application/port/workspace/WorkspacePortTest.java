@@ -137,17 +137,17 @@ class WorkspacePortTest {
      */
     @Test
     void rejectsAbsoluteOrEscapingPaths() {
-        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry("/etc/passwd", false));
-        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry("\\windows\\system32", false));
-        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry("C:\\repo\\a.txt", false));
-        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry("src/../../outside.txt", false));
-        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry("", false));
-        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry(null, false));
+        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry("/etc/passwd", false, 0));
+        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry("\\windows\\system32", false, 0));
+        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry("C:\\repo\\a.txt", false, 0));
+        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry("src/../../outside.txt", false, 0));
+        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry("", false, 0));
+        assertThrows(IllegalArgumentException.class, () -> new WorkspaceEntry(null, false, 0));
     }
 
     @Test
     void acceptsOrdinaryRelativePaths() {
         assertEquals("src/main/App.java",
-                new WorkspaceEntry("src/main/App.java", false).relativePath());
+                new WorkspaceEntry("src/main/App.java", false, 0).relativePath());
     }
 }

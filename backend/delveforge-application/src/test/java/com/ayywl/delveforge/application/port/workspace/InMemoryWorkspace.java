@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.application.port.workspace;
 
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,7 +61,7 @@ final class InMemoryWorkspace implements WorkspaceReadPort, WorkspaceMutationPor
                 current.append(segments[i]);
                 boolean directory = i < segments.length - 1;
                 String entryPath = current.toString();
-                entries.putIfAbsent(entryPath, new WorkspaceEntry(entryPath, directory));
+                entries.putIfAbsent(entryPath, new WorkspaceEntry(entryPath, directory, directory ? 0 : utf8Length(files.get(entryPath))));
                 current.append('/');
             }
         }
@@ -68,7 +69,8 @@ final class InMemoryWorkspace implements WorkspaceReadPort, WorkspaceMutationPor
     }
 
     @Override
-    public String readFile(WorkspaceRef workspace, String revision, String relativePath) {
+    public String readFile(
+            WorkspaceRef workspace, String revision, String relativePath) {
         requireKnownRevision(revision);
         String content = files.get(relativePath);
         if (content == null) {
@@ -100,5 +102,10 @@ final class InMemoryWorkspace implements WorkspaceReadPort, WorkspaceMutationPor
     @Override
     public void writeFile(WorkspaceRef workspace, String relativePath, String content) {
         files.put(relativePath, content);
+    }
+
+    /** 内容的字节数，与真实 Adapter 由 git 给出的 blob 大小口径一致。 */
+    private static int utf8Length(String content) {
+        return content.getBytes(StandardCharsets.UTF_8).length;
     }
 }

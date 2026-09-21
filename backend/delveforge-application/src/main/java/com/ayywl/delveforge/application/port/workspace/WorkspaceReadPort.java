@@ -67,7 +67,8 @@ public interface WorkspaceReadPort {
      * @param revision     已解析的完整 commit id，不得是可移动的引用名
      * @param relativePath 相对于 Workspace 根目录的起始路径，{@code ""} 表示根目录本身
      * @param maxDepth     从起始路径开始的最大层级，{@code 1} 表示只返回直接子项，必须大于 0
-     * @return 层级内的内容项，按相对路径升序
+     * @return 层级内的内容项，按相对路径升序；每项都带上大小，使调用方能在读取之前取舍
+     *         （见 {@link WorkspaceEntry#size()}）
      * @throws IllegalArgumentException {@code revision} 不是该 Repository 中可解析的完整 commit id，
      *                                  或 {@code relativePath} 不是安全的相对路径，
      *                                  或 {@code maxDepth} 不大于 0

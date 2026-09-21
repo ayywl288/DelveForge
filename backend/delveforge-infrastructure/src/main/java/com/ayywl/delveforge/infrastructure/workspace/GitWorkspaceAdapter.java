@@ -100,8 +100,10 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort {
         Path repository = requireReadableRepository(workspace);
         String commitId = requireCommitId(repository, revision);
 
+        // -l 让 git 一并给出每个 blob 的大小：调用方据此在读取之前判断值不值得读，
+        // 否则「读进来再决定要不要」会对超大文件做一次完整加载。
         GitCommandResult result =
-                execute(repository, "ls-tree", "-r", "-t", "-z", "--full-tree", commitId);
+                execute(repository, "ls-tree", "-r", "-t", "-l", "-z", "--full-tree", commitId);
         if (!result.succeeded()) {
             throw new WorkspaceException(
                     "无法读取 Repository 已提交的目录结构: "
@@ -300,24 +302,40 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort {
             if (segments.length > maxDepth) {
                 continue;
             }
-            entries.add(new WorkspaceEntry(path, isTree(metadata)));
+            entries.add(new WorkspaceEntry(path, isTree(metadata), sizeOf(metadata)));
         }
 
         entries.sort(Comparator.comparing(WorkspaceEntry::relativePath));
         return List.copyOf(entries);
     }
 
-    /** {@code ls-tree} 的元数据形如 {@code <mode> <type> <object>}。 */
+    /** {@code ls-tree} 的元数据形如 {@code <mode> <type> <object> <size>}（带 {@code -l}）。 */
     private static boolean isTree(String metadata) {
-        int firstSpace = metadata.indexOf(' ');
-        if (firstSpace < 0) {
-            return false;
+        return TREE_TYPE.equals(typeOf(metadata));
+    }
+
+    private static String typeOf(String metadata) {
+        String[] fields = metadata.split("\\s+");
+        return fields.length > 1 ? fields[1] : "";
+    }
+
+    /**
+     * blob 的大小（字节）。
+     *
+     * <p>{@code -l} 对 tree 给出 {@code -}（目录没有大小），按 0 处理。
+     * 无法解析时也按 0 处理：大小只用于「值不值得读」的取舍，
+     * 取值不可信时按「可读」对待，读取失败会由 readFile 自己报错，不会静默丢内容。
+     */
+    private static long sizeOf(String metadata) {
+        String[] fields = metadata.split("\\s+");
+        if (fields.length < 4) {
+            return 0;
         }
-        int secondSpace = metadata.indexOf(' ', firstSpace + 1);
-        String type = secondSpace < 0
-                ? metadata.substring(firstSpace + 1)
-                : metadata.substring(firstSpace + 1, secondSpace);
-        return TREE_TYPE.equals(type);
+        try {
+            return Long.parseLong(fields[3]);
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /**
