@@ -2,6 +2,10 @@ package com.ayywl.delveforge.app.error;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
+import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
+import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
+import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryNotAnalyzableException;
+import com.ayywl.delveforge.domain.asset.SoftwareAssetNotReadableException;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
@@ -118,6 +122,53 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiErrorResponse handleStateConflict(UserProfileStateException exception,
                                                 HttpServletRequest request) {
+        log.warn("operation=interface.request path={} result=CONFLICT exception={}",
+                loggedRoute(request), describe(exception));
+
+        return new ApiErrorResponse(
+                ApiErrorCode.CONFLICT, CONFLICT_MESSAGE,
+                request.getRequestURI(), Instant.now());
+    }
+
+    /**
+     * 请求指向的软件资产或分析快照不存在。
+     *
+     * <p>与 {@link IllegalArgumentException} 同样的区分方式：请求形态合法，只是目标不存在。
+     */
+    @ExceptionHandler({SoftwareAssetNotFoundException.class,
+            RepositoryProfileNotFoundException.class})
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiErrorResponse handleRepositoryAnalysisNotFound(RuntimeException exception,
+                                                             HttpServletRequest request) {
+        log.warn("operation=interface.request path={} result=NOT_FOUND exception={}",
+                loggedRoute(request), describe(exception));
+
+        return new ApiErrorResponse(
+                ApiErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE,
+                request.getRequestURI(), Instant.now());
+    }
+
+    /**
+     * 资产当前状态不允许被分析。
+     *
+     * <pre>
+     * SoftwareAssetNotReadableException   资产自身声明的读取权限不允许读取（INV-A01）
+     * RepositoryNotAnalyzableException    位置不是可读的 Repository，
+     *                                     或该 Repository 没有可分析的材料
+     * </pre>
+     *
+     * <p>两者都不是「请求不合法」，也不是服务端故障：资产确实存在，请求也可以理解，
+     * 只是它当前不能被分析。映射为 409 而不是 400，调用方据此知道要改变的是资产状态
+     * （或换一个位置），而不是请求写法。
+     *
+     * <p>只映射这两个项目自有类型：不用 {@link IllegalArgumentException} 兜，
+     * 也不用 {@code WorkspaceException}（后者表示本地能力调用失败，属于服务端一侧）。
+     */
+    @ExceptionHandler({SoftwareAssetNotReadableException.class,
+            RepositoryNotAnalyzableException.class})
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiErrorResponse handleAssetNotAnalyzable(RuntimeException exception,
+                                                     HttpServletRequest request) {
         log.warn("operation=interface.request path={} result=CONFLICT exception={}",
                 loggedRoute(request), describe(exception));
 

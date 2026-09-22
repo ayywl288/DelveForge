@@ -5,6 +5,7 @@ import com.ayywl.delveforge.application.port.persistence.RepositoryProfileReposi
 import com.ayywl.delveforge.application.port.persistence.SoftwareAssetRepository;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositoryAnalysisExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.profile.GetRepositoryProfileUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.AnalyzeRepositoryUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryAnalysisMaterialCollector;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryAnalysisMaterialPolicy;
@@ -40,6 +41,12 @@ public class RepositoryAnalysisUseCaseConfiguration {
     public RepositoryAnalysisExtraction repositoryAnalysisExtraction(
             AiGateway aiGateway, ObjectMapper objectMapper) {
         return new RepositoryAnalysisExtraction(aiGateway, objectMapper);
+    }
+
+    @Bean
+    public GetRepositoryProfileUseCase getRepositoryProfileUseCase(
+            RepositoryProfileRepository repositoryProfileRepository) {
+        return new GetRepositoryProfileUseCase(repositoryProfileRepository);
     }
 
     @Bean

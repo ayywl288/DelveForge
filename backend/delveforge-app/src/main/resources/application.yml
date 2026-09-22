@@ -30,6 +30,16 @@ spring:
   application:
     name: delveforge
 
+  jackson:
+    deserialization:
+      # 枚举只能按取值名称反序列化。
+      #
+      # Jackson 默认允许用数字表示枚举（按序号），因此 "usageAuthorization": 0 会被
+      # 静默当成第一个取值 ALLOWED——数字并不是本项目的 API 契约，把它解释成一个授权
+      # 事实等于凭空制造领域状态（RULE-DOM-004）。数字字符串（"0"）本来就会因为不是
+      # 合法取值名称而失败，这条设置覆盖数字形式。
+      fail-on-numbers-for-enums: true
+
   flyway:
     # Flyway migration 位于 Infrastructure 模块的 classpath 下。
     locations: classpath:db/migration
