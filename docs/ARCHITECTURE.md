@@ -479,6 +479,10 @@ Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
 | `POST`  | `/api/user-profiles/{id}/continue-discovery` | 用户选择继续探索（`REVIEWING → EXPLORING`） | 200 | 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/reopen-discovery` | 用户重新开启探索（`CONFIRMED → EXPLORING`） | 200 | 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/discovery-turn` | 一轮 User Discovery：提取 → 更新 → 评估 → 必要时进入 Review | 200 | 400 / 404 / 409 / 502 |
+| `POST`  | `/api/software-assets`           | 登记一个 Software Asset（只登记元数据，不访问文件系统）     | 201  | 400  |
+| `GET`   | `/api/software-assets/{id}`      | 读取已登记的资产元数据                                     | 200  | 404  |
+| `POST`  | `/api/software-assets/{id}/analysis` | 分析该资产的 Repository，形成一份新的 Repository Profile | 201 | 404 / 409 / 502 |
+| `GET`   | `/api/repository-profiles/{id}`  | 读取一份已保存的分析快照                                   | 200  | 404  |
 
 **explore 语义**
 
@@ -628,6 +632,88 @@ additionalEvidence  逐条新增的 Evidence，不是替换整个集合
 （RULE-DOM-001）。未知取值会被反序列化拒绝，并映射为 400 `INVALID_REQUEST`。
 
 DTO 定义在 `delveforge-app` 的 `api` 包，不暴露 Persistence 数据对象。
+
+**Software Asset 注册语义**
+
+```text
+POST /api/software-assets
+{
+  "location": "...",
+  "readPermissionAllowed": true,       必须显式给出
+  "licenseInfo": "MIT",                可选，null 表示未知
+  "usageAuthorization": "UNCLEAR"      必须显式给出，且只能用取值名称
+}
+```
+
+- **`readPermissionAllowed` 必须显式给出。** 缺省它不会被当成 `false`——那等于用缺失的
+  输入制造出一个「不允许读取」的授权事实（RULE-DOM-004）。字段缺失或为 `null` 一律 400，
+  且不写入资产。
+- **枚举只能用取值名称。** Jackson 默认允许用数字表示枚举（按序号），那会把
+  `"usageAuthorization": 0` 静默解释成第一个取值，凭空产生一个授权事实。
+  `spring.jackson.deserialization.fail-on-numbers-for-enums` 关闭了这种强转。
+- 资产的标识、类型与来源都由服务端决定：请求体里给出这些字段不会生效。
+
+**Repository Analysis 语义**
+
+```text
+POST /api/software-assets/{id}/analysis     请求体：无
+响应体：RepositoryProfile（见下）
+```
+
+分析针对的东西全部由服务端决定，客户端不能指定：
+
+```text
+analyzedRevision   服务端解析一次 HEAD，之后所有读取固定在这个 commit 上
+repository material 按 Application 层选材策略从该 revision 的已提交内容中读取
+Evidence           来自真实读到的文件，sourceRef 是材料中的相对路径
+```
+
+- **请求体不参与分析。** 客户端即使发送 `analyzedRevision`、`evidence` 或材料字段也不会
+  被读取：它们不是这个端点的输入，服务端不会把客户端提供的值当作分析结果。
+- **登记不校验位置。** `location` 只要求非空，任何取值都能登记成功；位置是否真的可用
+  在分析时才见分晓，那时返回 409 而不是 400——登记请求与分析请求本身都没有写错。
+- **每次调用产生一份新的快照**，不覆盖已有快照（`DOMAIN_MODEL.md` §10.4）。
+  需要重新分析时再调用一次该端点，旧快照仍然可用。
+- **失败不留下快照**：资产校验、仓库可读性、revision 解析、材料读取、AI 提取、
+  领域创建任一失败都以异常结束，此时没有任何写入。
+- **409 表示资产当前不能被分析**，与请求写法无关，调用方改请求也不会成功：
+
+  ```text
+  资产自身的 readPermission 不允许读取（INV-A01）
+  资产位置当前不是可读取的本地 Git Repository
+  该 Repository 在选材策略下没有可分析的材料
+  ```
+
+  三者都与「请求不合法」（400）区分开。Workspace 自身的操作失败（例如环境里找不到
+  `git`）仍按本地能力失败处理，返回 500。
+- AI 调用失败或模型输出无法解析时返回 502，不写入任何内容。
+- 分析是只读的：它只通过 `WorkspaceReadPort` 读取，不修改源 Repository 的代码或 Git 状态。
+
+**RepositoryProfile 响应体**
+
+```json
+{
+  "id": "...",
+  "assetId": "...",
+  "analyzedRevision": "abc123...",
+  "purpose": "...",
+  "techStack": [],
+  "modules": [],
+  "capabilities": [],
+  "reusableAssets": [],
+  "limitations": [],
+  "risks": [],
+  "evidence": [
+    { "sourceType": "REPOSITORY", "sourceRef": "pom.xml", "claim": "...",
+      "confidence": null, "confirmed": false }
+  ]
+}
+```
+
+`analyzedRevision` 与内容属于同一个快照，一起返回；`evidence` 的 `sourceRef` 是
+Repository 内相对于根目录的路径，接口不暴露宿主机文件系统布局。
+`confirmed` 固定为 `false`、`confidence` 为 `null`：模型得出的结论属于系统推断，
+其可信程度的口径尚未由领域模型规定。
 
 ---
 
