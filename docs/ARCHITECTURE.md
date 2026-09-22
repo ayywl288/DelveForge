@@ -598,7 +598,7 @@ additionalEvidence  逐条新增的 Evidence，不是替换整个集合
 ```
 
 `revision` 由 Domain 决定：只有实际内容发生变化才推进，接口不计算也不保证递增次数。
-`status` 当前只读，状态转换尚未实现。
+`status` 不能通过 PATCH 修改：状态转换各有自己的端点（`/confirm`、`/continue-discovery`、`/reopen-discovery`、`/discovery-turn`），由 Domain 决定是否允许。
 
 本接口不提供历史 revision 查询，`GET` 始终返回当前 revision。
 历史内容快照由 Persistence 保留，等出现真实消费者时再决定以何种形式暴露。
