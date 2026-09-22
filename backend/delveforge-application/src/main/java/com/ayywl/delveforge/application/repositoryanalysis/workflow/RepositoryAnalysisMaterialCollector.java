@@ -6,15 +6,17 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * 从 Workspace 读出一次 Repository 分析的材料。
  *
  * <pre>
- * listEntries(ref, revision, "", maxDepth)
- *         ↓  挑选文件（策略见 RepositoryAnalysisMaterialPolicy）
+ * listEntries(ref, revision, "", 整棵树)
+ *         ↓  排除 + 按用途分类 + 类别轮转（策略见 RepositoryAnalysisMaterialPolicy）
  * readFile(ref, revision, path)
  *         ↓
  * RepositorySourceFile(path, content)
@@ -31,8 +33,17 @@ import java.util.Locale;
  *
  * <p>本类不解析 HEAD，也不持有 revision：调用方解析一次之后传进来，所有读取都带着它。
  * 这样即使分析期间源 Repository 的 HEAD 移动，本次材料也不会混入其它 revision 的内容。
+ * 文件大小同样来自该 revision 的列目录结果，因此超限文件在读取之前就被跳过。
  */
 public final class RepositoryAnalysisMaterialCollector {
+
+    /**
+     * 列目录时不设层级限制。
+     *
+     * <p>{@code listEntries} 的契约要求层级必须大于 0，这里取 int 上界表示「整棵树」——
+     * 按层级筛选会把深层的主源码树整体藏起来，见 {@link RepositoryAnalysisMaterialPolicy}。
+     */
+    private static final int ENTIRE_TREE = Integer.MAX_VALUE;
 
     private final WorkspaceReadPort workspace;
     private final RepositoryAnalysisMaterialPolicy policy;
@@ -56,23 +67,18 @@ public final class RepositoryAnalysisMaterialCollector {
      *
      * @param workspace 目标 Repository
      * @param revision  本次分析固定的 commit id
-     * @return 材料，按相对路径升序；策略下没有任何文件可读时为空列表
+     * @return 材料，按「类别轮转 + 类别内路径升序」确定；策略下没有任何文件可读时抛
+     *         {@link RepositoryNotAnalyzableException}
      */
     public List<RepositorySourceFile> collect(WorkspaceRef workspace, String revision) {
         List<WorkspaceEntry> entries =
-                this.workspace.listEntries(workspace, revision, "", policy.maxDepth());
+                this.workspace.listEntries(workspace, revision, "", ENTIRE_TREE);
 
-        List<WorkspaceEntry> candidates = new ArrayList<>();
-        for (WorkspaceEntry entry : entries) {
-            if (entry.directory() || isExcluded(entry.relativePath())) {
-                continue;
-            }
-            candidates.add(entry);
-        }
-        // Port 不保证顺序；这里显式排序，使同一次分析的结果可复现
-        candidates.sort(Comparator.comparing(WorkspaceEntry::relativePath));
+        Map<RepositoryAnalysisMaterialCategory, List<WorkspaceEntry>> candidatesByCategory =
+                groupCandidates(entries);
 
-        List<RepositorySourceFile> material = readWithinPolicy(workspace, revision, candidates);
+        List<RepositorySourceFile> material =
+                selectWithinBudget(workspace, revision, candidatesByCategory);
         if (material.isEmpty()) {
             // 空材料不是「分析出空结论」，而是根本无法分析：让下游拿着空材料去问模型，
             // 得到的不是分析而是编造。用可判别的语义失败，而不是让提取层抛通用参数异常——
@@ -84,42 +90,96 @@ public final class RepositoryAnalysisMaterialCollector {
         return material;
     }
 
-    /**
-     * 按策略读取候选文件。
-     *
-     * <p>取舍发生在读取**之前**：文件大小来自列目录的结果，因此超大文件不会被读进来，
-     * 大量超限文件也不会被逐个读完。上限约束的是实际读取量，而不只是进入材料的内容量——
-     * 否则一个巨大的文件仍然会先被完整加载，再被判断为「不该读」。
-     *
-     * <p>读取因此被 maxFiles 与累计大小界住：读的每个文件都是准备收进材料的。
-     * 读后核对一次实际内容长度，是为了在大小不可信时仍不把超大内容送进材料；
-     * 正常情况下大小由 git 给出，这一步不会触发。
-     */
-    private List<RepositorySourceFile> readWithinPolicy(
-            WorkspaceRef workspace, String revision, List<WorkspaceEntry> candidates) {
+    /** 排除不适合作材料的条目，并按用途分组；每组按相对路径升序，使结果可复现。 */
+    private Map<RepositoryAnalysisMaterialCategory, List<WorkspaceEntry>> groupCandidates(
+            List<WorkspaceEntry> entries) {
 
+        Map<RepositoryAnalysisMaterialCategory, List<WorkspaceEntry>> byCategory =
+                new EnumMap<>(RepositoryAnalysisMaterialCategory.class);
+
+        for (WorkspaceEntry entry : entries) {
+            if (entry.directory() || isExcluded(entry.relativePath())) {
+                continue;
+            }
+            byCategory
+                    .computeIfAbsent(RepositoryAnalysisMaterialCategory.of(entry.relativePath()),
+                            category -> new ArrayList<>())
+                    .add(entry);
+        }
+        for (List<WorkspaceEntry> candidates : byCategory.values()) {
+            candidates.sort(Comparator.comparing(WorkspaceEntry::relativePath));
+        }
+        return byCategory;
+    }
+
+    /**
+     * 按类别轮转取文件，直到三个预算之一用尽。
+     *
+     * <p>每一轮从每个类别各取一个文件：这样任何一个类别都不可能凭自身数量占满预算，
+     * 浅层的文档或工具文件也不会把深层源码挤出去。类别顺序固定（枚举声明顺序），
+     * 类别内按路径升序，因此整个选择过程确定、可复现。
+     *
+     * <p>取舍发生在读取**之前**：文件大小来自列目录结果，因此超限文件不会被读进来，
+     * 大量超限文件也不会被逐个读完。读的每个文件都是准备收进材料的；
+     * 读后核对一次实际内容长度，是为了在大小不可信时仍不把超大内容送进材料。
+     */
+    private List<RepositorySourceFile> selectWithinBudget(
+            WorkspaceRef workspace,
+            String revision,
+            Map<RepositoryAnalysisMaterialCategory, List<WorkspaceEntry>> candidatesByCategory) {
+
+        Map<RepositoryAnalysisMaterialCategory, Integer> nextIndexByCategory =
+                new EnumMap<>(RepositoryAnalysisMaterialCategory.class);
         List<RepositorySourceFile> material = new ArrayList<>();
         long collectedBytes = 0;
 
-        for (WorkspaceEntry candidate : candidates) {
-            if (material.size() >= policy.maxFiles()) {
-                break;
-            }
-            if (candidate.size() > policy.maxFileBytes()) {
-                // 跳过而不是截断：截断过的文件会让模型基于半份内容下结论
-                continue;
-            }
-            if (collectedBytes + candidate.size() > policy.maxTotalBytes()) {
-                break;
-            }
+        boolean tookSomething = true;
+        while (tookSomething
+                && material.size() < policy.maxFiles()
+                && collectedBytes < policy.maxTotalBytes()) {
 
-            String content = this.workspace.readFile(workspace, revision, candidate.relativePath());
-            if (content.length() > policy.maxFileBytes()) {
-                continue;
-            }
+            tookSomething = false;
+            for (RepositoryAnalysisMaterialCategory category
+                    : RepositoryAnalysisMaterialCategory.values()) {
 
-            material.add(new RepositorySourceFile(candidate.relativePath(), content));
-            collectedBytes += candidate.size();
+                List<WorkspaceEntry> candidates =
+                        candidatesByCategory.getOrDefault(category, List.of());
+                int index = nextIndexByCategory.getOrDefault(category, 0);
+                boolean taken = false;
+
+                while (index < candidates.size()) {
+                    WorkspaceEntry candidate = candidates.get(index);
+                    index++;
+
+                    if (candidate.size() > policy.maxFileBytes()) {
+                        // 跳过而不是截断：截断过的文件会让模型基于半份内容下结论
+                        continue;
+                    }
+                    if (collectedBytes + candidate.size() > policy.maxTotalBytes()) {
+                        // 到达总量预算：本次收集到此为止
+                        nextIndexByCategory.put(category, index - 1);
+                        return List.copyOf(material);
+                    }
+
+                    String content =
+                            this.workspace.readFile(workspace, revision, candidate.relativePath());
+                    if (content.length() > policy.maxFileBytes()) {
+                        continue;
+                    }
+
+                    material.add(new RepositorySourceFile(candidate.relativePath(), content));
+                    collectedBytes += candidate.size();
+                    taken = true;
+                    tookSomething = true;
+                    break;
+                }
+
+                nextIndexByCategory.put(category, index);
+                if (taken && (material.size() >= policy.maxFiles()
+                        || collectedBytes >= policy.maxTotalBytes())) {
+                    return List.copyOf(material);
+                }
+            }
         }
         return List.copyOf(material);
     }

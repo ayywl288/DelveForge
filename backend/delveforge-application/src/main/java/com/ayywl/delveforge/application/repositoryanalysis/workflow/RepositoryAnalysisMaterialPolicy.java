@@ -8,44 +8,47 @@ import java.util.Set;
  * <h2>这是 Application 层的 MVP 策略，不是领域规则</h2>
  *
  * <p>DOMAIN_MODEL.md 只要求分析针对一个确定的软件状态并形成可追溯的结论，
- * 没有规定「读多少文件、读多大」。因此下面这些上限与排除项都是当前的实现选择：
+ * 没有规定「读多少文件、读多大、先读哪些」。因此下面这些上限与规则都是当前的实现选择：
  * 它们决定分析能看到什么，改变它们不需要改领域模型，但会改变分析结果的质量。
  *
  * <p>它们存在的原因是：把整个 Repository 无界地塞进一次请求既不现实也不安全
  * （内存、token 上限、时间、成本）。因此这里给出确定、可复现的边界。
  *
  * <p>刻意不引入 RAG、Embedding、索引或切分检索：M1 要做的是让一个真实本地仓库跑通，
- * 排序与筛选只要「确定」即可，不需要相关性建模。
+ * 排序与筛选只要「确定」且有代表性即可，不需要相关性建模。
  *
  * <h2>选择规则</h2>
  *
  * <pre>
- * 只看 maxDepth 层以内的已提交条目
- * 排除生成物 / 依赖 / 版本控制目录，排除明显的二进制文件
- * 按相对路径升序取文件——顺序确定，因此同一次分析的结果可复现
- * 按列目录时给出的文件大小先做取舍，再决定读哪些文件：
+ * 不按目录层级筛选：只排除生成物 / 依赖 / 版本控制目录与明显的二进制文件
+ * 按用途分成若干类别（见 RepositoryAnalysisMaterialCategory）
+ * 每一轮从每个类别各取一个文件，轮流取到预算用尽
+ *     类别内的顺序按相对路径升序——顺序确定，因此同一次分析的结果可复现
  *     单个文件超过 maxFileBytes 直接跳过（不读、不截断）
  *     累计大小将达到 maxTotalBytes 时停止
- *     最多读 maxFiles 个文件
+ *     最多取 maxFiles 个文件
  * </pre>
  *
- * <p>先按大小取舍再读取，是为了让上限约束的是**实际读取量**，而不只是进入材料的内容量：
- * 否则一个巨大的文件仍会被完整读进内存，大量超限文件也仍会被逐个读完。
+ * <h2>为什么不按层级筛选</h2>
+ *
+ * <p>此前的策略只读前 4 层。它没有节省任何读取——Workspace 列目录本来就要遍历整棵树——
+ * 却把深层的主源码树整体藏了起来：真实仓库（黑马点评）的 96 个 Java 文件都位于第 7–8 层
+ * （{@code src/main/java/com/hmdp/...}），于是一次分析里连一个源文件都没有，Profile 只能
+ * 描述文档与工具链。目录深度是工程习惯，不是重要性的度量，因此这里不再用它做筛选；
+ * 规模仍然由 maxFiles、maxFileBytes 与 maxTotalBytes 三个预算界住。
  *
  * <h2>单位</h2>
  *
- * <p>上限按字节计，因为文件大小来自列目录的结果。内容的字符数不大于字节数
- * （UTF-8），因此按字节给出的预算是内容规模的一个保守上界。
+ * <p>上限按字节计，因为文件大小来自列目录的结果。内容的字符数不大于字节数（UTF-8），
+ * 因此按字节给出的预算是内容规模的一个保守上界。
  *
- * @param maxDepth           从 Repository 根目录开始的最大层级
- * @param maxFiles           最多读取多少个文件
- * @param maxFileBytes       单个文件的最大字节数，超过则跳过该文件
- * @param maxTotalBytes      所有文件内容的累计最大字节数
+ * @param maxFiles            最多读取多少个文件
+ * @param maxFileBytes        单个文件的最大字节数，超过则跳过该文件
+ * @param maxTotalBytes       所有文件内容的累计最大字节数
  * @param excludedDirectories 不进入的目录名（按路径段匹配）
- * @param excludedExtensions 不读取的文件扩展名（小写，含点）
+ * @param excludedExtensions  不读取的文件扩展名（小写，含点）
  */
 public record RepositoryAnalysisMaterialPolicy(
-        int maxDepth,
         int maxFiles,
         int maxFileBytes,
         int maxTotalBytes,
@@ -53,9 +56,6 @@ public record RepositoryAnalysisMaterialPolicy(
         Set<String> excludedExtensions) {
 
     public RepositoryAnalysisMaterialPolicy {
-        if (maxDepth <= 0) {
-            throw new IllegalArgumentException("maxDepth 必须大于 0: " + maxDepth);
-        }
         if (maxFiles <= 0) {
             throw new IllegalArgumentException("maxFiles 必须大于 0: " + maxFiles);
         }
@@ -76,13 +76,12 @@ public record RepositoryAnalysisMaterialPolicy(
     /**
      * M1 的默认策略。
      *
-     * <p>数值取值偏保守：目标是让一个普通中小型仓库得到有意义的分析，
-     * 而不是尽量多读。真实使用中如果明显不够，应当按证据调整这些数字，
-     * 而不是改成「读到没有为止」。
+     * <p>预算数值保持保守：目标是让一个普通中小型仓库得到有代表性的分析，而不是尽量多读。
+     * 类别轮转负责「有代表性」，这三个上限负责「有界」。真实使用中如果明显不够，
+     * 应当按证据调整，而不是改成「读到没有为止」。
      */
     public static RepositoryAnalysisMaterialPolicy mvpDefault() {
         return new RepositoryAnalysisMaterialPolicy(
-                4,
                 40,
                 20_000,
                 200_000,
