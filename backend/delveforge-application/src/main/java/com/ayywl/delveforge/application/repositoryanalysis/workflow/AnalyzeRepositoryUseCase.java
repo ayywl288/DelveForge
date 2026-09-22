@@ -134,7 +134,7 @@ public class AnalyzeRepositoryUseCase {
 
         WorkspaceRef workspaceRef = new WorkspaceRef(asset.location());
         if (!workspace.isReadableRepository(workspaceRef)) {
-            throw new WorkspaceException(
+            throw new RepositoryNotAnalyzableException(
                     "该 Software Asset 的位置当前不是可读取的本地 Git Repository: "
                             + asset.location());
         }

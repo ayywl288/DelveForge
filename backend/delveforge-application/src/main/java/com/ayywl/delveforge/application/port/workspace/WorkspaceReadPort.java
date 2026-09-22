@@ -44,17 +44,21 @@ public interface WorkspaceReadPort {
      * 并且该位置本身就是 Repository 根目录——位于某个 Repository 内部的子目录
      * 不算一个 Repository，否则「分析的是哪一个位置」会与实际读取的范围不一致。
      *
-     * <p>本方法只回答「能不能读」：位置不存在、不可访问或不是 Repository 时
-     * 返回 {@code false}，不抛异常。它不判断该 Repository 是否已经有 commit——
-     * 空仓库仍然是可读取的 Repository，但 {@link #headRevision} 会明确失败。
+     * <p>本方法只回答「能不能读」：位置不存在、不可访问、不是一个可用的位置
+     * （例如相对路径）或不是 Repository 时一律返回 {@code false}，不抛异常。
+     * 它不判断该 Repository 是否已经有 commit——空仓库仍然是可读取的 Repository，
+     * 但 {@link #headRevision} 会明确失败。
+     *
+     * <p>读取操作（{@link #listEntries}、{@link #readFile}、{@link #headRevision}）
+     * 仍然要求一个可解析的位置：位置不可用时它们抛 {@link IllegalArgumentException}。
+     * 「这个位置能不能用」的问题由本方法回答，不要靠捕获读取操作的异常来判断。
      *
      * <p>当前实现只把带工作树的 Repository 视为可读取：bare repository 返回
      * {@code false}（这是当前实现的选择，不是领域模型的规定）。
      *
      * @param workspace 目标 Workspace
      * @return 该位置当前是否可作为一个只读 Repository 使用
-     * @throws IllegalArgumentException {@code workspace} 缺失或其取值不是一个可用的位置
-     * @throws WorkspaceException       环境故障导致无法执行 Git 操作（例如找不到 git 可执行文件）
+     * @throws WorkspaceException 环境故障导致无法执行 Git 操作（例如找不到 git 可执行文件）
      */
     boolean isReadableRepository(WorkspaceRef workspace);
 

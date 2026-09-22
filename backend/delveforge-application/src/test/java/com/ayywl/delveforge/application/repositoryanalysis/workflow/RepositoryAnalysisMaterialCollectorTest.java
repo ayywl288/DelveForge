@@ -72,9 +72,8 @@ class RepositoryAnalysisMaterialCollectorTest {
         }
         workspace.givenRevision(REVISION, files);
 
-        List<RepositorySourceFile> material = collect(policy(4, 1, 10, 10));
-
-        assertEquals(List.of(), material);
+        assertThrows(RepositoryNotAnalyzableException.class,
+                () -> collect(policy(4, 1, 10, 10)));
         assertEquals(List.of(), workspace.readPaths(), "一个超限文件都不应该被读取");
     }
 
@@ -144,11 +143,17 @@ class RepositoryAnalysisMaterialCollectorTest {
                 "所有读取都使用调用方给的 revision");
     }
 
+    /**
+     * 策略下没有任何文件可读时明确失败：空材料不是「分析出空结论」，
+     * 而是根本无法分析，因此不能交给下游去问模型。
+     */
     @Test
-    void returnsEmptyWhenNothingMatchesThePolicy() {
+    void failsWhenNothingMatchesThePolicy() {
         workspace.givenRevision(REVISION, Map.of("logo.png", "image"));
 
-        assertEquals(List.of(), collect(policy(4, 10, 100, 10_000)));
+        assertThrows(RepositoryNotAnalyzableException.class,
+                () -> collect(policy(4, 10, 100, 10_000)));
+        assertEquals(List.of(), workspace.readPaths());
     }
 
     @Test

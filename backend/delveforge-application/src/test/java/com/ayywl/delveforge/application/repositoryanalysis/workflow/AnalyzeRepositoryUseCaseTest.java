@@ -256,10 +256,26 @@ class AnalyzeRepositoryUseCaseTest {
         seedAsset(true);
         workspace.givenUnreadableRepository();
 
-        assertThrows(WorkspaceException.class, () -> useCase.analyze(ASSET_ID));
+        assertThrows(RepositoryNotAnalyzableException.class, () -> useCase.analyze(ASSET_ID));
 
         assertEquals(0, workspace.headRevisionCalls(), "不可读时不应继续解析 revision");
         assertEquals(0, aiGateway.callCount());
+        assertEquals(0, profileRepository.saveCount());
+    }
+
+    /**
+     * 没有任何可分析材料时明确失败，而不是让模型对着空材料编造结论，
+     * 也不写入任何快照。
+     */
+    @Test
+    void doesNotSaveProfileWhenThereIsNoAnalyzableMaterial() {
+        seedAsset(true);
+        workspace.givenRevision(REVISION_A, Map.of("logo.png", "not really an image"));
+        workspace.givenHeadRevision(REVISION_A);
+
+        assertThrows(RepositoryNotAnalyzableException.class, () -> useCase.analyze(ASSET_ID));
+
+        assertEquals(0, aiGateway.callCount(), "没有材料时不调用 AI");
         assertEquals(0, profileRepository.saveCount());
     }
 

@@ -72,7 +72,16 @@ public final class RepositoryAnalysisMaterialCollector {
         // Port 不保证顺序；这里显式排序，使同一次分析的结果可复现
         candidates.sort(Comparator.comparing(WorkspaceEntry::relativePath));
 
-        return readWithinPolicy(workspace, revision, candidates);
+        List<RepositorySourceFile> material = readWithinPolicy(workspace, revision, candidates);
+        if (material.isEmpty()) {
+            // 空材料不是「分析出空结论」，而是根本无法分析：让下游拿着空材料去问模型，
+            // 得到的不是分析而是编造。用可判别的语义失败，而不是让提取层抛通用参数异常——
+            // 那会被接口层翻译成「请求不合法」，暗示调用方改请求就能成功。
+            throw new RepositoryNotAnalyzableException(
+                    "该 Repository 在选材策略下没有任何可分析的文件: "
+                            + workspace + " @ " + revision);
+        }
+        return material;
     }
 
     /**

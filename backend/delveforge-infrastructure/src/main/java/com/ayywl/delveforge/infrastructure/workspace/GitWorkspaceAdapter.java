@@ -7,6 +7,7 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -74,7 +75,11 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort {
 
     @Override
     public boolean isReadableRepository(WorkspaceRef workspace) {
-        return isReadable(resolveLocation(workspace));
+        // 位置本身不可用（相对路径、路径语法非法）同样是「不是一个可读仓库」，
+        // 而不是「调用方参数写错了」：调用方只是拿了一个已登记资产的 location 来问。
+        // 读取操作仍然要求可解析的位置，那里照旧拒绝。
+        Path location = usableLocation(workspace);
+        return location != null && isReadable(location);
     }
 
     @Override
@@ -172,15 +177,36 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort {
      * 无关的环境细节，静默接受会让「分析的是哪个位置」变得不可预期。
      */
     private static Path resolveLocation(WorkspaceRef workspace) {
-        if (workspace == null) {
-            throw new IllegalArgumentException("Workspace 必须指定 workspace");
-        }
-        Path location = Path.of(workspace.value());
-        if (!location.isAbsolute()) {
+        Path location = usableLocation(workspace);
+        if (location == null) {
             throw new IllegalArgumentException(
-                    "Workspace 位置必须是绝对路径: " + workspace.value());
+                    "Workspace 位置必须是一个可用的绝对路径: "
+                            + (workspace == null ? "<null>" : workspace.value()));
         }
         return location;
+    }
+
+    /**
+     * 把 WorkspaceRef 解析为一个可用的本地位置；不可用时返回 {@code null}。
+     *
+     * <p>它与 {@link #resolveLocation} 是同一件事的两种表达：读取操作需要位置，
+     * 因此不可用即拒绝；可读性检查只回答「能不能读」，因此不可用即 {@code false}。
+     * 两者共用这里的判定，避免「什么算可用位置」出现两套说法。
+     *
+     * <p>只捕获 {@link InvalidPathException}（路径语法本身非法，例如 Windows 上的保留
+     * 字符），不笼统捕获 {@link IllegalArgumentException}：后者可能来自别处，
+     * 那属于实现缺陷，不该被静默当成「位置不可用」。
+     */
+    private static Path usableLocation(WorkspaceRef workspace) {
+        if (workspace == null) {
+            return null;
+        }
+        try {
+            Path location = Path.of(workspace.value());
+            return location.isAbsolute() ? location : null;
+        } catch (InvalidPathException e) {
+            return null;
+        }
     }
 
     /**

@@ -266,12 +266,21 @@ class GitWorkspaceAdapterIntegrationTest {
         assertThrows(IllegalArgumentException.class, () -> adapter.listEntries(workspace, fixture.revision(), "", -1));
     }
 
+    /**
+     * 相对路径不是一个可用的位置：可读性检查回答「不能读」，而不是断言调用方写错了参数。
+     *
+     * <p>调用方通常只是拿着一个已登记资产的 location 来问，因此这里不能抛异常——
+     * 那会让「资产位置不可分析」在接口层变成「请求不合法」。
+     * 读取操作仍然要求可解析的位置，那里照旧拒绝。
+     */
     @Test
-    void rejectsRelativeWorkspaceLocation() {
+    void reportsRelativeWorkspaceLocationAsNotReadable() {
         WorkspaceRef relative = new WorkspaceRef("relative/repository");
 
-        assertThrows(IllegalArgumentException.class, () -> adapter.isReadableRepository(relative));
+        assertFalse(adapter.isReadableRepository(relative));
         assertThrows(IllegalArgumentException.class, () -> adapter.headRevision(relative));
+        assertThrows(IllegalArgumentException.class,
+                () -> adapter.listEntries(relative, "0".repeat(40), "", 1));
     }
 
     /**
