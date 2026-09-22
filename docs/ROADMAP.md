@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-09-15
+**Last Updated:** 2026-09-22
 
 ---
 
@@ -235,14 +235,14 @@ Repository Profile
 
 #### Repository Analysis
 
-- [ ] 支持用户指定本地 Git Repository。
-- [ ] 注册对应 Software Asset。
-- [ ] 确定 Repository 当前 analyzedRevision。
-- [ ] 通过 Workspace 只读访问 Repository。
-- [ ] 生成结构化 Repository Profile。
-- [ ] 提取 purpose、techStack、modules、capabilities、reusableAssets、limitations 和 risks。
-- [ ] 保存关键分析结果对应的 Evidence。
-- [ ] 保证 Repository Analysis 不修改源 Repository。
+- [x] 支持用户指定本地 Git Repository。
+- [x] 注册对应 Software Asset。
+- [x] 确定 Repository 当前 analyzedRevision。
+- [x] 通过 Workspace 只读访问 Repository。
+- [x] 生成结构化 Repository Profile。
+- [x] 提取 purpose、techStack、modules、capabilities、reusableAssets、limitations 和 risks。
+- [x] 保存关键分析结果对应的 Evidence。
+- [x] 保证 Repository Analysis 不修改源 Repository。
 
 **Acceptance Criteria**
 
@@ -287,8 +287,8 @@ Repository Profile @ analyzedRevision
 - [x] 信息足够后系统不会为了增加对话轮数继续进行无明显价值的探索。
 - [x] User Profile 必须经过用户确认后才能作为 Product Direction Discovery 的正式输入。
 - [x] User Profile 后续修改不会覆盖历史上已经被引用的 revision 语义。
-- [ ] Repository Profile 可以追溯到确定的 Software Asset 和 analyzedRevision。
-- [ ] Repository Analysis 全程不产生源代码修改。
+- [x] Repository Profile 可以追溯到确定的 Software Asset 和 analyzedRevision。
+- [x] Repository Analysis 全程不产生源代码修改。
 
 **Out of Scope**
 
@@ -709,7 +709,7 @@ Step SUCCEEDED
 | Milestone | Goal | Status |
 |---|---|---|
 | M0 | Project Foundation | DONE |
-| M1 | Discovery Inputs | TODO |
+| M1 | Discovery Inputs | DONE |
 | M2 | Product Direction Discovery | TODO |
 | M3 | Evolution Planning & Working Copy | TODO |
 | M4 | First Verified Evolution Step | TODO |
@@ -754,30 +754,31 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 当前处于：
 
 ```text
-M1 — Discovery Inputs
+M2 — Product Direction Discovery
 ```
 
-M0 的执行清单已归档到 §9 Completed Milestones，不再在此处维护。
+M0 与 M1 的执行清单已归档到 §9 Completed Milestones，不再在此处维护。
 
 ### Current
 
-M1 已拆分为 8 个 Task 并完成其中的 User Discovery 部分，剩余 Repository Analysis。
-按本文件约定，Task 在对应 Milestone 即将开始时根据当时已有代码状态拆分，
+M1 — Discovery Inputs 已完成（2026-09-22）。8 个 Task 走通了 User Discovery 与
+Repository Analysis 两条链路，并各自留下阶段记录：
+
+```text
+User Discovery        docs/retrospectives/m1-user-discovery.md
+Repository Analysis   docs/validation/m1-repository-analysis-smoke-test.md
+```
+
+后者的验证在真实 Repository、真实 Git、真实 Provider、真实 SQLite 与真实 HTTP API 上完成，
+并记录了当前 Material Selection 的已知局限（bounded representative sampling，
+不代表深度 Repository understanding）与重新评估条件。
+
+M2 尚未开始。按本文件约定，Task 在对应 Milestone 即将开始时根据当时已有代码状态拆分，
 不在此处维护完整 Task 清单。
-
-M1 剩余工作：
-
-- [ ] Software Asset 注册。
-- [ ] Local Repository 只读 Workspace 能力。
-- [ ] Repository Profile 生成与持久化。
 
 ### Next
 
-M1 完成后优先进入：
-
-```text
 M2 — Product Direction Discovery
-```
 
 当前不提前将 M2 之后的所有实现细节拆分为 Task。
 
@@ -1525,7 +1526,7 @@ DECIDED
 | ------------------------------------------- | ------------- | -------------------------- |
 | AI Framework 路线与版本基线                 | **DECIDED**   | 见 ADR-0003                |
 | AI Gateway 第一版具体 Adapter Design        | **DONE**      | M1 Task 5                  |
-| Workspace Gateway 只读 Adapter              | OPEN          | M1                         |
+| Workspace Gateway 只读 Adapter              | **DONE**      | M1 Task 3                  |
 | Workspace Gateway mutation Adapter          | OPEN          | M3                         |
 | Initial Database Schema                     | **DONE**      | M1 Task 3                  |
 | Frontend / Backend Development API Contract | **DONE**      | M1 Task 4                  |
@@ -1618,6 +1619,54 @@ Acceptance Criteria 全部验证通过。全新克隆执行 ./mvnw clean verify
 - Workspace mutation capability 尚未绑定 Working Copy 授权作用域，
   见 ADR-0001，M3 / M4 必须重新评估
 - AI Framework 路线与版本基线尚未验证，见 §8.7
+```
+
+---
+
+### M1 — Discovery Inputs
+
+**Completed**
+
+```text
+2026-09-22
+```
+
+**Outcome**
+
+```text
+形成 Product Discovery 需要的两个可信输入：
+
+Confirmed User Profile @ Revision
+Repository Profile @ analyzedRevision
+
+两条链路都由自动化测试覆盖，并各自做过真实环境验证：
+
+User Discovery        docs/retrospectives/m1-user-discovery.md
+Repository Analysis   docs/validation/m1-repository-analysis-smoke-test.md
+```
+
+**Lessons Learned**
+
+```text
+原设计问题
+- Repository 分析材料最初按「目录层级 + 路径排序」筛选。前者让按工程惯例放在深目录的
+  主源码树整体不可见（真实仓库 96 个 Java 文件全部落选），后者让字典序靠前的文件类别
+  占满预算。两轮真实仓库验证暴露后，改为「不按层级筛选 + 按用途类别轮转」。
+  这一类问题只有在真实仓库上才会暴露：自动化测试用的是替身，其目录结构由测试自己决定。
+
+被验证的假设
+- 「revision 只解析一次并贯穿所有读取」确实能在分析期间源仓库前移时防止版本混用；
+- 只读能力在类型层面隔离（只注入只读 Port）之后，Repository Analysis 全程不写源仓库。
+- 「确定性」是可以被独立复算的：材料选材不调用 Provider 也能用 git 独立复现并核对。
+
+后续调整
+- Material Selection 当前只做到 bounded representative sampling：能采样到工程结构与配置，
+  但业务实现代码（controller / service 等）覆盖不足，部分大文件因单文件上限被跳过。
+  在有限 context budget 下选择最具代表性的业务实现代码是一个独立问题，
+  重新评估条件见 docs/validation/m1-repository-analysis-smoke-test.md §7，
+  不因为「看起来可以更好」就继续加机制。
+- Workspace mutation Adapter 仍按原计划等 M3（出现 Working Copy 与 Evolution Execution
+  的真实调用方之后再实现）。
 ```
 
 ---
