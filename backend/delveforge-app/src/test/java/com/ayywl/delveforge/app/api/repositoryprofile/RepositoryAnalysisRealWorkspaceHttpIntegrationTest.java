@@ -1,4 +1,4 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.repositoryprofile;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;

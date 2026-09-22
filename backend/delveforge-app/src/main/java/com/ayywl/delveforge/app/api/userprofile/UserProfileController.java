@@ -1,5 +1,6 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.userprofile;
 
+import com.ayywl.delveforge.app.api.evidence.EvidencePayload;
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
@@ -237,15 +238,6 @@ public class UserProfileController {
                 profile.technicalCapabilities(),
                 profile.projectGoals(),
                 profile.constraints(),
-                profile.evidence().stream().map(UserProfileController::toPayload).toList());
-    }
-
-    private static EvidencePayload toPayload(Evidence evidence) {
-        return new EvidencePayload(
-                evidence.sourceType(),
-                evidence.sourceRef(),
-                evidence.claim(),
-                evidence.confidence(),
-                evidence.confirmed());
+                profile.evidence().stream().map(EvidencePayload::from).toList());
     }
 }

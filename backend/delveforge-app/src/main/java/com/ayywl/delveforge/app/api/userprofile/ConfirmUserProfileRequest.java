@@ -1,4 +1,4 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.userprofile;
 
 /**
  * {@code POST /api/user-profiles/{id}/confirm} 的请求体。

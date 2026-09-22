@@ -1,4 +1,4 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.system;
 
 import java.time.Instant;
 import org.springframework.web.bind.annotation.GetMapping;

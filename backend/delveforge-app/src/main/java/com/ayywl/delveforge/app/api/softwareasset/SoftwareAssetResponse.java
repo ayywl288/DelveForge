@@ -1,4 +1,4 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.softwareasset;
 
 import com.ayywl.delveforge.domain.asset.SoftwareAssetSource;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetType;

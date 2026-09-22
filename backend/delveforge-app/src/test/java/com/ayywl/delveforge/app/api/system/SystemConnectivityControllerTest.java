@@ -1,4 +1,4 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.system;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

@@ -1,5 +1,6 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.evidence;
 
+import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 
 /**
@@ -22,4 +23,19 @@ public record EvidencePayload(
         String claim,
         Double confidence,
         boolean confirmed) {
+
+    /**
+     * 把领域 Evidence 映射为它的接口表示。
+     *
+     * <p>映射放在负载自己的类上：它被 User Profile 与 Repository Profile 两个资源共用，
+     * 放在任一资源里都会让另一个资源反过来依赖它的 Controller（或复制一份）。
+     */
+    public static EvidencePayload from(Evidence evidence) {
+        return new EvidencePayload(
+                evidence.sourceType(),
+                evidence.sourceRef(),
+                evidence.claim(),
+                evidence.confidence(),
+                evidence.confirmed());
+    }
 }

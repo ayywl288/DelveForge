@@ -1,5 +1,7 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.repositoryprofile;
 
+import com.ayywl.delveforge.app.api.evidence.EvidencePayload;
+import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
 import java.util.List;
 
 /**
@@ -37,4 +39,26 @@ public record RepositoryProfileResponse(
         List<String> limitations,
         List<String> risks,
         List<EvidencePayload> evidence) {
+
+    /**
+     * 把领域快照映射为它的接口表示。
+     *
+     * <p>两个端点都返回本资源：分析端点（在 Software Asset 路径下）返回新形成的快照，
+     * 查询端点返回已保存的快照。映射因此放在资源自己的类上，
+     * 而不是让其中一个 Controller 提供另一个资源要用的静态方法。
+     */
+    public static RepositoryProfileResponse from(RepositoryProfile profile) {
+        return new RepositoryProfileResponse(
+                profile.id().value(),
+                profile.assetId().value(),
+                profile.analyzedRevision(),
+                profile.purpose(),
+                profile.techStack(),
+                profile.modules(),
+                profile.capabilities(),
+                profile.reusableAssets(),
+                profile.limitations(),
+                profile.risks(),
+                profile.evidence().stream().map(EvidencePayload::from).toList());
+    }
 }

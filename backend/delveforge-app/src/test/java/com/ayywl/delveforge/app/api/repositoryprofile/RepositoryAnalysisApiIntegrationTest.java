@@ -1,4 +1,4 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.repositoryprofile;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.ayywl.delveforge.app.api.shared.StubWorkspace;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiRequest;

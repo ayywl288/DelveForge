@@ -1,12 +1,12 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.softwareasset;
 
+import com.ayywl.delveforge.app.api.repositoryprofile.RepositoryProfileResponse;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.GetSoftwareAssetUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.RegisterSoftwareAssetRequest;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.RegisterSoftwareAssetUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.AnalyzeRepositoryUseCase;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
-import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -88,7 +88,8 @@ public class SoftwareAssetController {
     @PostMapping("/{id}/analysis")
     @ResponseStatus(HttpStatus.CREATED)
     public RepositoryProfileResponse analyze(@PathVariable String id) {
-        return toResponse(analyzeRepositoryUseCase.analyze(new SoftwareAssetId(id)));
+        return RepositoryProfileResponse.from(
+                analyzeRepositoryUseCase.analyze(new SoftwareAssetId(id)));
     }
 
     private static SoftwareAssetResponse toResponse(SoftwareAsset asset) {
@@ -100,27 +101,5 @@ public class SoftwareAssetController {
                 asset.readPermissionAllowed(),
                 asset.licenseInfo().orElse(null),
                 asset.usageAuthorization());
-    }
-
-    static RepositoryProfileResponse toResponse(RepositoryProfile profile) {
-        return new RepositoryProfileResponse(
-                profile.id().value(),
-                profile.assetId().value(),
-                profile.analyzedRevision(),
-                profile.purpose(),
-                profile.techStack(),
-                profile.modules(),
-                profile.capabilities(),
-                profile.reusableAssets(),
-                profile.limitations(),
-                profile.risks(),
-                profile.evidence().stream()
-                        .map(evidence -> new EvidencePayload(
-                                evidence.sourceType(),
-                                evidence.sourceRef(),
-                                evidence.claim(),
-                                evidence.confidence(),
-                                evidence.confirmed()))
-                        .toList());
     }
 }

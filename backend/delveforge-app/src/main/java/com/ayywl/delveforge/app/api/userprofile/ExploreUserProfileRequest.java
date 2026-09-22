@@ -1,4 +1,4 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.userprofile;
 
 /**
  * {@code POST /api/user-profiles/{id}/explore} 的请求体：一轮用户自然语言输入。

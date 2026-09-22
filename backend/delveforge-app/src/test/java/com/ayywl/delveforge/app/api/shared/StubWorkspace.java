@@ -1,4 +1,4 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.shared;
 
 import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
@@ -16,7 +16,7 @@ import java.util.Map;
  * 真实 Git 集成由 Infrastructure 的测试单独覆盖（AGENTS.md §10.3）：
  * 在那里验证「真实 git 命令读到的就是 commit tree」，在这里验证「接口把结果映射对了」。
  */
-final class StubWorkspace implements WorkspaceReadPort {
+public final class StubWorkspace implements WorkspaceReadPort {
 
     private final Map<String, String> files = new LinkedHashMap<>();
 
@@ -30,31 +30,31 @@ final class StubWorkspace implements WorkspaceReadPort {
      * <p>替身是共享的静态实例，因此每个测试开始前都要复位，否则前一个测试留下的
      * 「不可读」标记会悄悄影响后一个测试。
      */
-    StubWorkspace reset() {
+    public StubWorkspace reset() {
         files.clear();
         readableRepository = true;
         return this;
     }
 
-    StubWorkspace givenFile(String relativePath, String content) {
+    public StubWorkspace givenFile(String relativePath, String content) {
         files.put(relativePath, content);
         return this;
     }
 
     /** 只剩下选材策略会排除的文件：用于「没有可分析材料」的场景。 */
-    StubWorkspace givenNotAnalyzableContent() {
+    public StubWorkspace givenNotAnalyzableContent() {
         files.clear();
         files.put("logo.png", "not really an image");
         files.put("node_modules/left-pad/index.js", "module.exports = 1");
         return this;
     }
 
-    StubWorkspace givenRevision(String revision) {
+    public StubWorkspace givenRevision(String revision) {
         this.revision = revision;
         return this;
     }
 
-    StubWorkspace givenNotRepository() {
+    public StubWorkspace givenNotRepository() {
         this.readableRepository = false;
         return this;
     }

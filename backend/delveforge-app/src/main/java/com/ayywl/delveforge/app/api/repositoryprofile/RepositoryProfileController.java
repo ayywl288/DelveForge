@@ -1,4 +1,4 @@
-package com.ayywl.delveforge.app.api;
+package com.ayywl.delveforge.app.api.repositoryprofile;
 
 import com.ayywl.delveforge.application.repositoryanalysis.profile.GetRepositoryProfileUseCase;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
@@ -30,7 +30,7 @@ public class RepositoryProfileController {
 
     @GetMapping("/{id}")
     public RepositoryProfileResponse get(@PathVariable String id) {
-        return SoftwareAssetController.toResponse(
+        return RepositoryProfileResponse.from(
                 getRepositoryProfileUseCase.get(new RepositoryProfileId(id)));
     }
 }
