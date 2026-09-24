@@ -710,7 +710,7 @@ Step SUCCEEDED
 |---|---|---|
 | M0 | Project Foundation | DONE |
 | M1 | Discovery Inputs | DONE |
-| M2 | Product Direction Discovery | TODO |
+| M2 | Product Direction Discovery | IN_PROGRESS |
 | M3 | Evolution Planning & Working Copy | TODO |
 | M4 | First Verified Evolution Step | TODO |
 | M5 | Failure Safety & Recovery | TODO |
@@ -773,7 +773,7 @@ Repository Analysis   docs/validation/m1-repository-analysis-smoke-test.md
 并记录了当前 Material Selection 的已知局限（bounded representative sampling，
 不代表深度 Repository understanding）与重新评估条件。
 
-M2 尚未开始。按本文件约定，Task 在对应 Milestone 即将开始时根据当时已有代码状态拆分，
+M2 已开始。按本文件约定，Task 在对应 Milestone 即将开始时根据当时已有代码状态拆分，
 不在此处维护完整 Task 清单。
 
 ### Next
