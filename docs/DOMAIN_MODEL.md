@@ -1638,7 +1638,8 @@ Invariant 描述的是系统无论采用何种 Controller、数据库、LLM Prov
 | `INV-D06` | Product Direction 中关于用户需求、匹配关系和可复用软件能力的关键判断必须具有可追溯 Evidence；不能仅依赖无法定位来源的模型描述。 |
 | `INV-D07` | Product Direction 只能由用户明确选择后进入 `SELECTED`；系统不得自行替用户完成最终方向选择。 |
 | `INV-D08` | 用于生成 Product Direction 的 User Profile 必须处于 `CONFIRMED` 状态，并明确使用其确定 revision。 |
-| `INV-D09` | 当前 MVP 同一演化流程中最多只能存在一个当前 `SELECTED` Product Direction；用户切换方向时，原 Selected Product Direction 必须进入 `SUPERSEDED`。 |
+| `INV-D09` | 当前 MVP 仅支持一个活动演化流程，因此系统全局最多只能存在一个当前 `SELECTED` Product Direction。用户明确选择新的 `CANDIDATE` Product Direction 时，若当前已存在 `SELECTED` Product Direction，则原方向必须在同一次选择操作中进入 `SUPERSEDED`。并行演化流程及显式 `EvolutionFlow` 身份不属于当前 MVP 范围；若后续需求得到验证，再引入相应流程身份，并将该约束收窄为“每个 EvolutionFlow 最多一个当前 `SELECTED` Product Direction”。 |
+| `INV-D10` | 每个 Product Direction 至少必须标识一个 Candidate Software Asset；其 `candidateAssetIds` 必须来自该 Product Direction 所引用 Repository Profiles 对应的 Software Assets。 |
 
 ### 7.2 Planning Invariants
 
