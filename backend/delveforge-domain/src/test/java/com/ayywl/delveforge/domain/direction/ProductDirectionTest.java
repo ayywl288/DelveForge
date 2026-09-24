@@ -16,7 +16,8 @@ import org.junit.jupiter.api.Test;
 /**
  * Product Direction Aggregate 的领域行为（DOMAIN_MODEL.md §3.5、§6.2、§10.5、§11.6）。
  *
- * <p>覆盖三部分：创建时的不变量、§6.2 定义的三条合法转换，以及除此之外的非法转换。
+ * <p>覆盖四部分：创建时的不变量、§6.2 定义的三条合法转换、除此之外的非法转换，
+ * 以及按已保存的领域事实重建（{@code reconstitute}）。
  */
 class ProductDirectionTest {
 
@@ -512,6 +513,172 @@ class ProductDirectionTest {
         assertSame(repositoryProfileIds, direction.repositoryProfileIds());
         assertSame(evidence, direction.evidence());
         assertEquals(ProductDirectionStatus.SELECTED, direction.status());
+    }
+
+    // ---------------------------------------------------------------------
+    // 按已保存的领域事实重建（reconstitute）
+    // ---------------------------------------------------------------------
+
+    /**
+     * 四种状态都是已经发生过的领域事实，Persistence 必须能把它们读回来。
+     *
+     * <p>SELECTED 与 SUPERSEDED 的恢复不违背 INV-D07：那条 Invariant 约束的是
+     * 「谁有权把方向变成 SELECTED」，而不是「已经这样发生过的事实能否被读回来」。
+     */
+    @Test
+    void reconstitutesEveryLifecycleStatus() {
+        for (ProductDirectionStatus status : ProductDirectionStatus.values()) {
+            ProductDirection direction = reconstituteWith(status);
+
+            assertEquals(status, direction.status());
+            assertEquals(DIRECTION_ID, direction.id());
+            assertEquals(List.of(REPOSITORY_PROFILE_ID), direction.repositoryProfileIds());
+            assertEquals(List.of(ASSET_ID), direction.candidateAssetIds());
+            assertEquals(List.of(EVIDENCE), direction.evidence());
+        }
+    }
+
+    @Test
+    void reconstitutesFullRecommendationContentAndAnalysisBasis() {
+        ProductDirection direction = reconstituteWith(ProductDirectionStatus.SELECTED);
+
+        assertEquals(USER_PROFILE_ID, direction.userProfileId());
+        assertEquals(USER_PROFILE_REVISION, direction.userProfileRevision());
+        assertEquals(List.of(REPOSITORY_PROFILE_ID), direction.repositoryProfileIds());
+        assertEquals("个人记账 + 报表导出", direction.title());
+        assertEquals("现有记账工具缺少可导出的报表", direction.problem());
+        assertEquals("单用户桌面记账工具 + 报表导出", direction.targetProduct());
+        assertEquals("用户已经在用记账工具，且技术栈匹配", direction.userFit());
+        assertEquals(List.of(ASSET_ID), direction.candidateAssetIds());
+        assertEquals("相比现有工具增加了自定义报表", direction.differentiation());
+        assertEquals("可复用现有报表模块的渲染能力", direction.technicalValue());
+        assertEquals("中等：主要在导出与模板部分", direction.estimatedComplexity());
+        assertEquals(List.of("模板格式复杂度可能超预期"), direction.risks());
+        assertEquals(List.of(EVIDENCE), direction.evidence());
+    }
+
+    /**
+     * 恢复的是状态本身，不是对状态机的豁免：被恢复成 SELECTED 的方向，
+     * 再次 select 依旧被拒绝。
+     */
+    @Test
+    void keepsStateMachineRulesAfterRestoration() {
+        ProductDirection restored = reconstituteWith(ProductDirectionStatus.SELECTED);
+
+        assertThrows(ProductDirectionStateException.class, restored::select);
+        assertThrows(ProductDirectionStateException.class, restored::reject);
+
+        restored.supersede();
+        assertEquals(ProductDirectionStatus.SUPERSEDED, restored.status(),
+                "恢复后的方向仍可继续走合法转换");
+    }
+
+    @Test
+    void restoredCandidateCanStillBeSelected() {
+        ProductDirection restored = reconstituteWith(ProductDirectionStatus.CANDIDATE);
+
+        restored.select();
+
+        assertEquals(ProductDirectionStatus.SELECTED, restored.status());
+    }
+
+    @Test
+    void rejectsReconstitutionWithoutStatus() {
+        assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
+                "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
+                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE), null));
+    }
+
+    /**
+     * 恢复不放宽当前的结构不变量：存储里读出来的内容同样是不可信的输入，
+     * 一条不满足 INV-D01 / INV-D05 / INV-D06 / INV-D10 的历史记录无法被重建。
+     */
+    @Test
+    void rejectsReconstitutionThatViolatesStructuralInvariants() {
+        assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
+                null, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
+                "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
+                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE),
+                ProductDirectionStatus.CANDIDATE), "缺少 id");
+
+        assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
+                DIRECTION_ID, USER_PROFILE_ID, 0, List.of(REPOSITORY_PROFILE_ID),
+                "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
+                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE),
+                ProductDirectionStatus.CANDIDATE), "userProfileRevision 小于 1");
+
+        assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(),
+                "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
+                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE),
+                ProductDirectionStatus.CANDIDATE), "没有引用 Repository Profile");
+
+        assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
+                "标题", "问题", "目标产品", "匹配点", List.of(),
+                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE),
+                ProductDirectionStatus.CANDIDATE), "没有标识 Candidate Software Asset");
+
+        assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
+                "标题", " ", "目标产品", "匹配点", List.of(ASSET_ID),
+                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE),
+                ProductDirectionStatus.CANDIDATE), "推荐内容为空");
+
+        assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
+                "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
+                "差异化", "技术价值", "复杂度", List.of(), List.of(),
+                ProductDirectionStatus.CANDIDATE), "没有 Evidence");
+    }
+
+    /** 恢复出来的集合与创建时同样不可修改，也不与调用方传入的列表共享状态。 */
+    @Test
+    void reconstitutedCollectionsAreDefensivelyCopied() {
+        List<RepositoryProfileId> repositoryProfileIds = new ArrayList<>();
+        repositoryProfileIds.add(REPOSITORY_PROFILE_ID);
+        List<SoftwareAssetId> candidateAssetIds = new ArrayList<>();
+        candidateAssetIds.add(ASSET_ID);
+        List<Evidence> evidence = new ArrayList<>();
+        evidence.add(EVIDENCE);
+
+        ProductDirection direction = ProductDirection.reconstitute(
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, repositoryProfileIds,
+                "标题", "问题", "目标产品", "匹配点", candidateAssetIds,
+                "差异化", "技术价值", "复杂度", List.of(), evidence,
+                ProductDirectionStatus.SUPERSEDED);
+
+        repositoryProfileIds.add(new RepositoryProfileId("other"));
+        candidateAssetIds.add(new SoftwareAssetId("other"));
+        evidence.add(new Evidence(EvidenceSourceType.REPOSITORY, "pom.xml", "后来追加", null, false));
+
+        assertEquals(List.of(REPOSITORY_PROFILE_ID), direction.repositoryProfileIds());
+        assertEquals(List.of(ASSET_ID), direction.candidateAssetIds());
+        assertEquals(List.of(EVIDENCE), direction.evidence());
+        assertThrows(UnsupportedOperationException.class,
+                () -> direction.repositoryProfileIds().add(new RepositoryProfileId("other")));
+        assertThrows(UnsupportedOperationException.class,
+                () -> direction.evidence().add(EVIDENCE));
+    }
+
+    private static ProductDirection reconstituteWith(ProductDirectionStatus status) {
+        return ProductDirection.reconstitute(
+                DIRECTION_ID,
+                USER_PROFILE_ID,
+                USER_PROFILE_REVISION,
+                List.of(REPOSITORY_PROFILE_ID),
+                "个人记账 + 报表导出",
+                "现有记账工具缺少可导出的报表",
+                "单用户桌面记账工具 + 报表导出",
+                "用户已经在用记账工具，且技术栈匹配",
+                List.of(ASSET_ID),
+                "相比现有工具增加了自定义报表",
+                "可复用现有报表模块的渲染能力",
+                "中等：主要在导出与模板部分",
+                List.of("模板格式复杂度可能超预期"),
+                List.of(EVIDENCE),
+                status);
     }
 
     private static ProductDirection createDirection() {

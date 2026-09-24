@@ -121,11 +121,16 @@ import java.util.List;
  *     INV-D01 要求方向能追溯到确定的 {@code UserProfileId + revision}，
  *     而 User Profile 的 revision 自 1 开始（§10.3），0 或负数不对应任何版本。
  *
- * 不提供 reconstitute
- *     本 Task 只提供创建与状态转换。恢复已保存状态（含 SELECTED / SUPERSEDED）
- *     的入口属于 Persistence 设计，届时需要同时回答「恢复出的状态是否绕过状态机」，
- *     因此不在此处提前给出。
+ * reconstitute 与 create 共用一条校验路径
+ *     Persistence 需要把已保存的方向读回来（§10.5），因此本类提供
+ *     {@link #reconstitute}。它与 {@link #create} 的差别只有初始状态：前者恢复
+ *     已发生的领域事实，允许四种状态；后者产生新方向，只能是 CANDIDATE。
+ *     两者的结构校验完全一致，由 {@link #assemble} 一条路径承担，
+ *     避免两份规则彼此漂移。
  * </pre>
+ *
+ * <p>本类不承载任何持久化语义：{@link #reconstitute} 只是重建入口，方向如何保存与
+ * 重新读取（§10.5）属于 Persistence 设计。
  *
  * <p>不包含：方向如何被生成、如何被排序展示、选择后的 Evolution Planning、
  * 以及本 Aggregate 的持久化与历史保留。
@@ -196,6 +201,141 @@ public class ProductDirection {
             List<String> risks,
             List<Evidence> evidence) {
 
+        return assemble(
+                id,
+                userProfileId,
+                userProfileRevision,
+                repositoryProfileIds,
+                title,
+                problem,
+                targetProduct,
+                userFit,
+                candidateAssetIds,
+                differentiation,
+                technicalValue,
+                estimatedComplexity,
+                risks,
+                evidence,
+                ProductDirectionStatus.CANDIDATE);
+    }
+
+    /**
+     * 按已保存的领域事实重建一个 Product Direction。
+     *
+     * <p>本入口用于 Persistence 从存储中恢复已经存在的方向。调用点表达的是
+     * 「恢复这一条已经发生的领域事实」，而不是「产生一个新的方向」——后者请使用
+     * {@link #create}。
+     *
+     * <p>参数与 {@link #create} 完全一致，只多一个要恢复的 {@code status}。
+     *
+     * <h2>与 create 的语义差别只有初始状态</h2>
+     *
+     * <pre>
+     * create()       产生新的方向 → 只能是 CANDIDATE（§8.4、INV-D07）
+     * reconstitute() 恢复已存在的方向 → 允许 CANDIDATE / SELECTED / REJECTED / SUPERSEDED
+     * </pre>
+     *
+     * <p>{@code SELECTED} 与 {@code SUPERSEDED} 是历史事实：这条方向确实被用户选择过，
+     * 或者确实被取代过。恢复它们并不违背 INV-D07——那条 Invariant 约束的是
+     * 「谁有权把方向变成 SELECTED」，而不是「已经这样发生过的事实能否被读回来」。
+     * 因此 {@code status} 由调用方给出，本方法不通过 {@link #select()} /
+     * {@link #reject()} / {@link #supersede()} 去模拟一次并不存在的状态变化：
+     * 那样会让「恢复」依赖这些方法当前允许什么，一旦状态机收紧，历史数据就再也读不出来。
+     *
+     * <p>恢复出的对象随后仍然受状态机约束：一个被恢复成 {@code SELECTED} 的方向，
+     * 调用 {@link #select()} 依旧被拒绝。恢复的是状态，不是豁免。
+     *
+     * <p>除 {@code status} 外，本方法执行与 {@link #create} 完全相同的结构校验，
+     * 两者共用同一条 {@link #assemble} 路径，不各自维护一份会彼此漂移的规则。
+     * 也就是说，恢复不会放宽当前的结构 Invariant：id / userProfileId /
+     * userProfileRevision / repositoryProfileIds / candidateAssetIds /
+     * recommendation content / evidence 都必须合法，否则拒绝重建——
+     * 一条读不回来的历史记录说明存储已经与领域模型不一致，此时报错比放行更安全。
+     *
+     * <p>本方法只校验取值是否合法，不重新判定生命周期规则：被重建的 {@code status}
+     * 本身就是要恢复的领域状态，而不是一次需要重新审批的状态转换。
+     *
+     * @param id                    身份，不得为 {@code null}
+     * @param userProfileId         当时所依据的 User Profile，不得为 {@code null}
+     * @param userProfileRevision   当时所依据的版本，不得小于 1
+     * @param repositoryProfileIds  当时所依据的 Repository Profile；不得为 {@code null} 或空
+     * @param title                 方向的简短名称，不得为 {@code null} 或空白
+     * @param problem               当时给出的核心问题或需求，不得为 {@code null} 或空白
+     * @param targetProduct         当时给出的目标形态，不得为 {@code null} 或空白
+     * @param userFit               当时给出的匹配点，不得为 {@code null} 或空白
+     * @param candidateAssetIds     当时标识的 Software Asset；不得为 {@code null} 或空
+     * @param differentiation       当时给出的主要差异，不得为 {@code null} 或空白
+     * @param technicalValue        当时给出的技术价值，不得为 {@code null} 或空白
+     * @param estimatedComplexity   当时给出的复杂度判断，不得为 {@code null} 或空白
+     * @param risks                 当时记录的风险；不得为 {@code null}，可以为空
+     * @param evidence              当时记录的依据；不得为 {@code null} 或空
+     * @param status                保存时的状态，不得为 {@code null}
+     * @throws IllegalArgumentException 任一参数不满足上述约束
+     */
+    public static ProductDirection reconstitute(
+            ProductDirectionId id,
+            UserProfileId userProfileId,
+            int userProfileRevision,
+            List<RepositoryProfileId> repositoryProfileIds,
+            String title,
+            String problem,
+            String targetProduct,
+            String userFit,
+            List<SoftwareAssetId> candidateAssetIds,
+            String differentiation,
+            String technicalValue,
+            String estimatedComplexity,
+            List<String> risks,
+            List<Evidence> evidence,
+            ProductDirectionStatus status) {
+
+        if (status == null) {
+            throw new IllegalArgumentException("重建 Product Direction 必须指定 status");
+        }
+        return assemble(
+                id,
+                userProfileId,
+                userProfileRevision,
+                repositoryProfileIds,
+                title,
+                problem,
+                targetProduct,
+                userFit,
+                candidateAssetIds,
+                differentiation,
+                technicalValue,
+                estimatedComplexity,
+                risks,
+                evidence,
+                status);
+    }
+
+    /**
+     * {@link #create} 与 {@link #reconstitute} 共用的唯一构造路径。
+     *
+     * <p>校验全部结构不变量、固化内容集合并建立对象；初始状态由调用方给出，
+     * 因为这两个入口对「初始状态是什么」有各自明确的语义，而对「什么内容才是合法的」
+     * 要求完全一致。把校验放在这里而不是各写一份，是为了让两条路径不可能漂移。
+     *
+     * @throws IllegalArgumentException 任一参数不满足 {@link #create} 列出的约束
+     */
+    private static ProductDirection assemble(
+            ProductDirectionId id,
+            UserProfileId userProfileId,
+            int userProfileRevision,
+            List<RepositoryProfileId> repositoryProfileIds,
+            String title,
+            String problem,
+            String targetProduct,
+            String userFit,
+            List<SoftwareAssetId> candidateAssetIds,
+            String differentiation,
+            String technicalValue,
+            String estimatedComplexity,
+            List<String> risks,
+            List<Evidence> evidence,
+            ProductDirectionStatus status) {
+
         if (id == null) {
             throw new IllegalArgumentException("Product Direction 必须指定 id");
         }
@@ -252,7 +392,8 @@ public class ProductDirection {
                 normalizedTechnicalValue,
                 normalizedEstimatedComplexity,
                 normalizedRisks,
-                normalizedEvidence);
+                normalizedEvidence,
+                status);
     }
 
     private ProductDirection(
@@ -269,7 +410,8 @@ public class ProductDirection {
             String technicalValue,
             String estimatedComplexity,
             List<String> risks,
-            List<Evidence> evidence) {
+            List<Evidence> evidence,
+            ProductDirectionStatus status) {
 
         this.id = id;
         this.userProfileId = userProfileId;
@@ -285,7 +427,7 @@ public class ProductDirection {
         this.estimatedComplexity = estimatedComplexity;
         this.risks = risks;
         this.evidence = evidence;
-        this.status = ProductDirectionStatus.CANDIDATE;
+        this.status = status;
     }
 
     /**
