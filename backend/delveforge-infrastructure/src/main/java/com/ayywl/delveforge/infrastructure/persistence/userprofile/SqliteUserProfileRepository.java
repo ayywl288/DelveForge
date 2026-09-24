@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,6 +49,11 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>内容完全相同的重复保存是幂等的。当前 revision 的快照行先删后写，使重复保存
  * 不产生重复行。整个 {@code save} 在一个事务内完成。
+ *
+ * <p>「内容是否相同」按存储语义判断，不直接使用领域对象的相等性：{@code Evidence} 的
+ * record equality 会区分 {@code confidence} 的正负零，而 SQLite 的 REAL 不保留负零。
+ * 若照搬 record equality，一次内容完全没变的重复保存会因为存储往返而「自己不等于
+ * 自己」，被误判成冲突。见 {@link #sameEvidence} 与 {@link #canonicalConfidence}。
  *
  * <p>不在此处判断 Profile 是否发生了领域意义上的变化：是否推进 revision 由
  * {@code UserProfile} Aggregate 决定，Adapter 只负责把它的当前状态写下去。
@@ -157,7 +163,62 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
                         .equals(profile.technicalCapabilities())
                 && section(sections, Section.PROJECT_GOALS).equals(profile.projectGoals())
                 && section(sections, Section.CONSTRAINTS).equals(profile.constraints())
-                && loadEvidence(profileId, revision).equals(profile.evidence());
+                && sameEvidence(loadEvidence(profileId, revision), profile.evidence());
+    }
+
+    /**
+     * 两组 Evidence 是否表示同一份依据，按存储语义逐条比较。
+     *
+     * <p>不能直接用 {@code Evidence} 的 record equality：它按 {@code Double.equals}
+     * 比较 {@code confidence}，而 {@code Double.equals} 区分正零与负零。
+     * SQLite 的 REAL 不保留负零——{@code -0.0} 写入后读回是 {@code 0.0}——
+     * 于是同一份 Evidence 在存储往返之后会「自己不等于自己」，把一次内容完全没变的
+     * 重复保存误判成用不同内容覆盖已保存的 revision，并予以拒绝。
+     *
+     * <p>因此比较发生在存储语义上：两侧的 confidence 都先经过
+     * {@link #canonicalConfidence}，其余字段（含 {@code null}）仍严格比较。
+     * 真实的内容变化照常被拒绝。
+     */
+    private static boolean sameEvidence(List<Evidence> stored, List<Evidence> incoming) {
+        if (stored.size() != incoming.size()) {
+            return false;
+        }
+        for (int i = 0; i < stored.size(); i++) {
+            Evidence left = stored.get(i);
+            Evidence right = incoming.get(i);
+            if (left.sourceType() != right.sourceType()
+                    || !left.sourceRef().equals(right.sourceRef())
+                    || !left.claim().equals(right.claim())
+                    || left.confirmed() != right.confirmed()
+                    || !Objects.equals(canonicalConfidence(left.confidence()),
+                            canonicalConfidence(right.confidence()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * 把 {@code confidence} 规范成这层存储实际能保存并读回的取值。
+     *
+     * <p>当前唯一的差异是负零：SQLite 的 REAL 不保留它，写入 {@code -0.0} 之后读回的是
+     * {@code 0.0}。于是同一份 Evidence 在存储往返之后会「自己不等于自己」，把一次内容
+     * 完全没变的重复保存误判成用不同内容覆盖已保存的 revision。
+     *
+     * <p>把正负零统一成正零，是本 Adapter 为适配该存储行为而做的实现选择，
+     * 不是领域模型已经定义的规则：DOMAIN_MODEL.md §3.6 只把 {@code confidence} 描述为
+     * 「对推断型 Evidence 的可信程度」，既没有规定正负零是否等价，也没有要求领域层
+     * 归一化这个取值。本 Adapter 因此只在「写下去的值」与「读回来的值」之间求一致，
+     * 使往返转换不制造调用方从未提交过的差异；领域对象仍然保留调用方给出的原始取值。
+     *
+     * <p>{@code null}（未给出确定性判断）原样保留，不与任何数值合并，也不与零混同。
+     * NaN 与无穷不可能到达这里：{@code Evidence} 已经在构造时拒绝非有限数值。
+     */
+    private static Double canonicalConfidence(Double confidence) {
+        if (confidence == null) {
+            return null;
+        }
+        return confidence == 0.0 ? 0.0 : confidence;
     }
 
     private static UserProfileDO toRow(UserProfile profile) {
@@ -216,7 +277,7 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
             row.setSourceType(item.sourceType().name());
             row.setSourceRef(item.sourceRef());
             row.setClaim(item.claim());
-            row.setConfidence(item.confidence());
+            row.setConfidence(canonicalConfidence(item.confidence()));
             row.setConfirmed(item.confirmed() ? 1 : 0);
             evidenceMapper.insert(row);
         }

@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.persistence.userprofile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -330,6 +331,137 @@ class SqliteUserProfileRepositoryIntegrationTest {
         assertEquals(UserProfileStatus.REVIEWING, reloaded.status());
         assertEquals(2, reloaded.revision());
         assertEquals(List.of("兴趣"), reloaded.interests());
+    }
+
+    /**
+     * 回归：Evidence 的 confidence 为负零时，内容完全没变的重复保存不得被误判成内容冲突。
+     *
+     * <p>SQLite 的 REAL 不保留负零：{@code -0.0} 写入后读回是 {@code 0.0}。
+     * 而 {@code Evidence} 是 record，它的相等性按 {@code Double.equals} 比较 confidence，
+     * 会区分正零与负零。若两侧不统一比较语义，下面的第二次 save 会抛
+     * {@code IllegalStateException}——调用方没有改动任何内容，revision 也没有推进。
+     */
+    @Test
+    void acceptsIdenticalResaveWhenEvidenceConfidenceIsNegativeZero() {
+        UserProfile profile = profileWithEvidenceConfidence(-0.0);
+
+        repository.save(profile);
+        repository.save(profile);
+
+        assertEquals(1, userProfileMapper.selectCount(null).intValue());
+        assertEquals(1, revisionAnchorCount(PROFILE_ID, 1));
+        assertEquals(1, evidenceRows(PROFILE_ID, 1).size(), "重复保存不得产生第二条 Evidence");
+
+        UserProfile reloaded = repository.findById(PROFILE_ID).orElseThrow();
+        assertEquals(1, reloaded.revision());
+        assertEquals(1, reloaded.evidence().size());
+    }
+
+    /**
+     * 存储不保留负零，读回的是正零。
+     *
+     * <p>把正负零统一成正零是本 Adapter 针对 SQLite REAL 往返行为做的实现选择，
+     * 不是领域模型定义的等价语义（§3.6 没有规定正负零是否等价）。
+     */
+    @Test
+    void restoresNegativeZeroConfidenceAsPositiveZero() {
+        repository.save(profileWithEvidenceConfidence(-0.0));
+
+        Double restored = repository.findById(PROFILE_ID).orElseThrow()
+                .evidence().get(0).confidence();
+
+        assertEquals(0, Double.compare(0.0, restored), "读回的 confidence 应是正零");
+    }
+
+    /**
+     * 归一化只覆盖零的符号，不得放宽对真实内容变化的拒绝。
+     *
+     * <p>两条 Evidence 都带负零 confidence，但 claim 不同，仍必须被当作不同内容拒绝。
+     */
+    @Test
+    void stillRejectsRealContentChangeWhenConfidenceIsNegativeZero() {
+        repository.save(profileWithEvidenceConfidence(-0.0));
+
+        UserProfile conflicting = UserProfile.reconstitute(
+                PROFILE_ID, UserProfileStatus.EXPLORING, 1,
+                List.of("兴趣"),
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(new Evidence(EvidenceSourceType.USER_INPUT, "user-answer-1",
+                        "换了一条完全不同的依据", -0.0, true)));
+
+        assertThrows(IllegalStateException.class, () -> repository.save(conflicting));
+
+        assertEquals("用户长期自己找图片做头像",
+                repository.findById(PROFILE_ID).orElseThrow().evidence().get(0).claim(),
+                "同一 revision 的已保存内容不得被覆盖");
+    }
+
+    /**
+     * {@code null}（未给出确定性判断）与任何数值仍是不同的内容。
+     *
+     * <p>归一化不会把 null 与零混同：已保存 null 时，0.0 与 0.5 各自都被视为内容变化。
+     */
+    @Test
+    void stillRejectsConfidenceChangeBetweenNullAndNumber() {
+        repository.save(profileWithEvidenceConfidence(null));
+
+        assertThrows(IllegalStateException.class,
+                () -> repository.save(profileWithEvidenceConfidence(0.0)),
+                "null 与 0.0 是不同内容");
+        assertThrows(IllegalStateException.class,
+                () -> repository.save(profileWithEvidenceConfidence(0.5)),
+                "null 与 0.5 也是不同内容");
+
+        assertNull(repository.findById(PROFILE_ID).orElseThrow()
+                .evidence().get(0).confidence(), "已保存的 confidence 仍是 null");
+    }
+
+    /**
+     * 归一化只统一零的符号，不会把所有非空数值视为同一件事。
+     *
+     * <p>先成功保存 0.0 建立基线，再提交 0.5：若比较逻辑把「非空即相同」当成相等，
+     * 这次保存会成功，本用例即失败。
+     */
+    @Test
+    void stillRejectsConfidenceChangeBetweenNonZeroNumbers() {
+        repository.save(profileWithEvidenceConfidence(0.0));
+
+        assertThrows(IllegalStateException.class,
+                () -> repository.save(profileWithEvidenceConfidence(0.5)),
+                "0.0 与 0.5 是不同内容");
+
+        assertEquals(0, Double.compare(0.0,
+                evidenceRows(PROFILE_ID, 1).get(0).getConfidence()),
+                "已保存的 confidence 仍是 0.0");
+    }
+
+    /**
+     * 归一化不得掩盖历史 revision 的差异：不同 revision 的快照照常各自保留。
+     */
+    @Test
+    void keepsHistoricalRevisionsApartWhenConfidenceIsNegativeZero() {
+        repository.save(profileWithEvidenceConfidence(-0.0));
+
+        repository.save(UserProfile.reconstitute(
+                PROFILE_ID, UserProfileStatus.EXPLORING, 2,
+                List.of("兴趣"),
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(new Evidence(EvidenceSourceType.USER_INPUT, "user-answer-1",
+                        "用户长期自己找图片做头像", 0.5, true))));
+
+        assertEquals(1, evidenceRows(PROFILE_ID, 1).size(), "revision 1 的快照不应被覆盖");
+        assertEquals(1, evidenceRows(PROFILE_ID, 2).size());
+        assertEquals(0, Double.compare(0.5, evidenceRows(PROFILE_ID, 2).get(0).getConfidence()));
+    }
+
+    /** 一条 Evidence 的 confidence 由调用方给定的 Profile，其余内容固定。 */
+    private static UserProfile profileWithEvidenceConfidence(Double confidence) {
+        return UserProfile.reconstitute(
+                PROFILE_ID, UserProfileStatus.EXPLORING, 1,
+                List.of("兴趣"),
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(new Evidence(EvidenceSourceType.USER_INPUT, "user-answer-1",
+                        "用户长期自己找图片做头像", confidence, true)));
     }
 
     @Test
