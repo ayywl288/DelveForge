@@ -5,14 +5,21 @@ import com.ayywl.delveforge.application.port.persistence.ProductDirectionReposit
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
+import com.ayywl.delveforge.domain.direction.DirectionEvidenceSupport;
 import com.ayywl.delveforge.domain.direction.ProductDirectionStatus;
 import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
+import com.ayywl.delveforge.domain.evidence.EvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.UserProfileEvidenceOrigin;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
@@ -31,7 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
  * product_direction_repository_profile  依据的 Repository Profile，保留 position
  * product_direction_candidate_asset     标识的 Software Asset，保留 position
  * product_direction_risk                已知风险，保留 position
- * product_direction_evidence            Evidence，保留 position
+ * product_direction_evidence_support    关键判断下的依据 + 它出自哪里，保留 category 与 position
  * </pre>
  *
  * <h2>写入规则</h2>
@@ -59,7 +66,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>比较按存储语义进行，不直接使用领域对象的相等性：{@code Evidence} 的 record
  * equality 会区分 {@code confidence} 的正负零，而 SQLite 的 REAL 不保留负零。
  * 若照搬 record equality，一次内容完全没变的保存会因为存储往返而「自己不等于自己」，
- * 被误判成改写已有记录。见 {@link #sameEvidence} 与 {@link #canonicalConfidence}。
+ * 被误判成改写已有记录。见 {@link #sameSupport} 与 {@link #canonicalConfidence}。
  *
  * <p>不提供删除：REJECTED 与 SUPERSEDED 的方向同样保留（§10.5）。
  *
@@ -73,20 +80,20 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
     private final ProductDirectionRepositoryProfileMapper repositoryProfileMapper;
     private final ProductDirectionCandidateAssetMapper candidateAssetMapper;
     private final ProductDirectionRiskMapper riskMapper;
-    private final ProductDirectionEvidenceMapper evidenceMapper;
+    private final ProductDirectionEvidenceSupportMapper evidenceSupportMapper;
 
     public SqliteProductDirectionRepository(
             ProductDirectionMapper directionMapper,
             ProductDirectionRepositoryProfileMapper repositoryProfileMapper,
             ProductDirectionCandidateAssetMapper candidateAssetMapper,
             ProductDirectionRiskMapper riskMapper,
-            ProductDirectionEvidenceMapper evidenceMapper) {
+            ProductDirectionEvidenceSupportMapper evidenceSupportMapper) {
 
         this.directionMapper = directionMapper;
         this.repositoryProfileMapper = repositoryProfileMapper;
         this.candidateAssetMapper = candidateAssetMapper;
         this.riskMapper = riskMapper;
-        this.evidenceMapper = evidenceMapper;
+        this.evidenceSupportMapper = evidenceSupportMapper;
     }
 
     @Override
@@ -100,7 +107,7 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
             insertRepositoryProfiles(directionId, productDirection);
             insertCandidateAssets(directionId, productDirection);
             insertRisks(directionId, productDirection);
-            insertEvidence(directionId, productDirection);
+            insertEvidenceSupport(directionId, productDirection);
             return;
         }
 
@@ -127,7 +134,7 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
      *
      * <p>{@code status} 刻意不在比较范围内：它正是被允许变化的那一项。
      *
-     * <p>Evidence 走 {@link #sameEvidence} 而不是 record equality，见那里的说明。
+     * <p>依据走 {@link #sameSupport} 而不是 record equality，见那里的说明。
      */
     private static boolean sameRecommendation(ProductDirection stored, ProductDirection incoming) {
         return stored.userProfileId().equals(incoming.userProfileId())
@@ -142,38 +149,54 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
                 && stored.technicalValue().equals(incoming.technicalValue())
                 && stored.estimatedComplexity().equals(incoming.estimatedComplexity())
                 && stored.risks().equals(incoming.risks())
-                && sameEvidence(stored.evidence(), incoming.evidence());
+                && sameSupport(stored.evidenceSupport(), incoming.evidenceSupport());
     }
 
     /**
-     * 两组 Evidence 是否表示同一份依据，按存储语义逐条比较。
+     * 两组「关键判断 → 依据」是否完全一致，按存储语义逐组逐条比较。
      *
-     * <p>不能直接用 {@code Evidence} 的 record equality：它按 {@code Double.equals}
-     * 比较 {@code confidence}，而 {@code Double.equals} 区分正零与负零。
-     * SQLite 的 REAL 不保留负零——{@code -0.0} 写入后读回是 {@code 0.0}——
-     * 于是同一份 Evidence 在存储往返之后会「自己不等于自己」，把一次内容完全没变的
-     * 重复保存、或一次纯粹的状态更新，误判成用不同内容覆盖已有记录并予以拒绝。
+     * <p>比较的是整个结构，不只是依据本身：把一条依据从 {@code userNeed} 移到
+     * {@code userFit}，依据没变，但这条方向对「凭什么这么说」的回答变了，
+     * 因此同样算内容冲突。依据各自的来源也在比较范围内。
+     *
+     * <p>不能直接用 record equality：{@code Evidence} 按 {@code Double.equals} 比较
+     * {@code confidence}，而 {@code Double.equals} 区分正零与负零；SQLite 的 REAL
+     * 不保留负零——{@code -0.0} 写入后读回是 {@code 0.0}——于是同一份依据在存储往返之后
+     * 会「自己不等于自己」，把一次内容完全没变的重复保存、或一次纯粹的状态更新，
+     * 误判成用不同内容覆盖已有记录并予以拒绝。
      *
      * <p>因此比较发生在存储语义上：两侧的 confidence 都先经过
-     * {@link #canonicalConfidence}，其余字段（含 {@code null}）仍严格比较。
+     * {@link #canonicalConfidence}，其余字段（含 {@code null}）与来源仍严格比较。
      */
-    private static boolean sameEvidence(List<Evidence> stored, List<Evidence> incoming) {
+    private static boolean sameSupport(DirectionEvidenceSupport stored,
+                                       DirectionEvidenceSupport incoming) {
+        return sameBases(stored.userNeed(), incoming.userNeed())
+                && sameBases(stored.userFit(), incoming.userFit())
+                && sameBases(stored.reusableCapability(), incoming.reusableCapability());
+    }
+
+    private static boolean sameBases(List<EvidenceBasis> stored, List<EvidenceBasis> incoming) {
         if (stored.size() != incoming.size()) {
             return false;
         }
         for (int i = 0; i < stored.size(); i++) {
-            Evidence left = stored.get(i);
-            Evidence right = incoming.get(i);
-            if (left.sourceType() != right.sourceType()
-                    || !left.sourceRef().equals(right.sourceRef())
-                    || !left.claim().equals(right.claim())
-                    || left.confirmed() != right.confirmed()
-                    || !Objects.equals(canonicalConfidence(left.confidence()),
-                            canonicalConfidence(right.confidence()))) {
+            EvidenceBasis left = stored.get(i);
+            EvidenceBasis right = incoming.get(i);
+            if (!left.origin().equals(right.origin()) || !sameEvidence(left.evidence(), right.evidence())) {
                 return false;
             }
         }
         return true;
+    }
+
+    /** 两条 Evidence 是否表示同一份依据，按存储语义比较。 */
+    private static boolean sameEvidence(Evidence left, Evidence right) {
+        return left.sourceType() == right.sourceType()
+                && left.sourceRef().equals(right.sourceRef())
+                && left.claim().equals(right.claim())
+                && left.confirmed() == right.confirmed()
+                && Objects.equals(canonicalConfidence(left.confidence()),
+                        canonicalConfidence(right.confidence()));
     }
 
     /**
@@ -222,7 +245,7 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
                 row.getTechnicalValue(),
                 row.getEstimatedComplexity(),
                 loadRisks(directionId),
-                loadEvidence(directionId),
+                loadEvidenceSupport(directionId),
                 ProductDirectionStatus.valueOf(row.getStatus()));
     }
 
@@ -275,20 +298,153 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
         }
     }
 
-    private void insertEvidence(String directionId, ProductDirection productDirection) {
-        List<Evidence> evidence = productDirection.evidence();
-        for (int position = 0; position < evidence.size(); position++) {
-            Evidence item = evidence.get(position);
-            ProductDirectionEvidenceDO row = new ProductDirectionEvidenceDO();
+    private void insertEvidenceSupport(String directionId, ProductDirection productDirection) {
+        DirectionEvidenceSupport support = productDirection.evidenceSupport();
+        insertBases(directionId, Category.USER_NEED, support.userNeed());
+        insertBases(directionId, Category.USER_FIT, support.userFit());
+        insertBases(directionId, Category.REUSABLE_CAPABILITY, support.reusableCapability());
+    }
+
+    private void insertBases(String directionId, Category category, List<EvidenceBasis> bases) {
+        for (int position = 0; position < bases.size(); position++) {
+            EvidenceBasis basis = bases.get(position);
+            Evidence evidence = basis.evidence();
+
+            ProductDirectionEvidenceSupportDO row = new ProductDirectionEvidenceSupportDO();
             row.setDirectionId(directionId);
+            row.setCategory(category.storedValue());
             row.setPosition(position);
-            row.setSourceType(item.sourceType().name());
-            row.setSourceRef(item.sourceRef());
-            row.setClaim(item.claim());
-            row.setConfidence(canonicalConfidence(item.confidence()));
-            row.setConfirmed(item.confirmed() ? 1 : 0);
-            evidenceMapper.insert(row);
+            row.setSourceType(evidence.sourceType().name());
+            row.setSourceRef(evidence.sourceRef());
+            row.setClaim(evidence.claim());
+            row.setConfidence(canonicalConfidence(evidence.confidence()));
+            row.setConfirmed(evidence.confirmed() ? 1 : 0);
+
+            if (basis.origin() instanceof UserProfileEvidenceOrigin origin) {
+                row.setOriginKind(ProductDirectionEvidenceSupportDO.ORIGIN_USER_PROFILE);
+                row.setOriginUserProfileId(origin.userProfileId().value());
+                row.setOriginUserProfileRevision(origin.userProfileRevision());
+            } else if (basis.origin() instanceof RepositoryProfileEvidenceOrigin origin) {
+                row.setOriginKind(ProductDirectionEvidenceSupportDO.ORIGIN_REPOSITORY_PROFILE);
+                row.setOriginRepositoryProfileId(origin.repositoryProfileId().value());
+            }
+
+            evidenceSupportMapper.insert(row);
         }
+    }
+
+    /**
+     * 重建某条方向的关键判断与依据。
+     *
+     * <p>按 category 分组、组内按 position 还原顺序。同一份依据可以出现在多个 category 中：
+     * 主键包含 category，因此这不是重复行，而是「这条依据同时支撑两个判断」。
+     */
+    private DirectionEvidenceSupport loadEvidenceSupport(String directionId) {
+        List<ProductDirectionEvidenceSupportDO> rows = evidenceSupportMapper.selectList(
+                new LambdaQueryWrapper<ProductDirectionEvidenceSupportDO>()
+                        .eq(ProductDirectionEvidenceSupportDO::getDirectionId, directionId)
+                        .orderByAsc(ProductDirectionEvidenceSupportDO::getCategory)
+                        .orderByAsc(ProductDirectionEvidenceSupportDO::getPosition));
+
+        Map<String, List<EvidenceBasis>> byCategory = new LinkedHashMap<>();
+        for (ProductDirectionEvidenceSupportDO row : rows) {
+            requireKnownCategory(row.getCategory());
+            byCategory.computeIfAbsent(row.getCategory(), category -> new ArrayList<>())
+                    .add(toBasis(row));
+        }
+
+        return new DirectionEvidenceSupport(
+                basesOf(byCategory, Category.USER_NEED),
+                basesOf(byCategory, Category.USER_FIT),
+                basesOf(byCategory, Category.REUSABLE_CAPABILITY));
+    }
+
+    private static EvidenceBasis toBasis(ProductDirectionEvidenceSupportDO row) {
+        Evidence evidence = new Evidence(
+                EvidenceSourceType.valueOf(row.getSourceType()),
+                row.getSourceRef(),
+                row.getClaim(),
+                row.getConfidence(),
+                row.getConfirmed() != 0);
+
+        return new EvidenceBasis(evidence, toOrigin(row));
+    }
+
+    /**
+     * 还原这条依据的来源。
+     *
+     * <p>未知的 {@code origin_kind} 会在这里失败，而不是被当成「没有来源」：
+     * 一条说不出自己出自哪里的依据无法满足 INV-D06，静默降级只会让它看起来合格。
+     *
+     * <p>同时核对 kind 与专属列一致：{@code userProfile} 只应填 User Profile 的两列，
+     * {@code repositoryProfile} 只应填 Repository Profile 的那一列。一条记录同时带着
+     * 两种来源的字段是矛盾的，只读其中一种会让另一组值被静默忽略。
+     * 表级 CHECK 已经挡住了这种写入，这里再查一次是为了不依赖存储是否真的约束过它——
+     * 读到的数据可能来自更早的迁移、手工修改或被绕过的写入。
+     */
+    private static EvidenceOrigin toOrigin(ProductDirectionEvidenceSupportDO row) {
+        if (ProductDirectionEvidenceSupportDO.ORIGIN_USER_PROFILE.equals(row.getOriginKind())) {
+            requireAbsent(row.getOriginRepositoryProfileId(), row,
+                    "origin_repository_profile_id", "userProfile");
+            if (row.getOriginUserProfileId() == null || row.getOriginUserProfileRevision() == null) {
+                throw inconsistentOrigin(row, "缺少 userProfile 来源所需的列");
+            }
+            return new UserProfileEvidenceOrigin(
+                    new UserProfileId(row.getOriginUserProfileId()),
+                    row.getOriginUserProfileRevision());
+        }
+        if (ProductDirectionEvidenceSupportDO.ORIGIN_REPOSITORY_PROFILE
+                .equals(row.getOriginKind())) {
+            requireAbsent(row.getOriginUserProfileId(), row,
+                    "origin_user_profile_id", "repositoryProfile");
+            requireAbsent(row.getOriginUserProfileRevision(), row,
+                    "origin_user_profile_revision", "repositoryProfile");
+            if (row.getOriginRepositoryProfileId() == null) {
+                throw inconsistentOrigin(row, "缺少 repositoryProfile 来源所需的列");
+            }
+            return new RepositoryProfileEvidenceOrigin(
+                    new RepositoryProfileId(row.getOriginRepositoryProfileId()));
+        }
+        throw new IllegalStateException(
+                "无法识别的 Evidence 来源类型: " + row.getOriginKind());
+    }
+
+    private static void requireAbsent(Object value,
+                                      ProductDirectionEvidenceSupportDO row,
+                                      String column,
+                                      String kind) {
+        if (value != null) {
+            throw inconsistentOrigin(row,
+                    "来源类型为 " + kind + " 时 " + column + " 必须为空");
+        }
+    }
+
+    private static IllegalStateException inconsistentOrigin(
+            ProductDirectionEvidenceSupportDO row, String detail) {
+        return new IllegalStateException(
+                "Evidence 来源记录不一致（category=" + row.getCategory()
+                        + ", position=" + row.getPosition() + "）: " + detail);
+    }
+
+    /**
+     * 拒绝无法识别的判断分组。
+     *
+     * <p>只读取三个已知分组、把其余行默默丢掉，会让一条依据凭空消失：方向读出来是好的，
+     * 只是少了一条它本来持有的依据。而 §10.5 要求这层对应关系必须被保留——
+     * 存储里出现第四个分组说明数据与领域模型不一致，此时报错比放行安全。
+     */
+    private static void requireKnownCategory(String category) {
+        for (Category known : Category.values()) {
+            if (known.storedValue().equals(category)) {
+                return;
+            }
+        }
+        throw new IllegalStateException("无法识别的 Evidence 判断分组: " + category);
+    }
+
+    private static List<EvidenceBasis> basesOf(Map<String, List<EvidenceBasis>> byCategory,
+                                               Category category) {
+        return byCategory.getOrDefault(category.storedValue(), List.of());
     }
 
     private List<RepositoryProfileId> loadRepositoryProfileIds(String directionId) {
@@ -330,21 +486,21 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
         return List.copyOf(risks);
     }
 
-    private List<Evidence> loadEvidence(String directionId) {
-        List<ProductDirectionEvidenceDO> rows = evidenceMapper.selectList(
-                new LambdaQueryWrapper<ProductDirectionEvidenceDO>()
-                        .eq(ProductDirectionEvidenceDO::getDirectionId, directionId)
-                        .orderByAsc(ProductDirectionEvidenceDO::getPosition));
+    /** 三个关键判断组在存储中的名字，取领域字段名。 */
+    private enum Category {
 
-        List<Evidence> evidence = new ArrayList<>(rows.size());
-        for (ProductDirectionEvidenceDO row : rows) {
-            evidence.add(new Evidence(
-                    EvidenceSourceType.valueOf(row.getSourceType()),
-                    row.getSourceRef(),
-                    row.getClaim(),
-                    row.getConfidence(),
-                    row.getConfirmed() != 0));
+        USER_NEED("userNeed"),
+        USER_FIT("userFit"),
+        REUSABLE_CAPABILITY("reusableCapability");
+
+        private final String storedValue;
+
+        Category(String storedValue) {
+            this.storedValue = storedValue;
         }
-        return List.copyOf(evidence);
+
+        String storedValue() {
+            return storedValue;
+        }
     }
 }

@@ -9,11 +9,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionContentConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
+import com.ayywl.delveforge.domain.direction.DirectionEvidenceSupport;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
 import com.ayywl.delveforge.domain.direction.ProductDirectionStatus;
 import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
+import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.UserProfileEvidenceOrigin;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.infrastructure.persistence.SqliteDataSourceConfiguration;
@@ -28,6 +32,8 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,7 +45,10 @@ import org.springframework.transaction.annotation.Transactional;
  * 使每个测试方法结束后回滚，保证方法之间状态隔离。
  *
  * <p>本类只使用生产迁移（{@code classpath:db/migration}），因此同时验证了
- * {@code V5__product_direction.sql} 在真实 SQLite 上的可执行性。
+ * {@code V6__product_direction_evidence_support.sql} 在真实 SQLite 上的可执行性。
+ *
+ * <p>重点在依据部分：Product Direction 长期保存的是「关键判断 → 依据 → 依据出自哪里」
+ * 这条链，而不只是一份扁平列表。往返之后三组判断的划分、组内顺序与两种来源都必须还在。
  */
 @SpringBootTest(
         classes = SqliteProductDirectionRepositoryIntegrationTest.TestApplication.class,
@@ -64,11 +73,17 @@ class SqliteProductDirectionRepositoryIntegrationTest {
     private static final String TITLE = "个人记账 + 报表导出";
 
     private static final Evidence USER_EVIDENCE = new Evidence(
-            EvidenceSourceType.USER_INPUT, "user-profile-1#interests", "用户长期关注记账工具",
+            EvidenceSourceType.USER_INPUT, "用户输入：但导出报表很麻烦", "用户对报表导出的不满",
             0.8, true);
 
     private static final Evidence REPOSITORY_EVIDENCE = new Evidence(
-            EvidenceSourceType.REPOSITORY, "src/main/java/report", "已有报表渲染模块", null, false);
+            EvidenceSourceType.REPOSITORY, "src/main/report", "已有报表渲染模块", null, false);
+
+    private static final EvidenceBasis USER_BASIS = new EvidenceBasis(
+            USER_EVIDENCE, new UserProfileEvidenceOrigin(USER_PROFILE_ID, USER_PROFILE_REVISION));
+
+    private static final EvidenceBasis REPOSITORY_BASIS = new EvidenceBasis(
+            REPOSITORY_EVIDENCE, new RepositoryProfileEvidenceOrigin(REPOSITORY_PROFILE_ID));
 
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
@@ -98,7 +113,14 @@ class SqliteProductDirectionRepositoryIntegrationTest {
     private ProductDirectionRiskMapper riskMapper;
 
     @Autowired
-    private ProductDirectionEvidenceMapper evidenceMapper;
+    private ProductDirectionEvidenceSupportMapper evidenceSupportMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    // ---------------------------------------------------------------------
+    // 往返
+    // ---------------------------------------------------------------------
 
     @Test
     void savesAndReloadsEveryDomainFieldOfACandidateDirection() {
@@ -120,7 +142,93 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         assertEquals("可复用现有报表模块的渲染能力", reloaded.technicalValue());
         assertEquals("中等：主要在导出与模板部分", reloaded.estimatedComplexity());
         assertEquals(List.of("模板格式复杂度可能超预期"), reloaded.risks());
-        assertEquals(List.of(USER_EVIDENCE, REPOSITORY_EVIDENCE), reloaded.evidence());
+
+        DirectionEvidenceSupport support = reloaded.evidenceSupport();
+        assertEquals(List.of(USER_BASIS), support.userNeed());
+        assertEquals(List.of(USER_BASIS, REPOSITORY_BASIS), support.userFit());
+        assertEquals(List.of(REPOSITORY_BASIS), support.reusableCapability());
+    }
+
+    /** 依据自身的字段完整往返，包括可为 null 的 confidence 与 0 / 1 保存的 confirmed。 */
+    @Test
+    void roundTripsEveryEvidenceField() {
+        repository.save(candidateDirection());
+
+        DirectionEvidenceSupport support =
+                repository.findById(DIRECTION_ID).orElseThrow().evidenceSupport();
+
+        Evidence user = support.userNeed().get(0).evidence();
+        assertEquals(EvidenceSourceType.USER_INPUT, user.sourceType());
+        assertEquals("用户输入：但导出报表很麻烦", user.sourceRef());
+        assertEquals("用户对报表导出的不满", user.claim());
+        assertEquals(0.8, user.confidence());
+        assertTrue(user.confirmed());
+
+        Evidence fromRepository = support.reusableCapability().get(0).evidence();
+        assertEquals(EvidenceSourceType.REPOSITORY, fromRepository.sourceType());
+        assertEquals("src/main/report", fromRepository.sourceRef());
+        assertNull(fromRepository.confidence());
+        assertFalse(fromRepository.confirmed());
+    }
+
+    /** User Profile 侧的来源必须带上确定的 revision（INV-D01、INV-D08）。 */
+    @Test
+    void roundTripsUserProfileEvidenceOrigin() {
+        repository.save(candidateDirection());
+
+        assertEquals(
+                new UserProfileEvidenceOrigin(USER_PROFILE_ID, USER_PROFILE_REVISION),
+                repository.findById(DIRECTION_ID).orElseThrow()
+                        .evidenceSupport().userNeed().get(0).origin());
+    }
+
+    @Test
+    void roundTripsRepositoryProfileEvidenceOrigin() {
+        repository.save(candidateDirection());
+
+        assertEquals(
+                new RepositoryProfileEvidenceOrigin(REPOSITORY_PROFILE_ID),
+                repository.findById(DIRECTION_ID).orElseThrow()
+                        .evidenceSupport().reusableCapability().get(0).origin());
+    }
+
+    /** 同一份依据同时支撑多个判断时，这条关系必须完整保留。 */
+    @Test
+    void keepsOneBasisSupportingSeveralJudgements() {
+        repository.save(candidateDirection());
+
+        DirectionEvidenceSupport support =
+                repository.findById(DIRECTION_ID).orElseThrow().evidenceSupport();
+
+        assertEquals(List.of(USER_BASIS), support.userNeed());
+        assertEquals(List.of(USER_BASIS, REPOSITORY_BASIS), support.userFit(),
+                "同一条 userNeed 依据也出现在 userFit 里");
+        assertEquals(1, rowsOfCategory("userNeed").size());
+        assertEquals(2, rowsOfCategory("userFit").size(), "同一条依据在两个判断下各有一行");
+        assertEquals(1, rowsOfCategory("reusableCapability").size());
+    }
+
+    /** 三组判断各自的组内顺序必须原样保留。 */
+    @Test
+    void keepsOrderWithinEachJudgement() {
+        ProductDirection direction = ProductDirection.create(
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION,
+                List.of(REPOSITORY_PROFILE_ID),
+                TITLE, "问题", "目标产品", "匹配点", List.of(ASSET_ID),
+                "差异化", "技术价值", "复杂度", List.of(),
+                new DirectionEvidenceSupport(
+                        List.of(REPOSITORY_BASIS, USER_BASIS),
+                        List.of(USER_BASIS, REPOSITORY_BASIS, USER_BASIS),
+                        List.of(REPOSITORY_BASIS)));
+
+        repository.save(direction);
+
+        DirectionEvidenceSupport support =
+                repository.findById(DIRECTION_ID).orElseThrow().evidenceSupport();
+        assertEquals(List.of(REPOSITORY_BASIS, USER_BASIS), support.userNeed(),
+                "顺序必须原样保留，而不是按内容排序");
+        assertEquals(List.of(USER_BASIS, REPOSITORY_BASIS, USER_BASIS), support.userFit(),
+                "同一组内允许重复出现同一条依据");
     }
 
     @Test
@@ -148,7 +256,8 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         ProductDirection reloaded = repository.findById(DIRECTION_ID).orElseThrow();
         assertEquals(ProductDirectionStatus.REJECTED, reloaded.status());
         assertEquals(TITLE, reloaded.title());
-        assertEquals(List.of(USER_EVIDENCE, REPOSITORY_EVIDENCE), reloaded.evidence());
+        assertEquals(List.of(USER_BASIS, REPOSITORY_BASIS),
+                reloaded.evidenceSupport().userFit());
     }
 
     @Test
@@ -163,7 +272,12 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         assertEquals(ProductDirectionStatus.SUPERSEDED, reloaded.status());
         assertEquals(USER_PROFILE_REVISION, reloaded.userProfileRevision());
         assertEquals(List.of(ASSET_ID), reloaded.candidateAssetIds());
+        assertEquals(List.of(USER_BASIS), reloaded.evidenceSupport().userNeed());
     }
+
+    // ---------------------------------------------------------------------
+    // 状态更新与内容保护
+    // ---------------------------------------------------------------------
 
     /**
      * 生命周期状态变化是这条方向自己的领域行为，因此同一标识必须允许再次保存。
@@ -189,15 +303,11 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         assertEquals(USER_PROFILE_REVISION, reloaded.userProfileRevision());
         assertEquals(List.of(REPOSITORY_PROFILE_ID), reloaded.repositoryProfileIds());
         assertEquals(TITLE, reloaded.title());
-        assertEquals("现有记账工具缺少可导出的报表", reloaded.problem());
-        assertEquals("单用户桌面记账工具 + 报表导出", reloaded.targetProduct());
-        assertEquals("用户已经在用记账工具，且技术栈匹配", reloaded.userFit());
-        assertEquals(List.of(ASSET_ID), reloaded.candidateAssetIds());
-        assertEquals("相比现有工具增加了自定义报表", reloaded.differentiation());
-        assertEquals("可复用现有报表模块的渲染能力", reloaded.technicalValue());
-        assertEquals("中等：主要在导出与模板部分", reloaded.estimatedComplexity());
-        assertEquals(List.of("模板格式复杂度可能超预期"), reloaded.risks());
-        assertEquals(List.of(USER_EVIDENCE, REPOSITORY_EVIDENCE), reloaded.evidence());
+        assertEquals(List.of(USER_BASIS), reloaded.evidenceSupport().userNeed());
+        assertEquals(List.of(USER_BASIS, REPOSITORY_BASIS),
+                reloaded.evidenceSupport().userFit());
+        assertEquals(List.of(REPOSITORY_BASIS),
+                reloaded.evidenceSupport().reusableCapability());
         assertEquals(1, directionMapper.selectCount(null).intValue(), "状态更新不得产生第二行");
         assertEquals(contentRowsBefore, contentRowCount(), "状态更新不得改动内容行");
     }
@@ -224,26 +334,137 @@ class SqliteProductDirectionRepositoryIntegrationTest {
      * 当初凭什么被推荐的依据（§10.5、RULE-DOM-007），静默忽略则会让调用方以为
      * 改动已经生效。
      */
+    // ---------------------------------------------------------------------
+    // 依据的数值往返：±0.0
+    // ---------------------------------------------------------------------
+
+    /**
+     * confidence 为负零时，一次合法的状态更新不得被误判成内容冲突。
+     *
+     * <p>SQLite 的 REAL 不保留负零：{@code -0.0} 写入后读回是 {@code 0.0}。
+     * 而 {@code Evidence} 是 record，它的相等性按 {@code Double.equals} 比较 confidence，
+     * 会区分正零与负零。若两侧不统一比较语义，下面的第二次 save 会抛
+     * {@link ProductDirectionContentConflictException}——调用方没有改动任何推荐内容。
+     *
+     * <p>这条回归在依据从扁平列表改为 support 结构之后依然必须成立：
+     * 它保护的是「存储往返不制造调用方从未提交过的差异」这个性质本身。
+     */
+    @Test
+    void keepsDirectionWithNegativeZeroConfidenceSavable() {
+        ProductDirection direction = directionWithConfidence(-0.0);
+        repository.save(direction);
+
+        direction.select();
+        repository.save(direction);
+
+        ProductDirection reloaded = repository.findById(DIRECTION_ID).orElseThrow();
+        assertEquals(ProductDirectionStatus.SELECTED, reloaded.status(), "状态更新应被接受");
+        assertEquals(1, directionMapper.selectCount(null).intValue());
+        assertEquals(1, rowsOfCategory("userNeed").size());
+    }
+
+    /** 存储不保留负零，读回的是正零。 */
+    @Test
+    void restoresNegativeZeroConfidenceAsPositiveZero() {
+        repository.save(directionWithConfidence(-0.0));
+
+        Double restored = repository.findById(DIRECTION_ID).orElseThrow()
+                .evidenceSupport().userNeed().get(0).evidence().confidence();
+
+        assertEquals(0, Double.compare(0.0, restored), "读回的 confidence 应是正零");
+    }
+
+    /** 内容完全没变的重复保存同样是幂等的，不论 confidence 是否为零。 */
+    @Test
+    void keepsRepeatedSaveOfNegativeZeroConfidenceIdempotent() {
+        ProductDirection direction = directionWithConfidence(-0.0);
+        repository.save(direction);
+        repository.save(direction);
+
+        assertEquals(1, directionMapper.selectCount(null).intValue());
+        assertEquals(1, rowsOfCategory("userNeed").size());
+    }
+
+    // ---------------------------------------------------------------------
+    // 存储一致性
+    // ---------------------------------------------------------------------
+
+    /** schema 层：来源类型与专属列不一致的行根本写不进去。 */
+    @Test
+    void schemaRejectsContradictoryOriginRows() {
+        assertThrows(DataAccessException.class,
+                () -> insertPreparedBasisRow("userProfile", USER_PROFILE_ID.value(), 3,
+                        REPOSITORY_PROFILE_ID.value()),
+                "userProfile 类型不得同时带 repositoryProfile 的列");
+
+        assertThrows(DataAccessException.class,
+                () -> insertPreparedBasisRow("repositoryProfile", USER_PROFILE_ID.value(), 3,
+                        REPOSITORY_PROFILE_ID.value()),
+                "repositoryProfile 类型不得带 User Profile 的列");
+
+        assertThrows(DataAccessException.class,
+                () -> insertPreparedBasisRow("userProfile", USER_PROFILE_ID.value(), null, null),
+                "userProfile 类型必须给出 revision");
+    }
+
+    /**
+     * Adapter 层：即使存储没有约束过，矛盾来源也必须被拒绝而不是只读其中一种。
+     *
+     * <p>表级 CHECK 已经挡住这种写入，因此这里先造一张不带 CHECK 的同名表，
+     * 模拟「数据由更早的迁移、手工修改或绕过的写入产生」——读路径仍然必须失败。
+     */
+    @Test
+    void rejectsRowsCarryingBothOriginKinds() {
+        repository.save(candidateDirection());
+        recreateEvidenceSupportTableWithoutCheck();
+        insertPreparedBasisRow("userProfile", USER_PROFILE_ID.value(), 3,
+                REPOSITORY_PROFILE_ID.value());
+
+        assertThrows(IllegalStateException.class,
+                () -> repository.findById(DIRECTION_ID));
+    }
+
+    /** 同上，但方向反：repositoryProfile 类型带着 User Profile 的列。 */
+    @Test
+    void rejectsRepositoryOriginCarryingUserProfileColumns() {
+        repository.save(candidateDirection());
+        recreateEvidenceSupportTableWithoutCheck();
+        insertPreparedBasisRow("repositoryProfile", USER_PROFILE_ID.value(), 3,
+                REPOSITORY_PROFILE_ID.value());
+
+        assertThrows(IllegalStateException.class,
+                () -> repository.findById(DIRECTION_ID));
+    }
+
+    /**
+     * 无法识别的判断分组必须报错，而不是被默默丢掉。
+     *
+     * <p>只读取三个已知分组、把其余行忽略，会让方向读出来「看起来是好的」，
+     * 只是少了一条它本来持有的依据。
+     */
+    @Test
+    void rejectsUnknownEvidenceCategory() {
+        repository.save(candidateDirection());
+
+        jdbcTemplate.update(
+                "UPDATE product_direction_evidence_support SET category = ? WHERE category = ?",
+                "someOtherJudgement", "userNeed");
+
+        assertThrows(IllegalStateException.class,
+                () -> repository.findById(DIRECTION_ID));
+    }
+
     @Test
     void rejectsSavingDifferentRecommendationForTheSameDirection() {
         repository.save(candidateDirection());
         int contentRowsBefore = contentRowCount();
 
         ProductDirection rewritten = ProductDirection.create(
-                DIRECTION_ID,
-                USER_PROFILE_ID,
-                USER_PROFILE_REVISION,
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION,
                 List.of(REPOSITORY_PROFILE_ID),
-                "换成另一个方向",
-                "另一个问题",
-                "另一个目标产品",
-                "另一个匹配点",
-                List.of(ASSET_ID),
-                "另一个差异化",
-                "另一个技术价值",
-                "另一个复杂度",
-                List.of(),
-                List.of(USER_EVIDENCE));
+                "换成另一个方向", "另一个问题", "另一个目标产品", "另一个匹配点",
+                List.of(ASSET_ID), "另一个差异化", "另一个技术价值", "另一个复杂度",
+                List.of(), support());
 
         assertThrows(ProductDirectionContentConflictException.class,
                 () -> repository.save(rewritten));
@@ -255,26 +476,72 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         assertEquals(contentRowsBefore, contentRowCount(), "失败后不得留下半写入的内容行");
     }
 
-    /** 只有状态变化不算内容冲突；内容里任何一项变化都算。 */
+    /**
+     * 「关键判断 → 依据」这个结构本身也是受保护内容。
+     *
+     * <p>把一条依据从 userNeed 移到 reusableCapability，依据一个字没变，
+     * 但这条方向对「凭什么这么说」的回答变了，因此同样是内容冲突。
+     */
+    @Test
+    void rejectsSavingWhenABasisMovesToAnotherJudgement() {
+        repository.save(candidateDirection());
+
+        ProductDirection moved = ProductDirection.create(
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION,
+                List.of(REPOSITORY_PROFILE_ID),
+                TITLE, "现有记账工具缺少可导出的报表", "单用户桌面记账工具 + 报表导出",
+                "用户已经在用记账工具，且技术栈匹配", List.of(ASSET_ID),
+                "相比现有工具增加了自定义报表", "可复用现有报表模块的渲染能力",
+                "中等：主要在导出与模板部分",
+                List.of("模板格式复杂度可能超预期"),
+                new DirectionEvidenceSupport(
+                        List.of(), List.of(USER_BASIS, REPOSITORY_BASIS),
+                        List.of(REPOSITORY_BASIS, USER_BASIS)));
+
+        assertThrows(ProductDirectionContentConflictException.class,
+                () -> repository.save(moved));
+
+        assertEquals(List.of(USER_BASIS),
+                repository.findById(DIRECTION_ID).orElseThrow()
+                        .evidenceSupport().userNeed(),
+                "已保存的判断划分不得被改写");
+    }
+
+    /** 依据的出处变了也是内容变化：同一条依据换了一份分析来源就不再是同一条。 */
+    @Test
+    void rejectsSavingWhenABasisOriginChanges() {
+        repository.save(candidateDirection());
+
+        ProductDirection otherOrigin = ProductDirection.create(
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION,
+                List.of(REPOSITORY_PROFILE_ID),
+                TITLE, "现有记账工具缺少可导出的报表", "单用户桌面记账工具 + 报表导出",
+                "用户已经在用记账工具，且技术栈匹配", List.of(ASSET_ID),
+                "相比现有工具增加了自定义报表", "可复用现有报表模块的渲染能力",
+                "中等：主要在导出与模板部分",
+                List.of("模板格式复杂度可能超预期"),
+                new DirectionEvidenceSupport(
+                        List.of(new EvidenceBasis(USER_EVIDENCE,
+                                new UserProfileEvidenceOrigin(USER_PROFILE_ID, 4))),
+                        List.of(USER_BASIS, REPOSITORY_BASIS),
+                        List.of(REPOSITORY_BASIS)));
+
+        assertThrows(ProductDirectionContentConflictException.class,
+                () -> repository.save(otherOrigin));
+    }
+
     @Test
     void rejectsSavingDifferentAnalysisBasisForTheSameDirection() {
         repository.save(candidateDirection());
 
         ProductDirection otherUserProfileRevision = ProductDirection.create(
-                DIRECTION_ID,
-                USER_PROFILE_ID,
-                USER_PROFILE_REVISION + 1,
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION + 1,
                 List.of(REPOSITORY_PROFILE_ID),
-                TITLE,
-                "现有记账工具缺少可导出的报表",
-                "单用户桌面记账工具 + 报表导出",
-                "用户已经在用记账工具，且技术栈匹配",
-                List.of(ASSET_ID),
-                "相比现有工具增加了自定义报表",
-                "可复用现有报表模块的渲染能力",
+                TITLE, "现有记账工具缺少可导出的报表", "单用户桌面记账工具 + 报表导出",
+                "用户已经在用记账工具，且技术栈匹配", List.of(ASSET_ID),
+                "相比现有工具增加了自定义报表", "可复用现有报表模块的渲染能力",
                 "中等：主要在导出与模板部分",
-                List.of("模板格式复杂度可能超预期"),
-                List.of(USER_EVIDENCE, REPOSITORY_EVIDENCE));
+                List.of("模板格式复杂度可能超预期"), support());
 
         assertThrows(ProductDirectionContentConflictException.class,
                 () -> repository.save(otherUserProfileRevision));
@@ -289,33 +556,6 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         assertTrue(repository.findById(new ProductDirectionId("unknown-direction")).isEmpty());
     }
 
-    /** 多值字段的顺序具有领域含义，读取时必须按原顺序还原。 */
-    @Test
-    void keepsOrderOfMultiValuedFields() {
-        ProductDirection direction = ProductDirection.create(
-                DIRECTION_ID,
-                USER_PROFILE_ID,
-                USER_PROFILE_REVISION,
-                List.of(new RepositoryProfileId("profile-2"), new RepositoryProfileId("profile-1")),
-                TITLE,
-                "问题", "目标产品", "匹配点",
-                List.of(new SoftwareAssetId("asset-2"), new SoftwareAssetId("asset-1")),
-                "差异化", "技术价值", "复杂度",
-                List.of("第三个风险", "第一个风险", "第二个风险"),
-                List.of(REPOSITORY_EVIDENCE, USER_EVIDENCE));
-
-        repository.save(direction);
-
-        ProductDirection reloaded = repository.findById(DIRECTION_ID).orElseThrow();
-
-        assertEquals(List.of(new RepositoryProfileId("profile-2"), new RepositoryProfileId("profile-1")),
-                reloaded.repositoryProfileIds(), "顺序必须原样保留，而不是按内容排序");
-        assertEquals(List.of(new SoftwareAssetId("asset-2"), new SoftwareAssetId("asset-1")),
-                reloaded.candidateAssetIds());
-        assertEquals(List.of("第三个风险", "第一个风险", "第二个风险"), reloaded.risks());
-        assertEquals(List.of(REPOSITORY_EVIDENCE, USER_EVIDENCE), reloaded.evidence());
-    }
-
     /** 一个真实存在的方向可能确实没有已识别的主要风险，此时该字段没有任何行。 */
     @Test
     void restoresDirectionWithoutRisks() {
@@ -323,70 +563,11 @@ class SqliteProductDirectionRepositoryIntegrationTest {
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION,
                 List.of(REPOSITORY_PROFILE_ID),
                 TITLE, "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(USER_EVIDENCE));
+                "差异化", "技术价值", "复杂度", List.of(), support());
 
         repository.save(direction);
 
         assertEquals(List.of(), repository.findById(DIRECTION_ID).orElseThrow().risks());
-    }
-
-    @Test
-    void restoresEvidenceWithoutConfidenceAndUnconfirmed() {
-        repository.save(candidateDirection());
-
-        Evidence restored = repository.findById(DIRECTION_ID).orElseThrow().evidence().get(1);
-
-        assertNull(restored.confidence());
-        assertFalse(restored.confirmed());
-    }
-
-    /**
-     * confidence 为负零时，一次合法的状态更新不得被误判成内容冲突。
-     *
-     * <p>SQLite 的 REAL 不保留负零：{@code -0.0} 写入后读回是 {@code 0.0}。
-     * 而 {@code Evidence} 是 record，它的相等性按 {@code Double.equals} 比较 confidence，
-     * 会区分正零与负零。若两侧不统一比较语义，下面的第二次 save 会抛
-     * {@link ProductDirectionContentConflictException}——调用方没有改动任何推荐内容。
-     */
-    @Test
-    void keepsDirectionWithNegativeZeroConfidenceSavable() {
-        ProductDirection direction = directionWithConfidence(-0.0);
-        repository.save(direction);
-
-        direction.select();
-        repository.save(direction);
-
-        ProductDirection reloaded = repository.findById(DIRECTION_ID).orElseThrow();
-        assertEquals(ProductDirectionStatus.SELECTED, reloaded.status(), "状态更新应被接受");
-        assertEquals(1, directionMapper.selectCount(null).intValue());
-    }
-
-    /**
-     * 存储不保留负零，读回的是正零。
-     *
-     * <p>把正负零统一成正零是 Adapter 针对 SQLite REAL 往返行为做的实现选择，
-     * 不是领域模型定义的等价语义（§3.6 没有规定正负零是否等价）。
-     * 本测试固定的是这层存储的当前行为，而不是一条领域规则。
-     */
-    @Test
-    void restoresNegativeZeroConfidenceAsPositiveZero() {
-        repository.save(directionWithConfidence(-0.0));
-
-        Double restored = repository.findById(DIRECTION_ID).orElseThrow()
-                .evidence().get(0).confidence();
-
-        assertEquals(0, Double.compare(0.0, restored), "读回的 confidence 应是正零");
-    }
-
-    /** 内容完全没变的重复保存同样是幂等的，不论 confidence 是否为零。 */
-    @Test
-    void keepsRepeatedSaveOfNegativeZeroConfidenceIdempotent() {
-        ProductDirection direction = directionWithConfidence(-0.0);
-        repository.save(direction);
-        repository.save(direction);
-
-        assertEquals(1, directionMapper.selectCount(null).intValue());
-        assertEquals(1, evidenceRows().size());
     }
 
     @Test
@@ -397,27 +578,95 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         assertEquals(1, repositoryProfileRows().size());
         assertEquals(1, candidateAssetRows().size());
         assertEquals(1, riskRows().size());
-        assertEquals(2, evidenceRows().size());
+        // userNeed 1 + userFit 2 + reusableCapability 1
+        assertEquals(4, evidenceSupportRows().size());
     }
 
-    /** 一条 Evidence 的 confidence 由调用方给定的方向，其余内容与 {@link #candidateDirection()} 相同。 */
+    // ---------------------------------------------------------------------
+    // 夹具
+    // ---------------------------------------------------------------------
+
+    /**
+     * 一份覆盖三组判断、两种来源，并且同一条依据支撑多个判断的 support。
+     *
+     * <pre>
+     * userNeed           [user]
+     * userFit            [user, repository]
+     * reusableCapability [repository]
+     * </pre>
+     */
+    private static DirectionEvidenceSupport support() {
+        return new DirectionEvidenceSupport(
+                List.of(USER_BASIS),
+                List.of(USER_BASIS, REPOSITORY_BASIS),
+                List.of(REPOSITORY_BASIS));
+    }
+
+    /** 一条 userNeed 依据的 confidence 由调用方给定的方向，其余内容与 {@link #candidateDirection()} 相同。 */
     private static ProductDirection directionWithConfidence(Double confidence) {
+        Evidence evidence = new Evidence(
+                EvidenceSourceType.USER_INPUT, "用户输入：但导出报表很麻烦",
+                "用户对报表导出的不满", confidence, true);
+
         return ProductDirection.create(
-                DIRECTION_ID,
-                USER_PROFILE_ID,
-                USER_PROFILE_REVISION,
+                DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION,
                 List.of(REPOSITORY_PROFILE_ID),
-                TITLE,
-                "现有记账工具缺少可导出的报表",
-                "单用户桌面记账工具 + 报表导出",
-                "用户已经在用记账工具，且技术栈匹配",
-                List.of(ASSET_ID),
-                "相比现有工具增加了自定义报表",
-                "可复用现有报表模块的渲染能力",
+                TITLE, "现有记账工具缺少可导出的报表", "单用户桌面记账工具 + 报表导出",
+                "用户已经在用记账工具，且技术栈匹配", List.of(ASSET_ID),
+                "相比现有工具增加了自定义报表", "可复用现有报表模块的渲染能力",
                 "中等：主要在导出与模板部分",
-                List.of(),
-                List.of(new Evidence(EvidenceSourceType.USER_INPUT, "user-profile-1#interests",
-                        "用户长期关注记账工具", confidence, true)));
+                List.of("模板格式复杂度可能超预期"),
+                new DirectionEvidenceSupport(
+                        List.of(new EvidenceBasis(evidence,
+                                new UserProfileEvidenceOrigin(
+                                        USER_PROFILE_ID, USER_PROFILE_REVISION))),
+                        List.of(),
+                        List.of()));
+    }
+
+    /** 直接写入一行依据记录，用于构造存储层才会出现的、不符合约束的数据。 */
+    private void insertPreparedBasisRow(String originKind,
+                                        String userProfileId,
+                                        Integer userProfileRevision,
+                                        String repositoryProfileId) {
+        jdbcTemplate.update("""
+                        INSERT INTO product_direction_evidence_support
+                            (direction_id, category, position, source_type, source_ref, claim,
+                             confidence, confirmed, origin_kind,
+                             origin_user_profile_id, origin_user_profile_revision,
+                             origin_repository_profile_id)
+                        VALUES (?, 'userNeed', 0, 'USER_INPUT', 'user-answer-1', '一条依据',
+                                NULL, 0, ?, ?, ?, ?)
+                        """,
+                DIRECTION_ID.value(), originKind, userProfileId, userProfileRevision,
+                repositoryProfileId);
+    }
+
+    /**
+     * 造一张同名但不带 origin 一致性 CHECK 的表。
+     *
+     * <p>用于验证 Adapter 的读路径自身也会拒绝矛盾来源——不能只依赖存储曾经约束过它。
+     * DDL 与后续写入都在测试事务内，方法结束即回滚。
+     */
+    private void recreateEvidenceSupportTableWithoutCheck() {
+        jdbcTemplate.execute("DROP TABLE product_direction_evidence_support");
+        jdbcTemplate.execute("""
+                CREATE TABLE product_direction_evidence_support (
+                    direction_id                  TEXT    NOT NULL,
+                    category                      TEXT    NOT NULL,
+                    position                      INTEGER NOT NULL,
+                    source_type                   TEXT    NOT NULL,
+                    source_ref                    TEXT    NOT NULL,
+                    claim                         TEXT    NOT NULL,
+                    confidence                    REAL,
+                    confirmed                     INTEGER NOT NULL,
+                    origin_kind                   TEXT    NOT NULL,
+                    origin_user_profile_id        TEXT,
+                    origin_user_profile_revision  INTEGER,
+                    origin_repository_profile_id  TEXT,
+                    PRIMARY KEY (direction_id, category, position)
+                )
+                """);
     }
 
     private static ProductDirection candidateDirection() {
@@ -435,15 +684,15 @@ class SqliteProductDirectionRepositoryIntegrationTest {
                 "可复用现有报表模块的渲染能力",
                 "中等：主要在导出与模板部分",
                 List.of("模板格式复杂度可能超预期"),
-                List.of(USER_EVIDENCE, REPOSITORY_EVIDENCE));
+                support());
     }
 
-    /** 四个子表在当前方向下的总行数，用于验证更新路径不会改动内容行。 */
+    /** 四个内容子表在当前方向下的总行数，用于验证更新路径不会改动内容行。 */
     private int contentRowCount() {
         return repositoryProfileRows().size()
                 + candidateAssetRows().size()
                 + riskRows().size()
-                + evidenceRows().size();
+                + evidenceSupportRows().size();
     }
 
     private List<ProductDirectionRepositoryProfileDO> repositoryProfileRows() {
@@ -466,9 +715,16 @@ class SqliteProductDirectionRepositoryIntegrationTest {
                         .eq(ProductDirectionRiskDO::getDirectionId, DIRECTION_ID.value()));
     }
 
-    private List<ProductDirectionEvidenceDO> evidenceRows() {
-        return evidenceMapper.selectList(
-                new LambdaQueryWrapper<ProductDirectionEvidenceDO>()
-                        .eq(ProductDirectionEvidenceDO::getDirectionId, DIRECTION_ID.value()));
+    private List<ProductDirectionEvidenceSupportDO> evidenceSupportRows() {
+        return evidenceSupportMapper.selectList(
+                new LambdaQueryWrapper<ProductDirectionEvidenceSupportDO>()
+                        .eq(ProductDirectionEvidenceSupportDO::getDirectionId,
+                                DIRECTION_ID.value()));
+    }
+
+    private List<ProductDirectionEvidenceSupportDO> rowsOfCategory(String category) {
+        return evidenceSupportRows().stream()
+                .filter(row -> row.getCategory().equals(category))
+                .toList();
     }
 }
