@@ -1,15 +1,21 @@
 package com.ayywl.delveforge.application.opportunitydiscovery.direction;
 
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
-import com.ayywl.delveforge.domain.direction.EvidenceReference;
 import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
+import com.ayywl.delveforge.domain.evidence.EvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.UserProfileEvidenceOrigin;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -32,6 +38,10 @@ import java.util.Set;
  * 提供的东西）。两侧读的是同一份引用表，因此不可能不一致——模型无法凭空指出一条不存在的
  * 依据，也无法引用一个本次没有提供过的资产。
  *
+ * <p>它同时是引用解析的唯一依据：{@link #resolve} 把一次调用里的临时引用换回真实的
+ * {@link EvidenceBasis}（依据 + 它出自哪一份分析 / 哪一版用户画像）。{@code U-E1} 这类
+ * 编号只在本类型内部有意义，不进入 Domain。
+ *
  * <p>本类型不负责「怎么把输入变成请求」：请求的形状属于 AI 边界所在的流程，
  * 因此渲染留在 {@code DirectionDiscoveryExtraction}。
  *
@@ -48,12 +58,6 @@ import java.util.Set;
  * <p>资产侧不需要同样处理：{@code RepositoryProfile} 是不可改写的分析快照，本身没有修改
  * 入口，持有它即可。这个不对称来自两类 Aggregate 的语义不同，不是疏漏。
  *
- * <h2>引用只在本次调用中有效</h2>
- *
- * <p>引用是「本次提示里第几个依据」的编号，不是 Evidence 的持久身份
- * （见 {@link EvidenceReference}）。同一个 {@code U-E1} 在另一次调用中可能指向完全不同的
- * 依据，因此它既不进入持久化状态，也不该被跨调用复用。
- *
  * <h2>本类型不做领域判断</h2>
  *
  * <p>它只反映输入：输入里有哪些 Evidence、哪些资产。它不判断这些依据是否足以支撑某个
@@ -68,8 +72,9 @@ public final class DirectionDiscoveryInputs {
 
     private final UserProfileSnapshot userProfileSnapshot;
     private final List<RepositoryProfile> repositoryProfiles;
+    private final List<ReferencedEvidence> userEvidence;
     private final List<List<ReferencedEvidence>> repositoryEvidence;
-    private final Set<String> evidenceReferences;
+    private final Map<String, EvidenceBasis> basisByReference;
     private final Set<String> assetIds;
 
     private DirectionDiscoveryInputs(UserProfileSnapshot userProfileSnapshot,
@@ -77,18 +82,19 @@ public final class DirectionDiscoveryInputs {
                                      List<List<ReferencedEvidence>> repositoryEvidence) {
         this.userProfileSnapshot = userProfileSnapshot;
         this.repositoryProfiles = List.copyOf(repositoryProfiles);
+        this.userEvidence = userProfileSnapshot.evidence();
         this.repositoryEvidence = List.copyOf(repositoryEvidence);
 
-        Set<String> references = new LinkedHashSet<>();
-        for (ReferencedEvidence evidence : userProfileSnapshot.evidence()) {
-            references.add(evidence.reference().value());
+        Map<String, EvidenceBasis> bases = new LinkedHashMap<>();
+        for (ReferencedEvidence referenced : this.userEvidence) {
+            bases.put(referenced.reference().value(), referenced.basis());
         }
         for (List<ReferencedEvidence> section : this.repositoryEvidence) {
-            for (ReferencedEvidence evidence : section) {
-                references.add(evidence.reference().value());
+            for (ReferencedEvidence referenced : section) {
+                bases.put(referenced.reference().value(), referenced.basis());
             }
         }
-        this.evidenceReferences = Collections.unmodifiableSet(references);
+        this.basisByReference = Collections.unmodifiableMap(bases);
 
         Set<String> assets = new LinkedHashSet<>();
         for (RepositoryProfile profile : this.repositoryProfiles) {
@@ -108,6 +114,9 @@ public final class DirectionDiscoveryInputs {
      * {@code R{i}-E1}、{@code R{i}-E2}…（{@code i} 从 1 开始，与
      * {@link #repositoryProfiles()} 的顺序一致）。顺序具有意义：同一份 Profile 的 Evidence
      * 顺序会如实反映到引用编号上。
+     *
+     * <p>每条依据同时绑定它的来源：用户侧的记为 {@link UserProfileEvidenceOrigin}（含本次
+     * 快照的 revision），资产侧的记为 {@link RepositoryProfileEvidenceOrigin}。
      *
      * <p>可标识的 Software Asset 来自这些 Repository Profile 的 {@code assetId}。它们是
      * 跨 Aggregate 的身份引用，因此按身份去重——同一个资产在不同 revision 上被分析过多次时，
@@ -139,21 +148,31 @@ public final class DirectionDiscoveryInputs {
         List<List<ReferencedEvidence>> repositoryEvidence =
                 new ArrayList<>(repositoryProfiles.size());
         for (int index = 0; index < repositoryProfiles.size(); index++) {
-            repositoryEvidence.add(
-                    reference(repositoryProfiles.get(index).evidence(), "R" + (index + 1)));
+            RepositoryProfile profile = repositoryProfiles.get(index);
+            repositoryEvidence.add(reference(
+                    profile.evidence(),
+                    "R" + (index + 1),
+                    new RepositoryProfileEvidenceOrigin(profile.id())));
         }
 
         return new DirectionDiscoveryInputs(
                 UserProfileSnapshot.capture(userProfile), repositoryProfiles, repositoryEvidence);
     }
 
-    /** 按顺序给一组 Evidence 分配引用：{@code U-E1} / {@code R1-E3} 这样的形式。 */
-    private static List<ReferencedEvidence> reference(List<Evidence> evidence, String owner) {
+    /**
+     * 按顺序给一组 Evidence 分配引用，并把它们绑定到同一个来源。
+     *
+     * <p>{@code U-E1} / {@code R1-E3} 这样的形式。引用与依据成对保存，因此解析时不需要
+     * 再猜「这个编号对应哪一条」。
+     */
+    private static List<ReferencedEvidence> reference(List<Evidence> evidence,
+                                                      String owner,
+                                                      EvidenceOrigin origin) {
         List<ReferencedEvidence> referenced = new ArrayList<>(evidence.size());
         for (int index = 0; index < evidence.size(); index++) {
             referenced.add(new ReferencedEvidence(
                     new EvidenceReference(owner + "-E" + (index + 1)),
-                    evidence.get(index)));
+                    new EvidenceBasis(evidence.get(index), origin)));
         }
         return List.copyOf(referenced);
     }
@@ -174,6 +193,11 @@ public final class DirectionDiscoveryInputs {
         return repositoryProfiles;
     }
 
+    /** 用户侧 Evidence 及其引用，按 Profile 中的顺序。 */
+    public List<ReferencedEvidence> userEvidence() {
+        return userEvidence;
+    }
+
     /**
      * 第 {@code repositoryProfileIndex} 个 Repository Profile 的 Evidence 及其引用，
      * 顺序与该 Profile 中的顺序一致。
@@ -186,7 +210,24 @@ public final class DirectionDiscoveryInputs {
 
     /** 该引用是否是本次提供给模型的引用之一。 */
     public boolean containsEvidence(EvidenceReference reference) {
-        return reference != null && evidenceReferences.contains(reference.value());
+        return reference != null && basisByReference.containsKey(reference.value());
+    }
+
+    /**
+     * 把本次调用中的一条引用换回它指向的真实依据。
+     *
+     * <p>这是引用离开 AI 通信边界的地方：返回的 {@link EvidenceBasis} 携带真实 Evidence
+     * 与它的来源，因此 Domain 侧看到的是「哪条依据、出自哪一份分析」，而不是
+     * {@code U-E1} 这样的编号。
+     *
+     * @param reference 本次输入提供的引用
+     * @return 该引用指向的依据；不是本次输入提供的引用时为空
+     */
+    public Optional<EvidenceBasis> resolve(EvidenceReference reference) {
+        if (reference == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(basisByReference.get(reference.value()));
     }
 
     /** 该资产是否是本次提供给模型的资产之一。 */
@@ -205,18 +246,18 @@ public final class DirectionDiscoveryInputs {
     }
 
     /**
-     * 一条被本次调用引用的 Evidence：模型看到的引用，与它实际指向的领域对象。
+     * 一条被本次调用引用的 Evidence：模型看到的引用，与它实际指向的可追溯依据。
      *
      * <p>两者必须一起使用才成立——引用只有在本输入内才有意义（{@link EvidenceReference}）。
      */
-    public record ReferencedEvidence(EvidenceReference reference, Evidence evidence) {
+    public record ReferencedEvidence(EvidenceReference reference, EvidenceBasis basis) {
 
         public ReferencedEvidence {
             if (reference == null) {
                 throw new IllegalArgumentException("ReferencedEvidence 必须指定 reference");
             }
-            if (evidence == null) {
-                throw new IllegalArgumentException("ReferencedEvidence 必须指定 evidence");
+            if (basis == null) {
+                throw new IllegalArgumentException("ReferencedEvidence 必须指定 basis");
             }
         }
     }
@@ -238,7 +279,7 @@ public final class DirectionDiscoveryInputs {
      * @param technicalCapabilities 技术能力
      * @param projectGoals        项目目标
      * @param constraints         重要约束
-     * @param evidence            该 Profile 当时的 Evidence 及各自的引用
+     * @param evidence            该 Profile 当时的 Evidence 及各自的引用与来源
      */
     public record UserProfileSnapshot(
             UserProfileId userProfileId,
@@ -271,7 +312,12 @@ public final class DirectionDiscoveryInputs {
             evidence = List.copyOf(evidence);
         }
 
-        /** 固定当前这一版内容与它的 Evidence 引用。 */
+        /**
+         * 固定当前这一版内容与它的 Evidence。
+         *
+         * <p>每条依据的来源就是这一版 Profile 自己：{@code UserProfileId} 与 {@code revision}
+         * 在拍快照的同一刻写进依据的 origin，因此之后 Profile 再推进版本也不会改变它们。
+         */
         private static UserProfileSnapshot capture(UserProfile profile) {
             return new UserProfileSnapshot(
                     profile.id(),
@@ -282,7 +328,8 @@ public final class DirectionDiscoveryInputs {
                     profile.technicalCapabilities(),
                     profile.projectGoals(),
                     profile.constraints(),
-                    reference(profile.evidence(), "U"));
+                    reference(profile.evidence(), "U",
+                            new UserProfileEvidenceOrigin(profile.id(), profile.revision())));
         }
 
         private static List<String> copySection(List<String> values, String section) {

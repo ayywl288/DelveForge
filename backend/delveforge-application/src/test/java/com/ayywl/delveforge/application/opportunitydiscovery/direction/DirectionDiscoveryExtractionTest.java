@@ -11,7 +11,8 @@ import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
 import com.ayywl.delveforge.domain.direction.DirectionProposal;
-import com.ayywl.delveforge.domain.direction.EvidenceReference;
+import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
@@ -68,14 +69,14 @@ class DirectionDiscoveryExtractionTest {
         DirectionProposal proposal = proposals.get(0);
         assertEquals("个人记账 + 报表导出", proposal.title());
         assertEquals(
-                List.of(new EvidenceReference("U-E2")),
-                proposal.evidenceLinkage().userNeed());
+                List.of(DirectionDiscoveryFixtures.USER_BASIS_2),
+                proposal.evidenceSupport().userNeed());
         assertEquals(
-                List.of(new EvidenceReference("U-E1")),
-                proposal.evidenceLinkage().userFit());
+                List.of(DirectionDiscoveryFixtures.USER_BASIS_1),
+                proposal.evidenceSupport().userFit());
         assertEquals(
-                List.of(new EvidenceReference("R1-E2")),
-                proposal.evidenceLinkage().reusableCapability());
+                List.of(DirectionDiscoveryFixtures.ACCOUNTING_BASIS_2),
+                proposal.evidenceSupport().reusableCapability());
     }
 
     @Test

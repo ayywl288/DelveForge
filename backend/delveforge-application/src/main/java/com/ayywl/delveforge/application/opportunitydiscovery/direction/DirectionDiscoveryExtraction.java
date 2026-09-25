@@ -22,7 +22,11 @@ import java.util.Map;
  * <pre>
  * Confirmed UserProfile + RepositoryProfile 1..N
  *         ↓
- * AI Gateway → 原始模型输出 → 解析 / 校验 → DirectionProposal[]
+ * AI Gateway → 原始模型输出
+ *         ↓ DirectionDiscoveryProposalParser   严格解析
+ * AiDirectionProposal[]（仍然带着临时 Evidence 引用）
+ *         ↓ DirectionProposalResolver          解析引用
+ * DirectionProposal[]（真实 Evidence + 它们的来源）
  * </pre>
  *
  * <p>本类只做这一步：
@@ -33,9 +37,9 @@ import java.util.Map;
  * 不创建、不保存 ProductDirection
  * </pre>
  *
- * <p>它的协作者只有 {@link AiGateway} 与解析器，因此一次失败不可能留下领域或持久化
- * 副作用：失败只以异常结束。提议如何变成合法的 Product Direction，由下一 Task 的
- * {@code ProductDirectionDiscoveryService} 与调用方决定。
+ * <p>它的协作者只有 {@link AiGateway}、解析器与 {@link DirectionProposalResolver}，
+ * 因此一次失败不可能留下领域或持久化副作用：失败只以异常结束。提议如何变成合法的
+ * Product Direction，由 {@code ProductDirectionDiscoveryService} 与调用方决定。
  *
  * <h2>AI Proposes, Domain Decides</h2>
  *
@@ -54,6 +58,10 @@ import java.util.Map;
  * 模型只能引用其中的条目。引用如何分配见 {@link DirectionDiscoveryInputs#of}；
  * 解析回来的引用由 {@link DirectionDiscoveryProposalParser} 对照同一份输入校验，
  * 未知引用一律失败。这些引用不是 Evidence 的持久身份。
+ *
+ * <p>引用不越过 AI 边界：{@link DirectionProposalResolver} 在返回之前把它们换回真实的
+ * {@code EvidenceBasis}（依据 + 它出自哪一份分析 / 哪一版用户画像），因此
+ * {@link DirectionProposal} 里不存在 {@code U-E1} 这样的协议概念。
  */
 public final class DirectionDiscoveryExtraction {
 
@@ -112,6 +120,7 @@ public final class DirectionDiscoveryExtraction {
     private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
     private final DirectionDiscoveryProposalParser proposalParser;
+    private final DirectionProposalResolver proposalResolver;
 
     public DirectionDiscoveryExtraction(AiGateway aiGateway, ObjectMapper objectMapper) {
         if (aiGateway == null) {
@@ -125,6 +134,7 @@ public final class DirectionDiscoveryExtraction {
         this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
         this.proposalParser = new DirectionDiscoveryProposalParser(objectMapper);
+        this.proposalResolver = new DirectionProposalResolver();
     }
 
     /**
@@ -143,7 +153,11 @@ public final class DirectionDiscoveryExtraction {
             throw new IllegalArgumentException(
                     "DirectionDiscoveryExtraction 必须指定 inputs");
         }
-        return proposalParser.parse(aiGateway.generate(buildRequest(inputs)), inputs);
+        List<AiDirectionProposal> proposals =
+                proposalParser.parse(aiGateway.generate(buildRequest(inputs)), inputs);
+
+        // 走到这里，临时引用才离开 AI 通信边界：Domain 侧看到的是真实依据与它们的来源。
+        return proposalResolver.resolve(proposals, inputs);
     }
 
     private AiRequest buildRequest(DirectionDiscoveryInputs inputs) {
@@ -226,7 +240,7 @@ public final class DirectionDiscoveryExtraction {
 
         List<Map<String, Object>> entries = new ArrayList<>(referenced.size());
         for (DirectionDiscoveryInputs.ReferencedEvidence item : referenced) {
-            Evidence evidence = item.evidence();
+            Evidence evidence = item.basis().evidence();
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("reference", item.reference().value());
             entry.put("sourceType", evidence.sourceType().name());

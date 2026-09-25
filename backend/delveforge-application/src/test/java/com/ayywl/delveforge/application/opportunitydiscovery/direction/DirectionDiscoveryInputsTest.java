@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
-import com.ayywl.delveforge.domain.direction.EvidenceReference;
 import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
+import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.UserProfileEvidenceOrigin;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import java.util.List;
@@ -33,9 +35,9 @@ class DirectionDiscoveryInputsTest {
         assertEquals(new EvidenceReference("U-E1"), userEvidence.get(0).reference());
         assertEquals(new EvidenceReference("U-E2"), userEvidence.get(1).reference());
         assertEquals(
-                DirectionDiscoveryFixtures.USER_EVIDENCE_1, userEvidence.get(0).evidence());
+                DirectionDiscoveryFixtures.USER_EVIDENCE_1, userEvidence.get(0).basis().evidence());
         assertEquals(
-                DirectionDiscoveryFixtures.USER_EVIDENCE_2, userEvidence.get(1).evidence());
+                DirectionDiscoveryFixtures.USER_EVIDENCE_2, userEvidence.get(1).basis().evidence());
     }
 
     /**
@@ -77,6 +79,64 @@ class DirectionDiscoveryInputsTest {
         assertFalse(inputs.containsEvidence(new EvidenceReference("R3-E1")), "只有两个 Profile");
         assertFalse(inputs.containsEvidence(new EvidenceReference("u-e1")), "引用是精确匹配");
         assertFalse(inputs.containsEvidence(null));
+    }
+
+    /**
+     * 解析一条用户侧引用，得到的是真实依据与它的来源——而不是编号。
+     *
+     * <p>这正是引用离开 AI 通信边界的地方：Domain 侧只会看到
+     * 「哪条依据、出自哪一版用户画像」。
+     */
+    @Test
+    void resolvesUserEvidenceWithItsUserProfileOrigin() {
+        DirectionDiscoveryInputs inputs = DirectionDiscoveryFixtures.inputs();
+
+        EvidenceBasis basis = inputs.resolve(new EvidenceReference("U-E1")).orElseThrow();
+
+        assertEquals(DirectionDiscoveryFixtures.USER_EVIDENCE_1, basis.evidence());
+        assertEquals(
+                new UserProfileEvidenceOrigin(
+                        DirectionDiscoveryFixtures.USER_PROFILE_ID, 3),
+                basis.origin());
+    }
+
+    @Test
+    void resolvesRepositoryEvidenceWithItsRepositoryProfileOrigin() {
+        DirectionDiscoveryInputs inputs = DirectionDiscoveryFixtures.inputs();
+
+        EvidenceBasis basis = inputs.resolve(new EvidenceReference("R2-E1")).orElseThrow();
+
+        assertEquals(DirectionDiscoveryFixtures.REPORTING_EVIDENCE, basis.evidence());
+        assertEquals(
+                new RepositoryProfileEvidenceOrigin(
+                        DirectionDiscoveryFixtures.REPORTING_PROFILE_ID),
+                basis.origin());
+    }
+
+    @Test
+    void returnsEmptyWhenResolvingAReferenceItDidNotHandOut() {
+        DirectionDiscoveryInputs inputs = DirectionDiscoveryFixtures.inputs();
+
+        assertTrue(inputs.resolve(new EvidenceReference("U-E9")).isEmpty());
+        assertTrue(inputs.resolve(null).isEmpty());
+    }
+
+    /**
+     * 原 Profile 之后继续变化，不会改变已经建立的来源：origin 停在构造时的那一版。
+     */
+    @Test
+    void keepsTheResolvedOriginAfterTheProfileMovesOn() {
+        UserProfile profile = DirectionDiscoveryFixtures.confirmedUserProfile();
+        DirectionDiscoveryInputs inputs = DirectionDiscoveryInputs.of(
+                profile, List.of(DirectionDiscoveryFixtures.accountingProfile()));
+
+        profile.reopenDiscovery();
+        profile.updateInterests(List.of("改过的兴趣"));
+
+        assertEquals(
+                new UserProfileEvidenceOrigin(DirectionDiscoveryFixtures.USER_PROFILE_ID, 3),
+                inputs.resolve(new EvidenceReference("U-E1")).orElseThrow().origin(),
+                "来源必须停在构造时，而不是跟着 Profile 推进");
     }
 
     /**
@@ -138,7 +198,7 @@ class DirectionDiscoveryInputsTest {
                 "构造之后产生的依据不属于本次输入");
         assertEquals(
                 DirectionDiscoveryFixtures.USER_EVIDENCE_2,
-                inputs.userProfileSnapshot().evidence().get(1).evidence());
+                inputs.userProfileSnapshot().evidence().get(1).basis().evidence());
     }
 
     /** 快照同时固定 id 与 revision：后续记录到 Product Direction 上的必须是本次依据的那一版。 */

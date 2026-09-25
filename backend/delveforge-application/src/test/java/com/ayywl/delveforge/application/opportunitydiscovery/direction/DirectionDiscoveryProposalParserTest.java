@@ -5,9 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
-import com.ayywl.delveforge.domain.direction.DirectionEvidenceLinkage;
-import com.ayywl.delveforge.domain.direction.DirectionProposal;
-import com.ayywl.delveforge.domain.direction.EvidenceReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -52,7 +49,7 @@ class DirectionDiscoveryProposalParserTest {
 
     @Test
     void parsesEveryFieldOfADirection() {
-        DirectionProposal proposal = parseSingleDirection(Map.of());
+        AiDirectionProposal proposal = parseSingleDirection(Map.of());
 
         assertEquals("个人记账 + 报表导出", proposal.title());
         assertEquals("现有记账工具缺少可导出的报表", proposal.problem());
@@ -70,7 +67,7 @@ class DirectionDiscoveryProposalParserTest {
      */
     @Test
     void parsesEvidenceLinkageForEachKeyJudgement() {
-        DirectionProposal proposal = parseSingleDirection(Map.of(
+        AiDirectionProposal proposal = parseSingleDirection(Map.of(
                 "evidence", """
                         {
                           "userNeed": ["U-E2", "U-E1"],
@@ -78,7 +75,7 @@ class DirectionDiscoveryProposalParserTest {
                           "reusableCapability": ["R1-E2", "R2-E1"]
                         }"""));
 
-        DirectionEvidenceLinkage linkage = proposal.evidenceLinkage();
+        AiDirectionEvidenceLinkage linkage = proposal.evidenceLinkage();
 
         assertEquals(
                 List.of(new EvidenceReference("U-E2"), new EvidenceReference("U-E1")),
@@ -91,7 +88,7 @@ class DirectionDiscoveryProposalParserTest {
 
     @Test
     void parsesEveryDirectionInOrder() {
-        List<DirectionProposal> proposals = parser.parse(
+        List<AiDirectionProposal> proposals = parser.parse(
                 "{\"directions\": [" + direction(Map.of("title", "\"第一个\""))
                         + ", " + direction(Map.of("title", "\"第二个\"")) + "]}",
                 INPUTS);
@@ -103,7 +100,7 @@ class DirectionDiscoveryProposalParserTest {
 
     @Test
     void parsesMultipleCandidateAssetsInOrder() {
-        DirectionProposal proposal = parseSingleDirection(Map.of(
+        AiDirectionProposal proposal = parseSingleDirection(Map.of(
                 "candidateAssetIds", "[\"software-asset-2\", \"software-asset-1\"]"));
 
         assertEquals(
@@ -117,11 +114,11 @@ class DirectionDiscoveryProposalParserTest {
      */
     @Test
     void acceptsEmptyEvidenceSlots() {
-        DirectionProposal proposal = parseSingleDirection(Map.of(
+        AiDirectionProposal proposal = parseSingleDirection(Map.of(
                 "evidence", """
                         { "userNeed": [], "userFit": [], "reusableCapability": [] }"""));
 
-        DirectionEvidenceLinkage linkage = proposal.evidenceLinkage();
+        AiDirectionEvidenceLinkage linkage = proposal.evidenceLinkage();
 
         assertEquals(List.of(), linkage.userNeed());
         assertEquals(List.of(), linkage.userFit());
@@ -140,7 +137,7 @@ class DirectionDiscoveryProposalParserTest {
 
     @Test
     void acceptsReferencesThatExistInTheInputs() {
-        DirectionProposal proposal = parseSingleDirection(Map.of(
+        AiDirectionProposal proposal = parseSingleDirection(Map.of(
                 "evidence", """
                         {
                           "userNeed": ["U-E1", "U-E2"],
@@ -352,7 +349,7 @@ class DirectionDiscoveryProposalParserTest {
                 }
                 """;
 
-        DirectionProposal proposal = parser.parse(withUnexpectedFields, INPUTS).get(0);
+        AiDirectionProposal proposal = parser.parse(withUnexpectedFields, INPUTS).get(0);
 
         assertEquals(
                 parseSingleDirection(Map.of()),
@@ -451,8 +448,8 @@ class DirectionDiscoveryProposalParserTest {
         return jsonObject(evidence);
     }
 
-    private DirectionProposal parseSingleDirection(Map<String, String> overrides) {
-        List<DirectionProposal> proposals = parser.parse(response(overrides), INPUTS);
+    private AiDirectionProposal parseSingleDirection(Map<String, String> overrides) {
+        List<AiDirectionProposal> proposals = parser.parse(response(overrides), INPUTS);
         assertEquals(1, proposals.size());
         return proposals.get(0);
     }

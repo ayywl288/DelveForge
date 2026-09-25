@@ -3,20 +3,23 @@ package com.ayywl.delveforge.application.opportunitydiscovery.direction;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
-import com.ayywl.delveforge.domain.direction.DirectionEvidenceLinkage;
-import com.ayywl.delveforge.domain.direction.DirectionProposal;
-import com.ayywl.delveforge.domain.direction.EvidenceReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 把 AI 返回的原始文本解析为 {@link DirectionProposal} 列表。
+ * 把 AI 返回的原始文本解析为 {@link AiDirectionProposal} 列表。
  *
  * <p>{@code AiGateway} 的契约是「返回未经解析的原始内容，由 Application 完成解析与校验」
  * （RULE-DOM-003），本类承担其中的解析部分。Provider 响应信封的解析不在这里——
  * 那属于 Infrastructure，本类的输入已经是模型返回的 content 本身。
+ *
+ * <h2>输出停在 AI 侧</h2>
+ *
+ * <p>本类的产物仍然是 AI 通信协议里的东西：{@code evidenceLinkage} 装的是本次调用的
+ * 临时引用（{@code U-E1}）。把它变成真实依据是下一步的事
+ * （{@link DirectionProposalResolver}），本类不跨过那条边界。
  *
  * <p>「恰好一个 json 对象、其后没有多余内容」这条契约与 User Discovery、Repository
  * Analysis 的解析器共用 AI 边界所在包中的同一个实现（{@link AiJsonObjectReader}）。
@@ -82,7 +85,7 @@ public final class DirectionDiscoveryProposalParser {
      * @return 解析后的候选方向提议，顺序与模型给出的一致
      * @throws AiGatewayException 内容为空、不是合法 json 对象，或结构与约定不符
      */
-    public List<DirectionProposal> parse(String rawAiOutput, DirectionDiscoveryInputs inputs) {
+    public List<AiDirectionProposal> parse(String rawAiOutput, DirectionDiscoveryInputs inputs) {
         if (inputs == null) {
             throw new IllegalArgumentException(
                     "DirectionDiscoveryProposalParser 必须指定 inputs");
@@ -96,7 +99,7 @@ public final class DirectionDiscoveryProposalParser {
             throw new AiGatewayException("AI 返回的 " + FIELD_DIRECTIONS + " 不是数组");
         }
 
-        List<DirectionProposal> proposals = new ArrayList<>(directions.size());
+        List<AiDirectionProposal> proposals = new ArrayList<>(directions.size());
         for (JsonNode direction : directions) {
             if (!direction.isObject()) {
                 throw new AiGatewayException(
@@ -107,8 +110,8 @@ public final class DirectionDiscoveryProposalParser {
         return List.copyOf(proposals);
     }
 
-    private static DirectionProposal direction(JsonNode node, DirectionDiscoveryInputs inputs) {
-        return new DirectionProposal(
+    private static AiDirectionProposal direction(JsonNode node, DirectionDiscoveryInputs inputs) {
+        return new AiDirectionProposal(
                 requiredText(node, FIELD_TITLE),
                 requiredText(node, FIELD_PROBLEM),
                 requiredText(node, FIELD_TARGET_PRODUCT),
@@ -210,7 +213,7 @@ public final class DirectionDiscoveryProposalParser {
      * <p>槽位本身可以为空数组——那是「模型认为这条判断没有可引用的依据」这一业务事实，
      * 是否可接受由后续的领域校验判断，本层不替它决定。
      */
-    private static DirectionEvidenceLinkage evidenceLinkage(JsonNode node,
+    private static AiDirectionEvidenceLinkage evidenceLinkage(JsonNode node,
                                                             DirectionDiscoveryInputs inputs) {
         JsonNode evidence = node.get(FIELD_EVIDENCE);
         if (evidence == null || evidence.isNull()) {
@@ -220,7 +223,7 @@ public final class DirectionDiscoveryProposalParser {
             throw new AiGatewayException("AI 返回的 " + FIELD_EVIDENCE + " 不是对象");
         }
 
-        return new DirectionEvidenceLinkage(
+        return new AiDirectionEvidenceLinkage(
                 references(evidence, FIELD_USER_NEED, inputs),
                 references(evidence, FIELD_EVIDENCE_USER_FIT, inputs),
                 references(evidence, FIELD_REUSABLE_CAPABILITY, inputs));

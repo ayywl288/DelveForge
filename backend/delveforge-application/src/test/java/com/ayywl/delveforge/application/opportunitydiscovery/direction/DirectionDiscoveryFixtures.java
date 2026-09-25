@@ -2,7 +2,10 @@ package com.ayywl.delveforge.application.opportunitydiscovery.direction;
 
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
+import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.UserProfileEvidenceOrigin;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfile;
@@ -27,6 +30,9 @@ import java.util.List;
 final class DirectionDiscoveryFixtures {
 
     static final UserProfileId USER_PROFILE_ID = new UserProfileId("user-profile-1");
+
+    /** 已确认的 Profile 停在第三版；依据的来源必须记的就是这一版。 */
+    static final int USER_PROFILE_REVISION = 3;
 
     static final RepositoryProfileId ACCOUNTING_PROFILE_ID =
             new RepositoryProfileId("repository-profile-1");
@@ -55,14 +61,37 @@ final class DirectionDiscoveryFixtures {
     static final Evidence REPORTING_EVIDENCE = new Evidence(
             EvidenceSourceType.REPOSITORY, "src/main/chart", "已有图表组件", null, false);
 
+    /** 用户侧依据的来源就是本次依据的那一版 Profile。 */
+    static final EvidenceBasis USER_BASIS_1 = userBasis(USER_EVIDENCE_1);
+
+    static final EvidenceBasis USER_BASIS_2 = userBasis(USER_EVIDENCE_2);
+
+    static final EvidenceBasis ACCOUNTING_BASIS_1 =
+            repositoryBasis(ACCOUNTING_PROFILE_ID, ACCOUNTING_EVIDENCE_1);
+
+    static final EvidenceBasis ACCOUNTING_BASIS_2 =
+            repositoryBasis(ACCOUNTING_PROFILE_ID, ACCOUNTING_EVIDENCE_2);
+
+    static final EvidenceBasis REPORTING_BASIS =
+            repositoryBasis(REPORTING_PROFILE_ID, REPORTING_EVIDENCE);
+
     private DirectionDiscoveryFixtures() {
+    }
+
+    static EvidenceBasis userBasis(Evidence evidence) {
+        return new EvidenceBasis(
+                evidence, new UserProfileEvidenceOrigin(USER_PROFILE_ID, USER_PROFILE_REVISION));
+    }
+
+    static EvidenceBasis repositoryBasis(RepositoryProfileId profileId, Evidence evidence) {
+        return new EvidenceBasis(evidence, new RepositoryProfileEvidenceOrigin(profileId));
     }
 
     static UserProfile confirmedUserProfile() {
         return UserProfile.reconstitute(
                 USER_PROFILE_ID,
                 UserProfileStatus.CONFIRMED,
-                3,
+                USER_PROFILE_REVISION,
                 List.of("个人记账", "数据可视化"),
                 List.of("长期自己维护小工具"),
                 List.of("现有工具的报表导出很麻烦"),
