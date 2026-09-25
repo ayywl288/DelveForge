@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
+import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.UserProfileEvidenceOrigin;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
@@ -36,6 +39,18 @@ class ProductDirectionTest {
             EvidenceSourceType.USER_INPUT, "user-profile-1#interests", "用户长期关注记账工具",
             0.8, true);
 
+    /** 这条依据来自本次所依据的那一版 User Profile。 */
+    private static final EvidenceBasis BASIS = new EvidenceBasis(
+            EVIDENCE, new UserProfileEvidenceOrigin(USER_PROFILE_ID, USER_PROFILE_REVISION));
+
+    /** 一份合法的最小 support：三组判断都指向同一条依据（同一依据可以支撑多个判断）。 */
+    private static final DirectionEvidenceSupport SUPPORT =
+            new DirectionEvidenceSupport(List.of(BASIS), List.of(BASIS), List.of(BASIS));
+
+    /** 三组判断一条依据都没有——INV-D06 不接受。 */
+    private static final DirectionEvidenceSupport EMPTY_SUPPORT =
+            new DirectionEvidenceSupport(List.of(), List.of(), List.of());
+
     // ---------------------------------------------------------------------
     // 创建
     // ---------------------------------------------------------------------
@@ -57,7 +72,7 @@ class ProductDirectionTest {
         assertEquals("可复用现有报表模块的渲染能力", direction.technicalValue());
         assertEquals("中等：主要在导出与模板部分", direction.estimatedComplexity());
         assertEquals(List.of("模板格式复杂度可能超预期"), direction.risks());
-        assertEquals(List.of(EVIDENCE), direction.evidence());
+        assertEquals(List.of(BASIS), direction.evidenceSupport().allBases());
     }
 
     /**
@@ -73,7 +88,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 null, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT));
     }
 
     /**
@@ -84,7 +99,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, null, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT));
     }
 
     /**
@@ -96,7 +111,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, 0, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT));
     }
 
     /**
@@ -107,7 +122,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT));
     }
 
     @Test
@@ -115,7 +130,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, null,
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT));
     }
 
     @Test
@@ -127,7 +142,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, withNull,
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT));
     }
 
     /**
@@ -142,7 +157,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT));
     }
 
     @Test
@@ -150,7 +165,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", null,
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT));
     }
 
     @Test
@@ -162,7 +177,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", withNull,
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT));
     }
 
     /**
@@ -173,7 +188,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of()));
+                "差异化", "技术价值", "复杂度", List.of(), EMPTY_SUPPORT));
     }
 
     @Test
@@ -193,43 +208,43 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "  ", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)),
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT),
                 "title 不得为空");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", null, "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)),
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT),
                 "problem 不得为 null");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)),
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT),
                 "targetProduct 不得为空");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", " ", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE)),
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT),
                 "userFit 不得为空");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                null, "技术价值", "复杂度", List.of(), List.of(EVIDENCE)),
+                null, "技术价值", "复杂度", List.of(), SUPPORT),
                 "differentiation 不得为 null");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", " ", "复杂度", List.of(), List.of(EVIDENCE)),
+                "差异化", " ", "复杂度", List.of(), SUPPORT),
                 "technicalValue 不得为空");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", " ", List.of(), List.of(EVIDENCE)),
+                "差异化", "技术价值", " ", List.of(), SUPPORT),
                 "estimatedComplexity 不得为空");
     }
 
@@ -238,7 +253,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(" "), List.of(EVIDENCE)));
+                "差异化", "技术价值", "复杂度", List.of(" "), SUPPORT));
     }
 
     /**
@@ -249,7 +264,7 @@ class ProductDirectionTest {
         ProductDirection direction = ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT);
 
         assertEquals(List.of(), direction.risks());
     }
@@ -267,23 +282,26 @@ class ProductDirectionTest {
         candidateAssetIds.add(ASSET_ID);
         List<String> risks = new ArrayList<>();
         risks.add("模板格式复杂度可能超预期");
-        List<Evidence> evidence = new ArrayList<>();
-        evidence.add(EVIDENCE);
+        List<EvidenceBasis> bases = new ArrayList<>();
+        bases.add(BASIS);
 
         ProductDirection direction = ProductDirection.create(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, repositoryProfileIds,
                 "标题", "问题", "目标产品", "匹配点", candidateAssetIds,
-                "差异化", "技术价值", "复杂度", risks, evidence);
+                "差异化", "技术价值", "复杂度", risks,
+                new DirectionEvidenceSupport(bases, List.of(), List.of()));
 
         repositoryProfileIds.add(new RepositoryProfileId("other"));
         candidateAssetIds.add(new SoftwareAssetId("other"));
         risks.add("调用方后来追加的风险");
-        evidence.add(new Evidence(EvidenceSourceType.REPOSITORY, "pom.xml", "后来追加", null, false));
+        bases.add(new EvidenceBasis(
+                new Evidence(EvidenceSourceType.REPOSITORY, "pom.xml", "后来追加", null, false),
+                new RepositoryProfileEvidenceOrigin(REPOSITORY_PROFILE_ID)));
 
         assertEquals(List.of(REPOSITORY_PROFILE_ID), direction.repositoryProfileIds());
         assertEquals(List.of(ASSET_ID), direction.candidateAssetIds());
         assertEquals(List.of("模板格式复杂度可能超预期"), direction.risks());
-        assertEquals(List.of(EVIDENCE), direction.evidence());
+        assertEquals(List.of(BASIS), direction.evidenceSupport().allBases());
     }
 
     @Test
@@ -295,7 +313,7 @@ class ProductDirectionTest {
         assertThrows(UnsupportedOperationException.class,
                 () -> direction.candidateAssetIds().add(new SoftwareAssetId("other")));
         assertThrows(UnsupportedOperationException.class, () -> direction.risks().add("追加"));
-        assertThrows(UnsupportedOperationException.class, () -> direction.evidence().add(EVIDENCE));
+        assertThrows(UnsupportedOperationException.class, () -> direction.evidenceSupport().userNeed().add(BASIS));
     }
 
     // ---------------------------------------------------------------------
@@ -350,7 +368,7 @@ class ProductDirectionTest {
         assertEquals(USER_PROFILE_REVISION, direction.userProfileRevision());
         assertEquals(List.of(REPOSITORY_PROFILE_ID), direction.repositoryProfileIds());
         assertEquals(List.of(ASSET_ID), direction.candidateAssetIds());
-        assertEquals(List.of(EVIDENCE), direction.evidence());
+        assertEquals(List.of(BASIS), direction.evidenceSupport().allBases());
         assertEquals("个人记账 + 报表导出", direction.title());
         assertEquals("现有记账工具缺少可导出的报表", direction.problem());
         assertEquals("单用户桌面记账工具 + 报表导出", direction.targetProduct());
@@ -370,7 +388,7 @@ class ProductDirectionTest {
 
         assertEquals(ProductDirectionStatus.REJECTED, direction.status());
         assertEquals(List.of(REPOSITORY_PROFILE_ID), direction.repositoryProfileIds());
-        assertEquals(List.of(EVIDENCE), direction.evidence());
+        assertEquals(List.of(BASIS), direction.evidenceSupport().allBases());
         assertEquals("个人记账 + 报表导出", direction.title());
     }
 
@@ -495,7 +513,7 @@ class ProductDirectionTest {
         assertEquals(USER_PROFILE_REVISION, direction.userProfileRevision());
         assertEquals(List.of(REPOSITORY_PROFILE_ID), direction.repositoryProfileIds());
         assertEquals(List.of(ASSET_ID), direction.candidateAssetIds());
-        assertEquals(List.of(EVIDENCE), direction.evidence());
+        assertEquals(List.of(BASIS), direction.evidenceSupport().allBases());
         assertEquals("个人记账 + 报表导出", direction.title());
     }
 
@@ -506,12 +524,12 @@ class ProductDirectionTest {
     void keepsSameContentInstancesAcrossTransition() {
         ProductDirection direction = createDirection();
         List<RepositoryProfileId> repositoryProfileIds = direction.repositoryProfileIds();
-        List<Evidence> evidence = direction.evidence();
+        DirectionEvidenceSupport evidenceSupport = direction.evidenceSupport();
 
         direction.select();
 
         assertSame(repositoryProfileIds, direction.repositoryProfileIds());
-        assertSame(evidence, direction.evidence());
+        assertSame(evidenceSupport, direction.evidenceSupport());
         assertEquals(ProductDirectionStatus.SELECTED, direction.status());
     }
 
@@ -534,7 +552,7 @@ class ProductDirectionTest {
             assertEquals(DIRECTION_ID, direction.id());
             assertEquals(List.of(REPOSITORY_PROFILE_ID), direction.repositoryProfileIds());
             assertEquals(List.of(ASSET_ID), direction.candidateAssetIds());
-            assertEquals(List.of(EVIDENCE), direction.evidence());
+            assertEquals(List.of(BASIS), direction.evidenceSupport().allBases());
         }
     }
 
@@ -554,7 +572,7 @@ class ProductDirectionTest {
         assertEquals("可复用现有报表模块的渲染能力", direction.technicalValue());
         assertEquals("中等：主要在导出与模板部分", direction.estimatedComplexity());
         assertEquals(List.of("模板格式复杂度可能超预期"), direction.risks());
-        assertEquals(List.of(EVIDENCE), direction.evidence());
+        assertEquals(List.of(BASIS), direction.evidenceSupport().allBases());
     }
 
     /**
@@ -587,7 +605,7 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE), null));
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT, null));
     }
 
     /**
@@ -599,37 +617,37 @@ class ProductDirectionTest {
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
                 null, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE),
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT,
                 ProductDirectionStatus.CANDIDATE), "缺少 id");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
                 DIRECTION_ID, USER_PROFILE_ID, 0, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE),
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT,
                 ProductDirectionStatus.CANDIDATE), "userProfileRevision 小于 1");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE),
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT,
                 ProductDirectionStatus.CANDIDATE), "没有引用 Repository Profile");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE),
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT,
                 ProductDirectionStatus.CANDIDATE), "没有标识 Candidate Software Asset");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", " ", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(EVIDENCE),
+                "差异化", "技术价值", "复杂度", List.of(), SUPPORT,
                 ProductDirectionStatus.CANDIDATE), "推荐内容为空");
 
         assertThrows(IllegalArgumentException.class, () -> ProductDirection.reconstitute(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, List.of(REPOSITORY_PROFILE_ID),
                 "标题", "问题", "目标产品", "匹配点", List.of(ASSET_ID),
-                "差异化", "技术价值", "复杂度", List.of(), List.of(),
+                "差异化", "技术价值", "复杂度", List.of(), EMPTY_SUPPORT,
                 ProductDirectionStatus.CANDIDATE), "没有 Evidence");
     }
 
@@ -640,26 +658,29 @@ class ProductDirectionTest {
         repositoryProfileIds.add(REPOSITORY_PROFILE_ID);
         List<SoftwareAssetId> candidateAssetIds = new ArrayList<>();
         candidateAssetIds.add(ASSET_ID);
-        List<Evidence> evidence = new ArrayList<>();
-        evidence.add(EVIDENCE);
+        List<EvidenceBasis> bases = new ArrayList<>();
+        bases.add(BASIS);
 
         ProductDirection direction = ProductDirection.reconstitute(
                 DIRECTION_ID, USER_PROFILE_ID, USER_PROFILE_REVISION, repositoryProfileIds,
                 "标题", "问题", "目标产品", "匹配点", candidateAssetIds,
-                "差异化", "技术价值", "复杂度", List.of(), evidence,
+                "差异化", "技术价值", "复杂度", List.of(),
+                new DirectionEvidenceSupport(bases, List.of(), List.of()),
                 ProductDirectionStatus.SUPERSEDED);
 
         repositoryProfileIds.add(new RepositoryProfileId("other"));
         candidateAssetIds.add(new SoftwareAssetId("other"));
-        evidence.add(new Evidence(EvidenceSourceType.REPOSITORY, "pom.xml", "后来追加", null, false));
+        bases.add(new EvidenceBasis(
+                new Evidence(EvidenceSourceType.REPOSITORY, "pom.xml", "后来追加", null, false),
+                new RepositoryProfileEvidenceOrigin(REPOSITORY_PROFILE_ID)));
 
         assertEquals(List.of(REPOSITORY_PROFILE_ID), direction.repositoryProfileIds());
         assertEquals(List.of(ASSET_ID), direction.candidateAssetIds());
-        assertEquals(List.of(EVIDENCE), direction.evidence());
+        assertEquals(List.of(BASIS), direction.evidenceSupport().allBases());
         assertThrows(UnsupportedOperationException.class,
                 () -> direction.repositoryProfileIds().add(new RepositoryProfileId("other")));
         assertThrows(UnsupportedOperationException.class,
-                () -> direction.evidence().add(EVIDENCE));
+                () -> direction.evidenceSupport().userNeed().add(BASIS));
     }
 
     private static ProductDirection reconstituteWith(ProductDirectionStatus status) {
@@ -677,7 +698,7 @@ class ProductDirectionTest {
                 "可复用现有报表模块的渲染能力",
                 "中等：主要在导出与模板部分",
                 List.of("模板格式复杂度可能超预期"),
-                List.of(EVIDENCE),
+                SUPPORT,
                 status);
     }
 
@@ -696,6 +717,6 @@ class ProductDirectionTest {
                 "可复用现有报表模块的渲染能力",
                 "中等：主要在导出与模板部分",
                 List.of("模板格式复杂度可能超预期"),
-                List.of(EVIDENCE));
+                SUPPORT);
     }
 }

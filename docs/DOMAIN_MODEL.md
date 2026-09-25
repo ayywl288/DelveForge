@@ -335,7 +335,7 @@ Product Direction 是“值得做什么”的候选答案，而不是“具体�
 | `id`                   | Product Direction 的唯一标识             |
 | `userProfileId`        | 生成该方向所依据的 User Profile          |
 | `userProfileRevision`  | 生成该方向时所依据的 User Profile 版本   |
-| `repositoryProfileIds` | 生成该方向所依据的 Repository Profile    |
+| `repositoryProfileIds` | 该方向实际依据的 Repository Profile      |
 | `title`                | 方向的简短名称                           |
 | `problem`              | 希望解决的核心问题或需求                 |
 | `targetProduct`        | 候选产品的大致目标形态                   |
@@ -345,10 +345,43 @@ Product Direction 是“值得做什么”的候选答案，而不是“具体�
 | `technicalValue`       | 可以体现或获得的技术价值                 |
 | `estimatedComplexity`  | 对整体演化成本的粗粒度判断               |
 | `risks`                | 当前已知主要风险                         |
-| `evidence`             | 支撑该 Product Direction 的领域依据      |
+| `evidenceSupport`      | 三类关键判断各自由哪些依据支撑           |
 | `status`               | Candidate、Selected、Rejected 等当前状态 |
 
 这里的 `userProfileId` 表示 Product Direction 对其分析输入的领域追溯关系，并不是多用户系统中的账户归属 `userId`。
+
+#### Evidence Support
+
+Product Direction 保存的不是一份扁平的 Evidence 列表，而是「关键判断 → 依据」的对应关系：
+
+```text
+userNeed            ← 支撑「用户需求 / 要解决的问题」判断的依据
+userFit             ← 支撑「与用户的匹配关系」判断的依据
+reusableCapability  ← 支撑「可复用的软件能力 / 候选资产理由」判断的依据
+```
+
+理由是 INV-D06：它要求的不是「这个方向有一批依据」，而是这些关键判断各有可追溯的 Evidence。扁平列表无法回答「用户匹配关系这个判断是靠哪几条依据成立的」。
+
+当前只要求这三类，不扩展到 `title` / `targetProduct` / `differentiation` 等其余字段——领域模型没有对它们提出同样的要求。
+
+同一份依据可以同时出现在多个判断下；三个判断中允许有判断暂时没有依据，那表示该判断当前无法追溯，是否需要阻止这类方向成立由 `ProductDirectionDiscoveryService` 判断。
+
+每条依据同时携带它的出处：
+
+```text
+Evidence
+    sourceType / sourceRef / claim / confidence / confirmed
+
+EvidenceOrigin
+    UserProfileEvidenceOrigin        userProfileId + revision
+    RepositoryProfileEvidenceOrigin  repositoryProfileId
+```
+
+只记依据本身不足以回答「这条依据出自哪一份分析 / 哪一版用户画像」：两个 Repository Profile 完全可能各有一条内容相同的依据。
+
+`repositoryProfileIds` 记录的是该方向**实际依据**的 Repository Profile，而不是生成时看过的全部输入——本次调用可能提供了多份 Profile，一条方向未必用得上每一份。
+
+本 Aggregate 不解释 AI 侧的临时引用（`U-E1` 这类只在一次调用中有效的编号）：那属于 AI 通信协议，见 §12.4。进入本 Aggregate 的依据已经解析成真实的 Evidence 与它的出处。
 
 ### 3.6 Evidence
 
@@ -3746,7 +3779,7 @@ Repository Profile Basis
 +
 Candidate Assets
 +
-Evidence
+Evidence Support
 +
 Status
 ```
@@ -3760,6 +3793,17 @@ repositoryProfileIds
 ```
 
 构成其核心分析来源。
+
+Evidence Support 必须保留「关键判断 → 依据」这层对应关系，并且每条依据都要保留它出自哪里：
+
+```text
+judgment category      userNeed / userFit / reusableCapability
+position               该判断下的顺序
+Evidence fields
+Evidence origin        userProfileId + revision，或 repositoryProfileId
+```
+
+只持久化一份扁平依据列表是不够的：那会丢掉上面这条对应关系，而它正是 INV-D06 要求可追溯的东西。同一份依据支撑多个判断时必须在每个判断下各保留一条记录，不能去重成一条。
 
 Product Direction 后续从：
 
@@ -4757,8 +4801,13 @@ ProductDirection
 
 ```
 ProductDirection
-└── Evidence
+└── EvidenceSupport
+      ├── userNeed            → Evidence + EvidenceOrigin
+      ├── userFit             → Evidence + EvidenceOrigin
+      └── reusableCapability  → Evidence + EvidenceOrigin
 ```
+
+每条依据带它的出处（User Profile 的 `id + revision`，或 `repositoryProfileId`），因此这个方向能够回答「这条推荐理由出自哪一份分析、哪一版用户画像」。
 
 Product Direction 通过 Identity 引用其分析来源：
 
@@ -4789,6 +4838,7 @@ Product Direction Aggregate 主要负责：
 
 - 保存方向本身的业务语义；
 - 保存生成方向时的分析来源；
+- 保存三类关键判断（用户需求 / 用户匹配 / 可复用能力）与各自 Evidence 的对应关系；
 - 维护 CANDIDATE / SELECTED / REJECTED / SUPERSEDED 状态；
 - 保证只有用户明确选择才能进入 SELECTED；
 - 保持历史推荐依据不因上游对象变化而重写。
@@ -5752,6 +5802,26 @@ Direction Proposal
 ```
 
 表示 AI Gateway 根据 User Profile 与 Repository Profiles 产生、但尚未被领域模型接受的结构化候选。
+
+##### Direction Proposal 的两个形态
+
+从模型输出到本 Domain Service 的输入之间有一次边界跨越，两侧的 Proposal 不是同一个东西：
+
+```text
+AI 通信协议的一侧
+    AiDirectionProposal
+    关键判断 → invocation-local Evidence reference（U-E1 / R2-E3）
+
+        ↓ Application 解析引用
+
+Domain 的一侧
+    DirectionProposal
+    关键判断 → 真实 Evidence + 它的出处
+```
+
+`U-E1` 这类引用只在一次 AI 调用中有效，**它不得越过 Application → Domain 边界**。Domain 不理解引用编号、Prompt 编号方式或 JSON 字段约定——把一次调用的临时编号当成领域事实，会让「这条推荐依据什么」变成一句无法追溯的话。
+
+把引用解析成真实依据属于 Application：它只是恢复已经存在的事实（这次调用提供过哪几条依据）。至于这些依据在业务上是否**足以**支撑该判断，才是下面这个 Domain Service 的职责。
 
 #### Preconditions
 

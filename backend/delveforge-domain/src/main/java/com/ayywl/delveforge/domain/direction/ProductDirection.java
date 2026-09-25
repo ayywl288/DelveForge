@@ -1,7 +1,6 @@
 package com.ayywl.delveforge.domain.direction;
 
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
-import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import java.util.ArrayList;
@@ -111,11 +110,13 @@ import java.util.List;
  *     Repository Profile 依据不相符的 assetId——「单个 Aggregate 不负责」不等于
  *     「Domain Layer 不负责」，只是执行这条校验的位置在 Domain Service。
  *
- * repositoryProfileIds 与 evidence 不得为空
+ * repositoryProfileIds 与 evidenceSupport 不得为空
  *     这两条不是实现选择，而是 Invariant 的直接编码：INV-D05 要求方向必须能追溯到
  *     至少一个明确的 Repository Profile；INV-D06 要求关键判断具有可追溯 Evidence，
- *     一个没有任何 Evidence 的方向无法满足它。领域模型没有规定具体条数，
- *     因此这里只要求至少一条。
+ *     一个一条依据都没有的方向无法满足它。领域模型没有规定具体条数，
+ *     因此这里只要求「至少一条」，不要求三组判断各自非空——
+ *     某一组为空的含义是「这组判断没有可追溯的依据」，它是否可接受属于
+ *     ProductDirectionDiscoveryService 的领域判断，不由本 Aggregate 代替它决定。
  *
  * userProfileRevision 必须为正数
  *     INV-D01 要求方向能追溯到确定的 {@code UserProfileId + revision}，
@@ -150,7 +151,7 @@ public class ProductDirection {
     private final String technicalValue;
     private final String estimatedComplexity;
     private final List<String> risks;
-    private final List<Evidence> evidence;
+    private final DirectionEvidenceSupport evidenceSupport;
 
     private ProductDirectionStatus status;
 
@@ -181,7 +182,7 @@ public class ProductDirection {
      * @param estimatedComplexity   对整体演化成本的粗粒度判断，不得为 {@code null} 或空白
      * @param risks                 当前已知主要风险；不得为 {@code null}，可以为空，
      *                              元素不得为 {@code null} 或空白
-     * @param evidence              支撑该方向的领域依据；不得为 {@code null} 或空（INV-D06），
+     * @param evidenceSupport      关键推荐判断与真实依据的对应关系；不得为 {@code null}（INV-D06），
      *                              元素不得为 {@code null}
      * @throws IllegalArgumentException 任一参数不满足上述约束
      */
@@ -199,7 +200,7 @@ public class ProductDirection {
             String technicalValue,
             String estimatedComplexity,
             List<String> risks,
-            List<Evidence> evidence) {
+            DirectionEvidenceSupport evidenceSupport) {
 
         return assemble(
                 id,
@@ -215,7 +216,7 @@ public class ProductDirection {
                 technicalValue,
                 estimatedComplexity,
                 risks,
-                evidence,
+                evidenceSupport,
                 ProductDirectionStatus.CANDIDATE);
     }
 
@@ -249,7 +250,7 @@ public class ProductDirection {
      * 两者共用同一条 {@link #assemble} 路径，不各自维护一份会彼此漂移的规则。
      * 也就是说，恢复不会放宽当前的结构 Invariant：id / userProfileId /
      * userProfileRevision / repositoryProfileIds / candidateAssetIds /
-     * recommendation content / evidence 都必须合法，否则拒绝重建——
+     * recommendation content / evidenceSupport 都必须合法，否则拒绝重建——
      * 一条读不回来的历史记录说明存储已经与领域模型不一致，此时报错比放行更安全。
      *
      * <p>本方法只校验取值是否合法，不重新判定生命周期规则：被重建的 {@code status}
@@ -268,7 +269,7 @@ public class ProductDirection {
      * @param technicalValue        当时给出的技术价值，不得为 {@code null} 或空白
      * @param estimatedComplexity   当时给出的复杂度判断，不得为 {@code null} 或空白
      * @param risks                 当时记录的风险；不得为 {@code null}，可以为空
-     * @param evidence              当时记录的依据；不得为 {@code null} 或空
+     * @param evidenceSupport      当时记录的关键判断与依据的对应关系，不得为 {@code null}
      * @param status                保存时的状态，不得为 {@code null}
      * @throws IllegalArgumentException 任一参数不满足上述约束
      */
@@ -286,7 +287,7 @@ public class ProductDirection {
             String technicalValue,
             String estimatedComplexity,
             List<String> risks,
-            List<Evidence> evidence,
+            DirectionEvidenceSupport evidenceSupport,
             ProductDirectionStatus status) {
 
         if (status == null) {
@@ -306,7 +307,7 @@ public class ProductDirection {
                 technicalValue,
                 estimatedComplexity,
                 risks,
-                evidence,
+                evidenceSupport,
                 status);
     }
 
@@ -333,7 +334,7 @@ public class ProductDirection {
             String technicalValue,
             String estimatedComplexity,
             List<String> risks,
-            List<Evidence> evidence,
+            DirectionEvidenceSupport evidenceSupport,
             ProductDirectionStatus status) {
 
         if (id == null) {
@@ -372,8 +373,12 @@ public class ProductDirection {
         }
 
         List<String> normalizedRisks = normalizeSection(risks, "risks");
-        List<Evidence> normalizedEvidence = normalizeEvidence(evidence);
-        if (normalizedEvidence.isEmpty()) {
+
+        if (evidenceSupport == null) {
+            throw new IllegalArgumentException(
+                    "Product Direction 必须给出 evidenceSupport（INV-D06）");
+        }
+        if (evidenceSupport.isEmpty()) {
             throw new IllegalArgumentException(
                     "Product Direction 必须至少给出一条 Evidence（INV-D06）");
         }
@@ -392,7 +397,7 @@ public class ProductDirection {
                 normalizedTechnicalValue,
                 normalizedEstimatedComplexity,
                 normalizedRisks,
-                normalizedEvidence,
+                evidenceSupport,
                 status);
     }
 
@@ -410,7 +415,7 @@ public class ProductDirection {
             String technicalValue,
             String estimatedComplexity,
             List<String> risks,
-            List<Evidence> evidence,
+            DirectionEvidenceSupport evidenceSupport,
             ProductDirectionStatus status) {
 
         this.id = id;
@@ -426,7 +431,7 @@ public class ProductDirection {
         this.technicalValue = technicalValue;
         this.estimatedComplexity = estimatedComplexity;
         this.risks = risks;
-        this.evidence = evidence;
+        this.evidenceSupport = evidenceSupport;
         this.status = status;
     }
 
@@ -584,9 +589,15 @@ public class ProductDirection {
         return risks;
     }
 
-    /** 支撑该方向中重要判断的依据。 */
-    public List<Evidence> evidence() {
-        return evidence;
+    /**
+     * 关键推荐判断与真实依据的对应关系。
+     *
+     * <p>它不是一份扁平的依据清单：三组依据分别对应 INV-D06 要求可追溯的三类关键判断。
+     * 需要扁平视图时用 {@link DirectionEvidenceSupport#allBases()}，那是纯派生结果，
+     * 不是第二份状态。
+     */
+    public DirectionEvidenceSupport evidenceSupport() {
+        return evidenceSupport;
     }
 
     public ProductDirectionStatus status() {
@@ -652,19 +663,4 @@ public class ProductDirection {
         return List.copyOf(normalized);
     }
 
-    /** 校验并固化一组 Evidence，使创建出的集合不可再由外部修改。 */
-    private static List<Evidence> normalizeEvidence(List<Evidence> evidence) {
-        if (evidence == null) {
-            throw new IllegalArgumentException("Product Direction 的 evidence 不能为 null");
-        }
-        List<Evidence> normalized = new ArrayList<>(evidence.size());
-        for (Evidence item : evidence) {
-            if (item == null) {
-                throw new IllegalArgumentException(
-                        "Product Direction 的 evidence 不能包含 null");
-            }
-            normalized.add(item);
-        }
-        return List.copyOf(normalized);
-    }
 }

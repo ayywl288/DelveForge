@@ -1,6 +1,8 @@
 package com.ayywl.delveforge.domain.direction;
 
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
+import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
+
 import java.util.List;
 
 /**
@@ -14,10 +16,23 @@ import java.util.List;
  * 大致多少成本、有哪些风险，以及这些判断由哪些已有依据支撑
  * </pre>
  *
- * <p>它对应领域中的 {@code ProductDirection}，但在被接受之前只是 AI 边界上的中间数据：
- * 是否成立、能否构成一条合法的 Product Direction，由下一 Task 的
- * {@code ProductDirectionDiscoveryService} 与 {@code ProductDirection} Aggregate 判定
- * （RULE-DOM-003）。
+ * <p>它对应领域中的 {@code ProductDirection}，但在被接受之前只是提案：是否成立、
+ * 能否构成一条合法的 Product Direction，由 {@code ProductDirectionDiscoveryService}
+ * 与 {@code ProductDirection} Aggregate 判定（RULE-DOM-003）。
+ *
+ * <h2>它面向 Domain，不面向 AI</h2>
+ *
+ * <p>模型的原始输出由 Application 解析成 AI 侧的类型，其中的依据引用（{@code U-E1} 这类
+ * 只在一次调用中有意义的临时编号）在进入 Domain 之前就已经被解析成真实的
+ * {@link EvidenceBasis}。因此本类型里没有、也不该有任何 Prompt 协议概念：
+ *
+ * <pre>
+ * AI 输出 → Application 严格解析 → Application 解析引用 → 本类型（Domain）
+ * </pre>
+ *
+ * <p>它拿到的 {@link #evidenceSupport} 是已经存在的事实——哪几条真实依据支撑了哪条判断，
+ * 以及这些依据各自出自哪一份分析。至于这些依据在业务上是否**足以**支撑该判断
+ * （INV-D06 的语义充分性），由 {@code ProductDirectionDiscoveryService} 判定。
  *
  * <h2>它不是 Entity</h2>
  *
@@ -38,8 +53,9 @@ import java.util.List;
  * Evidence.confirmed       同上，模型不得自行断言一条依据已被确认
  * </pre>
  *
- * <p>模型可以指出「哪条已有依据支撑了这条判断」（{@link #evidenceLinkage}），
- * 但那条依据本身的内容、来源、可信程度与确认状态都不由它给出。
+ * <p>模型可以指出「哪条已有依据支撑了这条判断」，但那条依据本身的内容、来源、可信程度
+ * 与确认状态都不由它给出——{@link #evidenceSupport} 里的依据全部来自本次调用真正提供的
+ * 输入，模型只是指出了其中的对应关系。
  *
  * <h2>校验到哪一层</h2>
  *
@@ -57,7 +73,7 @@ import java.util.List;
  * @param technicalValue      可以体现或获得的技术价值，不得为 {@code null} 或空白
  * @param estimatedComplexity 对整体演化成本的粗粒度判断，不得为 {@code null} 或空白
  * @param risks               当前已知主要风险；不得为 {@code null}，可以为空
- * @param evidenceLinkage     关键推荐判断与已有 Evidence 的对应关系，不得为 {@code null}
+ * @param evidenceSupport     关键推荐判断与真实依据的对应关系，不得为 {@code null}
  */
 public record DirectionProposal(
         String title,
@@ -69,7 +85,7 @@ public record DirectionProposal(
         String technicalValue,
         String estimatedComplexity,
         List<String> risks,
-        DirectionEvidenceLinkage evidenceLinkage) {
+        DirectionEvidenceSupport evidenceSupport) {
 
     public DirectionProposal {
         title = requireText(title, "title");
@@ -88,9 +104,9 @@ public record DirectionProposal(
 
         risks = copyRisks(risks);
 
-        if (evidenceLinkage == null) {
+        if (evidenceSupport == null) {
             throw new IllegalArgumentException(
-                    "Direction Proposal 必须给出 evidenceLinkage");
+                    "Direction Proposal 必须给出 evidenceSupport");
         }
     }
 
