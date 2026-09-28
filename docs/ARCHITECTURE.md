@@ -483,6 +483,8 @@ Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
 | `GET`   | `/api/software-assets/{id}`      | 读取已登记的资产元数据                                     | 200  | 404  |
 | `POST`  | `/api/software-assets/{id}/analysis` | 分析该资产的 Repository，形成一份新的 Repository Profile | 201 | 404 / 409 / 502 |
 | `GET`   | `/api/repository-profiles/{id}`  | 读取一份已保存的分析快照                                   | 200  | 404  |
+| `POST`  | `/api/product-directions/discovery` | 执行一次 Product Direction Discovery，保存并返回 3–5 个候选方向 | 201 | 400 / 404 / 409 / 502 |
+| `GET`   | `/api/product-directions/{id}`   | 读取一条已保存的 Product Direction（含其依据与出处）        | 200  | 404  |
 
 **explore 语义**
 
@@ -714,6 +716,92 @@ Evidence           来自真实读到的文件，sourceRef 是材料中的相对
 Repository 内相对于根目录的路径，接口不暴露宿主机文件系统布局。
 `confirmed` 固定为 `false`、`confidence` 为 `null`：模型得出的结论属于系统推断，
 其可信程度的口径尚未由领域模型规定。
+
+**Product Direction Discovery 语义**
+
+```text
+POST /api/product-directions/discovery
+{
+  "userProfileId": "...",
+  "expectedRevision": 3,                       必须显式给出，且不小于 1
+  "repositoryProfileIds": ["...", "..."]       必须显式给出，至少一个
+}
+→ 201 {"directions": [ {…}, {…}, {…} ]}        本轮已经保存的候选方向，顺序与模型给出的一致
+```
+
+它是已经存在的 Product Direction Discovery 能力对外的命令入口，面向系统外部调用、集成、
+后续的 smoke 验证与前后端联调。它**不**表示产品要求用户手动发起发现——`readiness`
+与 `automatic discovery trigger`（§8.2）仍是尚未完成的独立能力。
+
+- **方向标识、状态、内容、依据与候选资产都由服务端链路决定。** 请求体里给出这些字段不会
+  生效（Jackson 忽略约定之外的字段），客户端无法通过它们凭空制造领域事实。
+- **`expectedRevision` 必须显式给出，且必须是 JSON 整数。** 缺失不会被当成 0：0 不是一个
+  版本，而「没给」说明调用方没有说出它依据的是哪一版。该字段用包装类型接收，正是为了让
+  两者可区分。
+- **小数不会被换算成一个版本。** `3.9` 一律 400：Jackson 默认把浮点数有损地读成整数，
+  若不在反序列化边界拦住，这个字段会在任何校验之前就变成 `3`，一次针对「第 3.9 版」的
+  请求会照着第 3 版执行并成功返回候选方向。同样拒绝指数写法、字符串与超出范围的取值。
+  该约束只作用于本字段，不改变其它接口的宽松行为。
+- **版本不匹配时返回 409，而不是改用当前版本。** 调用方声明依据的是哪一版 Profile；
+  不是那一版就拒绝，由调用方重新读取后再发起（INV-D01、INV-D08）。
+- **Profile 未 `CONFIRMED` 时返回 409**，且不在明知不可能成功时调用 AI（§8.4、INV-D08）。
+- **失败原子性。** 加载失败、版本过期、状态不符、AI 失败、解析失败、领域拒绝——任何一种
+  都不会留下已经写入的方向；整批保存本身也是原子的（§8.2）。
+- **领域拒绝映射为 502。** 模型返回的方向数量、依据出处或候选资产不满足领域要求时，
+  模型调用本身是成功的，只是这次拿不到可用的候选方向。它与 `AiGatewayException`
+  （返回内容不符合约定）属于同一类失败，只是发生在更后一步。
+
+**ProductDirection 响应体**
+
+两个端点返回同一个资源：`discovery` 返回本轮保存的那一批，`GET` 按标识返回其中一条。
+
+```json
+{
+  "id": "...",
+  "userProfileId": "...",
+  "userProfileRevision": 3,
+  "repositoryProfileIds": ["..."],
+  "title": "...",
+  "problem": "...",
+  "targetProduct": "...",
+  "userFit": "...",
+  "candidateAssetIds": ["..."],
+  "differentiation": "...",
+  "technicalValue": "...",
+  "estimatedComplexity": "...",
+  "risks": [],
+  "status": "CANDIDATE",
+  "evidenceSupport": {
+    "userNeed": [
+      {
+        "evidence": { "sourceType": "USER_INPUT", "sourceRef": "...", "claim": "...",
+                      "confidence": 0.8, "confirmed": true },
+        "origin": { "kind": "USER_PROFILE", "userProfileId": "...",
+                    "userProfileRevision": 3, "repositoryProfileId": null }
+      }
+    ],
+    "userFit": [],
+    "reusableCapability": [
+      {
+        "evidence": { "sourceType": "REPOSITORY", "sourceRef": "src/main/report",
+                      "claim": "...", "confidence": null, "confirmed": false },
+        "origin": { "kind": "REPOSITORY_PROFILE", "userProfileId": null,
+                    "userProfileRevision": null, "repositoryProfileId": "..." }
+      }
+    ]
+  }
+}
+```
+
+`evidenceSupport` 保留三类关键判断的结构（§3.5、INV-D06），每条依据同时给出 Evidence
+与它的出处：调用方据此才能回答「这条推荐理由凭的是谁的分析结论」。`origin.kind` 说明当前
+是哪一类出处，不属于该类的字段为 `null`；两个 Repository Profile 拥有内容相同的依据时，
+它们仍然是两条可以分辨的记录。
+
+`repositoryProfileIds` 是这条方向**实际依据**的快照，不是本次发现可见的全部输入。
+
+响应里不出现 `U-E1` / `R2-E3` 这类引用：它们只是一次 AI 调用内的临时编号，
+在 Application 侧就已经被换成了真实依据与出处。
 
 ---
 

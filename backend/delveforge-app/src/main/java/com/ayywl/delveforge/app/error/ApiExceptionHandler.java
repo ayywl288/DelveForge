@@ -1,11 +1,15 @@
 package com.ayywl.delveforge.app.error;
 
+import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDirectionNotFoundException;
+import com.ayywl.delveforge.application.opportunitydiscovery.direction.StaleUserProfileRevisionException;
+import com.ayywl.delveforge.application.opportunitydiscovery.direction.UserProfileNotConfirmedException;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryNotAnalyzableException;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetNotReadableException;
+import com.ayywl.delveforge.domain.direction.ProductDirectionDiscoveryException;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
@@ -65,6 +69,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static final String NOT_FOUND_MESSAGE = "指定的资源不存在";
     private static final String CONFLICT_MESSAGE = "请求与当前状态冲突，详细信息见服务端日志";
     private static final String AI_GATEWAY_FAILURE_MESSAGE = "外部 AI 能力调用失败，详细信息见服务端日志";
+    private static final String DIRECTION_DISCOVERY_REJECTED_MESSAGE =
+            "AI 返回的候选方向不满足领域要求，详细信息见服务端日志";
     private static final String WORKSPACE_FAILURE_MESSAGE = "本地能力调用失败，详细信息见服务端日志";
     private static final String INTERNAL_ERROR_MESSAGE = "服务内部错误，详细信息见服务端日志";
 
@@ -175,6 +181,78 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return new ApiErrorResponse(
                 ApiErrorCode.CONFLICT, CONFLICT_MESSAGE,
                 request.getRequestURI(), Instant.now());
+    }
+
+    /**
+     * 请求指向的 Product Direction 不存在。
+     *
+     * <p>与其它 NOT_FOUND 相同的区分方式：请求形态合法，只是目标不存在。
+     */
+    @ExceptionHandler(ProductDirectionNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiErrorResponse handleProductDirectionNotFound(
+            ProductDirectionNotFoundException exception, HttpServletRequest request) {
+
+        log.warn("operation=interface.request path={} result=NOT_FOUND exception={}",
+                loggedRoute(request), describe(exception));
+
+        return new ApiErrorResponse(
+                ApiErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE,
+                request.getRequestURI(), Instant.now());
+    }
+
+    /**
+     * 本次 Product Direction Discovery 的前置条件不满足。
+     *
+     * <pre>
+     * StaleUserProfileRevisionException   调用方依据的那一版已经不是当前版本
+     * UserProfileNotConfirmedException    用于发现的 Profile 尚未 CONFIRMED
+     * </pre>
+     *
+     * <p>两者都不是「请求写错了」：请求可以理解，只是它依据的输入当前不成立。
+     * 调用方据此知道要重新读取 Profile（必要时重新确认）之后再发起，而不是换一种写法重试。
+     * 这正是 409 而不是 400 的语义，也是它与 {@link IllegalArgumentException} 分开的理由。
+     */
+    @ExceptionHandler({StaleUserProfileRevisionException.class,
+            UserProfileNotConfirmedException.class})
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiErrorResponse handleDiscoveryPreconditionConflict(
+            RuntimeException exception, HttpServletRequest request) {
+
+        log.warn("operation=interface.request path={} result=CONFLICT exception={}",
+                loggedRoute(request), describe(exception));
+
+        return new ApiErrorResponse(
+                ApiErrorCode.CONFLICT, CONFLICT_MESSAGE,
+                request.getRequestURI(), Instant.now());
+    }
+
+    /**
+     * 一次 Product Direction Discovery 的结果不满足领域要求。
+     *
+     * <p>调用方的请求本身没有问题，失败出在模型给出的候选方向上——数量、依据的出处、
+     * 三类关键判断的可追溯性，或候选资产与它实际依据的分析对不上。模型调用本身是成功的，
+     * 因此它与 {@link IllegalArgumentException}（请求不合法）和兜底处理（未预期的服务端
+     * 错误）都不同。
+     *
+     * <p>归入外部能力一侧而不是服务端故障：DelveForge 不产生这个结果，是它依赖的模型
+     * 能力产出了系统无法接受的东西。因此映射为 502，与
+     * {@link AiGatewayException}「模型返回内容不满足约定」同一类，只是发生在更后一步——
+     * 那一步是结构是否符合约定，这一步是结果是否满足领域规则。
+     */
+    @ExceptionHandler(ProductDirectionDiscoveryException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ApiErrorResponse handleDirectionDiscoveryRejected(
+            ProductDirectionDiscoveryException exception, HttpServletRequest request) {
+
+        log.error("operation=interface.request path={} capability=ai-gateway result=REJECTED exception={}",
+                loggedRoute(request), describe(exception));
+
+        return new ApiErrorResponse(
+                ApiErrorCode.EXTERNAL_CAPABILITY_UNAVAILABLE,
+                DIRECTION_DISCOVERY_REJECTED_MESSAGE,
+                request.getRequestURI(),
+                Instant.now());
     }
 
     /**

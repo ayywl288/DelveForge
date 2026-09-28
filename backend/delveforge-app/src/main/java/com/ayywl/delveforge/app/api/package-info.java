@@ -5,7 +5,8 @@
  * userprofile/        User Profile 资源
  * softwareasset/      Software Asset 资源（含触发 Repository Analysis 的端点）
  * repositoryprofile/  Repository Profile 资源
- * evidence/           Evidence 的接口表示，被上面两个资源共用
+ * productdirection/   Product Direction 资源（含触发 Direction Discovery 的端点）
+ * evidence/           Evidence 的接口表示，被上面三个资源共用
  * system/             服务级连通性探针，不属于任何领域资源
  * </pre>
  *
