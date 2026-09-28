@@ -551,6 +551,23 @@ class SqliteProductDirectionRepositoryIntegrationTest {
                 "历史记录的用户侧追溯点不得被改写（INV-D02）");
     }
 
+    // ---------------------------------------------------------------------
+    // 整批写入
+    // ---------------------------------------------------------------------
+
+    /** 一次发现产生的多条候选方向一起写入。 */
+    @Test
+    void writesTheWholeBatch() {
+        ProductDirection first = candidateDirection(new ProductDirectionId("direction-1"));
+        ProductDirection second = candidateDirection(new ProductDirectionId("direction-2"));
+
+        repository.saveAll(List.of(first, second));
+
+        assertTrue(repository.findById(first.id()).isPresent());
+        assertTrue(repository.findById(second.id()).isPresent());
+        assertEquals(2, directionMapper.selectCount(null).intValue());
+    }
+
     @Test
     void returnsEmptyWhenDirectionDoesNotExist() {
         assertTrue(repository.findById(new ProductDirectionId("unknown-direction")).isEmpty());
@@ -669,9 +686,9 @@ class SqliteProductDirectionRepositoryIntegrationTest {
                 """);
     }
 
-    private static ProductDirection candidateDirection() {
+    private static ProductDirection candidateDirection(ProductDirectionId id) {
         return ProductDirection.create(
-                DIRECTION_ID,
+                id,
                 USER_PROFILE_ID,
                 USER_PROFILE_REVISION,
                 List.of(REPOSITORY_PROFILE_ID),
@@ -685,6 +702,10 @@ class SqliteProductDirectionRepositoryIntegrationTest {
                 "中等：主要在导出与模板部分",
                 List.of("模板格式复杂度可能超预期"),
                 support());
+    }
+
+    private static ProductDirection candidateDirection() {
+        return candidateDirection(DIRECTION_ID);
     }
 
     /** 四个内容子表在当前方向下的总行数，用于验证更新路径不会改动内容行。 */

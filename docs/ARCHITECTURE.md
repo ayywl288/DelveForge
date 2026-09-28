@@ -838,6 +838,31 @@ sequenceDiagram
     end
 ```
 
+**一次 Discovery 的编排**
+
+被要求执行一次发现时，Application 按固定顺序做四件事，自己不新增领域判断：
+
+```text
+load      按标识加载 User Profile 与全部 requested Repository Profile
+          （User Profile 必须处于 CONFIRMED，且仍是调用方依据的那一版）
+     ↓
+AI        Prompt → 模型 → 严格解析 → 把临时依据引用解析成真实依据
+     ↓
+Domain   交给 ProductDirectionDiscoveryService 校验并构造
+     ↓
+persist  一次整批写入
+```
+
+- **输入不成立时不调用 AI。** Profile 不存在、版本已过期、尚未确认、任何一份 requested
+  Repository Profile 取不到——都在调用模型之前失败：既不该先付一次模型调用的代价，
+  也不该拿到一份基于错误输入的结果。
+- **版本不匹配时不改用当前版本。** 调用方声明依据的是哪一版 Profile；不是那一版就拒绝，
+  由调用方重新读取后再发起。用户确认的是他当时看的那一版，拿之后的版本去推荐，得到的
+  就不再是他认可过的那份画像所支持的方向。
+- **失败原子性。** 整条链路只在最后写入一次，且是整批的：加载失败、AI 失败、解析失败、
+  领域拒绝——任何一种都不会留下已经写入的方向；整批保存本身也是原子的，因此不会出现
+  「只写进去一部分候选」的中间状态。用户看到的要么是这次发现的完整结果，要么什么都没有。
+
 ### 8.3 Evolution
 
 ```mermaid

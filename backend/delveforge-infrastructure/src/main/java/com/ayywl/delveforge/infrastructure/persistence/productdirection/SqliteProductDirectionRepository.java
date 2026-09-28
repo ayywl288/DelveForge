@@ -99,6 +99,27 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
     @Override
     @Transactional
     public void save(ProductDirection productDirection) {
+        write(productDirection);
+    }
+
+    /**
+     * 整批写入。
+     *
+     * <p>{@code @Transactional} 在这里的意义与单条保存不同：它保证整批的原子性——
+     * 其中任意一条失败时，这一批已经写入的部分一并回滚。这正是
+     * {@link ProductDirectionRepository#saveAll} 存在的原因，而它只能在这一层实现：
+     * 调用方（Application）无法自己拼出这个保证。
+     */
+    @Override
+    @Transactional
+    public void saveAll(List<ProductDirection> productDirections) {
+        for (ProductDirection productDirection : productDirections) {
+            write(productDirection);
+        }
+    }
+
+    /** 单条的写入逻辑；事务边界由调用它的公开方法决定。 */
+    private void write(ProductDirection productDirection) {
         String directionId = productDirection.id().value();
         ProductDirectionDO stored = directionMapper.selectById(directionId);
 

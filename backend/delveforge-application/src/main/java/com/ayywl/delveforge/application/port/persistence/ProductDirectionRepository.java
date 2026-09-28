@@ -2,6 +2,7 @@ package com.ayywl.delveforge.application.port.persistence;
 
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -11,9 +12,9 @@ import java.util.Optional;
  * Application 只依赖本抽象，不得依赖 SQLite、MyBatis-Plus、Mapper、持久化 Entity
  * 等任何具体技术类型。
  *
- * <p>本 Port 不是通用 Repository：方法集合只覆盖当前的最小需求（保存一个方向、
- * 按标识读回）。按 userProfile 或 repositoryProfile 查列表、查当前 SELECTED、
- * 批量保存一次发现的 3–5 个方向等查询，在出现真实消费者时再补，而不是提前预留。
+ * <p>本 Port 不是通用 Repository：方法集合只覆盖当前的最小需求（保存一个方向、整批保存
+ * 一次发现的结果、按标识读回）。按 userProfile 或 repositoryProfile 查列表、查当前
+ * SELECTED 等查询，在出现真实消费者时再补，而不是提前预留。
  *
  * <h2>Product Direction 是可更新的 Entity</h2>
  *
@@ -58,6 +59,26 @@ public interface ProductDirectionRepository {
      *         candidate assets / Evidence 不一致
      */
     void save(ProductDirection productDirection);
+
+    /**
+     * 一次写入一批方向，要么全部写入，要么全都不写入。
+     *
+     * <p>它存在的理由不是「少调几次」，而是<b>整批的原子性</b>：一次 Product Direction
+     * Discovery 产生的候选方向是一组结果，其中任意一条写入失败都意味着这次发现没有完成。
+     * 逐条调用 {@link #save} 会让先写入的那几条留在库里，留下一批「只出现了一部分」的候选
+     * ——用户看到的就不再是模型这次发现的东西。
+     *
+     * <p>因此实现必须保证：任一元素写入失败时，这一批已经写入的部分一并回滚。
+     * 调用方不需要、也无法自己拼出这个保证。
+     *
+     * <p>每一条的写入语义与 {@link #save} 相同。
+     *
+     * @param productDirections 待保存的方向；不得为 {@code null}，元素不得为 {@code null}，
+     *                          可以为空（空批次不做任何事）
+     * @throws ProductDirectionContentConflictException 某条方向已经保存过，
+     *         且内容与已保存的不一致
+     */
+    void saveAll(List<ProductDirection> productDirections);
 
     /**
      * 按标识查找 Product Direction。
