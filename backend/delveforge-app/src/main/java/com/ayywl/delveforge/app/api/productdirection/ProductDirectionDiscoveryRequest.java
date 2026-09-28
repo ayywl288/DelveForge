@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.app.api.productdirection;
 
+import com.ayywl.delveforge.app.api.userprofile.UserProfileRevisionDeserializer;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import java.util.List;
 
@@ -37,9 +38,9 @@ import java.util.List;
  * 浮点数有损地读成整数，等到这里校验时字段已经是 {@code 3}——一个看起来完全合法的版本号，
  * 于是针对「第 3.9 版」的请求会照着第 3 版执行并成功。信息在进入本类型之前就已经丢掉了。
  *
- * <p>因此本字段带 {@link ExpectedRevisionDeserializer}：只接受 JSON 整数，小数、指数写法、
- * 字符串等一律在反序列化阶段失败并映射为 400，拒绝发生在任何业务代码被调用之前。
- * 其它接口的宽松行为不受影响。
+ * <p>因此本字段带 {@link UserProfileRevisionDeserializer}：只接受 JSON 整数，小数、指数
+ * 写法、字符串等一律在反序列化阶段失败并映射为 400，拒绝发生在任何业务代码被调用之前。
+ * 其它字段的宽松行为不受影响。确认端点携带的 revision 是同一件事，共用这一个实现。
  *
  * <h2>不属于本请求体的东西</h2>
  *
@@ -59,7 +60,7 @@ import java.util.List;
  */
 public record ProductDirectionDiscoveryRequest(
         String userProfileId,
-        @JsonDeserialize(using = ExpectedRevisionDeserializer.class) Integer expectedRevision,
+        @JsonDeserialize(using = UserProfileRevisionDeserializer.class) Integer expectedRevision,
         List<String> repositoryProfileIds) {
 
     public ProductDirectionDiscoveryRequest {

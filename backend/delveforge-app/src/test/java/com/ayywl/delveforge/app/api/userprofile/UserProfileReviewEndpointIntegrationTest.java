@@ -1,7 +1,12 @@
 package com.ayywl.delveforge.app.api.userprofile;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -9,12 +14,15 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ayywl.delveforge.application.port.ai.AiGateway;
+import com.ayywl.delveforge.application.userdiscovery.review.ConfirmUserProfileUseCase;
+import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -22,6 +30,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.annotation.Transactional;
@@ -59,6 +68,15 @@ class UserProfileReviewEndpointIntegrationTest {
     private AiGateway aiGateway;
 
     /**
+     * 真实 Use Case 的 spy：确认端点同样需要证明「非法请求被挡在业务代码之外」。
+     *
+     * <p>光看响应码与状态是看不出来的——一个非法请求即使穿过接口层、在 Use Case 内部才被
+     * 拒绝（例如被当成版本过期），得到的同样是 400/409 与未改变的状态。
+     */
+    @MockitoSpyBean
+    private ConfirmUserProfileUseCase confirmUserProfileUseCase;
+
+    /**
      * 完整闭环：EXPLORING → 评估 → REVIEWING → 修正（仍 REVIEWING）→ 确认 → CONFIRMED。
      */
     @Test
@@ -83,6 +101,16 @@ class UserProfileReviewEndpointIntegrationTest {
         confirmProfile(id, 3)
                 .andExpect(jsonPath("$.revision").value(3))
                 .andExpect(jsonPath("$.interests[0]").value("兴趣 B"));
+
+        // 合法请求恰好调用一次，且拿到的是映射后的参数——它同时是另一处
+        // 「非法请求不得调用」断言的阳性对照：观察点确实接在 Controller 实际调用的对象上。
+        ArgumentCaptor<UserProfileId> invokedProfile = ArgumentCaptor.forClass(UserProfileId.class);
+        ArgumentCaptor<Integer> invokedRevision = ArgumentCaptor.forClass(Integer.class);
+        verify(confirmUserProfileUseCase, times(1))
+                .confirm(invokedProfile.capture(), invokedRevision.capture());
+
+        assertEquals(new UserProfileId(id), invokedProfile.getValue());
+        assertEquals(3, invokedRevision.getValue().intValue());
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
@@ -201,6 +229,39 @@ class UserProfileReviewEndpointIntegrationTest {
                         .content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    /**
+     * revision 的 JSON 写法不是整数时一律 400，且不改变任何状态、不进入业务代码。
+     *
+     * <p>{@code 3.9} 是其中最关键的一条：Jackson 默认把浮点数有损地读成整数，字段会在
+     * Controller 判断「有没有给」之前就变成 {@code 3}——恰好等于当前 revision，于是
+     * 一次「用户确认了第 3.9 版」的请求会照着第 3 版成功确认。用户从未认可过那一版。
+     */
+    @Test
+    void rejectsConfirmWithANonIntegerRevision() throws Exception {
+        String id = createProfile();
+        assessSufficient(id);
+        patchInterests(id, List.of("兴趣 A"));
+        patchInterests(id, List.of("兴趣 B"));
+
+        int reviewedRevision = currentRevision(id);
+        assertEquals(3, reviewedRevision,
+                "本用例的前提是当前 revision 恰好等于 3.9 截断后的取值，否则测不到有损转换");
+
+        for (String rawRevision : List.of("3.9", "3.0", "1e2", "\"3\"", "99999999999")) {
+            mockMvc.perform(post("/api/user-profiles/{id}/confirm", id)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{ \"revision\": " + rawRevision + " }"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+
+        verify(confirmUserProfileUseCase, never()).confirm(any(), anyInt());
+
+        mockMvc.perform(get("/api/user-profiles/{id}", id))
+                .andExpect(jsonPath("$.status").value("REVIEWING"))
+                .andExpect(jsonPath("$.revision").value(reviewedRevision));
     }
 
     @Test

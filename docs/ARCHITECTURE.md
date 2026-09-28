@@ -581,6 +581,11 @@ POST   {id}/confirm             确认      REVIEWING → CONFIRMED
   `revision` 与当前 revision 不一致说明内容在用户查看之后又变化过，此时确认不再代表
   用户的真实决定，返回 409 且不写入任何内容。继续探索与重新探索不表达对内容的认可，
   因此不需要绑定 revision。
+- **`revision` 必须是 JSON 整数，小数不会被换算成一个版本。** `3.9` 一律 400：Jackson
+  默认把浮点数有损地读成整数，若不在反序列化边界拦住，这个字段会在任何判断之前就变成
+  `3`——一个与当前版本相等、看起来完全合法的取值，于是一次「用户确认了第 3.9 版」的请求
+  会照着第 3 版成功确认，而用户从未认可过那一版。这与 `discovery` 的 `expectedRevision`
+  是同一条规则、同一个实现。
 - 状态转换本身不推进 `revision`（§6.1 的 Revision 触发规则只覆盖内容与 Evidence）。
   因此确认结果是「`CONFIRMED` @ 确认时的 `revision`」：该 revision 的内容快照已由
   Persistence 保留，确认之后内容修改被拒绝，这个组合构成 Product Direction Discovery
