@@ -1061,6 +1061,7 @@ Evolution Step explicitly confirmed by user
 | [0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md) | Workspace 读写能力在 Application 边界拆分 | Accepted |
 | [0002](decisions/0002-structural-only-exception-logging.md) | 异常日志只记录结构信息，防止运行时数据泄漏 | Accepted |
 | [0003](decisions/0003-first-ai-adapter-uses-deepseek-http-api.md) | 首个 AI Adapter 直接调用 DeepSeek HTTP API，不引入 Spring AI | Accepted |
+| [0004](decisions/0004-two-stage-repository-understanding-with-validated-file-references.md) | Repository Analysis 演进为两阶段：Repository Map → LLM Scout → 校验引用 → 定向读取 | Accepted |
 
 以下事项经过评审后**决定不建立 ADR**，结论保留在本文件或 `docs/ROADMAP.md` 中：
 
