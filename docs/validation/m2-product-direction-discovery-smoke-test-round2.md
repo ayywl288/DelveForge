@@ -318,11 +318,12 @@ UNKNOWN 是否被关注？                  是，10 个 UNKNOWN 被选中（job
 候选数量（FOUNDATION lane）            43
 规划选中 count                         12（== maxFiles=12，触顶）
 实际材料 count                         12
-规划期跳过诊断                         见下
+规划期跳过诊断                         1 条：SELECTED_BUT_TOO_LARGE（见 §5.4、§11）
 执行期 too-large count                 0
 执行期 total-budget-exceeded count     0
 实际准入字节                           33 036 / 98 304（33.6%）
-最大单文件                             docs/10.bugfix-cache-eviction-broadcast.md 6 898B（上限 32 768，21%）
+最大已准入文件                         docs/10.bugfix-cache-eviction-broadcast.md 6 898B（上限 32 768，21%）
+最大候选（未准入）                     src/main/resources/db/hmdp.sql 151 948B（上限 32 768，464%）
 ```
 
 按类别轮转实际准入的 12 个文件（顺序即计划顺序）：
@@ -336,11 +337,17 @@ jmeter/check_seckill.py         SCRIPT_AUTOMATION
 rocketmq/docker-compose.yml     DEPLOYMENT
 jmeter/null_shop_ids.csv        OTHER
 config/CaffeineConfig.java      SOURCE_CODE
-jmeter/round_state_b1_r1.json   OTHER
+jmeter/round_state_b1_r1.json   CONFIGURATION（.json 属 CONFIGURATION_EXTENSIONS，不是 OTHER）
 docs/10.bugfix-…-broadcast.md   DOCUMENTATION
 jmeter/count_orders.py          SCRIPT_AUTOMATION
 jmeter/shop_ids.csv             OTHER
 ```
+
+按类别汇总本次准入：`SOURCE_CODE 2 / CONFIGURATION 2 / DOCUMENTATION 2 / SCRIPT_AUTOMATION 2 /
+BUILD_METADATA 1 / DEPLOYMENT 1 / OTHER 2 / DATA_SCHEMA 0`。
+
+这一份汇总与初次判读时的记录不同：初次把 `jmeter/round_state_b1_r1.json` 记为 `OTHER`，
+实际它是 `CONFIGURATION`。更正后的数字见 §11。
 
 ### 5.2 Targeted Source
 
@@ -401,20 +408,22 @@ operation=repository-analysis result=READY foundationSelectedCount=12
 ### 5.4 规划期跳过诊断
 
 ```text
-NOT OBSERVABLE WITH CURRENT INSTRUMENTATION
+NOT OBSERVABLE WITH CURRENT INSTRUMENTATION（生产日志与 HTTP 响应都没有）
 ```
 
 生产日志的 `tooLargeCount` 与 `totalBudgetExceededCount` **只来自执行期**
-（`RepositoryReadResult`）。规划期由 `RepositoryReadPlan` 记录的逐条跳过诊断
-既不进日志、也不出现在任何 HTTP 响应里。本轮确认了这个观测缺口确实存在。
+（`RepositoryReadResult`）。规划期记在 `RepositoryReadPlan` 里的逐条跳过诊断
+既不进日志、也不出现在任何 HTTP 响应里。
 
 可以从两侧数量推出**总量**（84 个源码候选 → Scout 指出 70 → 规划 18；
 43 个 Foundation 候选 → 规划 12），但**推不出**「某一条具体候选是因为什么原因被挡下」。
-本轮 30/30 全部准入、执行期零剔除，因此这个缺口**没有妨碍任何本轮结论**：
-所有差异都发生在规划期的 `maxFiles` 截断上，而截断是通道级结果、本来就不产生逐条诊断。
 
-按 `maxFiles` 用尽而停止属于通道级行为，不是逐条拒绝——因此即使补上日志，
-这一轮也不会多出「哪一条因为什么被跳过」的信息。**是否值得补日志，见 §14。**
+这条缺口在本次记录中**实际发生过一次影响**：初稿把 `DATA_SCHEMA 0` 归因于类别优先级，
+而真实原因是规划期的一条 `SELECTED_BUT_TOO_LARGE`。该条跳过是**在本次更正时通过
+独立重放（真实 Map + 生产规划器 + 真实预算）才被看到的**，生产运行本身没有产出它。
+
+按 `maxFiles` 用尽而停止属于通道级行为，不是逐条拒绝。因此本轮 12 + 18 个名额的
+截断**本来就不产生逐条诊断**；本轮唯一一条规划期逐条诊断来自尺寸复核，而不是名额耗尽。
 
 ### 5.5 旧 M1 选材策略未参与（任务书 §11）
 
@@ -524,8 +533,9 @@ limitations 第 8 条：
 「仓库中未见单元测试类、CI 配置或部署脚本」
 ```
 
-两条都**与事实相符**（§5 与 §3：Foundation 的 12 个名额中 3 个被 jmeter 的 CSV/JSON 占用，
-`application.yaml` 与 `db/hmdp.sql` 没有被选中；TEST_CODE 进 `NONE` lane）。
+两条都**与事实相符**（见 §11：`application.yaml` 在 CONFIGURATION 类别内因路径序落选；
+`db/hmdp.sql` 因 151 948 字节超过 Foundation 的 `maxFileBytes` 在规划期被跳过；
+TEST_CODE 按路由进 `NONE` lane）。
 模型没有假装读过它们，而是明确标注了不可确认——这正是 Scout 输出被限定为
 inspection hint、只有真正读到的内容才能成为事实这一设计的直接体现。
 
@@ -890,45 +900,107 @@ Scout 指出的区域质量没有问题，是 18 个名额的分配问题。
 
 | 通道 | maxFiles | maxFileBytes | maxTotalBytes | 实际文件 | 实际字节 | 触顶项 |
 |---|---|---|---|---|---|---|
-| Foundation | 12 | 32 768 | 98 304 | 12/12 | 33 036（34%） | **maxFiles** |
+| Foundation | 12 | 32 768 | 98 304 | 12/12 | 33 036（34%） | **maxFiles**（并另有 1 个候选因 maxFileBytes 被跳过） |
 | Targeted Source | 18 | 65 536 | 163 840 | 18/18 | 108 281（66%） | **maxFiles** |
 
 逐条回答：
 
 ```text
-maxFiles 是否触顶？              两条通道都触顶，且是唯一触顶的约束。
-是否有很多文件被 maxFileBytes 挡下？  0 个。最大单文件 29 074B（上限 65 536B，44%）。
+maxFiles 是否触顶？              两条通道都触顶，是唯一真正约束了准入数量的约束。
+是否有很多文件被 maxFileBytes 挡下？
+                                 Foundation 1 个（db/hmdp.sql，151 948B），Targeted Source 0 个。
+                                 它不是「很多」，但它恰好是 DATA_SCHEMA 类别唯一的候选，
+                                 因此一个文件就让整个类别在本次材料中不可见。
 maxTotalBytes 是否实质约束？      没有。两条通道分别只用了 34% 与 66%。
 更小的文件是否在大的被挡下后继续进入？
-                                 本轮没有发生「被挡下」，因此这条路径未被真实触发。
-                                 （该行为由 RepositoryReadExecutorTest 覆盖）
+                                 是，但只在类别内部：DATA_SCHEMA 无后备候选，
+                                 所以该类别本轮没有替补。
 Targeted Source 是否拿到了足够的真实实现内容？
                                  是。18 个文件 108KB，包含三级缓存完整实现、秒杀下单、
                                  消费者幂等、4 个 Lua 脚本、3 个 controller。
 Foundation 是否在没饿死 Source 的前提下仍然有用？
-                                 有用但**分类分配不均**（见下）。
+                                 有用。7 个类别各拿到 1–2 个名额。
 ```
 
-### 一个具体的分配问题
+### 三条被观察到的边界
 
-Foundation 的 12 个名额被**类别轮转**填满，实际落点：
+初稿把「DATA_SCHEMA 0 个名额」与「三份 jmeter 数据文件占掉 25% 预算」记为
+**类别之间平权**的问题。用真实 Map（`18e6b63c…`）、生产规划器与真实预算独立重放之后，
+这个归因**不成立**——重放逐字节复现了本轮的 12 个文件选择，而机制是下面三条。
+本节只把它们记为**重访证据**，不据此提出任何规则或改动。
+
+**边界 1 — 整份大文件可以超过 Foundation 的 `maxFileBytes`。**
 
 ```text
-OTHER（jmeter 的 2 个 CSV + 1 个 round_state JSON）   3 个名额
-DOCUMENTATION                                        2 个名额
-SCRIPT_AUTOMATION                                    2 个名额
-SOURCE_CODE（配置入口类）                             2 个名额
-BUILD_METADATA / CONFIGURATION / DEPLOYMENT          各 1 个
-DATA_SCHEMA                                          0 个名额
+src/main/resources/db/hmdp.sql    DATA_SCHEMA    151 948 字节
+                                  Foundation maxFileBytes = 32 768（超出 464%）
+规划期处置                        SELECTED_BUT_TOO_LARGE（不是被别的类别挤掉）
+
+DATA_SCHEMA 在本次 FOUNDATION 候选里只有这一个文件，因此该类别必然是 0。
+这与类别之间的优先级无关：即使给它最高的优先级，结果也一样。
 ```
 
-后果是模型明确报告的两条盲区（§6.5）：`application.yaml`（CONFIGURATION，只有 1 个名额
-且被 `.gitignore` 占掉）与 `db/hmdp.sql`（DATA_SCHEMA，0 个名额）**没有被读**，
-而 3 个纯数据文件（两张 shopId CSV 与一个轮次状态 JSON）占了 25% 的 Foundation 预算。
+**边界 2 — 类别内的相对路径序，在文件数上限下决定同类文件里谁被选中。**
 
-这不是「轮转不好」，而是 **`RepositoryMaterialKind.OTHER` 与真实工程价值不对齐**：
-`.csv` / `.json` 数据集在类别上属于 OTHER，在轮转中却与 CONFIGURATION 平权。
-本轮**不为它调整预算或分类**——见 §14 的建议。
+```text
+FOUNDATION 的 CONFIGURATION 候选共 11 个，按相对路径升序：
+    .gitignore
+    jmeter/round_state_b1_r1.json
+    jmeter/round_state_b1_r2.json
+    jmeter/round_state_b1_r3.json
+    jmeter/round_state_b2_100.json
+    jmeter/round_state_b2_1000.json
+    jmeter/round_state_b2_500.json
+    rocketmq/conf/broker.conf
+    rocketmq/conf/proxy.conf
+    src/main/resources/application.yaml
+    src/main/resources/mapper/VoucherMapper.xml
+
+CONFIGURATION 在 maxFiles=12 下得到 2 个名额 → .gitignore 与 round_state_b1_r1.json。
+application.yaml 排在同一类别的第 10 位，名额在此之前已经用尽。
+```
+
+也就是说：`application.yaml` 的落选发生在**类别内部**，由确定性的相对路径序与
+文件数上限共同决定，而不是被别的材料类别抢走。
+
+**边界 3 — 按扩展名的分类会把运行时/状态 JSON 与真正的配置放在一起。**
+
+```text
+jmeter/round_state_b1_r1.json  → CONFIGURATION（.json ∈ CONFIGURATION_EXTENSIONS）
+src/main/resources/application.yaml → CONFIGURATION
+src/main/resources/mapper/VoucherMapper.xml → CONFIGURATION
+jmeter/shop_ids.csv → OTHER
+jmeter/null_shop_ids.csv → OTHER
+```
+
+本轮实际准入的 `OTHER` 是 **2 个**（两张 shopId CSV），不是 3 个；
+第三份被记为 `OTHER` 的 `round_state_b1_r1.json` 实际属于 `CONFIGURATION`。
+两张 CSV 本身在 Round 2 的 Profile 里是被引用的依据（空值穿透测试载荷），
+不是无信息的填充物。
+
+### 关于「按类别分层优先级」这一解读
+
+曾经考虑过一种读法：把材料类别分成 HIGH / NORMAL / LOW 三层，按层先后调度。
+**该解读没有实现，也不被本轮 smoke 证据支持。**
+
+```text
+在同一份真实 Map 与同一组预算上模拟「严格按层穷尽」的结果：
+    selected = 12   字节 13 603（本轮实际 33 036）
+    SOURCE_CODE 5 / BUILD_METADATA 1 / CONFIGURATION 5 / DEPLOYMENT 1
+    DOCUMENTATION 0   SCRIPT_AUTOMATION 0   OTHER 0   DATA_SCHEMA 0
+    其中 CONFIGURATION 的 5 个里有 4 个是 jmeter/round_state_*.json
+
+- db/hmdp.sql 仍为 0（边界 1 是尺寸问题，层优先级管不到）；
+- application.yaml 仍选不中（它在同类内仍排最后，而名额在层内就已用尽）；
+- docs/1、docs/10、check_seckill.py、count_orders.py 会被挤出材料——
+  而这四项正是本轮 Profile 与方向 D3/D4 实际引用的依据。
+
+在现有类别枚举序下，另一种更宽松的读法（每轮内先 HIGH 再 NORMAL 再 LOW）
+与现状等价，唯一差别是 DEPLOYMENT 的位置。
+```
+
+本轮**没有修改任何一行生产代码**；上面只是对同一份输入的一次只读推演，
+用于判断该解读是否值得落地。结论是：它不解决边界 1 与边界 2，并会减少边界 3 之外的可用材料。
 
 ---
 
@@ -942,8 +1014,10 @@ DATA_SCHEMA                                          0 个名额
    按此推算，即使仓库规模再大 4 倍也不会触发。分层 Scout 在本轮没有证据支持。
 
 2. 许多重要被选中的文件超过单文件读取上限
-   否。本轮 0 个文件因为尺寸被剔除；最大的 MultiLevelCacheServiceImpl（29 074B）
-   在 V1 下正是被整份跳过的那个文件，现在完整进入了分析。
+   否（1 个，不构成「许多」）。Targeted Source 通道 0 个：最大的
+   MultiLevelCacheServiceImpl（29 074B）在 V1 下正是被整份跳过的那个文件，
+   现在完整进入了分析。Foundation 通道 1 个：db/hmdp.sql（151 948B）。
+   该条条件本身没有触发，但它是 §11 边界 1 的来源。
 
 3. 出现带具体目标导向的检索需求
    否。Repository Analysis 仍然发生在 Product Direction 之前，没有查询意图。
@@ -955,8 +1029,9 @@ DATA_SCHEMA                                          0 个名额
 
 5. Map 的启发式分类在多个真实仓库上反复误判
    否（仅一个真实仓库，且分类结果与 Task 1 基线一致）。
-   但 §11 记录了一个**与分类有关**的现象：OTHER 类别把工程数据集与配置平权，
-   导致 Foundation 名额分配偏离工程价值。这是规则问题，不是分类错误的累积。
+   §11 边界 3 记录了一个**与本条件同类但程度更轻**的现象：
+   `.json` 让运行时状态转储与真正的应用配置落在同一个类别里。
+   本轮只有这一个仓库、这一处，不足以支撑「反复误判」。
 ```
 
 ### M1 §9 的 5 条 Revisit Conditions
@@ -989,15 +1064,21 @@ R1  Scout 的稳定性尚未验证
     Round 1 的 User Discovery 第一次调用就因解析失败 502，
     说明「一次成功」不能推出「每次成功」。需要多仓库、多次运行才能判断。
 
-R2  Foundation 预算按类别平权，与工程价值不对齐（§11）
-    DATA_SCHEMA 拿到 0 个名额，OTHER 拿到 3 个。这在任何「配置与 schema 重要」的仓库上
-    都会重演。目前由模型自己在 limitations 里标注盲区来兜底，但这依赖模型愿意说。
+R2  Foundation 材料在三种情况下会缺席（§11 三条边界）
+    1) 整份文件超过 maxFileBytes：一个 151 948B 的 db/hmdp.sql 就让 DATA_SCHEMA 整类不可见；
+    2) 类别内相对路径序 + 文件数上限：CONFIGURATION 有 11 个候选、只有 2 个名额，
+       application.yaml 排第 10 位而落选；
+    3) 扩展名分类把运行时状态 JSON 与真正的配置并入同一类别。
+    目前由模型自己在 limitations 里标注盲区来兜底，但这依赖模型愿意说。
+    本轮只有这一个仓库、一次运行，尚不足以判断是否会在其它仓库重演。
 
 R3  52 个 Scout 选中的文件没有进入分析，其中 entity/DTO/mapper 整体缺席
     本轮方向质量没有因此受损，但 Evolution Planning 阶段可能需要数据模型事实。
 
 R4  规划期跳过诊断不可观测（§5.4）
-    本轮不影响结论；一旦出现「材料比预期少」的情况，将无法从日志判断原因。
+    本轮不影响最终结论，但它确实让一条真实存在的规划期跳过（db/hmdp.sql）
+    只以「某类别为 0」的形式浮现，并使初稿给出了错误的归因；
+    该条跳过是在事后独立重放时才被看到的。
 
 R5  Evidence 的语义支撑度仍然没有任何系统级检查（F1）
     Round 1 的错配在本轮没有复现，但那是因为模型这次没有犯，
@@ -1041,10 +1122,13 @@ Product Direction improvement     PASS
     复用维度不再塌缩；Round 1 的语义错配未复现；
     「把仓库工件产品化」形态从 2/5 降到 1/4 且依据落在实现上。
 
-current budget adequacy           ADEQUATE BUT MISALLOCATED
-    两条通道都因 maxFiles 触顶，字节预算分别只用了 34% 与 66%——
-    限制不在总量而在名额分配：Foundation 的 12 个名额被 OTHER 类别的
-    jmeter 数据文件占掉 3 个，DATA_SCHEMA 得到 0 个。
+current budget adequacy           ADEQUATE（名额是真实约束）
+    两条通道都因 maxFiles 触顶；字节分别只用了 34% 与 66%——
+    准入数量由名额决定，这点没有变化。
+    Foundation 另有 1 个候选（db/hmdp.sql，151 948B）因 maxFileBytes 被跳过，
+    它恰好是该类别唯一的候选。
+    本轮没有证据支持调整任何预算数值：既没有出现「名额不够导致材料不足」，
+    也没有出现「总量不够」。
 
 need for further Repository Understanding escalation
     STOP
@@ -1059,22 +1143,24 @@ need for further Repository Understanding escalation
   依赖信息）没有实际的阻塞证据；
 - M1 §9 触发本轮重访的那一条（条件 1）已经不再成立；
 - 唯一「部分成立」的失败类别是 C（Scout 选了好文件但被预算挡下），
-  它的性质是取舍分配，不是机制失效——带宽足够（占用 22.6% / 34% / 66%），
-  问题只是把名额按类别平权分配；
+  它的性质是取舍分配，不是机制失效——带宽足够（占用 22.6% / 34% / 66%）；
 - 没有任何一条证据支持 RAG / Embedding / AST / chunking / 分层 Scout。
 ```
 
-**因此本轮不建议引入新技术。** 如果后续要动，按证据优先级应当是：
+### §11 三条边界的定位
+
+§11 记录的边界 1–3 都是**观察到的现象**，不是新规则，也不构成对实现的建议。
+本轮不对它们做任何处置。它们各自已经在现有文档里有归属：
 
 ```text
-1. 先解决 §11 的分配问题（Foundation 类别平权），而不是加新的理解阶段；
-2. 让规划期的取舍变得可观测（R4），否则下一次「材料比预期少」仍然只能靠猜；
-3. 多仓库、多次运行验证 Scout 的稳定性（R1）——这是当前最大的未知，
-   而且它不需要任何新机制，只需要重复实验。
+边界 1  整份大文件超过单文件上限   → ADR-0004 Revisit Condition 2（本轮 1 例，未触发）
+边界 2  类别内路径序 + 文件数上限  → 现有确定性行为，本轮首次观察到其后果
+边界 3  扩展名把状态 JSON 并入配置 → ADR-0004 Revisit Condition 5（本条件的程度未达到）
 ```
 
-以上三条都是**基于本轮观察到的具体现象**提出的，不是「看起来应该更好」。
-它们是否要做、什么时候做，属于 M2 之后的独立决策，不在本轮范围。
+是否要据此改动实现、改动哪一处、什么时候改动，属于 M2 之后的独立决策——
+而且到目前为止，能支持这类决定的是**一个仓库的一次运行**，样本量还不足。
+本轮在此只做记录，不做推荐。
 
 ---
 
