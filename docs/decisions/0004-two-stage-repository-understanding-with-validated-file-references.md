@@ -15,8 +15,8 @@ Date: 2026-09-29
 > ```text
 > 已实现    Repository Map、确定性分类与候选路由
 > 已实现    Scout 的契约、严格解析与引用校验（产出 RepositoryInspectionPlan）
-> 未实现    定向读取、Foundation / 定向源码预算、聚焦轮转、材料合并
-> 未实现    AnalyzeRepositoryUseCase 接入——现有分析与选材行为尚未改变
+> 已实现    定向读取、Foundation / 定向源码预算、聚焦轮转、材料合并
+> 已实现    AnalyzeRepositoryUseCase 接入——旧选材策略已退出生产链路
 > ```
 
 ## Context
@@ -194,8 +194,16 @@ existing RepositoryAnalysisExtraction
 4. AnalyzeRepositoryUseCase 接入与预算编排
 ```
 
-**第 1、2 段已经落地，第 3、4 段还没有。** 本 ADR 记录的是这条链路整体的方向与理由，
-不把「哪一段实现到哪一步」当成决策的一部分——那些会变，决策不会。
+**第 1 至第 4 段都已经落地，上面的链路就是当前的生产路径。**
+
+旧的确定性选材策略（`RepositoryAnalysisMaterialCollector` /
+`RepositoryAnalysisMaterialPolicy`）**已不再被装配**，也不存在「新路径失败就退回旧路径」
+的降级：Scout 失败、读取失败、材料为空都如实失败。两个类暂时留在代码库里供复盘对照引用，
+但没有任何 Bean 装配它们——`RepositoryAnalysisWiringTest` 与 `AnalyzeRepositoryUseCaseTest`
+分别从装配与行为两侧钉住这一点。
+
+本 ADR 记录的是这条链路整体的方向与理由，不把「哪一段实现到哪一步」当成决策的一部分
+——那些会变，决策不会。
 
 ### 决策要点
 
