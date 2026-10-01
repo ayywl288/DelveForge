@@ -30,7 +30,11 @@ import java.util.Objects;
 import java.util.Optional;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.TransactionSystemException;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * {@link ProductDirectionRepository} 的 SQLite / MyBatis-Plus 实现。
@@ -113,13 +117,24 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
     private final ProductDirectionRiskMapper riskMapper;
     private final ProductDirectionEvidenceSupportMapper evidenceSupportMapper;
 
+    /**
+     * 写入事务的边界。
+     *
+     * <p>写入不靠 {@code @Transactional}：那样提交发生在方法返回**之后**，本类就碰不到
+     * 提交阶段的失败——而 SQLite 恰恰会在提交时因为拿不到写锁而失败。把边界收进方法内部，
+     * 提交失败才能被翻译成 Port 能表达的语义。
+     */
+    private final TransactionTemplate writeTransaction;
+
     public SqliteProductDirectionRepository(
             ProductDirectionMapper directionMapper,
             ProductDirectionRepositoryProfileMapper repositoryProfileMapper,
             ProductDirectionCandidateAssetMapper candidateAssetMapper,
             ProductDirectionRiskMapper riskMapper,
-            ProductDirectionEvidenceSupportMapper evidenceSupportMapper) {
+            ProductDirectionEvidenceSupportMapper evidenceSupportMapper,
+            PlatformTransactionManager transactionManager) {
 
+        this.writeTransaction = new TransactionTemplate(transactionManager);
         this.directionMapper = directionMapper;
         this.repositoryProfileMapper = repositoryProfileMapper;
         this.candidateAssetMapper = candidateAssetMapper;
@@ -128,25 +143,24 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
     }
 
     @Override
-    @Transactional
     public void save(ProductDirection productDirection) {
-        write(productDirection);
+        inWriteTransaction(() -> write(productDirection));
     }
 
     /**
      * 整批写入。
      *
-     * <p>{@code @Transactional} 在这里的意义与单条保存不同：它保证整批的原子性——
-     * 其中任意一条失败时，这一批已经写入的部分一并回滚。这正是
-     * {@link ProductDirectionRepository#saveAll} 存在的原因，而它只能在这一层实现：
+     * <p>整批的原子性由写入事务保证：其中任意一条失败时，这一批已经写入的部分一并回滚。
+     * 这正是 {@link ProductDirectionRepository#saveAll} 存在的原因，而它只能在这一层实现：
      * 调用方（Application）无法自己拼出这个保证。
      */
     @Override
-    @Transactional
     public void saveAll(List<ProductDirection> productDirections) {
-        for (ProductDirection productDirection : productDirections) {
-            write(productDirection);
-        }
+        inWriteTransaction(() -> {
+            for (ProductDirection productDirection : productDirections) {
+                write(productDirection);
+            }
+        });
     }
 
     /**
@@ -163,11 +177,43 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
      * <p>本方法不触碰任何内容行：状态变化在存储层面根本碰不到它们（§10.5）。
      */
     @Override
-    @Transactional
     public void saveTransitions(List<ProductDirectionTransition> transitions) {
-        for (ProductDirectionTransition transition : transitions) {
-            applyTransition(transition);
+        inWriteTransaction(() -> {
+            for (ProductDirectionTransition transition : transitions) {
+                applyTransition(transition);
+            }
+        });
+    }
+
+    /**
+     * 在一个写入事务里执行 {@code work}，并把**提交阶段**的失败也翻译过来。
+     *
+     * <p>语句阶段的失败已经在写入路径上翻译过（见 {@link #translateStoredConflict}），
+     * 那些异常会原样穿过这里——所以这里只处理提交/回滚本身报出来的失败。
+     *
+     * <p>SQLite 的提交需要独占锁，因此即使每条语句都成功了，提交仍可能因为另一个连接
+     * 持着锁而失败。那不是「上一次写入留下了脏连接」那种问题，而是一次真实的并发冲突：
+     * 本次写入没能生效，调用方应当重新读取后再决定。
+     *
+     * <p>提交失败时连接会被回滚并清理干净（见 {@code SqliteDataSourceConfiguration}
+     * 里 {@code rollbackOnCommitFailure} 的说明），因此这里可以放心地把失败交出去。
+     */
+    private void inWriteTransaction(Runnable work) {
+        try {
+            writeTransaction.executeWithoutResult(status -> work.run());
+        } catch (DataAccessException exception) {
+            throw translateCommitFailure(exception);
+        } catch (TransactionException exception) {
+            throw translateCommitFailure(exception);
         }
+    }
+
+    private static RuntimeException translateCommitFailure(Throwable failure) {
+        if (isWriteLockContention(failure)) {
+            return new ProductDirectionStatusConflictException(failure);
+        }
+        return (failure instanceof RuntimeException runtime) ? runtime
+                : new TransactionSystemException("Product Direction 的写入事务失败", failure);
     }
 
     private void applyTransition(ProductDirectionTransition transition) {

@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.application.opportunitydiscovery.direction;
 
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionIntegrityConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionTransition;
@@ -186,8 +187,9 @@ final class InMemoryDiscoveryRepositories {
                     .map(Map.Entry::getKey)
                     .toList();
             if (selected.size() > 1) {
-                throw new IllegalStateException(
-                        "存储中存在多于一个当前 SELECTED 的 Product Direction");
+                throw new ProductDirectionIntegrityConflictException(
+                        "存在多于一个当前 SELECTED 的 Product Direction: "
+                                + selected.size() + " 条");
             }
             return selected.isEmpty() ? Optional.empty() : stored(selected.get(0));
         }

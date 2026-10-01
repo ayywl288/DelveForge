@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.InMemoryDiscoveryRepositories.ProductDirectionRecorder;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionIntegrityConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionTransition;
@@ -218,7 +219,8 @@ class SelectProductDirectionUseCaseTest {
         repository.seed(selected(new ProductDirectionId("direction-corrupted-2")));
         repository.seed(candidate(TARGET_ID));
 
-        assertThrows(IllegalStateException.class, () -> useCase.select(TARGET_ID));
+        assertThrows(ProductDirectionIntegrityConflictException.class,
+                () -> useCase.select(TARGET_ID));
 
         assertNothingWasWritten();
         assertEquals(ProductDirectionStatus.CANDIDATE,

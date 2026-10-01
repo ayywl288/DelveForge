@@ -55,4 +55,14 @@ public class ProductDirectionStatusConflictException extends RuntimeException {
         super("Product Direction 的写入与另一个并发写入冲突: " + productDirectionId.value(),
                 cause);
     }
+
+    /**
+     * 整批写入在**提交阶段**与并发写入冲突，无法归到某一条方向。
+     *
+     * <p>语句都成功了，提交才失败——SQLite 的提交需要独占锁，因此这一条与上面几种
+     * 含义相同、处置也相同：本次写入没有生效，调用方重新读取之后再决定。
+     */
+    public ProductDirectionStatusConflictException(Throwable cause) {
+        super("Product Direction 的写入在提交时与另一个并发写入冲突", cause);
+    }
 }

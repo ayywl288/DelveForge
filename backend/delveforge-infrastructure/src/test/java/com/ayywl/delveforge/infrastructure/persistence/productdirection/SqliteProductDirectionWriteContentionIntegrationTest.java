@@ -47,7 +47,9 @@ import org.springframework.test.context.DynamicPropertySource;
  * 一条连接上，写锁从来不会落到别人手里——那样写出来的用例测不到竞争本身。
  * 这里用一条独立的连接持有一个未提交的写事务，再由 Repository 从连接池取另一条连接去写。
  *
- * <p>本类只放这一个用例，并使用自己的临时数据库。
+ * <p>两个用例各自使用**不同的方向标识**：库里没有清理步骤，彼此不共享任何一行。
+ *
+ * <p>第二个用例比第一个更接近真实：它阻塞的是提交而不是语句。
  */
 @SpringBootTest(
         classes = SqliteProductDirectionWriteContentionIntegrationTest.TestApplication.class,
@@ -58,6 +60,9 @@ class SqliteProductDirectionWriteContentionIntegrationTest {
             "target", "test-databases", UUID.randomUUID().toString(), "write-contention.db");
 
     private static final ProductDirectionId DIRECTION_ID = new ProductDirectionId("direction-1");
+
+    private static final ProductDirectionId COMMIT_PHASE_ID =
+            new ProductDirectionId("direction-commit-phase");
 
     private static final UserProfileId USER_PROFILE_ID = new UserProfileId("user-profile-1");
 
@@ -95,7 +100,7 @@ class SqliteProductDirectionWriteContentionIntegrationTest {
 
     @Test
     void translatesWriteLockContentionIntoAConflict() throws Exception {
-        repository.save(direction());
+        repository.save(direction(DIRECTION_ID));
 
         try (Connection blocker = dataSource.getConnection()) {
             blocker.setAutoCommit(false);
@@ -123,9 +128,62 @@ class SqliteProductDirectionWriteContentionIntegrationTest {
                 "竞争失败的一方不得留下任何状态变化");
     }
 
-    private static ProductDirection direction() {
+    /**
+     * 提交阶段的锁竞争。
+     *
+     * <p>与上面那条不同：这里阻塞的不是语句，而是**提交**。SQLite 的写入语句只需要
+     * RESERVED 锁，它可以和别的连接的读锁共存；但提交需要 EXCLUSIVE 锁，任何一个没结束的
+     * 读事务都会把它挡在门外。因此「每条语句都成功、提交却失败」是真实存在的一种结果。
+     *
+     * <p>只覆盖语句阶段的翻译是发现不了这一条的：写语句会照常成功，事务在方法返回之后
+     * 才提交，那时已经不在这层代码里了。
+     *
+     * <p>同时验证失败之后连接是可用的：SQLite 的提交失败不会让事务自己结束，连接会带着
+     * 一个未结束的事务回到池子里，之后借到它的操作会继续失败。因此这里在竞争结束之后，
+     * 不再借新连接池，直接用同一个池做一次读写，确认它已经恢复正常。
+     */
+    @Test
+    void translatesCommitPhaseContentionIntoAConflict() throws Exception {
+        repository.save(direction(COMMIT_PHASE_ID));
+
+        try (Connection reader = dataSource.getConnection()) {
+            reader.setAutoCommit(false);
+            // 持有一个未结束的读事务：提交需要独占锁，它会把提交挡住。
+            try (Statement statement = reader.createStatement();
+                    var rows = statement.executeQuery("SELECT COUNT(*) FROM product_direction")) {
+                rows.next();
+            }
+
+            ProductDirection loaded = repository.findById(COMMIT_PHASE_ID).orElseThrow();
+            ProductDirectionStatus basis = loaded.status();
+            loaded.select();
+
+            assertThrows(ProductDirectionStatusConflictException.class,
+                    () -> repository.saveTransitions(
+                            List.of(new ProductDirectionTransition(loaded, basis))),
+                    "提交阶段的锁竞争必须翻译成项目自己的冲突类型，而不是 500");
+
+            reader.rollback();
+        }
+
+        // 竞争结束之后，同一个连接池必须立刻可用：状态没被改写，读写都正常。
+        assertEquals(ProductDirectionStatus.CANDIDATE,
+                repository.findById(COMMIT_PHASE_ID).orElseThrow().status(),
+                "提交失败的一次写入不得留下任何状态变化");
+
+        ProductDirection again = repository.findById(COMMIT_PHASE_ID).orElseThrow();
+        ProductDirectionStatus againBasis = again.status();
+        again.select();
+        repository.saveTransitions(List.of(new ProductDirectionTransition(again, againBasis)));
+
+        assertEquals(ProductDirectionStatus.SELECTED,
+                repository.findById(COMMIT_PHASE_ID).orElseThrow().status(),
+                "失败之后连接必须已经清理干净，后续写入应当正常");
+    }
+
+    private static ProductDirection direction(ProductDirectionId id) {
         return ProductDirection.create(
-                DIRECTION_ID, USER_PROFILE_ID, 3,
+                id, USER_PROFILE_ID, 3,
                 List.of(REPOSITORY_PROFILE_ID),
                 "个人记账 + 报表导出", "现有记账工具缺少可导出的报表",
                 "单用户桌面记账工具 + 报表导出", "用户已经在用记账工具，且技术栈匹配",
