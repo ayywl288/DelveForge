@@ -47,10 +47,19 @@ import java.util.Optional;
 public interface ProductDirectionRepository {
 
     /**
-     * 保存一个 Product Direction 的当前状态。
+     * 写入一个新建的 Product Direction，或重复保存一条内容未变的方向。
      *
-     * <p>该标识尚未保存时写入整条方向；已经保存过时更新其生命周期状态。
-     * 状态更新不得改写最初生成该方向时的 discovery basis、recommendation content、
+     * <p>该标识尚未保存时写入整条方向；已经保存过时，本次传入的**内容与状态**都必须与
+     * 存储中的一致，否则拒绝。
+     *
+     * <h2>状态变化不走这里</h2>
+     *
+     * <p>本方法不接受状态变化：一条已经保存过的方向不能通过它把状态改成别的值。生命周期
+     * 变化必须经 {@link #saveTransitions}，因为只有那里能声明「这次推进依据的是哪个状态」。
+     * 少了那项声明，写入就无从判断自己手上的是不是一份过期副本——而按过期副本覆盖状态，
+     * 会把一个已经提交的用户决定静默改掉（详见 {@link ProductDirectionTransition}）。
+     *
+     * <p>状态更新不得改写最初生成该方向时的 discovery basis、recommendation content、
      * candidate assets 与 Evidence（§10.5）。
      *
      * <p>整个写入必须是一个整体：身份行与内容行不能出现只写入一部分的中间状态。
@@ -62,6 +71,9 @@ public interface ProductDirectionRepository {
      * @throws ProductDirectionContentConflictException 该标识已经保存过，
      *         且本次传入的内容与已保存的 discovery basis / recommendation content /
      *         candidate assets / Evidence 不一致
+     * @throws ProductDirectionStatusConflictException 该标识已经保存过，
+     *         且本次传入的状态与存储中的不一致；状态变化请改用
+     *         {@link #saveTransitions}
      */
     void save(ProductDirection productDirection);
 
@@ -94,6 +106,36 @@ public interface ProductDirectionRepository {
     void saveAll(List<ProductDirection> productDirections);
 
     /**
+     * 在一次事务里写入若干次生命周期转换。
+     *
+     * <p>这是唯一可以改变状态写入路径。每一条转换都携带它依据的起始状态，实现必须在
+     * **写入的同一条语句**里核对该状态是否仍然成立：
+     *
+     * <pre>
+     * 仍然成立   写入这次转换
+     * 已经变化   整批失败，抛 ProductDirectionStatusConflictException，一条都不写
+     * </pre>
+     *
+     * <p>「整批」是必须的：一次方向切换就是两次转换（原方向离开 {@code SELECTED}，目标方向
+     * 进入 {@code SELECTED}），它们是一次业务操作的两个半边。只写入其中一半会留下一个
+     * 用户从未表达过的中间状态——原方向已经被取代，却没有任何方向被选中。
+     *
+     * <p>批次内的写入顺序与列表顺序一致，原因见 {@link #saveAll}。切换必须把「离开
+     * SELECTED」的那一条排在前面。
+     *
+     * <p>本方法不写入 discovery basis、recommendation content、candidate assets 与
+     * Evidence：它只改状态，因此状态变化不可能顺带改写方向当初凭什么被推荐（§10.5）。
+     *
+     * @param transitions 待写入的转换，按写入顺序排列；不得为 {@code null}，元素不得为
+     *                    {@code null}，可以为空（空批次不做任何事）
+     * @throws ProductDirectionStatusConflictException 某条转换依据的起始状态已经不是存储中
+     *         的状态，或写入没有拿到存储的写锁；此时整批不生效
+     * @throws ProductDirectionSelectionConflictException 写入 {@code SELECTED} 时已经存在
+     *         另一个当前 {@code SELECTED} 方向（INV-D09）；此时整批不生效
+     */
+    void saveTransitions(List<ProductDirectionTransition> transitions);
+
+    /**
      * 按标识查找 Product Direction。
      *
      * <p>恢复出来的方向包含它保存时的完整 discovery basis、recommendation content、
@@ -124,7 +166,8 @@ public interface ProductDirectionRepository {
      * 而它刚刚取代的那个可能是有依据的另一个。
      *
      * @return 当前的 SELECTED 方向；没有时为空
-     * @throws IllegalStateException 存储里存在多于一条 {@code SELECTED} 的方向
+     * @throws ProductDirectionIntegrityConflictException 存储里存在多于一条
+     *         {@code SELECTED} 的方向
      */
     Optional<ProductDirection> findCurrentSelected();
 }

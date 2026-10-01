@@ -1,8 +1,10 @@
 package com.ayywl.delveforge.application.opportunitydiscovery.direction;
 
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionTransition;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
+import com.ayywl.delveforge.domain.direction.ProductDirectionStatus;
 import java.util.List;
 import java.util.Optional;
 
@@ -78,6 +80,9 @@ public class SelectProductDirectionUseCase {
      *                                                 该方向当前状态不是 {@code CANDIDATE}
      * @throws com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException
      *                                                 写入时存储里已存在另一个当前 SELECTED 方向
+     * @throws com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException
+     *                                                 本次依据的状态在写入时已经变化，或写入
+     *                                                 没有拿到存储的写锁（并发选择）
      */
     public ProductDirection select(ProductDirectionId productDirectionId) {
         if (productDirectionId == null) {
@@ -88,24 +93,33 @@ public class SelectProductDirectionUseCase {
         ProductDirection target = productDirectionRepository.findById(productDirectionId)
                 .orElseThrow(() -> new ProductDirectionNotFoundException(productDirectionId));
 
-        // 这条调用同时是「目标必须处于 CANDIDATE」的前置判断：不合法时在这里失败，
-        // 此时还没有读取当前方向，更没有改动任何东西。
+        // 先记下转换所依据的状态，再推进它。这条 select() 同时是「目标必须处于 CANDIDATE」
+        // 的前置判断：不合法时在这里失败，此时还没有读取当前方向，更没有改动任何东西。
+        ProductDirectionStatus targetBasis = target.status();
         target.select();
 
         Optional<ProductDirection> currentSelected =
                 productDirectionRepository.findCurrentSelected();
 
         if (currentSelected.isEmpty()) {
-            productDirectionRepository.save(target);
+            productDirectionRepository.saveTransitions(
+                    List.of(new ProductDirectionTransition(target, targetBasis)));
             return target;
         }
 
         ProductDirection previous = currentSelected.get();
+        ProductDirectionStatus previousBasis = previous.status();
         previous.supersede();
 
         // 顺序就是语义：原方向必须先离开 SELECTED，目标方向才能进入——存储层只允许
         // 存在一个当前 SELECTED 方向，反过来写会在中间态撞上那条约束。
-        productDirectionRepository.saveAll(List.of(previous, target));
+        //
+        // 两条都带上各自依据的起始状态：存储层据此核对这份依据是否仍然成立。若期间已经
+        // 有人抢先选择了别的方向、或把目标推到了别处，整批失败，而不是把基于旧状态的
+        // 判断盖到已经推进过的行上。
+        productDirectionRepository.saveTransitions(List.of(
+                new ProductDirectionTransition(previous, previousBasis),
+                new ProductDirectionTransition(target, targetBasis)));
         return target;
     }
 }

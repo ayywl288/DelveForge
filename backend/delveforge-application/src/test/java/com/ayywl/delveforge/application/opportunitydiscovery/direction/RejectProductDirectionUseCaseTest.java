@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.InMemoryDiscoveryRepositories.ProductDirectionRecorder;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.direction.DirectionEvidenceSupport;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
@@ -42,7 +43,8 @@ class RejectProductDirectionUseCaseTest {
 
         assertEquals(ProductDirectionStatus.REJECTED, rejected.status());
         assertEquals(TARGET_ID, rejected.id());
-        assertEquals(1, repository.singleSaveCalls(), "拒绝只写它自己这一条");
+        assertEquals(1, repository.transitionCalls(), "拒绝只写它自己这一条");
+        assertEquals(0, repository.singleSaveCalls(), "状态变化不该走普通的 save");
         assertEquals(0, repository.batchCalls(), "拒绝不涉及取代，不该走整批");
         assertEquals(ProductDirectionStatus.REJECTED,
                 repository.stored(TARGET_ID).orElseThrow().status());
@@ -141,6 +143,27 @@ class RejectProductDirectionUseCaseTest {
                 "拒绝不需要知道当前是哪个方向");
     }
 
+    /**
+     * 这次拒绝所依据的状态在写入时已经变化（另一个请求推进了同一条方向）时，
+     * 冲突原样向上传递，且不留下任何写入。
+     *
+     * <p>它是持久化层的条件更新报出来的，编排层不吞掉、也不改写成别的失败。
+     */
+    @Test
+    void propagatesStatusConflictRaisedByPersistence() {
+        repository.seed(candidate(TARGET_ID));
+        repository.failTransitionsWith(new ProductDirectionStatusConflictException(
+                TARGET_ID, ProductDirectionStatus.CANDIDATE));
+
+        assertThrows(ProductDirectionStatusConflictException.class,
+                () -> useCase.reject(TARGET_ID));
+
+        assertEquals(1, repository.transitionCalls(), "确实尝试过写入");
+        assertEquals(0, repository.singleSaveCalls());
+        assertEquals(ProductDirectionStatus.CANDIDATE,
+                repository.stored(TARGET_ID).orElseThrow().status());
+    }
+
     @Test
     void rejectsMissingIdentifier() {
         assertThrows(IllegalArgumentException.class, () -> useCase.reject(null));
@@ -157,6 +180,7 @@ class RejectProductDirectionUseCaseTest {
     private void assertNothingWasWritten() {
         assertEquals(0, repository.singleSaveCalls(), "不该发生单条保存");
         assertEquals(0, repository.batchCalls(), "不该发生整批保存");
+        assertEquals(0, repository.transitionCalls(), "不该发生生命周期转换写入");
     }
 
     private static final UserProfileId USER_PROFILE_ID = new UserProfileId("user-profile-1");

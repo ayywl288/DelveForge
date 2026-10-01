@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -85,6 +86,9 @@ class ProductDirectionSelectionApiIntegrationTest {
 
     @Autowired
     private ProductDirectionRepository productDirectionRepository;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     /**
      * 真实 Persistence Adapter 的 spy：用来复现并发选择的形状。
@@ -238,6 +242,44 @@ class ProductDirectionSelectionApiIntegrationTest {
                 "响应不得泄漏存储层细节: " + body);
 
         assertEquals(ProductDirectionStatus.SELECTED, statusOf(FIRST_ID), "已存在的那条不受影响");
+    }
+
+    /**
+     * 存储里已经有两条当前 SELECTED 方向时，选择操作返回 409，而不是 500。
+     *
+     * <p>这种状态在正常写入路径下不存在——V7 的部分唯一索引只允许一行。造出它需要先移除
+     * 那条索引再直接写入两行，也就是模拟「更早的数据 / 被绕过的写入」。
+     * 完整性冲突是一条**可分类**的失败，接口层必须给出稳定的冲突语义，
+     * 而不是让一个通用异常落到兜底的 500 上。
+     */
+    @Test
+    void returnsConflictWhenTheStoredCurrentSelectionIsCorrupted() throws Exception {
+        jdbcTemplate.execute("DROP INDEX ux_product_direction_current_selected");
+        insertSelectedRow("direction-corrupted-1");
+        insertSelectedRow("direction-corrupted-2");
+        productDirectionRepository.save(direction(FIRST_ID));
+
+        String body = mockMvc.perform(post("/api/product-directions/{id}/select", FIRST_ID.value()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertTrue(!body.contains("ux_product_direction") && !body.contains("SELECTED"),
+                "响应不得泄漏存储细节: " + body);
+    }
+
+    private void insertSelectedRow(String directionId) {
+        jdbcTemplate.update("""
+                        INSERT INTO product_direction
+                            (id, user_profile_id, user_profile_revision, title, problem,
+                             target_product, user_fit, differentiation, technical_value,
+                             estimated_complexity, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SELECTED')
+                        """,
+                directionId, USER_PROFILE_ID.value(), USER_PROFILE_REVISION,
+                "方向", "问题", "目标", "匹配", "差异", "价值", "复杂度");
     }
 
     private ProductDirectionStatus statusOf(ProductDirectionId id) {

@@ -4,7 +4,9 @@ import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDi
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.StaleUserProfileRevisionException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.UserProfileNotConfirmedException;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionIntegrityConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
@@ -233,20 +235,25 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      * 用户对 Product Direction 的生命周期操作与它当前的状态冲突。
      *
      * <pre>
-     * ProductDirectionStateException            该方向当前状态不允许这次操作
-     *                                           （例如对已经 SELECTED 的方向再次 select）
-     * ProductDirectionSelectionConflictException 写入时已经存在另一个当前 SELECTED 方向
+     * ProductDirectionStateException              该方向当前状态不允许这次操作
+     *                                             （例如对已经 SELECTED 的方向再次 select）
+     * ProductDirectionSelectionConflictException  写入时已经存在另一个当前 SELECTED 方向
+     * ProductDirectionStatusConflictException     本次依据的状态已经变化，或写入与并发写冲突
+     * ProductDirectionIntegrityConflictException  存储状态违反领域不变量（多于一个当前方向）
      * </pre>
      *
-     * <p>两者都不是「请求写错了」：请求可以理解，只是与当前状态冲突。调用方据此知道要
-     * 重新读取方向或换一个目标，而不是换一种写法重试——这正是 409 而不是 400 的语义。
+     * <p>这些都不是「请求写错了」：请求可以理解，只是与当前状态冲突。调用方据此知道要重新
+     * 读取方向、换一个目标，或（最后一种）去修复数据，而不是换一种写法重试——这正是 409
+     * 而不是 400 的语义。
      *
-     * <p>只映射这两个项目自有类型。特别是**不**把持久化层的完整性异常兜进来：
-     * 那类冲突已经由 Adapter 在 Port 边界翻译成上面的类型（AGENTS.md §8.7），
-     * 直接映射 Spring 的数据访问异常会让本层无从区分「业务冲突」与「真的写坏了」。
+     * <p>只映射项目自有的类型。特别是**不**把持久化层的异常兜进来：那些已经由 Adapter 在
+     * Port 边界翻译成上面的类型（AGENTS.md §8.7），直接映射 Spring 的数据访问异常会让本层
+     * 无从区分「可判定的冲突」与「真的写坏了」。
      */
     @ExceptionHandler({ProductDirectionStateException.class,
-            ProductDirectionSelectionConflictException.class})
+            ProductDirectionSelectionConflictException.class,
+            ProductDirectionStatusConflictException.class,
+            ProductDirectionIntegrityConflictException.class})
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiErrorResponse handleProductDirectionLifecycleConflict(
             RuntimeException exception, HttpServletRequest request) {

@@ -1,8 +1,11 @@
 package com.ayywl.delveforge.application.opportunitydiscovery.direction;
 
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionTransition;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
+import com.ayywl.delveforge.domain.direction.ProductDirectionStatus;
+import java.util.List;
 
 /**
  * 用户明确不选择某个候选 Product Direction。
@@ -64,9 +67,14 @@ public class RejectProductDirectionUseCase {
                 .orElseThrow(() -> new ProductDirectionNotFoundException(productDirectionId));
 
         // 状态不合法时在这里失败，此时还没有任何写入。
+        ProductDirectionStatus basis = target.status();
         target.reject();
 
-        productDirectionRepository.save(target);
+        // 带上这次拒绝所依据的状态：存储层据此核对依据是否仍然成立。另一个请求可能已经
+        // 把同一条方向选中了，此时这份基于 CANDIDATE 的判断必须被拒绝，而不是把已经
+        // 提交的选择覆盖成 REJECTED。
+        productDirectionRepository.saveTransitions(
+                List.of(new ProductDirectionTransition(target, basis)));
         return target;
     }
 }

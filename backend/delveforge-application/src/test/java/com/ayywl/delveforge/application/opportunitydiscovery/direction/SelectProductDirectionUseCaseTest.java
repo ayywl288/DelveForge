@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.InMemoryDiscoveryRepositories.ProductDirectionRecorder;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionTransition;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.direction.DirectionEvidenceSupport;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
@@ -58,7 +60,8 @@ class SelectProductDirectionUseCaseTest {
 
         assertEquals(ProductDirectionStatus.SELECTED, selected.status());
         assertEquals(TARGET_ID, selected.id(), "返回的应当是这次被选中的那个方向");
-        assertEquals(1, repository.singleSaveCalls(), "只应当发生一次单条保存");
+        assertEquals(1, repository.transitionCalls(), "只应当发生一次转换写入");
+        assertEquals(0, repository.singleSaveCalls(), "状态变化不该走普通的 save");
         assertEquals(0, repository.batchCalls(), "没有需要取代的方向，不该走整批");
         assertEquals(ProductDirectionStatus.SELECTED,
                 repository.stored(TARGET_ID).orElseThrow().status());
@@ -80,7 +83,7 @@ class SelectProductDirectionUseCaseTest {
 
         assertEquals(ProductDirectionStatus.SELECTED, selected.status());
         assertEquals(0, repository.singleSaveCalls(), "切换不该拆成单条保存");
-        assertEquals(1, repository.batchCalls(), "切换必须是一次整批写入");
+        assertEquals(1, repository.transitionCalls(), "切换必须是一次整批写入");
 
         assertEquals(ProductDirectionStatus.SUPERSEDED,
                 repository.stored(SELECTED_ID).orElseThrow().status());
@@ -99,10 +102,10 @@ class SelectProductDirectionUseCaseTest {
 
         useCase.select(TARGET_ID);
 
-        List<List<ProductDirection>> batches = repository.batches();
+        List<List<ProductDirectionTransition>> batches = repository.transitionBatches();
         assertEquals(1, batches.size());
         assertEquals(List.of(SELECTED_ID, TARGET_ID),
-                batches.get(0).stream().map(ProductDirection::id).toList(),
+                batches.get(0).stream().map(t -> t.direction().id()).toList(),
                 "切换批次里原方向必须排在目标方向之前");
     }
 
@@ -232,11 +235,11 @@ class SelectProductDirectionUseCaseTest {
     void leavesBothDirectionsUntouchedWhenTheSwitchCannotBePersisted() {
         repository.seed(selected(SELECTED_ID));
         repository.seed(candidate(TARGET_ID));
-        repository.failBatchesWith(new IllegalStateException("写入失败"));
+        repository.failTransitionsWith(new IllegalStateException("写入失败"));
 
         assertThrows(IllegalStateException.class, () -> useCase.select(TARGET_ID));
 
-        assertEquals(1, repository.batchCalls(), "失败后不得重试或补写");
+        assertEquals(1, repository.transitionCalls(), "失败后不得重试或补写");
         assertEquals(0, repository.singleSaveCalls());
         assertEquals(ProductDirectionStatus.SELECTED,
                 repository.stored(SELECTED_ID).orElseThrow().status());
@@ -255,13 +258,13 @@ class SelectProductDirectionUseCaseTest {
     @Test
     void propagatesSelectionConflictRaisedByTheSingleSave() {
         repository.seed(candidate(TARGET_ID));
-        repository.failSavesWith(new ProductDirectionSelectionConflictException(TARGET_ID));
+        repository.failTransitionsWith(new ProductDirectionSelectionConflictException(TARGET_ID));
 
         assertThrows(ProductDirectionSelectionConflictException.class,
                 () -> useCase.select(TARGET_ID));
 
-        assertEquals(1, repository.singleSaveCalls(), "确实尝试过写入");
-        assertEquals(0, repository.batchCalls());
+        assertEquals(1, repository.transitionCalls(), "确实尝试过写入");
+        assertEquals(0, repository.singleSaveCalls());
         assertEquals(ProductDirectionStatus.CANDIDATE,
                 repository.stored(TARGET_ID).orElseThrow().status(),
                 "冲突时目标方向不得留下任何状态变化");
@@ -275,12 +278,35 @@ class SelectProductDirectionUseCaseTest {
     void propagatesSelectionConflictRaisedByTheBatchSwitch() {
         repository.seed(selected(SELECTED_ID));
         repository.seed(candidate(TARGET_ID));
-        repository.failBatchesWith(new ProductDirectionSelectionConflictException(TARGET_ID));
+        repository.failTransitionsWith(new ProductDirectionSelectionConflictException(TARGET_ID));
 
         assertThrows(ProductDirectionSelectionConflictException.class,
                 () -> useCase.select(TARGET_ID));
 
-        assertEquals(1, repository.batchCalls(), "失败后不得重试");
+        assertEquals(1, repository.transitionCalls(), "失败后不得重试");
+        assertEquals(ProductDirectionStatus.SELECTED,
+                repository.stored(SELECTED_ID).orElseThrow().status());
+        assertEquals(ProductDirectionStatus.CANDIDATE,
+                repository.stored(TARGET_ID).orElseThrow().status());
+    }
+
+    /**
+     * 切换所依据的状态在写入时已经变化时，冲突原样向上传递，两个方向都不留下改动。
+     *
+     * <p>这是并发切换的真实形状：另一个请求在这中间推进了其中一条方向，
+     * 本次手上那份认知已经作废。
+     */
+    @Test
+    void propagatesStatusConflictRaisedByTheBatchSwitch() {
+        repository.seed(selected(SELECTED_ID));
+        repository.seed(candidate(TARGET_ID));
+        repository.failTransitionsWith(new ProductDirectionStatusConflictException(
+                TARGET_ID, ProductDirectionStatus.CANDIDATE));
+
+        assertThrows(ProductDirectionStatusConflictException.class,
+                () -> useCase.select(TARGET_ID));
+
+        assertEquals(1, repository.transitionCalls(), "失败后不得重试");
         assertEquals(ProductDirectionStatus.SELECTED,
                 repository.stored(SELECTED_ID).orElseThrow().status());
         assertEquals(ProductDirectionStatus.CANDIDATE,
@@ -303,6 +329,7 @@ class SelectProductDirectionUseCaseTest {
     private void assertNothingWasWritten() {
         assertEquals(0, repository.singleSaveCalls(), "不该发生单条保存");
         assertEquals(0, repository.batchCalls(), "不该发生整批保存");
+        assertEquals(0, repository.transitionCalls(), "不该发生生命周期转换写入");
     }
 
     // ---------------------------------------------------------------------

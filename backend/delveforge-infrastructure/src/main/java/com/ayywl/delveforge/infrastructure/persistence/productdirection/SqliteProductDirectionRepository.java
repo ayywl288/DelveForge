@@ -1,8 +1,11 @@
 package com.ayywl.delveforge.infrastructure.persistence.productdirection;
 
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionContentConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionIntegrityConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionTransition;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
@@ -17,6 +20,7 @@ import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -46,17 +50,29 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <h2>写入规则</h2>
  *
+ * <p>写入分两条路径，它们改的东西不同：
+ *
+ * <pre>
+ * save / saveAll       新建方向，或重复保存一条内容与状态都没变的方向
+ * saveTransitions      生命周期转换；只改 status，并且是条件更新
+ * </pre>
+ *
  * <p>按标识保存：不存在时写入整条方向；已经存在时更新同一个标识。
  * 这与 {@code SqliteRepositoryProfileRepository} 的「只写一次」不同——
  * Repository Profile 是不可改写的分析快照，Product Direction 是拥有生命周期的 Entity。
  *
- * <p>允许变化的只有 {@code status}。同一标识再次保存时，本类先比较已保存的
- * discovery basis、recommendation content、candidate assets 与 Evidence：
+ * <p>已经保存过时，本类先比较已保存的 discovery basis、recommendation content、
+ * candidate assets 与 Evidence：
  *
  * <pre>
- * 完全一致  更新 status
- * 有任何不同 拒绝保存，抛 ProductDirectionContentConflictException
+ * 完全一致、且状态也一致   接受这次保存
+ * 内容有任何不同           拒绝，抛 ProductDirectionContentConflictException
+ * 状态不同                 拒绝，抛 ProductDirectionStatusConflictException
  * </pre>
+ *
+ * <p>状态变化不走 {@code save}：那条路径上没有任何信息能说明「本次转换依据的是哪个状态」，
+ * 因此无从判断手上这份是不是过期副本，无条件覆盖就会把另一个请求刚刚提交的用户决定改掉。
+ * 生命周期变化必须经 {@link #saveTransitions}，由它在同一条语句里核对起始状态。
  *
  * <p>拒绝而不是覆盖，是因为覆盖会把这条方向当初凭什么被推荐的依据静默改写掉
  * （§10.5、RULE-DOM-007）；拒绝而不是静默忽略，是因为静默忽略会让调用方以为
@@ -84,6 +100,12 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
 
     /** SQLite 的 {@code SQLITE_CONSTRAINT}：违反约束（含唯一约束）。 */
     private static final int SQLITE_CONSTRAINT = 19;
+
+    /** SQLite 的 {@code SQLITE_BUSY}：另一个写入者持有锁，等不到它释放。 */
+    private static final int SQLITE_BUSY = 5;
+
+    /** SQLite 的 {@code SQLITE_LOCKED}：连接自己持有的锁阻止了本次写入。 */
+    private static final int SQLITE_LOCKED = 6;
 
     private final ProductDirectionMapper directionMapper;
     private final ProductDirectionRepositoryProfileMapper repositoryProfileMapper;
@@ -128,9 +150,49 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
     }
 
     /**
+     * 生命周期转换的整批写入。
+     *
+     * <p>每一条都是一次**条件更新**：只有存储中的状态仍是该转换依据的那个状态时才写入。
+     * 判断与写入在同一条 {@code UPDATE … WHERE id = ? AND status = ?} 里完成，因此不存在
+     * 「先查再写」的窗口——两个请求不可能都读到同一个起始状态然后都写成功。
+     *
+     * <p>受影响行数为 0 表示这次转换的依据已经不成立。这里不额外查一次去区分「状态变了」
+     * 与「这一行不存在」：本 Port 没有删除路径，而调用方在这之前都已经按标识加载过该方向，
+     * 因此「读到 0 行」实际只有一种成因。
+     *
+     * <p>本方法不触碰任何内容行：状态变化在存储层面根本碰不到它们（§10.5）。
+     */
+    @Override
+    @Transactional
+    public void saveTransitions(List<ProductDirectionTransition> transitions) {
+        for (ProductDirectionTransition transition : transitions) {
+            applyTransition(transition);
+        }
+    }
+
+    private void applyTransition(ProductDirectionTransition transition) {
+        ProductDirection direction = transition.direction();
+
+        try {
+            int updated = directionMapper.update(null,
+                    new LambdaUpdateWrapper<ProductDirectionDO>()
+                            .eq(ProductDirectionDO::getId, direction.id().value())
+                            .eq(ProductDirectionDO::getStatus, transition.expectedFrom().name())
+                            .set(ProductDirectionDO::getStatus, direction.status().name()));
+
+            if (updated == 0) {
+                throw new ProductDirectionStatusConflictException(
+                        direction.id(), transition.expectedFrom());
+            }
+        } catch (DataAccessException exception) {
+            throw translateStoredConflict(direction, exception);
+        }
+    }
+
+    /**
      * 单条的写入逻辑；事务边界由调用它的公开方法决定。
      *
-     * <p>唯一性冲突在这里翻译成 Port 能表达的语义，见 {@link #translateStoredConflict}。
+     * <p>存储层异常在这里翻译成 Port 能表达的语义，见 {@link #translateStoredConflict}。
      */
     private void write(ProductDirection productDirection) {
         try {
@@ -157,6 +219,13 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
             throw new ProductDirectionContentConflictException(productDirection.id());
         }
 
+        // 状态变化不能经由这条路径：这里没有「本次转换依据的是哪个状态」这项信息，
+        // 因此无从判断手上这份是不是过期副本。无条件覆盖会把另一个请求刚刚提交的
+        // 用户决定改掉。生命周期变化请走 saveTransitions。
+        if (!stored.getStatus().equals(productDirection.status().name())) {
+            throw new ProductDirectionStatusConflictException(productDirection.id());
+        }
+
         directionMapper.updateById(toRow(productDirection));
     }
 
@@ -179,13 +248,44 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
     private static RuntimeException translateStoredConflict(
             ProductDirection productDirection, DataAccessException exception) {
 
-        if (productDirection.status() != ProductDirectionStatus.SELECTED) {
-            return exception;
+        if (isConstraintViolation(exception)
+                && productDirection.status() == ProductDirectionStatus.SELECTED) {
+            return new ProductDirectionSelectionConflictException(productDirection.id(), exception);
         }
-        if (!isConstraintViolation(exception)) {
-            return exception;
+        if (isWriteLockContention(exception)) {
+            return new ProductDirectionStatusConflictException(productDirection.id(), exception);
         }
-        return new ProductDirectionSelectionConflictException(productDirection.id(), exception);
+        return exception;
+    }
+
+    /**
+     * 异常链里是否有一个「没拿到写锁」的 SQL 错误。
+     *
+     * <p>SQLite 在已有并发写入者时直接拒绝后来者，而不是排队等待：默认的 busy timeout
+     * 用尽后抛 {@code SQLITE_BUSY}（5），持有共享锁又需要升级时抛 {@code SQLITE_LOCKED}（6）。
+     * 这与「依据的状态已经变化」有同样的含义与同样的处置——本次写入无法确认自己所依据的
+     * 状态仍然成立，调用方应当重新读取之后再决定——因此同样翻译成项目自己的冲突类型。
+     *
+     * <p>不翻译它会怎样：它会以未分类的数据访问异常一路走到接口层变成 500。调用方既拿不到
+     * 可判定的失败语义，响应里也没有任何与并发有关的信息。并发选择的败方本来就是一次
+     * 可预期的冲突，不是服务端故障。
+     */
+    private static boolean isWriteLockContention(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof SQLException sqlException
+                    && (sqlException.getErrorCode() & SQLITE_PRIMARY_CODE_MASK)
+                            == SQLITE_BUSY) {
+                return true;
+            }
+            if (current instanceof SQLException sqlException
+                    && (sqlException.getErrorCode() & SQLITE_PRIMARY_CODE_MASK)
+                            == SQLITE_LOCKED) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /**
@@ -249,8 +349,8 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
             return Optional.empty();
         }
         if (rows.size() > 1) {
-            throw new IllegalStateException(
-                    "存储中存在多于一个当前 SELECTED 的 Product Direction（INV-D09）: "
+            throw new ProductDirectionIntegrityConflictException(
+                    "存在多于一个当前 SELECTED 的 Product Direction（INV-D09）: "
                             + rows.size() + " 条");
         }
         return Optional.of(toDomain(rows.get(0)));

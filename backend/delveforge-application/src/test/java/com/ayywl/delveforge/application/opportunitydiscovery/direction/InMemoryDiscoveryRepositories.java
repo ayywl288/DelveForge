@@ -1,6 +1,8 @@
 package com.ayywl.delveforge.application.opportunitydiscovery.direction;
 
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionTransition;
 import com.ayywl.delveforge.application.port.persistence.RepositoryProfileRepository;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
@@ -58,7 +60,13 @@ final class InMemoryDiscoveryRepositories {
 
         private final List<ProductDirection> singleSaves = new ArrayList<>();
 
+        private final List<List<ProductDirectionTransition>> transitionBatches = new ArrayList<>();
+
         private int batchCalls;
+
+        private int transitionCalls;
+
+        private RuntimeException transitionFailure;
 
         private int currentSelectedCalls;
 
@@ -76,6 +84,21 @@ final class InMemoryDiscoveryRepositories {
         /** 让后续的单条保存抛出该异常。 */
         void failSavesWith(RuntimeException exception) {
             this.singleSaveFailure = exception;
+        }
+
+        /** 让后续的生命周期转换写入抛出该异常。 */
+        void failTransitionsWith(RuntimeException exception) {
+            this.transitionFailure = exception;
+        }
+
+        /** 生命周期转换写入被调用过几次。 */
+        int transitionCalls() {
+            return transitionCalls;
+        }
+
+        /** 成功写入过的转换批次，按写入顺序。 */
+        List<List<ProductDirectionTransition>> transitionBatches() {
+            return List.copyOf(transitionBatches);
         }
 
         /**
@@ -111,6 +134,34 @@ final class InMemoryDiscoveryRepositories {
             batches.add(List.copyOf(productDirections));
             for (ProductDirection direction : productDirections) {
                 store(direction);
+            }
+        }
+
+        /**
+         * 生命周期转换的整批写入。
+         *
+         * <p>与真实实现一致地核对每条转换依据的起始状态：存储中的状态与
+         * {@code expectedFrom} 不符就整批失败。这样「拿到过期副本后仍然写成功」这种情形
+         * 在 Application 测试里同样可以被复现，而不是只有真实并发时才暴露。
+         *
+         * <p>失败时不写入任何一条，与 {@code @Transactional} 的整批回滚语义一致。
+         */
+        @Override
+        public void saveTransitions(List<ProductDirectionTransition> pending) {
+            transitionCalls++;
+            if (transitionFailure != null) {
+                throw transitionFailure;
+            }
+            for (ProductDirectionTransition transition : pending) {
+                ProductDirection current = stored.get(transition.direction().id());
+                if (current == null || current.status() != transition.expectedFrom()) {
+                    throw new ProductDirectionStatusConflictException(
+                            transition.direction().id(), transition.expectedFrom());
+                }
+            }
+            transitionBatches.add(List.copyOf(pending));
+            for (ProductDirectionTransition transition : pending) {
+                store(transition.direction());
             }
         }
 

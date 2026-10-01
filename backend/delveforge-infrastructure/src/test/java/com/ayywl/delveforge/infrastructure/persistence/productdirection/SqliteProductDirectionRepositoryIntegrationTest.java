@@ -7,8 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionContentConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionIntegrityConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionTransition;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.direction.DirectionEvidenceSupport;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
@@ -292,10 +295,14 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         repository.save(direction);
         int contentRowsBefore = contentRowCount();
 
+        ProductDirectionStatus beforeSelect = direction.status();
         direction.select();
-        repository.save(direction);
+        repository.saveTransitions(List.of(
+                new ProductDirectionTransition(direction, beforeSelect)));
+        ProductDirectionStatus beforeSupersede = direction.status();
         direction.supersede();
-        repository.save(direction);
+        repository.saveTransitions(List.of(
+                new ProductDirectionTransition(direction, beforeSupersede)));
 
         ProductDirection reloaded = repository.findById(DIRECTION_ID).orElseThrow();
 
@@ -355,8 +362,9 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         ProductDirection direction = directionWithConfidence(-0.0);
         repository.save(direction);
 
+        ProductDirectionStatus before = direction.status();
         direction.select();
-        repository.save(direction);
+        repository.saveTransitions(List.of(new ProductDirectionTransition(direction, before)));
 
         ProductDirection reloaded = repository.findById(DIRECTION_ID).orElseThrow();
         assertEquals(ProductDirectionStatus.SELECTED, reloaded.status(), "状态更新应被接受");
@@ -631,7 +639,8 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         insertSelectedRow("direction-a");
         insertSelectedRow("direction-b");
 
-        assertThrows(IllegalStateException.class, () -> repository.findCurrentSelected());
+        assertThrows(ProductDirectionIntegrityConflictException.class,
+                () -> repository.findCurrentSelected());
     }
 
     /**
@@ -683,6 +692,62 @@ class SqliteProductDirectionRepositoryIntegrationTest {
                 "被拒绝的方向仍然保留");
         assertEquals(ProductDirectionStatus.SUPERSEDED,
                 repository.findById(new ProductDirectionId("direction-3")).orElseThrow().status());
+    }
+
+    // ---------------------------------------------------------------------
+    // 过期的生命周期依据
+    // ---------------------------------------------------------------------
+
+    /**
+     * 一份过期的副本不能覆盖已经提交的用户决定。
+     *
+     * <p>这是并发选择的真实形状：两个请求各自读到同一个 CANDIDATE，其中一方先完成选择，
+     * 另一方手上拿的还是那份「它是候选」的副本。如果写入只比较内容、然后无条件改状态，
+     * 后到的拒绝会把刚刚提交的选中结果改成 REJECTED，而没有任何地方阻止它——
+     * 唯一索引管的是「同时有几个当前方向」，管不了「你依据的状态还算不算数」。
+     */
+    @Test
+    void refusesToOverwriteACommittedDecisionWithAStaleCopy() {
+        repository.save(candidateDirection());
+
+        // 一份「读取时是 CANDIDATE」的旧副本
+        ProductDirection staleCopy = candidateDirection();
+        ProductDirectionStatus staleBasis = staleCopy.status();
+
+        // 另一个请求抢先完成了选择
+        ProductDirection fresh = repository.findById(DIRECTION_ID).orElseThrow();
+        fresh.select();
+        repository.saveTransitions(List.of(new ProductDirectionTransition(fresh, staleBasis)));
+
+        // 旧副本仍然试图拒绝它
+        staleCopy.reject();
+
+        assertThrows(ProductDirectionStatusConflictException.class,
+                () -> repository.saveTransitions(
+                        List.of(new ProductDirectionTransition(staleCopy, staleBasis))));
+
+        assertEquals(ProductDirectionStatus.SELECTED,
+                repository.findById(DIRECTION_ID).orElseThrow().status(),
+                "已经提交的选择不得被过期副本覆盖");
+    }
+
+    /**
+     * 状态变化不能经 {@code save()} 走：那里没有「依据的是哪个状态」这项信息，
+     * 因此无从判断手上的是不是过期副本。
+     */
+    @Test
+    void refusesAStatusChangeThroughThePlainSavePath() {
+        repository.save(candidateDirection());
+
+        ProductDirection changed = candidateDirection();
+        changed.select();
+
+        assertThrows(ProductDirectionStatusConflictException.class,
+                () -> repository.save(changed));
+
+        assertEquals(ProductDirectionStatus.CANDIDATE,
+                repository.findById(DIRECTION_ID).orElseThrow().status(),
+                "经 save() 提交的状态变化不得生效");
     }
 
     private long countSelectedRows() {
@@ -827,7 +892,6 @@ class SqliteProductDirectionRepositoryIntegrationTest {
     private static ProductDirection candidateDirection() {
         return candidateDirection(DIRECTION_ID);
     }
-
 
     /** 四个内容子表在当前方向下的总行数，用于验证更新路径不会改动内容行。 */
     private int contentRowCount() {

@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionTransition;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.direction.DirectionEvidenceSupport;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
@@ -49,8 +51,8 @@ import org.springframework.test.context.DynamicPropertySource;
  * 异常只是把它标记为 rollback-only，已写入的改动在方法内部依然读得到——
  * 那样写出来的断言测不到回滚，只是绕过了它。
  *
- * <p>因此本类只放这一个用例，并使用自己的临时数据库：没有别的用例会被它影响，
- * 它也不需要清理。
+ * <p>因此本类使用自己的临时数据库并且不加 {@code @Transactional}。库里没有清理步骤，
+ * 所以每个用例使用**自己的方向标识**，彼此不共享任何一行。
  */
 @SpringBootTest(
         classes = SqliteProductDirectionSwitchRollbackIntegrationTest.TestApplication.class,
@@ -63,6 +65,12 @@ class SqliteProductDirectionSwitchRollbackIntegrationTest {
     private static final ProductDirectionId FIRST_ID = new ProductDirectionId("direction-1");
 
     private static final ProductDirectionId SECOND_ID = new ProductDirectionId("direction-2");
+
+    private static final ProductDirectionId STALE_SELECTED_ID =
+            new ProductDirectionId("direction-stale-1");
+
+    private static final ProductDirectionId STALE_TARGET_ID =
+            new ProductDirectionId("direction-stale-2");
 
     private static final UserProfileId USER_PROFILE_ID = new UserProfileId("user-profile-1");
 
@@ -105,13 +113,62 @@ class SqliteProductDirectionSwitchRollbackIntegrationTest {
         second.select();
 
         assertThrows(ProductDirectionSelectionConflictException.class,
-                () -> repository.saveAll(List.of(first, second)));
+                () -> repository.saveTransitions(List.of(
+                        new ProductDirectionTransition(
+                                first, ProductDirectionStatus.CANDIDATE),
+                        new ProductDirectionTransition(
+                                second, ProductDirectionStatus.CANDIDATE))));
 
         assertEquals(ProductDirectionStatus.CANDIDATE, statusOf(FIRST_ID),
                 "同一批次里后一条失败时，前一条的状态更新必须一并回滚");
         assertEquals(ProductDirectionStatus.CANDIDATE, statusOf(SECOND_ID));
         assertTrue(repository.findCurrentSelected().isEmpty(),
                 "库里不得留下任何当前方向");
+    }
+
+    /**
+     * 批次里**后一条**依据不成立时，前一条已经生效的状态更新必须一并撤销。
+     *
+     * <p>只断言「失败的那条没写进去」说明不了整批的原子性——真正会留下中间态的是那条
+     * 已经生效的前半段。因此这里刻意让第一条能成功、第二条失败。
+     *
+     * <p>构造的是切换的真实形状：调用方看到的是「STALE_SELECTED 是当前选中、
+     * STALE_TARGET 还是候选」，于是在这之后发起切换；而在此期间，另一个请求已经把
+     * STALE_TARGET 拒绝了。调用方手上那份「它还是候选」的认知已经作废。
+     */
+    @Test
+    void rollsBackTheFirstTransitionWhenTheSecondBasisIsStale() {
+        repository.save(selected(STALE_SELECTED_ID));
+        repository.save(direction(STALE_TARGET_ID));
+
+        ProductDirection winner = repository.findById(STALE_TARGET_ID).orElseThrow();
+        ProductDirectionStatus winnerBasis = winner.status();
+        winner.reject();
+        repository.saveTransitions(
+                List.of(new ProductDirectionTransition(winner, winnerBasis)));
+
+        ProductDirection stalePrevious = selected(STALE_SELECTED_ID);
+        stalePrevious.supersede();
+        ProductDirection staleTarget = direction(STALE_TARGET_ID);
+        staleTarget.select();
+
+        assertThrows(ProductDirectionStatusConflictException.class,
+                () -> repository.saveTransitions(List.of(
+                        new ProductDirectionTransition(
+                                stalePrevious, ProductDirectionStatus.SELECTED),
+                        new ProductDirectionTransition(
+                                staleTarget, ProductDirectionStatus.CANDIDATE))));
+
+        assertEquals(ProductDirectionStatus.SELECTED, statusOf(STALE_SELECTED_ID),
+                "前一条已经生效的状态更新必须随第二条失败一并撤销");
+        assertEquals(ProductDirectionStatus.REJECTED, statusOf(STALE_TARGET_ID),
+                "已经提交的拒绝不得被过期副本覆盖为 SELECTED");
+    }
+
+    private static ProductDirection selected(ProductDirectionId id) {
+        ProductDirection direction = direction(id);
+        direction.select();
+        return direction;
     }
 
     private ProductDirectionStatus statusOf(ProductDirectionId id) {
