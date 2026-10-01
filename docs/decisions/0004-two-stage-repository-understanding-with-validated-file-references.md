@@ -7,9 +7,17 @@ Date: 2026-09-29
 > 本 ADR 记录 Repository Analysis 从「一次性确定性代表采样」演进为
 > 「Repository Map → LLM Scout → 校验引用 → 定向读取」这一长期方向的决策。
 >
-> **本 ADR 不表示该设计已经全部实现。** 当前只实现其中的第一阶段（Repository Map 与
-> 确定性分类/路由基础）；Scout 本身尚未实现。每一部分实现到什么程度，在
-> Consequences 与 Revisit Conditions 中分别说明。
+> **本 ADR 记录的是决策，不是实现进度。** 它划分的各个阶段会分批落地，权威状态以代码与
+> `ROADMAP.md` 为准，这里只在下面标注一次当前进度，避免读者把它当成现状描述。
+>
+> 当前进度：
+>
+> ```text
+> 已实现    Repository Map、确定性分类与候选路由
+> 已实现    Scout 的契约、严格解析与引用校验（产出 RepositoryInspectionPlan）
+> 未实现    定向读取、Foundation / 定向源码预算、聚焦轮转、材料合并
+> 未实现    AnalyzeRepositoryUseCase 接入——现有分析与选材行为尚未改变
+> ```
 
 ## Context
 
@@ -177,15 +185,17 @@ targeted reads at the same analyzedRevision
 existing RepositoryAnalysisExtraction
 ```
 
-分阶段实现。当前落地的只有：
+分阶段实现，各阶段之间的边界就是下面这条链路的分段：
 
 ```text
-Repository Map（完整已提交 tree 的描述符集合）
-确定性分类（material kind + 语言 + 结构角色提示）
-候选路由基础（Foundation 候选 / 未来 Scout 源码候选）
+1. Repository Map（完整已提交 tree 的描述符集合）+ 确定性分类 + 候选路由
+2. Scout：契约、严格解析、引用校验 → RepositoryInspectionPlan
+3. 定向读取（同一 analyzedRevision 上按计划读取）
+4. AnalyzeRepositoryUseCase 接入与预算编排
 ```
 
-Scout 本身、独立预算、Focus Areas、定向读取与 Use Case 集成都**不在**当前范围。
+**第 1、2 段已经落地，第 3、4 段还没有。** 本 ADR 记录的是这条链路整体的方向与理由，
+不把「哪一段实现到哪一步」当成决策的一部分——那些会变，决策不会。
 
 ### 决策要点
 
