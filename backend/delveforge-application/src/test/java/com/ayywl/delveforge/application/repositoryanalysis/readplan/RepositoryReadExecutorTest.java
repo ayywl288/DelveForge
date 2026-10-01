@@ -89,6 +89,63 @@ class RepositoryReadExecutorTest {
     }
 
     /**
+     * 尺寸按**真实内容的 UTF-8 字节**算，不是字符数。
+     *
+     * <p>这段内容有 30 个字符，却占 90 个字节。按字符数衡量会把它判成 30，于是放行——
+     * 而它实际是上限的两倍还多。因此下面的上限取 89：字节口径拒绝它，字符口径接受它。
+     */
+    @Test
+    void measuresContentInUtf8BytesNotCharacters() {
+        workspace.given(path(MVC_CONFIG), chineseContent(30));
+
+        RepositoryReadResult result = execute(
+                new RepositoryMaterialBudget(10, 89, 10_000),
+                new RepositoryMaterialBudget(10, 89, 10_000),
+                List.of(MVC_CONFIG), List.of());
+
+        assertTrue(result.material().isEmpty(),
+                "90 字节的内容不得在 89 字节的上限下被读入");
+        assertEquals(List.of(path(MVC_CONFIG)), skippedPaths(result));
+        assertEquals(1, result.tooLargeCount());
+    }
+
+    /**
+     * 恰好等于上限的内容是可以读的：上限是「最多多少」，不是「必须小于多少」。
+     */
+    @Test
+    void acceptsContentExactlyAtTheByteLimit() {
+        workspace.given(path(MVC_CONFIG), chineseContent(30));
+
+        RepositoryReadResult result = execute(
+                new RepositoryMaterialBudget(10, 90, 10_000),
+                new RepositoryMaterialBudget(10, 90, 10_000),
+                List.of(MVC_CONFIG), List.of());
+
+        assertEquals(List.of(path(MVC_CONFIG)), pathsOf(result.material()));
+        assertTrue(result.skipped().isEmpty());
+    }
+
+    /**
+     * 总预算同样按 UTF-8 字节累计：两份 90 字节的内容放不进 150 字节的总量。
+     *
+     * <p>按字符累计会得到 30 + 30 = 60，两份都会被读进来。
+     */
+    @Test
+    void accountsForTheTotalBudgetInUtf8Bytes() {
+        workspace.given(path(MVC_CONFIG), chineseContent(30));
+        workspace.given(path(POM), chineseContent(30));
+
+        RepositoryReadResult result = execute(
+                new RepositoryMaterialBudget(10, 150, 150),
+                new RepositoryMaterialBudget(10, 150, 150),
+                List.of(MVC_CONFIG, POM), List.of());
+
+        assertEquals(List.of(path(MVC_CONFIG)), pathsOf(result.material()));
+        assertEquals(List.of(path(POM)), skippedPaths(result));
+        assertEquals(1, result.totalBudgetExceededCount());
+    }
+
+    /**
      * 两条通道各记各的账：Foundation 用满自己的总量不会让定向源码少读。
      */
     @Test
@@ -215,6 +272,15 @@ class RepositoryReadExecutorTest {
     /** 恰好 {@code utf8Bytes} 个字节的 ASCII 内容。 */
     private static String content(int utf8Bytes) {
         return "x".repeat(utf8Bytes);
+    }
+
+    /**
+     * {@code characters} 个汉字的内容：每个汉字占 3 个 UTF-8 字节。
+     *
+     * <p>字符数与字节数在这里刻意不同，用来把「按字节」与「按字符」两种口径分开。
+     */
+    private static String chineseContent(int characters) {
+        return "中".repeat(characters);
     }
 
     private static List<String> pathsOf(List<RepositorySourceFile> material) {

@@ -12,11 +12,13 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
+import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMap;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapBuilder;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadExecutor;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutInputs;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -143,6 +145,62 @@ class RepositoryUnderstandingTest {
     }
 
     /**
+     * 恰好等于上限的目录照常送去 Scout：上限是「最多多少」，不是「必须小于多少」。
+     */
+    @Test
+    void acceptsACatalogExactlyAtTheLimit() {
+        seedSources();
+        aiGateway.respondAll(SCOUT_RESPONSE);
+        int exact = catalogPayloadBytes(workspace);
+
+        List<RepositorySourceFile> material =
+                understandingWithCatalogLimit(exact).understand(WORKSPACE, REVISION);
+
+        assertEquals(1, aiGateway.callCount(), "恰好等于上限时应当照常调用 Scout");
+        assertTrue(pathsOf(material).contains(APP),
+                "Scout 指出的源码应当照常被读进来: " + pathsOf(material));
+    }
+
+    /**
+     * 只超出一个字节就失败关闭：边界是判得准的，不是「差不太多就算了」。
+     */
+    @Test
+    void rejectsACatalogOneByteOverTheLimit() {
+        seedSources();
+        int exact = catalogPayloadBytes(workspace);
+
+        RepositoryNotAnalyzableException failure = assertThrows(
+                RepositoryNotAnalyzableException.class,
+                () -> understandingWithCatalogLimit(exact - 1).understand(WORKSPACE, REVISION));
+
+        assertTrue(failure.getMessage().contains(RepositoryUnderstanding.SCOUT_CATALOG_TOO_LARGE),
+                "失败原因应当带上稳定的标识: " + failure.getMessage());
+        assertEquals(0, aiGateway.callCount(), "目录超限时不调用 Scout");
+    }
+
+    /**
+     * 目录载荷按 **UTF-8 字节**衡量，不是字符数。
+     *
+     * <p>把同一个位置上的两个 ASCII 字符换成两个汉字：字符数不变，字节数增加 4。
+     * 载荷的增长量必须跟着字节数走——按字符数衡量会得到 0。
+     */
+    @Test
+    void measuresCatalogPayloadInUtf8BytesNotCharacters() {
+        workspace.given("src/main/AA.java", "class A {}");
+        int ascii = catalogPayloadBytes(workspace);
+
+        UnderstandingWorkspace multibyte = new UnderstandingWorkspace();
+        multibyte.given("src/main/中中.java", "class A {}");
+        int chinese = catalogPayloadBytes(multibyte);
+
+        int pathByteGrowth = "中中.java".getBytes(StandardCharsets.UTF_8).length
+                - "AA.java".getBytes(StandardCharsets.UTF_8).length;
+
+        assertEquals(pathByteGrowth, chinese - ascii,
+                "目录载荷应当按 UTF-8 字节增长，而不是按字符数增长");
+    }
+
+    /**
      * 计划一个都没选中时直接失败，不去读取，也不调用分析模型。
      */
     @Test
@@ -254,6 +312,19 @@ class RepositoryUnderstandingTest {
         return understandingWithBudgets(
                 new RepositoryMaterialBudget(10, 1_000, 10_000),
                 new RepositoryMaterialBudget(10, 1_000, 10_000));
+    }
+
+    /**
+     * 某份夹具下 Scout 目录载荷的 UTF-8 字节数。
+     *
+     * <p>走与生产路径相同的入口量：用同一份夹具、同一个 revision 建 Map，再取它的源码候选。
+     * 这样边界用例比较的就是「恰好等于即将发出的那一份载荷」，而不是一个拍出来的常量——
+     * 常量会随着夹具或目录格式变化而悄悄失准。
+     */
+    private int catalogPayloadBytes(UnderstandingWorkspace target) {
+        RepositoryMap map = new RepositoryMapBuilder(target).build(WORKSPACE, REVISION);
+        return new RepositoryScoutExtraction(aiGateway, new ObjectMapper())
+                .catalogPayloadBytes(RepositoryScoutInputs.of(map));
     }
 
     private RepositoryUnderstanding understandingWithCatalogLimit(int maxCatalogBytes) {
