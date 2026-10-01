@@ -13,8 +13,13 @@ import java.util.Optional;
  * 等任何具体技术类型。
  *
  * <p>本 Port 不是通用 Repository：方法集合只覆盖当前的最小需求（保存一个方向、整批保存
- * 一次发现的结果、按标识读回）。按 userProfile 或 repositoryProfile 查列表、查当前
- * SELECTED 等查询，在出现真实消费者时再补，而不是提前预留。
+ * 一次发现的结果、按标识读回、查当前 SELECTED）。按 userProfile 或 repositoryProfile
+ * 查列表、分页与历史查询等到出现真实消费者时再补，而不是提前预留。
+ *
+ * <p>「查当前 SELECTED」之所以在这里出现，是因为 INV-D09 有了真实消费者：用户选择新方向时，
+ * 原方向必须在同一次操作中进入 {@code SUPERSEDED}（DOMAIN_MODEL.md §6.2、§7.1），
+ * 没有这个查询就无法在 Application 层表达切换。它只覆盖「当前 MVP 全局最多一个 SELECTED」
+ * 这一个语义，不是通用过滤能力（{@link #findCurrentSelected()}）。
  *
  * <h2>Product Direction 是可更新的 Entity</h2>
  *
@@ -73,8 +78,16 @@ public interface ProductDirectionRepository {
      *
      * <p>每一条的写入语义与 {@link #save} 相同。
      *
-     * @param productDirections 待保存的方向；不得为 {@code null}，元素不得为 {@code null}，
-     *                          可以为空（空批次不做任何事）
+     * <h2>批次内的写入顺序就是列表顺序</h2>
+     *
+     * <p>这不是实现细节，而是调用方需要的一条契约：一次方向切换要在同一个批次里写两条
+     * 方向——原 {@code SELECTED} 先变 {@code SUPERSEDED}，新方向再变 {@code SELECTED}
+     * （INV-D09）。存储层只允许存在一个当前 {@code SELECTED}，因此这两条**必须按这个先后
+     * 写入**；反过来写会在中间态撞上那条唯一约束。列表顺序是调用方表达这个先后的唯一方式，
+     * 实现因此有义务保持它，而不是自行重排。
+     *
+     * @param productDirections 待保存的方向，按写入顺序排列；不得为 {@code null}，
+     *                          元素不得为 {@code null}，可以为空（空批次不做任何事）
      * @throws ProductDirectionContentConflictException 某条方向已经保存过，
      *         且内容与已保存的不一致
      */
@@ -90,4 +103,28 @@ public interface ProductDirectionRepository {
      * @return 对应的方向；不存在时为空
      */
     Optional<ProductDirection> findById(ProductDirectionId id);
+
+    /**
+     * 查找当前处于 {@code SELECTED} 的 Product Direction。
+     *
+     * <p>它服务于 INV-D09：当前 MVP 只支持一个活动演化流程，因此系统全局最多只能存在一个
+     * 当前 {@code SELECTED} 的方向。用户选择新方向时，原方向必须在同一次选择操作中进入
+     * {@code SUPERSEDED}（DOMAIN_MODEL.md §6.2、§7.1），调用方据此拿到「要取代谁」。
+     *
+     * <p>刻意不提供按 User Profile、revision、Repository Profile 或候选资产收窄的版本：
+     * 领域模型没有为「同一条演化流程」定义任何持久化身份，按这些维度收窄等于替它发明一个
+     * （INV-D09 明确把 {@code EvolutionFlow} 身份排除在当前 MVP 之外）。因此这里查的是
+     * <b>全局</b>那一个。
+     *
+     * <h2>多于一条不是「随便挑一条」</h2>
+     *
+     * <p>存储层由唯一约束保证最多一条（见 V7 migration）。读到多条说明存储状态与领域模型
+     * 不一致——可能来自更早的数据、被绕过的写入，或迁移中的中间态。此时本方法失败，
+     * 而不是返回其中一条：静默挑一条会让调用方以为系统里只有一个当前方向，
+     * 而它刚刚取代的那个可能是有依据的另一个。
+     *
+     * @return 当前的 SELECTED 方向；没有时为空
+     * @throws IllegalStateException 存储里存在多于一条 {@code SELECTED} 的方向
+     */
+    Optional<ProductDirection> findCurrentSelected();
 }

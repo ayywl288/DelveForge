@@ -4,12 +4,14 @@ import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDi
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.StaleUserProfileRevisionException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.UserProfileNotConfirmedException;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryNotAnalyzableException;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetNotReadableException;
 import com.ayywl.delveforge.domain.direction.ProductDirectionDiscoveryException;
+import com.ayywl.delveforge.domain.direction.ProductDirectionStateException;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
@@ -217,6 +219,36 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             UserProfileNotConfirmedException.class})
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiErrorResponse handleDiscoveryPreconditionConflict(
+            RuntimeException exception, HttpServletRequest request) {
+
+        log.warn("operation=interface.request path={} result=CONFLICT exception={}",
+                loggedRoute(request), describe(exception));
+
+        return new ApiErrorResponse(
+                ApiErrorCode.CONFLICT, CONFLICT_MESSAGE,
+                request.getRequestURI(), Instant.now());
+    }
+
+    /**
+     * 用户对 Product Direction 的生命周期操作与它当前的状态冲突。
+     *
+     * <pre>
+     * ProductDirectionStateException            该方向当前状态不允许这次操作
+     *                                           （例如对已经 SELECTED 的方向再次 select）
+     * ProductDirectionSelectionConflictException 写入时已经存在另一个当前 SELECTED 方向
+     * </pre>
+     *
+     * <p>两者都不是「请求写错了」：请求可以理解，只是与当前状态冲突。调用方据此知道要
+     * 重新读取方向或换一个目标，而不是换一种写法重试——这正是 409 而不是 400 的语义。
+     *
+     * <p>只映射这两个项目自有类型。特别是**不**把持久化层的完整性异常兜进来：
+     * 那类冲突已经由 Adapter 在 Port 边界翻译成上面的类型（AGENTS.md §8.7），
+     * 直接映射 Spring 的数据访问异常会让本层无从区分「业务冲突」与「真的写坏了」。
+     */
+    @ExceptionHandler({ProductDirectionStateException.class,
+            ProductDirectionSelectionConflictException.class})
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiErrorResponse handleProductDirectionLifecycleConflict(
             RuntimeException exception, HttpServletRequest request) {
 
         log.warn("operation=interface.request path={} result=CONFLICT exception={}",

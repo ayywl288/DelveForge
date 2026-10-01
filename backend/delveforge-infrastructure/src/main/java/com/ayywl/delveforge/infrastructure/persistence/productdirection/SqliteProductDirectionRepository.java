@@ -2,6 +2,7 @@ package com.ayywl.delveforge.infrastructure.persistence.productdirection;
 
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionContentConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
@@ -16,12 +17,14 @@ import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -76,6 +79,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 public class SqliteProductDirectionRepository implements ProductDirectionRepository {
 
+    /** SQLite 扩展结果码的高位部分，取低八位即得主结果码。 */
+    private static final int SQLITE_PRIMARY_CODE_MASK = 0xFF;
+
+    /** SQLite 的 {@code SQLITE_CONSTRAINT}：违反约束（含唯一约束）。 */
+    private static final int SQLITE_CONSTRAINT = 19;
+
     private final ProductDirectionMapper directionMapper;
     private final ProductDirectionRepositoryProfileMapper repositoryProfileMapper;
     private final ProductDirectionCandidateAssetMapper candidateAssetMapper;
@@ -118,8 +127,20 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
         }
     }
 
-    /** 单条的写入逻辑；事务边界由调用它的公开方法决定。 */
+    /**
+     * 单条的写入逻辑；事务边界由调用它的公开方法决定。
+     *
+     * <p>唯一性冲突在这里翻译成 Port 能表达的语义，见 {@link #translateStoredConflict}。
+     */
     private void write(ProductDirection productDirection) {
+        try {
+            writeDirection(productDirection);
+        } catch (DataAccessException exception) {
+            throw translateStoredConflict(productDirection, exception);
+        }
+    }
+
+    private void writeDirection(ProductDirection productDirection) {
         String directionId = productDirection.id().value();
         ProductDirectionDO stored = directionMapper.selectById(directionId);
 
@@ -139,6 +160,62 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
         directionMapper.updateById(toRow(productDirection));
     }
 
+    /**
+     * 把存储层报告的约束冲突翻译成这个 Port 能表达的语义。
+     *
+     * <p>V7 的部分唯一索引只允许一行 {@code status = 'SELECTED'}（INV-D09）。写入一条
+     * {@code SELECTED} 方向时撞上唯一约束，说明库里已经存在另一个当前方向——
+     * 正常切换路径不会走到这里（它在同一个批次里先把原方向写成 {@code SUPERSEDED}），
+     * 因此这通常意味着并发：两个选择请求都读到「当前没有 SELECTED 方向」，
+     * 各自判定无需取代任何东西，后提交的那个失败。
+     *
+     * <p>只有写成 {@code SELECTED} 时才做这个翻译。更新不改 {@code id}，主键不会因此冲突；
+     * 其余状态也不进入那条部分索引。因此其它失败原样抛出，不被误标成选择冲突，
+     * 也不会让调用方以为「换一个方向重试」就能解决一个真正的数据问题。
+     *
+     * <p>翻译发生在 Adapter 边界而不是更外层：SQLite 的结果码与索引名属于本层细节，
+     * 不应穿到 Application 与 Interface（AGENTS.md §8.7）。
+     */
+    private static RuntimeException translateStoredConflict(
+            ProductDirection productDirection, DataAccessException exception) {
+
+        if (productDirection.status() != ProductDirectionStatus.SELECTED) {
+            return exception;
+        }
+        if (!isConstraintViolation(exception)) {
+            return exception;
+        }
+        return new ProductDirectionSelectionConflictException(productDirection.id(), exception);
+    }
+
+    /**
+     * 异常链里是否有一个「违反约束」的 SQL 错误。
+     *
+     * <p>不能只看 Spring 的异常类型：Spring 没有 SQLite 的错误码映射表，因此 SQLite 的
+     * 约束错误会被兜底翻译成 {@link org.springframework.jdbc.UncategorizedSQLException}，
+     * 而不是 {@link org.springframework.dao.DataIntegrityViolationException}。
+     * 只接住后者会让真实的选择冲突以「未分类的数据访问异常」穿到上层。
+     *
+     * <p>因此这里看驱动给出的结果码。SQLite 的扩展码是
+     * {@code 主码 | (n << 8)}，取低八位即可覆盖 {@code SQLITE_CONSTRAINT} 与它的全部
+     * 扩展码（例如 {@code SQLITE_CONSTRAINT_UNIQUE}），不必逐个枚举。
+     *
+     * <p>按数值而不是按错误文本判断：错误文本是本地化的、随版本变化的实现细节，
+     * 让它参与分支判断既脆弱又会把数据库内部信息带进判定逻辑。
+     */
+    private static boolean isConstraintViolation(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof SQLException sqlException
+                    && (sqlException.getErrorCode() & SQLITE_PRIMARY_CODE_MASK)
+                            == SQLITE_CONSTRAINT) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
     @Override
     @Transactional(readOnly = true)
     public Optional<ProductDirection> findById(ProductDirectionId id) {
@@ -147,6 +224,36 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
             return Optional.empty();
         }
         return Optional.of(toDomain(row));
+    }
+
+    /**
+     * 查询全局当前 {@code SELECTED} 的方向（INV-D09）。
+     *
+     * <p>不按 User Profile、revision、Repository Profile 或候选资产收窄：领域模型没有为
+     * 「同一条演化流程」定义任何持久化身份，按这些维度收窄等于替它发明一个。
+     *
+     * <p>正常写入路径下最多只会有一行——V7 的部分唯一索引只允许一行
+     * {@code status = 'SELECTED'}。读到多于一行说明存储与领域模型不一致（更早的数据、
+     * 被绕过的写入、迁移中的中间态），此时抛错而不是挑一行返回：静默挑一条会让调用方
+     * 以为系统里只有一个当前方向，而它刚刚取代的那个可能才是有依据的那个。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ProductDirection> findCurrentSelected() {
+        List<ProductDirectionDO> rows = directionMapper.selectList(
+                new LambdaQueryWrapper<ProductDirectionDO>()
+                        .eq(ProductDirectionDO::getStatus,
+                                ProductDirectionStatus.SELECTED.name()));
+
+        if (rows.isEmpty()) {
+            return Optional.empty();
+        }
+        if (rows.size() > 1) {
+            throw new IllegalStateException(
+                    "存储中存在多于一个当前 SELECTED 的 Product Direction（INV-D09）: "
+                            + rows.size() + " 条");
+        }
+        return Optional.of(toDomain(rows.get(0)));
     }
 
     /**

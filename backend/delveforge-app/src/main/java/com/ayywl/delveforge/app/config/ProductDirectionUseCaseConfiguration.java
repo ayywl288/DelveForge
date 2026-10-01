@@ -3,6 +3,8 @@ package com.ayywl.delveforge.app.config;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.DirectionDiscoveryExtraction;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.DiscoverProductDirectionsUseCase;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.GetProductDirectionUseCase;
+import com.ayywl.delveforge.application.opportunitydiscovery.direction.RejectProductDirectionUseCase;
+import com.ayywl.delveforge.application.opportunitydiscovery.direction.SelectProductDirectionUseCase;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.application.port.persistence.RepositoryProfileRepository;
@@ -82,5 +84,24 @@ public class ProductDirectionUseCaseConfiguration {
     public GetProductDirectionUseCase getProductDirectionUseCase(
             ProductDirectionRepository productDirectionRepository) {
         return new GetProductDirectionUseCase(productDirectionRepository);
+    }
+
+    /**
+     * 用户明确选择方向的入口（INV-D07）。
+     *
+     * <p>它只被 Interface 层的显式请求调用。发现流程、AI 解析与启动装配都不装配它到任何
+     * 自动路径上：方向生成之后仍然全部是 {@code CANDIDATE}。
+     */
+    @Bean
+    public SelectProductDirectionUseCase selectProductDirectionUseCase(
+            ProductDirectionRepository productDirectionRepository) {
+        return new SelectProductDirectionUseCase(productDirectionRepository);
+    }
+
+    /** 用户明确拒绝方向的入口。 */
+    @Bean
+    public RejectProductDirectionUseCase rejectProductDirectionUseCase(
+            ProductDirectionRepository productDirectionRepository) {
+        return new RejectProductDirectionUseCase(productDirectionRepository);
     }
 }

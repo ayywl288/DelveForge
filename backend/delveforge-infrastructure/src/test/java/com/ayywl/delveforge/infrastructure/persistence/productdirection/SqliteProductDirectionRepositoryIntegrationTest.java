@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionContentConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.direction.DirectionEvidenceSupport;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
@@ -587,6 +588,125 @@ class SqliteProductDirectionRepositoryIntegrationTest {
         assertEquals(List.of(), repository.findById(DIRECTION_ID).orElseThrow().risks());
     }
 
+    // ---------------------------------------------------------------------
+    // 当前 SELECTED 方向与 INV-D09 的存储层守卫
+    // ---------------------------------------------------------------------
+
+    @Test
+    void findsNoCurrentSelectedDirectionWhenNothingIsSelected() {
+        repository.save(candidateDirection());
+
+        assertTrue(repository.findCurrentSelected().isEmpty(),
+                "只有候选方向时，当前 SELECTED 是空的");
+    }
+
+    @Test
+    void restoresTheExactlyOneCurrentSelectedDirection() {
+        ProductDirection selected = candidateDirection();
+        selected.select();
+        repository.save(selected);
+
+        ProductDirection current = repository.findCurrentSelected().orElseThrow();
+
+        assertEquals(DIRECTION_ID, current.id());
+        assertEquals(ProductDirectionStatus.SELECTED, current.status());
+        assertEquals(TITLE, current.title());
+        assertEquals(USER_PROFILE_REVISION, current.userProfileRevision());
+        assertEquals(List.of(REPOSITORY_PROFILE_ID), current.repositoryProfileIds());
+        assertEquals(List.of(ASSET_ID), current.candidateAssetIds());
+        assertEquals(List.of(USER_BASIS, REPOSITORY_BASIS),
+                current.evidenceSupport().userFit());
+    }
+
+    /**
+     * 存储里已经有两条 SELECTED 时，查询失败，而不是挑一条返回。
+     *
+     * <p>这种状态在正常写入路径下不存在——V7 的部分唯一索引只允许一行。它可能来自更早的
+     * 数据、被绕过的写入或迁移中的中间态，因此这里先把那条索引去掉，再直接写入两行，
+     * 复现「存储与领域模型不一致」的形状。
+     */
+    @Test
+    void refusesToPickOneWhenSeveralSelectedRowsExist() {
+        jdbcTemplate.execute("DROP INDEX ux_product_direction_current_selected");
+        insertSelectedRow("direction-a");
+        insertSelectedRow("direction-b");
+
+        assertThrows(IllegalStateException.class, () -> repository.findCurrentSelected());
+    }
+
+    /**
+     * 存储层不允许同时存在两个当前方向（INV-D09）。
+     *
+     * <p>这是「先查再写」挡不住并发时的最终守卫：两个选择请求可能都读到「当前没有
+     * SELECTED 方向」，后提交的那个在这里被拒绝。
+     *
+     * <p>同时验证 Adapter 把存储层的唯一性冲突翻译成了 Port 能表达的语义——
+     * 抛出的不是 Spring 的数据访问异常，也不是 SQLite 的错误文本。
+     */
+    @Test
+    void refusesASecondCurrentSelectedDirection() {
+        ProductDirection first = candidateDirection();
+        first.select();
+        repository.save(first);
+
+        ProductDirection second = candidateDirection(new ProductDirectionId("direction-2"));
+        second.select();
+
+        assertThrows(ProductDirectionSelectionConflictException.class,
+                () -> repository.save(second));
+
+        assertEquals(1, countSelectedRows(), "库里仍然只有一个当前方向");
+        assertEquals(ProductDirectionStatus.SELECTED,
+                repository.findById(DIRECTION_ID).orElseThrow().status(),
+                "已经存在的那个方向不受影响");
+        assertTrue(repository.findById(new ProductDirectionId("direction-2")).isEmpty(),
+                "被拒绝的方向没有留下身份行");
+    }
+
+    /**
+     * 约束只作用于「当前」，不作用于历史：CANDIDATE / REJECTED / SUPERSEDED 可以有任意多条。
+     */
+    @Test
+    void allowsAnyNumberOfHistoricalDirections() {
+        ProductDirection candidate = candidateDirection(new ProductDirectionId("direction-1"));
+        ProductDirection rejected = candidateDirection(new ProductDirectionId("direction-2"));
+        rejected.reject();
+        ProductDirection superseded = candidateDirection(new ProductDirectionId("direction-3"));
+        superseded.select();
+        superseded.supersede();
+
+        repository.saveAll(List.of(candidate, rejected, superseded));
+
+        assertEquals(3, directionMapper.selectCount(null).intValue());
+        assertEquals(0, countSelectedRows());
+        assertTrue(repository.findById(new ProductDirectionId("direction-2")).isPresent(),
+                "被拒绝的方向仍然保留");
+        assertEquals(ProductDirectionStatus.SUPERSEDED,
+                repository.findById(new ProductDirectionId("direction-3")).orElseThrow().status());
+    }
+
+    private long countSelectedRows() {
+        return directionMapper.selectCount(
+                new LambdaQueryWrapper<ProductDirectionDO>()
+                        .eq(ProductDirectionDO::getStatus,
+                                ProductDirectionStatus.SELECTED.name()));
+    }
+
+    /** 直接写入一行 SELECTED 方向，绕过 Adapter：用于构造存储层才会出现的形状。 */
+    private void insertSelectedRow(String directionId) {
+        jdbcTemplate.update("""
+                        INSERT INTO product_direction
+                            (id, user_profile_id, user_profile_revision, title, problem,
+                             target_product, user_fit, differentiation, technical_value,
+                             estimated_complexity, status)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SELECTED')
+                        """,
+                directionId, USER_PROFILE_ID.value(), USER_PROFILE_REVISION,
+                TITLE, "现有记账工具缺少可导出的报表", "单用户桌面记账工具 + 报表导出",
+                "用户已经在用记账工具，且技术栈匹配", "相比现有工具增加了自定义报表",
+                "可复用现有报表模块的渲染能力", "中等：主要在导出与模板部分");
+    }
+
     @Test
     void writesExactlyOneDirectionWithItsContent() {
         repository.save(candidateDirection());
@@ -707,6 +827,7 @@ class SqliteProductDirectionRepositoryIntegrationTest {
     private static ProductDirection candidateDirection() {
         return candidateDirection(DIRECTION_ID);
     }
+
 
     /** 四个内容子表在当前方向下的总行数，用于验证更新路径不会改动内容行。 */
     private int contentRowCount() {

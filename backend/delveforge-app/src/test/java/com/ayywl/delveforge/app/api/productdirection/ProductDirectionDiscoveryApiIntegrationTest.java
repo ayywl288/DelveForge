@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -20,6 +21,7 @@ import com.ayywl.delveforge.application.opportunitydiscovery.direction.DiscoverP
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.application.port.persistence.RepositoryProfileRepository;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
@@ -137,6 +139,9 @@ class ProductDirectionDiscoveryApiIntegrationTest {
     @Autowired
     private ProductDirectionEvidenceSupportMapper productDirectionEvidenceSupportMapper;
 
+    @Autowired
+    private ProductDirectionRepository productDirectionRepository;
+
     @BeforeEach
     void seedConfirmedInputs() {
         UserProfile profile = UserProfile.create(USER_PROFILE_ID);
@@ -234,6 +239,8 @@ class ProductDirectionDiscoveryApiIntegrationTest {
     @Test
     void returnsDiscoveredDirectionByIdWithItsEvidenceTraceability() throws Exception {
         String id = discoverFirstDirectionId();
+
+        assertNothingWasSelected();
 
         mockMvc.perform(get("/api/product-directions/{id}", id))
                 .andExpect(status().isOk())
@@ -567,6 +574,18 @@ class ProductDirectionDiscoveryApiIntegrationTest {
     // ---------------------------------------------------------------------
     // 辅助
     // ---------------------------------------------------------------------
+
+    /**
+     * 发现不产生任何自动选择：跑完之后全系统仍然没有当前 SELECTED 方向（INV-D07）。
+     *
+     * <p>只断言「每一条新方向都是 CANDIDATE」还不够——那只描述每条方向各自的状态。
+     * INV-D07 约束的是这条链路不得替用户做决定，因此「当前选中为空」是更直接的证据：
+     * 发现链路里没有任何一处调用选择操作。
+     */
+    private void assertNothingWasSelected() {
+        assertTrue(productDirectionRepository.findCurrentSelected().isEmpty(),
+                "发现链路不得产生任何当前 SELECTED 方向");
+    }
 
     private String discoverFirstDirectionId() throws Exception {
         String body = mockMvc.perform(post("/api/product-directions/discovery")

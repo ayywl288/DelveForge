@@ -1,0 +1,41 @@
+-- INV-D09 的存储层守卫：全局最多一个当前 SELECTED Product Direction。
+--
+-- 设计要点：
+--
+-- 1. 这条约束属于「当前状态」，不属于历史。
+--
+--    INV-D09 规定当前 MVP 只支持一个活动演化流程，因此系统全局最多只能存在一个当前
+--    SELECTED 的方向。它约束的是「同时有几个方向正在被推进」，不是「一共有过几个方向」：
+--    CANDIDATE / REJECTED / SUPERSEDED 可以有任何数量，它们各自是历史事实，
+--    不因为被放弃而失去解释能力（§10.5、RULE-DOM-007）。
+--
+--    因此这里用**部分唯一索引**（partial index）而不是普通唯一索引：只对
+--    status = 'SELECTED' 的行生效。普通唯一索引会限制每一种状态的条数，那会直接
+--    禁止「多个候选方向」这一 Product Direction Discovery 的基本形态。
+--
+-- 2. 为什么需要一个数据库级约束，而不是只在 Application 里查一次。
+--
+--    切换方向的正常路径是：读出当前 SELECTED → 原方向 supersede → 新方向 select →
+--    在一个事务里写入两条。这条路径本身是正确的，但它挡不住并发：两个选择请求可能
+--    同时读到「当前没有 SELECTED 方向」，各自由此判定不需要取代任何东西，
+--    然后双双写入 SELECTED。它们各自都「没有违反」自己看到的那份状态。
+--
+--    这类竞态无法靠「先查再写」在应用层消除，只能由存储层作为最终守卫。
+--    Application 负责表达切换语义，本索引负责让「两个当前方向」在物理上不存在。
+--
+-- 3. 它同时约束了切换的写入顺序。
+--
+--    在同一个事务里先把新方向写成 SELECTED、再把原方向写成 SUPERSEDED，中间态会撞上
+--    本索引。因此批次内的顺序必须是「原方向先离开 SELECTED，新方向再进入」。
+--    这条顺序由 ProductDirectionRepository#saveAll 的契约表达（列表顺序即写入顺序），
+--    索引在这里只是让它无法被违反。
+--
+-- 4. 不是历史迁移的一部分。
+--
+--    本索引新增在 V7，不改动 V5 / V6 已经应用过的内容（AGENTS.md：迁移一旦应用不再改写）。
+--    V5 建立 product_direction 时没有这条约束是当时的选择：那时还没有任何选择入口，
+--    也就没有产生第二个 SELECTED 的路径。
+
+CREATE UNIQUE INDEX ux_product_direction_current_selected
+    ON product_direction (status)
+    WHERE status = 'SELECTED';

@@ -7,7 +7,6 @@ import static com.ayywl.delveforge.application.opportunitydiscovery.direction.Di
 import static com.ayywl.delveforge.application.opportunitydiscovery.direction.DirectionDiscoveryFixtures.USER_PROFILE_ID;
 import static com.ayywl.delveforge.application.opportunitydiscovery.direction.DirectionDiscoveryFixtures.USER_PROFILE_REVISION;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.InMemoryDiscoveryRepositories.ProductDirectionRecorder;
@@ -26,6 +25,13 @@ class GetProductDirectionUseCaseTest {
 
     private final GetProductDirectionUseCase useCase = new GetProductDirectionUseCase(repository);
 
+    /**
+     * 读取返回的是保存过的**那一条**方向：身份与全部内容都与写入时一致。
+     *
+     * <p>这里不比较对象引用。替身与真实存储一样，读取时返回独立的对象——真实实现从
+     * 数据库重建方向，本来就不可能交回调用方当初传进去的那个实例。要求同一个实例，
+     * 验证的是替身的实现方式，而不是这个 Use Case 的行为。
+     */
     @Test
     void returnsStoredDirection() {
         ProductDirection stored = direction(ProductDirectionStatus.CANDIDATE);
@@ -33,7 +39,6 @@ class GetProductDirectionUseCaseTest {
 
         ProductDirection loaded = useCase.get(DIRECTION_ID);
 
-        assertSame(stored, loaded);
         assertEquals(DIRECTION_ID, loaded.id());
         assertEquals(USER_PROFILE_ID, loaded.userProfileId());
         assertEquals(USER_PROFILE_REVISION, loaded.userProfileRevision());

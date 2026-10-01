@@ -324,8 +324,8 @@ Repository Profile @ analyzedRevision
   - [ ] Estimated Complexity
   - [ ] Risks
   - [ ] Evidence
-- [ ] 支持用户查看候选 Direction。
-- [ ] 支持用户明确 Select / Reject Direction。
+- [x] 支持用户查看候选 Direction。
+- [x] 支持用户明确 Select / Reject Direction。
 - [ ] 保留 Product Direction 对 User Profile revision 和 Repository Profile 的追溯。
 
 **Acceptance Criteria**
