@@ -7,9 +7,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.ayywl.delveforge.app.api.shared.StubWorkspace;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import java.util.ArrayList;
+import java.util.List;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -18,6 +23,9 @@ import java.nio.file.Path;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,6 +48,7 @@ import org.springframework.transaction.annotation.Transactional;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
+@ExtendWith(OutputCaptureExtension.class)
 class RepositoryAnalysisApiIntegrationTest {
 
     private static final Path DATABASE_FILE =
@@ -93,13 +102,27 @@ class RepositoryAnalysisApiIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    /**
+     * Scout 响应：三个区域，都指向夹具里唯一的 Java 源码。
+     *
+     * <p>目录按路径升序是 {@code pom.xml}、{@code src/main/App.java}，
+     * 因此源码是 {@code RF-2}。
+     */
+    private static final String SCOUT_RESPONSE = """
+            { "focusAreas": [
+                { "label": "入口", "fileRefs": ["RF-2"] },
+                { "label": "实现", "fileRefs": ["RF-2"] },
+                { "label": "支撑", "fileRefs": ["RF-2"] } ] }
+            """;
+
     @BeforeEach
     void resetStubs() {
         WORKSPACE.reset()
                 .givenRevision(REVISION)
                 .givenFile("pom.xml", "<project>spring-boot</project>")
                 .givenFile("src/main/App.java", "public class App {}");
-        AI_GATEWAY.respond(PROPOSAL);
+        // 一次分析调用模型两次：先 Scout，再最终分析
+        AI_GATEWAY.respondAll(SCOUT_RESPONSE, PROPOSAL);
     }
 
     @Test
@@ -124,6 +147,38 @@ class RepositoryAnalysisApiIntegrationTest {
                 .andExpect(jsonPath("$.evidence[0].claim").value("项目使用 Spring Boot"))
                 .andExpect(jsonPath("$.evidence[0].confirmed").value(false))
                 .andExpect(jsonPath("$.evidence[0].confidence").doesNotExist());
+    }
+
+    /**
+     * 日志只记聚合结果，不记文件路径。
+     *
+     * <p>路径属于用户数据，而异常文本可能嵌入凭据，两者都不进日志
+     * （AGENTS.md §8.8）。需要逐条定位时用内存里的诊断，而不是日志。
+     */
+    @Test
+    void logsSafeAggregatesWithoutFilePaths(CapturedOutput output) throws Exception {
+        String assetId = registerAsset(true);
+
+        mockMvc.perform(post("/api/software-assets/{id}/analysis", assetId))
+                .andExpect(status().isCreated());
+
+        String aggregateLine = output.getOut().lines()
+                .filter(line -> line.contains("operation=repository-analysis"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError(
+                        "应当记录一行聚合日志，实际输出: " + output.getOut()));
+
+        assertTrue(aggregateLine.contains("foundationSelectedCount="),
+                "应记录基础材料数量: " + aggregateLine);
+        assertTrue(aggregateLine.contains("targetedSourceSelectedCount="),
+                "应记录定向源码数量: " + aggregateLine);
+        assertTrue(aggregateLine.contains("tooLargeCount=")
+                        && aggregateLine.contains("totalBudgetExceededCount="),
+                "应记录两类跳过数量: " + aggregateLine);
+        assertFalse(aggregateLine.contains("src/main/App.java"),
+                "聚合日志不得出现文件路径: " + aggregateLine);
+        assertFalse(aggregateLine.contains("pom.xml"),
+                "聚合日志不得出现文件路径: " + aggregateLine);
     }
 
     /**
@@ -286,18 +341,20 @@ class RepositoryAnalysisApiIntegrationTest {
     /** AI Gateway 替身：返回预设内容或抛出预设失败。 */
     private static final class StubAiGateway implements AiGateway {
 
-        private String response;
+        private final List<String> responses = new ArrayList<>();
 
         private RuntimeException failure;
 
-        void respond(String rawResponse) {
-            this.response = rawResponse;
-            this.failure = null;
+        /** 按调用顺序返回预设内容：先 Scout，再最终分析。 */
+        void respondAll(String... rawResponses) {
+            responses.clear();
+            responses.addAll(List.of(rawResponses));
+            failure = null;
         }
 
         void failWith(RuntimeException exception) {
             this.failure = exception;
-            this.response = null;
+            this.responses.clear();
         }
 
         @Override
@@ -305,7 +362,10 @@ class RepositoryAnalysisApiIntegrationTest {
             if (failure != null) {
                 throw failure;
             }
-            return response;
+            if (responses.isEmpty()) {
+                throw new AiGatewayException("替身没有更多预设响应");
+            }
+            return responses.remove(0);
         }
     }
 }

@@ -9,6 +9,7 @@ import com.ayywl.delveforge.application.port.ai.AiRole;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapEntry;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -135,6 +136,28 @@ public final class RepositoryScoutExtraction {
                 proposalParser.parse(aiGateway.generate(buildRequest(inputs)));
 
         return proposalResolver.resolve(proposal, inputs);
+    }
+
+    /**
+     * 本次 Scout 会发给模型的**目录载荷**大小，按 UTF-8 字节计。
+     *
+     * <p>它量的是用户消息——也就是描述符清单那一段；系统指令是固定文本，不随仓库变化。
+     *
+     * <p>存在的原因是「先量再调」：模型调用不便宜，而清单过大是本版本处理不了的仓库形态。
+     * 量完之后由调用方决定怎么办——本类不自己判定上限，因为「这个仓库是否在当前版本的能力
+     * 范围内」是一条**流程前置条件**，它的判定与失败语义属于调用这条链路的那一层。
+     *
+     * <p>本方法与 {@link #scout} 用的是同一个渲染入口与同一份输入，因此量到的就是即将发出的
+     * 那一份载荷。
+     *
+     * @param inputs 本次侦察的输入，不得为 {@code null}
+     * @return 目录载荷的 UTF-8 字节数
+     */
+    public int catalogPayloadBytes(RepositoryScoutInputs inputs) {
+        if (inputs == null) {
+            throw new IllegalArgumentException("RepositoryScoutExtraction 必须指定 inputs");
+        }
+        return describeCatalog(inputs).getBytes(StandardCharsets.UTF_8).length;
     }
 
     private AiRequest buildRequest(RepositoryScoutInputs inputs) {

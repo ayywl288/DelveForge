@@ -1,4 +1,34 @@
 delveforge:
+  # Repository Analysis 的运行时上限。
+  #
+  # 这些是**操作调参值**，不是领域规则：它们决定一次分析能读到多少内容，改变它们
+  # 不需要改领域模型，但会改变分析结果的质量（AGENTS.md §8.9）。
+  #
+  # 当前取值用于 Repository Understanding 的第二轮真实验证（Round 2 smoke）。
+  # 那一次验证之后再按真实证据调整——包括「Scout 目录上限是否够」「两条通道读多少才够」。
+  #
+  # 覆盖方式与其它配置一致：
+  #   命令行：--delveforge.repository-analysis.foundation.max-files=20
+  #   环境变量：DELVEFORGE_REPOSITORY_ANALYSIS_FOUNDATION_MAX_FILES=20
+  repository-analysis:
+    scout:
+      # Scout 目录载荷的 UTF-8 字节上限。超过即失败关闭，不截断、不采样、不降级。
+      max-catalog-bytes: 65536
+
+    # 基础材料通道：工程元数据 / 配置 / 文档 / 脚本 / 部署 / 数据模型。
+    # 这一类规模小、可稳定取全，因此上限给得比源码通道紧。
+    foundation:
+      max-files: 12
+      max-file-bytes: 32768
+      max-total-bytes: 98304
+
+    # 定向源码通道：Scout 指出的业务实现。
+    # 单个文件可以更大（实现类通常比配置文件长），总量也相应放宽。
+    targeted-source:
+      max-files: 18
+      max-file-bytes: 65536
+      max-total-bytes: 163840
+
   persistence:
     # SQLite 数据库文件位置。
     #

@@ -2,7 +2,6 @@ package com.ayywl.delveforge.application.repositoryanalysis.workflow;
 
 import com.ayywl.delveforge.application.port.persistence.RepositoryProfileRepository;
 import com.ayywl.delveforge.application.port.persistence.SoftwareAssetRepository;
-import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
@@ -23,37 +22,46 @@ import java.util.UUID;
 /**
  * 分析一个 Software Asset 的 Repository，形成并保存一份 Repository Profile。
  *
- * <p>对应 DOMAIN_MODEL.md §8.3 的 Analyze Repository。它把此前各自独立的能力
- * 串成一条链路：
+ * <p>对应 DOMAIN_MODEL.md §8.3 的 Analyze Repository。
  *
  * <pre>
  * SoftwareAsset
- *         ↓
- * 只读 Workspace
+ *         ↓  读取权限（Domain）
+ * 只读 Workspace 可读性
  *         ↓
  * 解析一次 analyzedRevision
  *         ↓
- * 材料（listEntries → readFile @ 该 revision）
- *         ↓
- * AI 提议
- *         ↓
+ * 理解 Repository 并读回材料（RepositoryUnderstanding）
+ *         ↓  材料 → AI 提议 → 严格解析 → 来源校验
  * RepositoryProfile
  *         ↓
- * 保存
+ * 保存（唯一一次写入）
+ * </pre>
+ *
+ * <h2>理解 Repository 的那一段不在这里</h2>
+ *
+ * <p>「建 Map → Scout → 规划 → 读取」是一段独立的、只读的、可以单独验证的流程，
+ * 因此它放在 {@link RepositoryUnderstanding}。本类只负责三件它才该负责的事：
+ *
+ * <pre>
+ * 资产层面的前置条件（读取权限、可读性）
+ * revision 只解析一次
+ * 把材料变成一个 Repository Profile 并在最后写入一次
  * </pre>
  *
  * <h2>Revision 一致性</h2>
  *
- * <p>HEAD 只解析一次，之后所有结构读取与文件读取都带着这个具体的 commit id，
- * 不再重新解析 HEAD。因此 RepositoryProfile.analyzedRevision 与它所描述的内容
- * 严格对应：即使分析期间源 Repository 又产生了新的提交，本次分析也不会混入
- * 另一个 revision 的内容。
+ * <p>HEAD 只在这里解析一次。之后建 Map、Scout、规划、每一次文件读取都带着这同一个 commit id，
+ * 不再重新解析 HEAD。因此 {@code RepositoryProfile.analyzedRevision} 与它所描述的内容
+ * 严格对应：即使分析期间源 Repository 又产生了新的提交，本次分析也不会混入另一个 revision
+ * 的内容。
  *
  * <h2>失败不留下任何东西</h2>
  *
  * <p>保存是整条链路的最后一步，且只发生一次。前置步骤——资产校验、Workspace 可读性、
- * revision 解析、材料读取、AI 提取、领域创建——任一失败都以异常结束，此时
- * RepositoryProfile 尚未写入，不会留下半成品快照。
+ * revision 解析、理解与读取、AI 提取、领域创建——任一失败都以异常结束，此时
+ * RepositoryProfile 尚未写入，不会留下半成品快照。理解过程中的失败（没有源码候选、
+ * Scout 失败、引用校验失败、读取失败）同样如此。
  *
  * <h2>只读能力边界</h2>
  *
@@ -76,14 +84,14 @@ public class AnalyzeRepositoryUseCase {
 
     private final SoftwareAssetRepository softwareAssetRepository;
     private final WorkspaceReadPort workspace;
-    private final RepositoryAnalysisMaterialCollector materialCollector;
+    private final RepositoryUnderstanding repositoryUnderstanding;
     private final RepositoryAnalysisExtraction analysisExtraction;
     private final RepositoryProfileRepository repositoryProfileRepository;
 
     public AnalyzeRepositoryUseCase(
             SoftwareAssetRepository softwareAssetRepository,
             WorkspaceReadPort workspace,
-            RepositoryAnalysisMaterialCollector materialCollector,
+            RepositoryUnderstanding repositoryUnderstanding,
             RepositoryAnalysisExtraction analysisExtraction,
             RepositoryProfileRepository repositoryProfileRepository) {
 
@@ -93,8 +101,9 @@ public class AnalyzeRepositoryUseCase {
         if (workspace == null) {
             throw new IllegalArgumentException("AnalyzeRepositoryUseCase 必须指定 workspace");
         }
-        if (materialCollector == null) {
-            throw new IllegalArgumentException("AnalyzeRepositoryUseCase 必须指定 materialCollector");
+        if (repositoryUnderstanding == null) {
+            throw new IllegalArgumentException(
+                    "AnalyzeRepositoryUseCase 必须指定 repositoryUnderstanding");
         }
         if (analysisExtraction == null) {
             throw new IllegalArgumentException("AnalyzeRepositoryUseCase 必须指定 analysisExtraction");
@@ -106,7 +115,7 @@ public class AnalyzeRepositoryUseCase {
 
         this.softwareAssetRepository = softwareAssetRepository;
         this.workspace = workspace;
-        this.materialCollector = materialCollector;
+        this.repositoryUnderstanding = repositoryUnderstanding;
         this.analysisExtraction = analysisExtraction;
         this.repositoryProfileRepository = repositoryProfileRepository;
     }
@@ -119,11 +128,13 @@ public class AnalyzeRepositoryUseCase {
      * @throws SoftwareAssetNotFoundException     该资产不存在
      * @throws com.ayywl.delveforge.domain.asset.SoftwareAssetNotReadableException
      *                                            该资产当前不允许读取（INV-A01）
-     * @throws WorkspaceException                 该资产的位置当前不是可读取的本地 Git Repository，
-     *                                            或 Workspace 读取失败
+     * @throws RepositoryNotAnalyzableException   该位置当前不是可读取的本地 Git Repository，
+     *                                            或这个 Repository 在当前分析方式下读不出材料
+     * @throws com.ayywl.delveforge.application.port.workspace.WorkspaceException
+     *                                            Workspace 读取失败
      * @throws com.ayywl.delveforge.application.port.ai.AiGatewayException
      *                                            AI 调用失败，或返回内容不满足约定
-     * @throws IllegalArgumentException          领域拒绝这次分析（例如分析不出一条可用结论）
+     * @throws IllegalArgumentException           领域拒绝这次分析（例如分析不出一条可用结论）
      */
     public RepositoryProfile analyze(SoftwareAssetId softwareAssetId) {
         SoftwareAsset asset = softwareAssetRepository.findById(softwareAssetId)
@@ -139,11 +150,11 @@ public class AnalyzeRepositoryUseCase {
                             + asset.location());
         }
 
-        // 只在这里解析一次 HEAD：之后所有读取都固定在这个 revision 上
+        // 只在这里解析一次 HEAD：之后建 Map、Scout、规划与每一次读取都固定在这个 revision 上
         String analyzedRevision = workspace.headRevision(workspaceRef);
 
         List<RepositorySourceFile> material =
-                materialCollector.collect(workspaceRef, analyzedRevision);
+                repositoryUnderstanding.understand(workspaceRef, analyzedRevision);
         RepositoryAnalysisProposal proposal = analysisExtraction.extract(material);
 
         RepositoryProfile profile = RepositoryProfile.create(

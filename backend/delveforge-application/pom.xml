@@ -37,6 +37,19 @@
         </dependency>
 
         <!--
+            结构化日志门面。
+
+            Repository Analysis 需要记录一行**聚合**结果（各通道选了多少、实际读到多少、
+            按原因跳过了多少），而这些数量只在 Application 内部可见。这里只引入 API 门面：
+            它不是容器、不引入 Spring，本层「不依赖容器、测试保持纯 JUnit」的性质不变；
+            运行时实现由 app 模块已有的日志后端提供。
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+
+        <!--
             Application 层测试只验证 Port 边界与编排行为，使用 fake 代替外部能力，
             因此不引入 Spring / Spring Boot，保持纯 JUnit 单元测试。
         -->

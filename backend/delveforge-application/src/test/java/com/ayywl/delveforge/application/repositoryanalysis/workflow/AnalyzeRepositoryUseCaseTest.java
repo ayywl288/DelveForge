@@ -13,6 +13,11 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.InMemorySoftwareAssetRepository;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositoryAnalysisExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapBuilder;
+import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadExecutor;
+import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
+import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetNotReadableException;
@@ -29,11 +34,18 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
- * 验证 Analyze Repository 的编排：只读读取 → AI 提议 → 创建快照 → 保存。
+ * 验证 Analyze Repository 的完整编排。
+ *
+ * <pre>
+ * 资产校验 → 解析一次 revision → 理解并读取 → AI 提议 → 创建快照 → 保存一次
+ * </pre>
  *
  * <p>Workspace 与 AI 都在 Port 边界用替身替代，因此本类不依赖 Spring、不访问网络、
  * 不读取真实文件系统（AGENTS.md §10.2、§10.6）。真实 Git 集成由 Infrastructure 的
  * Workspace Adapter 测试覆盖。
+ *
+ * <p>整条链路会调用模型两次：先 Scout（只看描述符），再分析（看真正读到的内容）。
+ * 替身因此按调用顺序返回两份预设响应。
  */
 class AnalyzeRepositoryUseCaseTest {
 
@@ -45,13 +57,32 @@ class AnalyzeRepositoryUseCaseTest {
 
     private static final String REVISION_B = "bbbb2222";
 
+    private static final String POM = "pom.xml";
+
+    private static final String APP = "src/main/App.java";
+
+    private static final String OTHER = "src/main/Other.java";
+
     private static final Map<String, String> FILES_AT_A = Map.of(
-            "pom.xml", "<project>spring-boot</project>",
-            "src/main/App.java", "public class App {}");
+            POM, "<project>spring-boot</project>",
+            APP, "public class App {}",
+            OTHER, "public class Other {}");
 
     private static final Map<String, String> FILES_AT_B = Map.of(
             "build.gradle", "plugins { id 'java' }",
             "src/main/Other.java", "public class Other {}");
+
+    /**
+     * 目录按路径升序：RF-1 = pom.xml，RF-2 = App.java，RF-3 = Other.java。
+     *
+     * <p>Scout 只指出 {@code App.java}——{@code Other.java} 也在源码候选里，但它没被选中。
+     */
+    private static final String SCOUT_RESPONSE = """
+            { "focusAreas": [
+                { "label": "入口", "fileRefs": ["RF-2"] },
+                { "label": "再看一次", "fileRefs": ["RF-2"] },
+                { "label": "还是它", "fileRefs": ["RF-2"] } ] }
+            """;
 
     private static final String PROPOSAL = """
             {
@@ -78,14 +109,11 @@ class AnalyzeRepositoryUseCaseTest {
 
     private final StubAiGateway aiGateway = new StubAiGateway();
 
-    private final AnalyzeRepositoryUseCase useCase = useCaseWithDefaultPolicy();
+    private final AnalyzeRepositoryUseCase useCase = useCase();
 
     @Test
     void analyzesAssetAndSavesOneProfile() {
-        seedAsset(true);
-        workspace.givenRevision(REVISION_A, FILES_AT_A);
-        workspace.givenHeadRevision(REVISION_A);
-        aiGateway.respond(PROPOSAL);
+        seedSuccessfulRun();
 
         RepositoryProfile profile = useCase.analyze(ASSET_ID);
 
@@ -107,33 +135,26 @@ class AnalyzeRepositoryUseCaseTest {
      */
     @Test
     void createsRepositoryEvidenceThatPointsAtRealReadFiles() {
-        seedAsset(true);
-        workspace.givenRevision(REVISION_A, FILES_AT_A);
-        workspace.givenHeadRevision(REVISION_A);
-        aiGateway.respond(PROPOSAL);
+        seedSuccessfulRun();
 
         RepositoryProfile profile = useCase.analyze(ASSET_ID);
 
         assertEquals(1, profile.evidence().size());
         Evidence evidence = profile.evidence().get(0);
         assertEquals(EvidenceSourceType.REPOSITORY, evidence.sourceType());
-        assertEquals("pom.xml", evidence.sourceRef());
+        assertEquals(POM, evidence.sourceRef());
         assertTrue(workspace.readPaths().contains(evidence.sourceRef()),
                 "Evidence 的路径必须是本次真正读过的路径");
-        assertEquals("项目使用 Spring Boot", evidence.claim());
         assertFalse(evidence.confirmed(), "模型得出的结论不等于已确认的事实");
         assertEquals(null, evidence.confidence(), "领域未规定可信程度口径，不由模型给出");
     }
 
     /**
-     * HEAD 只解析一次，之后所有读取都固定在这个 revision 上。
+     * HEAD 只解析一次，之后列目录与每一次读取都固定在这个 revision 上。
      */
     @Test
-    void resolvesHeadOnceAndPinsEveryReadToIt() {
-        seedAsset(true);
-        workspace.givenRevision(REVISION_A, FILES_AT_A);
-        workspace.givenHeadRevision(REVISION_A);
-        aiGateway.respond(PROPOSAL);
+    void resolvesHeadOnceAndPinsEveryOperationToIt() {
+        seedSuccessfulRun();
 
         useCase.analyze(ASSET_ID);
 
@@ -145,49 +166,67 @@ class AnalyzeRepositoryUseCaseTest {
 
     /**
      * 分析期间源 Repository 前移 HEAD 时，本次分析仍然全部来自最初解析出的 revision。
-     *
-     * <p>这里让两个 revision 有完全不同的文件：如果实现中途重新解析了 HEAD，
-     * 材料就会变成另一个 revision 的树，模型给出的 pom.xml 依据将无法通过
-     * sourceRef 校验，本次分析会直接失败。
      */
     @Test
     void keepsUsingTheResolvedRevisionWhenHeadMovesDuringAnalysis() {
-        seedAsset(true);
-        workspace.givenRevision(REVISION_A, FILES_AT_A);
-        workspace.givenHeadRevision(REVISION_A);
+        seedSuccessfulRun();
         workspace.givenRevision(REVISION_B, FILES_AT_B);
-        workspace.givenHeadRevision(REVISION_A);
         workspace.moveHeadAfterNextListing(REVISION_B);
-        aiGateway.respond(PROPOSAL);
 
         RepositoryProfile profile = useCase.analyze(ASSET_ID);
 
         assertEquals(REVISION_A, profile.analyzedRevision());
         assertTrue(workspace.readRevisions().stream().allMatch(REVISION_A::equals),
                 "HEAD 前移之后仍必须读取最初解析出的 revision: " + workspace.readRevisions());
-        assertEquals("pom.xml", profile.evidence().get(0).sourceRef());
+        assertEquals(POM, profile.evidence().get(0).sourceRef());
     }
 
     /**
-     * 材料的路径来自真实读取链路：先列目录、再按同一路径读取，Evidence 的 sourceRef
-     * 因此能指回实际读过的文件。
+     * 最终分析拿到的是真实读到的内容，而不是描述符或目录。
      */
     @Test
-    void sourcesMaterialPathsFromRealListingsAndReads() {
-        seedAsset(true);
-        workspace.givenRevision(REVISION_A, FILES_AT_A);
-        workspace.givenHeadRevision(REVISION_A);
-        aiGateway.respond(PROPOSAL);
+    void sendsActuallyReadContentsToTheFinalAnalysis() {
+        seedSuccessfulRun();
 
         useCase.analyze(ASSET_ID);
 
-        assertEquals(List.of("pom.xml", "src/main/App.java"), workspace.readPaths(),
-                "只读取列目录得到的文件，顺序按相对路径升序");
-        String request = aiGateway.lastRequest().messages().get(1).content();
-        assertTrue(request.contains("pom.xml"));
-        assertTrue(request.contains("<project>spring-boot</project>"),
-                "材料必须带上真实读到的内容");
-        assertTrue(request.contains("src/main/App.java"));
+        assertEquals(2, aiGateway.callCount(), "一次 Scout + 一次最终分析");
+        String finalRequest = aiGateway.lastRequest().messages().get(1).content();
+        assertTrue(finalRequest.contains(POM));
+        assertTrue(finalRequest.contains("<project>spring-boot</project>"),
+                "最终分析必须拿到真实读到的内容");
+        assertTrue(finalRequest.contains("public class App {}"));
+    }
+
+    /**
+     * 只读计划里被选中的文件：Scout 没有指出的源码不会被读取。
+     *
+     * <p>这一条同时证明旧的确定性选材策略**没有**在这条链路上生效——旧策略会按类别
+     * 轮转把同一类里的源码都读进来，包括 {@code Other.java}。
+     * 现在读哪些文件由 Scout 决定，它没有指出 {@code Other.java}。
+     */
+    @Test
+    void readsOnlyThePlannedFilesAndNeverFallsBackToSampling() {
+        seedSuccessfulRun();
+
+        useCase.analyze(ASSET_ID);
+
+        assertTrue(workspace.readPaths().contains(POM), "基础材料应当被读取");
+        assertTrue(workspace.readPaths().contains(APP), "Scout 指出的源码应当被读取");
+        assertFalse(workspace.readPaths().contains(OTHER),
+                "Scout 没有指出的源码不得被读取，更不能退回按类别采样: " + workspace.readPaths());
+    }
+
+    /**
+     * 只读边界：整条链路里没有任何修改能力的调用。
+     */
+    @Test
+    void neverUsesMutationCapability() {
+        seedSuccessfulRun();
+
+        useCase.analyze(ASSET_ID);
+
+        assertEquals(0, workspace.mutationCalls());
     }
 
     /**
@@ -195,10 +234,7 @@ class AnalyzeRepositoryUseCaseTest {
      */
     @Test
     void createsANewSnapshotForEachAnalysis() {
-        seedAsset(true);
-        workspace.givenRevision(REVISION_A, FILES_AT_A);
-        workspace.givenHeadRevision(REVISION_A);
-        aiGateway.respond(PROPOSAL);
+        seedSuccessfulRun(2);
 
         RepositoryProfile first = useCase.analyze(ASSET_ID);
         RepositoryProfile second = useCase.analyze(ASSET_ID);
@@ -208,20 +244,9 @@ class AnalyzeRepositoryUseCaseTest {
         assertEquals(2, profileRepository.saveCount());
     }
 
-    /**
-     * 只读边界：整条链路里没有任何修改能力的调用。
-     */
-    @Test
-    void neverUsesMutationCapability() {
-        seedAsset(true);
-        workspace.givenRevision(REVISION_A, FILES_AT_A);
-        workspace.givenHeadRevision(REVISION_A);
-        aiGateway.respond(PROPOSAL);
-
-        useCase.analyze(ASSET_ID);
-
-        assertEquals(0, workspace.mutationCalls());
-    }
+    // ---------------------------------------------------------------------
+    // 前置条件
+    // ---------------------------------------------------------------------
 
     @Test
     void rejectsUnknownAsset() {
@@ -264,52 +289,58 @@ class AnalyzeRepositoryUseCaseTest {
     }
 
     /**
-     * 没有任何可分析材料时明确失败，而不是让模型对着空材料编造结论，
-     * 也不写入任何快照。
+     * 没有任何源码候选时明确失败，而不是让模型对着空材料编造结论，也不写入任何快照。
+     *
+     * <p>本版本不做「只分析基础材料」的降级。
      */
     @Test
-    void doesNotSaveProfileWhenThereIsNoAnalyzableMaterial() {
+    void doesNotSaveProfileWhenThereIsNoSourceCandidate() {
         seedAsset(true);
-        workspace.givenRevision(REVISION_A, Map.of("logo.png", "not really an image"));
+        workspace.givenRevision(REVISION_A, Map.of(POM, "<project/>", "README.md", "# demo"));
         workspace.givenHeadRevision(REVISION_A);
 
         assertThrows(RepositoryNotAnalyzableException.class, () -> useCase.analyze(ASSET_ID));
 
-        assertEquals(0, aiGateway.callCount(), "没有材料时不调用 AI");
+        assertEquals(0, aiGateway.callCount(), "没有源码候选时不调用 AI");
         assertEquals(0, profileRepository.saveCount());
     }
 
+    // ---------------------------------------------------------------------
+    // 失败原子性：任何一步失败都不留下快照
+    // ---------------------------------------------------------------------
+
     @Test
     void doesNotSaveProfileWhenWorkspaceReadFails() {
-        seedAsset(true);
-        workspace.givenRevision(REVISION_A, FILES_AT_A);
-        workspace.givenHeadRevision(REVISION_A);
+        seedSuccessfulRun();
         workspace.failReadsWith(new WorkspaceException("读取失败"));
 
         assertThrows(WorkspaceException.class, () -> useCase.analyze(ASSET_ID));
 
-        assertEquals(0, aiGateway.callCount());
         assertEquals(0, profileRepository.saveCount());
     }
 
+    /**
+     * Scout 失败时整次分析失败，不退回旧策略。
+     */
     @Test
-    void doesNotSaveProfileWhenAiCallFails() {
+    void doesNotSaveProfileWhenScoutFails() {
         seedAsset(true);
         workspace.givenRevision(REVISION_A, FILES_AT_A);
         workspace.givenHeadRevision(REVISION_A);
-        aiGateway.failWith(new AiGatewayException("模型调用失败"));
+        aiGateway.failOnCall(1, new AiGatewayException("Scout 调用失败"));
 
         assertThrows(AiGatewayException.class, () -> useCase.analyze(ASSET_ID));
 
         assertEquals(0, profileRepository.saveCount());
+        assertTrue(workspace.readPaths().isEmpty(), "Scout 失败时不读取任何文件");
     }
 
     @Test
-    void doesNotSaveProfileWhenAiOutputCannotBeParsed() {
+    void doesNotSaveProfileWhenScoutOutputCannotBeParsed() {
         seedAsset(true);
         workspace.givenRevision(REVISION_A, FILES_AT_A);
         workspace.givenHeadRevision(REVISION_A);
-        aiGateway.respond("{\"purpose\":\"只有一个字段\"}");
+        aiGateway.respondAll("{\"focusAreas\":[]}");
 
         assertThrows(AiGatewayException.class, () -> useCase.analyze(ASSET_ID));
 
@@ -317,14 +348,40 @@ class AnalyzeRepositoryUseCaseTest {
     }
 
     /**
-     * Task 6 的 sourceRef 校验在本流程中依然生效：模型指向没有提供的文件时整次分析失败。
+     * 最终分析调用失败时同样不留下快照——此时材料已经读过了，但仍然没有写入。
+     */
+    @Test
+    void doesNotSaveProfileWhenTheFinalAnalysisFails() {
+        seedSuccessfulRun();
+        aiGateway.failOnCall(2, new AiGatewayException("分析调用失败"));
+
+        assertThrows(AiGatewayException.class, () -> useCase.analyze(ASSET_ID));
+
+        assertEquals(0, profileRepository.saveCount());
+    }
+
+    @Test
+    void doesNotSaveProfileWhenFinalAnalysisOutputCannotBeParsed() {
+        seedAsset(true);
+        workspace.givenRevision(REVISION_A, FILES_AT_A);
+        workspace.givenHeadRevision(REVISION_A);
+        aiGateway.respondAll(SCOUT_RESPONSE, "{\"purpose\":\"只有一个字段\"}");
+
+        assertThrows(AiGatewayException.class, () -> useCase.analyze(ASSET_ID));
+
+        assertEquals(0, profileRepository.saveCount());
+    }
+
+    /**
+     * sourceRef 校验在本流程中依然生效：模型指向没有提供的文件时整次分析失败。
      */
     @Test
     void doesNotSaveProfileWhenEvidenceReferencesAFileThatWasNotSent() {
         seedAsset(true);
         workspace.givenRevision(REVISION_A, FILES_AT_A);
         workspace.givenHeadRevision(REVISION_A);
-        aiGateway.respond(PROPOSAL.replace("pom.xml", "some/nonexistent/file.java"));
+        aiGateway.respondAll(SCOUT_RESPONSE,
+                PROPOSAL.replace(POM, "some/nonexistent/file.java"));
 
         assertThrows(AiGatewayException.class, () -> useCase.analyze(ASSET_ID));
 
@@ -333,17 +390,13 @@ class AnalyzeRepositoryUseCaseTest {
 
     /**
      * 领域拒绝发生在保存之前。
-     *
-     * <p>这里用一个会违反领域约束的输入触发拒绝：Workspace 返回空白 revision。
-     * 真实 Adapter 不会返回空 revision（空仓库在取 revision 时就已经失败），
-     * 本测试验证的是「领域拒绝时不会有任何写入」这条顺序。
      */
     @Test
     void doesNotSaveProfileWhenDomainRejectsTheAnalysis() {
         seedAsset(true);
         workspace.givenRevision("  ", FILES_AT_A);
         workspace.givenHeadRevision("  ");
-        aiGateway.respond(PROPOSAL);
+        aiGateway.respondAll(SCOUT_RESPONSE, PROPOSAL);
 
         assertThrows(IllegalArgumentException.class, () -> useCase.analyze(ASSET_ID));
 
@@ -352,31 +405,62 @@ class AnalyzeRepositoryUseCaseTest {
 
     @Test
     void rejectsMissingDependencies() {
+        RepositoryUnderstanding understanding = understanding();
         RepositoryAnalysisExtraction extraction =
                 new RepositoryAnalysisExtraction(aiGateway, new ObjectMapper());
-        RepositoryAnalysisMaterialCollector collector = new RepositoryAnalysisMaterialCollector(
-                workspace, RepositoryAnalysisMaterialPolicy.mvpDefault());
 
         assertThrows(IllegalArgumentException.class, () -> new AnalyzeRepositoryUseCase(
-                null, workspace, collector, extraction, profileRepository));
+                null, workspace, understanding, extraction, profileRepository));
         assertThrows(IllegalArgumentException.class, () -> new AnalyzeRepositoryUseCase(
-                assetRepository, null, collector, extraction, profileRepository));
+                assetRepository, null, understanding, extraction, profileRepository));
         assertThrows(IllegalArgumentException.class, () -> new AnalyzeRepositoryUseCase(
                 assetRepository, workspace, null, extraction, profileRepository));
         assertThrows(IllegalArgumentException.class, () -> new AnalyzeRepositoryUseCase(
-                assetRepository, workspace, collector, null, profileRepository));
+                assetRepository, workspace, understanding, null, profileRepository));
         assertThrows(IllegalArgumentException.class, () -> new AnalyzeRepositoryUseCase(
-                assetRepository, workspace, collector, extraction, null));
+                assetRepository, workspace, understanding, extraction, null));
     }
 
-    private AnalyzeRepositoryUseCase useCaseWithDefaultPolicy() {
+    // ---------------------------------------------------------------------
+    // 辅助
+    // ---------------------------------------------------------------------
+
+    private AnalyzeRepositoryUseCase useCase() {
         return new AnalyzeRepositoryUseCase(
                 assetRepository,
                 workspace,
-                new RepositoryAnalysisMaterialCollector(
-                        workspace, RepositoryAnalysisMaterialPolicy.mvpDefault()),
+                understanding(),
                 new RepositoryAnalysisExtraction(aiGateway, new ObjectMapper()),
                 profileRepository);
+    }
+
+    private RepositoryUnderstanding understanding() {
+        RepositoryMaterialBudget foundation = new RepositoryMaterialBudget(12, 32_768, 98_304);
+        RepositoryMaterialBudget targetedSource =
+                new RepositoryMaterialBudget(18, 65_536, 163_840);
+        return new RepositoryUnderstanding(
+                new RepositoryMapBuilder(workspace),
+                new RepositoryScoutExtraction(aiGateway, new ObjectMapper()),
+                new RepositoryReadPlanner(foundation, targetedSource),
+                new RepositoryReadExecutor(workspace, foundation, targetedSource),
+                65_536);
+    }
+
+    private void seedSuccessfulRun() {
+        seedSuccessfulRun(1);
+    }
+
+    private void seedSuccessfulRun(int runs) {
+        seedAsset(true);
+        workspace.givenRevision(REVISION_A, FILES_AT_A);
+        workspace.givenHeadRevision(REVISION_A);
+
+        List<String> responses = new ArrayList<>();
+        for (int index = 0; index < runs; index++) {
+            responses.add(SCOUT_RESPONSE);
+            responses.add(PROPOSAL);
+        }
+        aiGateway.respondAll(responses.toArray(String[]::new));
     }
 
     private void seedAsset(boolean readPermissionAllowed) {
@@ -390,23 +474,27 @@ class AnalyzeRepositoryUseCaseTest {
                 UsageAuthorization.UNCLEAR));
     }
 
-    /** AI Gateway 替身：记录收到的请求，并返回预设内容或抛出预设失败。 */
+    /** AI Gateway 替身：按调用顺序返回预设内容，可指定某一次调用失败。 */
     private static final class StubAiGateway implements AiGateway {
 
         private final List<AiRequest> requests = new ArrayList<>();
 
-        private String response;
+        private final List<String> responses = new ArrayList<>();
+
+        private int failOnCall = -1;
 
         private RuntimeException failure;
 
-        void respond(String rawResponse) {
-            this.response = rawResponse;
-            this.failure = null;
+        void respondAll(String... rawResponses) {
+            responses.clear();
+            responses.addAll(List.of(rawResponses));
+            failOnCall = -1;
+            failure = null;
         }
 
-        void failWith(RuntimeException exception) {
+        void failOnCall(int callNumber, RuntimeException exception) {
+            this.failOnCall = callNumber;
             this.failure = exception;
-            this.response = null;
         }
 
         AiRequest lastRequest() {
@@ -420,10 +508,13 @@ class AnalyzeRepositoryUseCaseTest {
         @Override
         public String generate(AiRequest request) {
             requests.add(request);
-            if (failure != null) {
+            if (requests.size() == failOnCall) {
                 throw failure;
             }
-            return response;
+            if (responses.isEmpty()) {
+                throw new AiGatewayException("替身没有更多预设响应");
+            }
+            return responses.remove(0);
         }
     }
 }

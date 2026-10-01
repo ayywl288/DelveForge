@@ -15,9 +15,13 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositoryAnalysisExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapBuilder;
+import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadExecutor;
+import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
+import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.AnalyzeRepositoryUseCase;
-import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryAnalysisMaterialCollector;
-import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryAnalysisMaterialPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryUnderstanding;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetSource;
@@ -96,6 +100,17 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
             }
             """;
 
+    /**
+     * Scout 响应：三个区域，都指向夹具里那唯一的 Java 源码。
+     *
+     * <p>它只是「去哪里看」的意见，因此这里的形状（三个区域、指向同一处）对本类验证的
+     * 链路性质没有影响——本类关心的是真实 Git 与真实数据库这一段。
+     */
+    private static final String SCOUT_RESPONSE = scoutResponse("RF-2");
+
+    /** README.md 排在 pom.xml 之前的那份夹具里，Java 源码是 RF-3。 */
+    private static final String SCOUT_RESPONSE_WITH_README = scoutResponse("RF-3");
+
     @DynamicPropertySource
     static void databaseProperties(DynamicPropertyRegistry registry) {
         registry.add("delveforge.persistence.database-file", DATABASE_FILE::toString);
@@ -119,25 +134,16 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
         }
 
         @Bean
-        RepositoryAnalysisMaterialCollector repositoryAnalysisMaterialCollector(
-                WorkspaceReadPort workspaceReadPort) {
-            return new RepositoryAnalysisMaterialCollector(
-                    workspaceReadPort, RepositoryAnalysisMaterialPolicy.mvpDefault());
-        }
-
-        @Bean
         AnalyzeRepositoryUseCase analyzeRepositoryUseCase(
                 SoftwareAssetRepository softwareAssetRepository,
                 WorkspaceReadPort workspaceReadPort,
-                RepositoryAnalysisMaterialCollector repositoryAnalysisMaterialCollector,
                 RepositoryProfileRepository repositoryProfileRepository,
                 ObjectMapper objectMapper) {
-            return new AnalyzeRepositoryUseCase(
-                    softwareAssetRepository,
+            return useCaseWith(
                     workspaceReadPort,
-                    repositoryAnalysisMaterialCollector,
-                    new RepositoryAnalysisExtraction(AI_GATEWAY, objectMapper),
-                    repositoryProfileRepository);
+                    softwareAssetRepository,
+                    repositoryProfileRepository,
+                    objectMapper);
         }
     }
 
@@ -172,10 +178,11 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
     @Test
     void keepsTheResolvedRevisionWhenRealHeadMovesDuringAnalysis() throws Exception {
         Path repository = REPOSITORIES.createCommitted("head-moves", Map.of(
-                "pom.xml", "<project>old</project>"));
+                "pom.xml", "<project>old</project>",
+                "src/main/App.java", "public class App {}"));
         String resolvedRevision = GitTestRepositories.headRevision(repository);
         registerAsset(repository);
-        AI_GATEWAY.respond(PROPOSAL);
+        AI_GATEWAY.respondAll(SCOUT_RESPONSE, PROPOSAL);
 
         WorkspaceReadPort movingHead = new MoveHeadOnFirstListing(
                 new GitWorkspaceAdapter(), repository, "pom.xml", "<project>new</project>");
@@ -206,7 +213,8 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
     @Test
     void leavesNoRowsWhenTheAiCallFails() throws Exception {
         Path repository = REPOSITORIES.createCommitted("ai-fails", Map.of(
-                "pom.xml", "<project>spring-boot</project>"));
+                "pom.xml", "<project>spring-boot</project>",
+                "src/main/App.java", "public class App {}"));
         registerAsset(repository);
         AI_GATEWAY.failWith(new AiGatewayException("模型调用失败"));
 
@@ -218,10 +226,12 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
     @Test
     void leavesNoRowsWhenTheProposalIsNotUsable() throws Exception {
         Path repository = REPOSITORIES.createCommitted("bad-proposal", Map.of(
-                "pom.xml", "<project>spring-boot</project>"));
+                "pom.xml", "<project>spring-boot</project>",
+                "src/main/App.java", "public class App {}"));
         registerAsset(repository);
-        // 依据指向本次没有提供的文件：Task 6 的校验会拒绝整次分析
-        AI_GATEWAY.respond(PROPOSAL.replace("pom.xml", "not/sent.java"));
+        // 依据指向本次没有提供的文件：提取阶段的来源校验会拒绝整次分析
+        AI_GATEWAY.respondAll(SCOUT_RESPONSE,
+                PROPOSAL.replace("pom.xml", "not/sent.java"));
 
         assertThrows(AiGatewayException.class, () -> useCase.analyze(ASSET_ID));
 
@@ -236,7 +246,7 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
                 "src/main/App.java", "public class App {}"));
         String headRevision = GitTestRepositories.headRevision(repository);
         registerAsset(repository);
-        AI_GATEWAY.respond(PROPOSAL);
+        AI_GATEWAY.respondAll(SCOUT_RESPONSE_WITH_README, PROPOSAL);
 
         Map<String, String> before = GitTestRepositories.snapshot(repository);
 
@@ -280,9 +290,11 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
     @Test
     void keepsOneSnapshotPerAnalysis() throws Exception {
         Path repository = REPOSITORIES.createCommitted("analyzed-twice", Map.of(
-                "pom.xml", "<project>spring-boot</project>"));
+                "pom.xml", "<project>spring-boot</project>",
+                "src/main/App.java", "public class App {}"));
         registerAsset(repository);
-        AI_GATEWAY.respond(PROPOSAL);
+        // 两次分析，每次都是「先 Scout、再最终分析」
+        AI_GATEWAY.respondAll(SCOUT_RESPONSE, PROPOSAL, SCOUT_RESPONSE, PROPOSAL);
 
         RepositoryProfile first = useCase.analyze(ASSET_ID);
         RepositoryProfile second = useCase.analyze(ASSET_ID);
@@ -298,14 +310,53 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
 
     /** 用给定的 Workspace 能力跑一次分析，其余依赖使用真实的那些。 */
     private RepositoryProfile analyzeWith(WorkspaceReadPort workspacePort) {
+        return useCaseWith(workspacePort, softwareAssetRepository, repositoryProfileRepository,
+                new ObjectMapper())
+                .analyze(ASSET_ID);
+    }
+
+    /**
+     * 组装一条完整的分析链路。
+     *
+     * <p>预算在这里直接给出：本类验证的是真实 Git / 真实数据库这一段，
+     * 不加载 app 模块的配置文件。运行时数值由 {@code RepositoryAnalysisProperties} 提供，
+     * 那是另一处的事。
+     */
+    private static AnalyzeRepositoryUseCase useCaseWith(
+            WorkspaceReadPort workspacePort,
+            SoftwareAssetRepository softwareAssetRepository,
+            RepositoryProfileRepository repositoryProfileRepository,
+            ObjectMapper objectMapper) {
+
+        RepositoryMaterialBudget foundation = new RepositoryMaterialBudget(12, 32_768, 98_304);
+        RepositoryMaterialBudget targetedSource =
+                new RepositoryMaterialBudget(18, 65_536, 163_840);
+
+        RepositoryUnderstanding understanding = new RepositoryUnderstanding(
+                new RepositoryMapBuilder(workspacePort),
+                new RepositoryScoutExtraction(AI_GATEWAY, objectMapper),
+                new RepositoryReadPlanner(foundation, targetedSource),
+                new RepositoryReadExecutor(workspacePort, foundation, targetedSource),
+                65_536);
+
         return new AnalyzeRepositoryUseCase(
                 softwareAssetRepository,
                 workspacePort,
-                new RepositoryAnalysisMaterialCollector(
-                        workspacePort, RepositoryAnalysisMaterialPolicy.mvpDefault()),
-                new RepositoryAnalysisExtraction(AI_GATEWAY, new ObjectMapper()),
-                repositoryProfileRepository)
-                .analyze(ASSET_ID);
+                understanding,
+                new RepositoryAnalysisExtraction(AI_GATEWAY, objectMapper),
+                repositoryProfileRepository);
+    }
+
+    private static String scoutResponse(String reference) {
+        StringBuilder json = new StringBuilder("{\"focusAreas\":[");
+        for (int index = 0; index < 3; index++) {
+            if (index > 0) {
+                json.append(',');
+            }
+            json.append("{\"label\":\"area-").append(index)
+                    .append("\",\"fileRefs\":[\"").append(reference).append("\"]}");
+        }
+        return json.append("]}").toString();
     }
 
     /**
@@ -389,22 +440,28 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
         }
     }
 
-    /** AI Gateway 替身：记录收到的请求，返回预设内容或抛出预设失败。 */
+    /**
+     * AI Gateway 替身：按调用顺序返回预设内容，或对每一次调用抛出同一个失败。
+     *
+     * <p>一次分析会调用模型两次——先 Scout，再最终分析——因此这里按顺序返回。
+     */
     private static final class StubAiGateway implements AiGateway {
 
         private final List<AiRequest> requests = new ArrayList<>();
 
-        private String response = "";
+        private final List<String> responses = new ArrayList<>();
 
         private RuntimeException failure;
 
-        void respond(String rawResponse) {
-            this.response = rawResponse;
-            this.failure = null;
+        void respondAll(String... rawResponses) {
+            responses.clear();
+            responses.addAll(List.of(rawResponses));
+            failure = null;
         }
 
         void failWith(RuntimeException exception) {
             this.failure = exception;
+            this.responses.clear();
         }
 
         AiRequest lastRequest() {
@@ -417,7 +474,10 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
             if (failure != null) {
                 throw failure;
             }
-            return response;
+            if (responses.isEmpty()) {
+                throw new AiGatewayException("替身没有更多预设响应");
+            }
+            return responses.remove(0);
         }
     }
 }
