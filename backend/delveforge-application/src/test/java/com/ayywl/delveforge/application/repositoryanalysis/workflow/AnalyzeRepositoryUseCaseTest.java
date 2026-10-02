@@ -67,6 +67,9 @@ class AnalyzeRepositoryUseCaseTest {
 
     private static final String POM = "pom.xml";
 
+    /** 预算内（远小于 Scout 目录上限）但足以暴露逐字符递归的长取值。 */
+    private static final String LONG_VALUE = "a".repeat(20_000);
+
     private static final String APP = "src/main/App.java";
 
     private static final String OTHER = "src/main/Other.java";
@@ -85,6 +88,9 @@ class AnalyzeRepositoryUseCaseTest {
                     + "  String password = \"pre\\\"CANARY-ESCAPED-VALUE-0001\";\n"
                     // 比较运算符不是赋值：被吃掉一个等号会改变模型看到的逻辑
                     + "  boolean missing = password == null;\n"
+                    // 长取值：匹配必须完整覆盖它，否则末尾的金丝雀会留在请求里
+                    // 变量名以凭据词结尾，否则它不是凭据位置、本就不该被替换
+                    + "  String legacyToken = \"" + LONG_VALUE + "CANARY-LONG-VALUE-0001\";\n"
                     + "}",
             "src/main/resources/application.yml",
             "spring:\n"
@@ -401,6 +407,8 @@ class AnalyzeRepositoryUseCaseTest {
         assertTrue(request.contains("boolean missing = password == null"),
                 "比较运算符不能被当成赋值: " + request);
         assertTrue(request.contains("host: localhost"), "非凭据配置必须保留: " + request);
+        assertFalse(request.contains("CANARY-LONG-VALUE-0001"),
+                "长取值的尾部同样属于这一段，不能被落下");
     }
 
     /** 被排除的凭据文件连读都不该被读。 */

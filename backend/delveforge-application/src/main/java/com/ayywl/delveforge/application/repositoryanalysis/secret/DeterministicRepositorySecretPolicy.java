@@ -87,6 +87,20 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
      * 取值       "…" 支持 \" 转义、'…' 支持 YAML 的 '' 与 \' 转义
      *                                （否则带转义引号的取值只替换前半段，后半段照样出站）
      * </pre>
+     *
+     * <h2>代价也必须有界：规则是线性扫描，不随输入变长而出问题</h2>
+     *
+     * <p>材料里的单个文件可以达到 64 KiB（Scout 目录上限的量级），因此每条规则都不能：
+     *
+     * <pre>
+     * 逐字符递归   可选项放进重复里（{@code (?:A|B)*}）会按字符数消耗调用栈，
+     *              4000 字符就足以抛 StackOverflowError；那是 Error，会绕过
+     *              RepositorySecretBoundaryException 的失败关闭约定，变成「未知故障」。
+     *              引号内因此用占有量词（{@code *+}），匹配是迭代的。
+     * 代价变平方   在多个起点重复扫同一段长文本。URI 的方案名上界就是为了避免这一条。
+     * </pre>
+     *
+     * <p>这两条都不是「性能优化」，而是「在既有文件预算内必须正确、必须按约定失败」。
      */
     private static final List<ContentRule> CONTENT_RULES = List.of(
             // 1. PEM 私钥块（含 OPENSSH / RSA / EC / ENCRYPTED 等形态）：整块替换
@@ -116,16 +130,22 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
                             + "[A-Za-z0-9._~+/=\\-]+"), "$1" + REDACTION_MARKER),
 
             // 4. 连接串 / URI 里的 userinfo：保留用户名与主机，替换口令
+            //    方案名的长度上界不是语义要求（URI 方案名本来就短），是**代价**要求：
+            //    不设上界时，一段没有 :// 的长文本会让引擎在每个起点各扫一遍，
+            //    60 KB 上实测约 12 秒；设上界之后是几十毫秒。
             new ContentRule(Pattern.compile(
-                    "([A-Za-z][A-Za-z0-9+.\\-]*://[^/\\s:@\"']*):([^/\\s@\"']+)@"),
+                    "([A-Za-z][A-Za-z0-9+.\\-]{0,31}://[^/\\s:@\"']*):([^/\\s@\"']+)@"),
                     "$1:" + REDACTION_MARKER + "@"),
 
             // 5. 凭据位置的赋值：保留键名与分隔符，替换取值（含引号内的整体）
+            //    引号内用**占有量词**（*+）：可选项在重复里会让引擎逐字符递归，
+            //    4000 字符的取值就足以抛 StackOverflowError，而那是 Error，
+            //    会绕过 RepositorySecretBoundaryException 的失败关闭约定。
             new ContentRule(Pattern.compile(
                     "(?im)((?:^|[^A-Za-z0-9_\\-])[\"']?" + CREDENTIAL_KEY
                             + "[\"']?[^\\S\\r\\n]*[:=](?![=<>:])[^\\S\\r\\n]*)"
-                            + "(\"(?:[^\"\\\\\\r\\n]|\\\\.)*\""
-                            + "|'(?:[^'\\\\\\r\\n]|''|\\\\.)*'"
+                            + "(\"(?:[^\"\\\\\\r\\n]|\\\\.)*+\""
+                            + "|'(?:[^'\\\\\\r\\n]|''|\\\\.)*+'"
                             + "|[^\"'\\s,;#}\\]]+)"),
                     "$1" + REDACTION_MARKER));
 

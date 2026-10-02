@@ -415,6 +415,56 @@ class DeterministicRepositorySecretPolicyTest {
         assertEquals(2, result.replacedSpans());
     }
 
+    // ------------------------------------------------------------------ 代价有界
+
+    /**
+     * 预算内的长取值必须被**完整**替换，且不能因为长度而出问题。
+     *
+     * <p>材料里的单个文件可以达到 64 KiB。金丝雀放在长取值的**末尾**：只要匹配提前收尾
+     * （转义处理写错、或非占有量词递归到栈溢出被吞掉），它就会留下来。
+     *
+     * <p>{@code StackOverflowError} 是 {@code Error}，会绕过
+     * {@code RepositorySecretBoundaryException} 的失败关闭约定——所以这里断言的是
+     * 「正常返回且换干净了」，不是「抛出了约定异常」。
+     */
+    @Test
+    void replacesLongValuesCompletelyWithinTheFileBudget() {
+        String content = "String password = \"" + "a".repeat(40_000) + "CANARY-LONG-DOUBLE-0001\";\n"
+                + "legacySecret: '" + "b".repeat(40_000) + "CANARY-LONG-SINGLE-0001'\n"
+                + "apiKey = " + "c".repeat(40_000) + "CANARY-LONG-BARE-0001\n";
+
+        SanitizedRepositoryMaterial result = policy.sanitize(List.of(file("big.yml", content)));
+        String sanitized = result.material().get(0).content();
+
+        assertFalse(sanitized.contains("CANARY-LONG-DOUBLE-0001"),
+                "双引号长取值必须整段替换");
+        assertFalse(sanitized.contains("CANARY-LONG-SINGLE-0001"),
+                "单引号长取值必须整段替换");
+        assertFalse(sanitized.contains("CANARY-LONG-BARE-0001"),
+                "无引号长取值必须整段替换");
+        assertEquals(3, result.replacedSpans());
+        assertTrue(sanitized.contains("[redacted-credential]"));
+    }
+
+    /**
+     * 没有 {@code ://} 的长文本不能让连接串规则变成平方代价。
+     *
+     * <p>这不是基准测试，而是**代价守卫**：同一份内容在修复前约 12 秒（引擎在每个起点
+     * 各扫一遍整段文本），修复后是几十毫秒。上界取得很松（5 秒），
+     * 远高于修复后的耗时，又明显低于修复前的耗时。
+     */
+    @Test
+    void keepsConnectionStringScanningLinearOnLongTextWithoutSeparator() {
+        String content = "a".repeat(60_000) + "\n";
+
+        long start = System.nanoTime();
+        policy.sanitize(List.of(file("blob.txt", content)));
+        long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
+
+        assertTrue(elapsedMillis < 5_000,
+                "在 60 KB 无分隔符文本上耗时 " + elapsedMillis + " ms，代价随长度平方增长了");
+    }
+
     @Test
     void rejectsNullMaterial() {
         assertThrows(IllegalArgumentException.class, () -> policy.sanitize(null));
