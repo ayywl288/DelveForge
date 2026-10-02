@@ -17,6 +17,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryCandidateLane;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMap;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapEntry;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +26,10 @@ import org.junit.jupiter.api.Test;
  * 验证 Foundation 通道：只取基础材料，按材料类别轮转。
  */
 class RepositoryReadPlannerFoundationTest {
+
+    /** 使用真实规则：这些用例验证的是规划本身，凭据政策在这里应当「什么都不排除」。 */
+    private static final RepositorySecretPolicy SECRET_POLICY =
+            new DeterministicRepositorySecretPolicy();
 
     private static final RepositoryMaterialBudget GENEROUS =
             new RepositoryMaterialBudget(50, 10_000, 100_000);
@@ -115,7 +121,8 @@ class RepositoryReadPlannerFoundationTest {
     void foundationBudgetDoesNotConstrainTargetedSource() {
         RepositoryReadPlan plan = new RepositoryReadPlanner(
                 new RepositoryMaterialBudget(1, 10_000, 100_000),
-                new RepositoryMaterialBudget(50, 10_000, 100_000))
+                new RepositoryMaterialBudget(50, 10_000, 100_000),
+                SECRET_POLICY)
                 .plan(map, ReadPlanFixtures.fullPlan(map));
 
         assertEquals(1, plan.foundationEntries().size());
@@ -124,7 +131,7 @@ class RepositoryReadPlannerFoundationTest {
     }
 
     private RepositoryReadPlan plan(RepositoryMaterialBudget budget) {
-        return new RepositoryReadPlanner(budget, GENEROUS)
+        return new RepositoryReadPlanner(budget, GENEROUS, SECRET_POLICY)
                 .plan(map, ReadPlanFixtures.fullPlan(map));
     }
 

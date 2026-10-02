@@ -27,6 +27,7 @@ import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegi
 import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudget;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.FileCatalogPayload;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.AnalyzeRepositoryUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryUnderstanding;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
@@ -361,8 +362,10 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
                 fileScout,
                 navigator,
                 branchRunner,
-                new RepositoryReadPlanner(foundation, targetedSource),
+                new RepositoryReadPlanner(foundation, targetedSource,
+                        new DeterministicRepositorySecretPolicy()),
                 new RepositoryReadExecutor(workspacePort, foundation, targetedSource),
+                new DeterministicRepositorySecretPolicy(),
                 65_536);
 
         return new AnalyzeRepositoryUseCase(

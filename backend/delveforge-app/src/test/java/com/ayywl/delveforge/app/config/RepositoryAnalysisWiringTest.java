@@ -11,6 +11,8 @@ import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryBran
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigator;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.AnalyzeRepositoryUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryAnalysisMaterialCollector;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryUnderstanding;
@@ -94,6 +96,21 @@ class RepositoryAnalysisWiringTest {
         assertEquals(8, properties.region().maxRoundsPerBranch());
         assertEquals(12, properties.region().maxScoutCalls());
         assertEquals(18, properties.scoutCalls().maxTotal());
+    }
+
+    /**
+     * 凭据政策的 Bean 在装配里（ADR-0006）。
+     *
+     * <p>两个执行点（读取规划器与理解阶段）共用同一个实例：本用例钉住它存在，
+     * 端到端「没有金丝雀离开本机」由接口层的用例证明。
+     */
+    @Test
+    void wiresTheRepositorySecretPolicy() {
+        RepositorySecretPolicy policy = context.getBean(RepositorySecretPolicy.class);
+
+        assertNotNull(policy);
+        assertTrue(policy instanceof DeterministicRepositorySecretPolicy,
+                "生产装配用的是规则写死在代码里的实现: " + policy.getClass().getName());
     }
 
     /**

@@ -14,10 +14,17 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.InMemorySoftwareAssetRepository;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositoryAnalysisExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryCandidateLane;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMap;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapBuilder;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RegionRecursionBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretBoundaryException;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.SanitizedRepositoryMaterial;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.FileCatalogPayload;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
@@ -63,6 +70,19 @@ class AnalyzeRepositoryUseCaseTest {
     private static final String APP = "src/main/App.java";
 
     private static final String OTHER = "src/main/Other.java";
+
+    /**
+     * 含合成金丝雀的仓库：一条在基础材料（配置）里，一条在定向源码里。
+     *
+     * <p>路径与 {@code FILES_AT_A} 保持同样的编号关系（{@code RF-2} 仍是 {@code App.java}），
+     * 因此固定的 Scout 响应照常可用。
+     */
+    private static final Map<String, String> CANARY_FILES_AT_A = Map.of(
+            POM, "<project>spring-boot</project>",
+            APP, "class App { String token = \"CANARY-SOURCE-VALUE-0001\"; }",
+            "src/main/resources/application.yml",
+            "spring:\n  datasource:\n    password: CANARY-CONFIG-VALUE-0001\n",
+            "zz/.env.local", "DB_PASSWORD=CANARY-ENV-VALUE-0001\n");
 
     private static final Map<String, String> FILES_AT_A = Map.of(
             POM, "<project>spring-boot</project>",
@@ -335,6 +355,97 @@ class AnalyzeRepositoryUseCaseTest {
     }
 
     // ---------------------------------------------------------------------
+    // 凭据边界（ADR-0006）
+    // ---------------------------------------------------------------------
+
+    /**
+     * 最终分析拿到的必须是净化过的材料。
+     *
+     * <p>断言落点是最严格的那一个：**这次调用真正发给 AI 的那条请求**，
+     * 而不是某个中间表示或测试辅助的输出。
+     */
+    @Test
+    void sendsOnlySanitizedRepositoryMaterialToTheFinalAnalyzer() {
+        seedAsset(true);
+        workspace.givenRevision(REVISION_A, CANARY_FILES_AT_A);
+        workspace.givenHeadRevision(REVISION_A);
+        aiGateway.respondAll(SCOUT_RESPONSE, PROPOSAL);
+
+        useCase.analyze(ASSET_ID);
+
+        String request = finalAnalyzerRequest();
+        assertFalse(request.contains("CANARY-CONFIG-VALUE-0001"), "配置里的凭据不得出现在请求里");
+        assertFalse(request.contains("CANARY-SOURCE-VALUE-0001"), "源码里的凭据不得出现在请求里");
+        assertFalse(request.contains("CANARY-ENV-VALUE-0001"), "被排除的文件根本不该进来");
+        assertTrue(request.contains(DeterministicRepositorySecretPolicy.REDACTION_MARKER),
+                "净化过的痕迹应当在——证明它是被替换了，而不是整份没读");
+        assertTrue(request.contains("application.yml"), "相对路径保留");
+        assertTrue(request.contains("password:"), "键名保留，材料仍然有用");
+    }
+
+    /** 被排除的凭据文件连读都不该被读。 */
+    @Test
+    void neverReadsACredentialFileExcludedByThePolicy() {
+        seedAsset(true);
+        workspace.givenRevision(REVISION_A, CANARY_FILES_AT_A);
+        workspace.givenHeadRevision(REVISION_A);
+        aiGateway.respondAll(SCOUT_RESPONSE, PROPOSAL);
+
+        useCase.analyze(ASSET_ID);
+
+        assertFalse(workspace.readPaths().contains("zz/.env.local"),
+                "被排除的文件不得被读取: " + workspace.readPaths());
+        assertTrue(workspace.readPaths().contains("src/main/resources/application.yml"),
+                "同一类的配置照常读取: " + workspace.readPaths());
+    }
+
+    /**
+     * 回显式替身：模型把收到的材料原样放进结论里。
+     *
+     * <p>这样「结论里没有金丝雀」就等价于「发给模型的请求里没有金丝雀」，
+     * 而这条链路一直走到持久化——因此它同时覆盖 RepositoryProfile 与 Evidence。
+     */
+    @Test
+    void doesNotPropagateSourceSecretsIntoTheProfile() {
+        seedAsset(true);
+        workspace.givenRevision(REVISION_A, CANARY_FILES_AT_A);
+        workspace.givenHeadRevision(REVISION_A);
+        aiGateway.respondAll(SCOUT_RESPONSE);
+        aiGateway.echoRequestIntoProposal();
+
+        RepositoryProfile profile = useCase.analyze(ASSET_ID);
+
+        assertFalse(profile.purpose().contains("CANARY-"),
+                "回显出来的结论里不得有金丝雀: " + profile.purpose());
+        assertTrue(profile.purpose().contains(DeterministicRepositorySecretPolicy.REDACTION_MARKER),
+                "它确实回显了收到的材料——否则上面那条断言可能只是因为回显没生效");
+        assertEquals(1, profileRepository.saveCount());
+    }
+
+    /**
+     * 边界自身失败时失败关闭：不调用最终分析、不写快照。
+     */
+    @Test
+    void doesNotSaveProfileWhenTheSecretBoundaryFails() {
+        seedAsset(true);
+        workspace.givenRevision(REVISION_A, FILES_AT_A);
+        workspace.givenHeadRevision(REVISION_A);
+        aiGateway.respondAll(SCOUT_RESPONSE, PROPOSAL);
+
+        AnalyzeRepositoryUseCase failingUseCase = new AnalyzeRepositoryUseCase(
+                assetRepository, workspace, understandingWithFailingSanitizer(),
+                new RepositoryAnalysisExtraction(aiGateway, new ObjectMapper()),
+                profileRepository);
+
+        assertThrows(RepositoryNotAnalyzableException.class,
+                () -> failingUseCase.analyze(ASSET_ID));
+
+        assertEquals(1, aiGateway.callCount(),
+                "只发生过一次 Scout；最终分析从未被调用（也就不可能发出未净化的材料）");
+        assertEquals(0, profileRepository.saveCount(), "不得写入任何快照");
+    }
+
+    // ---------------------------------------------------------------------
     // 分层 Scout 路径
     // ---------------------------------------------------------------------
 
@@ -542,6 +653,32 @@ class AnalyzeRepositoryUseCaseTest {
                 .payloadBytes(REVISION_A, map.entriesIn(RepositoryCandidateLane.SCOUT_SOURCE));
     }
 
+    /** 这次调用真正发给 AI 的那条请求（最后一次调用的 USER 消息）。 */
+    private String finalAnalyzerRequest() {
+        return aiGateway.lastRequest().messages().get(1).content();
+    }
+
+    private RepositoryUnderstanding understandingWithFailingSanitizer() {
+        return UnderstandingFixtures.understanding(aiGateway, workspace,
+                new RepositoryMaterialBudget(12, 32_768, 98_304),
+                new RepositoryMaterialBudget(18, 65_536, 163_840),
+                65_536,
+                new RegionRecursionBudget(8, 12),
+                new ScoutCallBudget(18),
+                new RepositorySecretPolicy() {
+
+                    @Override
+                    public boolean excludes(String relativePath) {
+                        return false;
+                    }
+
+                    @Override
+                    public SanitizedRepositoryMaterial sanitize(List<RepositorySourceFile> files) {
+                        throw new RepositorySecretBoundaryException("净化无法完成");
+                    }
+                });
+    }
+
     private RepositoryUnderstanding understanding() {
         return understanding(aiGateway, 65_536);
     }
@@ -593,6 +730,13 @@ class AnalyzeRepositoryUseCaseTest {
 
         private RuntimeException failure;
 
+        private boolean echoRequestIntoProposal;
+
+        /** 让下一次调用把收到的 USER 消息原样回显进结论里。 */
+        void echoRequestIntoProposal() {
+            this.echoRequestIntoProposal = true;
+        }
+
         void respondAll(String... rawResponses) {
             responses.clear();
             responses.addAll(List.of(rawResponses));
@@ -619,10 +763,30 @@ class AnalyzeRepositoryUseCaseTest {
             if (requests.size() == failOnCall) {
                 throw failure;
             }
+            if (echoRequestIntoProposal && responses.isEmpty()) {
+                return echoProposal(request.messages().get(1).content());
+            }
             if (responses.isEmpty()) {
                 throw new AiGatewayException("替身没有更多预设响应");
             }
             return responses.remove(0);
+        }
+
+        /** 把收到的材料原样放进每个字段：用来验证「没发出去的东西不会出现在结论里」。 */
+        private static String echoProposal(String received) {
+            try {
+                String quoted = new ObjectMapper().writeValueAsString(received);
+                return """
+                        {
+                          "purpose": %s,
+                          "techStack": [], "modules": [], "capabilities": [],
+                          "reusableAssets": [], "limitations": [], "risks": [],
+                          "evidence": [ { "claim": %s, "sourceRef": "pom.xml" } ]
+                        }
+                        """.formatted(quoted, quoted);
+            } catch (Exception exception) {
+                throw new AiGatewayException("替身无法构造回显响应");
+            }
         }
     }
 }

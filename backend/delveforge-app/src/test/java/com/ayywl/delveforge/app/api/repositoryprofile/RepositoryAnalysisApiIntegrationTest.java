@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ayywl.delveforge.app.api.shared.StubWorkspace;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import java.util.ArrayList;
@@ -311,6 +312,43 @@ class RepositoryAnalysisApiIntegrationTest {
     }
 
     /**
+     * 凭据边界在真实 HTTP 链路上的端到端效果（ADR-0006）。
+     *
+     * <p>用**回显式** AI 替身：它把收到的材料原样放进结论字段。于是「响应体里没有金丝雀」
+     * 等价于「发给 Provider 的请求里没有金丝雀」——而这条链路经过了领域创建与真实 SQLite，
+     * 因此它同时覆盖 RepositoryProfile、Evidence 与 API 响应。
+     *
+     * <pre>
+     * .env 里的口令            → 按路径整份不读，因此根本不会出现在请求里
+     * application.yml 里的口令 → 读进来但被替换，键名与结构保留
+     * </pre>
+     */
+    @Test
+    void neverSendsRepositorySecretsToTheProvider() throws Exception {
+        String assetId = registerAsset(true);
+        WORKSPACE.givenFile("src/main/resources/application.yml",
+                        "spring:\n  datasource:\n    password: CANARY-API-CONFIG-0001\n")
+                .givenFile("zz/.env.local", "DB_PASSWORD=CANARY-API-ENV-0001\n");
+        // 只给 Scout 的响应；最终分析交给回显模式
+        AI_GATEWAY.respondAll(SCOUT_RESPONSE);
+        AI_GATEWAY.echoRequestIntoProposal();
+
+        String body = mockMvc.perform(post("/api/software-assets/{id}/analysis", assetId))
+                .andExpect(status().isCreated())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertFalse(body.contains("CANARY-API-CONFIG-0001"),
+                "配置里的凭据不得出现在响应里");
+        assertFalse(body.contains("CANARY-API-ENV-0001"),
+                "被排除的文件里的凭据不得出现在响应里");
+        assertFalse(body.contains("CANARY-"), "响应体里不应出现任何金丝雀");
+        assertTrue(body.contains(DeterministicRepositorySecretPolicy.REDACTION_MARKER),
+                "回显确实带回了收到的材料——否则上面的断言可能只是因为回显没生效");
+    }
+
+    /**
      * 分析失败时返回稳定的错误分类，且不泄漏内部信息。
      */
     @Test
@@ -370,12 +408,19 @@ class RepositoryAnalysisApiIntegrationTest {
         return objectMapper.readTree(body);
     }
 
-    /** AI Gateway 替身：返回预设内容或抛出预设失败。 */
+    /** AI Gateway 替身：返回预设内容、回显收到的请求，或抛出预设失败。 */
     private static final class StubAiGateway implements AiGateway {
 
         private final List<String> responses = new ArrayList<>();
 
         private RuntimeException failure;
+
+        private boolean echoRequestIntoProposal;
+
+        /** 没有预设响应时，把收到的 USER 消息原样回显进结论里。 */
+        void echoRequestIntoProposal() {
+            this.echoRequestIntoProposal = true;
+        }
 
         /** 按调用顺序返回预设内容：先 Scout，再最终分析。 */
         void respondAll(String... rawResponses) {
@@ -394,10 +439,29 @@ class RepositoryAnalysisApiIntegrationTest {
             if (failure != null) {
                 throw failure;
             }
+            if (responses.isEmpty() && echoRequestIntoProposal) {
+                return echoProposal(request.messages().get(1).content());
+            }
             if (responses.isEmpty()) {
                 throw new AiGatewayException("替身没有更多预设响应");
             }
             return responses.remove(0);
+        }
+
+        private static String echoProposal(String received) {
+            try {
+                String quoted = new ObjectMapper().writeValueAsString(received);
+                return """
+                        {
+                          "purpose": %s,
+                          "techStack": [], "modules": [], "capabilities": [],
+                          "reusableAssets": [], "limitations": [], "risks": [],
+                          "evidence": [ { "claim": %s, "sourceRef": "pom.xml" } ]
+                        }
+                        """.formatted(quoted, quoted);
+            } catch (Exception exception) {
+                throw new AiGatewayException("替身无法构造回显响应");
+            }
         }
     }
 }

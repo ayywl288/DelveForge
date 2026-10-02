@@ -10,6 +10,10 @@ import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryRe
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadResult;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryTargetedSourceCandidates;
+import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadSkipReason;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretBoundaryException;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.SanitizedRepositoryMaterial;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RegionHierarchyNotReducibleException;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RegionNavigationBudgetExceededException;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryBranchScoutRunner;
@@ -70,6 +74,15 @@ import org.slf4j.LoggerFactory;
  * <p>分层 Scout 失败时**不会**退回「把超限的 flat 目录直接发给 File Scout」，也不会截断分支、
  * 采样或降级到只读基础材料。失败关闭：一次分析要么按某条确定的路径走完，要么什么都不产出。
  *
+ * <h2>返回的材料已经是模型可见材料</h2>
+ *
+ * <p>读取阶段的原文不会离开本类：返回之前先过凭据政策的**第二个执行点**（内容净化，
+ * ADR-0006）。第一个执行点（按路径整份排除）在读取规划器里，因此被排除的文件根本不会被读。
+ * 两者是同一条政策，只是能做的事不同——见 {@code RepositorySecretPolicy}。
+ *
+ * <p>因此「本方法返回的这份材料里没有命中规则的仓库凭据」是一条关于本类的性质，
+ * 而不是需要每个调用方各自记得维护的约定。
+ *
  * <h2>对外只有两种失败语义</h2>
  *
  * <pre>
@@ -108,6 +121,14 @@ public class RepositoryUnderstanding {
      */
     static final String SCOUT_HIERARCHY_GUARD_EXCEEDED = "SCOUT_HIERARCHY_GUARD_EXCEEDED";
 
+    /**
+     * 凭据边界自身无法安全完成时，日志与异常里使用的稳定原因标识。
+     *
+     * <p>它的含义是「拿不到一份可以交给外部模型的材料」，因此与「读不出材料」同一种对外语义：
+     * 失败关闭，不发未净化的内容，不产生任何快照。
+     */
+    static final String SECRET_BOUNDARY_FAILED = "SECRET_BOUNDARY_FAILED";
+
     private static final Logger log = LoggerFactory.getLogger(RepositoryUnderstanding.class);
 
     private final RepositoryMapBuilder mapBuilder;
@@ -116,6 +137,7 @@ public class RepositoryUnderstanding {
     private final RepositoryBranchScoutRunner branchScoutRunner;
     private final RepositoryReadPlanner readPlanner;
     private final RepositoryReadExecutor readExecutor;
+    private final RepositorySecretPolicy secretPolicy;
     private final int maxScoutCatalogBytes;
 
     /**
@@ -128,6 +150,9 @@ public class RepositoryUnderstanding {
      * @param branchScoutRunner     分层路径下的逐组 File Scout 执行与合并，不得为 {@code null}
      * @param readPlanner           规划读哪些文件，不得为 {@code null}
      * @param readExecutor          执行读取，不得为 {@code null}
+     * @param secretPolicy          凭据政策的第二个执行点，不得为 {@code null}；
+     *                              读到的材料在返回之前先过它——本方法返回的材料**已经是
+     *                              模型可见材料**，仓库原文不会再离开本类
      * @param maxScoutCatalogBytes  一次 flat File Catalog 载荷的字节上限，必须大于 0；
      *                              它同时是「是否需要分层」的判据
      */
@@ -137,6 +162,7 @@ public class RepositoryUnderstanding {
                                    RepositoryBranchScoutRunner branchScoutRunner,
                                    RepositoryReadPlanner readPlanner,
                                    RepositoryReadExecutor readExecutor,
+                                   RepositorySecretPolicy secretPolicy,
                                    int maxScoutCatalogBytes) {
         if (mapBuilder == null) {
             throw new IllegalArgumentException("RepositoryUnderstanding 必须指定 mapBuilder");
@@ -159,6 +185,9 @@ public class RepositoryUnderstanding {
         if (readExecutor == null) {
             throw new IllegalArgumentException("RepositoryUnderstanding 必须指定 readExecutor");
         }
+        if (secretPolicy == null) {
+            throw new IllegalArgumentException("RepositoryUnderstanding 必须指定 secretPolicy");
+        }
         if (maxScoutCatalogBytes <= 0) {
             throw new IllegalArgumentException(
                     "Scout 目录字节上限必须大于 0: " + maxScoutCatalogBytes);
@@ -169,6 +198,7 @@ public class RepositoryUnderstanding {
         this.branchScoutRunner = branchScoutRunner;
         this.readPlanner = readPlanner;
         this.readExecutor = readExecutor;
+        this.secretPolicy = secretPolicy;
         this.maxScoutCatalogBytes = maxScoutCatalogBytes;
     }
 
@@ -178,11 +208,11 @@ public class RepositoryUnderstanding {
      * @param workspaceRef      目标 Repository，不得为 {@code null}
      * @param analyzedRevision  本次分析固定的 commit id，不得为 {@code null}；
      *                          必须是已经解析出来的完整 commit id，本类不重新解析 HEAD
-     * @return 真正读到、并通过执行期尺寸复核的材料
+     * @return 真正读到、通过执行期尺寸复核、并**已经过凭据边界**的材料
      * @throws IllegalArgumentException 任一参数为 {@code null}
      * @throws RepositoryNotAnalyzableException 没有源码候选、读取计划为空、读完之后没有可用材料，
-     *                                          或分层 Scout 的守卫挡住了这次分析
-     *                                          （原始守卫在 cause 里）
+     *                                          分层 Scout 的守卫挡住了这次分析，
+     *                                          或凭据边界无法安全完成（原始原因在 cause 里）
      * @throws com.ayywl.delveforge.application.port.ai.AiGatewayException
      *                                          Scout 调用失败，或返回内容不满足约定
      * @throws com.ayywl.delveforge.application.port.workspace.WorkspaceException
@@ -205,23 +235,92 @@ public class RepositoryUnderstanding {
         boolean oversized = scoutExtraction.catalogPayloadBytes(scoutInputs)
                 > maxScoutCatalogBytes;
 
-        RepositoryReadPlan readPlan = oversized
-                ? hierarchicalReadPlan(map)
-                : flatReadPlan(map, scoutInputs);
+        RepositoryReadPlan readPlan = planRead(map, scoutInputs, oversized, analyzedRevision);
         if (readPlan.isEmpty()) {
             throw new RepositoryNotAnalyzableException(
                     "本次读取计划没有选中任何文件，无法形成分析材料: " + analyzedRevision);
         }
 
         RepositoryReadResult read = readExecutor.execute(readPlan, workspaceRef);
-        logAggregates(readPlan, read, oversized);
+
+        // 凭据政策的第二个执行点：读到的原文到此为止，出去的只有净化过的材料。
+        SanitizedRepositoryMaterial modelVisible =
+                modelVisibleMaterial(read.material(), analyzedRevision);
+
+        logAggregates(readPlan, read, oversized, modelVisible.replacedSpans());
 
         if (read.isEmpty()) {
             throw new RepositoryNotAnalyzableException(
                     "读取计划里的文件在执行期尺寸复核后全部不可用，无法形成分析材料: "
                             + analyzedRevision);
         }
-        return read.material();
+        return modelVisible.material();
+    }
+
+    /**
+     * 选一条 Scout 路径，产出读取计划。
+     *
+     * <p>两条路径都可能被凭据边界挡住：第一个执行点（路径排除）就在读取规划器里。
+     * 边界失败与分层守卫失败一样，都是「这次分析做不了」，因此在这里统一成同一个对外语义。
+     */
+    private RepositoryReadPlan planRead(RepositoryMap map,
+                                        RepositoryScoutInputs scoutInputs,
+                                        boolean oversized,
+                                        String analyzedRevision) {
+        try {
+            return oversized
+                    ? hierarchicalReadPlan(map)
+                    : flatReadPlan(map, scoutInputs);
+        } catch (RepositoryRegionCatalogTooLargeException
+                 | RegionNavigationBudgetExceededException
+                 | RegionHierarchyNotReducibleException
+                 | ScoutCallBudgetExceededException guardFailure) {
+            throw notAnalyzable(SCOUT_HIERARCHY_GUARD_EXCEEDED,
+                    "flat 目录超出上限，改用分层 Scout 之后仍无法把源码候选压进本版本的预算"
+                            + "（具体守卫见 cause）",
+                    analyzedRevision, guardFailure);
+        } catch (RepositorySecretBoundaryException boundaryFailure) {
+            throw notAnalyzable(SECRET_BOUNDARY_FAILED,
+                    "无法在读取之前完成凭据政策判定（具体原因见 cause）",
+                    analyzedRevision, boundaryFailure);
+        }
+    }
+
+    /**
+     * 凭据政策的第二个执行点（ADR-0006）：把读到的材料转成**模型可见**的材料。
+     *
+     * <pre>
+     * 读到的材料（原始内容）
+     *         ↓  替换识别出的凭据字面量，路径不变
+     * 模型可见的材料
+     * </pre>
+     *
+     * <p>为什么放在这里而不是更靠下游：本方法返回的材料就是这次分析**唯一**的材料来源，
+     * 因此「本方法返回的已经是模型可见材料」是一条关于单个组件的性质，可以直接测试，
+     * 而不必逐个调用方去确认它记得过边界。
+     *
+     * <p>边界失败一律失败关闭：**没有**「净化没跑完就按原文继续」这条路——那正是这个边界
+     * 要防的事。失败语义与「读不出材料」同源，因此转成
+     * {@link RepositoryNotAnalyzableException}（对外是「当前无法分析」），
+     * 而不是掉进「未知服务端故障」。原始原因留在 cause 里。
+     */
+    private SanitizedRepositoryMaterial modelVisibleMaterial(List<RepositorySourceFile> material,
+                                                            String analyzedRevision) {
+        try {
+            return secretPolicy.sanitize(material);
+        } catch (RepositorySecretBoundaryException boundaryFailure) {
+            throw notAnalyzable(SECRET_BOUNDARY_FAILED,
+                    "无法在交给模型之前完成内容净化（具体原因见 cause）",
+                    analyzedRevision, boundaryFailure);
+        }
+    }
+
+    private static RepositoryNotAnalyzableException notAnalyzable(String reason,
+                                                                  String detail,
+                                                                  String analyzedRevision,
+                                                                  RuntimeException cause) {
+        return new RepositoryNotAnalyzableException(
+                reason + ": " + detail + ": " + analyzedRevision, cause);
     }
 
     /**
@@ -271,20 +370,8 @@ public class RepositoryUnderstanding {
      * 转换——它们表示外部能力调用本身失败，与「仓库形状不适合分析」不是一回事。
      */
     private RepositoryReadPlan hierarchicalReadPlan(RepositoryMap map) {
-        RepositoryFileCandidates candidates;
-        try {
-            RepositoryRegionNavigation navigation = regionNavigator.navigate(map);
-            candidates = branchScoutRunner.run(navigation);
-        } catch (RepositoryRegionCatalogTooLargeException
-                 | RegionNavigationBudgetExceededException
-                 | RegionHierarchyNotReducibleException
-                 | ScoutCallBudgetExceededException guardFailure) {
-            throw new RepositoryNotAnalyzableException(
-                    SCOUT_HIERARCHY_GUARD_EXCEEDED + ": flat 目录超出上限，改用分层 Scout 之后"
-                            + "仍无法把源码候选压进本版本的预算（具体守卫见 cause）: "
-                            + map.analyzedRevision(),
-                    guardFailure);
-        }
+        RepositoryRegionNavigation navigation = regionNavigator.navigate(map);
+        RepositoryFileCandidates candidates = branchScoutRunner.run(navigation);
         return readPlanner.plan(map, RepositoryTargetedSourceCandidates.of(
                 candidates.analyzedRevision(), candidates.orderedFiles()));
     }
@@ -297,16 +384,32 @@ public class RepositoryUnderstanding {
      */
     private static void logAggregates(RepositoryReadPlan readPlan,
                                       RepositoryReadResult read,
-                                      boolean hierarchical) {
+                                      boolean hierarchical,
+                                      int sanitizedSpanCount) {
         log.info("operation=repository-analysis result={} scoutPath={} foundationSelectedCount={} "
                         + "targetedSourceSelectedCount={} materialCount={} tooLargeCount={} "
-                        + "totalBudgetExceededCount={}",
+                        + "totalBudgetExceededCount={} secretExcludedCount={} sanitizedSpanCount={}",
                 read.isEmpty() ? "NO_USABLE_MATERIAL" : "READY",
                 hierarchical ? SCOUT_PATH_HIERARCHICAL : SCOUT_PATH_FLAT,
                 readPlan.foundationEntries().size(),
                 readPlan.targetedSourceEntries().size(),
                 read.size(),
                 read.tooLargeCount(),
-                read.totalBudgetExceededCount());
+                read.totalBudgetExceededCount(),
+                secretExcludedCount(readPlan),
+                sanitizedSpanCount);
+    }
+
+    /**
+     * 因为凭据政策而整份没有进入读取计划的候选数。
+     *
+     * <p>只记数量。它回答的是「是不是有文件因为凭据政策被跳过了」，
+     * 而**不**把这几个路径写进日志——路径属于用户数据（AGENTS.md §8.8）。
+     */
+    private static long secretExcludedCount(RepositoryReadPlan readPlan) {
+        return readPlan.skippedCandidates().stream()
+                .filter(candidate ->
+                        candidate.reason() == RepositoryReadSkipReason.EXCLUDED_BY_SECRET_POLICY)
+                .count();
     }
 }

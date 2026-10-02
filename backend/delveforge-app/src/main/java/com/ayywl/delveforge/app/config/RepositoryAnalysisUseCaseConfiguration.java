@@ -13,6 +13,8 @@ import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryBran
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigator;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.FileCatalogPayload;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.AnalyzeRepositoryUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryUnderstanding;
@@ -39,9 +41,11 @@ import org.springframework.context.annotation.Configuration;
  * RepositoryRegionScoutExtraction 目录层 → Region Scout 指出「往哪个目录看」
  * RepositoryRegionNavigator       flat 目录超出预算时递归下降 → 有序终态文件组
  * RepositoryBranchScoutRunner     逐终态组跑分支本地 File Scout → 保序轮转合并
- * RepositoryReadPlanner           两条通道各自轮转 → 读取计划
+ * RepositorySecretPolicy          凭据政策：读取之前的路径排除 + 交给模型之前的内容净化
+ * RepositoryReadPlanner           两条通道各自轮转 → 读取计划（第一个执行点在这里）
  * RepositoryReadExecutor          按计划真实读取 → 材料
- * RepositoryUnderstanding         把上面这些串起来，并守住流程前置条件与路径选择
+ * RepositoryUnderstanding         把上面这些串起来（第二个执行点在它末尾），
+ *                                 并守住流程前置条件与路径选择
  * </pre>
  *
  * <h2>整次分析的 Scout 调用总数同时交给导航器与分支执行器</h2>
@@ -122,12 +126,24 @@ public class RepositoryAnalysisUseCaseConfiguration {
                 properties.scoutCalls().toBudget());
     }
 
+    /**
+     * 凭据政策：**一条**政策，两个执行点共用同一个实例（ADR-0006）。
+     *
+     * <p>规则写死在代码里，不来自配置——可配置就等于可以被静默放宽，而那次分析看起来仍然正常。
+     */
+    @Bean
+    public RepositorySecretPolicy repositorySecretPolicy() {
+        return new DeterministicRepositorySecretPolicy();
+    }
+
     @Bean
     public RepositoryReadPlanner repositoryReadPlanner(
-            RepositoryAnalysisProperties properties) {
+            RepositoryAnalysisProperties properties,
+            RepositorySecretPolicy repositorySecretPolicy) {
         return new RepositoryReadPlanner(
                 properties.foundation().toBudget(),
-                properties.targetedSource().toBudget());
+                properties.targetedSource().toBudget(),
+                repositorySecretPolicy);
     }
 
     @Bean
@@ -147,6 +163,7 @@ public class RepositoryAnalysisUseCaseConfiguration {
             RepositoryBranchScoutRunner repositoryBranchScoutRunner,
             RepositoryReadPlanner repositoryReadPlanner,
             RepositoryReadExecutor repositoryReadExecutor,
+            RepositorySecretPolicy repositorySecretPolicy,
             RepositoryAnalysisProperties properties) {
         return new RepositoryUnderstanding(
                 repositoryMapBuilder,
@@ -155,6 +172,7 @@ public class RepositoryAnalysisUseCaseConfiguration {
                 repositoryBranchScoutRunner,
                 repositoryReadPlanner,
                 repositoryReadExecutor,
+                repositorySecretPolicy,
                 properties.scout().maxCatalogBytes());
     }
 

@@ -14,6 +14,8 @@ import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryCandida
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMap;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapEntry;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryInspectionPlan;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,10 @@ import org.junit.jupiter.api.Test;
  * 验证定向源码通道：按聚焦区域轮转、跨区域重复只读一次、按字节预算取舍。
  */
 class RepositoryReadPlannerTargetedSourceTest {
+
+    /** 使用真实规则：这些用例验证的是规划本身，凭据政策在这里应当「什么都不排除」。 */
+    private static final RepositorySecretPolicy SECRET_POLICY =
+            new DeterministicRepositorySecretPolicy();
 
     private static final RepositoryMaterialBudget GENEROUS =
             new RepositoryMaterialBudget(50, 10_000, 100_000);
@@ -257,7 +263,7 @@ class RepositoryReadPlannerTargetedSourceTest {
      */
     @Test
     void treatsTheOrderedCandidateStreamAsASingleLane() {
-        RepositoryReadPlan plan = new RepositoryReadPlanner(GENEROUS, GENEROUS)
+        RepositoryReadPlan plan = new RepositoryReadPlanner(GENEROUS, GENEROUS, SECRET_POLICY)
                 .plan(map, candidates(
                         VOUCHER_ORDER_SERVICE_IMPL, BLOG_CONTROLLER, SHOP_ENTITY));
 
@@ -271,7 +277,7 @@ class RepositoryReadPlannerTargetedSourceTest {
     @Test
     void appliesTheSameBudgetAndSkipReasonsToTheCandidateStream() {
         RepositoryReadPlan plan = new RepositoryReadPlanner(
-                GENEROUS, new RepositoryMaterialBudget(50, 150, 100_000))
+                GENEROUS, new RepositoryMaterialBudget(50, 150, 100_000), SECRET_POLICY)
                 .plan(map, candidates(SHOP_CONTROLLER, BLOG_CONTROLLER, SHOP_ENTITY));
 
         assertEquals(List.of(BLOG_CONTROLLER, SHOP_ENTITY), refs(plan),
@@ -284,7 +290,7 @@ class RepositoryReadPlannerTargetedSourceTest {
     /** 基础材料通道与候选流无关：两条通道仍旧各自独立。 */
     @Test
     void stillSelectsFoundationMaterialAlongsideTheCandidateStream() {
-        RepositoryReadPlan plan = new RepositoryReadPlanner(GENEROUS, GENEROUS)
+        RepositoryReadPlan plan = new RepositoryReadPlanner(GENEROUS, GENEROUS, SECRET_POLICY)
                 .plan(map, candidates(BLOG_CONTROLLER));
 
         assertTrue(plan.foundationEntries().stream()
@@ -296,7 +302,7 @@ class RepositoryReadPlannerTargetedSourceTest {
     @Test
     void rejectsACandidateStreamFromAnotherRevision() {
         assertThrows(IllegalArgumentException.class,
-                () -> new RepositoryReadPlanner(GENEROUS, GENEROUS).plan(map,
+                () -> new RepositoryReadPlanner(GENEROUS, GENEROUS, SECRET_POLICY).plan(map,
                         RepositoryTargetedSourceCandidates.of("other-revision",
                                 List.of(ReadPlanFixtures.entry(map, BLOG_CONTROLLER)))));
     }
@@ -311,7 +317,7 @@ class RepositoryReadPlannerTargetedSourceTest {
     @Test
     void rejectsACandidateThatIsNotAScoutSource() {
         assertThrows(IllegalArgumentException.class,
-                () -> new RepositoryReadPlanner(GENEROUS, GENEROUS).plan(map,
+                () -> new RepositoryReadPlanner(GENEROUS, GENEROUS, SECRET_POLICY).plan(map,
                         candidates(ReadPlanFixtures.SHOP_TEST)));
     }
 
@@ -325,7 +331,7 @@ class RepositoryReadPlannerTargetedSourceTest {
         RepositoryMap foreign = ReadPlanFixtures.foreignMapWithSameRevision();
 
         assertThrows(IllegalArgumentException.class,
-                () -> new RepositoryReadPlanner(GENEROUS, GENEROUS).plan(map,
+                () -> new RepositoryReadPlanner(GENEROUS, GENEROUS, SECRET_POLICY).plan(map,
                         RepositoryTargetedSourceCandidates.of(ReadPlanFixtures.REVISION,
                                 List.of(ReadPlanFixtures.entry(foreign, BLOG_CONTROLLER)))));
     }
@@ -351,7 +357,7 @@ class RepositoryReadPlannerTargetedSourceTest {
 
     private RepositoryReadPlan plan(RepositoryMaterialBudget targetedBudget,
                                     RepositoryInspectionPlan inspectionPlan) {
-        return new RepositoryReadPlanner(GENEROUS, targetedBudget).plan(map, inspectionPlan);
+        return new RepositoryReadPlanner(GENEROUS, targetedBudget, SECRET_POLICY).plan(map, inspectionPlan);
     }
 
     private static List<Integer> refs(RepositoryReadPlan plan) {

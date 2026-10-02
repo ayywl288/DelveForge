@@ -7,6 +7,7 @@ import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapEntr
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMaterialKind;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryInspectionArea;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryInspectionPlan;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumMap;
@@ -50,6 +51,14 @@ import java.util.Set;
  * 第二种形状是 ADR-0005 说的那处最小泛化：分层合并的结果没有模型给出的区域标签，
  * 因此需要一个不冒充查看计划的输入类型，而不是把规划本身分叉。
  *
+ * <h2>两条通道共用一条凭据政策</h2>
+ *
+ * <p>候选进入轮转之前先过一遍 {@code RepositorySecretPolicy} 的路径判定（ADR-0006 的
+ * 第一个执行点）：命中政策的文件整份不进入材料，因此不会被读、也不会占用名额。
+ * 被排除的候选以 {@code EXCLUDED_BY_SECRET_POLICY} 记一条诊断（只有路径，没有内容）。
+ *
+ * <p>这里只管「要不要读它」；已经读进来的内容怎么处理，由理解阶段末尾的净化负责。
+ *
  * <h2>只看 metadata，不读内容</h2>
  *
  * <p>本类**不调用** {@code WorkspaceReadPort#readFile}，也不持有 Workspace 能力。
@@ -80,13 +89,18 @@ public final class RepositoryReadPlanner {
 
     private final RepositoryMaterialBudget targetedSourceBudget;
 
+    private final RepositorySecretPolicy secretPolicy;
+
     /**
      * @param foundationBudget     基础材料的预算，不得为 {@code null}
      * @param targetedSourceBudget 定向源码的预算，不得为 {@code null}；
      *                             与前者是两份独立的预算，不会互相占用
+     * @param secretPolicy         凭据政策的第一个执行点，不得为 {@code null}；
+     *                             两条通道的候选在进入轮转之前先按路径过一遍它
      */
     public RepositoryReadPlanner(RepositoryMaterialBudget foundationBudget,
-                                 RepositoryMaterialBudget targetedSourceBudget) {
+                                 RepositoryMaterialBudget targetedSourceBudget,
+                                 RepositorySecretPolicy secretPolicy) {
         if (foundationBudget == null) {
             throw new IllegalArgumentException("RepositoryReadPlanner 必须指定 foundationBudget");
         }
@@ -94,8 +108,12 @@ public final class RepositoryReadPlanner {
             throw new IllegalArgumentException(
                     "RepositoryReadPlanner 必须指定 targetedSourceBudget");
         }
+        if (secretPolicy == null) {
+            throw new IllegalArgumentException("RepositoryReadPlanner 必须指定 secretPolicy");
+        }
         this.foundationBudget = foundationBudget;
         this.targetedSourceBudget = targetedSourceBudget;
+        this.secretPolicy = secretPolicy;
     }
 
     /**
@@ -159,27 +177,67 @@ public final class RepositoryReadPlanner {
         requireSameRevision(map, candidates.analyzedRevision());
 
         // 一条队列：顺序就是考虑顺序，轮转不会把它重新交织。
-        // 一条队列：顺序就是考虑顺序，轮转不会把它重新交织。
-        return plan(map, List.of(resolvedLane(map, candidates.orderedCandidates())));
+        return plan(map, resolveLane(map, candidates.orderedCandidates()));
     }
 
     /**
      * 在两条通道各自的预算内规划，产出计划。
      *
      * <p>两条公共入口只负责把各自的输入折成「定向源码的候选队列」，其余完全共用。
+     *
+     * <p>凭据政策的第一个执行点在**两条通道构队列的时候**：命中政策的候选不会进入候选队列，
+     * 因此既不会被考虑，也不会占用名额。被排除的候选作为诊断记录下来（只有路径，没有内容）。
      */
-    private RepositoryReadPlan plan(RepositoryMap map,
-                                    List<List<RepositoryMapEntry>> targetedSourceLanes) {
-        LaneResult foundation = roundRobin(foundationLanes(map), foundationBudget);
-        LaneResult targeted = roundRobin(targetedSourceLanes, targetedSourceBudget);
+    private RepositoryReadPlan plan(RepositoryMap map, Lanes targetedSource) {
+        Lanes foundation = foundationLanes(map);
 
-        List<SkippedReadCandidate> skipped =
-                new ArrayList<>(foundation.skipped().size() + targeted.skipped().size());
-        skipped.addAll(foundation.skipped());
-        skipped.addAll(targeted.skipped());
+        LaneResult foundationSelection = roundRobin(foundation.lanes(), foundationBudget);
+        LaneResult targetedSelection = roundRobin(targetedSource.lanes(), targetedSourceBudget);
 
-        return RepositoryReadPlan.of(
-                map.analyzedRevision(), foundation.selected(), targeted.selected(), skipped);
+        List<SkippedReadCandidate> skipped = new ArrayList<>(
+                foundationSelection.skipped().size() + targetedSelection.skipped().size()
+                        + foundation.excluded().size() + targetedSource.excluded().size());
+        skipped.addAll(foundationSelection.skipped());
+        skipped.addAll(targetedSelection.skipped());
+        addExclusionDiagnostics(skipped, foundation.excluded());
+        addExclusionDiagnostics(skipped, targetedSource.excluded());
+
+        return RepositoryReadPlan.of(map.analyzedRevision(),
+                foundationSelection.selected(), targetedSelection.selected(), skipped);
+    }
+
+    private static void addExclusionDiagnostics(List<SkippedReadCandidate> skipped,
+                                                List<RepositoryMapEntry> excluded) {
+        for (RepositoryMapEntry entry : excluded) {
+            skipped.add(new SkippedReadCandidate(
+                    entry, RepositoryReadSkipReason.EXCLUDED_BY_SECRET_POLICY));
+        }
+    }
+
+    /**
+     * 凭据政策的第一个执行点（ADR-0006）：按**路径**整份排除。
+     *
+     * <p>它必须在候选进入轮转之前生效，理由有两条：
+     *
+     * <pre>
+     * 1. 没有进入候选队列的候选不会被读——被排除的文件因此不可能出现在材料里，
+     *    也就不可能出现在送往模型的请求里。这是本次分析里唯一能整份排除的地方。
+     * 2. 它不占用 maxFiles 名额。一个被挡下的 .env 不该让后面那个安全的候选失去机会——
+     *    那会让「仓库里多了一个凭据文件」变成「分析少看了一个正常文件」。
+     * </pre>
+     *
+     * <p>判定只看路径：此刻还没有内容可看（内容要读过才有），而二进制凭据也只有在
+     * 路径这一层才识别得出来。
+     *
+     * @param excluded 命中政策的候选按原顺序追加到这里，作为规划诊断
+     */
+    private boolean excludedFromMaterial(RepositoryMapEntry entry,
+                                         List<RepositoryMapEntry> excluded) {
+        if (!secretPolicy.excludes(entry.relativePath())) {
+            return false;
+        }
+        excluded.add(entry);
+        return true;
     }
 
     /**
@@ -212,11 +270,15 @@ public final class RepositoryReadPlanner {
      * <p>组内显式排序，不依赖 Map 的输出顺序：同一份输入必须得到同一份计划，
      * 这件事应当由本类的代码保证。
      */
-    private static List<List<RepositoryMapEntry>> foundationLanes(RepositoryMap map) {
+    private Lanes foundationLanes(RepositoryMap map) {
         Map<RepositoryMaterialKind, List<RepositoryMapEntry>> byKind =
                 new EnumMap<>(RepositoryMaterialKind.class);
+        List<RepositoryMapEntry> excluded = new ArrayList<>();
 
         for (RepositoryMapEntry entry : map.entriesIn(RepositoryCandidateLane.FOUNDATION)) {
+            if (excludedFromMaterial(entry, excluded)) {
+                continue;
+            }
             byKind.computeIfAbsent(entry.materialKind(), kind -> new ArrayList<>()).add(entry);
         }
 
@@ -229,7 +291,7 @@ public final class RepositoryReadPlanner {
             group.sort(Comparator.comparing(RepositoryMapEntry::relativePath));
             lanes.add(List.copyOf(group));
         }
-        return lanes;
+        return new Lanes(lanes, excluded);
     }
 
     /**
@@ -237,13 +299,14 @@ public final class RepositoryReadPlanner {
      *
      * <p>这里不做任何重排——顺序就是优先级，模型用它表达了「先看哪里」。
      */
-    private static List<List<RepositoryMapEntry>> targetedSourceLanes(
-            RepositoryMap map, RepositoryInspectionPlan inspectionPlan) {
+    private Lanes targetedSourceLanes(RepositoryMap map,
+                                      RepositoryInspectionPlan inspectionPlan) {
         List<List<RepositoryMapEntry>> lanes = new ArrayList<>(inspectionPlan.areaCount());
+        List<RepositoryMapEntry> excluded = new ArrayList<>();
         for (RepositoryInspectionArea area : inspectionPlan.areas()) {
-            lanes.add(resolvedLane(map, area.entries()));
+            lanes.add(resolvedLane(map, area.entries(), excluded));
         }
-        return lanes;
+        return new Lanes(lanes, excluded);
     }
 
     /**
@@ -254,11 +317,29 @@ public final class RepositoryReadPlanner {
      * 这里再核对一次，是为了让「计划里的路径一定来自本次这张 Map」由规划器自己保证，
      * 而不是依赖上游没出错。
      */
-    private static List<RepositoryMapEntry> resolvedLane(RepositoryMap map,
-                                                         List<RepositoryMapEntry> candidates) {
+    /** 一条通道的候选队列，以及被凭据政策整份排除、因而没有进入队列的候选。 */
+    private record Lanes(List<List<RepositoryMapEntry>> lanes,
+                         List<RepositoryMapEntry> excluded) {
+    }
+
+    /** 一条有序候选流折成一条队列，并过一遍凭据政策。 */
+    private Lanes resolveLane(RepositoryMap map, List<RepositoryMapEntry> candidates) {
+        List<RepositoryMapEntry> excluded = new ArrayList<>();
+        List<RepositoryMapEntry> entries =
+                resolvedLane(map, candidates, excluded);
+        return new Lanes(List.of(entries), excluded);
+    }
+
+    private List<RepositoryMapEntry> resolvedLane(RepositoryMap map,
+                                                  List<RepositoryMapEntry> candidates,
+                                                  List<RepositoryMapEntry> excluded) {
         List<RepositoryMapEntry> entries = new ArrayList<>(candidates.size());
         for (RepositoryMapEntry candidate : candidates) {
-            entries.add(requireEntryOfThisMap(candidate, map));
+            RepositoryMapEntry fromMap = requireEntryOfThisMap(candidate, map);
+            if (excludedFromMaterial(fromMap, excluded)) {
+                continue;
+            }
+            entries.add(fromMap);
         }
         return List.copyOf(entries);
     }

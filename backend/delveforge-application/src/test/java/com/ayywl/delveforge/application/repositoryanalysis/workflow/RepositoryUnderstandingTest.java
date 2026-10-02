@@ -20,6 +20,10 @@ import com.ayywl.delveforge.application.repositoryanalysis.region.RegionRecursio
 import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudget;
 import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudgetExceededException;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretBoundaryException;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.SanitizedRepositoryMaterial;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutInputs;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -358,6 +362,85 @@ class RepositoryUnderstandingTest {
     }
 
     // ---------------------------------------------------------------------
+    // 凭据边界（ADR-0006）
+    // ---------------------------------------------------------------------
+
+    /**
+     * 政策的第一个执行点在**读取之前**：被排除的路径一次都不该被读。
+     *
+     * <p>它证明的不是「内容被换掉了」，而是「这份内容从来没有进入过程序」——
+     * 二进制凭据也只能靠这一层挡住。
+     */
+    @Test
+    void neverReadsAPathExcludedByTheSecretPolicy() {
+        seedSources();
+        // 放在路径末尾，避免改变其它文件的编号——固定响应按编号指向它们
+        workspace.given("zz/.env.local", "DB_PASSWORD=CANARY-ENV-VALUE-0001\n");
+        aiGateway.respondAll(SCOUT_RESPONSE);
+
+        understanding().understand(WORKSPACE, REVISION);
+
+        assertTrue(!workspace.readPaths().contains("zz/.env.local"),
+                "被排除的凭据文件不得被读取: " + workspace.readPaths());
+        assertTrue(workspace.readPaths().contains(POM), "其余材料照常读取");
+    }
+
+    /**
+     * 政策的第二个执行点在交给模型之前：本方法返回的材料**已经是模型可见材料**。
+     */
+    @Test
+    void returnsOnlyModelVisibleMaterial() {
+        workspace.given(POM, "spring:\n  datasource:\n    password: CANARY-CONFIG-0001\n");
+        workspace.given(APP, "class App {}");
+        workspace.given(OTHER, "class Other {}");
+        aiGateway.respondAll(SCOUT_RESPONSE);
+
+        List<RepositorySourceFile> material = understanding().understand(WORKSPACE, REVISION);
+        String pom = contentOf(material, POM);
+
+        assertTrue(!pom.contains("CANARY-CONFIG-0001"),
+                "读到的原文不得原样出现在返回的材料里: " + pom);
+        assertTrue(pom.contains(DeterministicRepositorySecretPolicy.REDACTION_MARKER));
+        assertTrue(pom.contains("password:"), "键名与结构保留: " + pom);
+    }
+
+    /**
+     * 路径闸门自己失败时失败关闭：整次分析以「当前无法分析」结束。
+     *
+     * <p>不存在「闸门没跑完就先读进来」这条路。
+     */
+    @Test
+    void failsClosedWhenThePathGateItselfFails() {
+        seedSources();
+        aiGateway.respondAll(SCOUT_RESPONSE);
+
+        RepositoryNotAnalyzableException failure = assertThrows(
+                RepositoryNotAnalyzableException.class,
+                () -> understandingWithPolicy(failingGate()).understand(WORKSPACE, REVISION));
+
+        assertEquals(RepositorySecretBoundaryException.class, failure.getCause().getClass());
+        assertTrue(failure.getMessage().contains(RepositoryUnderstanding.SECRET_BOUNDARY_FAILED),
+                "失败原因应当带上稳定的标识: " + failure.getMessage());
+        assertTrue(workspace.readPaths().isEmpty(), "闸门没跑完时不得读取任何文件");
+    }
+
+    /**
+     * 内容净化自己失败时同样是失败关闭：不发材料、不读更多、不产生结果。
+     */
+    @Test
+    void failsClosedWhenSanitizationFails() {
+        seedSources();
+        aiGateway.respondAll(SCOUT_RESPONSE);
+
+        RepositoryNotAnalyzableException failure = assertThrows(
+                RepositoryNotAnalyzableException.class,
+                () -> understandingWithPolicy(failingSanitizer()).understand(WORKSPACE, REVISION));
+
+        assertEquals(RepositorySecretBoundaryException.class, failure.getCause().getClass());
+        assertTrue(failure.getMessage().contains(RepositoryUnderstanding.SECRET_BOUNDARY_FAILED));
+    }
+
+    // ---------------------------------------------------------------------
     // 前置条件：都在调用模型之前失败
     // ---------------------------------------------------------------------
 
@@ -514,6 +597,52 @@ class RepositoryUnderstandingTest {
 
     private RepositoryUnderstanding understanding() {
         return understandingWithBudgets(GENEROUS_FOUNDATION, GENEROUS_TARGETED);
+    }
+
+    private RepositoryUnderstanding understandingWithPolicy(RepositorySecretPolicy policy) {
+        return UnderstandingFixtures.understanding(aiGateway, workspace,
+                GENEROUS_FOUNDATION, GENEROUS_TARGETED, 65_536,
+                new RegionRecursionBudget(8, 12), new ScoutCallBudget(18), policy);
+    }
+
+    /** 路径闸门抛错的替身：验证「闸门失败」这一条失败语义。 */
+    private static RepositorySecretPolicy failingGate() {
+        return new RepositorySecretPolicy() {
+
+            @Override
+            public boolean excludes(String relativePath) {
+                throw new RepositorySecretBoundaryException("闸门无法完成判定");
+            }
+
+            @Override
+            public SanitizedRepositoryMaterial sanitize(List<RepositorySourceFile> files) {
+                return new SanitizedRepositoryMaterial(files, 0);
+            }
+        };
+    }
+
+    /** 净化阶段抛错的替身：验证「净化失败」这一条失败语义。 */
+    private static RepositorySecretPolicy failingSanitizer() {
+        return new RepositorySecretPolicy() {
+
+            @Override
+            public boolean excludes(String relativePath) {
+                return false;
+            }
+
+            @Override
+            public SanitizedRepositoryMaterial sanitize(List<RepositorySourceFile> files) {
+                throw new RepositorySecretBoundaryException("净化无法完成");
+            }
+        };
+    }
+
+    private static String contentOf(List<RepositorySourceFile> material, String relativePath) {
+        return material.stream()
+                .filter(file -> file.relativePath().equals(relativePath))
+                .map(RepositorySourceFile::content)
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("材料里没有 " + relativePath));
     }
 
     /**

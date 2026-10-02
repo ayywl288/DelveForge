@@ -14,6 +14,8 @@ import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegi
 import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudget;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.FileCatalogPayload;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
@@ -50,6 +52,18 @@ final class UnderstandingFixtures {
                                                  int maxCatalogBytes,
                                                  RegionRecursionBudget regionBudget,
                                                  ScoutCallBudget scoutCallBudget) {
+        return understanding(gateway, workspace, foundation, targetedSource, maxCatalogBytes,
+                regionBudget, scoutCallBudget, new DeterministicRepositorySecretPolicy());
+    }
+
+    static RepositoryUnderstanding understanding(AiGateway gateway,
+                                                 WorkspaceReadPort workspace,
+                                                 RepositoryMaterialBudget foundation,
+                                                 RepositoryMaterialBudget targetedSource,
+                                                 int maxCatalogBytes,
+                                                 RegionRecursionBudget regionBudget,
+                                                 ScoutCallBudget scoutCallBudget,
+                                                 RepositorySecretPolicy secretPolicy) {
         ObjectMapper objectMapper = new ObjectMapper();
         RepositoryScoutExtraction fileScout =
                 new RepositoryScoutExtraction(gateway, objectMapper);
@@ -69,8 +83,9 @@ final class UnderstandingFixtures {
                 fileScout,
                 navigator,
                 branchRunner,
-                new RepositoryReadPlanner(foundation, targetedSource),
+                new RepositoryReadPlanner(foundation, targetedSource, secretPolicy),
                 new RepositoryReadExecutor(workspace, foundation, targetedSource),
+                secretPolicy,
                 maxCatalogBytes);
     }
 }

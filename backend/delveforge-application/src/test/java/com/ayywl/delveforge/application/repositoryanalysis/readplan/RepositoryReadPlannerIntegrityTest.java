@@ -16,6 +16,8 @@ import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryCandida
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMap;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapEntry;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryInspectionPlan;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +25,10 @@ import org.junit.jupiter.api.Test;
  * 验证规划的前提与结果完整性：同一 revision、真实描述符、不读内容、不调用 AI。
  */
 class RepositoryReadPlannerIntegrityTest {
+
+    /** 使用真实规则：这些用例验证的是规划本身，凭据政策在这里应当「什么都不排除」。 */
+    private static final RepositorySecretPolicy SECRET_POLICY =
+            new DeterministicRepositorySecretPolicy();
 
     private static final RepositoryMaterialBudget GENEROUS =
             new RepositoryMaterialBudget(50, 10_000, 100_000);
@@ -134,7 +140,7 @@ class RepositoryReadPlannerIntegrityTest {
      */
     @Test
     void plansFromMetadataOnlyWithoutWorkspaceOrAiCapability() {
-        RepositoryReadPlan plan = new RepositoryReadPlanner(GENEROUS, GENEROUS)
+        RepositoryReadPlan plan = new RepositoryReadPlanner(GENEROUS, GENEROUS, SECRET_POLICY)
                 .plan(map, ReadPlanFixtures.fullPlan(map));
 
         assertEquals(14, plan.size(), "Map 里 8 个基础材料 + 6 个定向源码，NONE 组不参与");
@@ -175,9 +181,9 @@ class RepositoryReadPlannerIntegrityTest {
     @Test
     void rejectsMissingBudgets() {
         assertThrows(IllegalArgumentException.class,
-                () -> new RepositoryReadPlanner(null, GENEROUS));
+                () -> new RepositoryReadPlanner(null, GENEROUS, SECRET_POLICY));
         assertThrows(IllegalArgumentException.class,
-                () -> new RepositoryReadPlanner(GENEROUS, null));
+                () -> new RepositoryReadPlanner(GENEROUS, null, SECRET_POLICY));
     }
 
     /**
@@ -203,6 +209,6 @@ class RepositoryReadPlannerIntegrityTest {
     }
 
     private RepositoryReadPlanner planner() {
-        return new RepositoryReadPlanner(GENEROUS, GENEROUS);
+        return new RepositoryReadPlanner(GENEROUS, GENEROUS, SECRET_POLICY);
     }
 }
