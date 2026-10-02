@@ -10,10 +10,14 @@ import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryRe
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadResult;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryTargetedSourceCandidates;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RegionHierarchyNotReducibleException;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RegionNavigationBudgetExceededException;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryBranchScoutRunner;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryFileCandidates;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionCatalogTooLargeException;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigation;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigator;
+import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudgetExceededException;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryInspectionPlan;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutInputs;
@@ -57,7 +61,7 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>失败都在读取之前或读取之中</h2>
  *
- * <p>没有源码候选、分层导航预算耗尽、目录不可再分、任一 Scout 输出不合法、读取计划为空——
+ * <p>没有源码候选、分层 Scout 的守卫挡住这次分析、任一 Scout 输出不合法、读取计划为空——
  * 都在获取材料的阶段失败，既不该先付一次注定失败的模型调用，也不该拿到一份基于错误输入的
  * 结果。整条链路不会产生任何持久化副作用。
  *
@@ -65,6 +69,17 @@ import org.slf4j.LoggerFactory;
  *
  * <p>分层 Scout 失败时**不会**退回「把超限的 flat 目录直接发给 File Scout」，也不会截断分支、
  * 采样或降级到只读基础材料。失败关闭：一次分析要么按某条确定的路径走完，要么什么都不产出。
+ *
+ * <h2>对外只有两种失败语义</h2>
+ *
+ * <pre>
+ * RepositoryNotAnalyzableException   这个仓库当前分析不了（形状超出能力，或读不出材料）
+ * AiGatewayException / WorkspaceException   外部能力调用本身失败
+ * </pre>
+ *
+ * <p>分层的那几条守卫属于前者：它们是「仓库形状不适合当前分析方式」，不是服务端故障。
+ * 因此本类把它们统一成 {@link RepositoryNotAnalyzableException}，而不是让它们以各自的类型
+ * 掉进接口层的「未知错误」。
  *
  * <h2>Revision 一致性</h2>
  *
@@ -84,6 +99,14 @@ public class RepositoryUnderstanding {
 
     /** 分层 Scout 路径的稳定标识，只出现在聚合日志里。 */
     static final String SCOUT_PATH_HIERARCHICAL = "HIERARCHICAL";
+
+    /**
+     * 分层 Scout 的守卫挡住了这次分析时，日志与异常里使用的稳定原因标识。
+     *
+     * <p>具体是哪一条守卫在 cause 里：Region 目录超限 / 单分支轮数 / Region 调用数 /
+     * Scout 调用总数 / 结构不可再分。对外它们含义相同，因此只有一个标识。
+     */
+    static final String SCOUT_HIERARCHY_GUARD_EXCEEDED = "SCOUT_HIERARCHY_GUARD_EXCEEDED";
 
     private static final Logger log = LoggerFactory.getLogger(RepositoryUnderstanding.class);
 
@@ -157,18 +180,11 @@ public class RepositoryUnderstanding {
      *                          必须是已经解析出来的完整 commit id，本类不重新解析 HEAD
      * @return 真正读到、并通过执行期尺寸复核的材料
      * @throws IllegalArgumentException 任一参数为 {@code null}
-     * @throws RepositoryNotAnalyzableException 没有源码候选、读取计划为空，
-     *                                          或读完之后没有可用材料
+     * @throws RepositoryNotAnalyzableException 没有源码候选、读取计划为空、读完之后没有可用材料，
+     *                                          或分层 Scout 的守卫挡住了这次分析
+     *                                          （原始守卫在 cause 里）
      * @throws com.ayywl.delveforge.application.port.ai.AiGatewayException
      *                                          Scout 调用失败，或返回内容不满足约定
-     * @throws com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionCatalogTooLargeException
-     *                                          Region 目录超出其预算
-     * @throws com.ayywl.delveforge.application.repositoryanalysis.region.RegionNavigationBudgetExceededException
-     *                                          分层导航的守卫用尽
-     * @throws com.ayywl.delveforge.application.repositoryanalysis.region.RegionHierarchyNotReducibleException
-     *                                          目录结构上无法再缩小
-     * @throws com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudgetExceededException
-     *                                          Scout 调用总数超出预算
      * @throws com.ayywl.delveforge.application.port.workspace.WorkspaceException
      *                                          列目录或读取文件失败
      */
@@ -239,12 +255,36 @@ public class RepositoryUnderstanding {
      * <p>产出仍然交给**同一份** {@code RepositoryReadPlanner}：合并的顺序就是定向源码的
      * 考虑顺序，材料预算的取舍与 flat 路径完全一致。
      *
-     * <p>这里没有 try/catch，也没有备用路径：导航或分支 Scout 失败就整次失败，
-     * 不会退回把超限的 flat 目录发出去。
+     * <p>这里没有备用路径：导航或分支 Scout 失败就整次失败，不会退回把超限的 flat 目录发出去。
+     *
+     * <h2>守卫失败 = 「当前无法分析」，不是「服务端故障」</h2>
+     *
+     * <p>分层的那几个守卫（Region 目录超限 / 轮数 / Region 调用数 / Scout 调用总数 /
+     * 结构不可再分）说的都是同一件事：**这个仓库的源码目录形状超出了当前分析方式的处理
+     * 能力**。它与 flat 目录超限是同一种对外含义——调用方需要改变仓库形状或分析上限，
+     * 而不是等重试、也改不了请求。因此在这里统一成 {@link RepositoryNotAnalyzableException}，
+     * 让它与「位置不可读」「没有可分析材料」落到同一个协议结果，而不是掉进「未知服务端故障」。
+     *
+     * <p>原始守卫放进 cause：对定位的人，是哪一条守卫、卡在哪个目录仍然看得出来。
+     *
+     * <p>只转这几种守卫。{@code AiGatewayException} 与 {@code WorkspaceException} 不在这里
+     * 转换——它们表示外部能力调用本身失败，与「仓库形状不适合分析」不是一回事。
      */
     private RepositoryReadPlan hierarchicalReadPlan(RepositoryMap map) {
-        RepositoryRegionNavigation navigation = regionNavigator.navigate(map);
-        RepositoryFileCandidates candidates = branchScoutRunner.run(navigation);
+        RepositoryFileCandidates candidates;
+        try {
+            RepositoryRegionNavigation navigation = regionNavigator.navigate(map);
+            candidates = branchScoutRunner.run(navigation);
+        } catch (RepositoryRegionCatalogTooLargeException
+                 | RegionNavigationBudgetExceededException
+                 | RegionHierarchyNotReducibleException
+                 | ScoutCallBudgetExceededException guardFailure) {
+            throw new RepositoryNotAnalyzableException(
+                    SCOUT_HIERARCHY_GUARD_EXCEEDED + ": flat 目录超出上限，改用分层 Scout 之后"
+                            + "仍无法把源码候选压进本版本的预算（具体守卫见 cause）: "
+                            + map.analyzedRevision(),
+                    guardFailure);
+        }
         return readPlanner.plan(map, RepositoryTargetedSourceCandidates.of(
                 candidates.analyzedRevision(), candidates.orderedFiles()));
     }

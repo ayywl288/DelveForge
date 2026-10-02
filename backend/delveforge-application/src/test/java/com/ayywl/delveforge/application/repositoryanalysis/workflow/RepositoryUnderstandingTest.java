@@ -16,6 +16,9 @@ import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMap;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapBuilder;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RegionHierarchyNotReducibleException;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RegionRecursionBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudgetExceededException;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutInputs;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -309,12 +312,48 @@ class RepositoryUnderstandingTest {
         // 根层只有 flat/ 一个子目录；缩到它之后就再没有更细的结构可分。
         gateway.respondAll(List.of(List.of("flat")), List.of());
 
-        assertThrows(RegionHierarchyNotReducibleException.class,
+        RepositoryNotAnalyzableException failure = assertThrows(
+                RepositoryNotAnalyzableException.class,
                 () -> hierarchicalUnderstanding(flatCatalogBytes() - 1)
                         .understand(WORKSPACE, REVISION));
 
+        assertEquals(RegionHierarchyNotReducibleException.class, failure.getCause().getClass(),
+                "原始守卫必须留在 cause 里，便于定位是哪一条挡住了分析");
         assertEquals(0, gateway.fileCalls(), "不可再分时不调用 File Scout");
         assertEquals(1, gateway.regionCalls(), "只在根层问过一次");
+        assertTrue(workspace.readPaths().isEmpty());
+    }
+
+    /**
+     * 整次分析的 Scout 调用总数**在导航阶段就生效**：不是等分支 File Scout 那一步才算。
+     *
+     * <p>结构需要两轮下降（{@code pkg} 那一层装不下，得再往下走一层），总预算只给 1。
+     * 第二次 Region 调用必须在触达模型之前被挡下——否则超限之后的失败收不回已经付出的调用。
+     */
+    @Test
+    void stopsAtTheTotalScoutBudgetWhileStillNavigating() {
+        workspace.given(POM, "<project/>");
+        workspace.given("pkg/a/A1.java", "class A1 {}");
+        workspace.given("pkg/a/A2.java", "class A2 {}");
+        workspace.given("pkg/b/B1.java", "class B1 {}");
+        workspace.given("pkg/b/B2.java", "class B2 {}");
+        gateway.respondAll(List.of(List.of("pkg")), List.of());
+
+        RepositoryUnderstanding understanding = UnderstandingFixtures.understanding(
+                gateway, workspace,
+                GENEROUS_FOUNDATION, GENEROUS_TARGETED,
+                flatCatalogBytes() - 1,
+                // Region 自己的上限很宽：卡住的是整次分析的总数
+                new RegionRecursionBudget(8, 12),
+                new ScoutCallBudget(1));
+
+        RepositoryNotAnalyzableException failure = assertThrows(
+                RepositoryNotAnalyzableException.class,
+                () -> understanding.understand(WORKSPACE, REVISION));
+
+        assertEquals(ScoutCallBudgetExceededException.class, failure.getCause().getClass());
+        assertEquals(1, gateway.regionCalls(), "总预算用尽的调用不得触达模型");
+        assertEquals(0, gateway.fileCalls(), "导航没走完，不应进入分支阶段");
         assertTrue(workspace.readPaths().isEmpty());
     }
 

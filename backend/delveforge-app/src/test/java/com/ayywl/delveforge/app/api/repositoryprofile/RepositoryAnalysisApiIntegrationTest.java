@@ -279,6 +279,38 @@ class RepositoryAnalysisApiIntegrationTest {
     }
 
     /**
+     * 源码目录的形状超出当前分析方式时同样是 409，而不是 500。
+     *
+     * <p>这里构造的是一个**扁平且过大**的源码集合：几百个源文件直接放在仓库根目录，
+     * flat File Catalog 必然超过上限，而它们没有更细的结构可以下钻——分层也降不下去。
+     *
+     * <p>这类失败以前会掉进「未知服务端故障」，让调用方以为服务坏了、去等重试。
+     * 实际上请求可以理解、资产也存在，只是这个仓库当前分析不了，与「没有可分析材料」
+     * 是同一类结果，因此必须落成 CONFLICT。
+     *
+     * <p>安全要求一并验证：响应体只带稳定的错误分类，不含任何内部文本或文件路径。
+     */
+    @Test
+    void rejectsAnalysisWhenTheSourceCatalogShapeExceedsTheCurrentCapability() throws Exception {
+        String assetId = registerAsset(true);
+        for (int index = 0; index < 800; index++) {
+            WORKSPACE.givenFile(String.format("source%04d.java", index), "class Source {}");
+        }
+
+        String body = mockMvc.perform(post("/api/software-assets/{id}/analysis", assetId))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("CONFLICT"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        assertFalse(body.contains("SCOUT_HIERARCHY_GUARD_EXCEEDED"),
+                "响应体不得包含内部原因标识: " + body);
+        assertFalse(body.contains("source0000.java"),
+                "响应体不得包含文件路径: " + body);
+    }
+
+    /**
      * 分析失败时返回稳定的错误分类，且不泄漏内部信息。
      */
     @Test
