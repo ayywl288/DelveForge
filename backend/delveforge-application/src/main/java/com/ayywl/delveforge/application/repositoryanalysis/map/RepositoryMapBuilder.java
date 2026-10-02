@@ -32,16 +32,17 @@ import java.util.List;
  * 保持同一条规则（M1 复盘 §5.1）：HEAD 只解析一次，之后所有读取都带同一个 commit id。
  * 本类既不解析也不缓存 revision——它把它原样传给 Workspace，并记进 Map。
  *
- * <h2>本 Task 不改变现有分析行为</h2>
+ * <h2>它在整条链路里的位置</h2>
  *
- * <p>本类当前**没有**被 {@code AnalyzeRepositoryUseCase} 调用：现有材料收集与选材策略
- * 保持不变。把 Map 接入分析链路、以及定向读取，属于 ADR-0004 中的后续阶段。
+ * <p>由 {@code RepositoryUnderstanding} 调用，是 Repository Analysis 的第一步（ADR-0004）。
+ * M1 的确定性选材策略（{@code RepositoryAnalysisMaterialCollector} /
+ * {@code RepositoryAnalysisMaterialPolicy}）已经不在生产链路上。
  *
  * <h2>空树</h2>
  *
  * <p>该 revision 上没有任何已提交文件时返回空 Map，而不是失败：空是一份诚实的描述。
  * 「没有可分析材料时不该去问模型」这条判断属于读取阶段，由
- * {@code RepositoryAnalysisMaterialCollector} 继续承担。
+ * {@code RepositoryUnderstanding} 在调用任何 Scout 之前作出。
  */
 public final class RepositoryMapBuilder {
 
