@@ -34,6 +34,18 @@ final class RegionFixtures {
 
     static final String REVISION = "region-rev-1";
 
+    /** 两个格式合法、互不相同的作用域：用于确定性地复现「两次调用」。 */
+    static final String SCOPE_A = "0123456789abcdef0123456789abcdef";
+
+    static final String SCOPE_B = "fedcba9876543210fedcba9876543210";
+
+    /** 一个不会被任何默认目录用到的合法作用域：用于构造「本次没有提供的编号」。 */
+    static final String ABSENT_SCOPE = "00000000000000000000000000000000";
+
+    static String absentRef(int position) {
+        return "RR-" + ABSENT_SCOPE + "-" + position;
+    }
+
     static final String POM = "pom.xml";
     static final String APP_CONFIG = "src/main/java/com/app/config/AppConfig.java";
     static final String CONTROLLER = "src/main/java/com/app/controller/OrderController.java";

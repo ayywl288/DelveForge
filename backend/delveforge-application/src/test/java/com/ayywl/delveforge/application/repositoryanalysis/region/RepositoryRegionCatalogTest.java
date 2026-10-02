@@ -45,8 +45,8 @@ class RepositoryRegionCatalogTest {
     void defaultScopeIsWellFormed() {
         RepositoryRegionCatalog catalog = RegionFixtures.catalog();
 
-        assertTrue(scopeOf(catalog.entries().get(0).reference()).matches("[0-9a-f]{8}"),
-                "默认作用域必须是 8 位小写十六进制");
+        assertTrue(scopeOf(catalog.entries().get(0).reference()).matches("[0-9a-f]{32}"),
+                "默认作用域必须是完整 UUID（32 位小写十六进制），截短会碰撞");
     }
 
     /**
@@ -67,8 +67,8 @@ class RepositoryRegionCatalogTest {
     /** 用注入的确定作用域复现同一件事，不依赖随机性。 */
     @Test
     void referenceFromAnotherInvocationWithIdenticalInputResolvesToEmpty() {
-        RepositoryRegionCatalog first = withScope("aaaaaaaa");
-        RepositoryRegionCatalog second = withScope("bbbbbbbb");
+        RepositoryRegionCatalog first = withScope(RegionFixtures.SCOPE_A);
+        RepositoryRegionCatalog second = withScope(RegionFixtures.SCOPE_B);
 
         assertEquals(first.regions(), second.regions(), "两份目录内容完全相同");
         assertTrue(second.find(first.entries().get(0).reference()).isEmpty(),
@@ -91,7 +91,7 @@ class RepositoryRegionCatalogTest {
     void unknownReferenceAndNullResolveToEmpty() {
         RepositoryRegionCatalog catalog = RegionFixtures.catalog();
 
-        assertTrue(catalog.find(new RepositoryRegionReference("RR-00000000-99")).isEmpty());
+        assertTrue(catalog.find(new RepositoryRegionReference(RegionFixtures.absentRef(99))).isEmpty());
         assertTrue(catalog.find(new RepositoryRegionReference("RR-1")).isEmpty(),
                 "裸序号不是本版本的引用形式");
         assertTrue(catalog.find(null).isEmpty());

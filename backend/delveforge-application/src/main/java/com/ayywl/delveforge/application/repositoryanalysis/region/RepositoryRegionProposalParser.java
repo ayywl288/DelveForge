@@ -83,7 +83,7 @@ public final class RepositoryRegionProposalParser {
             if (!RepositoryRegionReference.isWellFormed(text)) {
                 throw new AiGatewayException(
                         "AI 返回的区域引用格式不正确: " + text
-                                + "（期望形如 RR-3f1a9c02-1 的编号，而不是路径或裸序号）");
+                                + "（期望形如 RR-3f1a9c02b4d5e6f708192a3b4c5d6e7f-1 的编号，而不是路径或裸序号）");
             }
             if (!seen.add(text)) {
                 throw new AiGatewayException("AI 返回的区域引用重复: " + text);

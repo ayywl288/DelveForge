@@ -62,9 +62,9 @@ class RepositoryRegionProposalResolverTest {
     @Test
     void rejectsReferenceFromAnotherInvocationWithIdenticalContent() {
         RepositoryRegionCatalog first = RepositoryRegionCatalog.of(
-                RegionFixtures.REVISION, catalog.regions(), () -> "aaaaaaaa");
+                RegionFixtures.REVISION, catalog.regions(), () -> RegionFixtures.SCOPE_A);
         RepositoryRegionCatalog second = RepositoryRegionCatalog.of(
-                RegionFixtures.REVISION, catalog.regions(), () -> "bbbbbbbb");
+                RegionFixtures.REVISION, catalog.regions(), () -> RegionFixtures.SCOPE_B);
 
         assertThrows(AiGatewayException.class, () -> resolver.resolve(
                 new AiRegionSelectionProposal(List.of(referenceAt(first, 1))),
@@ -79,7 +79,7 @@ class RepositoryRegionProposalResolverTest {
     void rejectsUnknownReference() {
         assertThrows(AiGatewayException.class, () -> resolver.resolve(
                 new AiRegionSelectionProposal(
-                        List.of(new RepositoryRegionReference("RR-00000000-99"))),
+                        List.of(new RepositoryRegionReference(RegionFixtures.absentRef(99)))),
                 catalog));
     }
 
@@ -106,7 +106,7 @@ class RepositoryRegionProposalResolverTest {
         assertThrows(AiGatewayException.class, () -> resolver.resolve(
                 new AiRegionSelectionProposal(List.of(
                         referenceAt(catalog, 1),
-                        new RepositoryRegionReference("RR-00000000-42"))),
+                        new RepositoryRegionReference(RegionFixtures.absentRef(42)))),
                 catalog));
     }
 }

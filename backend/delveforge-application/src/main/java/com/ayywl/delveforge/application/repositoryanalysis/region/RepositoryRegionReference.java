@@ -3,12 +3,16 @@ package com.ayywl.delveforge.application.repositoryanalysis.region;
 import java.util.regex.Pattern;
 
 /**
- * 一次 Region Catalog 内的区域引用，形如 {@code RR-3f1a9c02-1}。
+ * 一次 Region Catalog 内的区域引用，形如 {@code RR-3f1a9c02b4d5e6f708192a3b4c5d6e7f-1}。
  *
  * <h2>引用里带着调用作用域</h2>
  *
  * <p>形式是 {@code RR-<scope>-<position>}：{@code scope} 是**本次调用**的标识
  * （每次构造目录时新生成，与内容无关），{@code position} 是该区域在本次目录中的位置（从 1 开始）。
+ *
+ * <p>作用域保留**完整 32 位十六进制**（UUID 去掉连字符）。截短是不行的：32 位只有约 43 亿种取值，
+ * 而按生日悖论，两万多次调用就会出现一次碰撞——两个不同调用拿到同一个作用域，于是旧引用被
+ * 新目录解析成了别的区域。碰撞在这里不是理论风险，是本版本会被真实触发的问题。
  *
  * <p>这样做的原因是「引用必须能在跨调用的场合被识别出来」。如果编号只是 {@code RR-1}，
  * 那么 A 调用的 {@code RR-1} 与 B 调用的 {@code RR-1} 是两个无法区分的字符串——把 A 的引用
@@ -33,15 +37,20 @@ import java.util.regex.Pattern;
  *
  * <p>它仍不是 Domain 身份，不持久化，换一次导航即失效。
  *
- * @param value 形如 {@code RR-3f1a9c02-1}；非空且非空白
+ * @param value 形如 {@code RR-3f1a9c02b4d5e6f708192a3b4c5d6e7f-1}；非空且非空白
  */
 public record RepositoryRegionReference(String value) {
 
-    /** 引用的完整格式：{@code RR-} + 8 位十六进制作用域 + {@code -} + 从 1 开始的位置。 */
-    public static final Pattern VALUE_PATTERN = Pattern.compile("RR-[0-9a-f]{8}-[1-9][0-9]*");
+    /** 作用域长度：完整 UUID 的 32 位十六进制。 */
+    public static final int SCOPE_HEX_LENGTH = 32;
+
+    /** 引用的完整格式：{@code RR-} + 32 位十六进制作用域 + {@code -} + 从 1 开始的位置。 */
+    public static final Pattern VALUE_PATTERN =
+            Pattern.compile("RR-[0-9a-f]{" + SCOPE_HEX_LENGTH + "}-[1-9][0-9]*");
 
     /** 作用域本身的格式。 */
-    private static final Pattern SCOPE_PATTERN = Pattern.compile("[0-9a-f]{8}");
+    private static final Pattern SCOPE_PATTERN =
+            Pattern.compile("[0-9a-f]{" + SCOPE_HEX_LENGTH + "}");
 
     public RepositoryRegionReference {
         if (value == null || value.isBlank()) {
@@ -54,14 +63,15 @@ public record RepositoryRegionReference(String value) {
      *
      * <p>作用域由 {@link RepositoryRegionCatalog} 在每次调用时生成；本方法只负责拼装与校验形状。
      *
-     * @param scope    本次调用作用域，8 位小写十六进制
+     * @param scope    本次调用作用域，32 位小写十六进制（完整 UUID）
      * @param position 该区域在本次目录中的位置，不得小于 1
      * @throws IllegalArgumentException scope 或 position 不满足上述约束
      */
     public static RepositoryRegionReference of(String scope, int position) {
         if (scope == null || !SCOPE_PATTERN.matcher(scope).matches()) {
             throw new IllegalArgumentException(
-                    "RepositoryRegionReference 的作用域必须是 8 位小写十六进制: " + scope);
+                    "RepositoryRegionReference 的作用域必须是 " + SCOPE_HEX_LENGTH
+                            + " 位小写十六进制: " + scope);
         }
         if (position < 1) {
             throw new IllegalArgumentException(

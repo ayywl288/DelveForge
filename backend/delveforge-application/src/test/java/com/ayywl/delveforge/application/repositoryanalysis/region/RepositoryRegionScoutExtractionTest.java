@@ -68,7 +68,7 @@ class RepositoryRegionScoutExtractionTest {
     @Test
     void rejectsSelectionThatReferencesAnUnknownRegion() {
         RecordingGateway gateway = new RecordingGateway(
-                "{\"regionRefs\":[\"RR-00000000-7\"]}");
+                "{\"regionRefs\":[\"" + RegionFixtures.absentRef(7) + "\"]}");
 
         assertThrows(AiGatewayException.class,
                 () -> extraction(gateway).scout(catalog));

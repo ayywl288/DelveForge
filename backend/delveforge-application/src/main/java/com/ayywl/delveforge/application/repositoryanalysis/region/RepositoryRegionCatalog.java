@@ -44,11 +44,12 @@ import java.util.regex.Pattern;
  */
 public final class RepositoryRegionCatalog {
 
-    /** 作用域长度：8 位十六进制。 */
-    private static final int SCOPE_HEX_LENGTH = 8;
+    /** 作用域长度：完整 UUID 的 32 位十六进制。截短会碰撞，见 {@link RepositoryRegionReference}。 */
+    private static final int SCOPE_HEX_LENGTH = RepositoryRegionReference.SCOPE_HEX_LENGTH;
 
     /** 作用域取值格式。 */
-    private static final Pattern SCOPE_PATTERN = Pattern.compile("[0-9a-f]{8}");
+    private static final Pattern SCOPE_PATTERN =
+            Pattern.compile("[0-9a-f]{" + SCOPE_HEX_LENGTH + "}");
 
     private final String analyzedRevision;
     private final List<RepositoryRegion> regions;
@@ -92,7 +93,7 @@ public final class RepositoryRegionCatalog {
      * @param regions          有序 Region，不得为 {@code null} 或空，元素不得为 {@code null}，
      *                         且目录前缀不得重复
      * @param scopeSupplier    本次调用作用域的来源，不得为 {@code null}，产出的取值必须符合
-     *                         {@code [0-9a-f]{8}}
+     *                         {@code [0-9a-f]{32}}
      * @throws IllegalArgumentException 参数不满足上述约束
      */
     public static RepositoryRegionCatalog of(String analyzedRevision,
@@ -139,15 +140,20 @@ public final class RepositoryRegionCatalog {
                 Map.copyOf(byReference));
     }
 
-    /** 每次调用新生成一个作用域标识：与目录内容无关，因此相同输入的不同调用也不同。 */
+    /**
+     * 每次调用新生成一个作用域标识：与目录内容无关，因此相同输入的不同调用也不同。
+     *
+     * <p>取**完整** UUID（32 位十六进制）。不截短：截短后碰撞是真实会发生的
+     * （32 位在两万多次调用后即可碰撞），而一次碰撞就意味着旧引用被新目录解析成了别的区域。
+     */
     private static String newInvocationScope() {
-        return UUID.randomUUID().toString().replace("-", "").substring(0, SCOPE_HEX_LENGTH);
+        return UUID.randomUUID().toString().replace("-", "");
     }
 
     private static String requireScope(String scope) {
         if (scope == null || !SCOPE_PATTERN.matcher(scope).matches()) {
             throw new IllegalArgumentException(
-                    "本次调用的作用域必须是 8 位小写十六进制: " + scope);
+                    "本次调用的作用域必须是 " + SCOPE_HEX_LENGTH + " 位小写十六进制: " + scope);
         }
         return scope;
     }
