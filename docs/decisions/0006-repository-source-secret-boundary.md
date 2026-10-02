@@ -1,11 +1,16 @@
 # ADR-0006: Repository Source Secret Boundary Before External AI Requests
 
-Status: Proposed
+Status: Accepted
 
 Date: 2026-10-02
 
-> **本 ADR 记录的是决策，不是实现进度。** 当前**尚未实现**（Task 10B-2）。
-> 权威状态以代码与 `ROADMAP.md` 为准。
+> 本 ADR 已由 Task 10B-2 实现并测试通过。实现落在：
+>
+> ```text
+> application/repositoryanalysis/secret/           政策本身（路径规则 + 内容规则）
+> application/repositoryanalysis/readplan/         第一个执行点：读取之前整份排除
+> application/repositoryanalysis/workflow/         第二个执行点：交给模型之前净化
+> ```
 >
 > 支撑本决策的代码侦察：`docs/validation/m2-repository-secret-boundary-reconnaissance.md`
 >
@@ -133,31 +138,60 @@ Authorization 头的取值（Bearer / Basic）                          替换�
 统一替换让行为只依赖**位置与形态**，不依赖对真假的猜测——也因此可以写出确定的测试。
 ```
 
-### 边界位置：唯一一处
+### 边界位置：一条政策，两个执行点
 
-边界由 `RepositoryAnalysisExtraction` 在构造请求之前调用一次，作用于整个材料列表。
+这是本 ADR 最容易被写错的一处。早期草案把边界写成**读取之后的一个点**，却又要求
+「高风险文件不被读取」——这两个说法不能同时成立：`readFile` 已经发生过了。
+修正后的设计是**一条政策、两个执行点**：
 
 ```text
-RepositoryUnderstanding.understand(...)  →  List<RepositorySourceFile>   原始材料
+仓库描述符
+        ↓  ① 路径排除        RepositoryReadPlanner 构候选队列时
+保留下来的文件被读取
+        ↓  ② 内容净化        RepositoryUnderstanding.understand 返回之前
+模型可见的仓库材料
         ↓
-RepositoryAnalysisExtraction.extract(files)
-        sanitize(files)                    ← 边界在此，且只在此
-        aiGateway.generate(buildRequest(safeFiles))
+RepositoryAnalysisExtraction → AiGateway → 外部 Provider
 ```
 
-选择这一处而不是别处，依据是侦察给出的两条事实：
+两个执行点是**同一个 `RepositorySecretPolicy` 实例**，不是两套系统。之所以必须有两个点，
+是因为两者能做的事情不同：
 
 ```text
-(a) 它是仓库内容离开本机的最后位置，也是唯一承载仓库内容的外呼点（6 个调用点之一）。
-(b) 它在**读取之后**：读取阶段的执行期尺寸复核（maxFileBytes / maxTotalBytes）
-    作用于真实内容。若边界上移到读取阶段，净化会改变字节数，把
-    「读多少」与「给模型看什么」两个关注点耦合起来——那是两个不同的决定。
+① 在读取之前   可以整份不读。二进制凭据（.p12 / .jks）在文本层无从识别，只有路径能识别；
+               而没读进来的文件不可能出现在请求里。
+② 在读取之后   只能改内容。application.yml 这类配置是最可能的凭据位置，同时也是最有价值的
+               分析材料——不能整份丢掉，只能替换其中的取值。
 ```
 
-两条通道的材料此时已经合流（`RepositoryReadResult.material`），因此 Foundation 与
-定向源码**自动获得同一份保护**，不需要各写一遍。
+任缺一处都会留下明显的洞：只有 ① 会漏掉源码与配置里的凭据，只有 ② 会漏掉那些内容层
+无从识别的整份凭据文件。
+
+**为什么第一个点落在读取规划器。** 它是两条通道（Foundation 与定向源码）**共同**经过的
+唯一处，并且是名额（`maxFiles`）被消耗的地方。在候选进入轮转之前排除，才能保证一个被
+挡下的 `.env` 不占用名额——否则「仓库里多了一个凭据文件」会变成「分析少看了一个正常文件」。
+
+**为什么第二个点落在理解阶段的末尾，而不是更下游的抽取组件里。**
+
+```text
+(a) 本轮转出本类的材料就是这次分析唯一的材料来源。把净化放在返回之前，
+    「本方法返回的已经是模型可见材料」成为一条关于单个组件的性质，可以直接测试，
+    而不必逐个调用方去确认它记得过边界。
+(b) 失败语义在那里是现成的：该处已经负责把「分层 Scout 的守卫失败」翻译成
+    「当前无法分析」，边界失败走同一条路，不需要在调用链上再开一个翻译点。
+(c) 净化会改变字节数，而读取阶段的执行期尺寸复核（maxFileBytes / maxTotalBytes）
+    作用于**真实内容**。把净化放在读取之后，两者互不干扰；放在读取之中就会把
+    「读多少」与「给模型看什么」两个决定耦合起来。
+(d) secret 包只依赖材料类型，不依赖 workflow 的异常类型——放在更下游会让这个方向反过来。
+```
+
+两条通道的材料在 `RepositoryReadResult.material` 已经合流，因此 Foundation 与定向源码
+**自动获得同一份保护**，不需要各写一遍。
 
 ## Options Considered
+
+方案里的「路径排除」与「内容净化」指的是**手段**；它们落在上面决策的两个执行点上
+（路径排除在读取之前，内容净化在读取之后）。下表比较的是手段本身。
 
 | | 保护 | 误伤（FP） | 漏检（FN） | 对分析价值 | 能否称为硬保证 | 复杂度 |
 |---|---|---|---|---|---|---|
@@ -202,25 +236,45 @@ E 是**最强的单点**——所有出站请求都会经过它，包括未来�
 若将来要覆盖**所有**出站流量，E 是正确的那个点——但那是一个不同的决策（涉及用户数据的
 分类），记录在 Revisit Conditions 里。
 
-### 为什么不在 RepositoryUnderstanding 或 UseCase 处净化
+### 为什么不用「在 AiGateway 之前再加一道后置过滤」
 
-两处都能覆盖今天的需求，但都会把「谁忘了调用」变成唯一的安全保证。相比之下，
-把边界放在**构造请求的那个组件内部**，意味着「这个组件发出的请求已经过边界」是一条
-组件级性质，可以独立测试；将来若出现第二种把仓库内容变成请求的流程，
-Revisit Condition 2 要求把边界上提到共享点。
+早期草案考虑过在最终分析之外再补一个「扫一遍模型输出里的疑似凭据」的步骤。结论是不加，
+理由在 §下游传播里：消费者只能复述它见过的东西；源头已经净化，下游就不可能出现。
+加一道后置过滤只会带来第二套规则、第二处误报来源，而它挡不住的东西（模型没见过的凭据）
+本来就不存在。真正会需要它的情形只有一种——出现第二条未经边界的外呼流程——
+而那时的正确做法是把边界上提到共享点（Revisit Condition 2），不是在下游补过滤。
 
 ## Exact Guarantee and Non-Guarantees
 
 ### 保证
 
 ```text
-G1  路径命中第 1 层规则的文件不会被读取，也不会出现在任何 AiGateway 请求中。
-G2  保留下来的文件中，被第 2 层规则命中的字面量不会原样出现在 AiGateway 请求中。
-G3  在当前代码下，边界是仓库文件内容进入外部 Provider 的唯一出口。
-G4  边界自身失败时整次分析失败关闭：不发送未净化的请求，不产生任何 RepositoryProfile。
+G1  路径命中第 1 层规则的文件**不会被读取**（更不会被发给模型）：它在候选进入轮转之前
+    就被排除，因此既不产生 readFile 调用，也不可能出现在请求里。
+G2  保留下来的文件中，被第 2 层规则命中的字面量不会原样出现在送往 AiGateway 的请求中。
+G3  在当前代码下，这两个执行点覆盖了仓库文件内容离开本机的全部路径：六处
+    AiGateway.generate 调用点里，只有 RepositoryAnalysisExtraction 承载仓库文件内容，
+    而它拿到的材料必然经过第 2 层。
+G4  任一执行点失败时整次分析失败关闭：不发送未净化的内容，不产生任何 RepositoryProfile。
 ```
 
-G1 / G2 / G4 是**代码可验证**的性质，对应 §测试策略里的用例。
+G1 / G2 / G4 是**代码可验证**的性质，对应 §测试策略里的用例。G3 的表述刻意写成
+「当前代码下」：它依赖「只有一处把仓库内容变成外呼请求」这一事实，而不是一条结构性保证
+（见 Revisit Condition 2）。
+
+### 它保证的与「模型不可能生成同样的字符串」是两件事
+
+本 ADR 保证的是**传播路径**，不是一个关于生成模型的数学命题：
+
+```text
+保证    当适用的边界规则命中时，仓库里的原始凭据在这条 Repository Analysis 请求上
+        **没有经由材料传播出去的路径**——它要么没被读，要么读进来也被替换掉了。
+不保证  生成模型不会独立地输出某个恰好相同的字面量。这不是本边界要管的事，
+        也无法由任何输入侧的过滤来保证。
+```
+
+把这两者混为一谈会得出错误的结论：要么以为「过滤是徒劳的」（因为模型可能巧合），
+要么以为「过滤之后不可能有任何相同字符串」（那是做不到的承诺）。
 
 ### 不保证
 
@@ -234,6 +288,8 @@ N3  二进制内容在文本层无从识别（宽松解码后只剩替换字符�
 N4  不覆盖用户自己粘贴进 User Discovery 的凭据——那是另一份数据、另一个出口。
 N5  不保证模型不会从它**看到过的**（已净化的）内容里推断出敏感信息。
     边界管的是「未经净化的字面量不出去」，不是「模型不想事」。
+N6  不保证生成模型不会独立输出与某个凭据相同的字符串。
+    本边界消除的是**来自这份仓库的传播路径**，不是字符串层面的巧合。
 ```
 
 **本 ADR 不声称「凭据不可能泄漏」。** 第 1 层可以对已列举的文件名给出硬保证，
@@ -243,10 +299,11 @@ N5  不保证模型不会从它**看到过的**（已净化的）内容里推断
 ## Failure Semantics
 
 ```text
-路径命中第 1 层          → 该文件不进入材料（不是失败）。以聚合计数形式可见，
-                            不记录路径——路径是用户数据。
-净化过程本身抛错          → 整次分析失败关闭（RepositoryNotAnalyzable 之外的新语义
-                            需与既有失败语义对齐，见下），绝不退回发送未净化的内容。
+路径命中第 1 层          → 该文件不进入材料（不是失败）。以规划诊断的形式记一条
+                            EXCLUDED_BY_SECRET_POLICY（只有路径，这一层从来没读过内容），
+                            并在聚合日志里记一个计数。
+任一执行点自身抛错        → 整次分析失败关闭：不读、不调用最终分析、不写任何快照，
+                            绝不退回发送未净化的内容。
 净化后材料为空            → 与既有「读不出材料」同义，失败关闭。
 ```
 
@@ -258,9 +315,10 @@ N5  不保证模型不会从它**看到过的**（已净化的）内容里推断
 「先发出去，出问题再说」的重试策略
 ```
 
-失败语义与既有链路对齐：与「读不出材料」同属「这次分析无法完成」，因此复用
-`RepositoryNotAnalyzableException`（409）的对外含义，而不是掉进「未知服务端故障」。
-具体类型在 10B-2 决定，本 ADR 只要求：**对外是「当前无法分析」，且不输出任何内容或路径。**
+失败语义与既有链路对齐：与「读不出材料」同属「这次分析无法完成」，因此翻译成
+`RepositoryNotAnalyzableException`（409），而不是掉进「未知服务端故障」。原因标识为
+`SECRET_BOUNDARY_FAILED`，原始失败留在 cause 里。对外只表达「当前无法分析」，
+响应体里不含任何内容、路径或内部原因标识——`ApiExceptionHandler` 返回固定文案。
 
 ## Impact on Foundation and Targeted Materials
 
@@ -276,9 +334,30 @@ N5  不保证模型不会从它**看到过的**（已净化的）内容里推断
             而拿不到口令本身。
 ```
 
-预算与顺序不受影响：边界作用于**已经规划好、已经读进来**的材料，不新增读写、
-不改变 `maxFiles` / `maxFileBytes` / `maxTotalBytes` 的语义，也不改变读取顺序。
-净化让内容变短，不会让任何一条既有的尺寸复核改变结论。
+### 预算与选材语义
+
+两个执行点对既有预算的影响**不同**，必须分开说：
+
+```text
+第 1 层（路径排除）
+  它**必然改变读取之前的合格候选集合**——被排除的文件不再参与选材。
+  这正是它的目的（「不读它」而不是「读了不用」），所以「合格候选集合变了」
+  不是副作用，是定义的一部分。
+  但它不改变 maxFiles / maxFileBytes / maxTotalBytes 本身，也不改变选材顺序：
+  剩下的候选按原来的类别轮转与路径顺序参与，只是少了几项。
+  它也不占用名额：排除发生在候选进入轮转之前，因此被挡下的文件不会让
+  后面那个安全的候选失去机会。
+
+第 2 层（内容净化）
+  **不改变读取预算语义**。它作用于已经读完、已经通过执行期尺寸复核的材料，
+  不新增或减少文件数，不改变 maxFiles 的判断。
+  读取阶段的尺寸复核依据的是**真实内容**的字节数；净化发生在那之后，
+  因此既不会让一个原本放得下的文件变得放得下，也不会反过来。
+  唯一的量上的变化是文本变短，而「变短」不会让任何一条既有的复核改变结论。
+```
+
+两条通道的预算与轮转逻辑一字未改：本 ADR 不动 `maxFiles` / `maxFileBytes` /
+`maxTotalBytes`，也不动任何顺序策略。
 
 ## Downstream Propagation Reasoning
 
@@ -292,10 +371,14 @@ RepositoryProfile / Evidence / SQLite / API 响应 / 后续 Product Direction Pr
 ```text
 事实   净化发生在 create 请求之前，因此模型在整个分析过程中看到的内容已经过边界。
 推理   模型能复述的，是它看到过的；它没有见过未经净化的原文，
-       因此它的输出不可能包含**来自该仓库**的未净化凭据。
+       因此**来自该仓库**的未净化凭据在它的输出里没有来源。
        下游所有环节（Profile 字段 → SQLite → API → 下一次 Prompt）都只是模型输出的搬运，
        源头没有，下游就不可能出现。
 ```
+
+措辞上要避免两处过头：这不是「生成模型绝不可能输出某个相同字符串」（见 §不保证 N6），
+也不是「只要过滤了就一定干净」——它成立的前提是**适用规则命中了那份凭据**
+（见 §不保证 N1）。
 
 因此**不新增** post-model 过滤。加一个「扫描模型输出里的疑似凭据」的步骤，
 只会引入第二套规则、第二处误报来源，而它挡不住的东西（模型从没见过的凭据）本来就不存在，
@@ -313,27 +396,31 @@ RepositoryProfile / Evidence / SQLite / API 响应 / 后续 Product Direction Pr
 也就是说，**下游的干净取决于上游的单点是否唯一**。本 ADR 的选择是用「唯一出口」
 来保证这件事，而不是用下游补救。
 
-## Test Strategy（Task 10B-2 实施时的矩阵）
+## Test Strategy（已落地的矩阵）
 
 全部使用合成金丝雀（canary），不使用任何真实凭据。金丝雀是形如
 `CANARY-<随机后缀>` 的字面量，加上各规则的代表形态（PEM 块、`ghp_` 前缀串、
 `password: …` 赋值等）。
 
-| # | 用例 | 断言 |
-|---|---|---|
-| T1 | 在 **Foundation** 文件里放金丝雀，跑完整 `extract` | 捕获到的**确切 `AiRequest`** 中（system + user 两个 message 的全文）不含该金丝雀 |
-| T2 | 在**定向源码**文件里放金丝雀，同 T1 | 同上——证明两条通道同受保护 |
-| T3 | `.env` / `*.pem` 出现在仓库里 | 该路径**从未被 readFile 调用**（Workspace 替身记录调用），且不出现在请求里 |
-| T4 | 保留结构的断言 | 键名仍在（`password:` / `api_key =`）、行数与缩进未变、非凭据值完好；`purpose` 等正常结论仍可解析 |
-| T5 | Region Scout / File Scout 阶段 | 两者的请求体里**没有**文件内容（只有描述符）——保证边界没有把「本来就不发内容」的阶段也改坏 |
-| T6 | 回显式确定性 AI 替身（把收到的材料原样填进 proposal 字段） | 落库的 `RepositoryProfile` / Evidence 里不含金丝雀 |
-| T7 | 边界自身的日志 | 捕获日志输出，断言不含金丝雀、不含路径；但**包含**「排除了几个文件 / 替换了几处」的计数 |
-| T8 | 占位符与疑似 FP | 按策略：凭据位置的值一律被替换（`"your-password-here"`、`${DB_PASSWORD}` 也替换）；**非凭据上下文不被误伤**（例如标识符 `tokenCount`、纯哈希字面量按规则集的明确取舍） |
-| T9 | 失败语义 | 让净化阶段抛错 → 分析失败、不调用 Provider、`repository_profile*` 三张表 0 行 |
-| T10 | 装配 | 生产装配里边界 Bean 存在，且 `RepositoryAnalysisExtraction` 持有它（结构断言，与既有 `RepositoryAnalysisWiringTest` 同一手法） |
+全部使用合成金丝雀（`CANARY-…` 形态），不使用任何真实凭据。落地情况：
 
-T1 / T2 是本 ADR 的核心用例：它们直接验证 G2，且验证对象是**端口的真实入参**，
-不是任何中间表示。
+| # | 用例 | 落在哪里 | 断言 |
+|---|---|---|---|
+| T1 | Foundation 里的金丝雀 | `AnalyzeRepositoryUseCaseTest.sendsOnlySanitizedRepositoryMaterialToTheFinalAnalyzer` | **这次调用真正发给 AI 的那条请求**里不含金丝雀，且含替换标记（证明是替换而非没读） |
+| T2 | 定向源码里的金丝雀 | 同上 | 同一条请求里同样不含——两条通道同受保护 |
+| T3 | `.env` / `*.pem` 出现在仓库里 | `RepositoryUnderstandingTest.neverReadsAPathExcludedByTheSecretPolicy`、`AnalyzeRepositoryUseCaseTest.neverReadsACredentialFileExcludedByThePolicy` | 该路径**从未被 readFile 调用**（Workspace 替身记录），且不在材料里 |
+| T4 | 结构保留 | `DeterministicRepositorySecretPolicyTest.keepsStructureSoTheMaterialStaysUseful` / `keepsRelativePathUnchanged` | 行数、缩进、键名、非凭据值完好；相对路径不变 |
+| T5 | Region / File Scout 阶段 | 既有用例（`RepositoryScoutExtractionTest`、分层 Scout 用例） | 两阶段只发描述符，边界没有改动它们 |
+| T6 | 回显式替身 | `AnalyzeRepositoryUseCaseTest.doesNotPropagateSourceSecretsIntoTheProfile`、`RepositoryAnalysisApiIntegrationTest.neverSendsRepositorySecretsToTheProvider` | 落库的 `RepositoryProfile` / Evidence 与 HTTP 响应里都没有金丝雀，同时**确实**带回了已净化的材料 |
+| T7 | 边界自身的输出 | `RepositoryAnalysisApiIntegrationTest.logsSafeAggregatesWithoutFilePaths`、`ApiExceptionHandler` 的既有断言 | 日志只有聚合计数、没有金丝雀与路径；`secret 包没有 logger` |
+| T8 | 占位符与疑似误伤 | `replacesPlaceholderShapedValuesToo` / `doesNotCorruptOrdinaryIdentifiers` / `doesNotExcludeNamesThatMerelyContainThePattern` / `doesNotExcludePublicKeys` | 凭据位置一律替换（含示例值）；`tokenCount`、`password.equals(...)`、`about.env.md`、`id_rsa.pub` 不被误伤 |
+| T9 | 失败语义 | `RepositoryUnderstandingTest.failsClosedWhen*`、`AnalyzeRepositoryUseCaseTest.doesNotSaveProfileWhenTheSecretBoundaryFails`、`RepositoryAnalysisSecretBoundaryFailureApiTest` | 不调用最终分析、不写快照、对外 409 且响应体无内部标识/路径/内容 |
+| T10 | 装配 | `RepositoryAnalysisWiringTest.wiresTheRepositorySecretPolicy` | 生产装配里存在凭据政策 Bean，且是规则写死在代码里的实现 |
+| T11 | 规则本身 | `DeterministicRepositorySecretPolicyTest`（22 个用例） | 路径规则、内容规则、占位符策略、确定性与替换计数 |
+| T12 | 两个执行点 | `RepositoryReadPlannerSecretPolicyTest`（6 个用例） | 两条通道都过政策；被排除项不占名额、不影响其余顺序 |
+
+T1 / T2 是核心用例：断言对象是**端口的真实入参**，不是任何中间表示。
+T3 是第 1 层与第 2 层的分界证据：它证明的是「没有被读」，而不是「读了又换掉」。
 
 ## Consequences
 
@@ -358,11 +445,34 @@ T1 / T2 是本 ADR 的核心用例：它们直接验证 G2，且验证对象是*
   且 T8 把误伤边界钉住。
 - **规则集长期不更新**，新令牌格式静默漏过。缓解：Revisit Condition 1。
 
+## Implementation Record（Task 10B-2）
+
+```text
+secret/RepositorySecretPolicy                 政策接口：excludes(path) + sanitize(files)
+secret/DeterministicRepositorySecretPolicy    规则写死在代码里的实现；纯函数，无 logger
+secret/SanitizedRepositoryMaterial            模型可见材料 + 替换计数
+secret/RepositorySecretBoundaryException      边界无法安全完成时的失败出口
+
+RepositoryReadPlanner                         ① 在两条通道构候选队列时排除整份凭据文件
+RepositoryUnderstanding                       ② 返回之前净化；两处失败都在这里翻译成
+                                              RepositoryNotAnalyzableException
+RepositoryAnalysisUseCaseConfiguration        政策 Bean，注入上面两处（同一个实例）
+```
+
+运行时观测（一行聚合日志，不含路径与内容）：
+
+```text
+operation=repository-analysis … secretExcludedCount=N sanitizedSpanCount=M
+```
+
+替换标记固定为 `[redacted-credential]`，代码中只有一个常量。
+
 ## Revisit Conditions
 
 ```text
 1. 在真实仓库上观察到规则集的 FP / FN
      → 用真实数据校准规则；不因为「看起来够用」而定案。
+       规则集会随着新出现的令牌形态而过时，这是它最需要被重访的地方。
 
 2. 出现第二种把仓库内容变成外呼请求的流程（新的 extraction / 新的 Adapter 路径）
      → 把边界上提到共享点，或改成类型约束
