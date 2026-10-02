@@ -277,6 +277,80 @@ class DeterministicRepositorySecretPolicyTest {
                 "没有赋值形态，不是凭据位置");
     }
 
+    /**
+     * 比较运算符不是赋值：不能被吃掉一个等号。
+     *
+     * <p>{@code if (password == null)} 若被当成「键 + 赋值符 + 值」，会变成
+     * {@code if (password =[redacted-credential] null)}——那改变了模型看到的程序逻辑，
+     * 而它并没有带来任何安全收益（那里根本没有凭据）。
+     */
+    @Test
+    void doesNotTreatComparisonOperatorsAsAssignments() {
+        String java = """
+                if (password == null) { return; }
+                if (apiKey === undefined) { return; }
+                while (token != expected) { next(); }
+                boolean same = secret.equals(other);
+                """;
+
+        String sanitized = sanitized(java);
+
+        assertTrue(sanitized.contains("if (password == null)"),
+                "== 不是赋值: " + sanitized);
+        assertTrue(sanitized.contains("if (apiKey === undefined)"), "=== 不是赋值: " + sanitized);
+        assertTrue(sanitized.contains("while (token != expected)"), "!= 不是赋值");
+        assertTrue(sanitized.contains("secret.equals(other)"));
+    }
+
+    /**
+     * 空值之后的下一行配置不能被当成取值。
+     *
+     * <p>{@code password:} 后面没有取值时，若允许跨行匹配，下一行的键名会被吃掉——
+     * 那等于从材料里删掉一条非凭据配置。
+     */
+    @Test
+    void doesNotSwallowTheNextLineWhenTheValueIsEmpty() {
+        String yaml = """
+                spring:
+                  datasource:
+                    password:
+                    host: localhost
+                    port: 3306
+                """;
+
+        String sanitized = sanitized(yaml);
+
+        assertTrue(sanitized.contains("host: localhost"),
+                "下一行的配置必须保留: " + sanitized);
+        assertTrue(sanitized.contains("port: 3306"));
+        assertFalse(sanitized.contains("[redacted-credential] host"),
+                "不得把下一行键名当成取值: " + sanitized);
+    }
+
+    /**
+     * 带转义引号的取值整段替换。
+     *
+     * <p>只替换到第一个引号为止，会把后半段留在请求里——那正好是「声明支持却漏掉」的
+     * 一类形态，不能算未知格式。
+     */
+    @Test
+    void replacesQuotedValuesContainingEscapes() {
+        String java = "String password = \"pre\\\"CANARY-ESCAPED-0001\";";
+        String yaml = "legacySecret: 'pre''CANARY-YAML-0001'";
+        String backslashSingle = "token: 'pre\\'CANARY-SINGLE-0001'";
+
+        String sanitized = sanitized(java + "\n" + yaml + "\n" + backslashSingle);
+
+        assertFalse(sanitized.contains("CANARY-ESCAPED-0001"),
+                "双引号内的转义引号之后仍然属于取值: " + sanitized);
+        assertFalse(sanitized.contains("CANARY-YAML-0001"),
+                "YAML 的单引号转义（''）之后仍然属于取值: " + sanitized);
+        assertFalse(sanitized.contains("CANARY-SINGLE-0001"),
+                "单引号内的反斜杠转义之后仍然属于取值: " + sanitized);
+        assertTrue(sanitized.contains("String password = " + MARKER + ";"));
+        assertTrue(sanitized.contains("legacySecret: " + MARKER));
+    }
+
     /** 空值没有什么可替换的，也不该把整行吃掉。 */
     @Test
     void leavesEmptyCredentialValuesAlone() {

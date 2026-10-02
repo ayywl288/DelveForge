@@ -79,9 +79,20 @@ class AnalyzeRepositoryUseCaseTest {
      */
     private static final Map<String, String> CANARY_FILES_AT_A = Map.of(
             POM, "<project>spring-boot</project>",
-            APP, "class App { String token = \"CANARY-SOURCE-VALUE-0001\"; }",
+            APP, "class App {\n"
+                    + "  String token = \"CANARY-SOURCE-VALUE-0001\";\n"
+                    // 带转义引号的取值：只替换到第一个引号会把后半段留在请求里
+                    + "  String password = \"pre\\\"CANARY-ESCAPED-VALUE-0001\";\n"
+                    // 比较运算符不是赋值：被吃掉一个等号会改变模型看到的逻辑
+                    + "  boolean missing = password == null;\n"
+                    + "}",
             "src/main/resources/application.yml",
-            "spring:\n  datasource:\n    password: CANARY-CONFIG-VALUE-0001\n",
+            "spring:\n"
+                    + "  datasource:\n"
+                    + "    password: CANARY-CONFIG-VALUE-0001\n"
+                    // YAML 单引号的 '' 转义同样属于取值
+                    + "    legacySecret: 'pre''CANARY-YAML-VALUE-0001'\n"
+                    + "    host: localhost\n",
             "zz/.env.local", "DB_PASSWORD=CANARY-ENV-VALUE-0001\n");
 
     private static final Map<String, String> FILES_AT_A = Map.of(
@@ -377,10 +388,19 @@ class AnalyzeRepositoryUseCaseTest {
         assertFalse(request.contains("CANARY-CONFIG-VALUE-0001"), "配置里的凭据不得出现在请求里");
         assertFalse(request.contains("CANARY-SOURCE-VALUE-0001"), "源码里的凭据不得出现在请求里");
         assertFalse(request.contains("CANARY-ENV-VALUE-0001"), "被排除的文件根本不该进来");
+        assertFalse(request.contains("CANARY-ESCAPED-VALUE-0001"),
+                "带转义引号的取值必须整段替换，不能只换前半段");
+        assertFalse(request.contains("CANARY-YAML-VALUE-0001"),
+                "YAML 单引号转义（''）之后的取值同样属于这一段");
         assertTrue(request.contains(DeterministicRepositorySecretPolicy.REDACTION_MARKER),
                 "净化过的痕迹应当在——证明它是被替换了，而不是整份没读");
         assertTrue(request.contains("application.yml"), "相对路径保留");
         assertTrue(request.contains("password:"), "键名保留，材料仍然有用");
+
+        // 替换不得改变模型看到的程序逻辑与非凭据配置
+        assertTrue(request.contains("boolean missing = password == null"),
+                "比较运算符不能被当成赋值: " + request);
+        assertTrue(request.contains("host: localhost"), "非凭据配置必须保留: " + request);
     }
 
     /** 被排除的凭据文件连读都不该被读。 */

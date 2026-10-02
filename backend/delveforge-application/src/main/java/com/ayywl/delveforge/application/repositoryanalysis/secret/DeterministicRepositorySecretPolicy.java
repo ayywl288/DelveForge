@@ -76,6 +76,17 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
      *
      * <p>顺序有意义：私钥块最大，先整体吃掉；userinfo（{@code user:password@host}）在
      * 赋值规则之前，避免连接串被赋值规则按「键名 + 值」的半截形态处理。
+     *
+     * <h2>赋值规则（第 5 条）的边界都在正则里写死了</h2>
+     *
+     * <pre>
+     * 分隔符     [:=(?![=&lt;&gt;:])]   只认单个赋值符，不认 == / ===/ != / =&gt; / ::
+     *                                （否则 if (password == null) 会被吃掉一个等号）
+     * 跨行       两侧只吃 [^\S\r\n]   不吃换行
+     *                                （否则 password: 后的下一行键名会被当成取值）
+     * 取值       "…" 支持 \" 转义、'…' 支持 YAML 的 '' 与 \' 转义
+     *                                （否则带转义引号的取值只替换前半段，后半段照样出站）
+     * </pre>
      */
     private static final List<ContentRule> CONTENT_RULES = List.of(
             // 1. PEM 私钥块（含 OPENSSH / RSA / EC / ENCRYPTED 等形态）：整块替换
@@ -112,8 +123,10 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
             // 5. 凭据位置的赋值：保留键名与分隔符，替换取值（含引号内的整体）
             new ContentRule(Pattern.compile(
                     "(?im)((?:^|[^A-Za-z0-9_\\-])[\"']?" + CREDENTIAL_KEY
-                            + "[\"']?\\s*[:=]\\s*)"
-                            + "(\"[^\"\\r\\n]*\"|'[^'\\r\\n]*'|[^\"'\\s,;#}\\]]+)"),
+                            + "[\"']?[^\\S\\r\\n]*[:=](?![=<>:])[^\\S\\r\\n]*)"
+                            + "(\"(?:[^\"\\\\\\r\\n]|\\\\.)*\""
+                            + "|'(?:[^'\\\\\\r\\n]|''|\\\\.)*'"
+                            + "|[^\"'\\s,;#}\\]]+)"),
                     "$1" + REDACTION_MARKER));
 
     // ------------------------------------------------------------------ 路径
