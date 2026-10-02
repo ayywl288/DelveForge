@@ -3,6 +3,7 @@ package com.ayywl.delveforge.app.config;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RegionNavigationLimits;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RegionRecursionBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudget;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -26,14 +27,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * <p>本类型属于 Interface / Composition Root 一侧，不进入 Domain，也不进入 Application——
  * Application 只认识 {@link RepositoryMaterialBudget} 这样的值对象。
  *
- * @param scout          Scout 调用相关的上限
- * @param region         Region 分层导航的守卫上限（ADR-0005 的导航预算）
+ * @param scout          File Scout 调用相关的上限
+ * @param region         Region 分层导航的守卫上限
+ * @param scoutCalls     整次分析的 Scout 调用总数上限（Region Scout + File Scout）
  * @param foundation     基础材料通道的预算
  * @param targetedSource 定向源码通道的预算
  */
 @ConfigurationProperties("delveforge.repository-analysis")
 public record RepositoryAnalysisProperties(Scout scout,
                                           Region region,
+                                          ScoutCalls scoutCalls,
                                           Lane foundation,
                                           Lane targetedSource) {
 
@@ -45,6 +48,9 @@ public record RepositoryAnalysisProperties(Scout scout,
         }
         if (region == null) {
             throw new IllegalArgumentException("必须配置 " + PREFIX + ".region");
+        }
+        if (scoutCalls == null) {
+            throw new IllegalArgumentException("必须配置 " + PREFIX + ".scout-calls");
         }
         if (foundation == null) {
             throw new IllegalArgumentException("必须配置 " + PREFIX + ".foundation");
@@ -83,12 +89,12 @@ public record RepositoryAnalysisProperties(Scout scout,
      * @param maxCatalogBytes    Region Catalog 载荷的 UTF-8 字节上限
      * @param maxSelectedRegions 一次 Region Scout 最多可选多少个区域
      * @param maxRoundsPerBranch 沿单条分支最多几次 Region Scout 调用
-     * @param maxTotalScoutCalls 一次仓库分析最多几次 Region Scout 调用
+     * @param maxScoutCalls      一次仓库分析最多几次 **Region** Scout 调用
      */
     public record Region(int maxCatalogBytes,
                          int maxSelectedRegions,
                          int maxRoundsPerBranch,
-                         int maxTotalScoutCalls) {
+                         int maxScoutCalls) {
 
         public Region {
             if (maxCatalogBytes <= 0) {
@@ -105,10 +111,9 @@ public record RepositoryAnalysisProperties(Scout scout,
                         PREFIX + ".region.max-rounds-per-branch 必须大于 0: "
                                 + maxRoundsPerBranch);
             }
-            if (maxTotalScoutCalls <= 0) {
+            if (maxScoutCalls <= 0) {
                 throw new IllegalArgumentException(
-                        PREFIX + ".region.max-total-scout-calls 必须大于 0: "
-                                + maxTotalScoutCalls);
+                        PREFIX + ".region.max-scout-calls 必须大于 0: " + maxScoutCalls);
             }
         }
 
@@ -119,7 +124,34 @@ public record RepositoryAnalysisProperties(Scout scout,
 
         /** 转成 Application 侧的递归守卫值对象。 */
         public RegionRecursionBudget toRecursionBudget() {
-            return new RegionRecursionBudget(maxRoundsPerBranch, maxTotalScoutCalls);
+            return new RegionRecursionBudget(maxRoundsPerBranch, maxScoutCalls);
+        }
+    }
+
+    /**
+     * 整次分析的 **Scout 调用总数**上限（ADR-0005）。
+     *
+     * <p>两条通道合并计数：分层下降多问几次 Region Scout，留给终态分支的 File Scout 额度
+     * 就少几次。早期草案给终态分支单独设上限，那会让两者各自有独立额度、彼此不相干。
+     *
+     * <p>它是**整次分析**的守卫，与 {@code region} 那几个「单次调用 / Region Scout」的守卫
+     * 不同层。默认值由「Region Scout ≤ 12」的最坏包络（12 + 6 终态分支）推算而来，
+     * 是技术守卫而非已验证的最优值。
+     *
+     * @param maxTotal 一次仓库分析最多几次 Scout 调用（Region + File）
+     */
+    public record ScoutCalls(int maxTotal) {
+
+        public ScoutCalls {
+            if (maxTotal <= 0) {
+                throw new IllegalArgumentException(
+                        PREFIX + ".scout-calls.max-total 必须大于 0: " + maxTotal);
+            }
+        }
+
+        /** 转成 Application 侧的 Scout 调用总数守卫值对象。 */
+        public ScoutCallBudget toBudget() {
+            return new ScoutCallBudget(maxTotal);
         }
     }
 

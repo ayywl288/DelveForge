@@ -24,13 +24,18 @@
  * <p>Region Scout 的输出是 inspection hint，不是 Repository fact（ADR-0005）。
  * 「这个目录实现了什么」只有在文件内容真的被读进来、并经过既有分析之后才成立。
  *
- * <h2>本包包含分层导航，但不执行 File Scout</h2>
+ * <h2>本包包含分层导航与分支 Scout 执行</h2>
  *
- * <p>{@link RepositoryRegionNavigator} 负责递归下降：它反复调用上面那条链路，直到每一支的
- * 文件集合都能被一次 File Scout 调用承载，产出有序的终态文件组
- * （{@link RepositoryTerminalFileGroup}）。
+ * <pre>
+ * RepositoryRegionNavigator      递归下降 → 有序终态组
+ * RepositoryBranchScoutRunner    逐组跑一次分支本地 File Scout，再保序轮转合并
+ * RepositoryFileCandidates       有序可信文件候选
+ * </pre>
  *
- * <p>它**不**执行 File Scout、不做多分支结果的合并、也不改材料预算——那些属于后续步骤。
- * 导航只回答「哪几组文件、按什么顺序」。
+ * <p>分支本地 File Scout 复用 {@code scout} 包的既有契约，不另写解析或提示词；
+ * 每组用自己那份重新编号的目录，跨分支的引用互不可解析。
+ *
+ * <p>本包**不**读文件内容、不改材料预算、不接入 RepositoryReadPlanner——
+ * 那些属于后续步骤。这里只回答「哪些文件、按什么顺序」。
  */
 package com.ayywl.delveforge.application.repositoryanalysis.region;
