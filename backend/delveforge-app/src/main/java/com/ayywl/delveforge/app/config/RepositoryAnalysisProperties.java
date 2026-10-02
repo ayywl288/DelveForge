@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.app.config;
 
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RegionNavigationLimits;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -25,17 +26,24 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * Application 只认识 {@link RepositoryMaterialBudget} 这样的值对象。
  *
  * @param scout          Scout 调用相关的上限
+ * @param region         Region 分层导航的守卫上限（ADR-0005 的导航预算）
  * @param foundation     基础材料通道的预算
  * @param targetedSource 定向源码通道的预算
  */
 @ConfigurationProperties("delveforge.repository-analysis")
-public record RepositoryAnalysisProperties(Scout scout, Lane foundation, Lane targetedSource) {
+public record RepositoryAnalysisProperties(Scout scout,
+                                          Region region,
+                                          Lane foundation,
+                                          Lane targetedSource) {
 
     private static final String PREFIX = "delveforge.repository-analysis";
 
     public RepositoryAnalysisProperties {
         if (scout == null) {
             throw new IllegalArgumentException("必须配置 " + PREFIX + ".scout");
+        }
+        if (region == null) {
+            throw new IllegalArgumentException("必须配置 " + PREFIX + ".region");
         }
         if (foundation == null) {
             throw new IllegalArgumentException("必须配置 " + PREFIX + ".foundation");
@@ -57,6 +65,38 @@ public record RepositoryAnalysisProperties(Scout scout, Lane foundation, Lane ta
                 throw new IllegalArgumentException(
                         PREFIX + ".scout.max-catalog-bytes 必须大于 0: " + maxCatalogBytes);
             }
+        }
+    }
+
+    /**
+     * Region 分层导航的守卫上限（ADR-0005 的**导航预算**）。
+     *
+     * <p>与下面两条通道的材料预算分开：材料预算约束最终读多少源码，导航预算约束探索本身
+     * 能走多远（因而约束 AI 调用的增长）。两者不互相占用。
+     *
+     * <p>当前只有本 Task 需要的两个守卫。轮数、总调用数与终态分支数三个守卫属于后续的
+     * 编排步骤，出现真实需求时再加，而不是提前塞进来。
+     *
+     * @param maxCatalogBytes    Region Catalog 载荷的 UTF-8 字节上限
+     * @param maxSelectedRegions 一次 Region Scout 最多可选多少个区域
+     */
+    public record Region(int maxCatalogBytes, int maxSelectedRegions) {
+
+        public Region {
+            if (maxCatalogBytes <= 0) {
+                throw new IllegalArgumentException(
+                        PREFIX + ".region.max-catalog-bytes 必须大于 0: " + maxCatalogBytes);
+            }
+            if (maxSelectedRegions <= 0) {
+                throw new IllegalArgumentException(
+                        PREFIX + ".region.max-selected-regions 必须大于 0: "
+                                + maxSelectedRegions);
+            }
+        }
+
+        /** 转成 Application 侧的导航守卫值对象。 */
+        public RegionNavigationLimits toLimits() {
+            return new RegionNavigationLimits(maxCatalogBytes, maxSelectedRegions);
         }
     }
 

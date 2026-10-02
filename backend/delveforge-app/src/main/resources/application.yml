@@ -15,6 +15,20 @@ delveforge:
       # Scout 目录载荷的 UTF-8 字节上限。超过即失败关闭，不截断、不采样、不降级。
       max-catalog-bytes: 65536
 
+    # Region 分层导航的守卫上限（ADR-0005 的导航预算）。
+    #
+    # 与 scout.max-catalog-bytes 是同一类守卫，但约束的是**目录层**而不是文件层：
+    # flat File Catalog 超出 scout 上限时，先在目录层缩小范围。
+    # 这两个值约束探索本身能走多远，与下面两条通道的材料预算互不占用。
+    #
+    # 当前分层导航尚未接入生产链路（见 ADR-0005）；此处先落地配置，数值按侦察证据取值。
+    region:
+      # Region Catalog 载荷的 UTF-8 字节上限。超过即失败关闭，不截断、不采样。
+      max-catalog-bytes: 65536
+      # 一次 Region Scout 最多可选多少个区域。
+      # 侦察显示有用的选择是窄的（多为 1 个分支）；6 是防止单轮选择无界膨胀的守卫上限。
+      max-selected-regions: 6
+
     # 基础材料通道：工程元数据 / 配置 / 文档 / 脚本 / 部署 / 数据模型。
     # 这一类规模小、可稳定取全，因此上限给得比源码通道紧。
     foundation:
