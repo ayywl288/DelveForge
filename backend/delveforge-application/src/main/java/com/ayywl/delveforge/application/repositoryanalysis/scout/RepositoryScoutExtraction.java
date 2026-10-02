@@ -6,14 +6,8 @@ import com.ayywl.delveforge.application.port.ai.AiMessage;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
-import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapEntry;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 执行一次 Repository Scout：把源码候选的描述符交给 AI，得到一份查看计划。
@@ -101,6 +95,7 @@ public final class RepositoryScoutExtraction {
 
     private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
+    private final FileCatalogPayload fileCatalog;
     private final RepositoryScoutProposalParser proposalParser;
     private final RepositoryScoutProposalResolver proposalResolver;
 
@@ -114,6 +109,7 @@ public final class RepositoryScoutExtraction {
         }
         this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
+        this.fileCatalog = new FileCatalogPayload(objectMapper);
         this.proposalParser = new RepositoryScoutProposalParser(objectMapper);
         this.proposalResolver = new RepositoryScoutProposalResolver();
     }
@@ -157,48 +153,15 @@ public final class RepositoryScoutExtraction {
         if (inputs == null) {
             throw new IllegalArgumentException("RepositoryScoutExtraction 必须指定 inputs");
         }
-        return describeCatalog(inputs).getBytes(StandardCharsets.UTF_8).length;
+        return fileCatalog.payloadBytes(inputs.analyzedRevision(), inputs.catalog());
     }
 
     private AiRequest buildRequest(RepositoryScoutInputs inputs) {
         return new AiRequest(
                 List.of(
                         new AiMessage(AiRole.SYSTEM, SYSTEM_INSTRUCTION),
-                        new AiMessage(AiRole.USER, describeCatalog(inputs))),
+                        new AiMessage(AiRole.USER,
+                                fileCatalog.render(inputs.analyzedRevision(), inputs.catalog()))),
                 AiResponseFormat.JSON);
-    }
-
-    /**
-     * 请求内容：本次分析固定的 revision，加上全部源码候选的描述符。
-     *
-     * <p>只发描述符，**不发文件内容**——这是这个阶段成立的前提。也不发材料类别之外的判断：
-     * 模型需要知道「这是什么文件」，不需要知道系统打算怎么用它。
-     *
-     * <p>每个描述符都带上它在本调用中的编号，模型据此填写 {@code fileRefs}。
-     */
-    private String describeCatalog(RepositoryScoutInputs inputs) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("analyzedRevision", inputs.analyzedRevision());
-
-        List<Map<String, Object>> catalog = new ArrayList<>(inputs.size());
-        for (RepositoryMapEntry entry : inputs.catalog()) {
-            Map<String, Object> described = new LinkedHashMap<>();
-            described.put("reference", entry.reference().value());
-            described.put("path", entry.relativePath());
-            described.put("sizeBytes", entry.sizeInBytes());
-            described.put("language", entry.language().name());
-            described.put("materialKind", entry.materialKind().name());
-            described.put("roleHints", entry.roleHints().stream()
-                    .map(Enum::name)
-                    .toList());
-            catalog.add(described);
-        }
-        payload.put("fileCatalog", catalog);
-
-        try {
-            return objectMapper.writeValueAsString(payload);
-        } catch (JsonProcessingException exception) {
-            throw new AiGatewayException("无法构造 Scout 请求内容", exception);
-        }
     }
 }

@@ -2,6 +2,7 @@ package com.ayywl.delveforge.app.config;
 
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RegionNavigationLimits;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RegionRecursionBudget;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -74,13 +75,18 @@ public record RepositoryAnalysisProperties(Scout scout,
      * <p>与下面两条通道的材料预算分开：材料预算约束最终读多少源码，导航预算约束探索本身
      * 能走多远（因而约束 AI 调用的增长）。两者不互相占用。
      *
-     * <p>当前只有本 Task 需要的两个守卫。轮数、总调用数与终态分支数三个守卫属于后续的
-     * 编排步骤，出现真实需求时再加，而不是提前塞进来。
+     * <p>前两项约束**一次** Region Scout 调用；后两项约束**一次仓库分析**里的递归本身。
+     * ADR-0005 的终态分支数守卫尚未需要（File Scout 执行属于后续步骤），因此不在这里预留。
      *
      * @param maxCatalogBytes    Region Catalog 载荷的 UTF-8 字节上限
      * @param maxSelectedRegions 一次 Region Scout 最多可选多少个区域
+     * @param maxRoundsPerBranch 沿单条分支最多几次 Region Scout 调用
+     * @param maxTotalScoutCalls 一次仓库分析最多几次 Region Scout 调用
      */
-    public record Region(int maxCatalogBytes, int maxSelectedRegions) {
+    public record Region(int maxCatalogBytes,
+                         int maxSelectedRegions,
+                         int maxRoundsPerBranch,
+                         int maxTotalScoutCalls) {
 
         public Region {
             if (maxCatalogBytes <= 0) {
@@ -92,11 +98,26 @@ public record RepositoryAnalysisProperties(Scout scout,
                         PREFIX + ".region.max-selected-regions 必须大于 0: "
                                 + maxSelectedRegions);
             }
+            if (maxRoundsPerBranch <= 0) {
+                throw new IllegalArgumentException(
+                        PREFIX + ".region.max-rounds-per-branch 必须大于 0: "
+                                + maxRoundsPerBranch);
+            }
+            if (maxTotalScoutCalls < maxRoundsPerBranch) {
+                throw new IllegalArgumentException(
+                        PREFIX + ".region.max-total-scout-calls 不能小于 max-rounds-per-branch: "
+                                + maxTotalScoutCalls + " < " + maxRoundsPerBranch);
+            }
         }
 
-        /** 转成 Application 侧的导航守卫值对象。 */
+        /** 转成 Application 侧的单次调用守卫值对象。 */
         public RegionNavigationLimits toLimits() {
             return new RegionNavigationLimits(maxCatalogBytes, maxSelectedRegions);
+        }
+
+        /** 转成 Application 侧的递归守卫值对象。 */
+        public RegionRecursionBudget toRecursionBudget() {
+            return new RegionRecursionBudget(maxRoundsPerBranch, maxTotalScoutCalls);
         }
     }
 
