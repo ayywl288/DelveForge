@@ -304,53 +304,58 @@ Repository Profile @ analyzedRevision
 
 **Goal**
 
-当 Product Discovery 所需输入已经准备完成后，系统主动基于 Confirmed User Profile 与 Repository Profile 发现具有个人相关性和可实施性的候选 Product Direction，而不要求用户额外判断“什么时候应该开始推荐”。
+基于一个由调用方显式给出的 Product Discovery 输入基线——Confirmed User Profile 身份、确定的 `expectedRevision`，以及一个或多个 Repository Profile 身份——发现具有个人相关性和可实施性的候选 Product Direction。Application 在调用 AI 之前校验该基线；系统不自行判断「什么时候应该开始推荐」，也不自行决定基线由哪些对象组成。
 
 **Deliverables**
 
-- [ ] 建立 Product Direction Discovery Use Case。
-- [ ] 支持判断 Product Direction Discovery 所需输入是否已经准备完成。
-- [ ] 当存在 Confirmed User Profile 与至少一个可用 Repository Profile 时，由系统进入 Product Direction Discovery。
-- [ ] AI Gateway 能够产生结构化 Direction Proposal。
-- [ ] ProductDirectionDiscoveryService 对 Proposal 进行领域校验和转换。
-- [ ] 每次生成 3–5 个具有明显差异的 Product Direction。
-- [ ] 每个 Direction 说明：
-  - [ ] Problem
-  - [ ] Target Product
-  - [ ] User Fit
-  - [ ] Candidate Software Asset
-  - [ ] Differentiation
-  - [ ] Technical Value
-  - [ ] Estimated Complexity
-  - [ ] Risks
-  - [ ] Evidence
+- [x] 建立 Product Direction Discovery Use Case。
+- [x] 由调用方显式提供完整的 Product Discovery 输入基线：Confirmed User Profile 身份、确定的 `expectedRevision`、一个或多个 Repository Profile 身份。
+- [x] Application 在调用 AI 之前校验该基线，不成立时不调用模型、也不写入任何方向。
+- [x] AI Gateway 能够产生结构化 Direction Proposal。
+- [x] ProductDirectionDiscoveryService 对 Proposal 进行领域校验和转换。
+- [x] 每次生成 3–5 个具有明显差异的 Product Direction。
+- [x] 每个 Direction 说明：
+  - [x] Problem
+  - [x] Target Product
+  - [x] User Fit
+  - [x] Candidate Software Asset
+  - [x] Differentiation
+  - [x] Technical Value
+  - [x] Estimated Complexity
+  - [x] Risks
+  - [x] Evidence
 - [x] 支持用户查看候选 Direction。
 - [x] 支持用户明确 Select / Reject Direction。
-- [ ] 保留 Product Direction 对 User Profile revision 和 Repository Profile 的追溯。
+- [x] 保留 Product Direction 对 User Profile revision 和 Repository Profile 的追溯。
 
 **Acceptance Criteria**
 
 ```text
 Given
 
-存在：
+调用方给出完整的 Product Discovery 输入基线：
 
-Confirmed User Profile @ Revision
+Confirmed User Profile（明确的 UserProfileId）
 +
-One or More Repository Profiles
-
-并且这些输入已经满足 Product Direction Discovery 的前置条件。
+确定的 expectedRevision
++
+一个或多个明确的 Repository Profile 身份
 
 When
 
-系统识别到 Product Discovery Inputs 已经准备完成。
+系统在调用 AI 之前校验该基线：
+
+请求形状合法
+Repository Profile 至少一个
+User Profile 存在、revision 与 expectedRevision 一致、状态为 CONFIRMED
+每个 Repository Profile 都存在
 
 Then
 
-系统主动进入 Product Direction Discovery，
-无需用户额外发起“生成 Product Direction”的请求。
+如果基线成立：
 
-系统生成 3–5 个具有明显差异的候选方向，
+系统执行 Product Direction Discovery，
+生成 3–5 个具有明显差异的候选方向，
 且每个方向能够解释：
 
 为什么适合当前用户
@@ -361,18 +366,23 @@ Then
 +
 大致需要付出什么成本和风险
 
-随后系统向用户展示这些 Candidate Product Directions，
+随后整批持久化为 CANDIDATE 并向用户展示，
 由用户决定选择、拒绝或继续考虑。
+
+如果基线不成立：
+
+系统拒绝执行，且在写入任何方向之前失败——
+既不先付出一次模型调用的代价，也不留下半批结果。
 ```
 
 并且：
 
-- [ ] Product Direction Discovery 不得在 User Profile 尚未 `CONFIRMED` 时开始。
-- [ ] Product Direction Discovery 至少需要一个可用 Repository Profile。
-- [ ] 所有新 Direction 初始状态均为 `CANDIDATE`。
-- [ ] 系统可以主动生成和推荐 Product Direction，但不能自动将某个 Direction 标记为 `SELECTED`。
-- [ ] 只有用户明确操作才能完成 `CANDIDATE → SELECTED`。
-- [ ] 关键推荐理由具有可追溯 Evidence。
+- [x] Product Direction Discovery 不得在 User Profile 尚未 `CONFIRMED` 时开始。
+- [x] Product Direction Discovery 至少需要一个明确的 Repository Profile（INV-D05）。
+- [x] 所有新 Direction 初始状态均为 `CANDIDATE`。
+- [x] 系统可以生成和推荐 Product Direction，但不能自动将某个 Direction 标记为 `SELECTED`。
+- [x] 只有用户明确操作才能完成 `CANDIDATE → SELECTED`。
+- [x] 关键推荐理由具有可追溯 Evidence。
 
 **Out of Scope**
 
@@ -380,6 +390,47 @@ Then
 - Working Copy。
 - 自动选择 Product Direction。
 - 自动修改代码。
+- 后端自动触发 Product Direction Discovery（DEFERRED / REVISIT，见下）。
+
+### Deferred — 后端自动触发 Product Direction Discovery
+
+当前 MVP 中，Product Direction Discovery 是一个显式的 Application 操作：
+
+```text
+调用方选择基线
+        ↓
+Application 校验基线
+        ↓
+Domain 校验结果 Proposal
+```
+
+显式发起不等于弱校验：调用方给出完整基线，Application 仍在调用 AI 之前逐项校验该基线
+（User Profile 存在、revision 匹配、已 `CONFIRMED`，且每个 Repository Profile 都存在），
+失败时不调用模型、也不写入任何方向。
+
+状态：
+
+```text
+DEFERRED / REVISIT
+```
+
+原因：
+
+自动触发需要为 Product Discovery 输入基线建立一个持久的、明确的语义定义，
+包括当前 UserProfile 的选择、RepositoryProfile 的参与集合、同一基线的重复消费语义，
+以及失败 / 重复 / 重启后的行为。当前 MVP 没有足够的产品证据来支撑引入这部分额外的工作流状态。
+
+重新评估条件（REVISIT）：
+
+当出现真实的产品流程，需要系统自行确定并**持久化**以下内容时，再重新考虑：
+
+- 哪一份 UserProfile 是当前的发现对象
+- 哪些 RepositoryProfile 属于当前发现基线
+- 该基线是否已经产生过一次 Discovery
+- 失败 / 重复 / 重启后的自动尝试如何处理
+
+本文件不规定将来的实现方式；自动触发是否需要新的领域概念，属于届时按
+`DOMAIN_MODEL.md` §14.12 的判断规则重新决定的问题。
 
 ---
 

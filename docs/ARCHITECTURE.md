@@ -734,9 +734,13 @@ POST /api/product-directions/discovery
 → 201 {"directions": [ {…}, {…}, {…} ]}        本轮已经保存的候选方向，顺序与模型给出的一致
 ```
 
-它是已经存在的 Product Direction Discovery 能力对外的命令入口，面向系统外部调用、集成、
-后续的 smoke 验证与前后端联调。它**不**表示产品要求用户手动发起发现——`readiness`
-与 `automatic discovery trigger`（§8.2）仍是尚未完成的独立能力。
+它是 Product Direction Discovery 能力对外的命令入口，面向系统外部调用、集成、
+smoke 验证与前后端联调。当前 MVP 中，发现就是一个显式的 Application 操作：
+完整的输入基线由调用方给出，Application 在调用 AI 之前校验它（§8.2）。
+
+后端自动触发（`automatic discovery trigger`）当前不在 MVP 契约内——它需要为
+Product Discovery 输入基线建立一个持久且明确的语义定义，而当前 MVP 缺乏支持
+这一点的产品证据。状态与重新评估条件见 `ROADMAP.md` 的 M2。
 
 - **方向标识、状态、内容、依据与候选资产都由服务端链路决定。** 请求体里给出这些字段不会
   生效（Jackson 忽略约定之外的字段），客户端无法通过它们凭空制造领域事实。
@@ -893,9 +897,9 @@ sequenceDiagram
 
 > MVP 中 Repository Source 仅支持用户选择的本地 Git Repository。Repository Analysis 不负责 Repository 的发现与搜索；未来可在其上游增加 GitHub 等 Software Asset Discovery 能力，而无需改变 Repository Analysis 的核心职责。
 >
-> Opportunity Discovery 不要求用户额外发起“生成 Product Direction”的请求。当 Confirmed User Profile 与至少一个可用 Repository Profile 均已准备完成后，Application / Orchestrator 可以自动进入 Product Direction Discovery。
+> 当前 MVP 中 Product Direction Discovery 是一个显式的 Application 操作：完整的 Product Discovery 输入基线由调用方给出（Confirmed User Profile 身份 + 确定的 expected revision + 一个或多个 Repository Profile 身份），Application 在调用 AI 之前校验该基线。系统不自行判断「什么时候该做发现」，也不自行决定该基线由哪些对象组成。
 >
-> 系统可以主动发现和生成 Product Direction，但 Product Direction 的最终选择仍然必须由用户完成。
+> 系统可以生成和推荐 Product Direction，但 Product Direction 的最终选择仍然必须由用户完成。
 
 ```mermaid
 sequenceDiagram
@@ -918,22 +922,18 @@ sequenceDiagram
     RA-->>O: Repository Profile
     O-->>U: Show Repository Profile
 
-    O->>O: Check Product Discovery Inputs
-
-    alt User Profile not confirmed or Repository Profile unavailable
-        O-->>O: Wait for required discovery inputs
-    else Discovery inputs ready
-        O->>OD: Generate Directions with Confirmed User Profile + Repository Profile
-        OD->>AI: Discover Opportunities
-        AI-->>OD: Direction Proposals
-        OD-->>O: Candidate Product Directions
-        O-->>U: Show Directions + Evidence
-    end
+    O->>OD: Generate Directions with an explicit basis
+    Note over O,OD: Confirmed User Profile identity<br/>+ exact expected revision<br/>+ explicit Repository Profile identities
+    OD->>OD: Validate the basis before AI
+    OD->>AI: Discover Opportunities
+    AI-->>OD: Direction Proposals
+    OD-->>O: Candidate Product Directions
+    O-->>U: Show Directions + Evidence
 ```
 
 **一次 Discovery 的编排**
 
-被要求执行一次发现时，Application 按固定顺序做四件事，自己不新增领域判断：
+产品方向发现由调用方显式发起：调用方给出完整的输入基线，Application 按固定顺序做四件事，自己不新增领域判断：
 
 ```text
 load      按标识加载 User Profile 与全部 requested Repository Profile
