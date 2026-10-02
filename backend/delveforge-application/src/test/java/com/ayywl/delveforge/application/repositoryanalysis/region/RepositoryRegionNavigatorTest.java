@@ -107,7 +107,7 @@ class RepositoryRegionNavigatorTest {
     }
 
     @Test
-    void recursesUntilEachBranchFitsPreservingPriority() {
+    void recursesUntilEachBranchFitsAndKeepsSelectedBranchOrder() {
         RepositoryMap map = RegionNavigationFixtures.map();
         int limit = RegionNavigationFixtures.catalogBytes(
                 map, RegionNavigationFixtures.PKG_AAA_FILES);
@@ -118,7 +118,8 @@ class RepositoryRegionNavigatorTest {
         RepositoryRegionNavigation navigation = navigator(gateway, limit, ROOMY_BUDGET).navigate(map);
 
         assertEquals(List.of("", "pkg", "pkg/aaa", "tool"), groupPrefixes(navigation),
-                "顺序即分支优先级：pkg 整支走完才轮到 tool");
+                "结构遍历顺序：根目录直属组在前，被选中的分支之间保持 Region Scout 的返回顺序"
+                        + "（pkg 整支走完才轮到 tool）");
         assertEquals(List.of(List.of(RegionNavigationFixtures.ROOT_MAIN),
                         List.of(RegionNavigationFixtures.PKG_TOP),
                         List.of(RegionNavigationFixtures.PKG_AAA_A,

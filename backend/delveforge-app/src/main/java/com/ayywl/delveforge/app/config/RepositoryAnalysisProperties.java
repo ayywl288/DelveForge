@@ -76,6 +76,8 @@ public record RepositoryAnalysisProperties(Scout scout,
      * 能走多远（因而约束 AI 调用的增长）。两者不互相占用。
      *
      * <p>前两项约束**一次** Region Scout 调用；后两项约束**一次仓库分析**里的递归本身。
+     * 后两项彼此独立——轮数管深度，总调用数管「深度 × 宽度」；总调用数小于单分支轮数上限
+     * 是合法组合，那只是说明深度上限不是先耗尽的那一个（ADR-0005 也没有规定二者的大小关系）。
      * ADR-0005 的终态分支数守卫尚未需要（File Scout 执行属于后续步骤），因此不在这里预留。
      *
      * @param maxCatalogBytes    Region Catalog 载荷的 UTF-8 字节上限
@@ -103,10 +105,10 @@ public record RepositoryAnalysisProperties(Scout scout,
                         PREFIX + ".region.max-rounds-per-branch 必须大于 0: "
                                 + maxRoundsPerBranch);
             }
-            if (maxTotalScoutCalls < maxRoundsPerBranch) {
+            if (maxTotalScoutCalls <= 0) {
                 throw new IllegalArgumentException(
-                        PREFIX + ".region.max-total-scout-calls 不能小于 max-rounds-per-branch: "
-                                + maxTotalScoutCalls + " < " + maxRoundsPerBranch);
+                        PREFIX + ".region.max-total-scout-calls 必须大于 0: "
+                                + maxTotalScoutCalls);
             }
         }
 

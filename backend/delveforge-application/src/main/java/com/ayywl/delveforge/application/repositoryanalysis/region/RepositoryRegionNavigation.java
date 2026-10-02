@@ -8,16 +8,23 @@ import java.util.List;
  * <pre>
  * oversized source set
  *         ↓  按目录结构递归下降
- * terminal file groups（顺序即分支优先级）
+ * terminal file groups（按目录结构深度优先展开）
  * </pre>
  *
- * <h2>顺序就是分支优先级</h2>
+ * <h2>顺序是结构遍历顺序，不是一份统一的优先级</h2>
  *
- * <p>列表顺序由 Region Scout 的选择顺序决定：越靠前的分支越应该先被处理。
- * 同一节点被分解时，**先给该节点直属文件的组，再按顺序给各选中分支的组**——
- * 直属文件就在这一层，不属于任何一个子分支。
+ * <p>列表按目录结构深度优先展开：同一节点被分解时，先给该节点**直属文件**的组，
+ * 再按 Region Scout 的返回顺序给各选中分支的组。顺序是确定的，但其中**只有一部分**带模型含义：
  *
- * <p>顺序是确定的：Region Scout 的返回顺序确定，目录结构的遍历顺序确定。
+ * <pre>
+ * 被选中的分支之间     保持 Region Scout 的返回顺序 —— 这才是 ADR-0005 说的分支优先级
+ * 直属组与子分支之间   结构约定（直属在前），不是模型给出的优先关系
+ * </pre>
+ *
+ * <p>直属文件没有被任何一次 Region Scout 排序过：它们不对应任何子目录，Scout 根本看不到它们。
+ * 因此本类型**不宣称**整个列表是一份优先级——把结构顺序当成模型的取舍，会让「谁先谁后」
+ * 变成一个没有人真正决定过的事实。跨组如何交织（例如保序轮转）由消费方决定，
+ * 属于后续步骤。
  *
  * <h2>它不读文件、不调用 File Scout</h2>
  *
@@ -77,7 +84,13 @@ public final class RepositoryRegionNavigation {
         return analyzedRevision;
     }
 
-    /** 有序的终态文件组，顺序即分支优先级。 */
+    /**
+     * 终态文件组，按目录结构深度优先展开。
+     *
+     * <p>被选中的分支之间保持 Region Scout 的返回顺序（分支优先级）；节点直属文件的组排在
+     * 该节点子分支之前，那是结构约定，不是模型给出的优先关系。整个列表因此是**遍历顺序**，
+     * 不是一份统一的优先级。
+     */
     public List<RepositoryTerminalFileGroup> terminalFileGroups() {
         return terminalFileGroups;
     }
