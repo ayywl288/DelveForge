@@ -16,6 +16,12 @@ package com.ayywl.delveforge.application.repositoryanalysis.region;
  * <p>它是整次分析的守卫，与 {@link RegionNavigationLimits}（一次调用的载荷与选择）
  * 和 {@link RegionRecursionBudget}（Region Scout 的轮数与调用数）都不同层。
  *
+ * <h2>两条通道的执行阶段都要守它</h2>
+ *
+ * <p>分层导航（{@link RepositoryRegionNavigator}）与分支执行（{@code RepositoryBranchScoutRunner}）
+ * 都必须在**每次调用之前**判定：只在一处守，超限的那几次调用就已经发生了，
+ * 而失败收不回已经付出的模型调用。导航阶段的计数是本次分析累计的起点，分支阶段接着往下加。
+ *
  * <h2>这是技术/配置守卫，不是领域规则</h2>
  *
  * <p>默认值由前一项的最坏包络推算而来，不是已验证的最优值。改变它不需要改领域模型，

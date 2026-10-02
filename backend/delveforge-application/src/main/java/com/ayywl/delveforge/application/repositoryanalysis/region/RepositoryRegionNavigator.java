@@ -53,9 +53,13 @@ import java.util.Map;
  *
  * <h2>失败是整次的</h2>
  *
- * <p>预算耗尽、目录超限、结构不可再分、模型输出不合法——任一种都让整次导航以异常结束，
- * **不返回已经走出来的那部分**。部分结果会让调用方以为「这个仓库就是这些分支」。
+ * <p>预算耗尽（单分支轮数 / Region 调用数 / 整次分析的 Scout 调用总数）、目录超限、
+ * 结构不可再分、模型输出不合法——任一种都让整次导航以异常结束，**不返回已经走出来的
+ * 那部分**。部分结果会让调用方以为「这个仓库就是这些分支」。
  * 没有采样、没有截断、没有「退回把整份 oversized 目录直接发出去」的降级。
+ *
+ * <p>三种预算都在**每次 Region 调用之前**判定：超限的那一次不触达模型。整次分析的总数
+ * 守卫尤其不能推迟到分支阶段——那时已经付掉的 Region 调用收不回来。
  */
 public final class RepositoryRegionNavigator {
 
@@ -63,18 +67,22 @@ public final class RepositoryRegionNavigator {
     private final FileCatalogPayload fileCatalog;
     private final int maxFileCatalogBytes;
     private final RegionRecursionBudget budget;
+    private final ScoutCallBudget scoutCallBudget;
 
     /**
      * @param regionScout          Region Scout，不得为 {@code null}（本类只调用它的 scout）
      * @param fileCatalog          度量候选分支的 File Catalog 载荷，不得为 {@code null}；
      *                             与 File Scout 实际发出的是同一个渲染入口
      * @param maxFileCatalogBytes 一次分支本地 File Scout 目录的字节预算，必须大于 0
-     * @param budget               递归守卫，不得为 {@code null}
+     * @param budget               递归守卫（单分支轮数 / Region 调用数），不得为 {@code null}
+     * @param scoutCallBudget      整次分析的 Scout 调用总数守卫（Region + File），
+     *                             不得为 {@code null}
      */
     public RepositoryRegionNavigator(RepositoryRegionScoutExtraction regionScout,
                                      FileCatalogPayload fileCatalog,
                                      int maxFileCatalogBytes,
-                                     RegionRecursionBudget budget) {
+                                     RegionRecursionBudget budget,
+                                     ScoutCallBudget scoutCallBudget) {
         if (regionScout == null) {
             throw new IllegalArgumentException(
                     "RepositoryRegionNavigator 必须指定 regionScout");
@@ -91,10 +99,15 @@ public final class RepositoryRegionNavigator {
             throw new IllegalArgumentException(
                     "RepositoryRegionNavigator 必须指定 budget");
         }
+        if (scoutCallBudget == null) {
+            throw new IllegalArgumentException(
+                    "RepositoryRegionNavigator 必须指定 scoutCallBudget");
+        }
         this.regionScout = regionScout;
         this.fileCatalog = fileCatalog;
         this.maxFileCatalogBytes = maxFileCatalogBytes;
         this.budget = budget;
+        this.scoutCallBudget = scoutCallBudget;
     }
 
     /**
@@ -107,7 +120,8 @@ public final class RepositoryRegionNavigator {
      * @return 有序的终态文件组
      * @throws IllegalArgumentException                       map 为 {@code null}
      * @throws RepositoryRegionCatalogTooLargeException        某一层 Region 目录超过其预算
-     * @throws RegionNavigationBudgetExceededException         递归守卫用尽
+     * @throws RegionNavigationBudgetExceededException         递归守卫用尽（轮数 / Region 调用数）
+     * @throws ScoutCallBudgetExceededException                再调一次会超过整次分析的 Scout 调用总数
      * @throws RegionHierarchyNotReducibleException            结构上无法再缩小
      * @throws com.ayywl.delveforge.application.port.ai.AiGatewayException
      *                                                       Region Scout 调用失败或输出不合法
@@ -227,6 +241,17 @@ public final class RepositoryRegionNavigator {
                                 + ": 本次分析已调用 Region Scout " + scoutCalls
                                 + " 次，再调一次将超过总上限 "
                                 + budget.maxRegionScoutCalls() + ": " + revision);
+            }
+            // 整次分析的 Scout 调用总数也必须在这里守：Region 调用与 File 调用合并计数，
+            // 因此「分层下降先花掉的那几次」同样占用终态分支的额度。等到分支阶段才发现
+            // 超限，并不能撤销这里已经付出的 Region 调用——守卫必须在调用之前生效。
+            if (scoutCalls + 1 > scoutCallBudget.maxTotalCalls()) {
+                throw new ScoutCallBudgetExceededException(
+                        ScoutCallBudgetExceededException.MAX_TOTAL_SCOUT_CALLS_EXCEEDED
+                                + ": 本次分析已调用 Scout " + scoutCalls
+                                + " 次，在「" + describe(prefix) + "」上再调一次 Region Scout "
+                                + "将超过整次分析的总数上限 "
+                                + scoutCallBudget.maxTotalCalls() + ": " + revision);
             }
             scoutCalls++;
 

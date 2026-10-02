@@ -343,6 +343,7 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
         // 技术上限，文件目录与 Region 目录共用同一个字节门槛（application.yml）。
         RegionNavigationLimits regionLimits = new RegionNavigationLimits(65_536, 6);
         RegionRecursionBudget regionBudget = new RegionRecursionBudget(8, 12);
+        ScoutCallBudget scoutCallBudget = new ScoutCallBudget(18);
 
         RepositoryScoutExtraction fileScout =
                 new RepositoryScoutExtraction(AI_GATEWAY, objectMapper);
@@ -350,9 +351,10 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
                 new RepositoryRegionScoutExtraction(AI_GATEWAY, objectMapper, regionLimits),
                 new FileCatalogPayload(objectMapper),
                 65_536,
-                regionBudget);
+                regionBudget,
+                scoutCallBudget);
         RepositoryBranchScoutRunner branchRunner = new RepositoryBranchScoutRunner(
-                fileScout, regionBudget, new ScoutCallBudget(18));
+                fileScout, regionBudget, scoutCallBudget);
 
         RepositoryUnderstanding understanding = new RepositoryUnderstanding(
                 new RepositoryMapBuilder(workspacePort),

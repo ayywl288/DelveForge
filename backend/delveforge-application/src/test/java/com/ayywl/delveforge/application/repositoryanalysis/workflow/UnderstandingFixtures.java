@@ -59,7 +59,8 @@ final class UnderstandingFixtures {
                 regionScout,
                 new FileCatalogPayload(objectMapper),
                 maxCatalogBytes,
-                regionBudget);
+                regionBudget,
+                scoutCallBudget);
         RepositoryBranchScoutRunner branchRunner = new RepositoryBranchScoutRunner(
                 fileScout, regionBudget, scoutCallBudget);
 

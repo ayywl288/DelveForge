@@ -25,6 +25,9 @@ class RepositoryRegionNavigatorTest {
     private static final RegionRecursionBudget ROOMY_BUDGET =
             new RegionRecursionBudget(8, 12);
 
+    /** 宽裕的 Scout 调用总数：这些用例验证的是别的守卫，不应被总数挡住。 */
+    private static final ScoutCallBudget ROOMY_SCOUT_CALLS = new ScoutCallBudget(18);
+
     private static RepositoryRegionScoutExtraction extraction(AiGateway gateway) {
         return extraction(gateway, CALL_LIMITS);
     }
@@ -37,14 +40,28 @@ class RepositoryRegionNavigatorTest {
     private static RepositoryRegionNavigator navigator(AiGateway gateway,
                                                        int maxFileCatalogBytes,
                                                        RegionRecursionBudget budget) {
-        return navigator(extraction(gateway), maxFileCatalogBytes, budget);
+        return navigator(extraction(gateway), maxFileCatalogBytes, budget, ROOMY_SCOUT_CALLS);
+    }
+
+    private static RepositoryRegionNavigator navigator(AiGateway gateway,
+                                                       int maxFileCatalogBytes,
+                                                       RegionRecursionBudget budget,
+                                                       ScoutCallBudget scoutCallBudget) {
+        return navigator(extraction(gateway), maxFileCatalogBytes, budget, scoutCallBudget);
     }
 
     private static RepositoryRegionNavigator navigator(RepositoryRegionScoutExtraction scoutExtraction,
                                                        int maxFileCatalogBytes,
                                                        RegionRecursionBudget budget) {
-        return new RepositoryRegionNavigator(
-                scoutExtraction, RegionNavigationFixtures.payload(), maxFileCatalogBytes, budget);
+        return navigator(scoutExtraction, maxFileCatalogBytes, budget, ROOMY_SCOUT_CALLS);
+    }
+
+    private static RepositoryRegionNavigator navigator(RepositoryRegionScoutExtraction scoutExtraction,
+                                                       int maxFileCatalogBytes,
+                                                       RegionRecursionBudget budget,
+                                                       ScoutCallBudget scoutCallBudget) {
+        return new RepositoryRegionNavigator(scoutExtraction,
+                RegionNavigationFixtures.payload(), maxFileCatalogBytes, budget, scoutCallBudget);
     }
 
     private static List<String> groupPrefixes(RepositoryRegionNavigation navigation) {
@@ -282,6 +299,54 @@ class RepositoryRegionNavigatorTest {
                 "失败信息应指向那个直属文件装不下的节点");
     }
 
+    // ---------------------------------------------------------------- 总 Scout 预算
+
+    /**
+     * 整次分析的 Scout 调用总数在**导航阶段**就生效，而不是等分支 File Scout 那一步。
+     *
+     * <p>结构需要两轮下降（第二轮要调一次 Region Scout），总预算只有 1：
+     * 第二次调用必须在触达模型之前被挡下。否则超限之后的失败收不回已经付出的 Region 调用。
+     */
+    @Test
+    void stopsAtTheTotalScoutBudgetBeforeTheRegionCallThatWouldExceedIt() {
+        RepositoryMap map = RegionNavigationFixtures.map();
+        int limit = RegionNavigationFixtures.catalogBytes(
+                map, RegionNavigationFixtures.PKG_AAA_FILES);
+        RegionNavigationFixtures.ScriptedScoutGateway gateway =
+                new RegionNavigationFixtures.ScriptedScoutGateway(
+                        List.of(List.of(1, 2), List.of(1)));
+
+        // 结构上需要 2 次 Region 调用，但整次分析只允许 1 次
+        ScoutCallBudgetExceededException failure = assertThrows(
+                ScoutCallBudgetExceededException.class,
+                () -> navigator(gateway, limit, ROOMY_BUDGET, new ScoutCallBudget(1))
+                        .navigate(map));
+
+        assertTrue(failure.getMessage()
+                        .contains(ScoutCallBudgetExceededException.MAX_TOTAL_SCOUT_CALLS_EXCEEDED),
+                "失败原因应当带上稳定的标识: " + failure.getMessage());
+        assertEquals(1, gateway.calls(), "被挡下的那一次不得触达模型");
+    }
+
+    /**
+     * 总预算足够时照常走完：这条守卫不会因为「存在」就误伤正常导航。
+     */
+    @Test
+    void completesWhenTheTotalScoutBudgetIsExactlyEnough() {
+        RepositoryMap map = RegionNavigationFixtures.map();
+        int limit = RegionNavigationFixtures.catalogBytes(
+                map, RegionNavigationFixtures.PKG_AAA_FILES);
+        RegionNavigationFixtures.ScriptedScoutGateway gateway =
+                new RegionNavigationFixtures.ScriptedScoutGateway(
+                        List.of(List.of(1, 2), List.of(1)));
+
+        RepositoryRegionNavigation navigation =
+                navigator(gateway, limit, ROOMY_BUDGET, new ScoutCallBudget(2)).navigate(map);
+
+        assertEquals(2, navigation.regionScoutCalls());
+        assertEquals(2, gateway.calls());
+    }
+
     // ---------------------------------------------------------------- 传递失败
 
     @Test
@@ -339,13 +404,18 @@ class RepositoryRegionNavigatorTest {
                 new RegionNavigationFixtures.ScriptedScoutGateway(List.of());
 
         assertThrows(IllegalArgumentException.class, () -> new RepositoryRegionNavigator(
-                null, RegionNavigationFixtures.payload(), 100, ROOMY_BUDGET));
+                null, RegionNavigationFixtures.payload(), 100, ROOMY_BUDGET, ROOMY_SCOUT_CALLS));
         assertThrows(IllegalArgumentException.class, () -> new RepositoryRegionNavigator(
-                extraction(gateway), null, 100, ROOMY_BUDGET));
+                extraction(gateway), null, 100, ROOMY_BUDGET, ROOMY_SCOUT_CALLS));
         assertThrows(IllegalArgumentException.class, () -> new RepositoryRegionNavigator(
-                extraction(gateway), RegionNavigationFixtures.payload(), 0, ROOMY_BUDGET));
+                extraction(gateway), RegionNavigationFixtures.payload(), 0, ROOMY_BUDGET,
+                ROOMY_SCOUT_CALLS));
         assertThrows(IllegalArgumentException.class, () -> new RepositoryRegionNavigator(
-                extraction(gateway), RegionNavigationFixtures.payload(), 100, null));
+                extraction(gateway), RegionNavigationFixtures.payload(), 100, null,
+                ROOMY_SCOUT_CALLS));
+        assertThrows(IllegalArgumentException.class, () -> new RepositoryRegionNavigator(
+                extraction(gateway), RegionNavigationFixtures.payload(), 100, ROOMY_BUDGET,
+                null));
 
         RepositoryRegionNavigator navigator =
                 navigator(gateway, 100, ROOMY_BUDGET);

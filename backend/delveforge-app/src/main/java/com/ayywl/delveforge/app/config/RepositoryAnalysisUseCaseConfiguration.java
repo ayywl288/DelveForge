@@ -44,6 +44,12 @@ import org.springframework.context.annotation.Configuration;
  * RepositoryUnderstanding         把上面这些串起来，并守住流程前置条件与路径选择
  * </pre>
  *
+ * <h2>整次分析的 Scout 调用总数同时交给导航器与分支执行器</h2>
+ *
+ * <p>分层下降与分支 File Scout 合并计入同一个上限（ADR-0005）。两个执行阶段都必须
+ * 在**每次调用之前**判定它：只交给后者，超限的那几次 Region 调用就已经发生了，
+ * 而失败收不回已经付出的调用。
+ *
  * <h2>两个字节门槛是同一个值</h2>
  *
  * <p>{@code RepositoryUnderstanding} 用它判断「flat 目录放不放得下」，
@@ -102,7 +108,8 @@ public class RepositoryAnalysisUseCaseConfiguration {
                 repositoryRegionScoutExtraction,
                 new FileCatalogPayload(objectMapper),
                 properties.scout().maxCatalogBytes(),
-                properties.region().toRecursionBudget());
+                properties.region().toRecursionBudget(),
+                properties.scoutCalls().toBudget());
     }
 
     @Bean
