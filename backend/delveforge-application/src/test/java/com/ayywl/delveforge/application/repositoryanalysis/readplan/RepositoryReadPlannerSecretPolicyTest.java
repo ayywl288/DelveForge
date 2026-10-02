@@ -131,6 +131,27 @@ class RepositoryReadPlannerSecretPolicyTest {
         assertEquals(List.of(API), excludedPaths(plan), "排除同样要留下诊断");
     }
 
+    /**
+     * 同一个文件被多个聚焦区域提到时，只留一条排除诊断。
+     *
+     * <p>Scout 允许同一个文件出现在多个区域里（「从几个角度看同一处」）。诊断是**文件**的
+     * 属性，不是引用的属性：不去重的话，「排除了几个文件」会被说成三倍。
+     */
+    @Test
+    void reportsOneExclusionDiagnosticPerFile() {
+        RepositoryMap map = map();
+
+        RepositoryReadPlan plan = new RepositoryReadPlanner(
+                GENEROUS, GENEROUS, excludingPath(API))
+                .plan(map, ReadPlanFixtures.plan(map,
+                        ReadPlanFixtures.area(map, "入口", 4),
+                        ReadPlanFixtures.area(map, "再来", 4),
+                        ReadPlanFixtures.area(map, "还是它", 4)));
+
+        assertEquals(List.of(API), excludedPaths(plan),
+                "三个区域提到同一个文件，诊断仍然只有一条");
+    }
+
     /** 分层路径交回的候选流也过政策：入口不同，政策同一个。 */
     @Test
     void candidateStreamAlsoHonorsThePolicy() {

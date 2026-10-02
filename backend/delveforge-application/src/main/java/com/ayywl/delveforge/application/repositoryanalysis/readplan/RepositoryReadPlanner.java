@@ -199,18 +199,35 @@ public final class RepositoryReadPlanner {
                         + foundation.excluded().size() + targetedSource.excluded().size());
         skipped.addAll(foundationSelection.skipped());
         skipped.addAll(targetedSelection.skipped());
-        addExclusionDiagnostics(skipped, foundation.excluded());
-        addExclusionDiagnostics(skipped, targetedSource.excluded());
+
+        List<RepositoryMapEntry> excluded = new ArrayList<>(
+                foundation.excluded().size() + targetedSource.excluded().size());
+        excluded.addAll(foundation.excluded());
+        excluded.addAll(targetedSource.excluded());
+        addExclusionDiagnostics(skipped, excluded);
 
         return RepositoryReadPlan.of(map.analyzedRevision(),
                 foundationSelection.selected(), targetedSelection.selected(), skipped);
     }
 
+    /**
+     * 被排除的候选每个文件只留**一条**诊断。
+     *
+     * <p>Scout 允许同一个文件出现在多个聚焦区域里（那是「从几个角度看同一处」的表达），
+     * 而排除判定是按区域各跑一遍的。不去重的话，同一个凭据文件被三个区域提到就会留下三条
+     * 一模一样的记录，把「排除了几个文件」说成三倍——诊断是文件的属性，不是引用的属性。
+     * 这与轮转里「跳过的也标记为已处理」是同一条口径。
+     *
+     * <p>用 {@code LinkedHashSet} 保住首次出现的顺序：诊断的顺序也应当是确定的。
+     */
     private static void addExclusionDiagnostics(List<SkippedReadCandidate> skipped,
                                                 List<RepositoryMapEntry> excluded) {
+        Set<RepositoryMapEntry> alreadyReported = new LinkedHashSet<>();
         for (RepositoryMapEntry entry : excluded) {
-            skipped.add(new SkippedReadCandidate(
-                    entry, RepositoryReadSkipReason.EXCLUDED_BY_SECRET_POLICY));
+            if (alreadyReported.add(entry)) {
+                skipped.add(new SkippedReadCandidate(
+                        entry, RepositoryReadSkipReason.EXCLUDED_BY_SECRET_POLICY));
+            }
         }
     }
 
