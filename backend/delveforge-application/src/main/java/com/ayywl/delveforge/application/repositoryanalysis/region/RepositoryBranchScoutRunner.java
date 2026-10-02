@@ -29,8 +29,13 @@ import java.util.Map;
  * <h2>每组都是一次全新的调用</h2>
  *
  * <p>分支本地 File Scout 看到的是**它自己那一份目录**：编号按组内位置重新分配
- * （{@code RF-1}…{@code RF-n}）。原 Map 的编号不是新调用的身份——一次分支调用里的
- * {@code RF-3} 与另一次里的 {@code RF-3} 指向完全不同的文件，跨分支引用因此不可能解析。
+ * （{@code RF-1}…{@code RF-n}）。每次调用都是同步的
+ * 「本次目录 → 请求 → 解析 → **用同一份目录**校验引用」，两次调用之间没有传递结果或目录的
+ * 路径，因此一次调用的编号不会在另一次里被解释。
+ *
+ * <p>但要说清编号**本身**不携带调用身份：两组各有第一个文件时，两边都是 {@code RF-1}，
+ * 这个字符串在各自目录里都会成功解析，只是解出的文件不同。隔离来自「每次调用绑定自己那份
+ * 目录」，不是来自编号互不相同。
  *
  * <p>File Scout 的契约一字未改：仍然是「描述符清单 → 模型 → 严格解析 → 引用校验」，
  * 复用同一个 {@link RepositoryScoutExtraction}，不另写一套解析或提示词。
@@ -47,31 +52,46 @@ import java.util.Map;
  * 分支顺序 = 终态组的遍历顺序（其中**被 Region Scout 选中的兄弟分支之间**保持模型的取舍顺序，
  * 那是真正的分支优先级；直属文件组与子分支之间的先后只是结构约定）。
  *
+ * <h2>入口先核对独立 Region 预算</h2>
+ *
+ * <p>{@code RepositoryRegionNavigation} 是公开类型，它声明的 Region Scout 调用数只能由调用方
+ * 保证。总预算不够替代这条独立上限——`15 + 3` 也不超过 18，但它已经违反了
+ * 「Region Scout ≤ 12」。因此进入任何一次 Gateway 调用之前先核对，不成立即失败关闭。
+ *
  * <h2>失败是整次的</h2>
  *
- * <p>任意一条分支的 File Scout 失败，或下一次调用会超出 Scout 调用总数，
+ * <p>输入不满足前置条件、任意一条分支的 File Scout 失败、或下一次调用会超出 Scout 调用总数，
  * 都让整次运行以异常结束，**不返回已经跑完的那几条分支的合并结果**。
  */
 public final class RepositoryBranchScoutRunner {
 
     private final RepositoryScoutExtraction fileScout;
+    private final RegionRecursionBudget regionBudget;
     private final ScoutCallBudget budget;
 
     /**
-     * @param fileScout 现有的 File Scout 契约实现，不得为 {@code null}
-     * @param budget    整次分析的 Scout 调用总数守卫，不得为 {@code null}
+     * @param fileScout    现有的 File Scout 契约实现，不得为 {@code null}
+     * @param regionBudget Region Scout 的守卫；本类用它校验输入导航声明的 Region 调用数，
+     *                     不得为 {@code null}
+     * @param budget       整次分析的 Scout 调用总数守卫，不得为 {@code null}
      */
     public RepositoryBranchScoutRunner(RepositoryScoutExtraction fileScout,
+                                       RegionRecursionBudget regionBudget,
                                        ScoutCallBudget budget) {
         if (fileScout == null) {
             throw new IllegalArgumentException(
                     "RepositoryBranchScoutRunner 必须指定 fileScout");
+        }
+        if (regionBudget == null) {
+            throw new IllegalArgumentException(
+                    "RepositoryBranchScoutRunner 必须指定 regionBudget");
         }
         if (budget == null) {
             throw new IllegalArgumentException(
                     "RepositoryBranchScoutRunner 必须指定 budget");
         }
         this.fileScout = fileScout;
+        this.regionBudget = regionBudget;
         this.budget = budget;
     }
 
@@ -81,6 +101,7 @@ public final class RepositoryBranchScoutRunner {
      * @param navigation 分层导航的结果，不得为 {@code null}
      * @return 有序候选文件
      * @throws IllegalArgumentException                    navigation 为 {@code null}
+     * @throws RegionNavigationBudgetExceededException    输入导航声明的 Region Scout 调用数超过 Region 上限
      * @throws ScoutCallBudgetExceededException            下一次调用会超出 Scout 调用总数
      * @throws com.ayywl.delveforge.application.port.ai.AiGatewayException
      *                                                     某条分支的 File Scout 调用失败或输出不合法
@@ -91,7 +112,19 @@ public final class RepositoryBranchScoutRunner {
                     "RepositoryBranchScoutRunner 必须指定 navigation");
         }
         String revision = navigation.analyzedRevision();
-        int scoutCalls = navigation.regionScoutCalls();
+
+        // 入口先核对独立 Region 预算：本类信任「导航结果说的调用数」，而那是一个公开类型，
+        // 只能由调用方保证。总预算不能替代这条独立上限——15 + 3 也不会超过 18，
+        // 但它已经违反了「Region Scout ≤ 12」。
+        int regionScoutCalls = navigation.regionScoutCalls();
+        if (regionScoutCalls > regionBudget.maxRegionScoutCalls()) {
+            throw new RegionNavigationBudgetExceededException(
+                    RegionNavigationBudgetExceededException.MAX_REGION_SCOUT_CALLS_EXCEEDED
+                            + ": 输入导航声明用了 " + regionScoutCalls + " 次 Region Scout，"
+                            + "超过 Region 上限 " + regionBudget.maxRegionScoutCalls()
+                            + ": " + revision);
+        }
+        int scoutCalls = regionScoutCalls;
 
         List<List<RepositoryMapEntry>> branches = new ArrayList<>();
         for (RepositoryTerminalFileGroup group : navigation.terminalFileGroups()) {

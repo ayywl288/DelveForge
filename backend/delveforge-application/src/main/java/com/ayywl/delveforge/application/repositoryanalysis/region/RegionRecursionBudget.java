@@ -20,18 +20,18 @@ package com.ayywl.delveforge.application.repositoryanalysis.region;
  * 具体数值来自配置，不在代码里兜底。
  *
  * @param maxRoundsPerBranch   沿**单条分支**最多能有几次 Region Scout 调用，必须大于 0
- * @param maxTotalScoutCalls   一次仓库分析最多能有几次 Region Scout 调用，必须大于 0
+ * @param maxRegionScoutCalls   一次仓库分析最多能有几次 Region Scout 调用，必须大于 0
  */
-public record RegionRecursionBudget(int maxRoundsPerBranch, int maxTotalScoutCalls) {
+public record RegionRecursionBudget(int maxRoundsPerBranch, int maxRegionScoutCalls) {
 
     public RegionRecursionBudget {
         if (maxRoundsPerBranch <= 0) {
             throw new IllegalArgumentException(
                     "沿单条分支的最大轮数必须大于 0: " + maxRoundsPerBranch);
         }
-        if (maxTotalScoutCalls <= 0) {
+        if (maxRegionScoutCalls <= 0) {
             throw new IllegalArgumentException(
-                    "一次分析的最大 Region Scout 调用数必须大于 0: " + maxTotalScoutCalls);
+                    "一次分析的最大 Region Scout 调用数必须大于 0: " + maxRegionScoutCalls);
         }
     }
 }

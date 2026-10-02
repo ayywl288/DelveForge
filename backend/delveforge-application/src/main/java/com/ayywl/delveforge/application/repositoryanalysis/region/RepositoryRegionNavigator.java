@@ -209,13 +209,13 @@ public final class RepositoryRegionNavigator {
                                 + "在「" + describe(prefix) + "」上再调一次将超过单分支上限 "
                                 + budget.maxRoundsPerBranch() + ": " + revision);
             }
-            if (scoutCalls + 1 > budget.maxTotalScoutCalls()) {
+            if (scoutCalls + 1 > budget.maxRegionScoutCalls()) {
                 throw new RegionNavigationBudgetExceededException(
                         RegionNavigationBudgetExceededException
                                 .MAX_REGION_SCOUT_CALLS_EXCEEDED
                                 + ": 本次分析已调用 Region Scout " + scoutCalls
                                 + " 次，再调一次将超过总上限 "
-                                + budget.maxTotalScoutCalls() + ": " + revision);
+                                + budget.maxRegionScoutCalls() + ": " + revision);
             }
             scoutCalls++;
 

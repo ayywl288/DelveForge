@@ -43,7 +43,7 @@ class RepositoryAnalysisPropertiesTest {
         assertEquals(65_536, callLimits.maxCatalogBytes());
         assertEquals(6, callLimits.maxSelectedRegions());
         assertEquals(8, recursion.maxRoundsPerBranch());
-        assertEquals(2, recursion.maxTotalScoutCalls());
+        assertEquals(2, recursion.maxRegionScoutCalls());
     }
 
     @Test
