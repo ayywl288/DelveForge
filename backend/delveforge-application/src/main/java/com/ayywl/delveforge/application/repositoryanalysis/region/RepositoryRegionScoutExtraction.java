@@ -38,10 +38,17 @@ import java.util.Map;
  * <p>Gateway 失败、解析失败、引用校验失败——任一种都以异常结束，不会返回部分结果。
  * 也不存在「丢掉不合法的引用、保留其余」这种降级。
  *
- * <h2>它不判定目录上限</h2>
+ * <h2>字节守卫在调用边界内执行</h2>
  *
- * <p>与 File Scout 一致：本类提供 {@link #catalogPayloadBytes} 供调用方「先量再调」，
- * 但**不自己判定上限**。是否超出属于调用的那一层的判断（{@link RegionNavigationLimits}）。
+ * <p>与 File Scout 不同的一点：本类**自己**在调用模型之前执行 {@link RegionNavigationLimits}
+ * 的字节守卫——先序列化一次，量这一份，超限即失败，否则原样发出**同一份**载荷。
+ *
+ * <p>理由是 ADR-0005 把「Region Catalog 自身超出预算」列为必须失败关闭的情形之一。
+ * 如果守卫只存在于编排层，「调用者记得先量一下」就成了唯一的保证——而那不是保证，
+ * 绕过去就会真的付出一次模型调用。把上限收进调用边界之后，超限的目录**不可能**产生模型调用。
+ *
+ * <p>{@link #catalogPayloadBytes} 仍然保留，供编排层在调模型之前自行判断要不要继续下钻；
+ * 它与调用走同一个渲染入口，因此量到的就是即将发出的那一份。
  */
 public final class RepositoryRegionScoutExtraction {
 
@@ -87,18 +94,19 @@ public final class RepositoryRegionScoutExtraction {
 
     private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
+    private final RegionNavigationLimits limits;
     private final String systemInstruction;
     private final RepositoryRegionProposalParser proposalParser;
     private final RepositoryRegionProposalResolver proposalResolver;
 
     /**
-     * @param aiGateway          AI 能力，不得为 {@code null}
-     * @param objectMapper       读取 json 的映射器，不得为 {@code null}
-     * @param maxSelectedRegions 一次 Region Scout 最多可选多少个区域，必须大于 0
+     * @param aiGateway    AI 能力，不得为 {@code null}
+     * @param objectMapper 读取 json 的映射器，不得为 {@code null}
+     * @param limits       本次导航的守卫上限（字节上限 + 选择数量上限），不得为 {@code null}
      */
     public RepositoryRegionScoutExtraction(AiGateway aiGateway,
                                            ObjectMapper objectMapper,
-                                           int maxSelectedRegions) {
+                                           RegionNavigationLimits limits) {
         if (aiGateway == null) {
             throw new IllegalArgumentException(
                     "RepositoryRegionScoutExtraction 必须指定 aiGateway");
@@ -107,22 +115,30 @@ public final class RepositoryRegionScoutExtraction {
             throw new IllegalArgumentException(
                     "RepositoryRegionScoutExtraction 必须指定 objectMapper");
         }
+        if (limits == null) {
+            throw new IllegalArgumentException(
+                    "RepositoryRegionScoutExtraction 必须指定 limits");
+        }
         this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
-        this.systemInstruction = systemInstruction(maxSelectedRegions);
-        this.proposalParser =
-                new RepositoryRegionProposalParser(objectMapper, maxSelectedRegions);
+        this.limits = limits;
+        this.systemInstruction = systemInstruction(limits.maxSelectedRegions());
+        this.proposalParser = new RepositoryRegionProposalParser(
+                objectMapper, limits.maxSelectedRegions());
         this.proposalResolver = new RepositoryRegionProposalResolver();
     }
 
     /**
      * 依据本次 Region 目录提取「接下来探索哪些区域」。
      *
-     * <p>AI 调用、解析与引用校验都发生在同一步内，任一失败都以异常结束，不返回半成品。
+     * <p>顺序是：序列化一次 → 用**这一份**载荷执行字节守卫 → 原样发出它 → 解析 → 引用校验。
+     * 守卫在 Gateway 之前，因此超限的目录不会产生任何模型调用；解析与引用校验失败也都以异常结束，
+     * 不返回半成品。
      *
      * @param catalog 本次导航的 Region 目录，不得为 {@code null}
      * @return 模型提出、并已通过结构与引用校验的区域选择，顺序即分支优先级
-     * @throws IllegalArgumentException  catalog 为 {@code null}
+     * @throws IllegalArgumentException                   catalog 为 {@code null}
+     * @throws RepositoryRegionCatalogTooLargeException   目录载荷超过本次导航的字节上限
      * @throws com.ayywl.delveforge.application.port.ai.AiGatewayException
      *                                   AI 调用失败、返回内容不满足约定，或引用了本次没有提供的编号
      */
@@ -131,8 +147,12 @@ public final class RepositoryRegionScoutExtraction {
             throw new IllegalArgumentException(
                     "RepositoryRegionScoutExtraction 必须指定 catalog");
         }
+        String payload = describeCatalog(catalog);
+        limits.requireCatalogWithinLimit(
+                payload.getBytes(StandardCharsets.UTF_8).length, catalog.analyzedRevision());
+
         AiRegionSelectionProposal proposal = proposalParser.parse(
-                aiGateway.generate(buildRequest(catalog)));
+                aiGateway.generate(buildRequest(payload)));
         return proposalResolver.resolve(proposal, catalog);
     }
 
@@ -154,11 +174,11 @@ public final class RepositoryRegionScoutExtraction {
         return describeCatalog(catalog).getBytes(StandardCharsets.UTF_8).length;
     }
 
-    private AiRequest buildRequest(RepositoryRegionCatalog catalog) {
+    private AiRequest buildRequest(String payload) {
         return new AiRequest(
                 List.of(
                         new AiMessage(AiRole.SYSTEM, systemInstruction),
-                        new AiMessage(AiRole.USER, describeCatalog(catalog))),
+                        new AiMessage(AiRole.USER, payload)),
                 AiResponseFormat.JSON);
     }
 

@@ -59,7 +59,7 @@ class RegionNavigationLimitsTest {
                     }
                 },
                 new ObjectMapper(),
-                6);
+                new RegionNavigationLimits(65_536, 6));
         RepositoryRegionCatalog catalog = RegionFixtures.catalog();
 
         int payloadBytes = extraction.catalogPayloadBytes(catalog);

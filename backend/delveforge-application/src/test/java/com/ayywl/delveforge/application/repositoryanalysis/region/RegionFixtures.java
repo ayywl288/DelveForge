@@ -92,13 +92,27 @@ final class RegionFixtures {
         return RepositoryRegionCatalog.of(REVISION, tree().rootRegions());
     }
 
+    /**
+     * 一个结构合法的响应：按优先级选了给定位置的区域（1 起）。
+     *
+     * <p>引用必须从目录本身取——它带着本次调用的作用域，不能凭空写一个 {@code RR-1}。
+     */
+    static String selectionResponse(RepositoryRegionCatalog catalog, int... positions) {
+        StringBuilder json = new StringBuilder("{\"regionRefs\":[");
+        for (int i = 0; i < positions.length; i++) {
+            if (i > 0) {
+                json.append(',');
+            }
+            json.append('"')
+                    .append(catalog.entries().get(positions[i] - 1).reference().value())
+                    .append('"');
+        }
+        return json.append("]}").toString();
+    }
+
     /** 一个结构合法的响应：按优先级选了 src 与 svc。 */
     static String validResponse() {
-        return """
-                {
-                  "regionRefs": ["RR-1", "RR-2"]
-                }
-                """;
+        return selectionResponse(catalog(), 1, 2);
     }
 
     static RepositoryMapEntry entry(int position, String relativePath, long sizeInBytes) {

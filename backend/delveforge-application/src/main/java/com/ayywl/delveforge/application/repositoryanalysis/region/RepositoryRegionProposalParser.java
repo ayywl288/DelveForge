@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
  * 把 AI 返回的原始文本严格解析为 {@link AiRegionSelectionProposal}。
@@ -28,14 +27,6 @@ import java.util.regex.Pattern;
 public final class RepositoryRegionProposalParser {
 
     private static final String FIELD_REGION_REFS = "regionRefs";
-
-    /**
-     * 引用格式：{@code RR-} 加一个正整数。
-     *
-     * <p>与 {@code RF-*} 同一个口径：前置零（{@code RR-01}）也拒绝——同一个编号有两种写法
-     * 会让「是否重复」变得可疑。格式严格性属于接受模型输出的这个边界，而不是引用类型本身。
-     */
-    private static final Pattern REFERENCE_PATTERN = Pattern.compile("RR-[1-9][0-9]*");
 
     private final AiJsonObjectReader reader;
     private final int maxSelectedRegions;
@@ -89,10 +80,10 @@ public final class RepositoryRegionProposalParser {
                 throw new AiGatewayException("AI 返回的 " + FIELD_REGION_REFS + " 含空值");
             }
             String text = element.asText();
-            if (!REFERENCE_PATTERN.matcher(text).matches()) {
+            if (!RepositoryRegionReference.isWellFormed(text)) {
                 throw new AiGatewayException(
                         "AI 返回的区域引用格式不正确: " + text
-                                + "（期望形如 RR-1 的编号，而不是路径）");
+                                + "（期望形如 RR-3f1a9c02-1 的编号，而不是路径或裸序号）");
             }
             if (!seen.add(text)) {
                 throw new AiGatewayException("AI 返回的区域引用重复: " + text);

@@ -1,5 +1,8 @@
 package com.ayywl.delveforge.application.repositoryanalysis.region;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,13 +18,20 @@ import java.util.Optional;
  * RepositoryRegionCatalog（analyzedRevision + 有序 Region + RR-* 编号）
  * </pre>
  *
- * <h2>编号只在本 Catalog 内有效</h2>
+ * <h2>引用自带作用域，因此跨调用的引用可判定</h2>
  *
- * <p>引用按列表位置分配：第一个 Region 是 {@code RR-1}，依次类推。因此本类型同时是
- * 引用校验的唯一依据——模型返回的 {@code RR-*} 必须拿**建立本次调用的这一份** Catalog 解析。
+ * <p>每个引用形如 {@code RR-<scope>-<position>}，其中 {@code scope} 由**目录内容**派生
+ * （{@code analyzedRevision} 与该层 Region 前缀序列的摘要）。于是：
  *
- * <p>它不持久化，也不进入 Domain：换一层、换一个 revision，同一个 {@code RR-1} 指向的
- * 就是别的目录。
+ * <pre>
+ * 拿另一份目录的引用来本目录解析 → 字符串不同 → 找不到 → 拒绝
+ * 内容完全相同的目录               → 作用域相同 → 引用可互换（两份目录没有可观察差别）
+ * </pre>
+ *
+ * <p>本类型因此是引用校验的唯一依据，而校验是**字符串相等**——不需要额外核对调用 token，
+ * 也无法把外来编号误认成本次调用。理由与取舍见 {@link RepositoryRegionReference}。
+ *
+ * <p>它不持久化，也不进入 Domain：换一层、换一个 revision，作用域随之改变。
  *
  * <h2>它不选择，也不排序</h2>
  *
@@ -29,6 +39,9 @@ import java.util.Optional;
  * Region Scout 决定，本类型只负责「把可选项与它们的编号固定下来」。
  */
 public final class RepositoryRegionCatalog {
+
+    /** 作用域长度：8 位十六进制（4 字节摘要）。 */
+    private static final int SCOPE_HEX_LENGTH = 8;
 
     private final String analyzedRevision;
     private final List<RepositoryRegion> regions;
@@ -68,10 +81,7 @@ public final class RepositoryRegionCatalog {
         }
 
         List<RepositoryRegion> copy = new ArrayList<>(regions.size());
-        List<RegionEntry> entries = new ArrayList<>(regions.size());
-        Map<String, RepositoryRegion> byReference = new LinkedHashMap<>();
-        for (int index = 0; index < regions.size(); index++) {
-            RepositoryRegion region = regions.get(index);
+        for (RepositoryRegion region : regions) {
             if (region == null) {
                 throw new IllegalArgumentException(
                         "RepositoryRegionCatalog 的 regions 不能包含 null");
@@ -83,13 +93,46 @@ public final class RepositoryRegionCatalog {
                                 + region.pathPrefix());
             }
             copy.add(region);
-            RepositoryRegionReference reference = RepositoryRegionReference.of(index + 1);
-            entries.add(new RegionEntry(reference, region));
-            byReference.put(reference.value(), region);
+        }
+
+        String scope = scopeOf(analyzedRevision, copy);
+        List<RegionEntry> entries = new ArrayList<>(copy.size());
+        Map<String, RepositoryRegion> byReference = new LinkedHashMap<>();
+        for (int index = 0; index < copy.size(); index++) {
+            RepositoryRegionReference reference = RepositoryRegionReference.of(scope, index + 1);
+            entries.add(new RegionEntry(reference, copy.get(index)));
+            byReference.put(reference.value(), copy.get(index));
         }
         return new RepositoryRegionCatalog(
                 analyzedRevision, List.copyOf(copy), List.copyOf(entries),
                 Map.copyOf(byReference));
+    }
+
+    /**
+     * 由目录内容派生本次调用的作用域。
+     *
+     * <p>取 {@code analyzedRevision} 与该层 Region 前缀序列（含顺序）的 SHA-256 前 4 字节。
+     * 内容是确定的，作用域因此也是确定的：同一份目录重建两次得到同一个作用域，
+     * 内容不同则作用域不同。
+     */
+    private static String scopeOf(String analyzedRevision, List<RepositoryRegion> regions) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            digest.update(analyzedRevision.getBytes(StandardCharsets.UTF_8));
+            for (RepositoryRegion region : regions) {
+                digest.update((byte) 0);
+                digest.update(region.pathPrefix().getBytes(StandardCharsets.UTF_8));
+            }
+            byte[] hash = digest.digest();
+            StringBuilder scope = new StringBuilder(SCOPE_HEX_LENGTH);
+            for (int i = 0; i < SCOPE_HEX_LENGTH / 2; i++) {
+                scope.append(Character.forDigit((hash[i] >> 4) & 0xF, 16));
+                scope.append(Character.forDigit(hash[i] & 0xF, 16));
+            }
+            return scope.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("运行环境不支持 SHA-256", exception);
+        }
     }
 
     /** 本次导航固定的 commit id。 */
