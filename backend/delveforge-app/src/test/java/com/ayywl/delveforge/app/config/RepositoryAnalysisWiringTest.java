@@ -7,6 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapBuilder;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadExecutor;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryBranchScoutRunner;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigator;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.AnalyzeRepositoryUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryAnalysisMaterialCollector;
@@ -52,6 +55,45 @@ class RepositoryAnalysisWiringTest {
         assertNotNull(context.getBean(RepositoryReadExecutor.class));
         assertNotNull(context.getBean(RepositoryUnderstanding.class));
         assertNotNull(context.getBean(AnalyzeRepositoryUseCase.class));
+    }
+
+    /**
+     * 分层 Scout 的组件同样在装配里：Region Scout、导航器、分支执行器。
+     *
+     * <p>只靠行为验证无法发现「这段代码根本没被接上」——它只会在真实遇到超大仓库时才暴露。
+     */
+    @Test
+    void wiresTheHierarchicalScoutChain() {
+        assertNotNull(context.getBean(RepositoryRegionScoutExtraction.class));
+        assertNotNull(context.getBean(RepositoryRegionNavigator.class));
+        assertNotNull(context.getBean(RepositoryBranchScoutRunner.class));
+    }
+
+    /**
+     * 「flat 目录放不放得下」与「一个分支的目录放不放得下」必须是同一个门槛。
+     *
+     * <p>两者若取成不同的值，分层可能交出一个超过了 flat 上限、却在分支上限之内的目录——
+     * 「交给模型的文件目录不会超过这个上限」这条保证就断了。这里把这条装配约束钉死。
+     */
+    @Test
+    void usesTheSameCatalogByteLimitForBothScoutPaths() {
+        assertEquals(properties.scout().maxCatalogBytes(),
+                context.getBean(RepositoryRegionNavigator.class).maxFileCatalogBytes(),
+                "两条 Scout 路径的文件目录门槛必须同源");
+    }
+
+    /**
+     * Region 分层导航的守卫同样来自配置，且与 application.yml 一致。
+     *
+     * <p>Region 目录字节是**目录层**的上限，与文件目录上限是两件事，因此是独立的配置键。
+     */
+    @Test
+    void bindsRegionNavigationGuardsFromApplicationYml() {
+        assertEquals(65_536, properties.region().maxCatalogBytes());
+        assertEquals(6, properties.region().maxSelectedRegions());
+        assertEquals(8, properties.region().maxRoundsPerBranch());
+        assertEquals(12, properties.region().maxScoutCalls());
+        assertEquals(18, properties.scoutCalls().maxTotal());
     }
 
     /**

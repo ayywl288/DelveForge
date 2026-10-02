@@ -84,7 +84,9 @@ public record RepositoryAnalysisProperties(Scout scout,
      * <p>前两项约束**一次** Region Scout 调用；后两项约束**一次仓库分析**里的递归本身。
      * 后两项彼此独立——轮数管深度，总调用数管「深度 × 宽度」；总调用数小于单分支轮数上限
      * 是合法组合，那只是说明深度上限不是先耗尽的那一个（ADR-0005 也没有规定二者的大小关系）。
-     * ADR-0005 的终态分支数守卫尚未需要（File Scout 执行属于后续步骤），因此不在这里预留。
+     * 终态分支的 File Scout 额度不在这里单列：它与 Region Scout **合并计入**
+     * {@link ScoutCalls#maxTotal()}（ADR-0005：约束的是整次分析能问模型多少次，
+     * 不是两条通道各自的额度）。
      *
      * @param maxCatalogBytes    Region Catalog 载荷的 UTF-8 字节上限
      * @param maxSelectedRegions 一次 Region Scout 最多可选多少个区域

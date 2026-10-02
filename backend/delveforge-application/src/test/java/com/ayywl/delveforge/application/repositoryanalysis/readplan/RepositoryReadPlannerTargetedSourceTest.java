@@ -7,12 +7,14 @@ import static com.ayywl.delveforge.application.repositoryanalysis.readplan.ReadP
 import static com.ayywl.delveforge.application.repositoryanalysis.readplan.ReadPlanFixtures.SHOP_SERVICE_IMPL;
 import static com.ayywl.delveforge.application.repositoryanalysis.readplan.ReadPlanFixtures.VOUCHER_ORDER_SERVICE_IMPL;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryCandidateLane;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMap;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapEntry;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryInspectionPlan;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -245,8 +247,101 @@ class RepositoryReadPlannerTargetedSourceTest {
     }
 
     // ---------------------------------------------------------------------
+    // 分层 Scout 的有序候选流：同一份预算，只换输入形状
+    // ---------------------------------------------------------------------
+
+    /**
+     * 候选流按**一条队列**处理：顺序就是考虑顺序，不会被轮转重新交织。
+     *
+     * <p>这条是 ADR-0005 的要求：分层合并出的保序轮转顺序必须原样成为定向源码的考虑顺序。
+     */
+    @Test
+    void treatsTheOrderedCandidateStreamAsASingleLane() {
+        RepositoryReadPlan plan = new RepositoryReadPlanner(GENEROUS, GENEROUS)
+                .plan(map, candidates(
+                        VOUCHER_ORDER_SERVICE_IMPL, BLOG_CONTROLLER, SHOP_ENTITY));
+
+        assertEquals(List.of(VOUCHER_ORDER_SERVICE_IMPL, BLOG_CONTROLLER, SHOP_ENTITY),
+                refs(plan));
+    }
+
+    /**
+     * 候选流与查看计划共用**同一套**预算与跳过原因：分层只改候选从哪来，不改规划语义。
+     */
+    @Test
+    void appliesTheSameBudgetAndSkipReasonsToTheCandidateStream() {
+        RepositoryReadPlan plan = new RepositoryReadPlanner(
+                GENEROUS, new RepositoryMaterialBudget(50, 150, 100_000))
+                .plan(map, candidates(SHOP_CONTROLLER, BLOG_CONTROLLER, SHOP_ENTITY));
+
+        assertEquals(List.of(BLOG_CONTROLLER, SHOP_ENTITY), refs(plan),
+                "超过单文件上限的候选被跳过，后面的照常参与");
+        assertEquals(1, plan.skippedCandidates().size());
+        assertEquals(RepositoryReadSkipReason.SELECTED_BUT_TOO_LARGE,
+                plan.skippedCandidates().get(0).reason());
+    }
+
+    /** 基础材料通道与候选流无关：两条通道仍旧各自独立。 */
+    @Test
+    void stillSelectsFoundationMaterialAlongsideTheCandidateStream() {
+        RepositoryReadPlan plan = new RepositoryReadPlanner(GENEROUS, GENEROUS)
+                .plan(map, candidates(BLOG_CONTROLLER));
+
+        assertTrue(plan.foundationEntries().stream()
+                        .anyMatch(entry -> positionOf(entry) == ReadPlanFixtures.POM),
+                "基础材料仍按类别轮转选出: " + plan.foundationEntries());
+    }
+
+    /** 候选流的 revision 必须与本次 Map 一致。 */
+    @Test
+    void rejectsACandidateStreamFromAnotherRevision() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new RepositoryReadPlanner(GENEROUS, GENEROUS).plan(map,
+                        RepositoryTargetedSourceCandidates.of("other-revision",
+                                List.of(ReadPlanFixtures.entry(map, BLOG_CONTROLLER)))));
+    }
+
+    /**
+     * 候选必须是本次 Map 的**源码候选**：不属于这一组的文件混进来即拒绝。
+     *
+     * <p>用测试代码（{@code NONE} 组）而不是基础材料来构造：基础材料本来就有一条通道，
+     * 混进候选流会**顺带**因为「同一个文件出现在两条通道」被拒绝，那样这条用例就不能证明
+     * 「候选必须是源码候选」这件事。
+     */
+    @Test
+    void rejectsACandidateThatIsNotAScoutSource() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new RepositoryReadPlanner(GENEROUS, GENEROUS).plan(map,
+                        candidates(ReadPlanFixtures.SHOP_TEST)));
+    }
+
+    /**
+     * 编号存在于本次 Map，但指向的是**另一个文件**：候选不是由本次这张 Map 产生的。
+     *
+     * <p>只比较 revision 挡不住这种情形——两份 Map 的 revision 字符串可以一样。
+     */
+    @Test
+    void rejectsACandidateStreamBuiltFromADifferentMapWithTheSameRevision() {
+        RepositoryMap foreign = ReadPlanFixtures.foreignMapWithSameRevision();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new RepositoryReadPlanner(GENEROUS, GENEROUS).plan(map,
+                        RepositoryTargetedSourceCandidates.of(ReadPlanFixtures.REVISION,
+                                List.of(ReadPlanFixtures.entry(foreign, BLOG_CONTROLLER)))));
+    }
+
+    // ---------------------------------------------------------------------
     // 辅助
     // ---------------------------------------------------------------------
+
+    /** 按编号顺序构造一条候选流；编号取自本次 {@link #map}。 */
+    private RepositoryTargetedSourceCandidates candidates(int... positions) {
+        List<RepositoryMapEntry> entries = new ArrayList<>(positions.length);
+        for (int position : positions) {
+            entries.add(ReadPlanFixtures.entry(map, position));
+        }
+        return RepositoryTargetedSourceCandidates.of(map.analyzedRevision(), entries);
+    }
 
     private static List<Integer> skippedRefs(RepositoryReadPlan plan) {
         return plan.skippedCandidates().stream()

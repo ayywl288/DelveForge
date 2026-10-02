@@ -10,14 +10,15 @@ import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.InMemorySoftwareAssetRepository;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositoryAnalysisExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryCandidateLane;
+import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMap;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapBuilder;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
-import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadExecutor;
-import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
-import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.scout.FileCatalogPayload;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetNotReadableException;
@@ -98,6 +99,34 @@ class AnalyzeRepositoryUseCaseTest {
               ]
             }
             """;
+
+    /**
+     * 两条分支各装得下、合起来装不下的仓库：flat 目录超出预算时必须走分层。
+     *
+     * <pre>
+     * alpha/A1.java  alpha/A2.java
+     * beta/B1.java   beta/B2.java
+     * pom.xml                        基础材料
+     * </pre>
+     */
+    private static final Map<String, String> BRANCH_FILES_AT_A = Map.of(
+            POM, "<project>spring-boot</project>",
+            "alpha/A1.java", "class A1 {}",
+            "alpha/A2.java", "class A2 {}",
+            "beta/B1.java", "class B1 {}",
+            "beta/B2.java", "class B2 {}");
+
+    /** 根层一次 Region Scout 选中两条分支；随后每支一次 File Scout。 */
+    private static final List<List<String>> REGION_SCRIPT = List.of(List.of("alpha", "beta"));
+
+    /**
+     * 每支的区域：每个文件各占一个区域（顺序即分支内优先级），再补一个重复区域凑够
+     * 解析器要求的最少区域数。
+     */
+    private static final List<List<List<String>>> FILE_SCRIPT = List.of(
+            List.of(List.of("alpha/A2.java"), List.of("alpha/A1.java"),
+                    List.of("alpha/A2.java")),
+            List.of(List.of("beta/B1.java"), List.of("beta/B2.java"), List.of("beta/B1.java")));
 
     private final InMemorySoftwareAssetRepository assetRepository =
             new InMemorySoftwareAssetRepository();
@@ -306,6 +335,58 @@ class AnalyzeRepositoryUseCaseTest {
     }
 
     // ---------------------------------------------------------------------
+    // 分层 Scout 路径
+    // ---------------------------------------------------------------------
+
+    /**
+     * flat 目录超出预算时走分层，整次分析照常完成：基础材料与分层选出的源码都进入最终分析，
+     * 并保存一次快照。
+     */
+    @Test
+    void savesProfileWhenTheHierarchicalPathIsTaken() {
+        seedAsset(true);
+        workspace.givenRevision(REVISION_A, BRANCH_FILES_AT_A);
+        workspace.givenHeadRevision(REVISION_A);
+
+        ScoutPathGateway gateway = branchGateway();
+        gateway.respondAll(REGION_SCRIPT, FILE_SCRIPT, PROPOSAL);
+
+        RepositoryProfile profile = analyzeWith(gateway, flatCatalogBytes() - 1);
+
+        assertEquals(1, profileRepository.saveCount(), "成功时只写入一次");
+        assertEquals(REVISION_A, profile.analyzedRevision());
+        assertEquals(List.of(POM, "alpha/A2.java", "beta/B1.java", "alpha/A1.java",
+                        "beta/B2.java"),
+                workspace.readPaths(), "分层合并的顺序就是读取顺序");
+        String finalRequest = gateway.requests().get(gateway.requests().size() - 1)
+                .messages().get(1).content();
+        assertTrue(finalRequest.contains("<project>spring-boot</project>"),
+                "基础材料必须进入最终分析");
+        assertTrue(finalRequest.contains("class A2 {}"), "分层选出的源码必须进入最终分析");
+    }
+
+    /**
+     * 分层 Scout 失败时整次分析失败：不写快照，也不退回「把超限的 flat 目录发出去」。
+     */
+    @Test
+    void doesNotSaveProfileWhenHierarchicalScoutFails() {
+        seedAsset(true);
+        workspace.givenRevision(REVISION_A, BRANCH_FILES_AT_A);
+        workspace.givenHeadRevision(REVISION_A);
+
+        ScoutPathGateway gateway = branchGateway();
+        gateway.respondAll(REGION_SCRIPT, FILE_SCRIPT);
+        gateway.answerRegionWithUnknownReference();
+
+        assertThrows(AiGatewayException.class,
+                () -> analyzeWith(gateway, flatCatalogBytes() - 1));
+
+        assertEquals(0, profileRepository.saveCount(), "分层失败时不得写入任何快照");
+        assertEquals(0, gateway.fileCalls(), "失败之后不得再调用 File Scout");
+        assertTrue(workspace.readPaths().isEmpty(), "分层失败时不读取任何文件");
+    }
+
+    // ---------------------------------------------------------------------
     // 失败原子性：任何一步失败都不留下快照
     // ---------------------------------------------------------------------
 
@@ -434,16 +515,43 @@ class AnalyzeRepositoryUseCaseTest {
                 profileRepository);
     }
 
+    /** 走分层路径的一次完整分析。 */
+    private RepositoryProfile analyzeWith(ScoutPathGateway gateway, int maxCatalogBytes) {
+        return new AnalyzeRepositoryUseCase(
+                assetRepository,
+                workspace,
+                understanding(gateway, maxCatalogBytes),
+                new RepositoryAnalysisExtraction(gateway, new ObjectMapper()),
+                profileRepository)
+                .analyze(ASSET_ID);
+    }
+
+    private ScoutPathGateway branchGateway() {
+        return new ScoutPathGateway(() -> workspace.readPaths().size());
+    }
+
+    /**
+     * 这份夹具下整份源码目录的字节数，也就是「分层与否」的判据。
+     *
+     * <p>量的是 SCOUT_SOURCE 那一组的载荷，与生产走同一个渲染入口。
+     */
+    private int flatCatalogBytes() {
+        RepositoryMap map = new RepositoryMapBuilder(workspace)
+                .build(new WorkspaceRef(LOCATION), REVISION_A);
+        return new FileCatalogPayload(new ObjectMapper())
+                .payloadBytes(REVISION_A, map.entriesIn(RepositoryCandidateLane.SCOUT_SOURCE));
+    }
+
     private RepositoryUnderstanding understanding() {
+        return understanding(aiGateway, 65_536);
+    }
+
+    private RepositoryUnderstanding understanding(AiGateway gateway, int maxCatalogBytes) {
         RepositoryMaterialBudget foundation = new RepositoryMaterialBudget(12, 32_768, 98_304);
         RepositoryMaterialBudget targetedSource =
                 new RepositoryMaterialBudget(18, 65_536, 163_840);
-        return new RepositoryUnderstanding(
-                new RepositoryMapBuilder(workspace),
-                new RepositoryScoutExtraction(aiGateway, new ObjectMapper()),
-                new RepositoryReadPlanner(foundation, targetedSource),
-                new RepositoryReadExecutor(workspace, foundation, targetedSource),
-                65_536);
+        return UnderstandingFixtures.understanding(
+                gateway, workspace, foundation, targetedSource, maxCatalogBytes);
     }
 
     private void seedSuccessfulRun() {

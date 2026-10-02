@@ -17,7 +17,7 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * 把 Repository Map 与 Scout 的查看计划转成一份有预算、确定的读取计划。
+ * 把 Repository Map 与 Scout 的结果转成一份有预算、确定的读取计划。
  *
  * <pre>
  * Foundation 候选
@@ -38,6 +38,17 @@ import java.util.Set;
  * Foundation   要的是覆盖工程形态的各侧面 → 按材料类别轮转，任何一类都不能独占
  * 定向源码     要的是 Scout 指出的那几处实现 → 按聚焦区域轮转，保持它给的优先级
  * </pre>
+ *
+ * <h2>定向源码有两种输入形状，规划口径只有一种</h2>
+ *
+ * <pre>
+ * RepositoryInspectionPlan            模型给出的查看区域（带 label）→ 每区一条队列
+ * RepositoryTargetedSourceCandidates  分层 Scout 合并出的有序候选流   → 一条队列
+ * </pre>
+ *
+ * <p>两者都折成「定向源码的候选队列」，之后共用同一份预算与同一段轮转逻辑。
+ * 第二种形状是 ADR-0005 说的那处最小泛化：分层合并的结果没有模型给出的区域标签，
+ * 因此需要一个不冒充查看计划的输入类型，而不是把规划本身分叉。
  *
  * <h2>只看 metadata，不读内容</h2>
  *
@@ -105,11 +116,62 @@ public final class RepositoryReadPlanner {
             throw new IllegalArgumentException(
                     "RepositoryReadPlanner 必须指定 inspectionPlan");
         }
-        requireSameRevision(map, inspectionPlan);
+        requireSameRevision(map, inspectionPlan.analyzedRevision());
 
+        return plan(map, targetedSourceLanes(map, inspectionPlan));
+    }
+
+    /**
+     * 规划本次要读取的文件：定向源码来自一条**有序候选流**，而不是查看计划。
+     *
+     * <pre>
+     * flat catalog 超出预算
+     *         ↓  分层 Scout（Region 导航 → 分支本地 File Scout → 保序轮转合并）
+     * RepositoryTargetedSourceCandidates
+     *         ↓  本方法
+     * 一份与 flat 路径**同样口径**的读取计划
+     * </pre>
+     *
+     * <p>这是 ADR-0005 说的「一处最小泛化」：分层合并的结果没有模型给出的区域标签，
+     * 因此不能伪装成查看计划（见 {@link RepositoryTargetedSourceCandidates}）。
+     * 规划本身一字未改——同一条定向源码通道、同一份预算、同一套跳过原因，
+     * 只是候选队列从「多个区域」变成「一条保序的流」。
+     *
+     * <p>候选流按一条队列处理：规划器逐条按它给的顺序考虑，放不下或重复就跳过并继续。
+     * 因此 ADR-0005 要求的「保序轮转的顺序就是定向源码的考虑顺序」由这里落实。
+     *
+     * @param map        本次分析建立的 Repository Map，不得为 {@code null}
+     * @param candidates 同一次分析的分层 Scout 候选流，不得为 {@code null}，
+     *                   且必须与 {@code map} 来自同一个 revision
+     * @return 确定的读取计划
+     * @throws IllegalArgumentException 任一参数为 {@code null}，或候选流不是由本次这张
+     *                                  Map 产生的（revision 不同，或条目与本次 Map 对不上）
+     */
+    public RepositoryReadPlan plan(RepositoryMap map,
+                                   RepositoryTargetedSourceCandidates candidates) {
+        if (map == null) {
+            throw new IllegalArgumentException("RepositoryReadPlanner 必须指定 map");
+        }
+        if (candidates == null) {
+            throw new IllegalArgumentException(
+                    "RepositoryReadPlanner 必须指定 candidates");
+        }
+        requireSameRevision(map, candidates.analyzedRevision());
+
+        // 一条队列：顺序就是考虑顺序，轮转不会把它重新交织。
+        // 一条队列：顺序就是考虑顺序，轮转不会把它重新交织。
+        return plan(map, List.of(resolvedLane(map, candidates.orderedCandidates())));
+    }
+
+    /**
+     * 在两条通道各自的预算内规划，产出计划。
+     *
+     * <p>两条公共入口只负责把各自的输入折成「定向源码的候选队列」，其余完全共用。
+     */
+    private RepositoryReadPlan plan(RepositoryMap map,
+                                    List<List<RepositoryMapEntry>> targetedSourceLanes) {
         LaneResult foundation = roundRobin(foundationLanes(map), foundationBudget);
-        LaneResult targeted =
-                roundRobin(targetedSourceLanes(map, inspectionPlan), targetedSourceBudget);
+        LaneResult targeted = roundRobin(targetedSourceLanes, targetedSourceBudget);
 
         List<SkippedReadCandidate> skipped =
                 new ArrayList<>(foundation.skipped().size() + targeted.skipped().size());
@@ -129,12 +191,11 @@ public final class RepositoryReadPlanner {
      *
      * <p>这是调用方把不可能的组合传了进来，不是模型输出问题，因此用参数异常。
      */
-    private static void requireSameRevision(RepositoryMap map,
-                                            RepositoryInspectionPlan inspectionPlan) {
-        if (!map.analyzedRevision().equals(inspectionPlan.analyzedRevision())) {
+    private static void requireSameRevision(RepositoryMap map, String targetedRevision) {
+        if (!map.analyzedRevision().equals(targetedRevision)) {
             throw new IllegalArgumentException(
-                    "Repository Map 与查看计划来自不同的 revision，不能混合成一份读取计划: "
-                            + map.analyzedRevision() + " 与 " + inspectionPlan.analyzedRevision());
+                    "Repository Map 与定向源码候选来自不同的 revision，不能混合成一份读取计划: "
+                            + map.analyzedRevision() + " 与 " + targetedRevision);
         }
     }
 
@@ -180,20 +241,33 @@ public final class RepositoryReadPlanner {
             RepositoryMap map, RepositoryInspectionPlan inspectionPlan) {
         List<List<RepositoryMapEntry>> lanes = new ArrayList<>(inspectionPlan.areaCount());
         for (RepositoryInspectionArea area : inspectionPlan.areas()) {
-            List<RepositoryMapEntry> entries = new ArrayList<>(area.entries().size());
-            for (RepositoryMapEntry entry : area.entries()) {
-                entries.add(requireEntryOfThisMap(entry, map));
-            }
-            lanes.add(List.copyOf(entries));
+            lanes.add(resolvedLane(map, area.entries()));
         }
         return lanes;
     }
 
     /**
-     * 计划里的条目必须确实出自本次这张 Map。
+     * 把一条有序候选解析回本次 Map 的描述符。
+     *
+     * <p>与区域内的条目走同一道校验（{@link #requireEntryOfThisMap}）：候选必须是本次 Map 的
+     * 源码候选，且描述符与本次 Map 完全一致。分层 Scout 交回来的本来就是原描述符，
+     * 这里再核对一次，是为了让「计划里的路径一定来自本次这张 Map」由规划器自己保证，
+     * 而不是依赖上游没出错。
+     */
+    private static List<RepositoryMapEntry> resolvedLane(RepositoryMap map,
+                                                         List<RepositoryMapEntry> candidates) {
+        List<RepositoryMapEntry> entries = new ArrayList<>(candidates.size());
+        for (RepositoryMapEntry candidate : candidates) {
+            entries.add(requireEntryOfThisMap(candidate, map));
+        }
+        return List.copyOf(entries);
+    }
+
+    /**
+     * 定向源码的条目必须确实出自本次这张 Map。
      *
      * <p>只比较 revision 是不够的：revision 是一个字符串，它可以相同，而两张 Map 的内容
-     * 不同。把另一张 Map（哪怕它声明同一个 revision）产生的计划拿过来规划，得到的计划会包含
+     * 不同。把另一张 Map（哪怕它声明同一个 revision）产生的输入拿过来规划，得到的计划会包含
      * **本次 Map 里根本不存在**的路径——而计划只会记录一个 {@code analyzedRevision}，
      * 于是它声称的那份内容就是假的。ADR-0004 把「已解析 revision + 提交树相对路径」定义为
      * 稳定技术身份，两者必须一起成立。
@@ -201,12 +275,12 @@ public final class RepositoryReadPlanner {
      * <p>逐条核对三件事：
      *
      * <pre>
-     * 编号在本次 Map 里存在       否则计划来自别的 Map，或引用了不存在的编号
-     * 它确实是源码候选            否则它不该出现在查看计划里
+     * 编号在本次 Map 里存在       否则输入来自别的 Map，或引用了不存在的编号
+     * 它确实是源码候选            否则它不该出现在定向源码通道里
      * 描述符与本次 Map 完全一致   否则「同一个编号」在两张 Map 里指向不同的文件
      * </pre>
      *
-     * <p>返回的是**本次 Map 的描述符**：后续读取只用它的路径，不用计划里那个对象的路径。
+     * <p>返回的是**本次 Map 的描述符**：后续读取只用它的路径，不用输入里那个对象的路径。
      *
      * <p>这是两份输入不属于同一次分析，属于调用方把不可能的组合传了进来，因此用参数异常——
      * 与 revision 不一致的处理一致。模型输出本身的问题在 Scout 的引用校验里已经处理过。
@@ -216,22 +290,22 @@ public final class RepositoryReadPlanner {
         Optional<RepositoryMapEntry> resolved = map.find(entry.reference());
         if (resolved.isEmpty()) {
             throw new IllegalArgumentException(
-                    "查看计划引用了本次 Repository Map 里不存在的编号: "
+                    "定向源码条目引用了本次 Repository Map 里不存在的编号: "
                             + entry.reference().value() + "（" + entry.relativePath()
-                            + "）；计划必须由建立本次调用的那张 Map 产生");
+                            + "）；候选必须由建立本次调用的那张 Map 产生");
         }
 
         RepositoryMapEntry fromMap = resolved.get();
         if (RepositoryCandidateLane.of(fromMap) != RepositoryCandidateLane.SCOUT_SOURCE) {
             throw new IllegalArgumentException(
-                    "查看计划引用了本次 Map 中不是源码候选的文件: "
+                    "定向源码条目引用了本次 Map 中不是源码候选的文件: "
                             + entry.reference().value() + "（" + fromMap.relativePath() + "）");
         }
         if (!fromMap.equals(entry)) {
             throw new IllegalArgumentException(
-                    "查看计划里的描述符与本次 Repository Map 不一致: "
+                    "定向源码条目的描述符与本次 Repository Map 不一致: "
                             + entry.reference().value() + " 在本次 Map 中是 "
-                            + fromMap.relativePath() + "，计划里却是 " + entry.relativePath()
+                            + fromMap.relativePath() + "，条目里却是 " + entry.relativePath()
                             + "；两份输入不是来自同一次分析");
         }
         return fromMap;

@@ -9,6 +9,10 @@ import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapBuil
 import com.ayywl.delveforge.application.repositoryanalysis.profile.GetRepositoryProfileUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadExecutor;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryBranchScoutRunner;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigator;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionScoutExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.scout.FileCatalogPayload;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.AnalyzeRepositoryUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryUnderstanding;
@@ -27,15 +31,35 @@ import org.springframework.context.annotation.Configuration;
  * {@code WorkspaceMutationPort}（RULE-ARCH-010、ADR-0001）。写入能力在这个流程里
  * 于类型层面就不存在。
  *
- * <h2>分析链路（ADR-0004）</h2>
+ * <h2>分析链路（ADR-0004 / ADR-0005）</h2>
  *
  * <pre>
- * RepositoryMapBuilder      完整已提交树 → 描述符
- * RepositoryScoutExtraction 描述符 → Scanner 指出「去哪里看」
- * RepositoryReadPlanner     两条通道各自轮转 → 读取计划
- * RepositoryReadExecutor    按计划真实读取 → 材料
- * RepositoryUnderstanding   把上面四步串起来，并守住流程前置条件
+ * RepositoryMapBuilder            完整已提交树 → 描述符
+ * RepositoryScoutExtraction       描述符 → File Scout 指出「去哪里看」
+ * RepositoryRegionScoutExtraction 目录层 → Region Scout 指出「往哪个目录看」
+ * RepositoryRegionNavigator       flat 目录超出预算时递归下降 → 有序终态文件组
+ * RepositoryBranchScoutRunner     逐终态组跑分支本地 File Scout → 保序轮转合并
+ * RepositoryReadPlanner           两条通道各自轮转 → 读取计划
+ * RepositoryReadExecutor          按计划真实读取 → 材料
+ * RepositoryUnderstanding         把上面这些串起来，并守住流程前置条件与路径选择
  * </pre>
+ *
+ * <h2>两个字节门槛是同一个值</h2>
+ *
+ * <p>{@code RepositoryUnderstanding} 用它判断「flat 目录放不放得下」，
+ * {@link com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigator}
+ * 用它判断「一个分支的目录放不放得下」。两者都取自 {@code scout.max-catalog-bytes}：
+ * 若取成两个值，分层就可能交出一个超过了 flat 上限、却在分支上限之内的目录，
+ * 「交给模型的文件目录不会超过这个上限」这条保证就断了。
+ *
+ * <p>Region Scout 的目录层上限（{@code region.max-catalog-bytes}）是**另一件事**：
+ * 它约束的是目录描述符载荷，不是文件目录载荷，因此是独立的配置键。
+ *
+ * <h2>序列化入口只有一个实现</h2>
+ *
+ * <p>{@code FileCatalogPayload} 在这里被交给导航器，File Scout 内部也用它。
+ * 两处是同一个类的两个无状态实例，不是两份实现：停止条件量到的字节与 File Scout 真正
+ * 发出的载荷因此必然一致。
  *
  * <h2>旧的确定性选材策略不再装配</h2>
  *
@@ -62,6 +86,36 @@ public class RepositoryAnalysisUseCaseConfiguration {
     }
 
     @Bean
+    public RepositoryRegionScoutExtraction repositoryRegionScoutExtraction(
+            AiGateway aiGateway, ObjectMapper objectMapper,
+            RepositoryAnalysisProperties properties) {
+        return new RepositoryRegionScoutExtraction(
+                aiGateway, objectMapper, properties.region().toLimits());
+    }
+
+    @Bean
+    public RepositoryRegionNavigator repositoryRegionNavigator(
+            RepositoryRegionScoutExtraction repositoryRegionScoutExtraction,
+            ObjectMapper objectMapper,
+            RepositoryAnalysisProperties properties) {
+        return new RepositoryRegionNavigator(
+                repositoryRegionScoutExtraction,
+                new FileCatalogPayload(objectMapper),
+                properties.scout().maxCatalogBytes(),
+                properties.region().toRecursionBudget());
+    }
+
+    @Bean
+    public RepositoryBranchScoutRunner repositoryBranchScoutRunner(
+            RepositoryScoutExtraction repositoryScoutExtraction,
+            RepositoryAnalysisProperties properties) {
+        return new RepositoryBranchScoutRunner(
+                repositoryScoutExtraction,
+                properties.region().toRecursionBudget(),
+                properties.scoutCalls().toBudget());
+    }
+
+    @Bean
     public RepositoryReadPlanner repositoryReadPlanner(
             RepositoryAnalysisProperties properties) {
         return new RepositoryReadPlanner(
@@ -82,12 +136,16 @@ public class RepositoryAnalysisUseCaseConfiguration {
     public RepositoryUnderstanding repositoryUnderstanding(
             RepositoryMapBuilder repositoryMapBuilder,
             RepositoryScoutExtraction repositoryScoutExtraction,
+            RepositoryRegionNavigator repositoryRegionNavigator,
+            RepositoryBranchScoutRunner repositoryBranchScoutRunner,
             RepositoryReadPlanner repositoryReadPlanner,
             RepositoryReadExecutor repositoryReadExecutor,
             RepositoryAnalysisProperties properties) {
         return new RepositoryUnderstanding(
                 repositoryMapBuilder,
                 repositoryScoutExtraction,
+                repositoryRegionNavigator,
+                repositoryBranchScoutRunner,
                 repositoryReadPlanner,
                 repositoryReadExecutor,
                 properties.scout().maxCatalogBytes());

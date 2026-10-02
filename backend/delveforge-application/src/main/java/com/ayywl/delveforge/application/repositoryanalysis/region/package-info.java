@@ -36,7 +36,8 @@
  * 每组用自己那份重新编号的目录，每次调用都用**本次目录**完成引用校验。
  * 编号本身不携带调用身份：两组的第一个文件都是 {@code RF-1}，只在各自目录里解出各自的文件。
  *
- * <p>本包**不**读文件内容、不改材料预算、不接入 RepositoryReadPlanner——
- * 那些属于后续步骤。这里只回答「哪些文件、按什么顺序」。
+ * <p>本包**不**读文件内容、不改材料预算：这里只回答「哪些文件、按什么顺序」。
+ * 交出去的候选流由 {@code RepositoryUnderstanding} 接上既有的 RepositoryReadPlanner——
+ * 分层不改规划语义，只改候选从哪来。
  */
 package com.ayywl.delveforge.application.repositoryanalysis.region;

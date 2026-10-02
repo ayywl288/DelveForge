@@ -19,6 +19,13 @@ import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapBuil
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadExecutor;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RegionNavigationLimits;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RegionRecursionBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryBranchScoutRunner;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigator;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionScoutExtraction;
+import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudget;
+import com.ayywl.delveforge.application.repositoryanalysis.scout.FileCatalogPayload;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.AnalyzeRepositoryUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryUnderstanding;
@@ -332,9 +339,26 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
         RepositoryMaterialBudget targetedSource =
                 new RepositoryMaterialBudget(18, 65_536, 163_840);
 
+        // 与生产装配同一组取值：Region 守卫、Scout 调用总数守卫都是一次分析级的
+        // 技术上限，文件目录与 Region 目录共用同一个字节门槛（application.yml）。
+        RegionNavigationLimits regionLimits = new RegionNavigationLimits(65_536, 6);
+        RegionRecursionBudget regionBudget = new RegionRecursionBudget(8, 12);
+
+        RepositoryScoutExtraction fileScout =
+                new RepositoryScoutExtraction(AI_GATEWAY, objectMapper);
+        RepositoryRegionNavigator navigator = new RepositoryRegionNavigator(
+                new RepositoryRegionScoutExtraction(AI_GATEWAY, objectMapper, regionLimits),
+                new FileCatalogPayload(objectMapper),
+                65_536,
+                regionBudget);
+        RepositoryBranchScoutRunner branchRunner = new RepositoryBranchScoutRunner(
+                fileScout, regionBudget, new ScoutCallBudget(18));
+
         RepositoryUnderstanding understanding = new RepositoryUnderstanding(
                 new RepositoryMapBuilder(workspacePort),
-                new RepositoryScoutExtraction(AI_GATEWAY, objectMapper),
+                fileScout,
+                navigator,
+                branchRunner,
                 new RepositoryReadPlanner(foundation, targetedSource),
                 new RepositoryReadExecutor(workspacePort, foundation, targetedSource),
                 65_536);

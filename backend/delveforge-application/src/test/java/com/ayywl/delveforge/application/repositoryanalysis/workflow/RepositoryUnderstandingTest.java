@@ -15,23 +15,27 @@ import com.ayywl.delveforge.application.repositoryanalysis.extraction.Repository
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMap;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapBuilder;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryMaterialBudget;
-import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadExecutor;
-import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RegionHierarchyNotReducibleException;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutInputs;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 
 /**
- * 验证理解链路：Map → Scout → 规划 → 读取，以及它的流程前置条件。
+ * 验证理解链路：Map → Scout（flat 或分层）→ 规划 → 读取，以及它的流程前置条件。
  *
  * <p>AI 与 Workspace 都在 Port 边界用替身替代（AGENTS.md §10.2、§10.6），
  * 因此不依赖 Spring 容器、不访问网络、不读取真实文件系统。
+ *
+ * <p>两条 Scout 路径都在这里验证：小仓库走 flat，超出预算走分层；两者之后汇入同一份
+ * 读取规划与材料预算。
  */
 class RepositoryUnderstandingTest {
 
@@ -45,6 +49,12 @@ class RepositoryUnderstandingTest {
 
     private static final String OTHER = "src/main/Other.java";
 
+    private static final RepositoryMaterialBudget GENEROUS_FOUNDATION =
+            new RepositoryMaterialBudget(10, 1_000, 10_000);
+
+    private static final RepositoryMaterialBudget GENEROUS_TARGETED =
+            new RepositoryMaterialBudget(10, 1_000, 10_000);
+
     /** 目录按路径升序：RF-1 = pom.xml，RF-2 = App.java，RF-3 = Other.java。 */
     private static final String SCOUT_RESPONSE = """
             { "focusAreas": [
@@ -57,6 +67,13 @@ class RepositoryUnderstandingTest {
 
     private final UnderstandingWorkspace workspace = new UnderstandingWorkspace();
 
+    /** 分层场景的替身：Region Scout、File Scout 与最终分析都由它扮演。 */
+    private final ScoutPathGateway gateway = new ScoutPathGateway(workspace::readCount);
+
+    // ---------------------------------------------------------------------
+    // flat 路径：目录装得下就走原有行为，完全旁路分层
+    // ---------------------------------------------------------------------
+
     @Test
     void readsMaterialForThePlannedFiles() {
         seedSources();
@@ -66,7 +83,43 @@ class RepositoryUnderstandingTest {
 
         assertTrue(pathsOf(material).contains(APP), "Scout 指出的源码应当被读进来: " + pathsOf(material));
         assertTrue(pathsOf(material).contains(POM), "基础材料应当被读进来: " + pathsOf(material));
-        assertEquals(1, aiGateway.callCount(), "理解阶段只调用一次模型——就是 Scout");
+        assertTrue(pathsOf(material).contains(OTHER));
+        assertEquals(1, aiGateway.callCount(), "理解阶段只调用一次模型——就是 File Scout");
+    }
+
+    /**
+     * flat 路径只调用 File Scout：目录装得下时**不会**因为分层机制的存在而多问一次
+     * Region Scout（ADR-0005：小仓库完全旁路分层）。
+     */
+    @Test
+    void bypassesRegionScoutEntirelyWhenTheFlatCatalogFits() {
+        seedSources();
+        aiGateway.respondAll(SCOUT_RESPONSE);
+
+        understanding().understand(WORKSPACE, REVISION);
+
+        assertEquals(1, aiGateway.callCount());
+        for (AiRequest request : aiGateway.requests()) {
+            assertTrue(userMessage(request).contains("fileCatalog"),
+                    "flat 路径发出的只应是 File Scout 请求");
+        }
+    }
+
+    /**
+     * 恰好等于上限的目录照常走 flat：上限是「最多多少」，不是「必须小于多少」。
+     */
+    @Test
+    void acceptsACatalogExactlyAtTheLimit() {
+        seedSources();
+        aiGateway.respondAll(SCOUT_RESPONSE);
+        int exact = catalogPayloadBytes(workspace);
+
+        List<RepositorySourceFile> material =
+                understandingWithCatalogLimit(exact).understand(WORKSPACE, REVISION);
+
+        assertEquals(1, aiGateway.callCount(), "恰好等于上限时应当照常走 flat 路径");
+        assertTrue(pathsOf(material).contains(APP),
+                "Scout 指出的源码应当照常被读进来: " + pathsOf(material));
     }
 
     /**
@@ -81,7 +134,7 @@ class RepositoryUnderstandingTest {
 
         understanding().understand(WORKSPACE, REVISION);
 
-        String catalog = aiGateway.lastRequest().messages().get(1).content();
+        String catalog = userMessage(aiGateway.lastRequest());
         assertTrue(catalog.contains(APP), "源码候选必须全部进入 Scout 目录");
         assertTrue(catalog.contains(OTHER));
         assertTrue(!catalog.contains(POM), "基础材料不走 Scout 这条通道");
@@ -106,6 +159,166 @@ class RepositoryUnderstandingTest {
     }
 
     // ---------------------------------------------------------------------
+    // 分层路径：flat 目录超出预算
+    // ---------------------------------------------------------------------
+
+    /**
+     * 目录超出上限时不再失败，而是走分层：Region Scout 先缩范围，每个终态分支各跑一次
+     * File Scout，结果合并后照常进入读取。
+     */
+    @Test
+    void entersHierarchicalScoutWhenTheFlatCatalogIsOversized() {
+        seedBranches();
+
+        List<RepositorySourceFile> material =
+                hierarchicalUnderstanding(flatCatalogBytes() - 1)
+                        .understand(WORKSPACE, REVISION);
+
+        assertEquals(1, gateway.regionCalls(), "根层只需一次 Region Scout 就能缩到两条分支");
+        assertEquals(2, gateway.fileCalls(), "每个终态分支各一次 File Scout");
+        assertEquals(List.of(POM, "alpha/A2.java", "beta/B1.java", "alpha/A1.java", "beta/B2.java"),
+                pathsOf(material));
+    }
+
+    /**
+     * 保序轮转合并出来的顺序就是定向源码的**考虑顺序**：读取按它进行，不被重排。
+     *
+     * <pre>
+     * alpha：A2 A1        ← File Scout 给的分支内优先级
+     * beta ：B1 B2
+     * 合并：A2 B1 A1 B2   ← 第一轮取每支第一个，第二轮取每支第二个
+     * </pre>
+     */
+    @Test
+    void keepsTheRoundRobinOrderAsTheTargetedConsiderationOrder() {
+        seedBranches();
+
+        hierarchicalUnderstanding(flatCatalogBytes() - 1).understand(WORKSPACE, REVISION);
+
+        assertEquals(
+                List.of(POM, "alpha/A2.java", "beta/B1.java", "alpha/A1.java", "beta/B2.java"),
+                workspace.readPaths(),
+                "轮转顺序必须原样成为定向源码的考虑顺序");
+    }
+
+    /**
+     * 分层路径的每一次读取都固定在最初解析出的 revision 上，也不会去解析 HEAD。
+     */
+    @Test
+    void keepsTheResolvedRevisionForEveryHierarchicalRead() {
+        seedBranches();
+
+        hierarchicalUnderstanding(flatCatalogBytes() - 1).understand(WORKSPACE, REVISION);
+
+        // 列目录可能有多次（测试自己算过一次字节上限），但每一次都必须带着同一个 revision
+        assertTrue(workspace.listedRevisions().stream().allMatch(REVISION::equals),
+                "所有列目录都必须带着同一个 revision: " + workspace.listedRevisions());
+        assertTrue(workspace.readRevisions().stream().allMatch(REVISION::equals),
+                "所有读取都必须带着同一个 revision: " + workspace.readRevisions());
+        assertEquals(0, workspace.headRevisionCalls(), "理解链路不得解析 HEAD");
+    }
+
+    /**
+     * Map、Region Scout、File Scout 三个阶段都不读源码：读取只发生在规划选出文件之后。
+     *
+     * <p>替身在**每次模型调用之前**记下当时已经读过几个文件，因此「哪一步开始读」是被观测到的
+     * 事实，而不是靠时序推测。
+     */
+    @Test
+    void readsNoSourceBeforeThePlanSelectsIt() {
+        seedBranches();
+
+        hierarchicalUnderstanding(flatCatalogBytes() - 1).understand(WORKSPACE, REVISION);
+
+        int scoutCalls = gateway.scoutCalls();
+        assertEquals(3, scoutCalls);
+        assertTrue(gateway.readsBeforeCall().subList(0, scoutCalls).stream().allMatch(count -> count == 0),
+                "Scout 阶段不得读取任何源码: " + gateway.readsBeforeCall());
+    }
+
+    /**
+     * 送给 File Scout 的每一份目录都在上限之内——包括分层路径下每个分支的目录。
+     *
+     * <p>这条是分层真正的意义所在：把「交给模型的文件目录不会超过这个上限」从「flat 目录
+     * 恰好没超」变成「两条路径都成立」。
+     */
+    @Test
+    void neverSendsAFileCatalogLargerThanTheLimit() {
+        seedBranches();
+        int limit = flatCatalogBytes() - 1;
+
+        hierarchicalUnderstanding(limit).understand(WORKSPACE, REVISION);
+
+        for (AiRequest request : gateway.requests()) {
+            String message = userMessage(request);
+            if (!message.contains("fileCatalog")) {
+                continue;
+            }
+            int bytes = message.getBytes(StandardCharsets.UTF_8).length;
+            assertTrue(bytes <= limit, "File Scout 目录载荷 " + bytes + " 超过了上限 " + limit);
+        }
+    }
+
+    /**
+     * 合并后的候选照常受**既有材料预算**约束：定向源码通道读多少仍由它决定。
+     */
+    @Test
+    void appliesTheExistingTargetedBudgetToTheMergedCandidates() {
+        seedBranches();
+
+        RepositoryUnderstanding understanding = UnderstandingFixtures.understanding(
+                gateway, workspace,
+                new RepositoryMaterialBudget(5, 1_000, 10_000),
+                new RepositoryMaterialBudget(2, 1_000, 10_000),
+                flatCatalogBytes() - 1);
+
+        List<RepositorySourceFile> material = understanding.understand(WORKSPACE, REVISION);
+
+        assertEquals(List.of(POM, "alpha/A2.java", "beta/B1.java"), pathsOf(material),
+                "定向源码预算 maxFiles=2：只读轮转顺序里的前两个");
+    }
+
+    /**
+     * 分层失败**不回退**：不会把超限的 flat 目录直接发给 File Scout，也不读取任何文件。
+     */
+    @Test
+    void doesNotFallBackToTheFlatCatalogWhenHierarchicalScoutFails() {
+        seedBranches();
+        gateway.answerRegionWithUnknownReference();
+
+        assertThrows(AiGatewayException.class,
+                () -> hierarchicalUnderstanding(flatCatalogBytes() - 1)
+                        .understand(WORKSPACE, REVISION));
+
+        assertEquals(1, gateway.regionCalls(), "只有那一次失败的 Region Scout");
+        assertEquals(0, gateway.fileCalls(), "失败之后不得再调用 File Scout");
+        assertTrue(workspace.readPaths().isEmpty(), "失败时不读取任何文件");
+    }
+
+    /**
+     * 结构上无法再缩小时失败关闭：不做截断，也不退回 flat。
+     *
+     * <p>一个扁平目录（没有子目录可分）超出预算，就是「分层也解决不了」的形状。
+     */
+    @Test
+    void failsClosedWhenTheHierarchyCannotBeReduced() {
+        for (int index = 1; index <= 8; index++) {
+            workspace.given("flat/F" + index + ".java", "class F" + index + " {}");
+        }
+        workspace.given(POM, "<project/>");
+        // 根层只有 flat/ 一个子目录；缩到它之后就再没有更细的结构可分。
+        gateway.respondAll(List.of(List.of("flat")), List.of());
+
+        assertThrows(RegionHierarchyNotReducibleException.class,
+                () -> hierarchicalUnderstanding(flatCatalogBytes() - 1)
+                        .understand(WORKSPACE, REVISION));
+
+        assertEquals(0, gateway.fileCalls(), "不可再分时不调用 File Scout");
+        assertEquals(1, gateway.regionCalls(), "只在根层问过一次");
+        assertTrue(workspace.readPaths().isEmpty());
+    }
+
+    // ---------------------------------------------------------------------
     // 前置条件：都在调用模型之前失败
     // ---------------------------------------------------------------------
 
@@ -122,60 +335,6 @@ class RepositoryUnderstandingTest {
 
         assertEquals(0, aiGateway.callCount(), "没有源码候选时不调用 Scout");
         assertTrue(workspace.readPaths().isEmpty(), "也不读取任何文件");
-    }
-
-    /**
-     * 目录载荷超出上限时失败关闭，并且**不调用模型**。
-     *
-     * <p>不截断、不采样：截断会让 Scout 在不知情的情况下少看一部分候选，
-     * 而那是「分析结果为什么漏了这些文件」最难查的一类原因。
-     */
-    @Test
-    void rejectsACatalogThatExceedsTheLimitBeforeCallingTheModel() {
-        seedSources();
-
-        RepositoryNotAnalyzableException failure = assertThrows(
-                RepositoryNotAnalyzableException.class,
-                () -> understandingWithCatalogLimit(16).understand(WORKSPACE, REVISION));
-
-        assertTrue(failure.getMessage().contains(RepositoryUnderstanding.SCOUT_CATALOG_TOO_LARGE),
-                "失败原因应当带上稳定的标识: " + failure.getMessage());
-        assertEquals(0, aiGateway.callCount(), "目录超限时不调用 Scout");
-        assertTrue(workspace.readPaths().isEmpty());
-    }
-
-    /**
-     * 恰好等于上限的目录照常送去 Scout：上限是「最多多少」，不是「必须小于多少」。
-     */
-    @Test
-    void acceptsACatalogExactlyAtTheLimit() {
-        seedSources();
-        aiGateway.respondAll(SCOUT_RESPONSE);
-        int exact = catalogPayloadBytes(workspace);
-
-        List<RepositorySourceFile> material =
-                understandingWithCatalogLimit(exact).understand(WORKSPACE, REVISION);
-
-        assertEquals(1, aiGateway.callCount(), "恰好等于上限时应当照常调用 Scout");
-        assertTrue(pathsOf(material).contains(APP),
-                "Scout 指出的源码应当照常被读进来: " + pathsOf(material));
-    }
-
-    /**
-     * 只超出一个字节就失败关闭：边界是判得准的，不是「差不太多就算了」。
-     */
-    @Test
-    void rejectsACatalogOneByteOverTheLimit() {
-        seedSources();
-        int exact = catalogPayloadBytes(workspace);
-
-        RepositoryNotAnalyzableException failure = assertThrows(
-                RepositoryNotAnalyzableException.class,
-                () -> understandingWithCatalogLimit(exact - 1).understand(WORKSPACE, REVISION));
-
-        assertTrue(failure.getMessage().contains(RepositoryUnderstanding.SCOUT_CATALOG_TOO_LARGE),
-                "失败原因应当带上稳定的标识: " + failure.getMessage());
-        assertEquals(0, aiGateway.callCount(), "目录超限时不调用 Scout");
     }
 
     /**
@@ -210,12 +369,8 @@ class RepositoryUnderstandingTest {
 
         // 两条通道的单文件上限都小于任何一个候选，因此规划阶段全部被跳过
         RepositoryMaterialBudget tiny = new RepositoryMaterialBudget(10, 1, 1);
-        RepositoryUnderstanding understanding = new RepositoryUnderstanding(
-                new RepositoryMapBuilder(workspace),
-                new RepositoryScoutExtraction(aiGateway, new ObjectMapper()),
-                new RepositoryReadPlanner(tiny, tiny),
-                new RepositoryReadExecutor(workspace, tiny, tiny),
-                65_536);
+        RepositoryUnderstanding understanding = UnderstandingFixtures.understanding(
+                aiGateway, workspace, tiny, tiny, 65_536);
 
         assertThrows(RepositoryNotAnalyzableException.class,
                 () -> understanding.understand(WORKSPACE, REVISION));
@@ -299,7 +454,17 @@ class RepositoryUnderstandingTest {
     }
 
     // ---------------------------------------------------------------------
-    // 辅助
+    // 参数
+    // ---------------------------------------------------------------------
+
+    @Test
+    void rejectsNonPositiveCatalogLimit() {
+        assertThrows(IllegalArgumentException.class, () -> UnderstandingFixtures.understanding(
+                aiGateway, workspace, GENEROUS_FOUNDATION, GENEROUS_TARGETED, 0));
+    }
+
+    // ---------------------------------------------------------------------
+    // 辅助：flat 场景
     // ---------------------------------------------------------------------
 
     private void seedSources() {
@@ -309,9 +474,7 @@ class RepositoryUnderstandingTest {
     }
 
     private RepositoryUnderstanding understanding() {
-        return understandingWithBudgets(
-                new RepositoryMaterialBudget(10, 1_000, 10_000),
-                new RepositoryMaterialBudget(10, 1_000, 10_000));
+        return understandingWithBudgets(GENEROUS_FOUNDATION, GENEROUS_TARGETED);
     }
 
     /**
@@ -327,33 +490,89 @@ class RepositoryUnderstandingTest {
                 .catalogPayloadBytes(RepositoryScoutInputs.of(map));
     }
 
+    /**
+     * 另一条上限下的链路。用 {@link StubAiGateway}：这些用例走 flat 路径，
+     * 只需要按顺序的固定响应。
+     */
     private RepositoryUnderstanding understandingWithCatalogLimit(int maxCatalogBytes) {
-        return new RepositoryUnderstanding(
-                new RepositoryMapBuilder(workspace),
-                new RepositoryScoutExtraction(aiGateway, new ObjectMapper()),
-                new RepositoryReadPlanner(
-                        new RepositoryMaterialBudget(10, 1_000, 10_000),
-                        new RepositoryMaterialBudget(10, 1_000, 10_000)),
-                new RepositoryReadExecutor(
-                        workspace,
-                        new RepositoryMaterialBudget(10, 1_000, 10_000),
-                        new RepositoryMaterialBudget(10, 1_000, 10_000)),
-                maxCatalogBytes);
+        return UnderstandingFixtures.understanding(aiGateway, workspace,
+                GENEROUS_FOUNDATION, GENEROUS_TARGETED, maxCatalogBytes);
+    }
+
+    /** 走分层路径的链路：Scout 响应按请求内容编排。 */
+    private RepositoryUnderstanding hierarchicalUnderstanding(int maxCatalogBytes) {
+        return UnderstandingFixtures.understanding(gateway, workspace,
+                GENEROUS_FOUNDATION, GENEROUS_TARGETED, maxCatalogBytes);
     }
 
     private RepositoryUnderstanding understandingWithBudgets(
             RepositoryMaterialBudget foundation, RepositoryMaterialBudget targetedSource) {
-        return new RepositoryUnderstanding(
-                new RepositoryMapBuilder(workspace),
-                new RepositoryScoutExtraction(aiGateway, new ObjectMapper()),
-                new RepositoryReadPlanner(foundation, targetedSource),
-                new RepositoryReadExecutor(workspace, foundation, targetedSource),
-                65_536);
+        return UnderstandingFixtures.understanding(
+                aiGateway, workspace, foundation, targetedSource, 65_536);
     }
 
     private static List<String> pathsOf(List<RepositorySourceFile> material) {
         return material.stream().map(RepositorySourceFile::relativePath).toList();
     }
+
+    private static String userMessage(AiRequest request) {
+        return request.messages().get(request.messages().size() - 1).content();
+    }
+
+    // ---------------------------------------------------------------------
+    // 辅助：分层场景
+    // ---------------------------------------------------------------------
+
+    /**
+     * 两条各自装得下的分支，外加一份基础材料。
+     *
+     * <pre>
+     * alpha/A1.java  alpha/A2.java     一条分支
+     * beta/B1.java   beta/B2.java      另一条分支
+     * pom.xml                          基础材料（FOUNDATION）
+     * </pre>
+     *
+     * <p>根层只有 {@code alpha} 与 {@code beta} 两个子目录，因此一次 Region Scout 就能缩到
+     * 两条终态分支；每支各一次 File Scout。
+     */
+    private void seedBranches() {
+        workspace.given(POM, "<project>spring-boot</project>");
+        workspace.given("alpha/A1.java", "class A1 {}");
+        workspace.given("alpha/A2.java", "class A2 {}");
+        workspace.given("beta/B1.java", "class B1 {}");
+        workspace.given("beta/B2.java", "class B2 {}");
+
+        gateway.respondAll(
+                List.of(List.of("alpha", "beta")),
+                List.of(
+                        areas("alpha/A2.java", "alpha/A1.java"),
+                        areas("beta/B1.java", "beta/B2.java")));
+    }
+
+    /**
+     * 一组的 File Scout 响应：每个文件各占一个区域（优先级顺序即给的顺序），
+     * 再补一个重复区域凑够解析器要求的最少区域数。
+     *
+     * <pre>
+     * { focusAreas: [ {路径1}, {路径2}, {路径1} ] }  →  组内顺序 = 路径1, 路径2
+     * </pre>
+     */
+    private static List<List<String>> areas(String first, String second) {
+        return List.of(List.of(first), List.of(second), List.of(first));
+    }
+
+    /**
+     * flat 路径下这份夹具会发出的目录载荷字节数，也就是「分层与否」的判据。
+     *
+     * <p>取它减一作为上限：整份目录超出、而每条分支都装得下。
+     */
+    private int flatCatalogBytes() {
+        return catalogPayloadBytes(workspace);
+    }
+
+    // ---------------------------------------------------------------------
+    // 替身
+    // ---------------------------------------------------------------------
 
     /** AI Gateway 替身：按调用顺序返回预设内容，可指定某一次调用失败。 */
     private static final class StubAiGateway implements AiGateway {
@@ -376,6 +595,10 @@ class RepositoryUnderstandingTest {
         void failOnCall(int callNumber, RuntimeException exception) {
             this.failOnCall = callNumber;
             this.failure = exception;
+        }
+
+        List<AiRequest> requests() {
+            return List.copyOf(requests);
         }
 
         AiRequest lastRequest() {
@@ -441,6 +664,10 @@ class RepositoryUnderstandingTest {
 
         List<String> readPaths() {
             return List.copyOf(readPaths);
+        }
+
+        int readCount() {
+            return readPaths.size();
         }
 
         int headRevisionCalls() {

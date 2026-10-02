@@ -17,16 +17,20 @@
  * 定向源码        聚焦区域轮转，保持 Scout 给的优先级；跨区域重复只读一次
  * </pre>
  *
+ * <p>定向源码的输入有两种形状，规划只走一条路（见 {@code RepositoryReadPlanner}）：
+ * 模型给出的查看计划（{@code RepositoryInspectionPlan}），或分层 Scout 合并出的
+ * 有序候选流（{@code RepositoryTargetedSourceCandidates}）。
+ *
  * <p>两条通道的预算互相独立，选取顺序也各自保留——那就是后续读取的顺序。
  *
  * <h2>它在整条链路里的位置</h2>
  *
- * <p>本包是 ADR-0004 第二与第三阶段之间的过渡。它**尚未接入**
- * {@code AnalyzeRepositoryUseCase}：现有 Repository Analysis 的材料收集与选材策略
- * 没有任何变化。
+ * <p>本包由 {@code RepositoryUnderstanding} 使用，是「Scout 结果 → 真正读哪些文件」
+ * 这一步。flat catalog 在预算内时输入是查看计划；超出预算时输入是分层 Scout 合并出的
+ * 候选流（ADR-0005）。两条路都汇入本包同一份预算与轮转。
  *
  * <pre>
- * Repository Map → 候选路由 → Scout → 查看计划 → 读取规划（本包） → 定向读取（后续）
+ * Repository Map → 候选路由 → Scout → 查看计划 / 有序候选流 → 读取规划（本包） → 定向读取
  * </pre>
  *
  * <h2>本包不做什么</h2>

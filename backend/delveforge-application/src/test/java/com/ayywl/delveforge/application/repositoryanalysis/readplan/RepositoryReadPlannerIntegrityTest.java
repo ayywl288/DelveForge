@@ -161,9 +161,13 @@ class RepositoryReadPlannerIntegrityTest {
 
     @Test
     void rejectsNullInputs() {
-        assertThrows(IllegalArgumentException.class, () -> planner().plan(null, null));
+        // 定向源码有两种输入形状，null 必须指明是哪一种，否则重载无法判定
         assertThrows(IllegalArgumentException.class,
-                () -> planner().plan(map, null));
+                () -> planner().plan(null, (RepositoryInspectionPlan) null));
+        assertThrows(IllegalArgumentException.class,
+                () -> planner().plan(map, (RepositoryInspectionPlan) null));
+        assertThrows(IllegalArgumentException.class,
+                () -> planner().plan(map, (RepositoryTargetedSourceCandidates) null));
         assertThrows(IllegalArgumentException.class,
                 () -> planner().plan(null, ReadPlanFixtures.fullPlan(map)));
     }

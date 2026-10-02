@@ -9,6 +9,11 @@ import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryRe
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlan;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadPlanner;
 import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryReadResult;
+import com.ayywl.delveforge.application.repositoryanalysis.readplan.RepositoryTargetedSourceCandidates;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryBranchScoutRunner;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryFileCandidates;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigation;
+import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigator;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryInspectionPlan;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutInputs;
@@ -21,15 +26,28 @@ import org.slf4j.LoggerFactory;
  *
  * <pre>
  * RepositoryMap                    完整已提交树的描述符
- *         ↓  取源码候选
- * Scout                            只看描述符，指出「去哪里看」
- *         ↓  引用校验
- * RepositoryInspectionPlan
- *         ↓  两条通道各自轮转
- * RepositoryReadPlan
+ *         ↓  取源码候选，量一次 flat File Catalog 的字节数
+ *   在预算内 ─────────────────┐        超出预算 ──────────────────────────────┐
+ *         ↓                  │              ↓                              │
+ *   现有 File Scout          │   RepositoryRegionNavigator（目录层下降）     │
+ *         ↓                  │              ↓                              │
+ *   RepositoryInspectionPlan │   RepositoryBranchScoutRunner（逐组 Scout）   │
+ *         └──────────────────┴──────────────┴──────────────────────────────┘
+ *         ↓  两条路都折成同一份输入
+ * RepositoryReadPlan              同一条定向源码通道、同一份预算
  *         ↓  真实读取（同一 revision）+ 实际内容尺寸复核
  * List&lt;RepositorySourceFile&gt;
  * </pre>
+ *
+ * <h2>两条 Scout 路径，一份规划语义</h2>
+ *
+ * <p>小仓库走原有的 flat 路径：整份源码候选一次交给 File Scout。目录形状大到一次放不下时
+ * （ADR-0005），先在**目录层**缩范围，再对每个终态分支各跑一次 File Scout，把结果保序轮转
+ * 合并成一条有序候选流。两条路此后完全汇合：同一份 {@link RepositoryReadPlanner}、
+ * 同一组材料预算、同一套跳过原因、同一次读取。
+ *
+ * <p>判据只有一条：**这次分析实际会发出的那份 flat File Catalog 载荷的字节数**。
+ * 它与 File Scout 走同一个渲染入口，因此量到的就是即将发出的那一份，不是估计值。
  *
  * <h2>它回答「读到了什么」，不回答「这说明什么」</h2>
  *
@@ -39,47 +57,61 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>失败都在读取之前或读取之中</h2>
  *
- * <p>前置条件不成立时不去调用模型：没有源码候选、目录载荷超出本版本的承受范围——
- * 两者都在调用 Scout 之前失败，既不该先付一次模型调用的代价，也不该拿到一份基于错误输入的
+ * <p>没有源码候选、分层导航预算耗尽、目录不可再分、任一 Scout 输出不合法、读取计划为空——
+ * 都在获取材料的阶段失败，既不该先付一次注定失败的模型调用，也不该拿到一份基于错误输入的
  * 结果。整条链路不会产生任何持久化副作用。
  *
- * <h2>本版本的两处刻意边界</h2>
+ * <h2>失败不回退</h2>
  *
- * <pre>
- * 没有源码候选时直接失败        不做「只分析基础材料」的降级——那是另一种产品行为，未经验证
- * 不做目录截断或采样            目录超出上限即失败；分层 Scout 属于后续阶段
- * </pre>
+ * <p>分层 Scout 失败时**不会**退回「把超限的 flat 目录直接发给 File Scout」，也不会截断分支、
+ * 采样或降级到只读基础材料。失败关闭：一次分析要么按某条确定的路径走完，要么什么都不产出。
  *
- * <p>两条都是**当前版本的边界**，不是领域规则。真实 smoke 之后再按证据决定。
+ * <h2>Revision 一致性</h2>
+ *
+ * <p>本类不解析 HEAD：{@code analyzedRevision} 由调用方给定，之后建 Map、两条 Scout 路径、
+ * 规划与每一次读取都固定在同一取值上。因此读到的内容与它记录的那份快照严格对应。
  *
  * <h2>日志只记聚合信息</h2>
  *
- * <p>本类记录一行聚合日志：各通道计划选了多少、实际读到多少、按原因跳过了多少。
- * 它**不记录任何路径**，也不记录异常文本——路径是用户数据，而异常文本可能嵌入凭据
- * （AGENTS.md §8.8）。需要逐条定位时，诊断对象在内存里，由测试与调用方按需查看。
+ * <p>本类记录一行聚合日志：走的是哪条 Scout 路径、各通道计划选了多少、实际读到多少、
+ * 按原因跳过了多少。它**不记录任何路径**，也不记录异常文本——路径是用户数据，而异常文本
+ * 可能嵌入凭据（AGENTS.md §8.8）。需要逐条定位时，诊断对象在内存里，由测试与调用方按需查看。
  */
 public class RepositoryUnderstanding {
 
-    /** Scout 目录超出本版本承受范围时，日志与异常里使用的稳定原因标识。 */
-    static final String SCOUT_CATALOG_TOO_LARGE = "SCOUT_CATALOG_TOO_LARGE";
+    /** 两条 Scout 路径的稳定标识，只出现在聚合日志里。 */
+    static final String SCOUT_PATH_FLAT = "FLAT";
+
+    /** 分层 Scout 路径的稳定标识，只出现在聚合日志里。 */
+    static final String SCOUT_PATH_HIERARCHICAL = "HIERARCHICAL";
 
     private static final Logger log = LoggerFactory.getLogger(RepositoryUnderstanding.class);
 
     private final RepositoryMapBuilder mapBuilder;
     private final RepositoryScoutExtraction scoutExtraction;
+    private final RepositoryRegionNavigator regionNavigator;
+    private final RepositoryBranchScoutRunner branchScoutRunner;
     private final RepositoryReadPlanner readPlanner;
     private final RepositoryReadExecutor readExecutor;
     private final int maxScoutCatalogBytes;
 
     /**
-     * @param mapBuilder             建立 Repository Map，不得为 {@code null}
-     * @param scoutExtraction        执行 Scout，不得为 {@code null}
-     * @param readPlanner            规划读哪些文件，不得为 {@code null}
-     * @param readExecutor           执行读取，不得为 {@code null}
-     * @param maxScoutCatalogBytes   Scout 目录载荷的字节上限，必须大于 0
+     * @param mapBuilder            建立 Repository Map，不得为 {@code null}
+     * @param scoutExtraction       执行 flat 路径的 File Scout，不得为 {@code null}
+     * @param regionNavigator       超出预算时的分层导航，不得为 {@code null}；
+     *                              它的一次分支本地 File Catalog 预算必须与
+     *                              {@code maxScoutCatalogBytes} 相同，否则「flat 放得下」
+     *                              与「分支放得下」会变成两个不同的门槛
+     * @param branchScoutRunner     分层路径下的逐组 File Scout 执行与合并，不得为 {@code null}
+     * @param readPlanner           规划读哪些文件，不得为 {@code null}
+     * @param readExecutor          执行读取，不得为 {@code null}
+     * @param maxScoutCatalogBytes  一次 flat File Catalog 载荷的字节上限，必须大于 0；
+     *                              它同时是「是否需要分层」的判据
      */
     public RepositoryUnderstanding(RepositoryMapBuilder mapBuilder,
                                    RepositoryScoutExtraction scoutExtraction,
+                                   RepositoryRegionNavigator regionNavigator,
+                                   RepositoryBranchScoutRunner branchScoutRunner,
                                    RepositoryReadPlanner readPlanner,
                                    RepositoryReadExecutor readExecutor,
                                    int maxScoutCatalogBytes) {
@@ -89,6 +121,14 @@ public class RepositoryUnderstanding {
         if (scoutExtraction == null) {
             throw new IllegalArgumentException(
                     "RepositoryUnderstanding 必须指定 scoutExtraction");
+        }
+        if (regionNavigator == null) {
+            throw new IllegalArgumentException(
+                    "RepositoryUnderstanding 必须指定 regionNavigator");
+        }
+        if (branchScoutRunner == null) {
+            throw new IllegalArgumentException(
+                    "RepositoryUnderstanding 必须指定 branchScoutRunner");
         }
         if (readPlanner == null) {
             throw new IllegalArgumentException("RepositoryUnderstanding 必须指定 readPlanner");
@@ -102,6 +142,8 @@ public class RepositoryUnderstanding {
         }
         this.mapBuilder = mapBuilder;
         this.scoutExtraction = scoutExtraction;
+        this.regionNavigator = regionNavigator;
+        this.branchScoutRunner = branchScoutRunner;
         this.readPlanner = readPlanner;
         this.readExecutor = readExecutor;
         this.maxScoutCatalogBytes = maxScoutCatalogBytes;
@@ -115,10 +157,18 @@ public class RepositoryUnderstanding {
      *                          必须是已经解析出来的完整 commit id，本类不重新解析 HEAD
      * @return 真正读到、并通过执行期尺寸复核的材料
      * @throws IllegalArgumentException 任一参数为 {@code null}
-     * @throws RepositoryNotAnalyzableException 没有源码候选、目录超出上限、
-     *                                          读取计划为空，或读完之后没有可用材料
+     * @throws RepositoryNotAnalyzableException 没有源码候选、读取计划为空，
+     *                                          或读完之后没有可用材料
      * @throws com.ayywl.delveforge.application.port.ai.AiGatewayException
      *                                          Scout 调用失败，或返回内容不满足约定
+     * @throws com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionCatalogTooLargeException
+     *                                          Region 目录超出其预算
+     * @throws com.ayywl.delveforge.application.repositoryanalysis.region.RegionNavigationBudgetExceededException
+     *                                          分层导航的守卫用尽
+     * @throws com.ayywl.delveforge.application.repositoryanalysis.region.RegionHierarchyNotReducibleException
+     *                                          目录结构上无法再缩小
+     * @throws com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudgetExceededException
+     *                                          Scout 调用总数超出预算
      * @throws com.ayywl.delveforge.application.port.workspace.WorkspaceException
      *                                          列目录或读取文件失败
      */
@@ -136,17 +186,19 @@ public class RepositoryUnderstanding {
         requireSourceCandidates(map, analyzedRevision);
 
         RepositoryScoutInputs scoutInputs = RepositoryScoutInputs.of(map);
-        requireCatalogWithinLimit(scoutInputs, analyzedRevision);
+        boolean oversized = scoutExtraction.catalogPayloadBytes(scoutInputs)
+                > maxScoutCatalogBytes;
 
-        RepositoryInspectionPlan inspectionPlan = scoutExtraction.scout(scoutInputs);
-        RepositoryReadPlan readPlan = readPlanner.plan(map, inspectionPlan);
+        RepositoryReadPlan readPlan = oversized
+                ? hierarchicalReadPlan(map)
+                : flatReadPlan(map, scoutInputs);
         if (readPlan.isEmpty()) {
             throw new RepositoryNotAnalyzableException(
                     "本次读取计划没有选中任何文件，无法形成分析材料: " + analyzedRevision);
         }
 
         RepositoryReadResult read = readExecutor.execute(readPlan, workspaceRef);
-        logAggregates(readPlan, read);
+        logAggregates(readPlan, read, oversized);
 
         if (read.isEmpty()) {
             throw new RepositoryNotAnalyzableException(
@@ -171,35 +223,46 @@ public class RepositoryUnderstanding {
     }
 
     /**
-     * 目录载荷超出上限时失败关闭。
+     * flat 路径：整份源码候选一次交给 File Scout。
      *
-     * <p>不截断、不采样、不降级到旧的选材策略：截断会让 Scout 在不知情的情况下少看一部分
-     * 候选，而降级会把「这次走的是哪条路径」变成调用方看不见的事。超出上限说明这个仓库的形状
-     * 还不是本版本能处理的，如实失败比悄悄换一种做法更可信。
+     * <p>小仓库就停在这里，**不会**因为分层机制的存在而多付一次 Region Scout 调用
+     * （ADR-0005：flat 目录已在预算内时完全旁路分层）。
      */
-    private void requireCatalogWithinLimit(RepositoryScoutInputs scoutInputs,
-                                           String analyzedRevision) {
-        int payloadBytes = scoutExtraction.catalogPayloadBytes(scoutInputs);
-        if (payloadBytes > maxScoutCatalogBytes) {
-            throw new RepositoryNotAnalyzableException(
-                    SCOUT_CATALOG_TOO_LARGE + ": Scout 目录载荷 " + payloadBytes
-                            + " 字节，超过上限 " + maxScoutCatalogBytes
-                            + " 字节；本版本不截断、不采样，请在更大的上限下重新分析: "
-                            + analyzedRevision);
-        }
+    private RepositoryReadPlan flatReadPlan(RepositoryMap map, RepositoryScoutInputs inputs) {
+        RepositoryInspectionPlan inspectionPlan = scoutExtraction.scout(inputs);
+        return readPlanner.plan(map, inspectionPlan);
+    }
+
+    /**
+     * 分层路径：先在目录层缩小范围，再逐终态组跑分支本地 File Scout，合并成有序候选流。
+     *
+     * <p>产出仍然交给**同一份** {@code RepositoryReadPlanner}：合并的顺序就是定向源码的
+     * 考虑顺序，材料预算的取舍与 flat 路径完全一致。
+     *
+     * <p>这里没有 try/catch，也没有备用路径：导航或分支 Scout 失败就整次失败，
+     * 不会退回把超限的 flat 目录发出去。
+     */
+    private RepositoryReadPlan hierarchicalReadPlan(RepositoryMap map) {
+        RepositoryRegionNavigation navigation = regionNavigator.navigate(map);
+        RepositoryFileCandidates candidates = branchScoutRunner.run(navigation);
+        return readPlanner.plan(map, RepositoryTargetedSourceCandidates.of(
+                candidates.analyzedRevision(), candidates.orderedFiles()));
     }
 
     /**
      * 记录一行聚合结果。
      *
-     * <p>只记数量，不记路径，也不记任何异常文本——路径属于用户数据，
+     * <p>只记数量与路径标识，不记任何文件路径，也不记任何异常文本——路径属于用户数据，
      * 而异常文本可能嵌入凭据（AGENTS.md §8.8）。
      */
-    private static void logAggregates(RepositoryReadPlan readPlan, RepositoryReadResult read) {
-        log.info("operation=repository-analysis result={} foundationSelectedCount={} "
+    private static void logAggregates(RepositoryReadPlan readPlan,
+                                      RepositoryReadResult read,
+                                      boolean hierarchical) {
+        log.info("operation=repository-analysis result={} scoutPath={} foundationSelectedCount={} "
                         + "targetedSourceSelectedCount={} materialCount={} tooLargeCount={} "
                         + "totalBudgetExceededCount={}",
                 read.isEmpty() ? "NO_USABLE_MATERIAL" : "READY",
+                hierarchical ? SCOUT_PATH_HIERARCHICAL : SCOUT_PATH_FLAT,
                 readPlan.foundationEntries().size(),
                 readPlan.targetedSourceEntries().size(),
                 read.size(),

@@ -120,6 +120,17 @@ public final class RepositoryRegionNavigator {
     }
 
     /**
+     * 一次分支本地 File Scout 目录的字节预算。
+     *
+     * <p>暴露它是为了让装配层能断言一件事：这个值与「flat 目录是否放得下」用的是**同一个**
+     * 门槛。若两者不等，分层路径可能交出一个「超过了 flat 上限、却在分支上限之内」的目录，
+     * 那条保证就断了。
+     */
+    public int maxFileCatalogBytes() {
+        return maxFileCatalogBytes;
+    }
+
+    /**
      * 一次导航的运行状态：目录视图、按前缀索引的文件、累计的调用数与结果。
      *
      * <p>做成每次调用新建的实例，是为了让 {@code navigate} 本身无状态——

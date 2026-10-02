@@ -12,7 +12,11 @@ delveforge:
   #   环境变量：DELVEFORGE_REPOSITORY_ANALYSIS_FOUNDATION_MAX_FILES=20
   repository-analysis:
     scout:
-      # Scout 目录载荷的 UTF-8 字节上限。超过即失败关闭，不截断、不采样、不降级。
+      # 一次 flat File Catalog 载荷的 UTF-8 字节上限，也是「是否需要分层 Scout」的判据。
+      #
+      # 在预算内：照常一次交给 File Scout（小仓库完全旁路分层）。
+      # 超出预算：改走分层 Scout（ADR-0005），在目录层缩小范围后逐分支 File Scout；
+      #           分层自己的守卫耗尽时失败关闭，不截断、不采样、不退回过大的 flat 目录。
       max-catalog-bytes: 65536
 
     # 整次分析的 Scout 调用总数上限（Region Scout + File Scout）。
@@ -28,9 +32,11 @@ delveforge:
     #
     # 与 scout.max-catalog-bytes 是同一类守卫，但约束的是**目录层**而不是文件层：
     # flat File Catalog 超出 scout 上限时，先在目录层缩小范围。
-    # 这两个值约束探索本身能走多远，与下面两条通道的材料预算互不占用。
+    # 这些值约束探索本身能走多远，与下面两条通道的材料预算互不占用。
     #
-    # 当前分层导航尚未接入生产链路（见 ADR-0005）；此处先落地配置，数值按侦察证据取值。
+    # 注意：分层下降时「一个分支的 File Catalog 放不放得下」用的就是
+    # scout.max-catalog-bytes，不是 region.max-catalog-bytes——后者量的是目录描述符载荷。
+    # 两个门槛必须同源，否则分层可能交出一个超过 scout 上限的分支目录。
     region:
       # Region Catalog 载荷的 UTF-8 字节上限。超过即失败关闭，不截断、不采样。
       max-catalog-bytes: 65536
