@@ -8,13 +8,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
-/** Region 目录：编号的作用域、可判定性，以及越界/外来引用的处理。 */
+/** Region 目录：调用作用域、引用的可判定性，以及越界/外来引用的处理。 */
 class RepositoryRegionCatalogTest {
 
     private static String scopeOf(RepositoryRegionReference reference) {
         // RR-<scope>-<position>
-        String[] parts = reference.value().split("-");
-        return parts[1];
+        return reference.value().split("-")[1];
+    }
+
+    private static RepositoryRegionCatalog withScope(String scope) {
+        return RepositoryRegionCatalog.of(
+                RegionFixtures.REVISION, RegionFixtures.tree().rootRegions(), () -> scope);
     }
 
     @Test
@@ -38,35 +42,38 @@ class RepositoryRegionCatalogTest {
     }
 
     @Test
-    void scopeIsDeterministicForTheSameContent() {
-        RepositoryRegionCatalog first = RegionFixtures.catalog();
-        RepositoryRegionCatalog second = RepositoryRegionCatalog.of(
-                RegionFixtures.REVISION, RegionFixtures.tree().rootRegions());
-
-        assertEquals(scopeOf(first.entries().get(0).reference()),
-                scopeOf(second.entries().get(0).reference()),
-                "同一份内容派生同一个作用域（引用因此可复现）");
-    }
-
-    @Test
-    void scopeDiffersWhenContentDiffers() {
-        RepositoryRegionCatalog threeRegions = RegionFixtures.catalog();
-        RepositoryRegionCatalog oneRegion = RepositoryRegionCatalog.of(
-                RegionFixtures.REVISION, threeRegions.regions().subList(0, 1));
-
-        assertNotEquals(scopeOf(threeRegions.entries().get(0).reference()),
-                scopeOf(oneRegion.entries().get(0).reference()),
-                "内容不同的目录作用域必须不同，否则外来引用会被误认成本次调用");
-    }
-
-    @Test
-    void resolvesReferencesBackToRegions() {
+    void defaultScopeIsWellFormed() {
         RepositoryRegionCatalog catalog = RegionFixtures.catalog();
 
-        assertEquals("src", catalog.find(catalog.entries().get(0).reference())
-                .orElseThrow().pathPrefix());
-        assertEquals("web", catalog.find(catalog.entries().get(2).reference())
-                .orElseThrow().pathPrefix());
+        assertTrue(scopeOf(catalog.entries().get(0).reference()).matches("[0-9a-f]{8}"),
+                "默认作用域必须是 8 位小写十六进制");
+    }
+
+    /**
+     * 调用身份不能由内容决定：相同输入的不同调用必须得到不同的引用。
+     *
+     * <p>否则上一次调用留下的响应会被这一次接受。
+     */
+    @Test
+    void identicalInputFromDifferentInvocationsProducesDifferentReferences() {
+        RepositoryRegionCatalog first = RegionFixtures.catalog();
+        RepositoryRegionCatalog second = RegionFixtures.catalog();
+
+        assertNotEquals(first.entries().get(0).reference(),
+                second.entries().get(0).reference(),
+                "相同输入的不同调用不得产生相同引用");
+    }
+
+    /** 用注入的确定作用域复现同一件事，不依赖随机性。 */
+    @Test
+    void referenceFromAnotherInvocationWithIdenticalInputResolvesToEmpty() {
+        RepositoryRegionCatalog first = withScope("aaaaaaaa");
+        RepositoryRegionCatalog second = withScope("bbbbbbbb");
+
+        assertEquals(first.regions(), second.regions(), "两份目录内容完全相同");
+        assertTrue(second.find(first.entries().get(0).reference()).isEmpty(),
+                "内容相同也不行：它来自另一次调用");
+        assertTrue(first.find(second.entries().get(0).reference()).isEmpty());
     }
 
     @Test
@@ -114,6 +121,13 @@ class RepositoryRegionCatalogTest {
         assertThrows(IllegalArgumentException.class,
                 () -> RepositoryRegionCatalog.of(RegionFixtures.REVISION,
                         java.util.Arrays.asList(regions.get(0), null)));
+        assertThrows(IllegalArgumentException.class,
+                () -> RepositoryRegionCatalog.of(
+                        RegionFixtures.REVISION, regions, (java.util.function.Supplier<String>) null));
+        assertThrows(IllegalArgumentException.class,
+                () -> RepositoryRegionCatalog.of(RegionFixtures.REVISION, regions, () -> "NOT-HEX"));
+        assertThrows(IllegalArgumentException.class,
+                () -> RepositoryRegionCatalog.of(RegionFixtures.REVISION, regions, () -> null));
     }
 
     @Test

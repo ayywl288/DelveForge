@@ -1,13 +1,13 @@
 package com.ayywl.delveforge.application.repositoryanalysis.region;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Supplier;
+import java.util.regex.Pattern;
 
 /**
  * 一次 Region Scout 调用可见的 Region 集合，以及它们的 invocation-local 引用。
@@ -20,18 +20,22 @@ import java.util.Optional;
  *
  * <h2>引用自带作用域，因此跨调用的引用可判定</h2>
  *
- * <p>每个引用形如 {@code RR-<scope>-<position>}，其中 {@code scope} 由**目录内容**派生
- * （{@code analyzedRevision} 与该层 Region 前缀序列的摘要）。于是：
+ * <p>每个引用形如 {@code RR-<scope>-<position>}，其中 {@code scope} 是**本次调用**的标识：
+ * 每构造一份 Catalog 就取一个新的，与目录内容无关。于是：
  *
  * <pre>
- * 拿另一份目录的引用来本目录解析 → 字符串不同 → 找不到 → 拒绝
- * 内容完全相同的目录               → 作用域相同 → 引用可互换（两份目录没有可观察差别）
+ * 同一次调用内的引用 → 互相可解析
+ * 任何另一次调用     → 引用字符串不同 → 找不到 → 拒绝
  * </pre>
  *
- * <p>本类型因此是引用校验的唯一依据，而校验是**字符串相等**——不需要额外核对调用 token，
- * 也无法把外来编号误认成本次调用。理由与取舍见 {@link RepositoryRegionReference}。
+ * <p>作用域**刻意不由内容派生**。内容摘要做不到调用身份：相同输入的不同调用会得到相同引用，
+ * 上一次调用留下的响应仍会被这一次接受；而且有限长度的摘要还会碰撞，让两份不同的目录
+ * 偶然产生同一个引用。调用身份必须是每次调用新生成的，不是算出来的。
  *
- * <p>它不持久化，也不进入 Domain：换一层、换一个 revision，作用域随之改变。
+ * <p>生成方式可注入（{@link #of(String, List, Supplier)}），因此测试可以给出确定的标识；
+ * 默认实现与项目其它标识一致，取随机值。
+ *
+ * <p>它不持久化，也不进入 Domain：换一层、换一个 revision、换一次调用，作用域都会变。
  *
  * <h2>它不选择，也不排序</h2>
  *
@@ -40,8 +44,11 @@ import java.util.Optional;
  */
 public final class RepositoryRegionCatalog {
 
-    /** 作用域长度：8 位十六进制（4 字节摘要）。 */
+    /** 作用域长度：8 位十六进制。 */
     private static final int SCOPE_HEX_LENGTH = 8;
+
+    /** 作用域取值格式。 */
+    private static final Pattern SCOPE_PATTERN = Pattern.compile("[0-9a-f]{8}");
 
     private final String analyzedRevision;
     private final List<RepositoryRegion> regions;
@@ -61,7 +68,8 @@ public final class RepositoryRegionCatalog {
     /**
      * 用一族有序 Region 建立本次调用的目录，并按位置分配 {@code RR-*}。
      *
-     * <p>同一目录前缀不得出现两次：重复会让「{@code RR-3} 指的是哪一个」变得不可判定，
+     * <p>作用域取每次调用新生成的标识（默认随机，见 {@link #of(String, List, Supplier)}）。
+     * 同一目录前缀不得出现两次：重复会让「第 n 个是哪一个」变得不可判定，
      * 而引用一旦不可判定，校验就失去意义。
      *
      * @param analyzedRevision 本次导航固定的 commit id，不得为空白
@@ -71,6 +79,25 @@ public final class RepositoryRegionCatalog {
      */
     public static RepositoryRegionCatalog of(String analyzedRevision,
                                              List<RepositoryRegion> regions) {
+        return of(analyzedRevision, regions, RepositoryRegionCatalog::newInvocationScope);
+    }
+
+    /**
+     * 用一族有序 Region 建立本次调用的目录，作用域由给定来源产生。
+     *
+     * <p>作用域必须**每次调用都不同**——它是调用身份的载体，不是内容的函数。注入的来源
+     * 让测试可以给出确定的标识；生产路径使用默认的随机标识。
+     *
+     * @param analyzedRevision 本次导航固定的 commit id，不得为空白
+     * @param regions          有序 Region，不得为 {@code null} 或空，元素不得为 {@code null}，
+     *                         且目录前缀不得重复
+     * @param scopeSupplier    本次调用作用域的来源，不得为 {@code null}，产出的取值必须符合
+     *                         {@code [0-9a-f]{8}}
+     * @throws IllegalArgumentException 参数不满足上述约束
+     */
+    public static RepositoryRegionCatalog of(String analyzedRevision,
+                                             List<RepositoryRegion> regions,
+                                             Supplier<String> scopeSupplier) {
         if (analyzedRevision == null || analyzedRevision.isBlank()) {
             throw new IllegalArgumentException(
                     "RepositoryRegionCatalog 必须指定 analyzedRevision");
@@ -78,6 +105,10 @@ public final class RepositoryRegionCatalog {
         if (regions == null || regions.isEmpty()) {
             throw new IllegalArgumentException(
                     "RepositoryRegionCatalog 的 regions 不能为空");
+        }
+        if (scopeSupplier == null) {
+            throw new IllegalArgumentException(
+                    "RepositoryRegionCatalog 必须指定 scopeSupplier");
         }
 
         List<RepositoryRegion> copy = new ArrayList<>(regions.size());
@@ -95,7 +126,7 @@ public final class RepositoryRegionCatalog {
             copy.add(region);
         }
 
-        String scope = scopeOf(analyzedRevision, copy);
+        String scope = requireScope(scopeSupplier.get());
         List<RegionEntry> entries = new ArrayList<>(copy.size());
         Map<String, RepositoryRegion> byReference = new LinkedHashMap<>();
         for (int index = 0; index < copy.size(); index++) {
@@ -108,31 +139,17 @@ public final class RepositoryRegionCatalog {
                 Map.copyOf(byReference));
     }
 
-    /**
-     * 由目录内容派生本次调用的作用域。
-     *
-     * <p>取 {@code analyzedRevision} 与该层 Region 前缀序列（含顺序）的 SHA-256 前 4 字节。
-     * 内容是确定的，作用域因此也是确定的：同一份目录重建两次得到同一个作用域，
-     * 内容不同则作用域不同。
-     */
-    private static String scopeOf(String analyzedRevision, List<RepositoryRegion> regions) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(analyzedRevision.getBytes(StandardCharsets.UTF_8));
-            for (RepositoryRegion region : regions) {
-                digest.update((byte) 0);
-                digest.update(region.pathPrefix().getBytes(StandardCharsets.UTF_8));
-            }
-            byte[] hash = digest.digest();
-            StringBuilder scope = new StringBuilder(SCOPE_HEX_LENGTH);
-            for (int i = 0; i < SCOPE_HEX_LENGTH / 2; i++) {
-                scope.append(Character.forDigit((hash[i] >> 4) & 0xF, 16));
-                scope.append(Character.forDigit(hash[i] & 0xF, 16));
-            }
-            return scope.toString();
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("运行环境不支持 SHA-256", exception);
+    /** 每次调用新生成一个作用域标识：与目录内容无关，因此相同输入的不同调用也不同。 */
+    private static String newInvocationScope() {
+        return UUID.randomUUID().toString().replace("-", "").substring(0, SCOPE_HEX_LENGTH);
+    }
+
+    private static String requireScope(String scope) {
+        if (scope == null || !SCOPE_PATTERN.matcher(scope).matches()) {
+            throw new IllegalArgumentException(
+                    "本次调用的作用域必须是 8 位小写十六进制: " + scope);
         }
+        return scope;
     }
 
     /** 本次导航固定的 commit id。 */

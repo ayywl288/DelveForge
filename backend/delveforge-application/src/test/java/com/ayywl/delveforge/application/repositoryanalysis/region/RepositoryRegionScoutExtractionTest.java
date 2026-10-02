@@ -22,6 +22,9 @@ class RepositoryRegionScoutExtractionTest {
     private static final RegionNavigationLimits LIMITS =
             new RegionNavigationLimits(65_536, 6);
 
+    /** 每一条用例都只针对**一份**目录：引用带着它的作用域，换一份就对不上。 */
+    private final RepositoryRegionCatalog catalog = RegionFixtures.catalog();
+
     /** 确定性替身：记录收到的请求并返回给定内容。不访问任何 Provider。 */
     private static final class RecordingGateway implements AiGateway {
 
@@ -53,10 +56,9 @@ class RepositoryRegionScoutExtractionTest {
     @Test
     void returnsValidatedSelectionInModelOrder() {
         RecordingGateway gateway = new RecordingGateway(
-                RegionFixtures.selectionResponse(RegionFixtures.catalog(), 2, 1));
+                RegionFixtures.selectionResponse(catalog, 2, 1));
 
-        RepositoryRegionSelection selection =
-                extraction(gateway).scout(RegionFixtures.catalog());
+        RepositoryRegionSelection selection = extraction(gateway).scout(catalog);
 
         assertEquals(List.of("svc", "src"),
                 selection.regions().stream().map(RepositoryRegion::pathPrefix).toList());
@@ -69,12 +71,11 @@ class RepositoryRegionScoutExtractionTest {
                 "{\"regionRefs\":[\"RR-00000000-7\"]}");
 
         assertThrows(AiGatewayException.class,
-                () -> extraction(gateway).scout(RegionFixtures.catalog()));
+                () -> extraction(gateway).scout(catalog));
     }
 
     @Test
     void rejectsSelectionThatReferencesAnotherCatalogsRegion() {
-        // 用另一份目录的引用（内容不同 → 作用域不同）来冒充本次调用
         RepositoryRegionCatalog other = RepositoryRegionCatalog.of(
                 RegionFixtures.REVISION,
                 List.of(RegionFixtures.tree().region("svc").orElseThrow()));
@@ -82,20 +83,41 @@ class RepositoryRegionScoutExtractionTest {
                 "{\"regionRefs\":[\"" + other.entries().get(0).reference().value() + "\"]}");
 
         assertThrows(AiGatewayException.class,
-                () -> extraction(gateway).scout(RegionFixtures.catalog()));
+                () -> extraction(gateway).scout(catalog));
     }
 
     @Test
     void rejectsMalformedModelOutput() {
         RecordingGateway gateway = new RecordingGateway("这不是 json");
 
-        assertThrows(AiGatewayException.class,
-                () -> extraction(gateway).scout(RegionFixtures.catalog()));
+        assertThrows(AiGatewayException.class, () -> extraction(gateway).scout(catalog));
+    }
+
+    /**
+     * 提示词里的示例必须与解析器的契约一致。
+     *
+     * <p>示例若写成一个裸编号，模型照抄出来的答案会被解析器直接拒绝：提示词与解析器各说一套。
+     * 因此示例取自本次目录，并且**必须能原样通过解析与引用校验**。
+     */
+    @Test
+    void promptExampleMatchesTheParsingContract() {
+        RecordingGateway gateway = new RecordingGateway(
+                RegionFixtures.selectionResponse(catalog, 1));
+
+        RepositoryRegionSelection selection = extraction(gateway).scout(catalog);
+
+        String instruction = gateway.lastRequest.messages().get(0).content();
+        String example = catalog.entries().get(0).reference().value();
+        assertTrue(instruction.contains(example),
+                "系统指令里的示例必须是本次目录里真实存在的编号");
+        assertTrue(RepositoryRegionReference.isWellFormed(example));
+
+        // 模型照抄示例作答时，必须能走完整条链路。
+        assertEquals("src", selection.regions().get(0).pathPrefix());
     }
 
     @Test
     void sendsOnlyRegionDescriptorsAndNoFileLevelDetail() {
-        RepositoryRegionCatalog catalog = RegionFixtures.catalog();
         RecordingGateway gateway = new RecordingGateway(
                 RegionFixtures.selectionResponse(catalog, 1));
 
@@ -120,7 +142,6 @@ class RepositoryRegionScoutExtractionTest {
 
     @Test
     void measuresTheSamePayloadItWouldSend() {
-        RepositoryRegionCatalog catalog = RegionFixtures.catalog();
         RecordingGateway gateway = new RecordingGateway(
                 RegionFixtures.selectionResponse(catalog, 1));
         RepositoryRegionScoutExtraction extraction = extraction(gateway);
@@ -141,10 +162,8 @@ class RepositoryRegionScoutExtractionTest {
      */
     @Test
     void oversizedCatalogFailsWithoutCallingTheGateway() {
-        RepositoryRegionCatalog catalog = RegionFixtures.catalog();
         RepositoryRegionScoutExtraction extraction = extraction(
-                new RecordingGateway(RegionFixtures.selectionResponse(catalog, 1)),
-                LIMITS);
+                new RecordingGateway(RegionFixtures.selectionResponse(catalog, 1)), LIMITS);
 
         int payloadBytes = extraction.catalogPayloadBytes(catalog);
         assertTrue(payloadBytes > 1);

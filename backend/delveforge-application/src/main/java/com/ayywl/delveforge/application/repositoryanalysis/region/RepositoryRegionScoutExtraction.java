@@ -55,10 +55,14 @@ public final class RepositoryRegionScoutExtraction {
     /**
      * 系统指令。
      *
-     * <p>要求模型只输出 json；区域数量上限来自配置，因此在构造时格式化进来，
-     * 避免提示词与解析器各写一份会彼此漂移的范围。
+     * <p>要求模型只输出 json。区域数量上限来自配置，示例引用取自**本次**的目录，
+     * 两者都在这里格式化进来——避免提示词与解析器各写一份会彼此漂移的范围或格式。
+     *
+     * <p>示例必须是本次目录里真实存在的编号（含作用域）。写一个 {@code RR-1} 这样的
+     * 裸编号会让模型照抄出一个解析器必然拒绝的答案。
      */
-    private static String systemInstruction(int maxSelectedRegions) {
+    private String systemInstruction(RepositoryRegionCatalog catalog) {
+        String example = catalog.entries().get(0).reference().value();
         return """
             你是 DelveForge 的 Repository 区域侦察组件。
 
@@ -73,13 +77,14 @@ public final class RepositoryRegionScoutExtraction {
             只输出一个 json 对象，不要输出解释、Markdown 代码块或任何其他文字。格式如下：
 
             {
-              "regionRefs": ["RR-1", "RR-5"]
+              "regionRefs": ["%s"]
             }
 
             规则：
             - 给出 %d 到 %d 个区域。
             - regionRefs 按建议的探索顺序排列：越靠前越应该先看。
-            - regionRefs 只能使用清单里给出的编号。不要创造编号，也不要给出目录路径。
+            - regionRefs 必须从清单里**原样复制完整编号**（例如上面示例那种形式，
+              包含前面那一段标识）。不要简写、不要只写序号、不要创造编号，也不要给出目录路径。
             - 不要重复同一个编号。
 
             边界：
@@ -88,6 +93,7 @@ public final class RepositoryRegionScoutExtraction {
             - 不要输出能力列表、复用资产、风险、复杂度、置信度或任何分析结论。
             - 你看到的只是目录规模与语言提示，看不到代码，因此不要假装读过它们。
             """.formatted(
+                    example,
                     AiRegionSelectionProposal.MIN_SELECTED_REGIONS,
                     maxSelectedRegions);
     }
@@ -95,7 +101,7 @@ public final class RepositoryRegionScoutExtraction {
     private final AiGateway aiGateway;
     private final ObjectMapper objectMapper;
     private final RegionNavigationLimits limits;
-    private final String systemInstruction;
+    private final int maxSelectedRegions;
     private final RepositoryRegionProposalParser proposalParser;
     private final RepositoryRegionProposalResolver proposalResolver;
 
@@ -122,7 +128,7 @@ public final class RepositoryRegionScoutExtraction {
         this.aiGateway = aiGateway;
         this.objectMapper = objectMapper;
         this.limits = limits;
-        this.systemInstruction = systemInstruction(limits.maxSelectedRegions());
+        this.maxSelectedRegions = limits.maxSelectedRegions();
         this.proposalParser = new RepositoryRegionProposalParser(
                 objectMapper, limits.maxSelectedRegions());
         this.proposalResolver = new RepositoryRegionProposalResolver();
@@ -152,15 +158,17 @@ public final class RepositoryRegionScoutExtraction {
                 payload.getBytes(StandardCharsets.UTF_8).length, catalog.analyzedRevision());
 
         AiRegionSelectionProposal proposal = proposalParser.parse(
-                aiGateway.generate(buildRequest(payload)));
+                aiGateway.generate(buildRequest(catalog, payload)));
         return proposalResolver.resolve(proposal, catalog);
     }
 
     /**
      * 本次 Region Scout 会发给模型的**目录载荷**大小，按 UTF-8 字节计。
      *
-     * <p>与 File Scout 同一个口径：量的是用户消息——也就是区域清单那一段；系统指令是固定文本，
-     * 不随仓库变化。存在的原因是「先量再调」：模型调用不便宜，而清单过大是本版本处理不了的形状。
+     * <p>量的是**用户消息**——也就是区域清单那一段，与 File Scout 同一个口径。
+     *
+     * <p>系统指令不在这里度量：它含一个取自本次目录的示例引用，长度有界（一个编号），
+     * 不随仓库规模变化；随规模增长的是用户消息里的清单，而守卫守的正是它。
      *
      * @param catalog 本次导航的 Region 目录，不得为 {@code null}
      * @return 目录载荷的 UTF-8 字节数
@@ -174,10 +182,10 @@ public final class RepositoryRegionScoutExtraction {
         return describeCatalog(catalog).getBytes(StandardCharsets.UTF_8).length;
     }
 
-    private AiRequest buildRequest(String payload) {
+    private AiRequest buildRequest(RepositoryRegionCatalog catalog, String payload) {
         return new AiRequest(
                 List.of(
-                        new AiMessage(AiRole.SYSTEM, systemInstruction),
+                        new AiMessage(AiRole.SYSTEM, systemInstruction(catalog)),
                         new AiMessage(AiRole.USER, payload)),
                 AiResponseFormat.JSON);
     }
