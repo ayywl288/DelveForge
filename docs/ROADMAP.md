@@ -805,35 +805,37 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 当前处于：
 
 ```text
-M2 — Product Direction Discovery
+M3 — Evolution Planning & Working Copy（尚未开始）
 ```
 
-M0 与 M1 的执行清单已归档到 §9 Completed Milestones，不再在此处维护。
+M0、M1 与 M2 的执行清单已归档到 §9 Completed Milestones，不再在此处维护。
 
 ### Current
 
-M1 — Discovery Inputs 已完成（2026-09-22）。8 个 Task 走通了 User Discovery 与
-Repository Analysis 两条链路，并各自留下阶段记录：
+**M2 — Product Direction Discovery 已完成（2026-10-03）。** 走通了
+「Confirmed UserProfile @ revision + RepositoryProfile @ analyzedRevision → 候选
+Product Direction → Select / Reject / Supersede」这条链路，并顺带把
+Repository Understanding 推到 V3（完整 Map + 分层 Scout + 源码凭据边界）：
 
 ```text
-User Discovery        docs/retrospectives/m1-user-discovery.md
-Repository Analysis   docs/validation/m1-repository-analysis-smoke-test.md
+M2 复盘                docs/retrospectives/m2-product-direction.md
+Product Direction 端到端 docs/validation/m2-product-direction-e2e-smoke.md
+Repository Analysis V3  docs/validation/m2-repository-analysis-v3-multi-repository-smoke.md
+                        docs/validation/m2-repository-analysis-v3-stabilization.md
 ```
 
-后者的验证在真实 Repository、真实 Git、真实 Provider、真实 SQLite 与真实 HTTP API 上完成，
-并记录了当前 Material Selection 的已知局限（bounded representative sampling，
-不代表深度 Repository understanding）与重新评估条件。
-
-M2 已开始。按本文件约定，Task 在对应 Milestone 即将开始时根据当时已有代码状态拆分，
-不在此处维护完整 Task 清单。
+M2 期间新增 3 条 ADR（0004 两阶段 Repository Understanding / 0005 分层 Scout /
+0006 仓库源码凭据边界），并明确记录了一条**接受的边界**：极端庞大或极宽的仓库
+（当前实例为 langflow）可能在 Scout 预算内无法完成导航，此时失败关闭并返回 409，
+不做截断、采样或部分结果。
 
 ### Next
 
-M2 — Product Direction Discovery
+M3 — Evolution Planning & Working Copy。
 
-当前不提前将 M2 之后的所有实现细节拆分为 Task。
-
-具体 Task 应在对应 Milestone 即将开始时，根据当时已有代码状态进一步拆分。
+当前不提前将 M3 的实现细节拆分为 Task。具体 Task 应在 M3 即将开始时，
+根据当时已有代码状态进一步拆分；推进方式按 `docs/retrospectives/m2-product-direction.md` §H 的约定
+（一个里程碑 → 一个相对完整的垂直切片 → 一次里程碑级审查 → 一次聚焦 smoke → 复盘）。
 
 ---
 
@@ -1714,13 +1716,73 @@ Repository Analysis   docs/validation/m1-repository-analysis-smoke-test.md
 - 「确定性」是可以被独立复算的：材料选材不调用 Provider 也能用 git 独立复现并核对。
 
 后续调整
-- Material Selection 当前只做到 bounded representative sampling：能采样到工程结构与配置，
+- M1 完成时 Material Selection 只做到 bounded representative sampling：能采样到工程结构与配置，
   但业务实现代码（controller / service 等）覆盖不足，部分大文件因单文件上限被跳过。
-  在有限 context budget 下选择最具代表性的业务实现代码是一个独立问题，
-  重新评估条件见 docs/validation/m1-repository-analysis-smoke-test.md §7，
-  不因为「看起来可以更好」就继续加机制。
+  该重访条件随后被真实仓库验证触发，Material Selection 已在 M2 被
+  Repository Map + Scout + 定向读取取代（见下一条目）。
+  当时的记录与重访条件：docs/validation/m1-repository-analysis-smoke-test.md §7。
 - Workspace mutation Adapter 仍按原计划等 M3（出现 Working Copy 与 Evolution Execution
   的真实调用方之后再实现）。
+```
+
+---
+
+### M2 — Product Direction Discovery
+
+**Completed**
+
+```text
+2026-10-03
+```
+
+**Outcome**
+
+```text
+形成 Product Discovery 的第三段可信输入：由「已确认的用户」与「已理解的仓库」
+共同支撑的产品方向候选。
+
+Confirmed UserProfile @ revision
+        +
+RepositoryProfile @ analyzedRevision
+        ↓
+3–5 个 Evidence 可追溯的 ProductDirection 候选
+        ↓
+Select / Reject / Supersede 生命周期
+
+M2 复盘                docs/retrospectives/m2-product-direction.md
+Product Direction 端到端 docs/validation/m2-product-direction-e2e-smoke.md
+```
+
+**Lessons Learned**
+
+```text
+被真实数据推翻的设计
+- Repository Analysis 的「一次性确定性代表采样」在真实仓库上系统性错过业务实现
+  （方向引用的 16 个文件全是配置与构建元数据）。改为「完整 Map（只看元数据）
+  + LLM Scout 指认 + 定向读取」之后，业务实现才稳定进入依据。
+- 「把全部源码候选一次交给模型」与仓库大小线性相关，64 KiB 上限在 4/5 的真实仓库上
+  fail-closed。改为按真实目录结构分层下降之后，其中 3 个恢复可用。
+- 整条链路上唯一把仓库内容送出去的地方是最终分析器，而此前没有任何一层排除凭据文件。
+  补上「一条政策、两个执行点」（读取前路径排除 + 交给模型前内容净化）。
+
+被验证的假设
+- 引用是调用内的闭集短名（RF-* / RR-*），由 Application 校验并换回真实描述符，
+  模型输出的路径永远不会进入读取调用。
+- 预算围绕不确定的模型调用写成确定的：守卫在调用之前判定，契约违反后的重试
+  也占用真实额度，聚合日志记的是实际调用次数而不是逻辑阶段数。
+- 失败不留部分状态：方向发现的整批原子性、baseline 不成立时在调用模型之前失败，
+  都在真实 smoke 上核对过（失败前后相关表行数不变）。
+
+代价与流程调整
+- Repository Analysis 吃掉了 M2 的绝大部分工程量，且核心架构可用之后仍做了若干轮
+  边界打磨（预算标定、有界重试），其中一部分可以更早停止。
+- M3 起改用「一个里程碑 → 一个相对完整的垂直切片 → 一次里程碑级审查 → 一次聚焦 smoke
+  → 复盘」的推进方式，优先级为主产品链路与面试可解释性高于边界完备性。
+  详见 docs/retrospectives/m2-product-direction.md §E 与 §H。
+
+接受的边界
+- 极端庞大或极宽的仓库（当前实例 langflow）可能在 Scout 预算内无法完成导航，
+  失败关闭并返回 409 是接受的产品边界，不是实现缺陷。
 ```
 
 ---
