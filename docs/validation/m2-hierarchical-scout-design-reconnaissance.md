@@ -9,6 +9,10 @@
 > 确定性结构分析。它不新增规则、不替代权威文档、不提出实现。
 > 领域语义以 `DOMAIN_MODEL.md` 为准，架构以 `ARCHITECTURE.md` / `AGENTS.md` 为准，
 > 长程方向以 ADR-0004 为准。
+>
+> **实现后补充（2026-10-03）：** 该假设已由 ADR-0005 决策、由 Task 10A-6 实现并接入生产链路。
+> 本文档保留为**实现前的侦察记录**：§3 的失败边界与其中的代码行号是当时快照，不对应代码现状；
+> 当前的结构、守卫与失败语义以 ADR-0005 与 `ARCHITECTURE.md` 为准。
 
 ---
 
@@ -45,7 +49,9 @@ maxScoutCatalogBytes = 65,536
 
 ---
 
-## 3. Current Failure Boundary
+## 3. Failure Boundary at Reconnaissance Time
+
+> 以下行号与调用顺序是**实现前**（2026-10-02）的快照，此后代码已随 Task 10A-6 变化。
 
 `RepositoryUnderstanding.understand()` 的顺序（`RepositoryUnderstanding.java`）：
 

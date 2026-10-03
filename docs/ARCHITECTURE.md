@@ -276,6 +276,8 @@ Maven Module 控制主要 Architecture Layer Boundary。
 com.ayywl.delveforge.domain
 ├── user
 ├── asset
+├── repositoryprofile
+├── evidence
 ├── direction
 └── evolution
 
@@ -287,11 +289,22 @@ com.ayywl.delveforge.application
 │   ├── review                    确认 / 继续探索 / 重新开启探索
 │   ├── workflow                  组合成面向产品的一轮 User Discovery
 │   └── shared                    跨子包协作单元（Application 内部）
-├── repositoryanalysis
+├── repositoryanalysis            按职责分子包
+│   ├── asset                     软件资产的登记与读取
+│   ├── map                       Repository Map 与候选通道
+│   ├── scout                     File Scout：目录 → 校验过的 RF-* 引用
+│   ├── region                    分层 Scout：超限目录的 Region 导航
+│   ├── readplan                  定向读取的计划、预算与执行
+│   ├── secret                    仓库源码凭据边界（ADR-0006）
+│   ├── extraction                材料 → 结构化 Proposal
+│   ├── profile                   已保存快照的读取
+│   └── workflow                  组合成一次 Repository Analysis
 ├── opportunitydiscovery
+│   └── direction                 一轮发现：建议 → 领域校验 → 持久化
 ├── evolution
 └── port
     ├── ai
+    ├── persistence
     └── workspace
 
 com.ayywl.delveforge.infrastructure
@@ -485,6 +498,8 @@ Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
 | `GET`   | `/api/repository-profiles/{id}`  | 读取一份已保存的分析快照                                   | 200  | 404  |
 | `POST`  | `/api/product-directions/discovery` | 执行一次 Product Direction Discovery，保存并返回 3–5 个候选方向 | 201 | 400 / 404 / 409 / 502 |
 | `GET`   | `/api/product-directions/{id}`   | 读取一条已保存的 Product Direction（含其依据与出处）        | 200  | 404  |
+| `POST`  | `/api/product-directions/{id}/select` | 用户明确选择该方向（`CANDIDATE → SELECTED`），已有 `SELECTED` 时原方向同批进入 `SUPERSEDED` | 200 | 404 / 409 |
+| `POST`  | `/api/product-directions/{id}/reject` | 用户明确拒绝该方向（`CANDIDATE → REJECTED`）              | 200 | 404 / 409 |
 
 **explore 语义**
 
@@ -671,7 +686,7 @@ POST /api/software-assets/{id}/analysis     请求体：无
 
 ```text
 analyzedRevision   服务端解析一次 HEAD，之后所有读取固定在这个 commit 上
-repository material 按 Application 层选材策略从该 revision 的已提交内容中读取
+repository material 按 Application 层的读取规划从该 revision 的已提交内容中读取
 Evidence           来自真实读到的文件，sourceRef 是材料中的相对路径
 ```
 
@@ -688,10 +703,14 @@ Evidence           来自真实读到的文件，sourceRef 是材料中的相对
   ```text
   资产自身的 readPermission 不允许读取（INV-A01）
   资产位置当前不是可读取的本地 Git Repository
-  该 Repository 在选材策略下没有可分析的材料
+  该 Repository 在读取规划下没有任何可分析的材料
+  源码目录超出当前分析方式的形状，分层 Scout 之后仍压不进本版本的预算（ADR-0005 的导航守卫）
+  读不到一份能通过凭据边界的材料（ADR-0006，失败关闭）
   ```
 
-  三者都与「请求不合法」（400）区分开。Workspace 自身的操作失败（例如环境里找不到
+  以上各条都与「请求不合法」（400）区分开：资产确实存在、请求也可以理解，需要改变的是
+  资产或其所在仓库的状态，而不是请求写法。对外只有统一的 409 语义与通用报文，
+  不会为了区分原因而回显路径或材料内容。Workspace 自身的操作失败（例如环境里找不到
   `git`）仍按本地能力失败处理，返回 500。
 - AI 调用失败或模型输出无法解析时返回 502，不写入任何内容。
 - 分析是只读的：它只通过 `WorkspaceReadPort` 读取，不修改源 Repository 的代码或 Git 状态。
@@ -1062,6 +1081,8 @@ Evolution Step explicitly confirmed by user
 | [0002](decisions/0002-structural-only-exception-logging.md) | 异常日志只记录结构信息，防止运行时数据泄漏 | Accepted |
 | [0003](decisions/0003-first-ai-adapter-uses-deepseek-http-api.md) | 首个 AI Adapter 直接调用 DeepSeek HTTP API，不引入 Spring AI | Accepted |
 | [0004](decisions/0004-two-stage-repository-understanding-with-validated-file-references.md) | Repository Analysis 演进为两阶段：Repository Map → LLM Scout → 校验引用 → 定向读取 | Accepted |
+| [0005](decisions/0005-hierarchical-repository-scout-for-oversized-source-catalogs.md) | flat File Catalog 超限时改用分层 Scout：Region 导航 → 各终态分支的 File Scout | Accepted |
+| [0006](decisions/0006-repository-source-secret-boundary.md) | 仓库源码在离开进程前过凭据边界：读取前按路径排除 + 交给模型前内容净化 | Accepted |
 
 以下事项经过评审后**决定不建立 ADR**，结论保留在本文件或 `docs/ROADMAP.md` 中：
 

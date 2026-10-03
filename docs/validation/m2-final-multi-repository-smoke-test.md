@@ -424,6 +424,11 @@ USER JUDGMENT REQUIRED
   3. F4（源仓库凭据被写入 RepositoryProfile）是否需要单独处理。
 ```
 
+> **后续结果（2026-10-03）：** 这三条都已不再是未决问题——
+> 1、2 → 重新打开，方向定为**分层 Scout**（ADR-0005，已由 Task 10A-6 实现并接入生产链路）；
+> 3 → 仓库源码凭据边界（ADR-0006，已由 Task 10B-2 实现）。
+> 本文档保留为那次 Smoke 的原始记录，不再维护其结论的当前状态。
+
 ---
 
 ## 16. Stop / Revisit Decision

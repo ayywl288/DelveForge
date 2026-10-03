@@ -1527,12 +1527,14 @@ mapper/
 entity/
 ```
 
-例如：
+例如（当前实际结构见 `docs/ARCHITECTURE.md` §6.1）：
 
 ```text
 com.ayywl.delveforge.domain
 ├── user
 ├── asset
+├── repositoryprofile
+├── evidence
 ├── direction
 └── evolution
 com.ayywl.delveforge.application
@@ -1542,6 +1544,7 @@ com.ayywl.delveforge.application
 ├── evolution
 └── port
     ├── ai
+    ├── persistence
     └── workspace
 com.ayywl.delveforge.infrastructure
 ├── ai

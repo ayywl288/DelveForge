@@ -7,15 +7,26 @@ Date: 2026-10-02
 > 本 ADR 记录当 flat File Catalog 超出 `maxScoutCatalogBytes` 时，Repository Scout
 > 如何按真实目录结构分层下降的决策。
 >
-> **本 ADR 记录的是决策，不是实现进度。** 当前**尚未实现**；权威状态以代码与
-> `ROADMAP.md` 为准。
+> **本 ADR 记录的是决策，不是实现进度。** 权威状态以代码与 `ROADMAP.md` 为准。
 >
 > 当前进度：
 >
 > ```text
 > 已实现    ADR-0004 的四个阶段（Map / Scout / 定向读取 / UseCase 接入）
-> 未实现    本 ADR 描述的分层 Scout
+> 已实现    本 ADR 描述的分层 Scout（Task 10A-6 接入生产链路）
 > ```
+>
+> 实现落在这几处：
+>
+> ```text
+> application/repositoryanalysis/region/     Region 目录、分层导航、守卫与预算
+> application/repositoryanalysis/workflow/   超限判定、两条 Scout 路径的选择与失败归类
+> application/repositoryanalysis/readplan/   有序候选集合——唯一那处最小输入泛化
+> app/.../config/RepositoryAnalysisUseCaseConfiguration.java   分层组件的装配与预算绑定
+> ```
+>
+> 下文按**决策当时的观察**书写：它描述的是触发本决策的失败边界与结构事实，
+> 不是实现之后的代码状态。
 >
 > 触发本决策的证据：
 >
@@ -29,7 +40,7 @@ Date: 2026-10-02
 
 ## Context
 
-### 当前失败边界
+### 决策当时的失败边界
 
 ADR-0004 的链路在真实仓库上建立了 Repository Map，然后一次性把 **全部** SCOUT_SOURCE
 候选序列化成一个 flat File Catalog 交给 File Scout：
@@ -170,6 +181,13 @@ RepositoryAnalysisExtraction           不变
 分层合并产出的是一个**有序、去重后的候选描述符集合**。若现有输入形状能表达它（例如作为
 有序区域），则无契约变更；否则需要一处最小泛化，让 Planner 接受有序描述符集合。
 **Planner 的规划与预算逻辑本身不变。** 该点应在实现时确认，不在本 ADR 内定案。
+
+> **实现时的确认结果（Task 10A-6）：** 走的是「一处最小泛化」。现有输入形状表达不了
+> 分层候选流——`RepositoryInspectionPlan` 的聚焦区域带着模型给出的标签，用它承载分层候选
+> 等于**替模型捏造标签**。因此 Planner 增加了一个描述符集合型输入
+> （`RepositoryTargetedSourceCandidates`：同一 revision + 有序、去重后的候选），
+> 两条路径共用同一套规划与预算逻辑。**规划策略语义、`maxFiles` / `maxFileBytes` /
+> `maxTotalBytes` 与既有排序均未改动。**
 
 ## Rationale
 
