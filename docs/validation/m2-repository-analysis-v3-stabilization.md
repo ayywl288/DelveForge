@@ -2,7 +2,8 @@
 
 **Status:** Validation Record / **Not Source of Truth**
 **Last Updated:** 2026-10-03
-**Validated Revision:** `main` @ `fd645db` + 本轮的 `7209cd2`
+**标定实验基线:** `main` @ `7209cd2`（Go 分类修正 + Scout 有界重试；A/B 实验就是在它之上跑的）
+**最终验证版本:** `3f55678`（定下 `24 / 229376` 并补齐文档的那个提交）
 **性质:** 稳定化与标定，**不是重新设计**。核心链路（Map → 两条通道 → flat/分层 Scout →
 定向候选 → ReadPlanner → 凭据边界 → 真实读取 → Final Analyzer → Evidence 校验 → Profile）保持不变。
 **依据:** ADR-0004 / ADR-0005 / ADR-0006、
