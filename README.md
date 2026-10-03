@@ -1,246 +1,101 @@
+<div align="center">
+
 # DelveForge
 
-*A personalized project discovery and evolution agent connecting real user needs with reusable software assets.*
+**Personalized project discovery and evolution.**
 
-有代码、有技术，却不知道下一个项目该做什么？DelveForge 从你的兴趣、真实行为、痛点与目标出发，
-结合已有软件仓库的能力，发现有个人意义、也有代码基础可依托的产品方向。
+把真实需求与已有代码连接起来，找到你真正想做的下一个项目。
 
-**Evolution Before Rewrite：先寻找已有软件可以如何演化，再决定需要新建什么。**
+**Evolution Before Rewrite**
 
-目前已完成 **M0–M2**：用户探索 → 仓库理解 → 产品方向发现与用户选择。
-下一阶段是 **M3 · Evolution Planning**；演化规划与代码执行尚未实现。
+![Java 21](https://img.shields.io/badge/Java-21-007396)
+![Spring Boot 3.5](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F)
+![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D)
 
-[当前验证](#已经验证了什么) · [工程设计](#关键工程设计) · [快速开始](#快速开始) · [项目文档](#项目文档)
+[了解功能](#features) · [快速开始](#getting-started) · [如何使用](#usage) · [文档](#documentation)
 
-## 为什么做 DelveForge
+</div>
 
-教程、热门项目清单和克隆系统能帮助开发者学习技术，却不一定回答：
-**我为什么要做这个？谁会使用它？它和我已经写过的代码有什么关系？**
+## 🎯 About
 
-DelveForge 尝试把这几个问题连起来：
+做完教程项目后，下一个项目做什么？热门项目清单能提供题目，却很难解释：
+**为什么适合我、我会不会真的使用它、它和现有项目有什么不同？**
 
-- 从兴趣、行为和痛点找到真实使用场景，而非先选一个技术栈再拼需求。
-- 把技术能力、项目目标和时间约束纳入取舍，让方向适合具体的人。
-- 理解教程项目、历史项目或开源仓库中的可复用能力，寻找差异化的演化路径。
+DelveForge 面向已有一定开发经验、希望找到个人项目方向的开发者。
+它结合你的兴趣、行为、痛点、技术能力与现实约束，理解手边仓库的可复用能力，
+提出值得继续探索的产品方向。
 
-这是一个正在验证的产品假设。当前已验证后端链路与真实仓库上的推荐结果，
-尚不代表已经完成广泛的真实用户验证。
+**Evolution Before Rewrite**：优先从已有软件出发，找到通往目标产品的演化路径。
+目前可以完成用户探索、仓库分析和方向选择；演化规划与代码执行尚未实现。
 
-## 当前可以完成的流程
+<a id="features"></a>
 
-```mermaid
-flowchart TD
-    U["兴趣 / 行为 / 痛点 / 能力 / 目标 / 约束"] --> UD["User Discovery · Review / Correct / Confirm"]
-    UD --> UP["Confirmed UserProfile @ revision"]
-    R["Local Git Repository"] --> RU["Repository Understanding · 只读分析"]
-    RU --> RP["RepositoryProfile @ analyzedRevision"]
-    UP --> PD["Product Direction Discovery"]
-    RP --> PD
-    PD --> C["3–5 个 CANDIDATE Directions"]
-    C --> S["用户显式 Select"]
-    C --> X["用户显式 Reject"]
-    S --> A["SELECTED · 原选中方向进入 SUPERSEDED"]
-    X --> B["REJECTED"]
-```
+## ✨ Features
 
-每个方向包含问题、目标产品、用户匹配点、候选资产、差异化、技术价值、复杂度、风险与依据。
-系统负责提出候选，**最终选择属于用户**；当前全局最多保留一个 `SELECTED` 方向。
+- **User Discovery · 理解你的需求**<br>
+  探索兴趣、真实行为、痛点、技能、目标和约束。你可以查看、纠正并明确确认生成的画像。
+- **Repository Understanding · 看懂已有资产**<br>
+  只读分析本地 Git 仓库的固定 commit，整理用途、技术栈、核心能力、可复用资产、限制与风险。
+- **Product Direction Discovery · 找到演化方向**<br>
+  将已确认画像与一个或多个仓库画像结合，生成 3–5 个个性化候选方向。
+- **Human Review & Selection · 由你作出选择**<br>
+  查看每个方向的用户匹配、资产复用、差异化、技术价值、复杂度、风险与依据，再选择或拒绝。
 
-当前业务功能通过 **REST API** 使用。Vue 前端已有工程骨架与后端连通性检查，
-尚未提供完整的用户探索或方向选择界面。
-
-## 已经验证了什么
-
-M2 收尾使用真实 DeepSeek 调用，以**同一个 Confirmed UserProfile** 分别配对三个真实仓库：
-
-| 验证项 | 结果 |
-| --- | --- |
-| 软件资产 | hm-dianping / mall / memos |
-| Product Directions | 14 个，初始均为 `CANDIDATE` |
-| EvidenceBasis | 207 条，逐条核对来源 |
-| basis 错配 | 0 |
-| 生命周期 | Select / Reject / Supersede，以及非法转换不改变状态 |
-| 失败一致性 | 无效输入基线被拒绝，相关表不留下部分方向 |
-| 后端自动化验证 | 1,069 个测试通过，0 failures |
-
-详见 [M2 端到端验证记录](docs/validation/m2-product-direction-e2e-smoke.md)。
-方向文字是那次模型调用的结果；这里验证的是输入追溯、领域结构、生命周期和持久化边界，
-不承诺每次调用产生相同推荐。
-
-## 同一个需求，三条演化路径
-
-验证中的用户希望拥有**数据由自己掌控、方便导出的个人记账工具**，
-主要使用 Java / Spring Boot，前端能力和可投入时间有限。
-
-| 输入仓库 | 已有资产 | 本次发现的方向示例 |
-| --- | --- | --- |
-| hm-dianping | 事务消息、消费幂等、三级缓存 | 记账数据迁移与对账流水线；复用多级缓存的月报看板 |
-| mall | Elasticsearch、动态鉴权、通用后端骨架 | 把商品搜索与聚合迁移到账目检索；自托管记账与导出服务 |
-| memos | memo 模型、CEL、多数据库、MCP | 将 memo 演化为账目；通过本地财务 MCP 服务查询账本 |
-
-**用户需求相同，但可复用资产不同，因此到达目标产品的路径不同。**
-这些是已生成的产品方向，不是已经完成的代码改造。
-
-## 关键工程设计
-
-### AI Proposes, Domain Decides
-
-LLM 产出的是不可信 Proposal，不能直接创建合法领域状态，也不能替用户选择方向。
-
-```text
-明确的输入基线
-    → AI Proposal
-    → strict parsing / reference resolution
-    → Application 校验 + Domain invariants
-    → accepted state / persistence
-```
-
-方向发现在调用模型前校验 UserProfile 是否已确认、revision 是否匹配、RepositoryProfile 是否存在。
-输出通过校验后整批写入；失败不留下半批方向。Provider 协议由 Infrastructure 处理，
-业务 Proposal 的解析与引用校验由 Application 承担。
-
-### 固定 revision 的仓库分析
-
-一次分析只解析一次 Git HEAD，后续元数据枚举、内容读取与结果都绑定同一个 `analyzedRevision`。
-分析读取已提交的 commit snapshot，不混入工作区未提交内容，也不在中途重新解析 HEAD。
-
-Repository Analysis 只获得 Workspace 的读能力，原始仓库保持不变。
-生成的 RepositoryProfile 是可追溯快照，后续分析不会覆盖旧快照的原始语义。
-
-### 分层 Repository Understanding
-
-先建立完整的元数据 Map，再决定读哪些文件。小目录走 flat File Scout；目录过大时，
-Region Scout 逐层选择区域，各终态分支执行本地 File Scout，再按保序轮转合并候选。
-
-Region / File Scout **只接收元数据**，引用必须在本次调用的目录内有效；
-仓库分析中只有 Final Analyzer 接收净化后的文件内容。
-导航调用预算与材料读取预算分开，Scout 协议失败最多重试一次，重试也消耗真实调用额度。
-
-极大或极宽的仓库可能在预算内无法完成导航，此时 **fail closed**，不把部分结果当成成功分析。
-`langflow` 是当前明确接受的 MVP bounded-failure 案例。
-
-### Repository Source Secret Boundary
-
-源码送往外部模型前经过两个执行点：
-
-```text
-读取前：排除规则命中的高风险路径
-读取后、交给 AI 前：净化内容中识别出的凭据取值
-```
-
-路径排除避免整份凭据文件进入读取；内容净化保留配置结构，同时替换识别出的敏感值。
-这是确定性规则边界，**不保证识别所有可能的秘密格式**。
-详见 [ADR-0006](docs/decisions/0006-repository-source-secret-boundary.md)。
-
-### Evidence-grounded Product Directions
-
-方向不仅保存推荐文字，也保存「用户需求 / 用户匹配 / 可复用能力」与依据的对应关系。
-每条依据关联确切的 UserProfile revision 或 RepositoryProfile，后者再绑定仓库 commit。
-
-临时模型引用由系统解析为真实输入中的依据；模型不能新造受信任的来源身份，
-也不能自行决定 Evidence 的 `confidence` 或 `confirmed`。
-依据可追溯不等于模型判断必然正确，用户仍需要审阅推荐与风险。
-
-## Repository Understanding 一图看懂
+## 🧭 How It Works
 
 ```mermaid
 flowchart TD
-    G["Pinned Git Commit"] --> M["完整 RepositoryMap · 仅元数据"]
-    M --> F["FOUNDATION · 确定性选材"]
-    M --> S["SCOUT_SOURCE"]
-    S --> Q{"File Catalog 在字节预算内？"}
-    Q -->|是| FS["Flat File Scout"]
-    Q -->|否| RS["Region Scout · 分层导航"]
-    RS --> BS["Branch-local File Scout"]
-    BS --> RR["保序轮转合并"]
-    F --> P["ReadPlanner · 两条通道独立材料预算"]
-    FS --> P
-    RR --> P
-    P --> PG["Secret Path Gate · 读取前排除"]
-    PG --> RD["固定 revision · 有界读取"]
-    RD --> CS["Content Sanitizer · 内容净化"]
-    CS --> FA["Final Analyzer"]
-    FA --> EV["Evidence 校验"]
-    EV --> RP["RepositoryProfile · 最后保存"]
+    U["你 · 兴趣、行为与需求"] --> UD["User Discovery"]
+    UD --> UP["你确认的 User Profile"]
+    R["Local Git Repository"] --> RU["Repository Understanding"]
+    RU --> RP["Repository Profile"]
+    UP --> D["Product Direction Discovery"]
+    RP --> D
+    D --> C["候选产品方向"]
+    C --> S["你审阅并选择 / 拒绝"]
 ```
 
-完整 Map 表示元数据可见，不意味着读取全部源码。
-Final Analyzer 的 Evidence 引用必须指向本次真正送出的文件。
-设计依据见 [ADR-0004](docs/decisions/0004-two-stage-repository-understanding-with-validated-file-references.md)
-和 [ADR-0005](docs/decisions/0005-hierarchical-repository-scout-for-oversized-source-catalogs.md)。
+**一个例子：**你想做数据由自己掌控的个人记账工具，而手边的后端项目已有
+Elasticsearch 搜索与聚合能力。一个可能的方向是复用索引、筛选和聚合机制，
+把商品检索演化为**账目检索与分析**。
 
-## 架构与技术栈
+这个例子来自已有验证中的方向建议，不代表每次都会生成相同结果，也不代表改造已经完成。
+同一个需求配上不同的软件资产，可以得到不同的演化路径。
 
-Backend 是 Maven 多模块的 Modular Monolith，模块内部按 Feature / Domain Concept 组织。
-下面箭头表示代码依赖，Frontend 通过 HTTP 访问 App：
+<a id="getting-started"></a>
 
-```text
-Frontend (Vue) ──HTTP──▶ App (REST / Composition Root)
-                         ├──▶ Application ──▶ Domain
-                         └──▶ Infrastructure ──▶ Application / Domain
-```
+## 🚀 Getting Started
 
-| 模块 | 职责 |
-| --- | --- |
-| `delveforge-domain` | Aggregates、invariants、显式状态转换，不依赖其他业务模块 |
-| `delveforge-application` | Use Cases、编排、Ports、业务解析与校验 |
-| `delveforge-infrastructure` | SQLite、Git CLI、DeepSeek HTTP 等外部能力 Adapter |
-| `delveforge-app` | REST、启动、配置与依赖装配 |
-| `frontend` | Vue 应用；当前提供连通性验证页面 |
+### 准备环境
 
-主要技术：**Java 21 · Spring Boot 3.5.16 · SQLite · Flyway · MyBatis-Plus · Git CLI ·
-DeepSeek HTTP API · Vue 3 · TypeScript · Vite · Maven Wrapper**。
+- **JDK 21**，配置好 `JAVA_HOME`；**Git CLI** 可从 `PATH` 调用。
+- **Node.js `^20.19.0 || >=22.12.0` + npm**（启动前端时需要）。
+- **DeepSeek API Key**，供用户探索、仓库分析与方向发现使用。
+- Maven Wrapper 已包含在仓库中；SQLite 无需独立数据库服务。
 
-所有模型访问经过 AI Gateway，仓库操作经过 Workspace Port。
-Provider 类型不进入 Domain / Application，读能力与代码修改能力保持分离。
-
-## 项目进度
-
-| Milestone | 状态 |
-| --- | --- |
-| M0 — Project Foundation | 已完成 |
-| M1 — User Discovery + Repository Analysis | 已完成 |
-| M2 — Product Direction Discovery | 已完成，Repository Analysis V3 已冻结 |
-| M3 — Evolution Planning | 下一阶段，尚未开始 |
-
-演化计划、Working Copy 和代码执行属于后续工作。完整范围与验收标准见 [ROADMAP](docs/ROADMAP.md)。
-
-## 快速开始
-
-### 环境
-
-- **JDK 21**，`JAVA_HOME` 指向该 JDK。
-- **Git CLI** 可在 `PATH` 中访问；分析输入为本地 Git Repository。
-- 前端需要 **Node.js `^20.19.0 || >=22.12.0` 与 npm**，使用仓库的 `package-lock.json`。
-- 无需单独安装 Maven 或数据库服务；仓库提供 Maven Wrapper，持久化使用 SQLite。
-
-### 构建并启动后端
-
-在仓库根目录执行：
+### 克隆并启动后端
 
 ```bash
-./mvnw clean verify
+git clone https://github.com/ayywl288/DelveForge.git
+cd DelveForge
+./mvnw -DskipTests package
 export DEEPSEEK_API_KEY="<your-key>"
 java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar
 ```
 
-Windows PowerShell 使用 `./mvnw.cmd clean verify`，设置凭据使用：
+Windows PowerShell 将 `./mvnw` 换成 `./mvnw.cmd`，并用以下命令设置凭据：
 
 ```powershell
 $env:DEEPSEEK_API_KEY = "<your-key>"
 ```
 
-后端默认地址为 `http://localhost:8080`。模型相关功能需要有效的 `DEEPSEEK_API_KEY`；
-未设置时服务仍可启动，只有实际需要模型的请求会失败。不要将真实凭据写进配置文件或提交到 Git。
-
-SQLite 默认写入相对于进程工作目录的 `./data/delveforge.db`，缺失的父目录会自动创建，
-Schema 由 Flyway 管理。数据库位置可通过 `DELVEFORGE_PERSISTENCE_DATABASE_FILE` 覆盖。
-其余配置见 [application.yml](backend/delveforge-app/src/main/resources/application.yml)
-与 [ARCHITECTURE](docs/ARCHITECTURE.md)。
+后端默认运行于 `http://localhost:8080`，SQLite 文件默认位于 `./data/delveforge.db`。
+未设置 Key 时仍可启动服务，但需要模型的请求会失败。真实凭据不要提交到仓库。
+高级配置见 [application.yml](backend/delveforge-app/src/main/resources/application.yml)。
 
 ### 启动前端
 
-另开终端：
+在仓库根目录另开终端：
 
 ```bash
 cd frontend
@@ -248,42 +103,93 @@ npm ci
 npm run dev
 ```
 
-默认打开 `http://localhost:5173`，开发服务器将 `/api` 代理到本地后端。
-当前页面用于确认前后端连通；业务 API 的操作顺序见
-[M2 E2E 复现步骤](docs/validation/m2-product-direction-e2e-smoke.md#13-复现)。
+打开 `http://localhost:5173`；开发服务器会将 `/api` 代理到本地后端。
+**当前 Vue 页面主要用于连通性检查，完整业务流程通过 REST API 使用。**
 
-## 验证
+<a id="usage"></a>
 
-后端完整验证（仓库根目录）：
+## 💡 Usage
 
-```bash
-./mvnw clean verify
+启动服务后，可使用 Postman、curl 等 HTTP 客户端按下面的顺序体验。
+表中的 `{id}` 分别使用前一步返回的画像、资产或方向 ID。
+
+| 步骤 | 操作 | API |
+| --- | --- | --- |
+| 1 | 创建用户画像 | `POST /api/user-profiles` |
+| 2 | 提交需求，按返回问题继续探索 | `POST /api/user-profiles/{id}/discovery-turn` |
+| 3 | 查看画像，必要时纠正字段 | `GET /api/user-profiles/{id}`、`PATCH /api/user-profiles/{id}` |
+| 4 | 审阅后确认当前版本 | `POST /api/user-profiles/{id}/confirm` |
+| 5 | 登记本地 Git 仓库及授权信息 | `POST /api/software-assets` |
+| 6 | 分析仓库，取得仓库画像 | `POST /api/software-assets/{id}/analysis` |
+| 7 | 以确认后的用户画像和仓库画像发现方向 | `POST /api/product-directions/discovery` |
+| 8 | 查看方向，再显式选择或拒绝 | `GET /api/product-directions/{id}`、`POST /api/product-directions/{id}/select` 或 `/reject` |
+
+Discovery turn 的请求形如 `{"input":"我想做自托管记账工具，主要会 Java，只有周末有时间。"}`。
+信息不足时按 `nextQuestion` 继续回答；进入 `REVIEWING` 后检查画像，
+确认时提交你实际审阅版本的 `{"revision": N}`。
+
+登记仓库时提供 `location`、`readPermissionAllowed`、`licenseInfo` 与 `usageAuthorization`，
+按真实权限填写。取得分析结果后，方向发现请求的形状如下：
+
+```json
+{
+  "userProfileId": "<confirmed-user-profile-id>",
+  "expectedRevision": 23,
+  "repositoryProfileIds": ["<repository-profile-id>"]
+}
 ```
 
-M2 收尾基线共有 **1,069 个后端自动化测试**；常规测试不需要真实 LLM 凭据。
-真实 Provider smoke 与自动化测试分开记录。
+将示例中的 ID 和 `23` 换成实际返回的值。选择新方向时，原先选中的方向会进入 `SUPERSEDED`；
+系统不会替你选择，也不会在选择后自动修改代码。
+详细操作记录见 [端到端使用示例](docs/validation/m2-product-direction-e2e-smoke.md#13-复现)。
 
-前端验证：
+## 🏗 Engineering & Architecture
 
-```bash
-cd frontend
-npm ci
-npm run build
+- **AI Proposes, Domain Decides**：模型输出先经过严格解析、引用校验和领域规则，才能成为系统状态；方向整批保存，失败不留下半批结果。
+- **Revision-pinned Understanding**：对固定 commit 做只读分析，在有界预算内选择材料，保留结果与仓库版本之间的联系。
+- **Safe AI boundary**：Scout 只接收元数据；文件读取前排除高风险路径，内容交给外部 AI 前净化已识别凭据。规则不保证覆盖所有秘密格式。
+- **Evidence-backed recommendations**：方向保留用户需求、匹配关系与可复用能力的依据，关联明确的画像版本与仓库快照，方便审阅与追溯。
+
+Backend 采用 Maven 多模块的 Modular Monolith。App 负责装配，Infrastructure 实现外部 Ports：
+
+```text
+Frontend ──HTTP──▶ App
+                    ├──▶ Application ──▶ Domain
+                    └──▶ Infrastructure ──▶ Application / Domain
 ```
 
-`build` 先运行 `vue-tsc` 类型检查，再执行 Vite 生产构建。
-前端当前未配置独立 test / lint 脚本，更多开发说明见 [Frontend README](frontend/README.md)。
+模块依赖和仓库理解的详细设计见 [ARCHITECTURE](docs/ARCHITECTURE.md) 与 [ADRs](docs/decisions/)。
 
-## 项目文档
+## 🛠 Built With
 
-| 文档 | 从这里了解 |
+| 层面 | 技术 |
 | --- | --- |
-| [PRODUCT](docs/PRODUCT.md) | 产品假设、目标用户与 MVP 范围 |
-| [ARCHITECTURE](docs/ARCHITECTURE.md) | 模块边界、依赖方向与技术选择 |
-| [DOMAIN_MODEL](docs/DOMAIN_MODEL.md) | 领域语义、状态机与不变量 |
-| [ROADMAP](docs/ROADMAP.md) | 当前进度、后续 Milestone 与验收标准 |
-| [Architecture Decisions](docs/decisions/) | 重要设计选择、替代方案与取舍 |
-| [M2 Retrospective](docs/retrospectives/m2-product-direction.md) | 从真实失败到 V3 的演进，以及开发过程的经验 |
-| [M2 E2E Validation](docs/validation/m2-product-direction-e2e-smoke.md) | 三仓库方向发现、依据核对与生命周期验证 |
+| Backend | Java 21 · Spring Boot 3.5.x · Maven Wrapper |
+| Persistence | SQLite · Flyway · MyBatis-Plus |
+| 外部能力 | Git CLI · DeepSeek HTTP API |
+| Frontend | Vue 3 · TypeScript · Vite |
 
-[AGENTS.md](AGENTS.md) 是 Coding Agent 的贡献约定，定义任务范围、修改规则和验证要求。
+核心流程有自动化测试与真实仓库验证覆盖。后端在根目录运行 `./mvnw clean verify`；
+前端安装依赖后在 `frontend/` 运行 `npm run build`，完成类型检查与生产构建。
+
+## 🗺 Roadmap
+
+- ✅ **M0 — Foundation**
+- ✅ **M1 — User Discovery + Repository Analysis**
+- ✅ **M2 — Product Direction Discovery**
+- ➡️ **M3 — Evolution Planning**：下一阶段，尚未开始
+
+完整计划见 [ROADMAP](docs/ROADMAP.md)。当前完成的是方向发现与选择，尚不包含演化计划或代码执行。
+
+<a id="documentation"></a>
+
+## 📚 Documentation
+
+- [PRODUCT](docs/PRODUCT.md) — 产品目标、用户与范围
+- [ARCHITECTURE](docs/ARCHITECTURE.md) — 系统结构与技术边界
+- [DOMAIN_MODEL](docs/DOMAIN_MODEL.md) — 领域语义、状态机与不变量
+- [ROADMAP](docs/ROADMAP.md) — 开发计划与验收标准
+- [ADRs](docs/decisions/) — 关键设计决策与取舍
+- Engineering notes — [开发复盘](docs/retrospectives/) / [验证记录](docs/validation/)
+
+贡献时请参考 [AGENTS.md](AGENTS.md)；前端开发说明见 [Frontend README](frontend/README.md)。
