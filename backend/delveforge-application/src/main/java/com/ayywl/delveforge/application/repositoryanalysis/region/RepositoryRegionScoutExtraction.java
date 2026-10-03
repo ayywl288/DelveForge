@@ -5,6 +5,8 @@ import com.ayywl.delveforge.application.port.ai.AiMessage;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
+import com.ayywl.delveforge.application.repositoryanalysis.scout.ScoutAttemptPermit;
+import com.ayywl.delveforge.application.repositoryanalysis.scout.ScoutProtocolViolationException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
@@ -135,24 +137,46 @@ public final class RepositoryRegionScoutExtraction {
     }
 
     /**
-     * 依据本次 Region 目录提取「接下来探索哪些区域」。
+     * 依据本次 Region 目录提取「接下来探索哪些区域」，对**契约违反**做一次有界重试。
      *
      * <p>顺序是：序列化一次 → 用**这一份**载荷执行字节守卫 → 原样发出它 → 解析 → 引用校验。
-     * 守卫在 Gateway 之前，因此超限的目录不会产生任何模型调用；解析与引用校验失败也都以异常结束，
-     * 不返回半成品。
+     * 守卫在 Gateway 之前，因此超限的目录不会产生任何模型调用。
+     *
+     * <p>与 File Scout 同一条原则：契约违反（模型这次没按约定作答）允许**一次**重试，
+     * 调用失败则不重试；重试同样走 {@code permit.acquire()}，因此占用真实的调用额度。
+     * 解析与引用校验一字未改，也不做任何修补。
      *
      * @param catalog 本次导航的 Region 目录，不得为 {@code null}
+     * @param permit  每次尝试之前的许可，不得为 {@code null}；由持有预算计数的调用方提供
      * @return 模型提出、并已通过结构与引用校验的区域选择，顺序即分支优先级
-     * @throws IllegalArgumentException                   catalog 为 {@code null}
+     * @throws IllegalArgumentException                  任一参数为 {@code null}
      * @throws RepositoryRegionCatalogTooLargeException   目录载荷超过本次导航的字节上限
+     * @throws ScoutProtocolViolationException            两次尝试都没有按约定作答
      * @throws com.ayywl.delveforge.application.port.ai.AiGatewayException
-     *                                   AI 调用失败、返回内容不满足约定，或引用了本次没有提供的编号
+     *                                   AI 调用本身失败，或引用了本次没有提供的编号
      */
-    public RepositoryRegionSelection scout(RepositoryRegionCatalog catalog) {
+    public RepositoryRegionSelection scout(RepositoryRegionCatalog catalog,
+                                           ScoutAttemptPermit permit) {
         if (catalog == null) {
             throw new IllegalArgumentException(
                     "RepositoryRegionScoutExtraction 必须指定 catalog");
         }
+        if (permit == null) {
+            throw new IllegalArgumentException(
+                    "RepositoryRegionScoutExtraction 必须指定 permit");
+        }
+
+        permit.acquire();
+        try {
+            return scoutOnce(catalog);
+        } catch (ScoutProtocolViolationException violation) {
+            permit.acquire();
+            return scoutOnce(catalog);
+        }
+    }
+
+    /** 一次完整的尝试：字节守卫 → 调用 → 解析 → 引用校验。 */
+    private RepositoryRegionSelection scoutOnce(RepositoryRegionCatalog catalog) {
         String payload = describeCatalog(catalog);
         limits.requireCatalogWithinLimit(
                 payload.getBytes(StandardCharsets.UTF_8).length, catalog.analyzedRevision());

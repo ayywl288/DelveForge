@@ -64,7 +64,7 @@ public final class RepositoryScoutProposalResolver {
      * @param inputs   建立本次调用时的输入，不得为 {@code null}
      * @return 由已校验的描述符构成的可信计划
      * @throws IllegalArgumentException 任一参数为 {@code null}
-     * @throws AiGatewayException       引用了本次没有提供的编号，或引用了非源码候选
+     * @throws ScoutProtocolViolationException       引用了本次没有提供的编号，或引用了非源码候选
      */
     public RepositoryInspectionPlan resolve(AiRepositoryScoutProposal proposal,
                                             RepositoryScoutInputs inputs) {
@@ -103,7 +103,7 @@ public final class RepositoryScoutProposalResolver {
         Set<RepositoryFileReference> seen = new LinkedHashSet<>();
         for (RepositoryFileReference reference : area.fileRefs()) {
             if (!seen.add(reference)) {
-                throw new AiGatewayException(
+                throw new ScoutProtocolViolationException(
                         "Scout 在查看区域「" + area.label() + "」内重复引用了 "
                                 + reference.value());
             }
@@ -117,14 +117,14 @@ public final class RepositoryScoutProposalResolver {
 
         Optional<RepositoryMapEntry> resolved = inputs.findInMap(reference);
         if (resolved.isEmpty()) {
-            throw new AiGatewayException(
+            throw new ScoutProtocolViolationException(
                     "Scout 在查看区域「" + label + "」引用了本次没有提供的编号: "
                             + reference.value() + "（该编号不属于建立本次调用时的 Repository Map）");
         }
 
         RepositoryMapEntry entry = resolved.get();
         if (RepositoryCandidateLane.of(entry) != RepositoryCandidateLane.SCOUT_SOURCE) {
-            throw new AiGatewayException(
+            throw new ScoutProtocolViolationException(
                     "Scout 在查看区域「" + label + "」引用了本次没有作为源码候选提供的文件: "
                             + reference.value() + "（" + entry.relativePath()
                             + " 不属于本次的源码候选）");

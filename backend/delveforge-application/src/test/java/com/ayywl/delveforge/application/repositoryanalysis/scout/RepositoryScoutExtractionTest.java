@@ -16,6 +16,8 @@ import com.ayywl.delveforge.application.port.ai.AiRole;
 import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapEntry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -43,7 +45,7 @@ class RepositoryScoutExtractionTest {
     void returnsATrustedPlanFromTheModelOutput() {
         aiGateway.respond(ScoutFixtures.validResponse());
 
-        RepositoryInspectionPlan plan = extraction.scout(inputs);
+        RepositoryInspectionPlan plan = extraction.scout(inputs, () -> { });
 
         assertEquals(ScoutFixtures.REVISION, plan.analyzedRevision());
         assertEquals(3, plan.areaCount());
@@ -61,7 +63,7 @@ class RepositoryScoutExtractionTest {
     void planEntriesAreTheVeryDescriptorsThatWereSent() {
         aiGateway.respond(ScoutFixtures.validResponse());
 
-        RepositoryInspectionPlan plan = extraction.scout(inputs);
+        RepositoryInspectionPlan plan = extraction.scout(inputs, () -> { });
 
         RepositoryMapEntry controller = plan.areas().get(0).entries().get(0);
         assertSame(inputs.catalog().get(0), controller);
@@ -77,7 +79,7 @@ class RepositoryScoutExtractionTest {
     void sendsTheCatalogWithoutFileContents() throws Exception {
         aiGateway.respond(ScoutFixtures.validResponse());
 
-        extraction.scout(inputs);
+        extraction.scout(inputs, () -> { });
 
         AiRequest request = aiGateway.lastRequest();
         assertEquals(AiResponseFormat.JSON, request.responseFormat());
@@ -113,7 +115,7 @@ class RepositoryScoutExtractionTest {
     void instructsTheModelToStayInsideTheInspectionBoundary() {
         aiGateway.respond(ScoutFixtures.validResponse());
 
-        extraction.scout(inputs);
+        extraction.scout(inputs, () -> { });
 
         String instruction = aiGateway.lastRequest().messages().get(0).content();
         assertTrue(instruction.contains("focusAreas"), "系统指令必须给出输出契约");
@@ -133,14 +135,14 @@ class RepositoryScoutExtractionTest {
     void propagatesAiGatewayFailure() {
         aiGateway.failWith(new AiGatewayException("provider 不可用", new RuntimeException("boom")));
 
-        assertThrows(AiGatewayException.class, () -> extraction.scout(inputs));
+        assertThrows(AiGatewayException.class, () -> extraction.scout(inputs, () -> { }));
     }
 
     @Test
     void propagatesMalformedResponse() {
         aiGateway.respond("{}");
 
-        assertThrows(AiGatewayException.class, () -> extraction.scout(inputs));
+        assertThrows(AiGatewayException.class, () -> extraction.scout(inputs, () -> { }));
     }
 
     /**
@@ -158,12 +160,103 @@ class RepositoryScoutExtractionTest {
                 }
                 """);
 
-        assertThrows(AiGatewayException.class, () -> extraction.scout(inputs));
+        assertThrows(AiGatewayException.class, () -> extraction.scout(inputs, () -> { }));
+    }
+
+    // ---------------------------------------------------------------------
+    // 有界重试：模型这一次没按约定作答时可以再问一次
+    // ---------------------------------------------------------------------
+
+    /**
+     * 第一次违反输出契约、第二次守约 → 成功。
+     *
+     * <p>真实证据：多仓 Smoke 里 memos 的第一次分析正是因为 File Scout 返回了 7 个
+     * {@code focusAreas}（契约上限 6）而整次作废，同一资产、同一 revision 再跑一次即成功。
+     * 契约违反属于「模型这次没答好」，再问一次是值得的。
+     */
+    @Test
+    void retriesOnceWhenTheResponseViolatesTheScoutContract() {
+        aiGateway.respondSequence(
+                sevenFocusAreas(),
+                ScoutFixtures.validResponse());
+
+        RepositoryInspectionPlan plan = extraction.scout(inputs, () -> { });
+
+        assertEquals(2, aiGateway.calls(), "第一次不合法 → 重试一次");
+        assertEquals(3, plan.areaCount(), "重试拿到的合法结果被正常使用");
+    }
+
+    /**
+     * 两次都不合法 → 失败，且失败语义与以前一致（仍是 {@link AiGatewayException}）。
+     *
+     * <p>重试**不放松**校验：不会把 7 个区域截成 6 个，也不会丢掉那个不存在的引用。
+     */
+    @Test
+    void failsWhenTheResponseViolatesTheContractTwice() {
+        aiGateway.respondSequence(sevenFocusAreas(), sevenFocusAreas());
+
+        assertThrows(AiGatewayException.class, () -> extraction.scout(inputs, () -> { }));
+        assertEquals(2, aiGateway.calls(), "最多两次尝试，不会无限重试");
+    }
+
+    /**
+     * 调用本身失败**不重试**：那是外部能力的问题，再问一次未必更好。
+     */
+    @Test
+    void doesNotRetryAProviderFailure() {
+        aiGateway.failWith(new AiGatewayException("provider 不可用", new RuntimeException("boom")));
+
+        assertThrows(AiGatewayException.class, () -> extraction.scout(inputs, () -> { }));
+        assertEquals(1, aiGateway.calls(), "调用失败只发生一次");
+    }
+
+    /**
+     * 预算不允许第二次尝试时，**重试不会发出去**，抛出的是许可的异常。
+     *
+     * <p>「重试是一次真实的模型调用」这句话在这里变成可执行的事实：
+     * 额度不够时它连请求都不会发出，抛出的也不是 Scout 的契约违反，而是预算耗尽。
+     */
+    @Test
+    void doesNotSendTheRetryWhenThePermitRefusesIt() {
+        aiGateway.respondSequence(sevenFocusAreas(), ScoutFixtures.validResponse());
+
+        List<Integer> acquisitions = new ArrayList<>();
+        ScoutAttemptPermit permit = () -> {
+            acquisitions.add(acquisitions.size() + 1);
+            if (acquisitions.size() > 1) {
+                throw new IllegalStateException("预算用尽");
+            }
+        };
+
+        assertThrows(IllegalStateException.class, () -> extraction.scout(inputs, permit));
+        assertEquals(1, aiGateway.calls(), "第二次尝试被许可挡下，没有发出请求");
+    }
+
+    /**
+     * 每个区域的引用都合法（都在本次清单里、区域内不重复），**唯独区域总数是 7**。
+     *
+     * <p>真实 Smoke 里 memos 遇到的正是这一种：唯一的违规是数量多了一个，
+     * 而不是引用了不存在的东西。
+     */
+    private static String sevenFocusAreas() {
+        return """
+                {
+                  "focusAreas": [
+                    { "label": "a1", "fileRefs": ["RF-1"] },
+                    { "label": "a2", "fileRefs": ["RF-2"] },
+                    { "label": "a3", "fileRefs": ["RF-3"] },
+                    { "label": "a4", "fileRefs": ["RF-4"] },
+                    { "label": "a5", "fileRefs": ["RF-1"] },
+                    { "label": "a6", "fileRefs": ["RF-2"] },
+                    { "label": "a7", "fileRefs": ["RF-3"] }
+                  ]
+                }
+                """;
     }
 
     @Test
     void rejectsNullInputs() {
-        assertThrows(IllegalArgumentException.class, () -> extraction.scout(null));
+        assertThrows(IllegalArgumentException.class, () -> extraction.scout(null, () -> { }));
     }
 
     @Test
@@ -178,8 +271,10 @@ class RepositoryScoutExtractionTest {
     // 替身
     // ---------------------------------------------------------------------
 
-    /** AI Gateway 替身：记录最后一次请求，返回预设内容，或按预设抛错。 */
+    /** AI Gateway 替身：记录每一次请求，按顺序返回预设内容，或按预设抛错。 */
     private static final class StubAiGateway implements AiGateway {
+
+        private final List<String> sequence = new ArrayList<>();
 
         private String response = "{}";
 
@@ -187,8 +282,18 @@ class RepositoryScoutExtractionTest {
 
         private AiRequest lastRequest;
 
+        private int calls;
+
         void respond(String rawResponse) {
+            this.sequence.clear();
             this.response = rawResponse;
+            this.failure = null;
+        }
+
+        /** 按顺序返回多次调用的内容；用完之后继续返回最后一条。 */
+        void respondSequence(String... rawResponses) {
+            this.sequence.clear();
+            this.sequence.addAll(List.of(rawResponses));
             this.failure = null;
         }
 
@@ -200,12 +305,21 @@ class RepositoryScoutExtractionTest {
             return lastRequest;
         }
 
+        int calls() {
+            return calls;
+        }
+
         @Override
         public String generate(AiRequest request) {
             this.lastRequest = request;
+            this.calls++;
             if (failure != null) {
                 throw failure;
             }
+            if (sequence.isEmpty()) {
+                return response;
+            }
+            this.response = sequence.remove(0);
             return response;
         }
     }

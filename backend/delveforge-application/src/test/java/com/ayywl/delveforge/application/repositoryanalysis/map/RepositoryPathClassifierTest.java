@@ -174,6 +174,36 @@ class RepositoryPathClassifierTest {
                 RepositoryPathClassifier.classify("app/shop_test.py").materialKind());
     }
 
+    /**
+     * Go 的标准测试命名 {@code *_test.go} 是测试代码。
+     *
+     * <p>它由 {@code go test} 自己识别，是 Go 唯一的测试文件惯例（没有 {@code test/} 目录约定、
+     * 也没有 {@code *Test.go} 之类）。不识别的后果在真实仓库上已经看到：
+     * memos 的 {@code acl_config_test.go} / {@code authz_test.go} 以 {@code SOURCE_CODE} 进入
+     * SCOUT_SOURCE，占用了本该给出产品实现的候选位。
+     */
+    @Test
+    void recognisesGoTestsByConvention() {
+        assertKind(RepositoryMaterialKind.TEST_CODE, "store/store_test.go");
+        assertKind(RepositoryMaterialKind.TEST_CODE, "internal/acl/acl_config_test.go");
+        assertKind(RepositoryMaterialKind.TEST_CODE, "authz_test.go");
+    }
+
+    /**
+     * Go 的测试惯例**只**认 {@code _test.go} 后缀。
+     *
+     * <p>Go 里没有 Java 那种「类名以 Test 结尾」的约定，因此
+     * {@code TestUtils.go}、{@code contest.go}、{@code latest.go} 都是普通源码——
+     * 把它们判成测试会让正常代码从所有候选组里消失。
+     */
+    @Test
+    void doesNotApplyTestNamingToOrdinaryGoFiles() {
+        assertKind(RepositoryMaterialKind.SOURCE_CODE, "internal/contest/contest.go");
+        assertKind(RepositoryMaterialKind.SOURCE_CODE, "pkg/TestUtils.go");
+        assertKind(RepositoryMaterialKind.SOURCE_CODE, "pkg/latest.go");
+        assertKind(RepositoryMaterialKind.SOURCE_CODE, "pkg/testing_helpers.go");
+    }
+
     // ---------------------------------------------------------------------
     // 回归：生成目录名不得把正常业务包一起排掉
     // ---------------------------------------------------------------------

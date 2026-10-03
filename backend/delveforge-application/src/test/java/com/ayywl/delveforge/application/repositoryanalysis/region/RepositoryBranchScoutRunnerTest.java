@@ -186,11 +186,14 @@ class RepositoryBranchScoutRunnerTest {
     @Test
     void rejectsReferencesOutsideTheBranchCatalog() {
         // b 支只有两个文件（RF-1 / RF-2）；RF-3 超出它的闭集。
+        // 契约违反会重试一次，因此脚本里 b 支写两遍：两次都不合法才整次失败。
         BranchScoutFixtures.ScriptedFileScoutGateway gateway =
                 new BranchScoutFixtures.ScriptedFileScoutGateway(List.of(
                         List.of(List.of(BranchScoutFixtures.A1),
                                 List.of(BranchScoutFixtures.A2),
                                 List.of(BranchScoutFixtures.A3)),
+                        List.of(List.of("RF-3"), List.of(BranchScoutFixtures.B1),
+                                List.of(BranchScoutFixtures.B2)),
                         List.of(List.of("RF-3"), List.of(BranchScoutFixtures.B1),
                                 List.of(BranchScoutFixtures.B2)),
                         List.of(List.of(BranchScoutFixtures.C1),
@@ -199,6 +202,7 @@ class RepositoryBranchScoutRunnerTest {
 
         assertThrows(AiGatewayException.class,
                 () -> runner(gateway, 18).run(threeBranches()));
+        assertEquals(3, gateway.calls(), "a 支 1 次 + b 支 2 次（含一次重试），c 支未开始");
     }
 
     /**
@@ -375,13 +379,15 @@ class RepositoryBranchScoutRunnerTest {
                                 List.of(BranchScoutFixtures.A3)),
                         List.of(List.of("RF-9"), List.of(BranchScoutFixtures.B1),
                                 List.of(BranchScoutFixtures.B2)),
+                        List.of(List.of("RF-9"), List.of(BranchScoutFixtures.B1),
+                                List.of(BranchScoutFixtures.B2)),
                         List.of(List.of(BranchScoutFixtures.C1),
                                 List.of(BranchScoutFixtures.C2),
                                 List.of(BranchScoutFixtures.C3))));
 
         assertThrows(AiGatewayException.class,
                 () -> runner(gateway, 18).run(threeBranches()));
-        assertEquals(2, gateway.calls(), "a 支成功、b 支失败即整次失败");
+        assertEquals(3, gateway.calls(), "a 支成功、b 支两次都不合法即整次失败，c 支未开始");
     }
 
     // ---------------------------------------------------------------- 参数

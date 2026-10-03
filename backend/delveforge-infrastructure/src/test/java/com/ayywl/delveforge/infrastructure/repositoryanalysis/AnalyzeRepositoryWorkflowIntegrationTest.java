@@ -366,6 +366,7 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
                         new DeterministicRepositorySecretPolicy()),
                 new RepositoryReadExecutor(workspacePort, foundation, targetedSource),
                 new DeterministicRepositorySecretPolicy(),
+                scoutCallBudget,
                 65_536);
 
         return new AnalyzeRepositoryUseCase(

@@ -182,11 +182,23 @@ public final class RepositoryPathClassifier {
     private static final Set<String> CAMEL_CASE_TEST_EXTENSIONS = Set.of(
             ".java", ".kt", ".kts", ".scala", ".groovy", ".cs");
 
-    /** 按 JS/TS/Python 惯例命名的测试文件后缀（小写匹配）。 */
+    /**
+     * 按各语言自身惯例命名的测试文件后缀（小写匹配）。
+     *
+     * <p>每条都**自带扩展名**，因此天然只作用于对应的语言——{@code _test.go} 不会误伤
+     * {@code my_test.go.txt} 之外的其它类型，也不会把 {@code contest.go} 判成测试
+     * （它不以 {@code _test.go} 结尾）。
+     *
+     * <pre>
+     * JS / TS / Vue    *.test.ts  *.spec.tsx  *.test.vue  …
+     * Python           *_test.py
+     * Go               *_test.go      —— Go 的标准测试命名，由 go test 识别
+     * </pre>
+     */
     private static final List<String> TEST_SUFFIXES_LOWER_CASE = List.of(
             ".test.js", ".spec.js", ".test.jsx", ".spec.jsx",
             ".test.ts", ".spec.ts", ".test.tsx", ".spec.tsx",
-            ".test.vue", ".spec.vue", "_test.py");
+            ".test.vue", ".spec.vue", "_test.py", "_test.go");
 
     /** Python 的另一种测试命名：{@code test_*.py}（前缀而非后缀，因此单独判断）。 */
     private static final String PYTHON_TEST_PREFIX = "test_";

@@ -124,25 +124,52 @@ public final class RepositoryBranchScoutRunner {
                             + "超过 Region 上限 " + regionBudget.maxRegionScoutCalls()
                             + ": " + revision);
         }
-        int scoutCalls = regionScoutCalls;
 
+        FileScoutAttempts attempts = new FileScoutAttempts(regionScoutCalls, revision);
         List<List<RepositoryMapEntry>> branches = new ArrayList<>();
         for (RepositoryTerminalFileGroup group : navigation.terminalFileGroups()) {
-            if (scoutCalls + 1 > budget.maxTotalCalls()) {
-                throw new ScoutCallBudgetExceededException(
-                        ScoutCallBudgetExceededException.MAX_TOTAL_SCOUT_CALLS_EXCEEDED
-                                + ": 本次分析已用掉 Region Scout " + navigation.regionScoutCalls()
-                                + " 次、File Scout " + branches.size() + " 次，为终态组「"
-                                + describe(group) + "」再调一次将超过总数上限 "
-                                + budget.maxTotalCalls() + ": " + revision);
-            }
-            scoutCalls++;
-            branches.add(branchOrder(group, revision));
+            branches.add(branchOrder(group, revision, attempts));
         }
 
         return RepositoryFileCandidates.of(
                 revision, mergeRoundRobin(branches),
-                navigation.regionScoutCalls(), branches.size());
+                regionScoutCalls, attempts.used());
+    }
+
+    /**
+     * 一次运行的 File Scout 尝试计数与许可。
+     *
+     * <p>它同时承担两件事：作为 {@link ScoutAttemptPermit} 在**每次尝试之前**守住
+     * 整次分析的总数上限（契约违反后的重试因此也要先过这一关），并记下这个终态分支阶段
+     * 实际付出了多少次 Provider 调用。
+     */
+    private final class FileScoutAttempts {
+
+        private final int regionScoutCalls;
+        private final String revision;
+        private int used;
+
+        private FileScoutAttempts(int regionScoutCalls, String revision) {
+            this.regionScoutCalls = regionScoutCalls;
+            this.revision = revision;
+        }
+
+        private void claim(RepositoryTerminalFileGroup group) {
+            int totalBefore = regionScoutCalls + used;
+            if (totalBefore + 1 > budget.maxTotalCalls()) {
+                throw new ScoutCallBudgetExceededException(
+                        ScoutCallBudgetExceededException.MAX_TOTAL_SCOUT_CALLS_EXCEEDED
+                                + ": 本次分析已用掉 Region Scout " + regionScoutCalls
+                                + " 次、File Scout " + used + " 次，为终态组「"
+                                + describe(group) + "」再调一次将超过总数上限 "
+                                + budget.maxTotalCalls() + ": " + revision);
+            }
+            used++;
+        }
+
+        private int used() {
+            return used;
+        }
     }
 
     /**
@@ -151,9 +178,12 @@ public final class RepositoryBranchScoutRunner {
      * <p>本组先被重新编号成一次独立调用的目录，File Scout 返回的引用再由它自己校验、
      * 换回**本组在 Map 上的原描述符**。于是返回值既带着模型表达的组内顺序，
      * 又不引入任何跨调用的编号。
+     *
+     * <p>调用经由 {@code attempts} 许可：第一次尝试与契约违反后的重试都各自占用一次额度。
      */
     private List<RepositoryMapEntry> branchOrder(RepositoryTerminalFileGroup group,
-                                                 String revision) {
+                                                 String revision,
+                                                 FileScoutAttempts attempts) {
         List<RepositoryMapEntry> localCatalog = new ArrayList<>(group.size());
         Map<RepositoryFileReference, RepositoryMapEntry> originals = new LinkedHashMap<>();
         for (int index = 0; index < group.size(); index++) {
@@ -169,8 +199,9 @@ public final class RepositoryBranchScoutRunner {
                     original.roleHints()));
         }
 
-        RepositoryInspectionPlan plan = fileScout.scout(RepositoryScoutInputs.of(
-                RepositoryMap.of(revision, localCatalog)));
+        RepositoryInspectionPlan plan = fileScout.scout(
+                RepositoryScoutInputs.of(RepositoryMap.of(revision, localCatalog)),
+                () -> attempts.claim(group));
 
         // 区域顺序 = 模型表达的优先级；同一文件出现在多个区域时只保留首次出现。
         LinkedHashSet<RepositoryMapEntry> ordered = new LinkedHashSet<>();

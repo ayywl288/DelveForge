@@ -65,19 +65,19 @@ public final class RepositoryScoutProposalParser {
     /**
      * @param rawAiOutput AI Gateway 返回的原始内容
      * @return 解析后的侦察提议，区域与引用的顺序与模型给出的一致
-     * @throws AiGatewayException 内容为空、不是合法 json 对象，或结构与约定不符
+     * @throws ScoutProtocolViolationException 内容为空、不是合法 json 对象，或结构与约定不符
      */
     public AiRepositoryScoutProposal parse(String rawAiOutput) {
-        JsonNode focusAreas = reader.read(rawAiOutput).get(FIELD_FOCUS_AREAS);
+        JsonNode focusAreas = readScoutJson(reader, rawAiOutput).get(FIELD_FOCUS_AREAS);
         if (focusAreas == null || focusAreas.isNull()) {
-            throw new AiGatewayException("AI 返回缺少字段 " + FIELD_FOCUS_AREAS);
+            throw new ScoutProtocolViolationException("AI 返回缺少字段 " + FIELD_FOCUS_AREAS);
         }
         if (!focusAreas.isArray()) {
-            throw new AiGatewayException("AI 返回的 " + FIELD_FOCUS_AREAS + " 不是数组");
+            throw new ScoutProtocolViolationException("AI 返回的 " + FIELD_FOCUS_AREAS + " 不是数组");
         }
         if (focusAreas.size() < AiRepositoryScoutProposal.MIN_FOCUS_AREAS
                 || focusAreas.size() > AiRepositoryScoutProposal.MAX_FOCUS_AREAS) {
-            throw new AiGatewayException(
+            throw new ScoutProtocolViolationException(
                     "一次 Scout 需要 " + AiRepositoryScoutProposal.MIN_FOCUS_AREAS + " 到 "
                             + AiRepositoryScoutProposal.MAX_FOCUS_AREAS + " 个查看区域，实际为: "
                             + focusAreas.size());
@@ -92,7 +92,7 @@ public final class RepositoryScoutProposalParser {
 
     private static AiRepositoryScoutFocusArea focusArea(JsonNode node) {
         if (node == null || !node.isObject()) {
-            throw new AiGatewayException(
+            throw new ScoutProtocolViolationException(
                     "AI 返回的 " + FIELD_FOCUS_AREAS + " 含非对象元素");
         }
         return new AiRepositoryScoutFocusArea(
@@ -102,13 +102,13 @@ public final class RepositoryScoutProposalParser {
     private static String requiredLabel(JsonNode node) {
         JsonNode value = node.get(FIELD_LABEL);
         if (value == null || value.isNull()) {
-            throw new AiGatewayException("AI 返回的查看区域缺少字段 " + FIELD_LABEL);
+            throw new ScoutProtocolViolationException("AI 返回的查看区域缺少字段 " + FIELD_LABEL);
         }
         if (!value.isTextual()) {
-            throw new AiGatewayException("AI 返回的 " + FIELD_LABEL + " 不是字符串");
+            throw new ScoutProtocolViolationException("AI 返回的 " + FIELD_LABEL + " 不是字符串");
         }
         if (value.asText().isBlank()) {
-            throw new AiGatewayException("AI 返回的 " + FIELD_LABEL + " 为空");
+            throw new ScoutProtocolViolationException("AI 返回的 " + FIELD_LABEL + " 为空");
         }
         return value.asText();
     }
@@ -125,33 +125,48 @@ public final class RepositoryScoutProposalParser {
     private static List<RepositoryFileReference> requiredFileRefs(JsonNode node) {
         JsonNode value = node.get(FIELD_FILE_REFS);
         if (value == null || value.isNull()) {
-            throw new AiGatewayException("AI 返回的查看区域缺少字段 " + FIELD_FILE_REFS);
+            throw new ScoutProtocolViolationException("AI 返回的查看区域缺少字段 " + FIELD_FILE_REFS);
         }
         if (!value.isArray()) {
-            throw new AiGatewayException("AI 返回的 " + FIELD_FILE_REFS + " 不是数组");
+            throw new ScoutProtocolViolationException("AI 返回的 " + FIELD_FILE_REFS + " 不是数组");
         }
         if (value.isEmpty()) {
-            throw new AiGatewayException("AI 返回的 " + FIELD_FILE_REFS + " 为空");
+            throw new ScoutProtocolViolationException("AI 返回的 " + FIELD_FILE_REFS + " 为空");
         }
 
         List<RepositoryFileReference> references = new ArrayList<>(value.size());
         Set<String> seen = new LinkedHashSet<>();
         for (JsonNode element : value) {
             if (element == null || !element.isTextual() || element.asText().isBlank()) {
-                throw new AiGatewayException("AI 返回的 " + FIELD_FILE_REFS + " 含空值");
+                throw new ScoutProtocolViolationException("AI 返回的 " + FIELD_FILE_REFS + " 含空值");
             }
             String text = element.asText();
             if (!REFERENCE_PATTERN.matcher(text).matches()) {
-                throw new AiGatewayException(
+                throw new ScoutProtocolViolationException(
                         "AI 返回的文件引用格式不正确: " + text
                                 + "（期望形如 RF-1 的编号，而不是路径）");
             }
             if (!seen.add(text)) {
-                throw new AiGatewayException(
+                throw new ScoutProtocolViolationException(
                         "AI 返回的同一个查看区域内重复引用了 " + text);
             }
             references.add(new RepositoryFileReference(text));
         }
         return List.copyOf(references);
+    }
+
+    /**
+     * 读取模型返回的 json 对象，把「连 json 都不是」也归入契约违反。
+     *
+     * <p>{@link AiJsonObjectReader} 判断的是「这是不是一个 json 对象」。对 Scout 来说，
+     * 模型给回一段散文与给回 7 个查看区域是同一类事：**它没有按约定作答**。
+     * 因此在这里换成本层的类型，让调用方可以对这一类失败做一次有界重试。
+     */
+    private static JsonNode readScoutJson(AiJsonObjectReader reader, String rawAiOutput) {
+        try {
+            return reader.read(rawAiOutput);
+        } catch (AiGatewayException malformed) {
+            throw new ScoutProtocolViolationException(malformed.getMessage(), malformed);
+        }
     }
 }

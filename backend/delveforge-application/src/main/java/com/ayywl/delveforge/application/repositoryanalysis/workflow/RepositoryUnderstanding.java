@@ -21,6 +21,7 @@ import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryFile
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionCatalogTooLargeException;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigation;
 import com.ayywl.delveforge.application.repositoryanalysis.region.RepositoryRegionNavigator;
+import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudget;
 import com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudgetExceededException;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryInspectionPlan;
 import com.ayywl.delveforge.application.repositoryanalysis.scout.RepositoryScoutExtraction;
@@ -122,6 +123,15 @@ public class RepositoryUnderstanding {
     static final String SCOUT_HIERARCHY_GUARD_EXCEEDED = "SCOUT_HIERARCHY_GUARD_EXCEEDED";
 
     /**
+     * 整次分析的 Scout 调用总数用尽时，日志与异常里使用的稳定原因标识。
+     *
+     * <p>与「分层守卫挡住」分开：这一条只表示**额度用完**，不表示仓库形状不可处理——
+     * 它可能发生在 flat 路径（那次调用本身超额度）也可能发生在分层路径。
+     * 计数的是**实际调用次数**，契约违反后的重试也算一次。
+     */
+    static final String SCOUT_CALL_BUDGET_EXCEEDED = "SCOUT_CALL_BUDGET_EXCEEDED";
+
+    /**
      * 凭据边界自身无法安全完成时，日志与异常里使用的稳定原因标识。
      *
      * <p>它的含义是「拿不到一份可以交给外部模型的材料」，因此与「读不出材料」同一种对外语义：
@@ -138,6 +148,7 @@ public class RepositoryUnderstanding {
     private final RepositoryReadPlanner readPlanner;
     private final RepositoryReadExecutor readExecutor;
     private final RepositorySecretPolicy secretPolicy;
+    private final ScoutCallBudget scoutCallBudget;
     private final int maxScoutCatalogBytes;
 
     /**
@@ -153,6 +164,9 @@ public class RepositoryUnderstanding {
      * @param secretPolicy          凭据政策的第二个执行点，不得为 {@code null}；
      *                              读到的材料在返回之前先过它——本方法返回的材料**已经是
      *                              模型可见材料**，仓库原文不会再离开本类
+     * @param scoutCallBudget       整次分析的 Scout 调用总数守卫，不得为 {@code null}；
+     *                              它约束的是**实际调用次数**（契约违反后的重试也算一次），
+     *                              flat 与分层两条路径共用同一份配置
      * @param maxScoutCatalogBytes  一次 flat File Catalog 载荷的字节上限，必须大于 0；
      *                              它同时是「是否需要分层」的判据
      */
@@ -163,6 +177,7 @@ public class RepositoryUnderstanding {
                                    RepositoryReadPlanner readPlanner,
                                    RepositoryReadExecutor readExecutor,
                                    RepositorySecretPolicy secretPolicy,
+                                   ScoutCallBudget scoutCallBudget,
                                    int maxScoutCatalogBytes) {
         if (mapBuilder == null) {
             throw new IllegalArgumentException("RepositoryUnderstanding 必须指定 mapBuilder");
@@ -188,6 +203,9 @@ public class RepositoryUnderstanding {
         if (secretPolicy == null) {
             throw new IllegalArgumentException("RepositoryUnderstanding 必须指定 secretPolicy");
         }
+        if (scoutCallBudget == null) {
+            throw new IllegalArgumentException("RepositoryUnderstanding 必须指定 scoutCallBudget");
+        }
         if (maxScoutCatalogBytes <= 0) {
             throw new IllegalArgumentException(
                     "Scout 目录字节上限必须大于 0: " + maxScoutCatalogBytes);
@@ -199,6 +217,7 @@ public class RepositoryUnderstanding {
         this.readPlanner = readPlanner;
         this.readExecutor = readExecutor;
         this.secretPolicy = secretPolicy;
+        this.scoutCallBudget = scoutCallBudget;
         this.maxScoutCatalogBytes = maxScoutCatalogBytes;
     }
 
@@ -231,11 +250,15 @@ public class RepositoryUnderstanding {
         RepositoryMap map = mapBuilder.build(workspaceRef, analyzedRevision);
         requireSourceCandidates(map, analyzedRevision);
 
+        // 本次分析实际付掉的 Scout Provider 调用数（含契约违反后的重试）。
+        // 每次调用新建：它是这次分析的运行状态，不能跨调用共享。
+        ScoutAttempts attempts = new ScoutAttempts();
+
         RepositoryScoutInputs scoutInputs = RepositoryScoutInputs.of(map);
         boolean oversized = scoutExtraction.catalogPayloadBytes(scoutInputs)
                 > maxScoutCatalogBytes;
 
-        RepositoryReadPlan readPlan = planRead(map, scoutInputs, oversized, analyzedRevision);
+        RepositoryReadPlan readPlan = planRead(map, scoutInputs, oversized, analyzedRevision, attempts);
         if (readPlan.isEmpty()) {
             throw new RepositoryNotAnalyzableException(
                     "本次读取计划没有选中任何文件，无法形成分析材料: " + analyzedRevision);
@@ -247,7 +270,7 @@ public class RepositoryUnderstanding {
         SanitizedRepositoryMaterial modelVisible =
                 modelVisibleMaterial(read.material(), analyzedRevision);
 
-        logAggregates(readPlan, read, oversized, modelVisible.replacedSpans());
+        logAggregates(readPlan, read, oversized, modelVisible.replacedSpans(), attempts);
 
         if (read.isEmpty()) {
             throw new RepositoryNotAnalyzableException(
@@ -266,15 +289,20 @@ public class RepositoryUnderstanding {
     private RepositoryReadPlan planRead(RepositoryMap map,
                                         RepositoryScoutInputs scoutInputs,
                                         boolean oversized,
-                                        String analyzedRevision) {
+                                        String analyzedRevision,
+                                        ScoutAttempts attempts) {
         try {
             return oversized
-                    ? hierarchicalReadPlan(map)
-                    : flatReadPlan(map, scoutInputs);
+                    ? hierarchicalReadPlan(map, attempts)
+                    : flatReadPlan(map, scoutInputs, analyzedRevision, attempts);
+        } catch (ScoutCallBudgetExceededException budgetExhausted) {
+            throw notAnalyzable(SCOUT_CALL_BUDGET_EXCEEDED,
+                    "整次分析的 Scout 调用总数已用尽（实际调用次数，含契约违反后的重试）"
+                            + "（具体见 cause）",
+                    analyzedRevision, budgetExhausted);
         } catch (RepositoryRegionCatalogTooLargeException
                  | RegionNavigationBudgetExceededException
-                 | RegionHierarchyNotReducibleException
-                 | ScoutCallBudgetExceededException guardFailure) {
+                 | RegionHierarchyNotReducibleException guardFailure) {
             throw notAnalyzable(SCOUT_HIERARCHY_GUARD_EXCEEDED,
                     "flat 目录超出上限，改用分层 Scout 之后仍无法把源码候选压进本版本的预算"
                             + "（具体守卫见 cause）",
@@ -343,8 +371,24 @@ public class RepositoryUnderstanding {
      * <p>小仓库就停在这里，**不会**因为分层机制的存在而多付一次 Region Scout 调用
      * （ADR-0005：flat 目录已在预算内时完全旁路分层）。
      */
-    private RepositoryReadPlan flatReadPlan(RepositoryMap map, RepositoryScoutInputs inputs) {
-        RepositoryInspectionPlan inspectionPlan = scoutExtraction.scout(inputs);
+    private RepositoryReadPlan flatReadPlan(RepositoryMap map,
+                                            RepositoryScoutInputs inputs,
+                                            String analyzedRevision,
+                                            ScoutAttempts attempts) {
+        // flat 路径只有一次逻辑调用，但契约违反会再试一次——因此仍然逐次申请许可：
+        // 「实际付掉几次」在日志里可见，总数上限也照旧守住。
+        int[] used = {0};
+        RepositoryInspectionPlan inspectionPlan = scoutExtraction.scout(inputs, () -> {
+            if (used[0] + 1 > scoutCallBudget.maxTotalCalls()) {
+                throw new ScoutCallBudgetExceededException(
+                        ScoutCallBudgetExceededException.MAX_TOTAL_SCOUT_CALLS_EXCEEDED
+                                + ": flat 路径的 File Scout 已尝试 " + used[0]
+                                + " 次，再调一次将超过整次分析的总数上限 "
+                                + scoutCallBudget.maxTotalCalls() + ": " + analyzedRevision);
+            }
+            used[0]++;
+        });
+        attempts.addFile(used[0]);
         return readPlanner.plan(map, inspectionPlan);
     }
 
@@ -369,9 +413,11 @@ public class RepositoryUnderstanding {
      * <p>只转这几种守卫。{@code AiGatewayException} 与 {@code WorkspaceException} 不在这里
      * 转换——它们表示外部能力调用本身失败，与「仓库形状不适合分析」不是一回事。
      */
-    private RepositoryReadPlan hierarchicalReadPlan(RepositoryMap map) {
+    private RepositoryReadPlan hierarchicalReadPlan(RepositoryMap map, ScoutAttempts attempts) {
         RepositoryRegionNavigation navigation = regionNavigator.navigate(map);
         RepositoryFileCandidates candidates = branchScoutRunner.run(navigation);
+        attempts.addRegion(candidates.regionScoutCalls());
+        attempts.addFile(candidates.fileScoutCalls());
         return readPlanner.plan(map, RepositoryTargetedSourceCandidates.of(
                 candidates.analyzedRevision(), candidates.orderedFiles()));
     }
@@ -385,10 +431,12 @@ public class RepositoryUnderstanding {
     private static void logAggregates(RepositoryReadPlan readPlan,
                                       RepositoryReadResult read,
                                       boolean hierarchical,
-                                      int sanitizedSpanCount) {
+                                      int sanitizedSpanCount,
+                                      ScoutAttempts attempts) {
         log.info("operation=repository-analysis result={} scoutPath={} foundationSelectedCount={} "
                         + "targetedSourceSelectedCount={} materialCount={} tooLargeCount={} "
-                        + "totalBudgetExceededCount={} secretExcludedCount={} sanitizedSpanCount={}",
+                        + "totalBudgetExceededCount={} secretExcludedCount={} sanitizedSpanCount={} "
+                        + "regionScoutAttempts={} fileScoutAttempts={} scoutAttempts={}",
                 read.isEmpty() ? "NO_USABLE_MATERIAL" : "READY",
                 hierarchical ? SCOUT_PATH_HIERARCHICAL : SCOUT_PATH_FLAT,
                 readPlan.foundationEntries().size(),
@@ -397,7 +445,43 @@ public class RepositoryUnderstanding {
                 read.tooLargeCount(),
                 read.totalBudgetExceededCount(),
                 secretExcludedCount(readPlan),
-                sanitizedSpanCount);
+                sanitizedSpanCount,
+                attempts.regionScout(),
+                attempts.fileScout(),
+                attempts.total());
+    }
+
+    /**
+     * 一次分析实际付掉的 Scout Provider 调用数（含契约违反后的重试）。
+     *
+     * <p>每次分析新建一个：它是这次分析的运行状态，不能跨调用共享。
+     * 计数的是**尝试次数**而不是逻辑阶段数——一次分析看起来问了 7 次，
+     * 实际可能问了 9 次，这两个数字都必须能看出来。
+     */
+    private static final class ScoutAttempts {
+
+        private int regionScout;
+        private int fileScout;
+
+        private void addRegion(int attempts) {
+            regionScout += attempts;
+        }
+
+        private void addFile(int attempts) {
+            fileScout += attempts;
+        }
+
+        private int regionScout() {
+            return regionScout;
+        }
+
+        private int fileScout() {
+            return fileScout;
+        }
+
+        private int total() {
+            return regionScout + fileScout;
+        }
     }
 
     /**

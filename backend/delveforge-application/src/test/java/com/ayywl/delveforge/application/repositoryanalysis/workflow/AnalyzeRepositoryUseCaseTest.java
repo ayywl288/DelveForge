@@ -521,6 +521,8 @@ class AnalyzeRepositoryUseCaseTest {
                 () -> analyzeWith(gateway, flatCatalogBytes() - 1));
 
         assertEquals(0, profileRepository.saveCount(), "分层失败时不得写入任何快照");
+        assertEquals(2, gateway.regionCalls(),
+                "第一次不合法 + 一次重试；两次都不合法即整次失败");
         assertEquals(0, gateway.fileCalls(), "失败之后不得再调用 File Scout");
         assertTrue(workspace.readPaths().isEmpty(), "分层失败时不读取任何文件");
     }

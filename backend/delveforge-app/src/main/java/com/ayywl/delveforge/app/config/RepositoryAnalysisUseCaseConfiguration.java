@@ -173,6 +173,7 @@ public class RepositoryAnalysisUseCaseConfiguration {
                 repositoryReadPlanner,
                 repositoryReadExecutor,
                 repositorySecretPolicy,
+                properties.scoutCalls().toBudget(),
                 properties.scout().maxCatalogBytes());
     }
 

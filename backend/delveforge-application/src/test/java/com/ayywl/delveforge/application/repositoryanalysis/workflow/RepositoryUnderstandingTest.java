@@ -297,7 +297,8 @@ class RepositoryUnderstandingTest {
                 () -> hierarchicalUnderstanding(flatCatalogBytes() - 1)
                         .understand(WORKSPACE, REVISION));
 
-        assertEquals(1, gateway.regionCalls(), "只有那一次失败的 Region Scout");
+        assertEquals(2, gateway.regionCalls(),
+                "第一次不合法 + 一次重试；两次都不合法即整次失败");
         assertEquals(0, gateway.fileCalls(), "失败之后不得再调用 File Scout");
         assertTrue(workspace.readPaths().isEmpty(), "失败时不读取任何文件");
     }
@@ -359,6 +360,61 @@ class RepositoryUnderstandingTest {
         assertEquals(1, gateway.regionCalls(), "总预算用尽的调用不得触达模型");
         assertEquals(0, gateway.fileCalls(), "导航没走完，不应进入分支阶段");
         assertTrue(workspace.readPaths().isEmpty());
+    }
+
+    // ---------------------------------------------------------------------
+    // Scout 的有界重试与调用次数记账
+    // ---------------------------------------------------------------------
+
+    /**
+     * Region Scout 第一次违反输出契约 → 重试一次 → 成功，且**重试真的发出了**。
+     *
+     * <p>对应真实 Smoke 里的情形：模型第一次没按约定作答，再问一次就守约了。
+     * 契约违反不放松校验——重试走的是同一次解析与引用校验。
+     */
+    @Test
+    void retriesTheRegionScoutOnceWhenItViolatesTheContract() {
+        seedBranches();
+        gateway.answerRegionWithUnknownReferenceOnce();
+
+        List<RepositorySourceFile> material =
+                hierarchicalUnderstanding(flatCatalogBytes() - 1)
+                        .understand(WORKSPACE, REVISION);
+
+        assertEquals(2, gateway.regionCalls(), "第一次不合法 + 一次成功的重试");
+        assertEquals(2, gateway.fileCalls(), "重试成功之后照常走完两条分支");
+        assertEquals(List.of(POM, "alpha/A2.java", "beta/B1.java", "alpha/A1.java", "beta/B2.java"),
+                pathsOf(material));
+    }
+
+    /**
+     * 重试**占用真实的调用额度**：额度用尽时那一次重试不会发出去。
+     *
+     * <p>总数上限只给 1：第一次 Region 尝试用掉它之后，重试要的第二个许可会被拒绝，
+     * 因此模型只被问了这一次，失败原因是预算而不是契约违反。
+     * 「重试是一次真实的模型调用」在这里变成可执行的事实。
+     */
+    @Test
+    void doesNotSendTheRetryWhenTheTotalScoutBudgetIsExhausted() {
+        seedBranches();
+        gateway.answerRegionWithUnknownReferenceOnce();
+
+        RepositoryUnderstanding understanding = UnderstandingFixtures.understanding(
+                gateway, workspace,
+                GENEROUS_FOUNDATION, GENEROUS_TARGETED,
+                flatCatalogBytes() - 1,
+                new RegionRecursionBudget(8, 12),
+                new ScoutCallBudget(1));
+
+        RepositoryNotAnalyzableException failure = assertThrows(
+                RepositoryNotAnalyzableException.class,
+                () -> understanding.understand(WORKSPACE, REVISION));
+
+        assertEquals(ScoutCallBudgetExceededException.class, failure.getCause().getClass(),
+                "失败原因是额度用尽，不是契约违反");
+        assertEquals(1, gateway.regionCalls(), "重试被许可挡下，没有发出第二次请求");
+        assertEquals(0, gateway.fileCalls());
+        assertTrue(workspace.readPaths().isEmpty(), "失败时不读取任何文件");
     }
 
     // ---------------------------------------------------------------------

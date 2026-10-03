@@ -115,19 +115,52 @@ public final class RepositoryScoutExtraction {
     }
 
     /**
-     * 依据本次源码候选清单提取查看计划。
+     * 依据本次源码候选清单提取查看计划，对**契约违反**做一次有界重试。
      *
-     * <p>AI 调用、解析与引用校验都发生在同一步内，任一失败都以异常结束，不返回半成品。
+     * <pre>
+     * 第 1 次尝试   permit.acquire() → 调用 → 解析 → 引用校验
+     *      │
+     *      ├─ 成功            → 返回
+     *      ├─ 调用失败        → 原样抛出（不重试：换一次也未必更好）
+     *      └─ 契约违反        → permit.acquire() → 第 2 次尝试
+     *            │
+     *            ├─ 成功      → 返回
+     *            └─ 仍不合法  → 原样抛出（同样的失败语义）
+     * </pre>
+     *
+     * <p><b>重试不放松任何校验</b>：解析与引用校验一字未改，只是把「拒绝」变成「拒绝并再问一次」。
+     * 也不做任何修补——不会把 7 个查看区域截成 6 个，不会丢掉不合法的引用。
+     *
+     * <p><b>重试要申请许可</b>：它是一次真实的模型调用，因此同样走 {@code permit.acquire()}。
+     * 预算不允许时许会抛出，那一次重试不会发出去——成本因此始终可见。
      *
      * @param inputs 本次侦察的输入，不得为 {@code null}
+     * @param permit 每次尝试之前的许可，不得为 {@code null}；由持有预算计数的调用方提供
      * @return 模型提出、并已通过结构与引用校验的查看计划
-     * @throws IllegalArgumentException inputs 为 {@code null}
-     * @throws AiGatewayException       AI 调用失败，返回内容不满足约定，或引用了本次没有提供的文件
+     * @throws IllegalArgumentException        任一参数为 {@code null}
+     * @throws ScoutProtocolViolationException 两次尝试都没有按约定作答
+     * @throws AiGatewayException              AI 调用本身失败，或引用了本次没有提供的文件
      */
-    public RepositoryInspectionPlan scout(RepositoryScoutInputs inputs) {
+    public RepositoryInspectionPlan scout(RepositoryScoutInputs inputs, ScoutAttemptPermit permit) {
         if (inputs == null) {
             throw new IllegalArgumentException("RepositoryScoutExtraction 必须指定 inputs");
         }
+        if (permit == null) {
+            throw new IllegalArgumentException("RepositoryScoutExtraction 必须指定 permit");
+        }
+
+        permit.acquire();
+        try {
+            return scoutOnce(inputs);
+        } catch (ScoutProtocolViolationException violation) {
+            // 重试是一次真实调用，因此同样先申请许可；预算不够时这一次不会发出。
+            permit.acquire();
+            return scoutOnce(inputs);
+        }
+    }
+
+    /** 一次完整的尝试：调用 → 解析 → 引用校验。 */
+    private RepositoryInspectionPlan scoutOnce(RepositoryScoutInputs inputs) {
         AiRepositoryScoutProposal proposal =
                 proposalParser.parse(aiGateway.generate(buildRequest(inputs)));
 

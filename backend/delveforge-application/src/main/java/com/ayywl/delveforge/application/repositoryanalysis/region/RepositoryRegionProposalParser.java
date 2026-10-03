@@ -2,6 +2,7 @@ package com.ayywl.delveforge.application.repositoryanalysis.region;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
+import com.ayywl.delveforge.application.repositoryanalysis.scout.ScoutProtocolViolationException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -52,23 +53,23 @@ public final class RepositoryRegionProposalParser {
     /**
      * @param rawAiOutput AI Gateway 返回的原始内容
      * @return 解析后的区域选择提议，顺序与模型给出的一致
-     * @throws AiGatewayException 内容为空、不是合法 json 对象，或结构与约定不符
+     * @throws ScoutProtocolViolationException 内容为空、不是合法 json 对象，或结构与约定不符
      */
     public AiRegionSelectionProposal parse(String rawAiOutput) {
-        JsonNode regionRefs = reader.read(rawAiOutput).get(FIELD_REGION_REFS);
+        JsonNode regionRefs = readScoutJson(reader, rawAiOutput).get(FIELD_REGION_REFS);
         if (regionRefs == null || regionRefs.isNull()) {
-            throw new AiGatewayException("AI 返回缺少字段 " + FIELD_REGION_REFS);
+            throw new ScoutProtocolViolationException("AI 返回缺少字段 " + FIELD_REGION_REFS);
         }
         if (!regionRefs.isArray()) {
-            throw new AiGatewayException("AI 返回的 " + FIELD_REGION_REFS + " 不是数组");
+            throw new ScoutProtocolViolationException("AI 返回的 " + FIELD_REGION_REFS + " 不是数组");
         }
         if (regionRefs.size() < AiRegionSelectionProposal.MIN_SELECTED_REGIONS) {
-            throw new AiGatewayException(
+            throw new ScoutProtocolViolationException(
                     "一次区域选择至少需要 " + AiRegionSelectionProposal.MIN_SELECTED_REGIONS
                             + " 个区域，实际为: " + regionRefs.size());
         }
         if (regionRefs.size() > maxSelectedRegions) {
-            throw new AiGatewayException(
+            throw new ScoutProtocolViolationException(
                     "一次区域选择最多 " + maxSelectedRegions + " 个区域，实际为: "
                             + regionRefs.size());
         }
@@ -77,19 +78,34 @@ public final class RepositoryRegionProposalParser {
         Set<String> seen = new LinkedHashSet<>();
         for (JsonNode element : regionRefs) {
             if (element == null || !element.isTextual() || element.asText().isBlank()) {
-                throw new AiGatewayException("AI 返回的 " + FIELD_REGION_REFS + " 含空值");
+                throw new ScoutProtocolViolationException("AI 返回的 " + FIELD_REGION_REFS + " 含空值");
             }
             String text = element.asText();
             if (!RepositoryRegionReference.isWellFormed(text)) {
-                throw new AiGatewayException(
+                throw new ScoutProtocolViolationException(
                         "AI 返回的区域引用格式不正确: " + text
                                 + "（期望形如 RR-3f1a9c02b4d5e6f708192a3b4c5d6e7f-1 的编号，而不是路径或裸序号）");
             }
             if (!seen.add(text)) {
-                throw new AiGatewayException("AI 返回的区域引用重复: " + text);
+                throw new ScoutProtocolViolationException("AI 返回的区域引用重复: " + text);
             }
             references.add(new RepositoryRegionReference(text));
         }
         return new AiRegionSelectionProposal(references);
+    }
+
+    /**
+     * 读取模型返回的 json 对象，把「连 json 都不是」也归入契约违反。
+     *
+     * <p>{@link AiJsonObjectReader} 判断的是「这是不是一个 json 对象」。对 Scout 来说，
+     * 模型给回一段散文与给回 7 个查看区域是同一类事：**它没有按约定作答**。
+     * 因此在这里换成本层的类型，让调用方可以对这一类失败做一次有界重试。
+     */
+    private static JsonNode readScoutJson(AiJsonObjectReader reader, String rawAiOutput) {
+        try {
+            return reader.read(rawAiOutput);
+        } catch (AiGatewayException malformed) {
+            throw new ScoutProtocolViolationException(malformed.getMessage(), malformed);
+        }
     }
 }

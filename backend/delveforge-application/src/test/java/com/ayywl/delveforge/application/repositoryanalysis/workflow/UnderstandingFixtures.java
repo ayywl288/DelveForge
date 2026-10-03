@@ -86,6 +86,7 @@ final class UnderstandingFixtures {
                 new RepositoryReadPlanner(foundation, targetedSource, secretPolicy),
                 new RepositoryReadExecutor(workspace, foundation, targetedSource),
                 secretPolicy,
+                scoutCallBudget,
                 maxCatalogBytes);
     }
 }

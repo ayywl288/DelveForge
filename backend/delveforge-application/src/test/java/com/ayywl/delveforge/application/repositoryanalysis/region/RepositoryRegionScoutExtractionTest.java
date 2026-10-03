@@ -36,6 +36,10 @@ class RepositoryRegionScoutExtractionTest {
             this.response = response;
         }
 
+        int calls() {
+            return calls;
+        }
+
         @Override
         public String generate(AiRequest request) {
             this.lastRequest = request;
@@ -58,7 +62,7 @@ class RepositoryRegionScoutExtractionTest {
         RecordingGateway gateway = new RecordingGateway(
                 RegionFixtures.selectionResponse(catalog, 2, 1));
 
-        RepositoryRegionSelection selection = extraction(gateway).scout(catalog);
+        RepositoryRegionSelection selection = extraction(gateway).scout(catalog, () -> { });
 
         assertEquals(List.of("svc", "src"),
                 selection.regions().stream().map(RepositoryRegion::pathPrefix).toList());
@@ -71,7 +75,9 @@ class RepositoryRegionScoutExtractionTest {
                 "{\"regionRefs\":[\"" + RegionFixtures.absentRef(7) + "\"]}");
 
         assertThrows(AiGatewayException.class,
-                () -> extraction(gateway).scout(catalog));
+                () -> extraction(gateway).scout(catalog, () -> { }));
+        // Region Scout 与 File Scout 同一条原则：契约违反重试一次，两次都不合法才失败。
+        assertEquals(2, gateway.calls(), "第一次不合法 + 一次重试");
     }
 
     @Test
@@ -83,14 +89,14 @@ class RepositoryRegionScoutExtractionTest {
                 "{\"regionRefs\":[\"" + other.entries().get(0).reference().value() + "\"]}");
 
         assertThrows(AiGatewayException.class,
-                () -> extraction(gateway).scout(catalog));
+                () -> extraction(gateway).scout(catalog, () -> { }));
     }
 
     @Test
     void rejectsMalformedModelOutput() {
         RecordingGateway gateway = new RecordingGateway("这不是 json");
 
-        assertThrows(AiGatewayException.class, () -> extraction(gateway).scout(catalog));
+        assertThrows(AiGatewayException.class, () -> extraction(gateway).scout(catalog, () -> { }));
     }
 
     /**
@@ -104,7 +110,7 @@ class RepositoryRegionScoutExtractionTest {
         RecordingGateway gateway = new RecordingGateway(
                 RegionFixtures.selectionResponse(catalog, 1));
 
-        RepositoryRegionSelection selection = extraction(gateway).scout(catalog);
+        RepositoryRegionSelection selection = extraction(gateway).scout(catalog, () -> { });
 
         String instruction = gateway.lastRequest.messages().get(0).content();
         String example = catalog.entries().get(0).reference().value();
@@ -121,7 +127,7 @@ class RepositoryRegionScoutExtractionTest {
         RecordingGateway gateway = new RecordingGateway(
                 RegionFixtures.selectionResponse(catalog, 1));
 
-        extraction(gateway).scout(catalog);
+        extraction(gateway).scout(catalog, () -> { });
 
         List<AiMessage> messages = gateway.lastRequest.messages();
         assertEquals(2, messages.size());
@@ -147,7 +153,7 @@ class RepositoryRegionScoutExtractionTest {
         RepositoryRegionScoutExtraction extraction = extraction(gateway);
 
         int measured = extraction.catalogPayloadBytes(catalog);
-        extraction.scout(catalog);
+        extraction.scout(catalog, () -> { });
 
         String userMessage = gateway.lastRequest.messages().get(1).content();
         assertEquals(userMessage.getBytes(StandardCharsets.UTF_8).length, measured,
@@ -174,7 +180,7 @@ class RepositoryRegionScoutExtractionTest {
                 new RegionNavigationLimits(payloadBytes - 1, 6));
 
         assertThrows(RepositoryRegionCatalogTooLargeException.class,
-                () -> tooSmall.scout(catalog));
+                () -> tooSmall.scout(catalog, () -> { }));
         assertEquals(0, gateway.calls,
                 "目录超限时不得调用 Gateway，也不得留下任何部分结果");
     }
@@ -184,7 +190,7 @@ class RepositoryRegionScoutExtractionTest {
         RepositoryRegionScoutExtraction extraction =
                 extraction(new RecordingGateway("{}"));
 
-        assertThrows(IllegalArgumentException.class, () -> extraction.scout(null));
+        assertThrows(IllegalArgumentException.class, () -> extraction.scout(null, () -> { }));
         assertThrows(IllegalArgumentException.class,
                 () -> extraction.catalogPayloadBytes(null));
     }

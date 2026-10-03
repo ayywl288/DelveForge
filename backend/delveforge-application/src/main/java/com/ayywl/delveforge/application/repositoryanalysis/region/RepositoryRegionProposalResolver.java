@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.application.repositoryanalysis.region;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.repositoryanalysis.scout.ScoutProtocolViolationException;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -57,7 +58,7 @@ public final class RepositoryRegionProposalResolver {
      * @param catalog  建立本次调用时提供的 Region 目录，不得为 {@code null}
      * @return 由已校验区域构成的可信选择，顺序与模型给出的一致
      * @throws IllegalArgumentException 任一参数为 {@code null}
-     * @throws AiGatewayException       引用了本次没有提供的编号，或引用了重复编号
+     * @throws ScoutProtocolViolationException       引用了本次没有提供的编号，或引用了重复编号
      */
     public RepositoryRegionSelection resolve(AiRegionSelectionProposal proposal,
                                              RepositoryRegionCatalog catalog) {
@@ -74,12 +75,12 @@ public final class RepositoryRegionProposalResolver {
         Set<RepositoryRegionReference> seen = new LinkedHashSet<>();
         for (RepositoryRegionReference reference : proposal.regionRefs()) {
             if (!seen.add(reference)) {
-                throw new AiGatewayException(
+                throw new ScoutProtocolViolationException(
                         "Region Scout 重复引用了 " + reference.value());
             }
             Optional<RepositoryRegion> resolved = catalog.find(reference);
             if (resolved.isEmpty()) {
-                throw new AiGatewayException(
+                throw new ScoutProtocolViolationException(
                         "Region Scout 引用了本次没有提供的编号: " + reference.value()
                                 + "（该编号不属于建立本次调用时的 Region Catalog）");
             }

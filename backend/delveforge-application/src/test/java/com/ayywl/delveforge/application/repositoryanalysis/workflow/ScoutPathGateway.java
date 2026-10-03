@@ -51,7 +51,11 @@ final class ScoutPathGateway implements AiGateway {
 
     private boolean unknownRegionReference;
 
+    private boolean unknownRegionReferenceOnce;
+
     private int regionCalls;
+
+    private int regionScriptIndex;
 
     private int fileCalls;
 
@@ -74,7 +78,9 @@ final class ScoutPathGateway implements AiGateway {
         this.analysisResponses.clear();
         this.analysisResponses.addAll(List.of(analysisResponses));
         this.unknownRegionReference = false;
+        this.unknownRegionReferenceOnce = false;
         this.regionCalls = 0;
+        this.regionScriptIndex = 0;
         this.fileCalls = 0;
         this.requests.clear();
         this.readsBeforeCall.clear();
@@ -83,6 +89,15 @@ final class ScoutPathGateway implements AiGateway {
     /** 让下一次 Region Scout 回一个本次目录里不存在的编号。 */
     void answerRegionWithUnknownReference() {
         this.unknownRegionReference = true;
+    }
+
+    /**
+     * 让**接下来那一次** Region Scout 回一个不存在的编号，之后恢复正常。
+     *
+     * <p>对应真实 Smoke 里的情形：第一次违反输出契约，重试时守约。
+     */
+    void answerRegionWithUnknownReferenceOnce() {
+        this.unknownRegionReferenceOnce = true;
     }
 
     List<AiRequest> requests() {
@@ -124,14 +139,21 @@ final class ScoutPathGateway implements AiGateway {
     }
 
     private String regionResponse(JsonNode payload) {
-        if (regionCalls >= regionScript.size()) {
-            throw new AssertionError("第 " + (regionCalls + 1)
-                    + " 次 Region Scout 调用超出脚本（共 " + regionScript.size() + " 次）");
-        }
-        List<String> selected = regionScript.get(regionCalls++);
-        if (unknownRegionReference) {
+        regionCalls++;
+        // 「一直引用不存在的编号」是**持续**的模型行为：它不消耗脚本，
+        // 因此契约违反后的那一次重试同样会拿到不合法答案——这正是那些用例要断言的失败。
+        // 「只错一次」则相反：它模拟真实 Smoke 里的情形——第一次不合法，重试守约。
+        if (unknownRegionReference || unknownRegionReferenceOnce) {
+            unknownRegionReferenceOnce = false;
             return "{\"regionRefs\":[\"" + UNKNOWN_REGION_REFERENCE + "\"]}";
         }
+        // 脚本按**被消费的次数**推进，不按调用序号：一次不消耗脚本的契约违反
+        // （上面那条）不该把后面的调用错位地推到下一个脚本项。
+        if (regionScriptIndex >= regionScript.size()) {
+            throw new AssertionError("第 " + (regionScriptIndex + 1)
+                    + " 次 Region Scout 调用超出脚本（共 " + regionScript.size() + " 次）");
+        }
+        List<String> selected = regionScript.get(regionScriptIndex++);
 
         Map<String, String> byPathPrefix = new LinkedHashMap<>();
         for (JsonNode region : payload.get("regionCatalog")) {

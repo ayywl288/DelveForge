@@ -226,6 +226,7 @@ public final class RepositoryRegionNavigator {
                                 + "），而它们没有更细的结构可以分: " + revision);
             }
 
+            // 轮数守的是**逻辑深度**，不是尝试次数：同一个节点重试一次不构成「更深一层」。
             if (roundsUsed + 1 > budget.maxRoundsPerBranch()) {
                 throw new RegionNavigationBudgetExceededException(
                         RegionNavigationBudgetExceededException
@@ -234,34 +235,17 @@ public final class RepositoryRegionNavigator {
                                 + "在「" + describe(prefix) + "」上再调一次将超过单分支上限 "
                                 + budget.maxRoundsPerBranch() + ": " + revision);
             }
-            if (scoutCalls + 1 > budget.maxRegionScoutCalls()) {
-                throw new RegionNavigationBudgetExceededException(
-                        RegionNavigationBudgetExceededException
-                                .MAX_REGION_SCOUT_CALLS_EXCEEDED
-                                + ": 本次分析已调用 Region Scout " + scoutCalls
-                                + " 次，再调一次将超过总上限 "
-                                + budget.maxRegionScoutCalls() + ": " + revision);
-            }
-            // 整次分析的 Scout 调用总数也必须在这里守：Region 调用与 File 调用合并计数，
-            // 因此「分层下降先花掉的那几次」同样占用终态分支的额度。等到分支阶段才发现
-            // 超限，并不能撤销这里已经付出的 Region 调用——守卫必须在调用之前生效。
-            if (scoutCalls + 1 > scoutCallBudget.maxTotalCalls()) {
-                throw new ScoutCallBudgetExceededException(
-                        ScoutCallBudgetExceededException.MAX_TOTAL_SCOUT_CALLS_EXCEEDED
-                                + ": 本次分析已调用 Scout " + scoutCalls
-                                + " 次，在「" + describe(prefix) + "」上再调一次 Region Scout "
-                                + "将超过整次分析的总数上限 "
-                                + scoutCallBudget.maxTotalCalls() + ": " + revision);
-            }
-            scoutCalls++;
+
+            // 两次调用计数守卫都在许可里，因此它们同时守住**重试**那一次：
+            // 重试是一次真实调用，额度不够就不发出去。
+            RepositoryRegionSelection selection = regionScout.scout(
+                    RepositoryRegionCatalog.of(revision, childRegions),
+                    () -> claimRegionScoutAttempt(prefix));
 
             // 直属文件先成组：它们就在这一层，不属于任何一个子分支。
             if (!direct.isEmpty()) {
                 groups.add(new RepositoryTerminalFileGroup(prefix, direct, directBytes));
             }
-
-            RepositoryRegionSelection selection = regionScout.scout(
-                    RepositoryRegionCatalog.of(revision, childRegions));
             for (RepositoryRegion region : selection.regions()) {
                 List<RepositoryMapEntry> subtree = subtreeByPrefix.get(region.pathPrefix());
                 if (subtree == null) {
@@ -271,6 +255,42 @@ public final class RepositoryRegionNavigator {
                 }
                 descend(region.pathPrefix(), subtree, roundsUsed + 1);
             }
+        }
+
+        /**
+         * 申请一次 Region Scout Provider 调用，并把它计入本分支的尝试数。
+         *
+         * <pre>
+         * 单次分析 Region Scout 上限     RegionRecursionBudget.maxRegionScoutCalls
+         * 整次分析 Scout 调用总数        ScoutCallBudget.maxTotalCalls（Region + File 合并计数）
+         * </pre>
+         *
+         * <p>两条都要在**调用之前**判定：Region 调用与 File 调用合并计数，因此分层下降先花掉的
+         * 那几次同样占用终态分支的额度。等到分支阶段才发现超限，并不能撤销这里已经付出的调用。
+         *
+         * <p>它同时是**重试**之前那道门：重试多花一次真实调用，因此也要先在这里过一遍。
+         *
+         * <p>计数的是**尝试次数**：一次契约违反后的重试会让计数 +1，日志与导航结果因此反映
+         * 实际付掉的模型调用数，而不是逻辑上的节点数。
+         */
+        private void claimRegionScoutAttempt(String prefix) {
+            if (scoutCalls + 1 > budget.maxRegionScoutCalls()) {
+                throw new RegionNavigationBudgetExceededException(
+                        RegionNavigationBudgetExceededException
+                                .MAX_REGION_SCOUT_CALLS_EXCEEDED
+                                + ": 本次分析已调用 Region Scout " + scoutCalls
+                                + " 次，再调一次将超过总上限 "
+                                + budget.maxRegionScoutCalls() + ": " + revision);
+            }
+            if (scoutCalls + 1 > scoutCallBudget.maxTotalCalls()) {
+                throw new ScoutCallBudgetExceededException(
+                        ScoutCallBudgetExceededException.MAX_TOTAL_SCOUT_CALLS_EXCEEDED
+                                + ": 本次分析已调用 Scout " + scoutCalls
+                                + " 次，在「" + describe(prefix) + "」上再调一次 Region Scout "
+                                + "将超过整次分析的总数上限 "
+                                + scoutCallBudget.maxTotalCalls() + ": " + revision);
+            }
+            scoutCalls++;
         }
 
         /**
