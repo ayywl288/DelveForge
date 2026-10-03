@@ -135,12 +135,26 @@ class RepositoryAnalysisWiringTest {
     void bindsRound2DefaultsFromApplicationYml() {
         assertEquals(65_536, properties.scout().maxCatalogBytes());
 
+        // 基础材料通道未改动：A/B 标定只调整了定向源码通道。
         assertEquals(12, properties.foundation().maxFiles());
         assertEquals(32_768, properties.foundation().maxFileBytes());
         assertEquals(98_304, properties.foundation().maxTotalBytes());
+    }
 
-        assertEquals(18, properties.targetedSource().maxFiles());
+    /**
+     * 定向源码通道的取值来自 A/B 标定，且文件数与总量必须同时成立。
+     *
+     * <p>只改文件数、不改总量会让文件数成为空头承诺：18 那一档里 memos 正是因为先撞上
+     * 总量上限而只取到 16 个。因此这里同时钉住两个数字，并断言总量确实容得下文件数
+     * （按观测到的每文件体量估算的下界）。
+     */
+    @Test
+    void bindsTheCalibratedTargetedSourceBudgetFromApplicationYml() {
+        assertEquals(24, properties.targetedSource().maxFiles());
         assertEquals(65_536, properties.targetedSource().maxFileBytes());
-        assertEquals(163_840, properties.targetedSource().maxTotalBytes());
+        assertEquals(229_376, properties.targetedSource().maxTotalBytes());
+
+        assertTrue(properties.targetedSource().maxTotalBytes() > 24 * 8_000,
+                "总量必须容得下 24 个文件，否则文件数只是理论值");
     }
 }

@@ -60,10 +60,21 @@ delveforge:
 
     # 定向源码通道：Scout 指出的业务实现。
     # 单个文件可以更大（实现类通常比配置文件长），总量也相应放宽。
+    #
+    # 取值来自 V3 多仓 Smoke 之后的 A/B 标定
+    # （docs/validation/m2-repository-analysis-v3-stabilization.md）：
+    #
+    #   18 / 163840   三个仓库取到 18，memos 只取到 16 —— 先撞上总量上限，
+    #                 也就是说那一档的**文件数有一部分只是理论值**
+    #   24 / 229376   四个仓库都取满 24，执行期也没有再因总量丢文件
+    #
+    # 多出的那一档在轮转顺序上正好多跑一轮：mall 的六个模块各 +1，
+    # hm-dianping 首次读到 entity/ 领域模型，memos 首次覆盖 internal/ 与 proto/。
+    # 代价是 Final Analyzer 请求体从约 113–214 KB 增至约 153–257 KB，延迟无回归。
     targeted-source:
-      max-files: 18
+      max-files: 24
       max-file-bytes: 65536
-      max-total-bytes: 163840
+      max-total-bytes: 229376
 
   persistence:
     # SQLite 数据库文件位置。
