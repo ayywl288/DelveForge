@@ -440,6 +440,8 @@ DEFERRED / REVISIT
 
 把用户已经选择的 Product Direction 转化为可执行的增量演化计划，并准备安全的代码演化环境。
 
+**Status:** DONE — 2026-10-05。完成记录与 Lessons Learned 见 §9。
+
 **Deliverables**
 
 #### Evolution Planning
@@ -762,7 +764,7 @@ Step SUCCEEDED
 | M0 | Project Foundation | DONE |
 | M1 | Discovery Inputs | DONE |
 | M2 | Product Direction Discovery | DONE |
-| M3 | Evolution Planning & Working Copy | IN_PROGRESS |
+| M3 | Evolution Planning & Working Copy | DONE |
 | M4 | First Verified Evolution Step | TODO |
 | M5 | Failure Safety & Recovery | TODO |
 | M6 | MVP End-to-End Validation | TODO |
@@ -805,64 +807,38 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 当前处于：
 
 ```text
-M3 — Evolution Planning & Working Copy（Task 1 / Task 2 已实现，待里程碑级审查与聚焦 smoke）
+M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
+M4 — First Verified Evolution Step：TODO，尚未启动
 ```
 
-M0、M1 与 M2 的执行清单已归档到 §9 Completed Milestones，不再在此处维护。
+M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
 
 ### Current
 
-**M3 Task 1 — Evolution Planning（2026-10-05）** 已实现后端完整规划切片：
-Selected Product Direction + 合法 Base Asset + Base Repository Profile → 一次 AI 提案 →
-结构 / 引用 / 领域校验 → 事务保存并可读取的 PROPOSED EvolutionPlan。
-步骤均为 PENDING_CONFIRMATION；无 Working Copy、Plan 激活或 Step 执行授权。
-当前状态表示、证据追溯与最小资产许可策略见 DOMAIN_MODEL.md §12.5–12.6，
-接口与持久化边界见 ARCHITECTURE.md §6.5。
+**M3 已完成并冻结（2026-10-05）。** Task 1 / Task 2、里程碑审查、聚焦修正与真实 Memos
+smoke 均已完成：Selected Direction + Base Asset + Base Profile → PROPOSED Plan →
+隔离 WorkingCopy → ACTIVE Plan / READY WorkingCopy / PENDING_CONFIRMATION Steps。
+R1 发现方向、同一资产 R2 重新规划并准备的路径已修复；Parser / Resolver / Domain 接受
+以及候选 Proposal / 正式 Aggregate 的职责已分离。
 
-**M3 Task 2 — Working Copy Provisioning & Plan Activation（2026-10-05）** 已实现后端完整切片：
-PROPOSED Plan → 当前基线 / 许可校验 → 独立本地 Git clone + analyzedRevision checkout →
-READY WorkingCopy → 绑定 → PlanActivationPolicy → 原子提交 ACTIVE Plan。
-三个 revision 保持相等，步骤仍为 PENDING_CONFIRMATION；创建及失败清理不修改源资产。
-方向切换同批将旧 PROPOSED / ACTIVE Plan 置为 SUPERSEDED，保留历史与 Working Copy 绑定。
+最终代码 revision `912d506` 的既有全量 `mvnw.cmd verify` 通过，1127 项测试、
+0 failure / error / skipped。真实 Provider smoke 验证同一代码 revision；后续仅补录
+持久化输出与完成文档，没有重跑 smoke。
 
-已覆盖真实 Git、SQLite 与 HTTP 的确定性链路，以及授权 / revision / 生命周期拒绝、
-克隆失败清理、SQLite 提交失败回滚、并发基线与方向切换原子性。
-M3 功能验收已由自动化链路满足，整体保留 IN_PROGRESS，等待约定的里程碑级审查、聚焦 smoke 与复盘。
-本次没有调用真实 LLM，也未启动 M4。
-
-Task 2 最终执行 `mvnw.cmd verify` 成功：Domain 186、Application 665、Infrastructure 122、
-App 141，共 1114 项测试（较 Task 1 新增 27 项），0 failure / error / skipped；完整后端构建通过。
-
-**M3 审查聚焦修复（2026-10-05）**：移除准备 / 激活策略对 Direction 历史 Profile 列表的成员限制，
-保留 Plan → Base Profile 身份、Profile → Asset 归属、Candidate Asset、许可与 revision 校验。
-新增领域和真实 Git / SQLite / HTTP 回归：R1 发现方向，源资产更新后以 R2 重新规划并成功准备，
-旧基线准备仍被拒绝，Direction 的历史分析输入保留。修复前领域回归复现失败，修复后
-`mvnw.cmd verify` 成功，共 1116 项测试，0 failure / error / skipped。
-整体仍为 IN_PROGRESS，待此修复复核及 focused M3 smoke；未启动 M4。
-
-**M2 — Product Direction Discovery 已完成（2026-10-03）。** 走通了
-「Confirmed UserProfile @ revision + RepositoryProfile @ analyzedRevision → 候选
-Product Direction → Select / Reject / Supersede」这条链路，并顺带把
-Repository Understanding 推到 V3（完整 Map + 分层 Scout + 源码凭据边界）：
-
-```text
-M2 复盘                docs/retrospectives/m2-product-direction.md
-Product Direction 端到端 docs/validation/m2-product-direction-e2e-smoke.md
-Repository Analysis V3  docs/validation/m2-repository-analysis-v3-multi-repository-smoke.md
-                        docs/validation/m2-repository-analysis-v3-stabilization.md
-```
-
-M2 期间新增 3 条 ADR（0004 两阶段 Repository Understanding / 0005 分层 Scout /
-0006 仓库源码凭据边界），并明确记录了一条**接受的边界**：极端庞大或极宽的仓库
-（当前实例为 langflow）可能在 Scout 预算内无法完成导航，此时失败关闭并返回 409，
-不做截断、采样或部分结果。
+实际输入、接受的 Plan、准备结果与 Git 隔离证据见
+[M3 focused smoke](validation/m3-evolution-planning-working-copy-smoke.md)；
+设计修正、过程经验与下一阶段交接见
+[M3 retrospective](retrospectives/m3-evolution-planning-working-copy.md)。
+M3 不再追加优化或 cleanup，除非发现具体阻塞 M4 的正确性问题。
 
 ### Next
 
-M3 里程碑级审查与一次聚焦 smoke：重点核对真实规划质量、托管目录配置、完整规划 → 准备链路、
-当前许可语义与历史 Plan 失效。Task 1 / Task 2 实现已完成，M4 尚未启动。
-推进方式按 `docs/retrospectives/m2-product-direction.md` §H 的约定
-（一个里程碑 → 一个相对完整的垂直切片 → 一次里程碑级审查 → 一次聚焦 smoke → 复盘）。
+后续交接到 M4 的首个受用户确认且成功验证的 Evolution Step；本轮不启动实现。
+交接范围为 Step 确认、Step 专属 Repository Understanding、受控 mutation、baselineRevision、
+Candidate State、Verification 与 revision 推进，以及 M4 所需的失败安全边界。
+完整 Failure / Repair / Retry / Recovery 流程仍属于 M5。
+继续采用「设计讨论 → 相对完整的垂直切片 → 里程碑级审查 → 聚焦修正 → 一次真实 smoke
+→ 复盘」，具体保留与调整见 M3 复盘 §E–F。
 
 ---
 
@@ -1749,8 +1725,8 @@ Repository Analysis   docs/validation/m1-repository-analysis-smoke-test.md
   该重访条件随后被真实仓库验证触发，Material Selection 已在 M2 被
   Repository Map + Scout + 定向读取取代（见下一条目）。
   当时的记录与重访条件：docs/validation/m1-repository-analysis-smoke-test.md §7。
-- Workspace mutation Adapter 仍按原计划等 M3（出现 Working Copy 与 Evolution Execution
-  的真实调用方之后再实现）。
+- M1 完成时将 Workspace mutation Adapter 留待 M3 的真实调用方；M3 已将准备能力单独实现，
+  步骤代码修改 Adapter 与授权作用域继续留给 M4（见 §8.7 与 M3 完成记录）。
 ```
 
 ---
@@ -1812,6 +1788,64 @@ Product Direction 端到端 docs/validation/m2-product-direction-e2e-smoke.md
 - 极端庞大或极宽的仓库（当前实例 langflow）可能在 Scout 预算内无法完成导航，
   失败关闭并返回 409 是接受的产品边界，不是实现缺陷。
 ```
+
+---
+
+### M3 — Evolution Planning & Working Copy
+
+**Completed**
+
+```text
+2026-10-05
+```
+
+**Outcome**
+
+```text
+Selected ProductDirection
+        +
+Base SoftwareAsset
+        +
+Base RepositoryProfile
+        ↓
+EvolutionPlan（PROPOSED）
+        ↓
+WorkingCopy（独立 clone / detached checkout）
+        ↓
+Plan ACTIVE
+WorkingCopy READY
+Steps PENDING_CONFIRMATION
+
+sourceRevision = currentRevision = lastVerifiedRevision = analyzedRevision
+Steps.baselineRevision = null；没有步骤授权、代码修改或 Verification 执行。
+```
+
+M3 Deliverables 与 Acceptance Criteria 全部满足，审查问题已修正。最终代码 `912d506`
+全量 verify 通过（1127 tests、0 failure / error / skipped）；同一代码完成真实 Provider
+与真实 Git WorkingCopy 的 focused smoke，源资产不变。此处引用既有验证，不表示文档收尾重新运行。
+
+- 验证记录：[M3 Evolution Planning & Working Copy focused smoke](validation/m3-evolution-planning-working-copy-smoke.md)。
+- 复盘：[M3 Evolution Planning & Working Copy retrospective](retrospectives/m3-evolution-planning-working-copy.md)。
+
+**Lessons Learned**
+
+- Planning 保持 AI Proposes → Domain Decides；Parser 解析结构、Resolver 还原既有依据、Domain
+  接受候选，各自责任明确。Proposal 仅作候选输入，正式 Plan / Step 直接拥有领域内容。
+- Direction 的历史发现基线与 Plan 的规划基线不同：R1 可以发现方向，同一 Candidate Asset
+  的 R2 可以用于后续规划和准备；身份、归属、授权与 revision 校验继续保留。
+- Working Copy provisioning 是独立能力；WorkspaceReadPort、WorkingCopyProvisioningPort 与
+  未来 WorkspaceMutationPort 互不继承，环境准备不产生步骤写能力。
+- 数据库生命周期状态由事务保证原子性；Git / 文件系统副作用靠失败补偿。补偿尽力删除本次
+  候选，失败保留原异常，残留目录不具有 WorkingCopy 的领域权威性。
+- Plan ACTIVE 表示环境已可用于后续演化，仍须逐 Step 获得用户确认。
+- 真实 Provider 产出可用规划；自然语言步骤粒度与职责重叠仍需人工判断，单次输出不证明普遍质量。
+- 「较大垂直切片 → 里程碑审查 → 聚焦修正 → smoke → 复盘」完成了主链路；M4 应保留这一节奏，
+  并在实现前明确候选 / 正式状态及解析 / 引用 / 接受边界，避免依赖事后 walkthrough 才发现问题。
+
+**Freeze**
+
+M3 STATUS: FROZEN。验收、审查修正、focused smoke 与文档同步均已完成。
+后续不进行 M3 优化或 cleanup，除非出现具体阻塞 M4 的正确性问题；M4 仍为 TODO。
 
 ---
 

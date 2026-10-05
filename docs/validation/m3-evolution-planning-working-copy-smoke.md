@@ -6,10 +6,14 @@
 
 **Verdict:** **M3 FOCUSED SMOKE: PASS**
 
-**DelveForge commit:** `912d50665cd17c5f5d703b542a1e4157675e6182`
+**Validated code revision:** `912d50665cd17c5f5d703b542a1e4157675e6182`
 
-本文记录一次真实环境运行及人工质量判断，不新增领域或架构规则。没有修改生产代码、
-Prompt、产品文档、领域文档或 Roadmap，没有启动 M4。
+**Documentation follow-up:** `6b5f7af` 补录实际接受的 Plan 输出，`fd9ba17` 补录实际 Profile
+输入，均从保留的 smoke 数据库与 API 产物恢复。本次里程碑收尾仅澄清记录元数据；这些
+文档修改没有重跑 smoke，也不代表验证了另一个代码 revision。
+
+本文记录一次真实环境运行及人工质量判断，不新增领域或架构规则。所记录的 smoke 与
+输出补录没有修改生产代码、Prompt、产品文档、领域文档或 Roadmap，没有启动 M4。
 
 ## 1. 环境与隔离
 
