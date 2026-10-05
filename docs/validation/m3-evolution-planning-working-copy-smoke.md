@@ -54,6 +54,202 @@ Product Direction Discovery 建立其余输入，最后经 select API 选择 smo
 | RepositoryProfile | `f01b1958-b9fc-4299-82aa-7da3708d1f58`，analyzedRevision 等于源 HEAD |
 | ProductDirection | `1b067a1b-c71d-4c4a-af62-87cfdb20ce2d`，SELECTED |
 
+### 2.1 Confirmed UserProfile：实际六区输入
+
+以下为本次正式确认的 smoke fixture，并非用户本人的画像。数据来自保留的
+`user-confirmed.json`，已以只读 SQLite 核对 `user_profile`、revision 12 的内容快照
+及有序 Evidence；六个内容区按持久化原文完整展示，不用场景摘要替代：
+
+```json
+{
+  "id": "36db3a56-79bf-419d-a2f8-2d6db0299c65",
+  "status": "CONFIRMED",
+  "revision": 12,
+  "interests": [
+    "个人知识管理",
+    "自托管工具"
+  ],
+  "behaviors": [
+    "每天使用短笔记记录开发学习与生活信息"
+  ],
+  "painPoints": [
+    "笔记和附件需要自己掌控，担心迁移与备份困难"
+  ],
+  "technicalCapabilities": [
+    "有 Go 和 TypeScript 基础，能维护已有后端，前端只做必要调整"
+  ],
+  "projectGoals": [
+    "希望定期导出笔记和附件到本地归档并检查完整性"
+  ],
+  "constraints": [
+    "每周最多投入六小时，希望增量复用已有笔记应用"
+  ]
+}
+```
+
+**代表性 UserProfile Evidence：** 该 revision 共五条依据，均为
+`sourceType=USER_INPUT`、`sourceRef=m3-smoke-scenario`、`confidence=null`、`confirmed=false`。
+下面保留三条实际 claim，覆盖痛点、目标与投入约束；其所属快照是上方 UserProfile ID @ revision 12。
+Profile 的 CONFIRMED 状态不改变单条 Evidence.confirmed 的值。
+
+| 原 Evidence 位置（从 1 开始） | sourceRef | 实际 claim |
+|---|---|---|
+| 2 | `m3-smoke-scenario` | 笔记和附件需要自己掌控，担心迁移与备份困难 |
+| 3 | `m3-smoke-scenario` | 希望定期导出笔记和附件到本地归档并检查完整性 |
+| 5 | `m3-smoke-scenario` | 每周最多投入六小时，希望增量复用已有笔记应用 |
+
+这些用户依据随后由 Direction 的 userNeed / userFit 支持槽引用，最终以
+USER_PROFILE origin（同一 ID、revision 12）进入 Plan 的 EvidenceBasis。
+下文的 Direction 与 Plan 仍是同一次 smoke 产出，没有重新确认画像或发起 AI 调用。
+
+### 2.2 RepositoryProfile：实际完整分析输入
+
+以下为真实 Repository Analysis 接受并保存的分析快照，来自 `profile.json`，
+已逐字段、逐有序列表及全部 Evidence 与只读 SQLite 核对。
+保留当次分析的原文与技术版本陈述，不把本次文档补充当作重新分析或修正仓库结论。
+
+```json
+{
+  "id": "f01b1958-b9fc-4299-82aa-7da3708d1f58",
+  "assetId": "f136230c-2dde-463c-b96a-e5362b31ed85",
+  "analyzedRevision": "aea105e081c97dcd45eea25adcf2b69d89c8e4ef",
+  "purpose": "Memos 是一个自托管的短笔记（memo）应用后端与前端一体化仓库，围绕 memo 及其附件、空间、反应、分享等资源提供多协议 API、存储层与 Web 界面。",
+  "techStack": [
+    "Go 1.27.0",
+    "Echo v5",
+    "Connect RPC (connectrpc.com/connect)",
+    "gRPC / gRPC-Gateway",
+    "Protocol Buffers",
+    "React 19",
+    "TypeScript 7",
+    "Vite 8",
+    "Tailwind CSS v4",
+    "TanStack React Query v5",
+    "Biome",
+    "Vitest",
+    "pnpm 11 / Node 24",
+    "SQLite (modernc.org/sqlite)",
+    "MySQL (go-sql-driver/mysql)",
+    "PostgreSQL (lib/pq)",
+    "AWS SDK v2 S3",
+    "CEL (google/cel-go)",
+    "goldmark (Markdown)",
+    "JWT (golang-jwt/jwt/v5)",
+    "Cobra + Viper CLI",
+    "testcontainers-go",
+    "Model Context Protocol Go SDK",
+    "OpenAI / Google GenAI SDKs",
+    "Docker (Alpine 3.21 运行时)"
+  ],
+  "modules": [
+    "cmd/memos：Cobra/Viper CLI 与服务启动入口",
+    "server：HTTP 进程、Echo 引导、所有传输层",
+    "server/api/v1：Connect/gRPC-Gateway 服务、ACL、SSE 枢纽、拦截器",
+    "server/fileserver：原生 HTTP 文件服务、缩略图、Range 请求",
+    "server/frontend：go:embed 打包的静态 SPA",
+    "server/mcp：Model Context Protocol 服务器",
+    "server/auth：JWT 访问令牌、刷新令牌、PAT",
+    "core：无 HTTP 无 SQL 的业务规则（access、notification、memopayload、memoexport）",
+    "store：Store 门面、缓存、迁移与 Driver 接口（sqlite/mysql/postgres 驱动）",
+    "markdown：Markdown 引擎（解析、AST、memos 语法扩展、渲染器、memo payload）",
+    "filter：CEL 过滤器编译器（解析为 IR、按驱动渲染 SQL、可过滤字段模式）",
+    "provider：由实例设置配置的后端（ai、idp、storage）",
+    "internal：无 memos 词汇的私有基础组件（identifier、email、webhook、ratelimit 等）",
+    "proto/api/v1、proto/store：公共 API 与内部存储 proto 源，proto/gen 为生成产物",
+    "web/src：React SPA（connect.ts 客户端、auth-state、hooks、contexts、components、themes）"
+  ],
+  "capabilities": [
+    "创建、列出、查询、更新、删除 memo，支持置顶、可见性（PUBLIC/PROTECTED/PRIVATE/SPACE）与归档状态",
+    "memo 关系、评论、反应（reaction）、分享链接（memo_share，支持过期时间）",
+    "Space 协作边界：空间、成员（ADMIN/USER）、邀请的创建/接受/拒绝/撤销",
+    "附件管理与上传（含分块上传、缩略图、图片处理并发信号量、存储用量查询）",
+    "多数据库支持：SQLite、MySQL、PostgreSQL 的迁移与 LATEST.sql 全新安装脚本",
+    "Markdown 解析与元数据抽取：标签、提及、图片/附件引用、标题、代码/链接/任务列表属性、摘要生成、标签重命名",
+    "CEL 过滤器编译为跨数据库方言的 SQL 片段（比较、in、contains/startsWith/endsWith、matches、集合操作、exists/all/exists_one 推导）",
+    "认证与授权：JWT、刷新令牌、PAT、IdP 身份联合、实例管理员与 memo 级访问策略（core/access）",
+    "AI 能力：转录（OpenAI whisper-1 / Gemini gemini-2.5-flash）与 AI provider 解析",
+    "多协议 API：Connect RPC 与 gRPC-Gateway 双通道，共享 Authorizer 与限流",
+    "限流、人机挑战、注册策略、请求体大小分级限制",
+    "SSE 事件推送、webhook、通知与收件箱（inbox）",
+    "Memo 导出格式（ZIP 容器携带 memo 与附件，用于实例间迁移）",
+    "实例设置与用户设置管理、实例统计（带缓存）",
+    "原生文件服务（/file/*）与单页应用静态资源服务",
+    "MCP（Model Context Protocol）服务端集成"
+  ],
+  "reusableAssets": [
+    "markdown 包（markdown.Service）：Markdown 解析/元数据抽取/渲染/摘要/标签重命名，可独立复用",
+    "markdown/renderer 的 MarkdownRenderer：将 goldmark AST 渲染回 Markdown 文本",
+    "filter 包：CEL 表达式到 IR 再到 SQL 的编译器，含 Schema 字段定义",
+    "core/access：传输无关的资源授权策略（memo 读决策、memo/attachment 管理权限、实例管理员判定）",
+    "core/memoexport：Memos Export Format 的 ZIP 容器读写与 JSON 记录定义",
+    "store.Driver 接口与 store/db/{sqlite,mysql,postgres} 驱动实现",
+    "store 门面中的内存缓存与对象存储客户端缓存",
+    "provider/ai：AI provider 类型/配置/错误定义与模型解析",
+    "server/auth：JWT 访问令牌、刷新令牌与 PAT 处理",
+    "server/api/v1 的 Connect 拦截器（metadata、logging、recovery、auth）与错误码转换",
+    "internal 下的通用组件（identifier、email、webhook、ratelimit、linkmeta、profile）"
+  ],
+  "limitations": [
+    "给出的材料仅包含 go.mod、部分脚本、部分 store/markdown/filter/provider/server/core 文件与配置，未包含完整的业务实现，无法据此判断全量行为",
+    "仓库无 README 内容被提供，未见到功能全景、部署与配置的官方说明",
+    "前端仅见 package.json 与 AGENTS.md 描述，未见实际源码，无法核实组件与页面实现",
+    "MCP 服务器、文件服务器、SSE 枢纽、IdP 与存储 provider 的具体实现未在材料中出现",
+    "导出格式中 1.0 版本仅写入 USER 作用域与 REFERENCE 关系类型，未涉及其他关系或作用域",
+    "导出格式明确不在容器内存储 mimetype 条目（为兼容 macOS Archive Utility）",
+    "CEL 过滤器的部分能力受限：时间戳访问器不接受时区参数、按 UTC 提取；set 操作要求字面量字符串列表；不支持顶层非布尔表达式",
+    "core/access 中 Space 邀请在授权判定上不授予成员资格或访问权，直到用户接受"
+  ],
+  "risks": [
+    "AGENTS.md 明确警告不要手工编辑生成产物（proto/gen、web/src/types/proto），误改会与 buf generate 结果不一致",
+    "数据库模式变更需同时更新 SQLite、MySQL、PostgreSQL 迁移与各自 LATEST.sql，遗漏会导致不同驱动行为不一致",
+    "分层依赖由 depguard 强制（cmd→server→core→store→{provider,markdown,filter}→internal），违反会破坏架构约束但当前仅靠 lint 拦截",
+    "请求体上限分级（16MB 通用、256MB 内联文件、分块上传更低）若配置理解错误可能导致大文件上传失败或内存压力",
+    "内存限流器（ratelimit.NewMemoryLimiter）为进程内实现，多实例部署下不共享限流状态",
+    "Entry point 以 root 启动后会 chown 数据目录并降权为 UID/GID 10001，权限修复失败被静默忽略（`|| true`）",
+    "权威性：AGENTS.md 声明若与源码或 CI 配置冲突应以源文件为准，说明该文档可能滞后",
+    "依赖面很宽（AWS SDK、Docker/testcontainers、OpenAI/GenAI、CEL、grpc-gateway 等），升级与供应链维护成本较高",
+    "认证/令牌行为与 Docker/发布流程的改动被要求先征询，说明这些区域改动风险高"
+  ]
+}
+```
+
+**代表性 RepositoryProfile Evidence：** 共 36 条，均为 `sourceType=REPOSITORY`、
+`confidence=null`、`confirmed=false`。下表保留六条实际 sourceRef / claim，覆盖技术基础、
+前端依赖、导出格式、数据读取、Markdown/附件引用及运行边界。
+这些 sourceRef 是分析版本中的仓库相对文件引用；其所属快照为上方 RepositoryProfile ID，
+analyzedRevision 固定为 `aea105e081c97dcd45eea25adcf2b69d89c8e4ef`。
+
+| 原 Evidence 位置（从 1 开始） | sourceRef | 实际 claim |
+|---|---|---|
+| 1 | `go.mod` | 项目模块路径与 Go 版本、后端框架、数据库、AI、CEL、Markdown 等主要依赖来自 go.mod |
+| 30 | `web/package.json` | web/package.json 展示前端依赖（React 19、React Query、Tailwind、CodeMirror、Connect、maplibre、mermaid 等）与脚本（dev/build/release/lint/test） |
+| 29 | `core/memoexport/format.go` | core/memoexport/format.go 定义导出格式常量、manifest/memo/attachment 等记录结构与路径规则 |
+| 13 | `store/driver.go` | store/driver.go 定义 Driver 接口，涵盖 attachment、memo、space、memo relation、instance setting、user、user setting、idp、inbox、reaction、memo share、user identity 等方法 |
+| 17 | `markdown/markdown.go` | markdown/markdown.go 实现标签/提及抽取、属性计算（标题、链接、代码、任务列表）、渲染、摘要生成、内容校验、标签重命名与受管附件 URL 解析 |
+| 32 | `scripts/entrypoint.sh` | scripts/entrypoint.sh 在 root 启动时修正数据目录权限并降权至 MEMOS_UID/MEMOS_GID，并支持 *_FILE 形式的 MEMOS_DSN |
+
+其中导出格式、Driver 和 Markdown 依据被选入 Direction.reusableCapability，
+又可在 Plan 的 REPOSITORY_PROFILE origin 中逐值追溯；下文 Evidence 示例保留了正式 origin。
+输入快照的 limitations 明确承认分析材料不完整，不应把未覆盖的实现当作已经证明不存在。
+
+### 2.3 本次持久化对象的完整因果链
+
+```text
+Confirmed UserProfile 36db3a56-79bf-419d-a2f8-2d6db0299c65 @ revision 12
++
+RepositoryProfile f01b1958-b9fc-4299-82aa-7da3708d1f58 @ aea105e081c97dcd45eea25adcf2b69d89c8e4ef
+    ↓
+Selected ProductDirection 1b067a1b-c71d-4c4a-af62-87cfdb20ce2d
+    ↓
+EvolutionPlan 941caea3-9164-4dd5-9cb7-da42a7c3f06c
+    ↓
+WorkingCopy 3fd15e06-aad8-448c-b878-30508d842dc8
+```
+
+Direction 保存上述 UserProfile ID / revision 与 RepositoryProfile ID，Plan 保存选定
+Direction ID 和 Base Asset / Profile ID，WorkingCopy 保存相同 Asset 与 analyzedRevision。
+这些关系已与保留的数据库核对；下面继续展示该方向及其实际规划输出。
+
 选择的方向是「增量归档守护进程与归档完整性校验」：复用 Memos Export Format，
 提供周期性增量归档、外部哈希清单和缺失/损坏/未覆盖内容报告；不承担迁移导入职责，
 不新增笔记编辑界面。Asset 属于该方向的 Candidate Assets，Profile 属于该 Asset。
