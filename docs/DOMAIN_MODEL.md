@@ -5964,6 +5964,24 @@ EvolutionPlanningService 不负责：
 
 这些属于后续 Application Flow。
 
+#### M3 Task 1 当前实现选择
+
+以下是当前规划切片的表示与校验选择，不是对自然语言语义质量的自动证明：
+
+- `CurrentState` 保存规划摘要，以及从 Base Repository Profile 的 capabilities / modules /
+  limitations 中逐项选择的事实；这些事实保留原文并校验成员关系，不复制整个 Profile。
+- `TargetState` 保留 Selected Product Direction 的 problem / targetProduct /
+  differentiation 原文，拒绝规划提案替换或弱化这些输入。
+- Gap 只作为规划推理，以 reusableCapabilities 与 changes 表达，不独立持久化。
+  reusableCapabilities 必须来自 Base Profile 的 capabilities 或 reusableAssets。
+- 每个 Step 的 plannedChanges 与 verificationCriteria 至少一项；preconditions 必须显式
+  出现，独立的首步允许空列表，表示没有 Step 专属依赖。步骤粒度、范围和验证标准的语义
+  质量仍需用户审阅；字段非空不意味着系统能证明增量一定有界或可验证。
+- Plan 使用已有 `EvidenceBasis` 保存依据及出处，并要求至少一条来自 Base Profile 的依据；
+  其他依据只能来自该 Profile 或 Selected Direction 已保存的 Evidence Support。
+- 初始 Plan 仅为 PROPOSED，workingCopyId 为空；所有 Step 为 PENDING_CONFIRMATION，
+  baselineRevision 为空，不产生执行结果或验证结果。
+
 ### 12.6 Asset Usage Policy
 
 当前需要明确建模一个：
@@ -6055,6 +6073,14 @@ Analyzable
 ≠
 Authorized Evolution Base
 ```
+
+**M3 Task 1 的最小策略（当前选择）：** Evolution Base 必须是 GIT_REPOSITORY、
+readPermission 允许、usageAuthorization 明确为 ALLOWED，并已记录 licenseInfo。
+许可证未知时失败关闭。ALLOWED 是资产级的使用许可声明，调用方必须在尊重已知许可证
+与资产限制的前提下提供它；选择 Product Direction 不会产生或替代这个声明。
+系统不从自由文本许可证内容推断法律许可，也不自动评估许可证兼容性或授权范围。
+若已知限制尚未解决，应保持 DENIED / UNCLEAR；这两种状态均不允许规划 Evolution Base。
+更细粒度的许可限制仍属于 §14.6 的开放模型问题。
 
 ### 12.7 Plan Activation Policy
 

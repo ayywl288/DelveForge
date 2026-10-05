@@ -1,0 +1,5 @@
+package com.ayywl.delveforge.domain.evolution;
+public enum EvolutionStepStatus {
+    PENDING_CONFIRMATION, READY, EXECUTING, VERIFYING, VERIFICATION_FAILED,
+    ROLLING_BACK, SUCCEEDED, FAILED, RECOVERY_REQUIRED, CANCELLED
+}
