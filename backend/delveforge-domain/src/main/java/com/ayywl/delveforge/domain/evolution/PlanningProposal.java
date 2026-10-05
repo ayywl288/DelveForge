@@ -5,7 +5,7 @@ import java.util.List;
 
 /**
  * 未被接受的候选内容，不携带身份、生命周期状态或调用内短引用。
- * 与 DirectionProposal 一样，它不是 Entity，也不作为独立记录持久化。
+ * 它只作为 EvolutionPlanningService 的决策输入；接受后不作为 Aggregate 内容或独立记录保存。
  */
 public record PlanningProposal(CurrentState currentState, TargetState targetState,
                                List<String> reusableCapabilities, List<String> changes,

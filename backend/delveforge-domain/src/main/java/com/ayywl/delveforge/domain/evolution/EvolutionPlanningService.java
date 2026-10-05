@@ -83,7 +83,15 @@ public final class EvolutionPlanningService {
         }
 
         // 这里只校验内容存在和事实来源；自然语言的范围与工程质量仍需用户审阅。
-        return new EvolutionPlan(planIds.get(), direction.id(), asset.id(), profile.id(), proposal,
-                proposal.steps().stream().map(step -> stepIds.get()).toList());
+        EvolutionPlanId planId = planIds.get();
+        List<EvolutionStep> steps = proposal.steps().stream()
+                .map(step -> EvolutionStep.planned(stepIds.get(), planId, step.goal(), step.scope(),
+                        step.plannedChanges(), step.preconditions(), step.verificationCriteria()))
+                .toList();
+
+        // 提案仅作为决策输入；接受后 Aggregate 直接拥有正式值，不保留 Proposal 对象。
+        return new EvolutionPlan(planId, direction.id(), asset.id(), profile.id(),
+                proposal.currentState(), proposal.targetState(), proposal.reusableCapabilities(),
+                proposal.changes(), steps, proposal.risks(), proposal.evidence());
     }
 }

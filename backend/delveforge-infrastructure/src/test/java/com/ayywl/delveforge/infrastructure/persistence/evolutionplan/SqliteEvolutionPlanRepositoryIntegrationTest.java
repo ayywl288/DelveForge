@@ -250,10 +250,11 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
     }
 
     @Test
-    void commitsAndRestoresAllFieldsAndStepOrderOnIndependentReads() {
+    void commitsAndRestoresAcceptedFieldsAndStepOrderOnIndependentReads() {
         EvolutionPlan plan = plan("first");
         plans.save(plan);
         EvolutionPlan loaded = plans.findById(plan.id()).orElseThrow();
+        // 重建结果直接拥有正式定义；历史读取没有 AI、Resolver 或领域提案接受过程。
         assertEquals(plan.id(), loaded.id());
         assertEquals(plan.productDirectionId(), loaded.productDirectionId());
         assertEquals(plan.baseAssetId(), loaded.baseAssetId());
@@ -278,7 +279,9 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
             assertEquals(before.verificationCriteria(), after.verificationCriteria());
             assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, after.status());
             assertNull(after.baselineRevision());
+            assertThrows(UnsupportedOperationException.class, () -> after.verificationCriteria().clear());
         }
+        assertThrows(UnsupportedOperationException.class, () -> loaded.changes().clear());
         assertThrows(EvolutionPlanAlreadyExistsException.class, () -> plans.save(plan));
         plans.save(plan("second"));
         assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM evolution_plan", Integer.class));

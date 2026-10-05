@@ -243,6 +243,85 @@ class EvolutionPlanningServiceTest {
     }
 
     @Test
+    void acceptedAggregatesOwnFormalValuesWithoutPermanentProposalDependencies() {
+        PlanningProposal candidate = proposal();
+        EvolutionPlan plan = service().plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED),
+                profile(), candidate);
+
+        assertEquals(candidate.currentState(), plan.currentState());
+        assertEquals(candidate.reusableCapabilities(), plan.reusableCapabilities());
+        for (int index = 0; index < candidate.steps().size(); index++) {
+            PlanningStepProposal proposed = candidate.steps().get(index);
+            EvolutionStep accepted = plan.steps().get(index);
+            assertEquals(proposed.goal(), accepted.goal());
+            assertEquals(proposed.scope(), accepted.scope());
+            assertEquals(proposed.plannedChanges(), accepted.plannedChanges());
+            assertEquals(proposed.preconditions(), accepted.preconditions());
+            assertEquals(proposed.verificationCriteria(), accepted.verificationCriteria());
+            assertThrows(UnsupportedOperationException.class, () -> accepted.plannedChanges().clear());
+        }
+
+        // 固定两种 Aggregate 内容与候选类型之间的边界，连泛型中的 Proposal 也不能长期保留。
+        for (Class<?> aggregateType : List.of(EvolutionPlan.class, EvolutionStep.class)) {
+            for (java.lang.reflect.Field field : aggregateType.getDeclaredFields()) {
+                assertFalse(field.getGenericType().getTypeName().contains("Proposal"), field.toString());
+            }
+            for (java.lang.reflect.Constructor<?> constructor : aggregateType.getDeclaredConstructors()) {
+                for (Class<?> parameter : constructor.getParameterTypes()) {
+                    assertFalse(parameter.getSimpleName().contains("Proposal"), constructor.toString());
+                }
+            }
+        }
+    }
+
+    @Test
+    void reconstitutesAcceptedValuesWithoutProposalOrCurrentEligibilityChecks() {
+        EvolutionPlan original = service().plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED),
+                profile(), proposal());
+        EvolutionStep first = original.steps().getFirst();
+        EvolutionStep restoredStep = EvolutionStep.reconstitute(first.id(), original.id(), first.goal(), first.scope(),
+                first.plannedChanges(), first.preconditions(), first.verificationCriteria());
+        EvolutionPlan restored = EvolutionPlan.reconstitute(original.id(), original.productDirectionId(),
+                original.baseAssetId(), original.baseRepositoryProfileId(), original.currentState(), original.targetState(),
+                original.reusableCapabilities(), original.changes(), List.of(restoredStep), original.risks(),
+                original.evidence(), new WorkingCopyId("historical-copy"), EvolutionPlanStatus.SUPERSEDED);
+
+        assertEquals(EvolutionPlanStatus.SUPERSEDED, restored.status());
+        assertEquals("historical-copy", restored.workingCopyId());
+        assertEquals(original.currentState(), restored.currentState());
+        assertEquals(original.evidence(), restored.evidence());
+        assertEquals(first.id(), restored.steps().getFirst().id());
+        assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, restoredStep.status());
+        assertNull(restoredStep.baselineRevision());
+
+        EvolutionStep foreignStep = EvolutionStep.reconstitute(first.id(), new EvolutionPlanId("foreign"),
+                first.goal(), first.scope(), first.plannedChanges(), first.preconditions(), first.verificationCriteria());
+        assertThrows(IllegalArgumentException.class, () -> EvolutionPlan.reconstitute(original.id(),
+                original.productDirectionId(), original.baseAssetId(), original.baseRepositoryProfileId(),
+                original.currentState(), original.targetState(), original.reusableCapabilities(), original.changes(),
+                List.of(foreignStep), original.risks(), original.evidence()));
+    }
+
+    @Test
+    void rejectsAllowedDirectionEvidenceWhenBaseProfileEvidenceIsMissing() {
+        EvidenceBasis userBasis = new EvidenceBasis(
+                new Evidence(EvidenceSourceType.USER_INPUT, "input", "Need scheduled reports", null, true),
+                new UserProfileEvidenceOrigin(new UserProfileId("user"), 1));
+        ProductDirection selected = ProductDirection.create(new ProductDirectionId("direction"), new UserProfileId("user"), 1,
+                List.of(PROFILE), "Personal reports", "Manual exports", "Scheduled reports", "Fits goals",
+                List.of(ASSET), "Personal schedule", "Scheduling", "Small", List.of(),
+                new DirectionEvidenceSupport(List.of(userBasis), List.of(userBasis), List.of(BASIS)));
+        selected.select();
+        PlanningProposal candidate = proposal();
+        PlanningProposal missingProfile = new PlanningProposal(candidate.currentState(), candidate.targetState(),
+                candidate.reusableCapabilities(), candidate.changes(), candidate.steps(), candidate.risks(), List.of(userBasis));
+
+        // 用户依据确实属于 Direction，但不能替代描述 CurrentState 所需的 Base Profile 依据。
+        assertThrows(EvolutionPlanningRejectedException.class,
+                () -> service().plan(selected, asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), missingProfile));
+    }
+
+    @Test
     void rejectsDuplicateStepIdentitiesAndEmptyDefinitions() {
         var service = new EvolutionPlanningService(new AssetUsagePolicy(), () -> new EvolutionPlanId("plan"),
                 () -> new EvolutionStepId("same"));

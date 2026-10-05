@@ -8,19 +8,37 @@ import java.util.List;
 public final class EvolutionStep {
     private final EvolutionStepId id;
     private final EvolutionPlanId planId;
-    private final PlanningStepProposal definition;
+    private final String goal;
+    private final String scope;
+    private final List<String> plannedChanges;
+    private final List<String> preconditions;
+    private final List<String> verificationCriteria;
 
-    private EvolutionStep(EvolutionStepId id, EvolutionPlanId planId, PlanningStepProposal definition) {
-        if (id == null || planId == null || definition == null) {
+    private EvolutionStep(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
+            List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria) {
+        if (id == null || planId == null) {
             throw new IllegalArgumentException("Step identity, owner and definition are required");
         }
         this.id = id;
         this.planId = planId;
-        this.definition = definition;
+        this.goal = PlanningContent.text(goal, "step.goal");
+        this.scope = PlanningContent.text(scope, "step.scope");
+        this.plannedChanges = PlanningContent.section(plannedChanges, "step.plannedChanges", true);
+        this.preconditions = PlanningContent.section(preconditions, "step.preconditions", false);
+        this.verificationCriteria = PlanningContent.section(verificationCriteria, "step.verificationCriteria", true);
     }
 
-    static EvolutionStep planned(EvolutionStepId id, EvolutionPlanId planId, PlanningStepProposal definition) {
-        return new EvolutionStep(id, planId, definition);
+    static EvolutionStep planned(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
+            List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria) {
+        return new EvolutionStep(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
+    }
+
+    /**
+     * 从已保存的正式定义还原 M3 Step，不制造新的提案或执行授权。
+     */
+    public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
+            List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria) {
+        return new EvolutionStep(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
     }
 
     public EvolutionStepId id() {
@@ -32,23 +50,23 @@ public final class EvolutionStep {
     }
 
     public String goal() {
-        return definition.goal();
+        return goal;
     }
 
     public String scope() {
-        return definition.scope();
+        return scope;
     }
 
     public List<String> plannedChanges() {
-        return definition.plannedChanges();
+        return plannedChanges;
     }
 
     public List<String> preconditions() {
-        return definition.preconditions();
+        return preconditions;
     }
 
     public List<String> verificationCriteria() {
-        return definition.verificationCriteria();
+        return verificationCriteria;
     }
 
     public EvolutionStepStatus status() {

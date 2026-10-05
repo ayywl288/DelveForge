@@ -44,9 +44,9 @@ public final class PlanningProposalParser {
         }
 
         return new AiPlanningProposal(
-                    new CurrentState(text(current, "summary"), section(current, "capabilities"),
-                            section(current, "modules"), section(current, "limitations")),
-                    new TargetState(text(target, "problem"), text(target, "targetProduct"), text(target, "differentiation")),
+                new CurrentState(text(current, "summary"), section(current, "capabilities"),
+                        section(current, "modules"), section(current, "limitations")),
+                new TargetState(text(target, "problem"), text(target, "targetProduct"), text(target, "differentiation")),
                 section(root, "reusableCapabilities"), requiredSection(root, "changes"), steps,
                 section(root, "risks"), section(root, "evidence"));
     }

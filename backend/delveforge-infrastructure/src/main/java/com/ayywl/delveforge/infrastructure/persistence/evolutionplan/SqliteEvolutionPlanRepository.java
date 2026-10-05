@@ -88,27 +88,27 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         Map<String, List<String>> sections = loadSections(id.value());
         List<EvolutionStepDO> stepRows = stepMapper.selectList(new LambdaQueryWrapper<EvolutionStepDO>()
                 .eq(EvolutionStepDO::getPlanId, id.value()).orderByAsc(EvolutionStepDO::getPosition));
-        List<PlanningStepProposal> definitions = new ArrayList<>();
-        List<EvolutionStepId> ids = new ArrayList<>();
+        List<EvolutionStep> steps = new ArrayList<>();
         for (EvolutionStepDO step : stepRows) {
             if (!EvolutionStepStatus.PENDING_CONFIRMATION.name().equals(step.getStatus()) || step.getBaselineRevision() != null) {
                 throw new IllegalStateException("Unsupported stored step lifecycle state");
             }
             Map<String, List<String>> stepSections = loadStepSections(step.getId());
-            definitions.add(new PlanningStepProposal(step.getGoal(), step.getScope(),
+            steps.add(EvolutionStep.reconstitute(new EvolutionStepId(step.getId()),
+                    new EvolutionPlanId(step.getPlanId()), step.getGoal(), step.getScope(),
                     values(stepSections, "plannedChanges"), values(stepSections, "preconditions"),
                     values(stepSections, "verificationCriteria")));
-            ids.add(new EvolutionStepId(step.getId()));
         }
-        PlanningProposal content = new PlanningProposal(
-                new CurrentState(row.getCurrentSummary(), values(sections, "currentCapabilities"),
-                        values(sections, "currentModules"), values(sections, "currentLimitations")),
-                new TargetState(row.getTargetProblem(), row.getTargetProduct(), row.getTargetDifferentiation()),
-                values(sections, "reusableCapabilities"), values(sections, "changes"), definitions,
-                values(sections, "risks"), loadEvidence(id.value()));
+
+        // 已保存的是被接受的领域事实；读取时直接重建正式值，不重新制造 AI 提案。
+        CurrentState currentState = new CurrentState(row.getCurrentSummary(), values(sections, "currentCapabilities"),
+                values(sections, "currentModules"), values(sections, "currentLimitations"));
+        TargetState targetState = new TargetState(row.getTargetProblem(), row.getTargetProduct(), row.getTargetDifferentiation());
         return Optional.of(EvolutionPlan.reconstitute(id, new ProductDirectionId(row.getProductDirectionId()),
                 new SoftwareAssetId(row.getBaseAssetId()), new RepositoryProfileId(row.getBaseRepositoryProfileId()),
-                content, ids, row.getWorkingCopyId() == null ? null : new WorkingCopyId(row.getWorkingCopyId()),
+                currentState, targetState, values(sections, "reusableCapabilities"), values(sections, "changes"),
+                steps, values(sections, "risks"), loadEvidence(id.value()),
+                row.getWorkingCopyId() == null ? null : new WorkingCopyId(row.getWorkingCopyId()),
                 EvolutionPlanStatus.valueOf(row.getStatus())));
     }
 

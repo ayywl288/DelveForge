@@ -18,30 +18,45 @@ public final class EvolutionPlan {
     private final ProductDirectionId productDirectionId;
     private final SoftwareAssetId baseAssetId;
     private final RepositoryProfileId baseRepositoryProfileId;
-    private final PlanningProposal content;
+    private final CurrentState currentState;
+    private final TargetState targetState;
+    private final List<String> reusableCapabilities;
+    private final List<String> changes;
     private final List<EvolutionStep> steps;
+    private final List<String> risks;
+    private final List<EvidenceBasis> evidence;
     private WorkingCopyId workingCopyId;
     private EvolutionPlanStatus status = EvolutionPlanStatus.PROPOSED;
 
     EvolutionPlan(EvolutionPlanId id, ProductDirectionId directionId, SoftwareAssetId assetId,
-                  RepositoryProfileId profileId, PlanningProposal content, List<EvolutionStepId> stepIds) {
-        if (id == null || directionId == null || assetId == null || profileId == null || content == null) {
+            RepositoryProfileId profileId, CurrentState currentState, TargetState targetState,
+            List<String> reusableCapabilities, List<String> changes, List<EvolutionStep> steps,
+            List<String> risks, List<EvidenceBasis> evidence) {
+        if (id == null || directionId == null || assetId == null || profileId == null
+                || currentState == null || targetState == null || steps == null || evidence == null) {
             throw new IllegalArgumentException("Plan identity and planning basis are required");
         }
-        if (content.steps().isEmpty() || content.evidence().isEmpty()) {
+        if (steps.isEmpty() || evidence.isEmpty()) {
             throw new EvolutionPlanningRejectedException("Plan requires steps and traceable evidence");
         }
-        if (stepIds == null || stepIds.size() != content.steps().size()
-                || stepIds.contains(null) || new HashSet<>(stepIds).size() != stepIds.size()) {
+        if (steps.stream().anyMatch(step -> step == null)
+                || new HashSet<>(steps.stream().map(EvolutionStep::id).toList()).size() != steps.size()) {
             throw new IllegalArgumentException("Step identities must be unique and complete");
+        }
+        if (steps.stream().anyMatch(step -> !id.equals(step.planId()))) {
+            throw new IllegalArgumentException("Every Step must belong to its Plan");
         }
         this.id = id;
         this.productDirectionId = directionId;
         this.baseAssetId = assetId;
         this.baseRepositoryProfileId = profileId;
-        this.content = content;
-        this.steps = java.util.stream.IntStream.range(0, stepIds.size())
-                .mapToObj(index -> EvolutionStep.planned(stepIds.get(index), id, content.steps().get(index))).toList();
+        this.currentState = currentState;
+        this.targetState = targetState;
+        this.reusableCapabilities = PlanningContent.section(reusableCapabilities, "reusableCapabilities", false);
+        this.changes = PlanningContent.section(changes, "changes", true);
+        this.steps = List.copyOf(steps);
+        this.risks = PlanningContent.section(risks, "risks", false);
+        this.evidence = List.copyOf(evidence);
     }
 
     /**
@@ -49,21 +64,25 @@ public final class EvolutionPlan {
      * 即使依据已不再满足新规划条件，历史 EvolutionPlan 仍应可读。
      */
     public static EvolutionPlan reconstitute(EvolutionPlanId id, ProductDirectionId directionId,
-            SoftwareAssetId assetId, RepositoryProfileId profileId, PlanningProposal content,
-            List<EvolutionStepId> stepIds) {
-        return new EvolutionPlan(id, directionId, assetId, profileId, content, stepIds);
+            SoftwareAssetId assetId, RepositoryProfileId profileId, CurrentState currentState, TargetState targetState,
+            List<String> reusableCapabilities, List<String> changes, List<EvolutionStep> steps,
+            List<String> risks, List<EvidenceBasis> evidence) {
+        return new EvolutionPlan(id, directionId, assetId, profileId, currentState, targetState,
+                reusableCapabilities, changes, steps, risks, evidence);
     }
 
     public static EvolutionPlan reconstitute(EvolutionPlanId id, ProductDirectionId directionId,
-            SoftwareAssetId assetId, RepositoryProfileId profileId, PlanningProposal content,
-            List<EvolutionStepId> stepIds, WorkingCopyId workingCopyId, EvolutionPlanStatus status) {
+            SoftwareAssetId assetId, RepositoryProfileId profileId, CurrentState currentState, TargetState targetState,
+            List<String> reusableCapabilities, List<String> changes, List<EvolutionStep> steps,
+            List<String> risks, List<EvidenceBasis> evidence, WorkingCopyId workingCopyId, EvolutionPlanStatus status) {
         if (status == null || status == EvolutionPlanStatus.COMPLETED) {
             throw new IllegalArgumentException("Unsupported M3 Plan lifecycle state");
         }
         if (status == EvolutionPlanStatus.ACTIVE && workingCopyId == null) {
             throw new IllegalArgumentException("ACTIVE Plan must have a Working Copy");
         }
-        EvolutionPlan plan = reconstitute(id, directionId, assetId, profileId, content, stepIds);
+        EvolutionPlan plan = reconstitute(id, directionId, assetId, profileId, currentState, targetState,
+                reusableCapabilities, changes, steps, risks, evidence);
         plan.workingCopyId = workingCopyId;
         plan.status = status;
         return plan;
@@ -73,8 +92,9 @@ public final class EvolutionPlan {
      * 先在隔离候选上修改，避免失败时改变 Repository 已加载的对象。
      */
     public EvolutionPlan copy() {
-        return reconstitute(id, productDirectionId, baseAssetId, baseRepositoryProfileId, content,
-                steps.stream().map(EvolutionStep::id).toList(), workingCopyId, status);
+        // M3 Step 定义不可变，可共享正式值；Plan 的绑定与生命周期仍在隔离候选上修改。
+        return reconstitute(id, productDirectionId, baseAssetId, baseRepositoryProfileId, currentState, targetState,
+                reusableCapabilities, changes, steps, risks, evidence, workingCopyId, status);
     }
 
     public void bindWorkingCopy(WorkingCopy copy) {
@@ -127,19 +147,19 @@ public final class EvolutionPlan {
     }
 
     public CurrentState currentState() {
-        return content.currentState();
+        return currentState;
     }
 
     public TargetState targetState() {
-        return content.targetState();
+        return targetState;
     }
 
     public List<String> reusableCapabilities() {
-        return content.reusableCapabilities();
+        return reusableCapabilities;
     }
 
     public List<String> changes() {
-        return content.changes();
+        return changes;
     }
 
     public List<EvolutionStep> steps() {
@@ -147,11 +167,11 @@ public final class EvolutionPlan {
     }
 
     public List<String> risks() {
-        return content.risks();
+        return risks;
     }
 
     public List<EvidenceBasis> evidence() {
-        return content.evidence();
+        return evidence;
     }
 
     public EvolutionPlanStatus status() {

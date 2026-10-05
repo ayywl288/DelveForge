@@ -360,6 +360,9 @@ class GenerateEvolutionPlanUseCaseTest {
         seed();
         response = JSON.substring(0, JSON.lastIndexOf('}'))
                 + ",\"status\":\"ACTIVE\",\"workingCopyId\":\"forged\",\"id\":\"forged\"}";
+        response = response.replace("\"verificationCriteria\":[\"Reports run on schedule\"]",
+                "\"verificationCriteria\":[\"Reports run on schedule\"],"
+                        + "\"status\":\"READY\",\"baselineRevision\":\"forged\",\"id\":\"forged\"");
 
         EvolutionPlan plan = useCase().generate(request());
 
@@ -367,6 +370,8 @@ class GenerateEvolutionPlanUseCaseTest {
         assertEquals(EvolutionPlanStatus.PROPOSED, plan.status());
         assertNull(plan.workingCopyId());
         assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, plan.steps().getFirst().status());
+        assertNull(plan.steps().getFirst().baselineRevision());
+        assertNotEquals("forged", plan.steps().getFirst().id().value());
     }
 
     @Test

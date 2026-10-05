@@ -5985,6 +5985,12 @@ EvolutionPlanningService 不负责：
 
 以下是当前规划切片的表示与校验选择，不是对自然语言语义质量的自动证明：
 
+- Application 的 `AiPlanningProposal` / `AiPlanningStepProposal` 表达 AI 侧结构化候选，
+  Evidence 保留调用内临时引用。Resolver 只将引用还原为既有事实；还原后的
+  `PlanningProposal` / `PlanningStepProposal` 仍是 Domain Service 的候选输入，未被领域接受。
+- `EvolutionPlanningService` 校验候选后，`EvolutionPlan` 直接拥有正式 CurrentState、TargetState、
+  复用能力、changes、有序 EvolutionSteps、risks 与 Evidence；EvolutionStep 直接拥有其定义字段。
+  两者不长期持有 Proposal。持久化读取直接还原正式领域值，不重新构造提案或检查当前规划资格。
 - `CurrentState` 保存规划摘要，以及从 Base Repository Profile 的 capabilities / modules /
   limitations 中逐项选择的事实；这些事实保留原文并校验成员关系，不复制整个 Profile。
 - `TargetState` 保留 Selected Product Direction 的 problem / targetProduct /
