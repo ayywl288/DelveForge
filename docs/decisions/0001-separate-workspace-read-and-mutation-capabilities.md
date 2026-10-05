@@ -221,6 +221,24 @@ Workspace Adapter 能力扩展到 Git / Filesystem / Build / Test 等多个技�
     再根据真实 Use Case 重新划分 capability boundary。
 ```
 
+## M3 refinement — 2026-10-05
+
+M3 的环境准备使用独立 `WorkingCopyProvisioningPort`，不加入 `WorkspaceReadPort`
+或 `WorkspaceMutationPort`。三个 Port 互不继承；Repository Analysis 继续只依赖读取 Port。
+现有 `GitWorkspaceAdapter` 同时实现读取与准备 Port，不实现步骤代码修改 Port。
+
+准备只接受源位置、完整 commit ID 与托管目录名称，返回技术位置、实际 revision 和清理凭据。
+Adapter 使用配置的独立根目录、`clone --no-local --no-checkout --template=` 与 detached checkout，
+不共享源仓库对象存储、不包含源仓库未提交内容。准备前后核对源 HEAD；偏离分析 revision 时拒绝。
+清理只允许本次创建且持有匹配凭据的托管子目录，不采纳已有目录。
+
+Git/文件系统与 SQLite 不形成一个事务：外部候选先准备，READY 元数据、绑定与 ACTIVE Plan
+随后一次原子提交；提交失败时尽力删除候选。删除失败留下的目录不具有领域权威性。
+这是 M3 的同步实现选择，不引入持久化 CREATING 或残留协调系统。
+
+ACTIVE Plan 不构成 Step 授权。M4 仍须按上述 Revisit Conditions 评估绑定 Working Copy / Step
+作用域的 mutation capability；M3 不开放步骤写能力。
+
 ## References
 
 ```text

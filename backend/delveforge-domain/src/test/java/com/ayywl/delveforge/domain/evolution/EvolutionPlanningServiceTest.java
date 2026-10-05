@@ -49,6 +49,87 @@ class EvolutionPlanningServiceTest {
         return new EvolutionPlanningService(new AssetUsagePolicy(),
                 () -> new EvolutionPlanId("plan"), () -> new EvolutionStepId("step-" + ids.incrementAndGet()));
     }
+    @Test void activationBindsReadyCopyWithoutAuthorizingStepsOrMutatingLoadedPlan() {
+        var asset = asset(true, "MIT", UsageAuthorization.ALLOWED);
+        var direction = direction(true);
+        var original = service().plan(direction, asset, profile(), proposal());
+        var candidate = original.copy();
+        var copy = WorkingCopy.create(new WorkingCopyId("copy"), ASSET, "commit123", "managed-copy");
+        assertEquals(WorkingCopyStatus.CREATING, copy.status());
+        assertThrows(EvolutionPlanStateException.class, () -> candidate.bindWorkingCopy(copy));
+        assertThrows(EvolutionPlanStateException.class, () -> copy.markReady("other"));
+        assertNull(copy.currentRevision());
+        copy.markReady("commit123");
+        candidate.bindWorkingCopy(copy);
+        candidate.activate(new PlanActivationPolicy(new AssetUsagePolicy()), copy, direction, asset, profile());
+        assertEquals(EvolutionPlanStatus.ACTIVE, candidate.status());
+        assertEquals("copy", candidate.workingCopyId());
+        assertEquals("commit123", copy.sourceRevision());
+        assertEquals(copy.sourceRevision(), copy.currentRevision());
+        assertEquals(copy.sourceRevision(), copy.lastVerifiedRevision());
+        assertEquals(EvolutionPlanStatus.PROPOSED, original.status());
+        assertNull(original.workingCopyId());
+        candidate.steps().forEach(step -> {
+            assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, step.status());
+            assertNull(step.baselineRevision());
+        });
+        assertThrows(EvolutionPlanStateException.class, () -> candidate.bindWorkingCopy(copy));
+        assertThrows(EvolutionPlanStateException.class, () -> candidate.activate(
+                new PlanActivationPolicy(new AssetUsagePolicy()), copy, direction, asset, profile()));
+        candidate.supersede();
+        assertEquals(EvolutionPlanStatus.SUPERSEDED, candidate.status());
+        assertEquals(original.evidence(), candidate.evidence());
+        assertEquals("copy", candidate.workingCopyId());
+        assertThrows(EvolutionPlanStateException.class, candidate::supersede);
+    }
+
+    @Test void activationPolicyRejectsUnboundUnreadyWrongCopyRevisionAndRevokedAuthorization() {
+        var allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
+        var selected = direction(true);
+        var plan = service().plan(selected, allowed, profile(), proposal());
+        var policy = new PlanActivationPolicy(new AssetUsagePolicy());
+        var copy = WorkingCopy.create(new WorkingCopyId("copy"), ASSET, "commit123", "managed-copy");
+        assertThrows(EvolutionPlanStateException.class,
+                () -> policy.requireActivationAllowed(plan, copy, selected, allowed, profile()));
+        copy.markReady("commit123");
+        assertThrows(EvolutionPlanStateException.class,
+                () -> policy.requireActivationAllowed(plan, copy, selected, allowed, profile()));
+        plan.bindWorkingCopy(copy);
+        assertThrows(AssetEvolutionNotAllowedException.class, () -> plan.activate(policy, copy, selected,
+                asset(true, "MIT", UsageAuthorization.DENIED), profile()));
+        assertEquals(EvolutionPlanStatus.PROPOSED, plan.status());
+        var wrong = WorkingCopy.create(new WorkingCopyId("other"), ASSET, "commit123", "other-copy");
+        wrong.markReady("commit123");
+        assertThrows(EvolutionPlanStateException.class,
+                () -> policy.requireActivationAllowed(plan, wrong, selected, allowed, profile()));
+        var stale = WorkingCopy.create(new WorkingCopyId("copy"), ASSET, "other", "other-copy");
+        stale.markReady("other");
+        assertThrows(EvolutionPlanStateException.class,
+                () -> policy.requireActivationAllowed(plan, stale, selected, allowed, profile()));
+        selected.supersede();
+        assertThrows(EvolutionPlanStateException.class,
+                () -> plan.activate(policy, copy, selected, allowed, profile()));
+    }
+
+    @Test void preparationPolicyRejectsMismatchedBasisAndHistoricalPlan() {
+        var allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
+        var selected = direction(true);
+        var plan = service().plan(selected, allowed, profile(), proposal());
+        var policy = new PlanActivationPolicy(new AssetUsagePolicy());
+        var otherAsset = SoftwareAsset.create(new SoftwareAssetId("other"), SoftwareAssetType.GIT_REPOSITORY,
+                SoftwareAssetSource.USER_SPECIFIED, "other", true, "MIT", UsageAuthorization.ALLOWED);
+        assertThrows(EvolutionPlanStateException.class,
+                () -> policy.requirePreparationAllowed(plan, selected, otherAsset, profile()));
+        var otherProfile = RepositoryProfile.create(new RepositoryProfileId("other"), ASSET, "commit123", "Other",
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(FACT));
+        assertThrows(EvolutionPlanStateException.class,
+                () -> policy.requirePreparationAllowed(plan, selected, allowed, otherProfile));
+        assertThrows(EvolutionPlanStateException.class,
+                () -> policy.requirePreparationAllowed(plan, direction(false), allowed, profile()));
+        plan.supersede();
+        assertThrows(EvolutionPlanStateException.class,
+                () -> policy.requirePreparationAllowed(plan, selected, allowed, profile()));
+    }
     @Test void acceptsAnIsolatedProposedPlanWithOrderedUnconfirmedSteps() {
         var plan = service().plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), proposal());
         assertEquals(EvolutionPlanStatus.PROPOSED, plan.status());

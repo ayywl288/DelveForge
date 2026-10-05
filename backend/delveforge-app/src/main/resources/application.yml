@@ -1,4 +1,6 @@
 delveforge:
+  workspace:
+    root: ${DELVEFORGE_WORKSPACE_ROOT:${user.home}/.delveforge/workspaces}
   # Repository Analysis 的运行时上限。
   #
   # 这些是**操作调参值**，不是领域规则：它们决定一次分析能读到多少内容，改变它们
