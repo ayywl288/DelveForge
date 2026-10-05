@@ -861,8 +861,9 @@ GET /api/evolution-plans/{id}
   校验 SELECTED、Candidate Asset、Profile 归属、确定 analyzedRevision 与使用许可。
   当前最小许可策略见 DOMAIN_MODEL.md §12.6；不满足时 409，未找到资源时 404。
 - 一次 AI Gateway 调用仅使用已有 Direction 和 Repository Profile 的语义内容，
-  不访问 Workspace、不重新读源码、不触发 Map / Scout。解析器严格检查全部字段形状，
-  将本次调用的 Evidence 引用换成真实 EvidenceBasis，再由 Domain Service 接受提案。
+  不访问 Workspace、不重新读源码、不触发 Map / Scout。PlanningProposalParser 严格检查字段形状，
+  返回保留临时引用的 AiPlanningProposal；PlanningProposalResolver 再将本次调用的 Evidence 引用
+  换成既有 EvidenceBasis。得到的 PlanningProposal 仍是候选，由 Domain Service 决定是否接受。
 - 外部调用及解析完成后重新检查可变的方向状态与资产使用许可。SQLite 的实际插入语句
   再核对方向仍为 SELECTED，避免方向在 AI 调用期间切换后提交旧规划。
 - AI 调用、结构解析、未知 Evidence 引用或提案领域校验失败时返回 502，且不留下 Plan。

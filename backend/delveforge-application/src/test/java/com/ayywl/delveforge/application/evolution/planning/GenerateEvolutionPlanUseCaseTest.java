@@ -356,6 +356,35 @@ class GenerateEvolutionPlanUseCaseTest {
     }
 
     @Test
+    void modelAuthorityFieldsCannotOverrideDomainOwnedIdentityAndInitialState() {
+        seed();
+        response = JSON.substring(0, JSON.lastIndexOf('}'))
+                + ",\"status\":\"ACTIVE\",\"workingCopyId\":\"forged\",\"id\":\"forged\"}";
+
+        EvolutionPlan plan = useCase().generate(request());
+
+        assertNotEquals("forged", plan.id().value());
+        assertEquals(EvolutionPlanStatus.PROPOSED, plan.status());
+        assertNull(plan.workingCopyId());
+        assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, plan.steps().getFirst().status());
+    }
+
+    @Test
+    void resolvedReferencesDoNotMakeInventedCapabilitiesDomainAccepted() {
+        seed();
+        response = JSON.replace("\"capabilities\":[\"Export\"]", "\"capabilities\":[\"Invented\"]");
+
+        AiPlanningProposal aiCandidate = new PlanningProposalParser(new ObjectMapper()).parse(response);
+        PlanningProposal resolved = new PlanningProposalResolver().resolve(aiCandidate,
+                Map.of("R-E1", BASIS, "D-E1", BASIS));
+
+        assertEquals(List.of(BASIS, BASIS), resolved.evidence());
+        assertEquals(List.of("Invented"), resolved.currentState().capabilities());
+        assertThrows(EvolutionPlanningRejectedException.class, () -> useCase().generate(request()));
+        assertTrue(plans.values.isEmpty());
+    }
+
+    @Test
     void rechecksEligibilityAfterAiWorkAndKeepsHistoricalPlansDistinct() {
         seed();
 
@@ -374,10 +403,10 @@ class GenerateEvolutionPlanUseCaseTest {
         for (String field : List.of("currentState", "targetState", "reusableCapabilities", "changes", "steps", "risks", "evidence")) {
             var root = (com.fasterxml.jackson.databind.node.ObjectNode) new ObjectMapper().readTree(JSON);
             root.remove(field);
-            assertThrows(AiGatewayException.class, () -> parser.parse(root.toString(), Map.of("R-E1", BASIS, "D-E1", BASIS)));
+            assertThrows(AiGatewayException.class, () -> parser.parse(root.toString()));
         }
-        assertThrows(AiGatewayException.class, () -> parser.parse(JSON.replace("\"risks\":[]", "\"risks\":null"), Map.of()));
-        assertThrows(AiGatewayException.class, () -> parser.parse(JSON.replace("\"summary\":\"Existing exports\"", "\"summary\":4"), Map.of()));
+        assertThrows(AiGatewayException.class, () -> parser.parse(JSON.replace("\"risks\":[]", "\"risks\":null")));
+        assertThrows(AiGatewayException.class, () -> parser.parse(JSON.replace("\"summary\":\"Existing exports\"", "\"summary\":4")));
     }
 
     private class Plans implements EvolutionPlanRepository {

@@ -52,11 +52,13 @@ public final class EvolutionPlanningExtraction {
     private final AiGateway gateway;
     private final ObjectMapper mapper;
     private final PlanningProposalParser parser;
+    private final PlanningProposalResolver resolver;
 
     public EvolutionPlanningExtraction(AiGateway gateway, ObjectMapper mapper) {
         this.gateway = Objects.requireNonNull(gateway);
         this.mapper = Objects.requireNonNull(mapper);
         this.parser = new PlanningProposalParser(mapper);
+        this.resolver = new PlanningProposalResolver();
     }
 
     public PlanningProposal extract(ProductDirection direction, RepositoryProfile profile) {
@@ -88,7 +90,10 @@ public final class EvolutionPlanningExtraction {
         try {
             AiRequest request = new AiRequest(List.of(new AiMessage(AiRole.SYSTEM, INSTRUCTION),
                     new AiMessage(AiRole.USER, mapper.writeValueAsString(payload))), AiResponseFormat.JSON);
-            return parser.parse(gateway.generate(request), catalog);
+            AiPlanningProposal proposal = parser.parse(gateway.generate(request));
+
+            // 临时引用止于 Application；还原既有事实后，候选仍须通过领域校验。
+            return resolver.resolve(proposal, catalog);
         } catch (JsonProcessingException exception) {
             throw new AiGatewayException("Could not serialize planning inputs", exception);
         } catch (IllegalArgumentException exception) {
