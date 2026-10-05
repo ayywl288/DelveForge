@@ -833,6 +833,13 @@ M3 功能验收已由自动化链路满足，整体保留 IN_PROGRESS，等待�
 Task 2 最终执行 `mvnw.cmd verify` 成功：Domain 186、Application 665、Infrastructure 122、
 App 141，共 1114 项测试（较 Task 1 新增 27 项），0 failure / error / skipped；完整后端构建通过。
 
+**M3 审查聚焦修复（2026-10-05）**：移除准备 / 激活策略对 Direction 历史 Profile 列表的成员限制，
+保留 Plan → Base Profile 身份、Profile → Asset 归属、Candidate Asset、许可与 revision 校验。
+新增领域和真实 Git / SQLite / HTTP 回归：R1 发现方向，源资产更新后以 R2 重新规划并成功准备，
+旧基线准备仍被拒绝，Direction 的历史分析输入保留。修复前领域回归复现失败，修复后
+`mvnw.cmd verify` 成功，共 1116 项测试，0 failure / error / skipped。
+整体仍为 IN_PROGRESS，待此修复复核及 focused M3 smoke；未启动 M4。
+
 **M2 — Product Direction Discovery 已完成（2026-10-03）。** 走通了
 「Confirmed UserProfile @ revision + RepositoryProfile @ analyzedRevision → 候选
 Product Direction → Select / Reject / Supersede」这条链路，并顺带把

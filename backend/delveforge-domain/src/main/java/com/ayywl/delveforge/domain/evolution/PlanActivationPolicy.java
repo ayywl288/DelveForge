@@ -41,7 +41,6 @@ public final class PlanActivationPolicy {
                 || !plan.productDirectionId().equals(direction.id())
                 || direction.status() != ProductDirectionStatus.SELECTED
                 || !direction.candidateAssetIds().contains(plan.baseAssetId())
-                || !direction.repositoryProfileIds().contains(plan.baseRepositoryProfileId())
                 || !plan.baseAssetId().equals(asset.id())
                 || !plan.baseRepositoryProfileId().equals(profile.id())
                 || !profile.assetId().equals(asset.id())

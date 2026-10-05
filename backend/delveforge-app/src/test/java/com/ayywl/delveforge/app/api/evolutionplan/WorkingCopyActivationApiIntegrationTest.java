@@ -93,8 +93,11 @@ class WorkingCopyActivationApiIntegrationTest {
                 new DirectionEvidenceSupport(List.of(BASIS), List.of(BASIS), List.of(BASIS)));
     }
     private JsonNode plan() throws Exception {
+        return plan(PROFILE.value());
+    }
+    private JsonNode plan(String profileId) throws Exception {
         return mapper.readTree(mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON)
-                .content("{\"productDirectionId\":\"direction\",\"baseAssetId\":\"asset\",\"baseRepositoryProfileId\":\"profile\"}"))
+                .content("{\"productDirectionId\":\"direction\",\"baseAssetId\":\"asset\",\"baseRepositoryProfileId\":\"%s\"}".formatted(profileId)))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
     }
     private JsonNode prepare(String id) throws Exception {
@@ -153,6 +156,43 @@ class WorkingCopyActivationApiIntegrationTest {
         assertUnchanged(id);
         assertEquals(before, snapshot(source));
         assertFalse(Files.exists(ROOT));
+    }
+    @Test void reanalyzedProfileCanReplanAndPrepareWhileDirectionRetainsItsOriginalDiscoveryBasis() throws Exception {
+        String oldPlanId = plan().path("id").asText();
+        Files.writeString(source.resolve("report.txt"), "new committed content");
+        git(source, "add", "report.txt"); commit("new revision");
+        String freshRevision = git(source, "rev-parse", "HEAD").trim();
+        assertNotEquals(revision, freshRevision);
+        mvc.perform(post("/api/evolution-plans/{id}/prepare", oldPlanId)).andExpect(status().isConflict());
+        assertUnchanged(oldPlanId);
+
+        var freshId = new RepositoryProfileId("fresh-profile");
+        profiles.save(RepositoryProfile.create(freshId, ASSET, freshRevision, "Reporting", List.of("Java"),
+                List.of("reports"), List.of("Export"), List.of("Render"), List.of(), List.of(), List.of(FACT)));
+        var before = snapshot(source);
+        var replanned = plan(freshId.value());
+        assertEquals("PROPOSED", replanned.path("status").asText());
+        assertEquals(freshId.value(), replanned.path("baseRepositoryProfileId").asText());
+        var active = prepare(replanned.path("id").asText());
+        var copy = copies.findById(new WorkingCopyId(active.path("workingCopyId").asText())).orElseThrow();
+        assertEquals(WorkingCopyStatus.READY, copy.status());
+        assertEquals(freshRevision, copy.sourceRevision());
+        assertEquals(freshRevision, copy.currentRevision());
+        assertEquals(freshRevision, copy.lastVerifiedRevision());
+        Path location = Path.of(copy.location());
+        assertEquals(ROOT, location.getParent());
+        assertEquals(freshRevision, git(location, "rev-parse", "HEAD").trim());
+        assertEquals("new committed content", Files.readString(location.resolve("report.txt")));
+        assertEquals(before, snapshot(source));
+        var selected = directions.findById(new ProductDirectionId("direction")).orElseThrow();
+        assertEquals(ProductDirectionStatus.SELECTED, selected.status());
+        assertEquals(List.of(PROFILE), selected.repositoryProfileIds());
+        assertEquals(revision, profiles.findById(PROFILE).orElseThrow().analyzedRevision());
+        var historical = plans.findById(new EvolutionPlanId(oldPlanId)).orElseThrow();
+        assertEquals(PROFILE, historical.baseRepositoryProfileId());
+        assertEquals(EvolutionPlanStatus.PROPOSED, historical.status());
+        assertNull(historical.workingCopyId());
+        verify(ai, times(2)).generate(any());
     }
     @Test void failedDomainCommitAfterRealCloneRollsBackMetadataAndRemovesCandidate() throws Exception {
         String id = plan().path("id").asText();

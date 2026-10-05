@@ -49,6 +49,32 @@ class EvolutionPlanningServiceTest {
         return new EvolutionPlanningService(new AssetUsagePolicy(),
                 () -> new EvolutionPlanId("plan"), () -> new EvolutionStepId("step-" + ids.incrementAndGet()));
     }
+    @Test void preparesAndActivatesReplannedBasisWithoutReplacingDirectionDiscoveryHistory() {
+        var selected = direction(true);
+        var allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
+        var freshId = new RepositoryProfileId("fresh-profile");
+        var fresh = RepositoryProfile.create(freshId, ASSET, "fresh-commit", "Reporting", List.of("Java"),
+                List.of("reports"), List.of("Export"), List.of("Render"), List.of("No scheduling"), List.of(), List.of(FACT));
+        var original = proposal();
+        var freshProposal = new PlanningProposal(original.currentState(), original.targetState(),
+                original.reusableCapabilities(), original.changes(), original.steps(), original.risks(),
+                List.of(new EvidenceBasis(FACT, new RepositoryProfileEvidenceOrigin(freshId)), BASIS));
+        var plan = service().plan(selected, allowed, fresh, freshProposal);
+        var policy = new PlanActivationPolicy(new AssetUsagePolicy());
+        assertEquals(List.of(PROFILE), selected.repositoryProfileIds());
+        assertEquals(freshId, plan.baseRepositoryProfileId());
+        policy.requirePreparationAllowed(plan, selected, allowed, fresh);
+        var copy = WorkingCopy.create(new WorkingCopyId("fresh-copy"), ASSET, "fresh-commit", "managed-copy");
+        copy.markReady("fresh-commit");
+        plan.bindWorkingCopy(copy);
+        plan.activate(policy, copy, selected, allowed, fresh);
+        assertEquals(EvolutionPlanStatus.ACTIVE, plan.status());
+        assertEquals(List.of(PROFILE), selected.repositoryProfileIds());
+        assertEquals(ProductDirectionStatus.SELECTED, selected.status());
+        assertEquals("fresh-commit", copy.currentRevision());
+        assertEquals(copy.sourceRevision(), copy.lastVerifiedRevision());
+        plan.steps().forEach(step -> assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, step.status()));
+    }
     @Test void activationBindsReadyCopyWithoutAuthorizingStepsOrMutatingLoadedPlan() {
         var asset = asset(true, "MIT", UsageAuthorization.ALLOWED);
         var direction = direction(true);

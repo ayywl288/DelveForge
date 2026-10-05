@@ -6189,6 +6189,10 @@ Plan 的 Direction 身份与 SELECTED 状态、Candidate Asset、被引用 Profi
 以及初始 WorkingCopy 的三个 revision 与 analyzedRevision 一致。准备与激活时重新应用
 §12.6 当前最小 AssetUsagePolicy，不推测许可证兼容性。是否获得步骤授权仍属于独立的用户确认边界。
 
+Direction.repositoryProfileIds 保留方向发现时的历史分析输入，不限制后续 Plan 的 Base Profile。
+同一 Candidate Asset 重新分析后，Selected Direction 可以基于新 Profile 重新规划并准备；
+校验依据是 Plan → Base Profile 身份、Profile → Base Asset 归属与本次 analyzedRevision（§5.3、INV-W09）。
+
 ### 12.8 Step Execution Policy
 
 实际执行 Evolution Step 是当前最重要的跨 Aggregate 安全边界之一。
