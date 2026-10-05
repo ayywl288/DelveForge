@@ -6,14 +6,18 @@ import com.ayywl.delveforge.application.port.persistence.*;
 import com.ayywl.delveforge.application.port.workspace.*;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
+import com.ayywl.delveforge.domain.asset.SoftwareAsset;
+import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.evolution.*;
+import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
 import java.util.Objects;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Read/validate → external candidate → isolated domain candidate → single atomic commit.
- * No loaded Aggregate is mutated and no Step authorization is granted.
+/**
+ * 先校验依据并完成外部准备，再在隔离领域候选上转换状态，最后一次原子提交。
+ * 失败不会改变已加载的 Aggregate；准备成功也不授予 EvolutionStep 执行权限。
  */
 public final class PrepareEvolutionPlanUseCase {
     private static final Logger log = LoggerFactory.getLogger(PrepareEvolutionPlanUseCase.class);
@@ -42,37 +46,49 @@ public final class PrepareEvolutionPlanUseCase {
 
     public EvolutionPlan prepare(EvolutionPlanId id) {
         Objects.requireNonNull(id);
-        var plan = plans.findById(id).orElseThrow(() -> new EvolutionPlanNotFoundException(id));
-        var direction = directions.findById(plan.productDirectionId())
+
+        EvolutionPlan plan = plans.findById(id).orElseThrow(() -> new EvolutionPlanNotFoundException(id));
+        ProductDirection direction = directions.findById(plan.productDirectionId())
                 .orElseThrow(() -> new ProductDirectionNotFoundException(plan.productDirectionId()));
-        var asset = assets.findById(plan.baseAssetId())
+        SoftwareAsset asset = assets.findById(plan.baseAssetId())
                 .orElseThrow(() -> new SoftwareAssetNotFoundException(plan.baseAssetId()));
-        var profile = profiles.findById(plan.baseRepositoryProfileId())
+        RepositoryProfile profile = profiles.findById(plan.baseRepositoryProfileId())
                 .orElseThrow(() -> new RepositoryProfileNotFoundException(plan.baseRepositoryProfileId()));
+
         activation.requirePreparationAllowed(plan, direction, asset, profile);
+
         WorkingCopyId copyId = Objects.requireNonNull(ids.get());
+        // 先完成外部准备，避免 Git 失败时留下半完成的权威领域状态。
         PreparedWorkspace prepared = provisioning.provision(new WorkspaceRef(asset.location()),
                 profile.analyzedRevision(), copyId.value());
+
         try {
-            var currentDirection = directions.findById(direction.id())
+            // 外部准备期间资格可能变化，进入领域转换前再次核对。
+            ProductDirection currentDirection = directions.findById(direction.id())
                     .orElseThrow(() -> new ProductDirectionNotFoundException(direction.id()));
-            var currentAsset = assets.findById(asset.id())
+            SoftwareAsset currentAsset = assets.findById(asset.id())
                     .orElseThrow(() -> new SoftwareAssetNotFoundException(asset.id()));
             activation.requirePreparationAllowed(plan, currentDirection, currentAsset, profile);
-            if (!asset.location().equals(currentAsset.location()))
+            if (!asset.location().equals(currentAsset.location())) {
                 throw new EvolutionPlanStateException("Asset source location changed during preparation");
-            var copy = WorkingCopy.create(copyId, asset.id(), profile.analyzedRevision(), prepared.workspace().value());
+            }
+
+            WorkingCopy copy = WorkingCopy.create(copyId, asset.id(), profile.analyzedRevision(), prepared.workspace().value());
             copy.markReady(prepared.revision());
-            var candidate = plan.copy();
+
+            EvolutionPlan candidate = plan.copy();
             candidate.bindWorkingCopy(copy);
             candidate.activate(activation, copy, currentDirection, currentAsset, profile);
+
             commits.commitActivation(candidate, copy, currentAsset);
             return candidate;
         } catch (RuntimeException failure) {
-            try { provisioning.discard(prepared); }
-            catch (RuntimeException cleanup) {
+            // 只补偿本次已准备但未成功提交的候选；清理失败不能掩盖原始失败。
+            try {
+                provisioning.discard(prepared);
+            } catch (RuntimeException cleanup) {
                 failure.addSuppressed(cleanup);
-                // Never log exception messages, source locations, prompts or provider data (ADR-0002).
+                // 只记录异常类型，避免日志泄露异常消息、源位置、提示词或 Provider 数据（ADR-0002）。
                 log.warn("operation=evolution.prepare planId={} copyId={} result=CLEANUP_FAILED exceptionType={}",
                         id.value(), copyId.value(), cleanup.getClass().getName());
             }

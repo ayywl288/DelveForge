@@ -1,19 +1,21 @@
 package com.ayywl.delveforge.application.port.workspace;
 
-/** Isolated environment preparation, separate from repository reads and Step code mutation.
- * Inputs are technical references only: no Plan/Profile/Direction or authorization objects.
- * The adapter owns the configured managed root; directoryName is one direct child name.
+/**
+ * 环境准备能力与仓库读取、EvolutionStep 代码修改能力独立。
+ * 输入仅为技术引用，不接收 Plan / Profile / Direction 或授权对象。
+ * Adapter 管理配置的托管根目录，directoryName 只能指定其直接子目录。
  */
 public interface WorkingCopyProvisioningPort {
-    /** Independently clone, checkout and verify the exact source revision.
-     * Reject moved source HEADs and existing/unsafe targets.
-     * On failure, best-effort clean up only the directory created by this call.
+    /**
+     * 独立 clone、checkout 并核对精确 source revision。
+     * 拒绝已移动的源 HEAD、已有或不安全的目标目录。
+     * 失败时尽力清理本次调用创建的目录，不能处理其他目录。
      */
     PreparedWorkspace provision(WorkspaceRef source, String revision, String directoryName);
 
-    /** Best-effort compensation after a failed Domain/DB commit.
-     * Only the owned prepared directory under the managed root may be removed.
-     * Failures must be reported, never silently converted to success.
+    /**
+     * Domain 或数据库提交失败后，尽力补偿清理本次拥有的托管准备目录。
+     * 清理失败必须报告，不能静默视为成功。
      */
     void discard(PreparedWorkspace candidate);
 }

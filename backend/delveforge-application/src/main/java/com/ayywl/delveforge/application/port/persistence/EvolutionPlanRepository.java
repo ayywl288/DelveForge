@@ -1,13 +1,14 @@
 package com.ayywl.delveforge.application.port.persistence;
+
+import com.ayywl.delveforge.domain.direction.ProductDirectionId;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
-import java.util.Optional;
 import java.util.List;
-import com.ayywl.delveforge.domain.direction.ProductDirectionId;
+import java.util.Optional;
 
-/** Planning results are inserted once, as one atomic Aggregate; never overwrite history.
- * Implementations must check the Direction is still SELECTED at commit time.
- * Failure must leave no plan, step, content or evidence rows behind.
+/**
+ * 规划结果作为一个 Aggregate 原子插入一次，不能覆盖历史。
+ * 提交时必须再次确认 Direction 仍为 SELECTED；失败不得留下部分内容、Step 或 Evidence。
  */
 public interface EvolutionPlanRepository {
     void save(EvolutionPlan plan);

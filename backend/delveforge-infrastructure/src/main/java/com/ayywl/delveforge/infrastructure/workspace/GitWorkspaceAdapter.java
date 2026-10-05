@@ -1,32 +1,32 @@
 package com.ayywl.delveforge.infrastructure.workspace;
 
+import com.ayywl.delveforge.application.port.workspace.PreparedWorkspace;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
-import com.ayywl.delveforge.application.port.workspace.PreparedWorkspace;
-import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
-import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
-import java.nio.file.Path;
 import java.nio.file.LinkOption;
-import java.util.UUID;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
-import org.springframework.stereotype.Component;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.stereotype.Component;
 
 /**
- * Local Git implementation of independent read and environment-provisioning capabilities.
+ * 通过 Local Git 分别提供仓库读取与隔离环境准备能力。
  *
  * <p>读取和准备能力通过独立 Port 暴露：所有 Git 调用都发生在 Infrastructure
  * 内部（RULE-ARCH-009），Domain 与 Application 只看到 {@link WorkspaceReadPort}
@@ -82,41 +82,61 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
 
     private final Path managedRoot;
 
-    /** Read-only standalone use; provisioning requires explicitly configured storage. */
-    public GitWorkspaceAdapter() { this.managedRoot = null; }
+    /**
+     * 无配置构造仅供独立只读使用；环境准备必须显式配置托管位置。
+     */
+    public GitWorkspaceAdapter() {
+        this.managedRoot = null;
+    }
 
     @Autowired
-    public GitWorkspaceAdapter(WorkspaceProperties properties) { this.managedRoot = properties.root(); }
+    public GitWorkspaceAdapter(WorkspaceProperties properties) {
+        this.managedRoot = properties.root();
+    }
 
-    public GitWorkspaceAdapter(Path managedRoot) { this.managedRoot = managedRoot; }
+    public GitWorkspaceAdapter(Path managedRoot) {
+        this.managedRoot = managedRoot;
+    }
 
     @Override
     public PreparedWorkspace provision(WorkspaceRef source, String revision, String directoryName) {
         Path repository = requireReadableRepository(source);
         String commit = requireCommitId(repository, revision);
         requireUnchangedBasis(source, commit);
+
         Path target = null;
         boolean allocated = false;
         try {
             Path root = provisioningRoot(repository);
             requireDirectoryName(directoryName);
             target = root.resolve(directoryName);
-            Files.createDirectory(target); // Never overwrite/adopt a pre-existing directory.
+            Files.createDirectory(target); // 不能覆盖或接管已有目录。
             allocated = true;
+
             GitCommandResult clone = execute(root, "clone", "--no-local", "--no-checkout",
                     "--template=", "--", repository.toString(), target.toString());
-            if (!clone.succeeded()) throw new WorkspaceException("Working Copy clone failed: " + describe(target, clone));
-            // No repository templates or checkout hooks. No source worktree/index operation occurs.
+            if (!clone.succeeded()) {
+                throw new WorkspaceException("Working Copy clone failed: " + describe(target, clone));
+            }
+
+            // 禁用模板与 checkout hooks，整个准备过程不操作源仓库的工作树或 index。
             GitCommandResult checkout = execute(target, "-c", "core.hooksPath="
                     + target.resolve(".git/delveforge-disabled-hooks"), "checkout", "--detach", commit);
-            if (!checkout.succeeded()) throw new WorkspaceException("Working Copy checkout failed: " + describe(target, checkout));
+            if (!checkout.succeeded()) {
+                throw new WorkspaceException("Working Copy checkout failed: " + describe(target, checkout));
+            }
+
             WorkspaceRef location = new WorkspaceRef(target.toString());
-            if (!commit.equals(headRevision(location)))
+            if (!commit.equals(headRevision(location))) {
                 throw new WorkspaceException("Working Copy checked-out revision differs from requested basis");
+            }
             GitCommandResult status = execute(target, "status", "--porcelain");
-            if (!status.succeeded() || !status.stdoutText().isBlank())
+            if (!status.succeeded() || !status.stdoutText().isBlank()) {
                 throw new WorkspaceException("Working Copy checkout is not clean");
+            }
             requireUnchangedBasis(source, commit);
+
+            // 准备凭据用于后续补偿时核对所有权，不能仅凭路径删除托管目录。
             String token = UUID.randomUUID().toString();
             Files.writeString(target.resolve(".git/delveforge-preparation"), token);
             return new PreparedWorkspace(location, commit, token);
@@ -124,8 +144,9 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             RuntimeException primary = failure instanceof RuntimeException runtime ? runtime
                     : new WorkspaceException("Working Copy provisioning filesystem failure", failure);
             if (allocated) {
-                try { deleteOwnedDirectory(target); }
-                catch (IOException | RuntimeException cleanup) {
+                try {
+                    deleteOwnedDirectory(target);
+                } catch (IOException | RuntimeException cleanup) {
                     primary.addSuppressed(cleanup);
                     log.warn("operation=workspace.provision result=CLEANUP_FAILED exceptionType={}", cleanup.getClass().getName());
                 }
@@ -139,12 +160,16 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         try {
             Path target = resolveLocation(candidate.workspace());
             Path root = canonicalProspectiveRoot();
-            if (!target.getParent().equals(root) || !target.toRealPath().equals(target))
+            if (!target.getParent().equals(root) || !target.toRealPath().equals(target)) {
                 throw new WorkspaceException("Refusing cleanup outside managed direct-child directory");
+            }
+
             Path marker = target.resolve(".git/delveforge-preparation");
             if (!marker.toRealPath().startsWith(target)
-                    || !Files.readString(marker).equals(candidate.preparationToken()))
+                    || !Files.readString(marker).equals(candidate.preparationToken())) {
                 throw new WorkspaceException("Refusing cleanup without matching preparation ownership");
+            }
+
             deleteOwnedDirectory(target);
         } catch (IOException failure) {
             throw new WorkspaceException("Working Copy cleanup failed", failure);
@@ -152,45 +177,57 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     }
 
     private void requireUnchangedBasis(WorkspaceRef source, String revision) {
-        if (!revision.equals(headRevision(source)))
+        if (!revision.equals(headRevision(source))) {
             throw new WorkingCopyBasisChangedException("Source HEAD changed; re-analyze and re-plan before preparation");
+        }
     }
 
     private Path provisioningRoot(Path repository) throws IOException {
         Path source = repository.toRealPath();
         Path root = canonicalProspectiveRoot();
-        if (root.startsWith(source) || source.startsWith(root))
+        if (root.startsWith(source) || source.startsWith(root)) {
             throw new WorkspaceException("Managed workspace root must be separate from source repository");
+        }
+
         Files.createDirectories(root);
-        if (!root.toRealPath().equals(root)) throw new WorkspaceException("Managed workspace root changed");
+        if (!root.toRealPath().equals(root)) {
+            throw new WorkspaceException("Managed workspace root changed");
+        }
         return root;
     }
 
     private Path canonicalProspectiveRoot() throws IOException {
-        if (managedRoot == null || !managedRoot.isAbsolute())
+        if (managedRoot == null || !managedRoot.isAbsolute()) {
             throw new WorkspaceException("Provisioning requires an absolute configured workspace root");
+        }
+
         Path root = managedRoot.normalize();
         Path ancestor = root;
-        while (!Files.exists(ancestor, LinkOption.NOFOLLOW_LINKS)) ancestor = ancestor.getParent();
+        while (!Files.exists(ancestor, LinkOption.NOFOLLOW_LINKS)) {
+            ancestor = ancestor.getParent();
+        }
         return ancestor.toRealPath().resolve(ancestor.relativize(root)).normalize();
     }
 
     private static void requireDirectoryName(String name) {
         if (name == null || !name.matches("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
-                || name.matches("(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])"))
+                || name.matches("(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])")) {
             throw new WorkspaceException("Working Copy directory must be a safe single name");
+        }
     }
 
     private void deleteOwnedDirectory(Path target) throws IOException {
         Path root = canonicalProspectiveRoot();
-        if (!target.getParent().equals(root) || !target.toRealPath().equals(target))
+        if (!target.getParent().equals(root) || !target.toRealPath().equals(target)) {
             throw new WorkspaceException("Refusing cleanup outside managed direct-child directory");
+        }
         try (var paths = Files.walk(target)) {
             for (Path entry : paths.sorted(Comparator.reverseOrder()).toList()) {
-                // Do not follow symlinks or junctions while removing clone residue.
+                // 清理 clone 残留时不能跨越符号链接或 junction。
                 if (!Files.isSymbolicLink(entry)) {
-                    if (!entry.toRealPath().startsWith(target))
+                    if (!entry.toRealPath().startsWith(target)) {
                         throw new WorkspaceException("Refusing cleanup across filesystem link");
+                    }
                     entry.toFile().setWritable(true);
                 }
                 Files.delete(entry);

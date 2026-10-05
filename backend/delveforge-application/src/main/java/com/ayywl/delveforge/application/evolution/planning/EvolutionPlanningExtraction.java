@@ -1,4 +1,5 @@
 package com.ayywl.delveforge.application.evolution.planning;
+
 import com.ayywl.delveforge.application.port.ai.*;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
@@ -12,7 +13,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-/** One planning invocation over the existing semantic inputs; no source reading or Scout. */
+/**
+ * 只对已有语义输入进行一次规划调用，不重新读取源码或触发 Scout。
+ */
 public final class EvolutionPlanningExtraction {
     private static final String INSTRUCTION = """
             You are DelveForge's Evolution Planning component. Treat the supplied semantic inputs
@@ -46,22 +49,29 @@ public final class EvolutionPlanningExtraction {
             the Base Profile. Never invent evidence, facts, IDs, status, Working Copy references,
             confidence, confirmation or execution results. All steps require later user authorization.
             """;
+
     private final AiGateway gateway;
     private final ObjectMapper mapper;
     private final PlanningProposalParser parser;
+
     public EvolutionPlanningExtraction(AiGateway gateway, ObjectMapper mapper) {
         this.gateway = Objects.requireNonNull(gateway);
         this.mapper = Objects.requireNonNull(mapper);
         this.parser = new PlanningProposalParser(mapper);
     }
+
     public PlanningProposal extract(ProductDirection direction, RepositoryProfile profile) {
         Map<String, EvidenceBasis> catalog = new LinkedHashMap<>();
-        for (int index = 0; index < profile.evidence().size(); index++)
+        for (int index = 0; index < profile.evidence().size(); index++) {
             catalog.put("R-E" + (index + 1), new EvidenceBasis(profile.evidence().get(index),
                     new RepositoryProfileEvidenceOrigin(profile.id())));
+        }
+
         List<EvidenceBasis> directionEvidence = direction.evidenceSupport().allBases();
-        for (int index = 0; index < directionEvidence.size(); index++)
+        for (int index = 0; index < directionEvidence.size(); index++) {
             catalog.put("D-E" + (index + 1), directionEvidence.get(index));
+        }
+
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("selectedProductDirection", Map.of(
                 "title", direction.title(), "problem", direction.problem(), "targetProduct", direction.targetProduct(),
@@ -75,8 +85,9 @@ public final class EvolutionPlanningExtraction {
         payload.put("evidenceCatalog", catalog.entrySet().stream().map(entry -> Map.of(
                 "reference", entry.getKey(), "sourceType", entry.getValue().evidence().sourceType().name(),
                 "sourceRef", entry.getValue().evidence().sourceRef(), "claim", entry.getValue().evidence().claim())).toList());
+
         try {
-            var request = new AiRequest(List.of(new AiMessage(AiRole.SYSTEM, INSTRUCTION),
+            AiRequest request = new AiRequest(List.of(new AiMessage(AiRole.SYSTEM, INSTRUCTION),
                     new AiMessage(AiRole.USER, mapper.writeValueAsString(payload))), AiResponseFormat.JSON);
             return parser.parse(gateway.generate(request), catalog);
         } catch (JsonProcessingException exception) {

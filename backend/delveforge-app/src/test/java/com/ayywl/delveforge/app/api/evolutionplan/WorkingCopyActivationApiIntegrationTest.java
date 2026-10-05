@@ -1,10 +1,5 @@
 package com.ayywl.delveforge.app.api.evolutionplan;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.persistence.*;
 import com.ayywl.delveforge.domain.asset.*;
@@ -28,9 +23,15 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-/** Real HTTP → application/domain → SQLite and Git, with only the external AI proposal stubbed.
- * No enclosing transaction: endpoint results are committed and read independently.
+/**
+ * 使用真实 HTTP、领域规则、SQLite 与 Git，只有外部 AI 提案使用替身。
+ * 测试不包裹额外事务，确保接口结果已提交并能独立读取。
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -69,37 +70,47 @@ class WorkingCopyActivationApiIntegrationTest {
                 "evolution_step_section_item", "evolution_plan_evidence", "working_copy",
                 "product_direction", "product_direction_repository_profile", "product_direction_candidate_asset",
                 "product_direction_risk", "product_direction_evidence_support", "repository_profile",
-                "repository_profile_section_item", "repository_profile_evidence")) jdbc.update("DELETE FROM " + table);
+                "repository_profile_section_item", "repository_profile_evidence")) {
+            jdbc.update("DELETE FROM " + table);
+        }
         source = BASE.resolve("source-" + UUID.randomUUID());
         Files.createDirectories(source);
         git(source, "init", "-q", "--initial-branch=main");
         Files.writeString(source.resolve("report.txt"), "committed");
-        git(source, "add", "report.txt"); commit("initial");
+        git(source, "add", "report.txt");
+        commit("initial");
         revision = git(source, "rev-parse", "HEAD").trim();
         assets.save(asset(true, "MIT", UsageAuthorization.ALLOWED));
         profiles.save(RepositoryProfile.create(PROFILE, ASSET, revision, "Reporting", List.of("Java"),
                 List.of("reports"), List.of("Export"), List.of("Render"), List.of(), List.of(), List.of(FACT)));
-        var selected = direction("direction"); selected.select(); directions.save(selected);
+        ProductDirection selected = direction("direction");
+        selected.select();
+        directions.save(selected);
         when(ai.generate(any())).thenReturn(JSON);
     }
+
     private SoftwareAsset asset(boolean read, String license, UsageAuthorization authorization) {
         return SoftwareAsset.create(ASSET, SoftwareAssetType.GIT_REPOSITORY, SoftwareAssetSource.USER_SPECIFIED,
                 source.toString(), read, license, authorization);
     }
+
     private ProductDirection direction(String id) {
         return ProductDirection.create(new ProductDirectionId(id), new UserProfileId("user"), 1, List.of(PROFILE),
                 "Personal reports", "Manual exports", "Scheduled reports", "Fits goals", List.of(ASSET),
                 "Personal schedule", "Scheduling", "Small", List.of(),
                 new DirectionEvidenceSupport(List.of(BASIS), List.of(BASIS), List.of(BASIS)));
     }
+
     private JsonNode plan() throws Exception {
         return plan(PROFILE.value());
     }
+
     private JsonNode plan(String profileId) throws Exception {
         return mapper.readTree(mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"productDirectionId\":\"direction\",\"baseAssetId\":\"asset\",\"baseRepositoryProfileId\":\"%s\"}".formatted(profileId)))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
     }
+
     private JsonNode prepare(String id) throws Exception {
         return mapper.readTree(mvc.perform(post("/api/evolution-plans/{id}/prepare", id))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"))
@@ -108,14 +119,17 @@ class WorkingCopyActivationApiIntegrationTest {
                 .andReturn().getResponse().getContentAsString());
     }
     @AfterEach void cleanup() throws Exception {
-        delete(ROOT); delete(source);
+        delete(ROOT);
+        delete(source);
     }
-    @Test void planningAndPreparationProduceCommittedActivePlanAndPhysicallyIsolatedReadyCopy() throws Exception {
+
+    @Test
+    void planningAndPreparationProduceCommittedActivePlanAndPhysicallyIsolatedReadyCopy() throws Exception {
         Files.writeString(source.resolve("report.txt"), "dirty");
         Files.writeString(source.resolve("untracked.txt"), "untracked");
         var before = snapshot(source);
         String id = plan().path("id").asText();
-        var active = prepare(id);
+        JsonNode active = prepare(id);
         String copyId = active.path("workingCopyId").asText();
         var body = mvc.perform(get("/api/working-copies/{id}", copyId)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("READY"))
@@ -137,9 +151,11 @@ class WorkingCopyActivationApiIntegrationTest {
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM working_copy", Integer.class));
         verify(ai, times(1)).generate(any());
     }
-    @Test void revokedAuthorizationAndUnknownLicenseAreRecheckedBeforeAnyClone() throws Exception {
+
+    @Test
+    void revokedAuthorizationAndUnknownLicenseAreRecheckedBeforeAnyClone() throws Exception {
         String id = plan().path("id").asText();
-        for (var rejected : List.of(asset(true, "MIT", UsageAuthorization.DENIED),
+        for (SoftwareAsset rejected : List.of(asset(true, "MIT", UsageAuthorization.DENIED),
                 asset(true, "MIT", UsageAuthorization.UNCLEAR), asset(false, "MIT", UsageAuthorization.ALLOWED),
                 asset(true, null, UsageAuthorization.ALLOWED))) {
             assets.save(rejected);
@@ -148,19 +164,26 @@ class WorkingCopyActivationApiIntegrationTest {
         }
         assertFalse(Files.exists(ROOT));
     }
-    @Test void changedSourceRevisionRefusesPreparationUntilReanalysisAndReplanning() throws Exception {
+
+    @Test
+    void changedSourceRevisionRefusesPreparationUntilReanalysisAndReplanning() throws Exception {
         String id = plan().path("id").asText();
-        Files.writeString(source.resolve("report.txt"), "next"); git(source, "add", "report.txt"); commit("next");
+        Files.writeString(source.resolve("report.txt"), "next");
+        git(source, "add", "report.txt");
+        commit("next");
         var before = snapshot(source);
         mvc.perform(post("/api/evolution-plans/{id}/prepare", id)).andExpect(status().isConflict());
         assertUnchanged(id);
         assertEquals(before, snapshot(source));
         assertFalse(Files.exists(ROOT));
     }
-    @Test void reanalyzedProfileCanReplanAndPrepareWhileDirectionRetainsItsOriginalDiscoveryBasis() throws Exception {
+
+    @Test
+    void reanalyzedProfileCanReplanAndPrepareWhileDirectionRetainsItsOriginalDiscoveryBasis() throws Exception {
         String oldPlanId = plan().path("id").asText();
         Files.writeString(source.resolve("report.txt"), "new committed content");
-        git(source, "add", "report.txt"); commit("new revision");
+        git(source, "add", "report.txt");
+        commit("new revision");
         String freshRevision = git(source, "rev-parse", "HEAD").trim();
         assertNotEquals(revision, freshRevision);
         mvc.perform(post("/api/evolution-plans/{id}/prepare", oldPlanId)).andExpect(status().isConflict());
@@ -170,11 +193,11 @@ class WorkingCopyActivationApiIntegrationTest {
         profiles.save(RepositoryProfile.create(freshId, ASSET, freshRevision, "Reporting", List.of("Java"),
                 List.of("reports"), List.of("Export"), List.of("Render"), List.of(), List.of(), List.of(FACT)));
         var before = snapshot(source);
-        var replanned = plan(freshId.value());
+        JsonNode replanned = plan(freshId.value());
         assertEquals("PROPOSED", replanned.path("status").asText());
         assertEquals(freshId.value(), replanned.path("baseRepositoryProfileId").asText());
-        var active = prepare(replanned.path("id").asText());
-        var copy = copies.findById(new WorkingCopyId(active.path("workingCopyId").asText())).orElseThrow();
+        JsonNode active = prepare(replanned.path("id").asText());
+        WorkingCopy copy = copies.findById(new WorkingCopyId(active.path("workingCopyId").asText())).orElseThrow();
         assertEquals(WorkingCopyStatus.READY, copy.status());
         assertEquals(freshRevision, copy.sourceRevision());
         assertEquals(freshRevision, copy.currentRevision());
@@ -184,29 +207,38 @@ class WorkingCopyActivationApiIntegrationTest {
         assertEquals(freshRevision, git(location, "rev-parse", "HEAD").trim());
         assertEquals("new committed content", Files.readString(location.resolve("report.txt")));
         assertEquals(before, snapshot(source));
-        var selected = directions.findById(new ProductDirectionId("direction")).orElseThrow();
+        ProductDirection selected = directions.findById(new ProductDirectionId("direction")).orElseThrow();
         assertEquals(ProductDirectionStatus.SELECTED, selected.status());
         assertEquals(List.of(PROFILE), selected.repositoryProfileIds());
         assertEquals(revision, profiles.findById(PROFILE).orElseThrow().analyzedRevision());
-        var historical = plans.findById(new EvolutionPlanId(oldPlanId)).orElseThrow();
+        EvolutionPlan historical = plans.findById(new EvolutionPlanId(oldPlanId)).orElseThrow();
         assertEquals(PROFILE, historical.baseRepositoryProfileId());
         assertEquals(EvolutionPlanStatus.PROPOSED, historical.status());
         assertNull(historical.workingCopyId());
         verify(ai, times(2)).generate(any());
     }
-    @Test void failedDomainCommitAfterRealCloneRollsBackMetadataAndRemovesCandidate() throws Exception {
+
+    @Test
+    void failedDomainCommitAfterRealCloneRollsBackMetadataAndRemovesCandidate() throws Exception {
         String id = plan().path("id").asText();
         var before = snapshot(source);
         jdbc.execute("CREATE TRIGGER fail_activation BEFORE UPDATE ON evolution_plan BEGIN SELECT RAISE(ABORT, 'injected failure'); END");
         try {
             mvc.perform(post("/api/evolution-plans/{id}/prepare", id)).andExpect(status().isInternalServerError());
             assertUnchanged(id);
-            try (var children = Files.list(ROOT)) { assertEquals(0, children.count()); }
+            try (var children = Files.list(ROOT)) {
+                assertEquals(0, children.count());
+            }
             assertEquals(before, snapshot(source));
-        } finally { jdbc.execute("DROP TRIGGER fail_activation"); }
+        } finally {
+            jdbc.execute("DROP TRIGGER fail_activation");
+        }
     }
-    @Test void explicitDirectionSwitchSupersedesProposedAndActivePlansAtomicallyAndPreservesHistory() throws Exception {
-        String activeId = plan().path("id").asText(); var active = prepare(activeId);
+
+    @Test
+    void explicitDirectionSwitchSupersedesProposedAndActivePlansAtomicallyAndPreservesHistory() throws Exception {
+        String activeId = plan().path("id").asText();
+        JsonNode active = prepare(activeId);
         String proposedId = plan().path("id").asText();
         directions.save(direction("new-direction"));
         mvc.perform(post("/api/product-directions/new-direction/select")).andExpect(status().isOk());
@@ -216,19 +248,24 @@ class WorkingCopyActivationApiIntegrationTest {
                     .andExpect(jsonPath("$.steps[0].status").value("PENDING_CONFIRMATION"));
             mvc.perform(post("/api/evolution-plans/{id}/prepare", id)).andExpect(status().isConflict());
         }
-        var historical = plans.findById(new EvolutionPlanId(activeId)).orElseThrow();
+        EvolutionPlan historical = plans.findById(new EvolutionPlanId(activeId)).orElseThrow();
         assertEquals(active.path("workingCopyId").asText(), historical.workingCopyId());
         assertEquals(WorkingCopyStatus.READY, copies.findById(new WorkingCopyId(historical.workingCopyId())).orElseThrow().status());
         assertTrue(Files.exists(Path.of(copies.findById(new WorkingCopyId(historical.workingCopyId())).orElseThrow().location())));
     }
-    @Test void mapsMissingPlanAndWorkingCopyTo404() throws Exception {
+
+    @Test
+    void mapsMissingPlanAndWorkingCopyTo404() throws Exception {
         mvc.perform(post("/api/evolution-plans/missing/prepare")).andExpect(status().isNotFound());
         mvc.perform(get("/api/working-copies/missing")).andExpect(status().isNotFound());
         assertFalse(Files.exists(ROOT));
         verifyNoInteractions(ai);
     }
-    @Test void directionCommitFailurePreservesSelectedDirectionAndItsActiveAndProposedPlans() throws Exception {
-        String activeId = plan().path("id").asText(); var active = prepare(activeId);
+
+    @Test
+    void directionCommitFailurePreservesSelectedDirectionAndItsActiveAndProposedPlans() throws Exception {
+        String activeId = plan().path("id").asText();
+        JsonNode active = prepare(activeId);
         String proposedId = plan().path("id").asText();
         directions.save(direction("new-direction"));
         jdbc.execute("CREATE TRIGGER fail_direction BEFORE UPDATE ON product_direction "
@@ -240,37 +277,53 @@ class WorkingCopyActivationApiIntegrationTest {
             assertEquals(EvolutionPlanStatus.ACTIVE, plans.findById(new EvolutionPlanId(activeId)).orElseThrow().status());
             assertEquals(EvolutionPlanStatus.PROPOSED, plans.findById(new EvolutionPlanId(proposedId)).orElseThrow().status());
             assertEquals(active.path("workingCopyId").asText(), plans.findById(new EvolutionPlanId(activeId)).orElseThrow().workingCopyId());
-        } finally { jdbc.execute("DROP TRIGGER fail_direction"); }
+        } finally {
+            jdbc.execute("DROP TRIGGER fail_direction");
+        }
     }
+
     private void assertUnchanged(String id) {
-        var plan = plans.findById(new EvolutionPlanId(id)).orElseThrow();
-        assertEquals(EvolutionPlanStatus.PROPOSED, plan.status()); assertNull(plan.workingCopyId());
+        EvolutionPlan plan = plans.findById(new EvolutionPlanId(id)).orElseThrow();
+        assertEquals(EvolutionPlanStatus.PROPOSED, plan.status());
+        assertNull(plan.workingCopyId());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM working_copy", Integer.class));
     }
+
     private void commit(String message) throws Exception {
         git(source, "-c", "user.name=Test", "-c", "user.email=test@delveforge.local", "commit", "-q", "-m", message);
     }
+
     private static String git(Path path, String... args) throws Exception {
-        var command = new ArrayList<>(List.of("git", "-C", path.toString())); command.addAll(List.of(args));
+        var command = new ArrayList<>(List.of("git", "-C", path.toString()));
+        command.addAll(List.of(args));
         var process = new ProcessBuilder(command).redirectErrorStream(true).start();
         var output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        assertEquals(0, process.waitFor(), output); return output;
+        assertEquals(0, process.waitFor(), output);
+        return output;
     }
+
     private static Map<String, String> snapshot(Path root) throws Exception {
         Map<String, String> result = new TreeMap<>();
         try (var paths = Files.walk(root)) {
-            for (var path : paths.filter(Files::isRegularFile).toList())
+            for (var path : paths.filter(Files::isRegularFile).toList()) {
                 result.put(root.relativize(path).toString(), Base64.getEncoder().encodeToString(Files.readAllBytes(path))
                         + "|" + Files.getLastModifiedTime(path).toMillis());
+            }
         }
         return result;
     }
+
     private static void delete(Path directory) throws Exception {
-        if (directory == null || !Files.exists(directory)) return;
-        if (!directory.toAbsolutePath().normalize().startsWith(BASE)) throw new IllegalArgumentException("Test cleanup escaped test root");
+        if (directory == null || !Files.exists(directory)) {
+            return;
+        }
+        if (!directory.toAbsolutePath().normalize().startsWith(BASE)) {
+            throw new IllegalArgumentException("Test cleanup escaped test root");
+        }
         try (var paths = Files.walk(directory)) {
             for (var path : paths.sorted(Comparator.reverseOrder()).toList()) {
-                path.toFile().setWritable(true); Files.delete(path);
+                path.toFile().setWritable(true);
+                Files.delete(path);
             }
         }
     }

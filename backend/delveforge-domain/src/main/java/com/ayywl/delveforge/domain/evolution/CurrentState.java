@@ -1,8 +1,10 @@
 package com.ayywl.delveforge.domain.evolution;
+
 import java.util.List;
 
-/** Planning-relevant projection, rather than a copy of the complete Repository Profile.
- * Selected facts retain their original wording so the service can check grounding.
+/**
+ * 保留与规划有关的 RepositoryProfile 事实投影，而非整个 Profile。
+ * 逐项保留原文，使领域服务能核对事实来源。
  */
 public record CurrentState(String summary, List<String> capabilities,
                            List<String> modules, List<String> limitations) {

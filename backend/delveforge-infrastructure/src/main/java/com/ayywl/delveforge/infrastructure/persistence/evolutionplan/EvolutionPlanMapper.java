@@ -1,15 +1,18 @@
 package com.ayywl.delveforge.infrastructure.persistence.evolutionplan;
-import com.baomidou.mybatisplus.core.mapper.BaseMapper;
-import org.apache.ibatis.annotations.Insert;
-import org.apache.ibatis.annotations.Update;
-import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.Param;
+
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanTransition;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
-import com.ayywl.delveforge.application.port.persistence.EvolutionPlanTransition;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
-/** The write itself checks the mutable selection basis, closing the AI-call race. */
+/**
+ * 写入时再次核对可变的 Direction 选择状态，防止 AI 调用期间切换方向后提交旧规划。
+ */
 public interface EvolutionPlanMapper extends BaseMapper<EvolutionPlanDO> {
     @Insert("""
         INSERT INTO evolution_plan
@@ -22,7 +25,9 @@ public interface EvolutionPlanMapper extends BaseMapper<EvolutionPlanDO> {
         """)
     int insertForSelectedDirection(EvolutionPlanDO plan);
 
-    /** Storage compare-and-set guards on the validated domain candidate's read basis. */
+    /**
+     * 对已验证领域候选的读取依据执行条件更新，拒绝并发导致的依据变化。
+     */
     @Update("""
         UPDATE evolution_plan SET status = #{plan.status}, working_copy_id = #{copy.id.value}
         WHERE id = #{plan.id.value} AND status = 'PROPOSED' AND working_copy_id IS NULL

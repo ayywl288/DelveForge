@@ -510,7 +510,9 @@ public class ProductDirection {
         return id;
     }
 
-    /** Isolated lifecycle candidate; failure must not alter repository-loaded instances. */
+    /**
+     * 隔离生命周期候选，避免失败时改变 Repository 已加载的对象。
+     */
     public ProductDirection copy() {
         return reconstitute(id, userProfileId, userProfileRevision, repositoryProfileIds, title, problem,
                 targetProduct, userFit, candidateAssetIds, differentiation, technicalValue,

@@ -1,9 +1,10 @@
 package com.ayywl.delveforge.app.config;
+
 import com.ayywl.delveforge.application.evolution.planning.*;
 import com.ayywl.delveforge.application.evolution.provisioning.*;
-import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.persistence.*;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
 import com.ayywl.delveforge.domain.asset.AssetUsagePolicy;
 import com.ayywl.delveforge.domain.evolution.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,22 +20,29 @@ public class EvolutionPlanningUseCaseConfiguration {
                 () -> new EvolutionPlanId(UUID.randomUUID().toString()),
                 () -> new EvolutionStepId(UUID.randomUUID().toString()));
     }
+
     @Bean
     public EvolutionPlanningExtraction evolutionPlanningExtraction(AiGateway gateway, ObjectMapper mapper) {
         return new EvolutionPlanningExtraction(gateway, mapper);
     }
+
     @Bean
     public GenerateEvolutionPlanUseCase generateEvolutionPlanUseCase(ProductDirectionRepository directions,
             SoftwareAssetRepository assets, RepositoryProfileRepository profiles,
             EvolutionPlanningExtraction extraction, EvolutionPlanningService service, EvolutionPlanRepository plans) {
         return new GenerateEvolutionPlanUseCase(directions, assets, profiles, extraction, service, plans);
     }
+
     @Bean
     public GetEvolutionPlanUseCase getEvolutionPlanUseCase(EvolutionPlanRepository plans) {
         return new GetEvolutionPlanUseCase(plans);
     }
+
     @Bean
-    public PlanActivationPolicy planActivationPolicy() { return new PlanActivationPolicy(new AssetUsagePolicy()); }
+    public PlanActivationPolicy planActivationPolicy() {
+        return new PlanActivationPolicy(new AssetUsagePolicy());
+    }
+
     @Bean
     public PrepareEvolutionPlanUseCase prepareEvolutionPlanUseCase(EvolutionPlanRepository plans,
             ProductDirectionRepository directions, SoftwareAssetRepository assets, RepositoryProfileRepository profiles,
@@ -42,6 +50,7 @@ public class EvolutionPlanningUseCaseConfiguration {
         return new PrepareEvolutionPlanUseCase(plans, directions, assets, profiles, provisioning, commits, policy,
                 () -> new WorkingCopyId(UUID.randomUUID().toString()));
     }
+
     @Bean
     public GetWorkingCopyUseCase getWorkingCopyUseCase(WorkingCopyRepository copies) {
         return new GetWorkingCopyUseCase(copies);

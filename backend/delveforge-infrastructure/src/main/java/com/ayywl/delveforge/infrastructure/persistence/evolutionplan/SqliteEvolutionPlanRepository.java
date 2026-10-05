@@ -17,10 +17,10 @@ import java.util.Optional;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-/** SQLite/MyBatis-Plus persistence of one coherent planning result.
- * Planning save is insert-only; lifecycle updates use EvolutionLifecycleCommitPort.
- * A second plan has a new identity.
- * All parent/content/step/evidence writes share a transaction.
+/**
+ * 将一次规划结果作为整体持久化，根、内容、Step 与 Evidence 共用事务。
+ * 规划保存只允许插入；生命周期更新经 EvolutionLifecycleCommitPort 提交。
+ * 再次规划使用新身份，保留旧结果。
  */
 @Repository
 public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
@@ -42,10 +42,13 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
     @Override
     @Transactional
     public void save(EvolutionPlan plan) {
-        if (plan.status() != EvolutionPlanStatus.PROPOSED || plan.workingCopyId() != null)
+        if (plan.status() != EvolutionPlanStatus.PROPOSED || plan.workingCopyId() != null) {
             throw new EvolutionPlanStateException("New planning results must be unbound PROPOSED Plans");
+        }
         String id = plan.id().value();
-        if (planMapper.selectById(id) != null) throw new EvolutionPlanAlreadyExistsException(plan.id());
+        if (planMapper.selectById(id) != null) {
+            throw new EvolutionPlanAlreadyExistsException(plan.id());
+        }
         EvolutionPlanDO row = new EvolutionPlanDO();
         row.setId(id);
         row.setProductDirectionId(plan.productDirectionId().value());
@@ -57,8 +60,9 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         row.setTargetProduct(plan.targetState().targetProduct());
         row.setTargetDifferentiation(plan.targetState().differentiation());
         row.setStatus(plan.status().name());
-        if (planMapper.insertForSelectedDirection(row) != 1)
+        if (planMapper.insertForSelectedDirection(row) != 1) {
             throw new EvolutionPlanningPreconditionException("Direction is no longer SELECTED at plan commit");
+        }
 
         insertSection(id, "currentCapabilities", plan.currentState().capabilities());
         insertSection(id, "currentModules", plan.currentState().modules());
@@ -66,32 +70,37 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         insertSection(id, "reusableCapabilities", plan.reusableCapabilities());
         insertSection(id, "changes", plan.changes());
         insertSection(id, "risks", plan.risks());
-        for (int position = 0; position < plan.steps().size(); position++)
+        for (int position = 0; position < plan.steps().size(); position++) {
             insertStep(plan.steps().get(position), position);
-        for (int position = 0; position < plan.evidence().size(); position++)
+        }
+        for (int position = 0; position < plan.evidence().size(); position++) {
             insertEvidence(id, position, plan.evidence().get(position));
+        }
     }
 
     @Override
     @Transactional(readOnly = true)
     public Optional<EvolutionPlan> findById(EvolutionPlanId id) {
         EvolutionPlanDO row = planMapper.selectById(id.value());
-        if (row == null) return Optional.empty();
+        if (row == null) {
+            return Optional.empty();
+        }
         Map<String, List<String>> sections = loadSections(id.value());
-        var stepRows = stepMapper.selectList(new LambdaQueryWrapper<EvolutionStepDO>()
+        List<EvolutionStepDO> stepRows = stepMapper.selectList(new LambdaQueryWrapper<EvolutionStepDO>()
                 .eq(EvolutionStepDO::getPlanId, id.value()).orderByAsc(EvolutionStepDO::getPosition));
         List<PlanningStepProposal> definitions = new ArrayList<>();
         List<EvolutionStepId> ids = new ArrayList<>();
         for (EvolutionStepDO step : stepRows) {
-            if (!EvolutionStepStatus.PENDING_CONFIRMATION.name().equals(step.getStatus()) || step.getBaselineRevision() != null)
+            if (!EvolutionStepStatus.PENDING_CONFIRMATION.name().equals(step.getStatus()) || step.getBaselineRevision() != null) {
                 throw new IllegalStateException("Unsupported stored step lifecycle state");
+            }
             Map<String, List<String>> stepSections = loadStepSections(step.getId());
             definitions.add(new PlanningStepProposal(step.getGoal(), step.getScope(),
                     values(stepSections, "plannedChanges"), values(stepSections, "preconditions"),
                     values(stepSections, "verificationCriteria")));
             ids.add(new EvolutionStepId(step.getId()));
         }
-        var content = new PlanningProposal(
+        PlanningProposal content = new PlanningProposal(
                 new CurrentState(row.getCurrentSummary(), values(sections, "currentCapabilities"),
                         values(sections, "currentModules"), values(sections, "currentLimitations")),
                 new TargetState(row.getTargetProblem(), row.getTargetProduct(), row.getTargetDifferentiation()),
@@ -114,66 +123,88 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
     private void insertSection(String planId, String section, List<String> values) {
         for (int position = 0; position < values.size(); position++) {
             var row = new EvolutionPlanSectionItemDO();
-            row.setPlanId(planId); row.setSection(section); row.setPosition(position); row.setValue(values.get(position));
+            row.setPlanId(planId);
+            row.setSection(section);
+            row.setPosition(position);
+            row.setValue(values.get(position));
             sectionMapper.insert(row);
         }
     }
+
     private void insertStep(EvolutionStep step, int position) {
         var row = new EvolutionStepDO();
-        row.setId(step.id().value()); row.setPlanId(step.planId().value()); row.setPosition(position);
-        row.setGoal(step.goal()); row.setScope(step.scope()); row.setStatus(step.status().name());
+        row.setId(step.id().value());
+        row.setPlanId(step.planId().value());
+        row.setPosition(position);
+        row.setGoal(step.goal());
+        row.setScope(step.scope());
+        row.setStatus(step.status().name());
         row.setBaselineRevision(step.baselineRevision());
         stepMapper.insert(row);
         insertStepSection(step.id().value(), "plannedChanges", step.plannedChanges());
         insertStepSection(step.id().value(), "preconditions", step.preconditions());
         insertStepSection(step.id().value(), "verificationCriteria", step.verificationCriteria());
     }
+
     private void insertStepSection(String stepId, String section, List<String> values) {
         for (int position = 0; position < values.size(); position++) {
             var row = new EvolutionStepSectionItemDO();
-            row.setStepId(stepId); row.setSection(section); row.setPosition(position); row.setValue(values.get(position));
+            row.setStepId(stepId);
+            row.setSection(section);
+            row.setPosition(position);
+            row.setValue(values.get(position));
             stepSectionMapper.insert(row);
         }
     }
+
     private void insertEvidence(String planId, int position, EvidenceBasis basis) {
         var row = new EvolutionPlanEvidenceDO();
-        var evidence = basis.evidence();
-        row.setPlanId(planId); row.setPosition(position); row.setSourceType(evidence.sourceType().name());
-        row.setSourceRef(evidence.sourceRef()); row.setClaim(evidence.claim());
-        row.setConfidence(evidence.confidence()); row.setConfirmed(evidence.confirmed() ? 1 : 0);
+        Evidence evidence = basis.evidence();
+        row.setPlanId(planId);
+        row.setPosition(position);
+        row.setSourceType(evidence.sourceType().name());
+        row.setSourceRef(evidence.sourceRef());
+        row.setClaim(evidence.claim());
+        row.setConfidence(evidence.confidence());
+        row.setConfirmed(evidence.confirmed() ? 1 : 0);
         if (basis.origin() instanceof UserProfileEvidenceOrigin origin) {
             row.setOriginKind("userProfile");
             row.setOriginUserProfileId(origin.userProfileId().value());
             row.setOriginUserProfileRevision(origin.userProfileRevision());
-        } else if (basis.origin() instanceof RepositoryProfileEvidenceOrigin origin) {
-            row.setOriginKind("repositoryProfile");
-            row.setOriginRepositoryProfileId(origin.repositoryProfileId().value());
         } else {
-            throw new IllegalStateException("Unsupported Evidence origin");
+            if (basis.origin() instanceof RepositoryProfileEvidenceOrigin origin) {
+                row.setOriginKind("repositoryProfile");
+                row.setOriginRepositoryProfileId(origin.repositoryProfileId().value());
+            } else {
+                throw new IllegalStateException("Unsupported Evidence origin");
+            }
         }
         evidenceMapper.insert(row);
     }
+
     private Map<String, List<String>> loadSections(String id) {
-        var rows = sectionMapper.selectList(new LambdaQueryWrapper<EvolutionPlanSectionItemDO>()
+        List<EvolutionPlanSectionItemDO> rows = sectionMapper.selectList(new LambdaQueryWrapper<EvolutionPlanSectionItemDO>()
                 .eq(EvolutionPlanSectionItemDO::getPlanId, id)
                 .orderByAsc(EvolutionPlanSectionItemDO::getSection).orderByAsc(EvolutionPlanSectionItemDO::getPosition));
         Map<String, List<String>> result = new LinkedHashMap<>();
         rows.forEach(row -> result.computeIfAbsent(row.getSection(), key -> new ArrayList<>()).add(row.getValue()));
         return result;
     }
+
     private Map<String, List<String>> loadStepSections(String id) {
-        var rows = stepSectionMapper.selectList(new LambdaQueryWrapper<EvolutionStepSectionItemDO>()
+        List<EvolutionStepSectionItemDO> rows = stepSectionMapper.selectList(new LambdaQueryWrapper<EvolutionStepSectionItemDO>()
                 .eq(EvolutionStepSectionItemDO::getStepId, id)
                 .orderByAsc(EvolutionStepSectionItemDO::getSection).orderByAsc(EvolutionStepSectionItemDO::getPosition));
         Map<String, List<String>> result = new LinkedHashMap<>();
         rows.forEach(row -> result.computeIfAbsent(row.getSection(), key -> new ArrayList<>()).add(row.getValue()));
         return result;
     }
+
     private List<EvidenceBasis> loadEvidence(String id) {
-        var rows = evidenceMapper.selectList(new LambdaQueryWrapper<EvolutionPlanEvidenceDO>()
+        List<EvolutionPlanEvidenceDO> rows = evidenceMapper.selectList(new LambdaQueryWrapper<EvolutionPlanEvidenceDO>()
                 .eq(EvolutionPlanEvidenceDO::getPlanId, id).orderByAsc(EvolutionPlanEvidenceDO::getPosition));
         List<EvidenceBasis> result = new ArrayList<>();
-        for (var row : rows) {
+        for (EvolutionPlanEvidenceDO row : rows) {
             EvidenceOrigin origin = switch (row.getOriginKind()) {
                 case "userProfile" -> new UserProfileEvidenceOrigin(new UserProfileId(row.getOriginUserProfileId()),
                         row.getOriginUserProfileRevision());
@@ -186,6 +217,7 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         }
         return List.copyOf(result);
     }
+
     private static List<String> values(Map<String, List<String>> sections, String section) {
         return sections.getOrDefault(section, List.of());
     }

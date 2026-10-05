@@ -1,6 +1,8 @@
 package com.ayywl.delveforge.domain.evolution;
 
-/** Selected product intent is retained verbatim; planning cannot replace it. */
+/**
+ * 逐字保留选定的产品意图，规划不能替换它。
+ */
 public record TargetState(String problem, String targetProduct, String differentiation) {
     public TargetState {
         problem = PlanningContent.text(problem, "targetState.problem");

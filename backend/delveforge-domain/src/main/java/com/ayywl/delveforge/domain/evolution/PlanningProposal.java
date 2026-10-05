@@ -1,17 +1,20 @@
 package com.ayywl.delveforge.domain.evolution;
+
 import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
 import java.util.List;
 
-/** Untrusted candidate content. No IDs, lifecycle state or invocation-local references.
- * Like DirectionProposal, this domain-facing value is not an Entity and is not persisted.
+/**
+ * 未被接受的候选内容，不携带身份、生命周期状态或调用内短引用。
+ * 与 DirectionProposal 一样，它不是 Entity，也不作为独立记录持久化。
  */
 public record PlanningProposal(CurrentState currentState, TargetState targetState,
                                List<String> reusableCapabilities, List<String> changes,
                                List<PlanningStepProposal> steps, List<String> risks,
                                List<EvidenceBasis> evidence) {
     public PlanningProposal {
-        if (currentState == null || targetState == null || steps == null || evidence == null)
+        if (currentState == null || targetState == null || steps == null || evidence == null) {
             throw new IllegalArgumentException("Planning proposal is incomplete");
+        }
         reusableCapabilities = PlanningContent.section(reusableCapabilities, "reusableCapabilities", false);
         changes = PlanningContent.section(changes, "changes", true);
         steps = List.copyOf(steps);

@@ -1,15 +1,15 @@
 package com.ayywl.delveforge.domain.evolution;
-import static org.junit.jupiter.api.Assertions.*;
+
 import com.ayywl.delveforge.domain.asset.*;
 import com.ayywl.delveforge.domain.direction.*;
-import com.ayywl.delveforge.domain.repositoryprofile.*;
 import com.ayywl.delveforge.domain.evidence.*;
 import com.ayywl.delveforge.domain.evolution.*;
+import com.ayywl.delveforge.domain.repositoryprofile.*;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import java.util.List;
-
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
 class EvolutionPlanningServiceTest {
     private static final SoftwareAssetId ASSET = new SoftwareAssetId("asset");
@@ -20,18 +20,23 @@ class EvolutionPlanningServiceTest {
         return SoftwareAsset.create(ASSET, SoftwareAssetType.GIT_REPOSITORY, SoftwareAssetSource.USER_SPECIFIED,
                 "never-open-this-path", read, license, authorization);
     }
+
     private static RepositoryProfile profile() {
         return RepositoryProfile.create(PROFILE, ASSET, "commit123", "Reporting", List.of("Java"),
                 List.of("reports"), List.of("Export"), List.of("Render"), List.of("No scheduling"), List.of(), List.of(FACT));
     }
+
     private static ProductDirection direction(boolean selected) {
-        var direction = ProductDirection.create(new ProductDirectionId("direction"), new UserProfileId("user"), 1,
+        ProductDirection direction = ProductDirection.create(new ProductDirectionId("direction"), new UserProfileId("user"), 1,
                 List.of(PROFILE), "Personal reports", "Manual exports", "Scheduled reports", "Fits goals",
                 List.of(ASSET), "Personal schedule", "Scheduling", "Small", List.of(),
                 new DirectionEvidenceSupport(List.of(BASIS), List.of(BASIS), List.of(BASIS)));
-        if (selected) direction.select();
+        if (selected) {
+            direction.select();
+        }
         return direction;
     }
+
     private static PlanningProposal proposal() {
         return new PlanningProposal(new CurrentState("Existing exports with no scheduling", List.of("Export"),
                 List.of("reports"), List.of("No scheduling")),
@@ -49,22 +54,24 @@ class EvolutionPlanningServiceTest {
         return new EvolutionPlanningService(new AssetUsagePolicy(),
                 () -> new EvolutionPlanId("plan"), () -> new EvolutionStepId("step-" + ids.incrementAndGet()));
     }
-    @Test void preparesAndActivatesReplannedBasisWithoutReplacingDirectionDiscoveryHistory() {
-        var selected = direction(true);
-        var allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
+
+    @Test
+    void preparesAndActivatesReplannedBasisWithoutReplacingDirectionDiscoveryHistory() {
+        ProductDirection selected = direction(true);
+        SoftwareAsset allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
         var freshId = new RepositoryProfileId("fresh-profile");
-        var fresh = RepositoryProfile.create(freshId, ASSET, "fresh-commit", "Reporting", List.of("Java"),
+        RepositoryProfile fresh = RepositoryProfile.create(freshId, ASSET, "fresh-commit", "Reporting", List.of("Java"),
                 List.of("reports"), List.of("Export"), List.of("Render"), List.of("No scheduling"), List.of(), List.of(FACT));
-        var original = proposal();
-        var freshProposal = new PlanningProposal(original.currentState(), original.targetState(),
+        PlanningProposal original = proposal();
+        PlanningProposal freshProposal = new PlanningProposal(original.currentState(), original.targetState(),
                 original.reusableCapabilities(), original.changes(), original.steps(), original.risks(),
                 List.of(new EvidenceBasis(FACT, new RepositoryProfileEvidenceOrigin(freshId)), BASIS));
-        var plan = service().plan(selected, allowed, fresh, freshProposal);
+        EvolutionPlan plan = service().plan(selected, allowed, fresh, freshProposal);
         var policy = new PlanActivationPolicy(new AssetUsagePolicy());
         assertEquals(List.of(PROFILE), selected.repositoryProfileIds());
         assertEquals(freshId, plan.baseRepositoryProfileId());
         policy.requirePreparationAllowed(plan, selected, allowed, fresh);
-        var copy = WorkingCopy.create(new WorkingCopyId("fresh-copy"), ASSET, "fresh-commit", "managed-copy");
+        WorkingCopy copy = WorkingCopy.create(new WorkingCopyId("fresh-copy"), ASSET, "fresh-commit", "managed-copy");
         copy.markReady("fresh-commit");
         plan.bindWorkingCopy(copy);
         plan.activate(policy, copy, selected, allowed, fresh);
@@ -75,12 +82,14 @@ class EvolutionPlanningServiceTest {
         assertEquals(copy.sourceRevision(), copy.lastVerifiedRevision());
         plan.steps().forEach(step -> assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, step.status()));
     }
-    @Test void activationBindsReadyCopyWithoutAuthorizingStepsOrMutatingLoadedPlan() {
-        var asset = asset(true, "MIT", UsageAuthorization.ALLOWED);
-        var direction = direction(true);
-        var original = service().plan(direction, asset, profile(), proposal());
-        var candidate = original.copy();
-        var copy = WorkingCopy.create(new WorkingCopyId("copy"), ASSET, "commit123", "managed-copy");
+
+    @Test
+    void activationBindsReadyCopyWithoutAuthorizingStepsOrMutatingLoadedPlan() {
+        SoftwareAsset asset = asset(true, "MIT", UsageAuthorization.ALLOWED);
+        ProductDirection direction = direction(true);
+        EvolutionPlan original = service().plan(direction, asset, profile(), proposal());
+        EvolutionPlan candidate = original.copy();
+        WorkingCopy copy = WorkingCopy.create(new WorkingCopyId("copy"), ASSET, "commit123", "managed-copy");
         assertEquals(WorkingCopyStatus.CREATING, copy.status());
         assertThrows(EvolutionPlanStateException.class, () -> candidate.bindWorkingCopy(copy));
         assertThrows(EvolutionPlanStateException.class, () -> copy.markReady("other"));
@@ -109,12 +118,13 @@ class EvolutionPlanningServiceTest {
         assertThrows(EvolutionPlanStateException.class, candidate::supersede);
     }
 
-    @Test void activationPolicyRejectsUnboundUnreadyWrongCopyRevisionAndRevokedAuthorization() {
-        var allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
-        var selected = direction(true);
-        var plan = service().plan(selected, allowed, profile(), proposal());
+    @Test
+    void activationPolicyRejectsUnboundUnreadyWrongCopyRevisionAndRevokedAuthorization() {
+        SoftwareAsset allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
+        ProductDirection selected = direction(true);
+        EvolutionPlan plan = service().plan(selected, allowed, profile(), proposal());
         var policy = new PlanActivationPolicy(new AssetUsagePolicy());
-        var copy = WorkingCopy.create(new WorkingCopyId("copy"), ASSET, "commit123", "managed-copy");
+        WorkingCopy copy = WorkingCopy.create(new WorkingCopyId("copy"), ASSET, "commit123", "managed-copy");
         assertThrows(EvolutionPlanStateException.class,
                 () -> policy.requireActivationAllowed(plan, copy, selected, allowed, profile()));
         copy.markReady("commit123");
@@ -124,11 +134,11 @@ class EvolutionPlanningServiceTest {
         assertThrows(AssetEvolutionNotAllowedException.class, () -> plan.activate(policy, copy, selected,
                 asset(true, "MIT", UsageAuthorization.DENIED), profile()));
         assertEquals(EvolutionPlanStatus.PROPOSED, plan.status());
-        var wrong = WorkingCopy.create(new WorkingCopyId("other"), ASSET, "commit123", "other-copy");
+        WorkingCopy wrong = WorkingCopy.create(new WorkingCopyId("other"), ASSET, "commit123", "other-copy");
         wrong.markReady("commit123");
         assertThrows(EvolutionPlanStateException.class,
                 () -> policy.requireActivationAllowed(plan, wrong, selected, allowed, profile()));
-        var stale = WorkingCopy.create(new WorkingCopyId("copy"), ASSET, "other", "other-copy");
+        WorkingCopy stale = WorkingCopy.create(new WorkingCopyId("copy"), ASSET, "other", "other-copy");
         stale.markReady("other");
         assertThrows(EvolutionPlanStateException.class,
                 () -> policy.requireActivationAllowed(plan, stale, selected, allowed, profile()));
@@ -137,16 +147,17 @@ class EvolutionPlanningServiceTest {
                 () -> plan.activate(policy, copy, selected, allowed, profile()));
     }
 
-    @Test void preparationPolicyRejectsMismatchedBasisAndHistoricalPlan() {
-        var allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
-        var selected = direction(true);
-        var plan = service().plan(selected, allowed, profile(), proposal());
+    @Test
+    void preparationPolicyRejectsMismatchedBasisAndHistoricalPlan() {
+        SoftwareAsset allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
+        ProductDirection selected = direction(true);
+        EvolutionPlan plan = service().plan(selected, allowed, profile(), proposal());
         var policy = new PlanActivationPolicy(new AssetUsagePolicy());
-        var otherAsset = SoftwareAsset.create(new SoftwareAssetId("other"), SoftwareAssetType.GIT_REPOSITORY,
+        SoftwareAsset otherAsset = SoftwareAsset.create(new SoftwareAssetId("other"), SoftwareAssetType.GIT_REPOSITORY,
                 SoftwareAssetSource.USER_SPECIFIED, "other", true, "MIT", UsageAuthorization.ALLOWED);
         assertThrows(EvolutionPlanStateException.class,
                 () -> policy.requirePreparationAllowed(plan, selected, otherAsset, profile()));
-        var otherProfile = RepositoryProfile.create(new RepositoryProfileId("other"), ASSET, "commit123", "Other",
+        RepositoryProfile otherProfile = RepositoryProfile.create(new RepositoryProfileId("other"), ASSET, "commit123", "Other",
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(FACT));
         assertThrows(EvolutionPlanStateException.class,
                 () -> policy.requirePreparationAllowed(plan, selected, allowed, otherProfile));
@@ -156,8 +167,10 @@ class EvolutionPlanningServiceTest {
         assertThrows(EvolutionPlanStateException.class,
                 () -> policy.requirePreparationAllowed(plan, selected, allowed, profile()));
     }
-    @Test void acceptsAnIsolatedProposedPlanWithOrderedUnconfirmedSteps() {
-        var plan = service().plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), proposal());
+
+    @Test
+    void acceptsAnIsolatedProposedPlanWithOrderedUnconfirmedSteps() {
+        EvolutionPlan plan = service().plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), proposal());
         assertEquals(EvolutionPlanStatus.PROPOSED, plan.status());
         assertNull(plan.workingCopyId());
         assertEquals(new ProductDirectionId("direction"), plan.productDirectionId());
@@ -170,40 +183,47 @@ class EvolutionPlanningServiceTest {
         assertEquals(proposal().evidence(), plan.evidence());
         assertEquals(List.of("Schedule reports", "Expose schedule management"),
                 plan.steps().stream().map(EvolutionStep::goal).toList());
-        for (var step : plan.steps()) {
+        for (EvolutionStep step : plan.steps()) {
             assertEquals(plan.id(), step.planId());
             assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, step.status());
             assertNull(step.baselineRevision());
         }
         assertThrows(UnsupportedOperationException.class, () -> plan.steps().clear());
     }
-    @Test void rejectsUnselectedOrNoncandidateOrMismatchedInputs() {
-        var allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
+
+    @Test
+    void rejectsUnselectedOrNoncandidateOrMismatchedInputs() {
+        SoftwareAsset allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
         assertThrows(EvolutionPlanningPreconditionException.class,
                 () -> service().plan(direction(false), allowed, profile(), proposal()));
-        var other = SoftwareAsset.create(new SoftwareAssetId("other"), SoftwareAssetType.GIT_REPOSITORY,
+        SoftwareAsset other = SoftwareAsset.create(new SoftwareAssetId("other"), SoftwareAssetType.GIT_REPOSITORY,
                 SoftwareAssetSource.USER_SPECIFIED, "path", true, "MIT", UsageAuthorization.ALLOWED);
         assertThrows(EvolutionPlanningPreconditionException.class,
                 () -> service().plan(direction(true), other, profile(), proposal()));
-        var mismatched = RepositoryProfile.create(PROFILE, new SoftwareAssetId("other"), "revision", "Purpose",
+        RepositoryProfile mismatched = RepositoryProfile.create(PROFILE, new SoftwareAssetId("other"), "revision", "Purpose",
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(FACT));
         assertThrows(EvolutionPlanningPreconditionException.class,
                 () -> service().plan(direction(true), allowed, mismatched, proposal()));
         assertThrows(IllegalArgumentException.class, () -> RepositoryProfile.create(PROFILE, ASSET, " ", "Purpose",
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(FACT)));
     }
-    @Test void rejectsIneligibleAssetAuthorizationAndUnknownLicense() {
-        for (var authorization : List.of(UsageAuthorization.DENIED, UsageAuthorization.UNCLEAR))
+
+    @Test
+    void rejectsIneligibleAssetAuthorizationAndUnknownLicense() {
+        for (var authorization : List.of(UsageAuthorization.DENIED, UsageAuthorization.UNCLEAR)) {
             assertThrows(AssetEvolutionNotAllowedException.class,
                     () -> service().plan(direction(true), asset(true, "MIT", authorization), profile(), proposal()));
+        }
         assertThrows(AssetEvolutionNotAllowedException.class,
                 () -> service().plan(direction(true), asset(false, "MIT", UsageAuthorization.ALLOWED), profile(), proposal()));
         assertThrows(AssetEvolutionNotAllowedException.class,
                 () -> service().plan(direction(true), asset(true, null, UsageAuthorization.ALLOWED), profile(), proposal()));
     }
-    @Test void rejectsChangedIntentFabricatedFactsAndForeignEvidence() {
-        var p = proposal();
-        var allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
+
+    @Test
+    void rejectsChangedIntentFabricatedFactsAndForeignEvidence() {
+        PlanningProposal p = proposal();
+        SoftwareAsset allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);
         assertThrows(EvolutionPlanningRejectedException.class, () -> service().plan(direction(true), allowed, profile(),
                 new PlanningProposal(p.currentState(), new TargetState("Other", "Other", "Other"),
                         p.reusableCapabilities(), p.changes(), p.steps(), p.risks(), p.evidence())));
@@ -221,7 +241,9 @@ class EvolutionPlanningServiceTest {
                 new PlanningProposal(p.currentState(), p.targetState(), p.reusableCapabilities(),
                         p.changes(), List.of(), p.risks(), p.evidence())));
     }
-    @Test void rejectsDuplicateStepIdentitiesAndEmptyDefinitions() {
+
+    @Test
+    void rejectsDuplicateStepIdentitiesAndEmptyDefinitions() {
         var service = new EvolutionPlanningService(new AssetUsagePolicy(), () -> new EvolutionPlanId("plan"),
                 () -> new EvolutionStepId("same"));
         assertThrows(IllegalArgumentException.class,

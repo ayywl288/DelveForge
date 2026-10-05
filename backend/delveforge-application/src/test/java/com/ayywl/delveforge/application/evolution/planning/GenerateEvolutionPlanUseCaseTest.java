@@ -1,25 +1,27 @@
 package com.ayywl.delveforge.application.evolution.planning;
-import static org.junit.jupiter.api.Assertions.*;
+
+import com.ayywl.delveforge.application.evolution.provisioning.*;
+import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDirectionNotFoundException;
 import com.ayywl.delveforge.application.port.ai.*;
 import com.ayywl.delveforge.application.port.persistence.*;
-import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDirectionNotFoundException;
+import com.ayywl.delveforge.application.port.workspace.*;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
 import com.ayywl.delveforge.domain.asset.*;
 import com.ayywl.delveforge.domain.direction.*;
-import com.ayywl.delveforge.domain.repositoryprofile.*;
 import com.ayywl.delveforge.domain.evidence.*;
 import com.ayywl.delveforge.domain.evolution.*;
+import com.ayywl.delveforge.domain.repositoryprofile.*;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
-import com.ayywl.delveforge.application.evolution.provisioning.*;
-import com.ayywl.delveforge.application.port.workspace.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 class GenerateEvolutionPlanUseCaseTest {
     private static final SoftwareAssetId ASSET = new SoftwareAssetId("asset");
@@ -30,18 +32,23 @@ class GenerateEvolutionPlanUseCaseTest {
         return SoftwareAsset.create(ASSET, SoftwareAssetType.GIT_REPOSITORY, SoftwareAssetSource.USER_SPECIFIED,
                 "never-open-this-path", read, license, authorization);
     }
+
     private static RepositoryProfile profile() {
         return RepositoryProfile.create(PROFILE, ASSET, "commit123", "Reporting", List.of("Java"),
                 List.of("reports"), List.of("Export"), List.of("Render"), List.of("No scheduling"), List.of(), List.of(FACT));
     }
+
     private static ProductDirection direction(boolean selected) {
-        var direction = ProductDirection.create(new ProductDirectionId("direction"), new UserProfileId("user"), 1,
+        ProductDirection direction = ProductDirection.create(new ProductDirectionId("direction"), new UserProfileId("user"), 1,
                 List.of(PROFILE), "Personal reports", "Manual exports", "Scheduled reports", "Fits goals",
                 List.of(ASSET), "Personal schedule", "Scheduling", "Small", List.of(),
                 new DirectionEvidenceSupport(List.of(BASIS), List.of(BASIS), List.of(BASIS)));
-        if (selected) direction.select();
+        if (selected) {
+            direction.select();
+        }
         return direction;
     }
+
     private static PlanningProposal proposal() {
         return new PlanningProposal(new CurrentState("Existing exports with no scheduling", List.of("Export"),
                 List.of("reports"), List.of("No scheduling")),
@@ -89,17 +96,23 @@ class GenerateEvolutionPlanUseCaseTest {
                         assertEquals("commit123", revision);
                         assertEquals("copy", name);
                         duringProvision.run();
-                        if (provisionFailure != null) throw provisionFailure;
+                        if (provisionFailure != null) {
+                            throw provisionFailure;
+                        }
                         return new PreparedWorkspace(new WorkspaceRef("managed-copy"), preparedRevision, "token");
                     }
                     public void discard(PreparedWorkspace candidate) {
                         cleanupCalls++;
-                        if (cleanupFailure != null) throw cleanupFailure;
+                        if (cleanupFailure != null) {
+                            throw cleanupFailure;
+                        }
                     }
                 }, new EvolutionLifecycleCommitPort() {
                     public void commitActivation(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset basis) {
                         activationCommits++;
-                        if (commitFailure != null) throw commitFailure;
+                        if (commitFailure != null) {
+                            throw commitFailure;
+                        }
                         assertEquals(WorkingCopyStatus.READY, copy.status());
                         assertEquals(copy.sourceRevision(), copy.currentRevision());
                         assertEquals(copy.sourceRevision(), copy.lastVerifiedRevision());
@@ -111,17 +124,21 @@ class GenerateEvolutionPlanUseCaseTest {
                     }
                 }, new PlanActivationPolicy(new AssetUsagePolicy()), () -> new WorkingCopyId("copy"));
     }
+
     private EvolutionPlan seedProposed() {
         seed();
-        var plan = new EvolutionPlanningService(new AssetUsagePolicy(), () -> new EvolutionPlanId("plan"),
+
+        EvolutionPlan plan = new EvolutionPlanningService(new AssetUsagePolicy(), () -> new EvolutionPlanId("plan"),
                 () -> new EvolutionStepId("step-" + ids.incrementAndGet()))
                 .plan(direction(true), assets.value, profiles.value, proposal());
         plans.save(plan);
         return plan;
     }
-    @Test void preparesAndActivatesThroughTechnicalPortWithoutAiOrStepAuthorization() {
-        var loaded = seedProposed();
-        var active = prepareUseCase().prepare(loaded.id());
+
+    @Test
+    void preparesAndActivatesThroughTechnicalPortWithoutAiOrStepAuthorization() {
+        EvolutionPlan loaded = seedProposed();
+        EvolutionPlan active = prepareUseCase().prepare(loaded.id());
         assertEquals(EvolutionPlanStatus.ACTIVE, active.status());
         assertEquals("copy", active.workingCopyId());
         active.steps().forEach(step -> {
@@ -130,59 +147,75 @@ class GenerateEvolutionPlanUseCaseTest {
         });
         assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status());
         assertNull(loaded.workingCopyId());
-        assertEquals(1, provisionCalls); assertEquals(1, activationCommits); assertEquals(0, cleanupCalls);
+        assertEquals(1, provisionCalls);
+        assertEquals(1, activationCommits);
+        assertEquals(0, cleanupCalls);
         assertEquals(0, calls.get());
         assertThrows(EvolutionPlanStateException.class, () -> prepareUseCase().prepare(loaded.id()));
         assertEquals(1, provisionCalls);
     }
-    @Test void rejectsAuthorizationAndSupersededDirectionBeforeProvisioning() {
-        var loaded = seedProposed();
+
+    @Test
+    void rejectsAuthorizationAndSupersededDirectionBeforeProvisioning() {
+        EvolutionPlan loaded = seedProposed();
         assets.value = asset(true, "MIT", UsageAuthorization.DENIED);
         assertThrows(AssetEvolutionNotAllowedException.class, () -> prepareUseCase().prepare(loaded.id()));
         assets.value = asset(true, "MIT", UsageAuthorization.ALLOWED);
         directions.values.get(new ProductDirectionId("direction")).supersede();
         assertThrows(EvolutionPlanStateException.class, () -> prepareUseCase().prepare(loaded.id()));
-        assertEquals(0, provisionCalls); assertEquals(0, activationCommits);
+        assertEquals(0, provisionCalls);
+        assertEquals(0, activationCommits);
         assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status());
         assertNull(loaded.workingCopyId());
     }
-    @Test void rechecksAuthorizationAfterProvisionAndCleansUncommittedCandidate() {
-        var loaded = seedProposed();
+
+    @Test
+    void rechecksAuthorizationAfterProvisionAndCleansUncommittedCandidate() {
+        EvolutionPlan loaded = seedProposed();
         duringProvision = () -> assets.value = asset(true, "MIT", UsageAuthorization.DENIED);
         assertThrows(AssetEvolutionNotAllowedException.class, () -> prepareUseCase().prepare(loaded.id()));
         assertSame(loaded, plans.values.get(loaded.id()));
         assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status());
         assertNull(loaded.workingCopyId());
-        assertEquals(1, cleanupCalls); assertEquals(0, activationCommits);
+        assertEquals(1, cleanupCalls);
+        assertEquals(0, activationCommits);
     }
-    @Test void externalAndDomainFailuresNeverMutateLoadedPlan() {
-        var loaded = seedProposed();
+
+    @Test
+    void externalAndDomainFailuresNeverMutateLoadedPlan() {
+        EvolutionPlan loaded = seedProposed();
         provisionFailure = new WorkspaceException("failed clone");
         assertSame(provisionFailure, assertThrows(WorkspaceException.class, () -> prepareUseCase().prepare(loaded.id())));
-        assertEquals(0, cleanupCalls); // A failed provision call owns its own partial-clone cleanup.
+        assertEquals(0, cleanupCalls); // provision 自身失败时，由 Adapter 负责清理其未完成的 clone。
         provisionFailure = null;
         preparedRevision = "unexpected";
         assertThrows(EvolutionPlanStateException.class, () -> prepareUseCase().prepare(loaded.id()));
-        assertEquals(1, cleanupCalls); assertEquals(0, activationCommits);
+        assertEquals(1, cleanupCalls);
+        assertEquals(0, activationCommits);
         assertSame(loaded, plans.values.get(loaded.id()));
         assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status());
         assertNull(loaded.workingCopyId());
     }
-    @Test void commitFailurePreservesLoadedStateAndCleanupFailureCannotReplacePrimaryFailure() {
-        var loaded = seedProposed();
+
+    @Test
+    void commitFailurePreservesLoadedStateAndCleanupFailureCannotReplacePrimaryFailure() {
+        EvolutionPlan loaded = seedProposed();
         commitFailure = new EvolutionLifecycleConflictException("changed during commit");
         cleanupFailure = new WorkspaceException("cleanup failed");
         assertSame(commitFailure, assertThrows(EvolutionLifecycleConflictException.class,
                 () -> prepareUseCase().prepare(loaded.id())));
         assertEquals(List.of(cleanupFailure), List.of(commitFailure.getSuppressed()));
         assertSame(loaded, plans.values.get(loaded.id()));
-        assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status()); assertNull(loaded.workingCopyId());
+        assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status());
+        assertNull(loaded.workingCopyId());
         assertEquals(1, cleanupCalls);
     }
-    @Test void failedDirectionSwitchLeavesAllRepositoryLoadedInstancesUnchanged() {
-        var loadedPlan = seedProposed();
-        var previous = directions.values.get(new ProductDirectionId("direction"));
-        var target = ProductDirection.reconstitute(new ProductDirectionId("target"), previous.userProfileId(),
+
+    @Test
+    void failedDirectionSwitchLeavesAllRepositoryLoadedInstancesUnchanged() {
+        EvolutionPlan loadedPlan = seedProposed();
+        ProductDirection previous = directions.values.get(new ProductDirectionId("direction"));
+        ProductDirection target = ProductDirection.reconstitute(new ProductDirectionId("target"), previous.userProfileId(),
                 previous.userProfileRevision(), previous.repositoryProfileIds(), previous.title(), previous.problem(),
                 previous.targetProduct(), previous.userFit(), previous.candidateAssetIds(), previous.differentiation(),
                 previous.technicalValue(), previous.estimatedComplexity(), previous.risks(), previous.evidenceSupport(),
@@ -191,7 +224,9 @@ class GenerateEvolutionPlanUseCaseTest {
         var fault = new EvolutionLifecycleConflictException("failed atomic switch");
         var selection = new com.ayywl.delveforge.application.opportunitydiscovery.direction.SelectProductDirectionUseCase(
                 directions, plans, new EvolutionLifecycleCommitPort() {
-                    public void commitActivation(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset asset) { throw new UnsupportedOperationException(); }
+                    public void commitActivation(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset asset) {
+                        throw new UnsupportedOperationException();
+                    }
                     public void commitDirectionSelection(List<ProductDirectionTransition> directionChanges,
                             List<EvolutionPlanTransition> planChanges) {
                         assertEquals(ProductDirectionStatus.SUPERSEDED, directionChanges.getFirst().direction().status());
@@ -206,42 +241,54 @@ class GenerateEvolutionPlanUseCaseTest {
         assertEquals(EvolutionPlanStatus.PROPOSED, loadedPlan.status());
         assertNull(loadedPlan.workingCopyId());
     }
+
     private GenerateEvolutionPlanUseCase useCase() {
         return new GenerateEvolutionPlanUseCase(directions, assets, profiles,
                 new EvolutionPlanningExtraction(request -> {
-                    calls.incrementAndGet(); sent = request; duringAi.run();
-                    if (aiFailure != null) throw aiFailure;
+                    calls.incrementAndGet();
+                    sent = request;
+                    duringAi.run();
+                    if (aiFailure != null) {
+                        throw aiFailure;
+                    }
                     return response;
                 }, new ObjectMapper()),
                 new EvolutionPlanningService(new AssetUsagePolicy(),
                         () -> new EvolutionPlanId("plan-" + ids.incrementAndGet()),
                         () -> new EvolutionStepId("step-" + ids.incrementAndGet())), plans);
     }
+
     private void seed() {
         directions.values.put(new ProductDirectionId("direction"), direction(true));
         assets.value = asset(true, "MIT", UsageAuthorization.ALLOWED);
         profiles.value = profile();
     }
+
     private GenerateEvolutionPlanRequest request() {
         return new GenerateEvolutionPlanRequest(new ProductDirectionId("direction"), ASSET, PROFILE);
     }
-    @Test void generatesAndRetrievesOneAtomicResultFromOneSemanticAiInvocation() throws Exception {
+
+    @Test
+    void generatesAndRetrievesOneAtomicResultFromOneSemanticAiInvocation() throws Exception {
         seed();
-        var plan = useCase().generate(request());
+
+        EvolutionPlan plan = useCase().generate(request());
         assertSame(plan, new GetEvolutionPlanUseCase(plans).get(plan.id()));
         assertEquals(1, calls.get());
         assertEquals(1, plans.values.size());
         assertEquals(EvolutionPlanStatus.PROPOSED, plan.status());
         assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, plan.steps().getFirst().status());
         assertEquals(List.of(BASIS, BASIS), plan.evidence());
-        var payload = new ObjectMapper().readTree(sent.messages().get(1).content());
+        JsonNode payload = new ObjectMapper().readTree(sent.messages().get(1).content());
         assertTrue(payload.has("selectedProductDirection"));
         assertEquals("commit123", payload.path("baseRepositoryProfile").path("analyzedRevision").asText());
         assertFalse(payload.toString().contains("never-open-this-path"));
         assertFalse(payload.toString().contains("confidence"));
         assertEquals(AiResponseFormat.JSON, sent.responseFormat());
     }
-    @Test void rejectsMissingAndIneligibleBasisBeforeCallingAi() {
+
+    @Test
+    void rejectsMissingAndIneligibleBasisBeforeCallingAi() {
         assertThrows(ProductDirectionNotFoundException.class, () -> useCase().generate(request()));
         directions.values.put(new ProductDirectionId("direction"), direction(true));
         assertThrows(SoftwareAssetNotFoundException.class, () -> useCase().generate(request()));
@@ -253,11 +300,15 @@ class GenerateEvolutionPlanUseCaseTest {
         directions.values.put(new ProductDirectionId("direction"), direction(true));
         assets.value = asset(true, "MIT", UsageAuthorization.UNCLEAR);
         assertThrows(AssetEvolutionNotAllowedException.class, () -> useCase().generate(request()));
-        assertEquals(0, calls.get()); assertTrue(plans.values.isEmpty());
+        assertEquals(0, calls.get());
+        assertTrue(plans.values.isEmpty());
     }
-    @Test void allAiAndAcceptanceFailuresLeaveLoadedObjectsAndStorageUntouched() {
+
+    @Test
+    void allAiAndAcceptanceFailuresLeaveLoadedObjectsAndStorageUntouched() {
         seed();
-        var loaded = directions.values.get(new ProductDirectionId("direction"));
+
+        ProductDirection loaded = directions.values.get(new ProductDirectionId("direction"));
         aiFailure = new AiGatewayException("Failed");
         assertThrows(AiGatewayException.class, () -> useCase().generate(request()));
         aiFailure = null;
@@ -277,17 +328,22 @@ class GenerateEvolutionPlanUseCaseTest {
         assertEquals(UsageAuthorization.ALLOWED, assets.value.usageAuthorization());
         assertEquals(profile().evidence(), profiles.value.evidence());
     }
-    @Test void rechecksEligibilityAfterAiWorkAndKeepsHistoricalPlansDistinct() {
+
+    @Test
+    void rechecksEligibilityAfterAiWorkAndKeepsHistoricalPlansDistinct() {
         seed();
-        var first = useCase().generate(request());
-        var second = useCase().generate(request());
+
+        EvolutionPlan first = useCase().generate(request());
+        EvolutionPlan second = useCase().generate(request());
         assertNotEquals(first.id(), second.id());
         assertEquals(2, plans.values.size());
         duringAi = () -> directions.values.get(new ProductDirectionId("direction")).supersede();
         assertThrows(EvolutionPlanningPreconditionException.class, () -> useCase().generate(request()));
         assertEquals(2, plans.values.size());
     }
-    @Test void parserRejectsMissingNullAndWrongTypesWithoutCoercion() throws Exception {
+
+    @Test
+    void parserRejectsMissingNullAndWrongTypesWithoutCoercion() throws Exception {
         var parser = new PlanningProposalParser(new ObjectMapper());
         for (String field : List.of("currentState", "targetState", "reusableCapabilities", "changes", "steps", "risks", "evidence")) {
             var root = (com.fasterxml.jackson.databind.node.ObjectNode) new ObjectMapper().readTree(JSON);
@@ -297,33 +353,59 @@ class GenerateEvolutionPlanUseCaseTest {
         assertThrows(AiGatewayException.class, () -> parser.parse(JSON.replace("\"risks\":[]", "\"risks\":null"), Map.of()));
         assertThrows(AiGatewayException.class, () -> parser.parse(JSON.replace("\"summary\":\"Existing exports\"", "\"summary\":4"), Map.of()));
     }
+
     private class Plans implements EvolutionPlanRepository {
         public List<EvolutionPlan> findByProductDirectionId(ProductDirectionId id) {
             return values.values().stream().filter(plan -> plan.productDirectionId().equals(id)).toList();
         }
         final Map<EvolutionPlanId, EvolutionPlan> values = new HashMap<>();
         public void save(EvolutionPlan plan) {
-            if (saveFailure != null) throw saveFailure;
+            if (saveFailure != null) {
+                throw saveFailure;
+            }
             values.put(plan.id(), plan);
         }
-        public Optional<EvolutionPlan> findById(EvolutionPlanId id) { return Optional.ofNullable(values.get(id)); }
+        public Optional<EvolutionPlan> findById(EvolutionPlanId id) {
+            return Optional.ofNullable(values.get(id));
+        }
     }
+
     private static class Assets implements SoftwareAssetRepository {
         SoftwareAsset value;
-        public void save(SoftwareAsset value) { this.value = value; }
-        public Optional<SoftwareAsset> findById(SoftwareAssetId id) { return Optional.ofNullable(value); }
+        public void save(SoftwareAsset value) {
+            this.value = value;
+        }
+        public Optional<SoftwareAsset> findById(SoftwareAssetId id) {
+            return Optional.ofNullable(value);
+        }
     }
+
     private static class Profiles implements RepositoryProfileRepository {
         RepositoryProfile value;
-        public void save(RepositoryProfile value) { this.value = value; }
-        public Optional<RepositoryProfile> findById(RepositoryProfileId id) { return Optional.ofNullable(value); }
+        public void save(RepositoryProfile value) {
+            this.value = value;
+        }
+        public Optional<RepositoryProfile> findById(RepositoryProfileId id) {
+            return Optional.ofNullable(value);
+        }
     }
+
     private static class Directions implements ProductDirectionRepository {
         final Map<ProductDirectionId, ProductDirection> values = new HashMap<>();
-        public void save(ProductDirection value) { values.put(value.id(), value); }
-        public void saveAll(List<ProductDirection> values) { values.forEach(this::save); }
-        public void saveTransitions(List<ProductDirectionTransition> values) { throw new UnsupportedOperationException(); }
-        public Optional<ProductDirection> findById(ProductDirectionId id) { return Optional.ofNullable(values.get(id)); }
-        public Optional<ProductDirection> findCurrentSelected() { return values.values().stream().filter(d -> d.status() == ProductDirectionStatus.SELECTED).findFirst(); }
+        public void save(ProductDirection value) {
+            values.put(value.id(), value);
+        }
+        public void saveAll(List<ProductDirection> values) {
+            values.forEach(this::save);
+        }
+        public void saveTransitions(List<ProductDirectionTransition> values) {
+            throw new UnsupportedOperationException();
+        }
+        public Optional<ProductDirection> findById(ProductDirectionId id) {
+            return Optional.ofNullable(values.get(id));
+        }
+        public Optional<ProductDirection> findCurrentSelected() {
+            return values.values().stream().filter(d -> d.status() == ProductDirectionStatus.SELECTED).findFirst();
+        }
     }
 }

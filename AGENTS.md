@@ -813,6 +813,14 @@ hidden side effects
 
 Code should make important domain decisions visible.
 
+### 8.1.1 Code Readability and Language
+
+- Java control-flow statements always use braces, including single-statement bodies.
+- Use explicit types when they carry important Domain or Application meaning. Use `var` only when the inferred type is immediately obvious and improves readability.
+- Separate meaningful logical phases with blank lines, especially in orchestration code.
+- Comments primarily explain why, invariants, or non-obvious behavior. Explanatory code comments use Chinese; identifiers and established domain terms remain English.
+- Keep LLM prompt natural-language instructions consistent with the project's Chinese convention; preserve schema identifiers, structured field names, and enum values.
+
 ### 8.2 Prefer Existing Patterns
 
 Before introducing a new abstraction:

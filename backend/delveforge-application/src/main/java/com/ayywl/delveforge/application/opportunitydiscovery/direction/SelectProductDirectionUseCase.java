@@ -5,9 +5,11 @@ import com.ayywl.delveforge.domain.direction.*;
 import com.ayywl.delveforge.domain.evolution.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
-/** Explicit human selection. INV-D09 and INV-P08 are committed together.
- * Domain operations run on isolated candidates; failed reads/writes never mutate loaded instances.
+/**
+ * 用户显式选择时，将 INV-D09 与 INV-P08 的状态变更一起提交。
+ * 领域操作作用于隔离候选，避免读取或提交失败时改变已加载对象。
  */
 public final class SelectProductDirectionUseCase {
     private final ProductDirectionRepository directions;
@@ -16,28 +18,33 @@ public final class SelectProductDirectionUseCase {
 
     public SelectProductDirectionUseCase(ProductDirectionRepository directions,
             EvolutionPlanRepository plans, EvolutionLifecycleCommitPort commits) {
-        if (directions == null || plans == null || commits == null)
+        if (directions == null || plans == null || commits == null) {
             throw new IllegalArgumentException("Direction selection dependencies are required");
+        }
         this.directions = directions;
         this.plans = plans;
         this.commits = commits;
     }
 
     public ProductDirection select(ProductDirectionId id) {
-        if (id == null) throw new IllegalArgumentException("Direction identity is required");
-        var loadedTarget = directions.findById(id).orElseThrow(() -> new ProductDirectionNotFoundException(id));
-        var target = loadedTarget.copy();
-        var targetBasis = target.status();
+        if (id == null) {
+            throw new IllegalArgumentException("Direction identity is required");
+        }
+
+        ProductDirection loadedTarget = directions.findById(id).orElseThrow(() -> new ProductDirectionNotFoundException(id));
+        ProductDirection target = loadedTarget.copy();
+        ProductDirectionStatus targetBasis = target.status();
         target.select();
-        var current = directions.findCurrentSelected();
+
+        Optional<ProductDirection> current = directions.findCurrentSelected();
         List<ProductDirectionTransition> directionTransitions = new ArrayList<>();
         List<EvolutionPlanTransition> planTransitions = new ArrayList<>();
         if (current.isPresent()) {
-            var previous = current.get().copy();
-            var previousBasis = previous.status();
-            for (var loadedPlan : plans.findByProductDirectionId(previous.id())) {
+            ProductDirection previous = current.get().copy();
+            ProductDirectionStatus previousBasis = previous.status();
+            for (EvolutionPlan loadedPlan : plans.findByProductDirectionId(previous.id())) {
                 if (loadedPlan.status() == EvolutionPlanStatus.PROPOSED || loadedPlan.status() == EvolutionPlanStatus.ACTIVE) {
-                    var candidate = loadedPlan.copy();
+                    EvolutionPlan candidate = loadedPlan.copy();
                     candidate.supersede();
                     planTransitions.add(new EvolutionPlanTransition(candidate, loadedPlan.status(), loadedPlan.workingCopyId()));
                 }
@@ -46,6 +53,7 @@ public final class SelectProductDirectionUseCase {
             directionTransitions.add(new ProductDirectionTransition(previous, previousBasis));
         }
         directionTransitions.add(new ProductDirectionTransition(target, targetBasis));
+
         commits.commitDirectionSelection(List.copyOf(directionTransitions), List.copyOf(planTransitions));
         return target;
     }

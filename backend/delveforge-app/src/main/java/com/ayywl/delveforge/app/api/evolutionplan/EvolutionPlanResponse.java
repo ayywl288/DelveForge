@@ -1,8 +1,11 @@
 package com.ayywl.delveforge.app.api.evolutionplan;
+
 import com.ayywl.delveforge.app.api.evidence.EvidenceBasisPayload;
+import com.ayywl.delveforge.domain.evolution.CurrentState;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
+import com.ayywl.delveforge.domain.evolution.TargetState;
 import java.util.List;
 
 public record EvolutionPlanResponse(String id, String productDirectionId, String baseAssetId,
@@ -10,8 +13,8 @@ public record EvolutionPlanResponse(String id, String productDirectionId, String
         TargetStatePayload targetState, List<String> reusableCapabilities, List<String> changes,
         List<StepPayload> steps, List<String> risks, List<EvidenceBasisPayload> evidence, EvolutionPlanStatus status) {
     public static EvolutionPlanResponse from(EvolutionPlan plan) {
-        var current = plan.currentState();
-        var target = plan.targetState();
+        CurrentState current = plan.currentState();
+        TargetState target = plan.targetState();
         return new EvolutionPlanResponse(plan.id().value(), plan.productDirectionId().value(),
                 plan.baseAssetId().value(), plan.baseRepositoryProfileId().value(), plan.workingCopyId(),
                 new CurrentStatePayload(current.summary(), current.capabilities(), current.modules(), current.limitations()),
@@ -21,6 +24,7 @@ public record EvolutionPlanResponse(String id, String productDirectionId, String
                         step.preconditions(), step.verificationCriteria(), step.status(), step.baselineRevision())).toList(),
                 plan.risks(), plan.evidence().stream().map(EvidenceBasisPayload::from).toList(), plan.status());
     }
+
     public record CurrentStatePayload(String summary, List<String> capabilities, List<String> modules, List<String> limitations) {}
     public record TargetStatePayload(String problem, String targetProduct, String differentiation) {}
     public record StepPayload(String id, String planId, String goal, String scope, List<String> plannedChanges,

@@ -1,5 +1,9 @@
 package com.ayywl.delveforge.domain.evolution;
-/** A structurally parsed proposal failed domain acceptance. */
+/**
+ * 结构解析成功的提案未通过领域接受规则。
+ */
 public class EvolutionPlanningRejectedException extends RuntimeException {
-    public EvolutionPlanningRejectedException(String message) { super(message); }
+    public EvolutionPlanningRejectedException(String message) {
+        super(message);
+    }
 }

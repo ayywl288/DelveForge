@@ -1,5 +1,9 @@
 package com.ayywl.delveforge.domain.evolution;
-/** The requested planning basis is currently ineligible. */
+/**
+ * 请求使用的规划依据当前不满足资格条件。
+ */
 public class EvolutionPlanningPreconditionException extends RuntimeException {
-    public EvolutionPlanningPreconditionException(String message) { super(message); }
+    public EvolutionPlanningPreconditionException(String message) {
+        super(message);
+    }
 }
