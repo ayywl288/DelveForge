@@ -7,6 +7,8 @@ import com.ayywl.delveforge.application.opportunitydiscovery.direction.RejectPro
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.SelectProductDirectionUseCase;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
+import com.ayywl.delveforge.application.port.persistence.EvolutionLifecycleCommitPort;
 import com.ayywl.delveforge.application.port.persistence.RepositoryProfileRepository;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.domain.direction.ProductDirectionDiscoveryService;
@@ -94,8 +96,9 @@ public class ProductDirectionUseCaseConfiguration {
      */
     @Bean
     public SelectProductDirectionUseCase selectProductDirectionUseCase(
-            ProductDirectionRepository productDirectionRepository) {
-        return new SelectProductDirectionUseCase(productDirectionRepository);
+            ProductDirectionRepository productDirectionRepository, EvolutionPlanRepository plans,
+            EvolutionLifecycleCommitPort commits) {
+        return new SelectProductDirectionUseCase(productDirectionRepository, plans, commits);
     }
 
     /** 用户明确拒绝方向的入口。 */

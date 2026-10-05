@@ -9,6 +9,10 @@ import com.ayywl.delveforge.application.port.persistence.EvolutionPlanAlreadyExi
 import com.ayywl.delveforge.domain.asset.AssetEvolutionNotAllowedException;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanningPreconditionException;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanningRejectedException;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStateException;
+import com.ayywl.delveforge.application.port.persistence.EvolutionLifecycleConflictException;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
+import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionIntegrityConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
@@ -227,7 +231,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler({StaleUserProfileRevisionException.class,
             UserProfileNotConfirmedException.class, EvolutionPlanningPreconditionException.class,
-            AssetEvolutionNotAllowedException.class, EvolutionPlanAlreadyExistsException.class})
+            AssetEvolutionNotAllowedException.class, EvolutionPlanAlreadyExistsException.class,
+            EvolutionPlanStateException.class, EvolutionLifecycleConflictException.class, WorkingCopyBasisChangedException.class})
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiErrorResponse handleDiscoveryPreconditionConflict(
             RuntimeException exception, HttpServletRequest request) {
@@ -238,6 +243,13 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return new ApiErrorResponse(
                 ApiErrorCode.CONFLICT, CONFLICT_MESSAGE,
                 request.getRequestURI(), Instant.now());
+    }
+
+    @ExceptionHandler(WorkingCopyNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiErrorResponse handleWorkingCopyNotFound(WorkingCopyNotFoundException exception, HttpServletRequest request) {
+        log.warn("operation=interface.request path={} result=NOT_FOUND exception={}", loggedRoute(request), describe(exception));
+        return new ApiErrorResponse(ApiErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE, request.getRequestURI(), Instant.now());
     }
 
     /**

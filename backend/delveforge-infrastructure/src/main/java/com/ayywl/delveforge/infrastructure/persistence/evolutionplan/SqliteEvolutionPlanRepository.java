@@ -18,7 +18,8 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 /** SQLite/MyBatis-Plus persistence of one coherent planning result.
- * Only inserts are supported in Task 1. A second plan has a new identity.
+ * Planning save is insert-only; lifecycle updates use EvolutionLifecycleCommitPort.
+ * A second plan has a new identity.
  * All parent/content/step/evidence writes share a transaction.
  */
 @Repository
@@ -41,6 +42,8 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
     @Override
     @Transactional
     public void save(EvolutionPlan plan) {
+        if (plan.status() != EvolutionPlanStatus.PROPOSED || plan.workingCopyId() != null)
+            throw new EvolutionPlanStateException("New planning results must be unbound PROPOSED Plans");
         String id = plan.id().value();
         if (planMapper.selectById(id) != null) throw new EvolutionPlanAlreadyExistsException(plan.id());
         EvolutionPlanDO row = new EvolutionPlanDO();
@@ -74,8 +77,6 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
     public Optional<EvolutionPlan> findById(EvolutionPlanId id) {
         EvolutionPlanDO row = planMapper.selectById(id.value());
         if (row == null) return Optional.empty();
-        if (!EvolutionPlanStatus.PROPOSED.name().equals(row.getStatus()) || row.getWorkingCopyId() != null)
-            throw new IllegalStateException("Unsupported stored plan lifecycle state");
         Map<String, List<String>> sections = loadSections(id.value());
         var stepRows = stepMapper.selectList(new LambdaQueryWrapper<EvolutionStepDO>()
                 .eq(EvolutionStepDO::getPlanId, id.value()).orderByAsc(EvolutionStepDO::getPosition));
@@ -98,7 +99,16 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
                 values(sections, "risks"), loadEvidence(id.value()));
         return Optional.of(EvolutionPlan.reconstitute(id, new ProductDirectionId(row.getProductDirectionId()),
                 new SoftwareAssetId(row.getBaseAssetId()), new RepositoryProfileId(row.getBaseRepositoryProfileId()),
-                content, ids));
+                content, ids, row.getWorkingCopyId() == null ? null : new WorkingCopyId(row.getWorkingCopyId()),
+                EvolutionPlanStatus.valueOf(row.getStatus())));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<EvolutionPlan> findByProductDirectionId(ProductDirectionId id) {
+        return planMapper.selectList(new LambdaQueryWrapper<EvolutionPlanDO>()
+                .eq(EvolutionPlanDO::getProductDirectionId, id.value()).orderByAsc(EvolutionPlanDO::getId))
+                .stream().map(row -> findById(new EvolutionPlanId(row.getId())).orElseThrow()).toList();
     }
 
     private void insertSection(String planId, String section, List<String> values) {

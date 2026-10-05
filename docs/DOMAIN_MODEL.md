@@ -2116,6 +2116,23 @@ Working Copy：
 
 原始 Software Asset 不得因该操作发生代码修改。
 
+#### M3 Task 2 当前实现选择
+
+- 初始 WorkingCopy 在领域候选内部经 CREATING → READY，成功后一次保存 READY 元数据；
+  同步准备期间不持久化或对外暴露 CREATING。
+- 每次准备生成新的 WorkingCopy 身份和目录，初始副本不在 Plan 之间共享；当前切片不提供
+  已有目录采纳或副本复用，持久化以 WorkingCopy 绑定唯一索引保护这一实现选择。
+- 初始 sourceRevision / currentRevision / lastVerifiedRevision 均等于 Base Profile.analyzedRevision。
+  当前实现只初始化这一可信基线，不推进后续执行或验证 revision。
+- 当前使用已提交 Git HEAD 判断源软件状态是否偏离 analyzedRevision，准备前后均核对；
+  未提交与未跟踪内容不自动进入 Working Copy。Git 与物理隔离的检查属于 Workspace。
+- 单次 Application 请求协调准备、绑定、Policy 判定与激活；候选上的领域操作彼此独立。
+  READY 元数据、Plan 绑定与 ACTIVE 状态一次原子提交。失败不改变仓储已加载的 Plan 实例，
+  外部残留目录没有领域权威性，不凭文件存在恢复或制造 WorkingCopy。
+- INV-P08 通过显式方向切换协调落实：旧方向下 PROPOSED / ACTIVE Plan 经 supersede()
+  进入 SUPERSEDED，与旧 Direction 的失效和新 Direction 的选择一起提交；历史内容、步骤、
+  Evidence 与已有 Working Copy 绑定保留。M3 不自动关闭或删除历史 Working Copy。
+
 ### 8.8 Activate Evolution Plan
 
 **Purpose**
@@ -6164,6 +6181,13 @@ EvolutionPlan Aggregate Root
 ```
 
 完成。
+
+#### M3 Task 2 Policy 实现
+
+Policy 保持无副作用，额外接收当前 ProductDirection 与 Base RepositoryProfile，协调校验
+Plan 的 Direction 身份与 SELECTED 状态、Candidate Asset、被引用 Profile 与资产归属，
+以及初始 WorkingCopy 的三个 revision 与 analyzedRevision 一致。准备与激活时重新应用
+§12.6 当前最小 AssetUsagePolicy，不推测许可证兼容性。是否获得步骤授权仍属于独立的用户确认边界。
 
 ### 12.8 Step Execution Policy
 

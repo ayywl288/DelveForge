@@ -23,6 +23,9 @@ import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import com.ayywl.delveforge.application.port.persistence.*;
+import com.ayywl.delveforge.domain.evolution.*;
+import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 
 /**
  * 验证「用户明确选择方向」的编排，以及 INV-D09 的跨 Aggregate 协调。
@@ -41,7 +44,20 @@ class SelectProductDirectionUseCaseTest {
     private final ProductDirectionRecorder repository = new ProductDirectionRecorder();
 
     private final SelectProductDirectionUseCase useCase =
-            new SelectProductDirectionUseCase(repository);
+            new SelectProductDirectionUseCase(repository, new EvolutionPlanRepository() {
+                public void save(EvolutionPlan plan) { throw new UnsupportedOperationException(); }
+                public java.util.Optional<EvolutionPlan> findById(EvolutionPlanId id) { return java.util.Optional.empty(); }
+                public List<EvolutionPlan> findByProductDirectionId(ProductDirectionId id) { return List.of(); }
+            }, new EvolutionLifecycleCommitPort() {
+                public void commitActivation(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset asset) {
+                    throw new UnsupportedOperationException();
+                }
+                public void commitDirectionSelection(List<ProductDirectionTransition> directions,
+                        List<EvolutionPlanTransition> plans) {
+                    assertTrue(plans.isEmpty());
+                    repository.saveTransitions(directions);
+                }
+            });
 
     // ---------------------------------------------------------------------
     // 当前没有 SELECTED 方向
@@ -325,7 +341,7 @@ class SelectProductDirectionUseCaseTest {
     @Test
     void rejectsMissingRepository() {
         assertThrows(IllegalArgumentException.class,
-                () -> new SelectProductDirectionUseCase(null));
+                () -> new SelectProductDirectionUseCase(null, null, null));
     }
 
     private void assertNothingWasWritten() {

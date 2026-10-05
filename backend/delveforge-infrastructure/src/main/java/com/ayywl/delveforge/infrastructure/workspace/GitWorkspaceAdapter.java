@@ -22,6 +22,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Local Git implementation of independent read and environment-provisioning capabilities.
@@ -76,6 +78,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 @EnableConfigurationProperties(WorkspaceProperties.class)
 public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvisioningPort {
 
+    private static final Logger log = LoggerFactory.getLogger(GitWorkspaceAdapter.class);
+
     private final Path managedRoot;
 
     /** Read-only standalone use; provisioning requires explicitly configured storage. */
@@ -103,7 +107,8 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
                     "--template=", "--", repository.toString(), target.toString());
             if (!clone.succeeded()) throw new WorkspaceException("Working Copy clone failed: " + describe(target, clone));
             // No repository templates or checkout hooks. No source worktree/index operation occurs.
-            GitCommandResult checkout = execute(target, "-c", "core.hooksPath=", "checkout", "--detach", commit);
+            GitCommandResult checkout = execute(target, "-c", "core.hooksPath="
+                    + target.resolve(".git/delveforge-disabled-hooks"), "checkout", "--detach", commit);
             if (!checkout.succeeded()) throw new WorkspaceException("Working Copy checkout failed: " + describe(target, checkout));
             WorkspaceRef location = new WorkspaceRef(target.toString());
             if (!commit.equals(headRevision(location)))
@@ -120,7 +125,10 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
                     : new WorkspaceException("Working Copy provisioning filesystem failure", failure);
             if (allocated) {
                 try { deleteOwnedDirectory(target); }
-                catch (IOException | RuntimeException cleanup) { primary.addSuppressed(cleanup); }
+                catch (IOException | RuntimeException cleanup) {
+                    primary.addSuppressed(cleanup);
+                    log.warn("operation=workspace.provision result=CLEANUP_FAILED exceptionType={}", cleanup.getClass().getName());
+                }
             }
             throw primary;
         }

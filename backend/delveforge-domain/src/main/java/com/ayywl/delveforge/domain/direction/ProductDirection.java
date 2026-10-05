@@ -510,6 +510,13 @@ public class ProductDirection {
         return id;
     }
 
+    /** Isolated lifecycle candidate; failure must not alter repository-loaded instances. */
+    public ProductDirection copy() {
+        return reconstitute(id, userProfileId, userProfileRevision, repositoryProfileIds, title, problem,
+                targetProduct, userFit, candidateAssetIds, differentiation, technicalValue,
+                estimatedComplexity, risks, evidenceSupport, status);
+    }
+
     /**
      * 生成该方向所依据的 User Profile。跨 Aggregate 引用，只保留身份。
      *

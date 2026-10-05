@@ -18,6 +18,8 @@ import java.util.HashMap;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import com.ayywl.delveforge.application.evolution.provisioning.*;
+import com.ayywl.delveforge.application.port.workspace.*;
 
 class GenerateEvolutionPlanUseCaseTest {
     private static final SoftwareAssetId ASSET = new SoftwareAssetId("asset");
@@ -70,6 +72,140 @@ class GenerateEvolutionPlanUseCaseTest {
     private RuntimeException saveFailure;
     private Runnable duringAi = () -> {};
     private AiRequest sent;
+    private int provisionCalls;
+    private int cleanupCalls;
+    private int activationCommits;
+    private RuntimeException provisionFailure;
+    private RuntimeException commitFailure;
+    private RuntimeException cleanupFailure;
+    private Runnable duringProvision = () -> {};
+    private String preparedRevision = "commit123";
+    private PrepareEvolutionPlanUseCase prepareUseCase() {
+        return new PrepareEvolutionPlanUseCase(plans, directions, assets, profiles,
+                new WorkingCopyProvisioningPort() {
+                    public PreparedWorkspace provision(WorkspaceRef source, String revision, String name) {
+                        provisionCalls++;
+                        assertEquals("never-open-this-path", source.value());
+                        assertEquals("commit123", revision);
+                        assertEquals("copy", name);
+                        duringProvision.run();
+                        if (provisionFailure != null) throw provisionFailure;
+                        return new PreparedWorkspace(new WorkspaceRef("managed-copy"), preparedRevision, "token");
+                    }
+                    public void discard(PreparedWorkspace candidate) {
+                        cleanupCalls++;
+                        if (cleanupFailure != null) throw cleanupFailure;
+                    }
+                }, new EvolutionLifecycleCommitPort() {
+                    public void commitActivation(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset basis) {
+                        activationCommits++;
+                        if (commitFailure != null) throw commitFailure;
+                        assertEquals(WorkingCopyStatus.READY, copy.status());
+                        assertEquals(copy.sourceRevision(), copy.currentRevision());
+                        assertEquals(copy.sourceRevision(), copy.lastVerifiedRevision());
+                        assertEquals(copy.id().value(), plan.workingCopyId());
+                        plans.values.put(plan.id(), plan);
+                    }
+                    public void commitDirectionSelection(List<ProductDirectionTransition> directions, List<EvolutionPlanTransition> plans) {
+                        throw new UnsupportedOperationException();
+                    }
+                }, new PlanActivationPolicy(new AssetUsagePolicy()), () -> new WorkingCopyId("copy"));
+    }
+    private EvolutionPlan seedProposed() {
+        seed();
+        var plan = new EvolutionPlanningService(new AssetUsagePolicy(), () -> new EvolutionPlanId("plan"),
+                () -> new EvolutionStepId("step-" + ids.incrementAndGet()))
+                .plan(direction(true), assets.value, profiles.value, proposal());
+        plans.save(plan);
+        return plan;
+    }
+    @Test void preparesAndActivatesThroughTechnicalPortWithoutAiOrStepAuthorization() {
+        var loaded = seedProposed();
+        var active = prepareUseCase().prepare(loaded.id());
+        assertEquals(EvolutionPlanStatus.ACTIVE, active.status());
+        assertEquals("copy", active.workingCopyId());
+        active.steps().forEach(step -> {
+            assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, step.status());
+            assertNull(step.baselineRevision());
+        });
+        assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status());
+        assertNull(loaded.workingCopyId());
+        assertEquals(1, provisionCalls); assertEquals(1, activationCommits); assertEquals(0, cleanupCalls);
+        assertEquals(0, calls.get());
+        assertThrows(EvolutionPlanStateException.class, () -> prepareUseCase().prepare(loaded.id()));
+        assertEquals(1, provisionCalls);
+    }
+    @Test void rejectsAuthorizationAndSupersededDirectionBeforeProvisioning() {
+        var loaded = seedProposed();
+        assets.value = asset(true, "MIT", UsageAuthorization.DENIED);
+        assertThrows(AssetEvolutionNotAllowedException.class, () -> prepareUseCase().prepare(loaded.id()));
+        assets.value = asset(true, "MIT", UsageAuthorization.ALLOWED);
+        directions.values.get(new ProductDirectionId("direction")).supersede();
+        assertThrows(EvolutionPlanStateException.class, () -> prepareUseCase().prepare(loaded.id()));
+        assertEquals(0, provisionCalls); assertEquals(0, activationCommits);
+        assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status());
+        assertNull(loaded.workingCopyId());
+    }
+    @Test void rechecksAuthorizationAfterProvisionAndCleansUncommittedCandidate() {
+        var loaded = seedProposed();
+        duringProvision = () -> assets.value = asset(true, "MIT", UsageAuthorization.DENIED);
+        assertThrows(AssetEvolutionNotAllowedException.class, () -> prepareUseCase().prepare(loaded.id()));
+        assertSame(loaded, plans.values.get(loaded.id()));
+        assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status());
+        assertNull(loaded.workingCopyId());
+        assertEquals(1, cleanupCalls); assertEquals(0, activationCommits);
+    }
+    @Test void externalAndDomainFailuresNeverMutateLoadedPlan() {
+        var loaded = seedProposed();
+        provisionFailure = new WorkspaceException("failed clone");
+        assertSame(provisionFailure, assertThrows(WorkspaceException.class, () -> prepareUseCase().prepare(loaded.id())));
+        assertEquals(0, cleanupCalls); // A failed provision call owns its own partial-clone cleanup.
+        provisionFailure = null;
+        preparedRevision = "unexpected";
+        assertThrows(EvolutionPlanStateException.class, () -> prepareUseCase().prepare(loaded.id()));
+        assertEquals(1, cleanupCalls); assertEquals(0, activationCommits);
+        assertSame(loaded, plans.values.get(loaded.id()));
+        assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status());
+        assertNull(loaded.workingCopyId());
+    }
+    @Test void commitFailurePreservesLoadedStateAndCleanupFailureCannotReplacePrimaryFailure() {
+        var loaded = seedProposed();
+        commitFailure = new EvolutionLifecycleConflictException("changed during commit");
+        cleanupFailure = new WorkspaceException("cleanup failed");
+        assertSame(commitFailure, assertThrows(EvolutionLifecycleConflictException.class,
+                () -> prepareUseCase().prepare(loaded.id())));
+        assertEquals(List.of(cleanupFailure), List.of(commitFailure.getSuppressed()));
+        assertSame(loaded, plans.values.get(loaded.id()));
+        assertEquals(EvolutionPlanStatus.PROPOSED, loaded.status()); assertNull(loaded.workingCopyId());
+        assertEquals(1, cleanupCalls);
+    }
+    @Test void failedDirectionSwitchLeavesAllRepositoryLoadedInstancesUnchanged() {
+        var loadedPlan = seedProposed();
+        var previous = directions.values.get(new ProductDirectionId("direction"));
+        var target = ProductDirection.reconstitute(new ProductDirectionId("target"), previous.userProfileId(),
+                previous.userProfileRevision(), previous.repositoryProfileIds(), previous.title(), previous.problem(),
+                previous.targetProduct(), previous.userFit(), previous.candidateAssetIds(), previous.differentiation(),
+                previous.technicalValue(), previous.estimatedComplexity(), previous.risks(), previous.evidenceSupport(),
+                ProductDirectionStatus.CANDIDATE);
+        directions.values.put(target.id(), target);
+        var fault = new EvolutionLifecycleConflictException("failed atomic switch");
+        var selection = new com.ayywl.delveforge.application.opportunitydiscovery.direction.SelectProductDirectionUseCase(
+                directions, plans, new EvolutionLifecycleCommitPort() {
+                    public void commitActivation(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset asset) { throw new UnsupportedOperationException(); }
+                    public void commitDirectionSelection(List<ProductDirectionTransition> directionChanges,
+                            List<EvolutionPlanTransition> planChanges) {
+                        assertEquals(ProductDirectionStatus.SUPERSEDED, directionChanges.getFirst().direction().status());
+                        assertEquals(ProductDirectionStatus.SELECTED, directionChanges.getLast().direction().status());
+                        assertEquals(EvolutionPlanStatus.SUPERSEDED, planChanges.getFirst().plan().status());
+                        throw fault;
+                    }
+                });
+        assertSame(fault, assertThrows(EvolutionLifecycleConflictException.class, () -> selection.select(target.id())));
+        assertEquals(ProductDirectionStatus.SELECTED, previous.status());
+        assertEquals(ProductDirectionStatus.CANDIDATE, target.status());
+        assertEquals(EvolutionPlanStatus.PROPOSED, loadedPlan.status());
+        assertNull(loadedPlan.workingCopyId());
+    }
     private GenerateEvolutionPlanUseCase useCase() {
         return new GenerateEvolutionPlanUseCase(directions, assets, profiles,
                 new EvolutionPlanningExtraction(request -> {
@@ -162,6 +298,9 @@ class GenerateEvolutionPlanUseCaseTest {
         assertThrows(AiGatewayException.class, () -> parser.parse(JSON.replace("\"summary\":\"Existing exports\"", "\"summary\":4"), Map.of()));
     }
     private class Plans implements EvolutionPlanRepository {
+        public List<EvolutionPlan> findByProductDirectionId(ProductDirectionId id) {
+            return values.values().stream().filter(plan -> plan.productDirectionId().equals(id)).toList();
+        }
         final Map<EvolutionPlanId, EvolutionPlan> values = new HashMap<>();
         public void save(EvolutionPlan plan) {
             if (saveFailure != null) throw saveFailure;

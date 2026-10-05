@@ -14,6 +14,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class WorkspacePortTest {
 
+    @Test void provisioningDoesNotGrantReadOrStepMutationCapabilities() {
+        assertFalse(WorkspaceReadPort.class.isAssignableFrom(WorkingCopyProvisioningPort.class));
+        assertFalse(WorkingCopyProvisioningPort.class.isAssignableFrom(WorkspaceReadPort.class));
+        assertFalse(WorkspaceMutationPort.class.isAssignableFrom(WorkingCopyProvisioningPort.class));
+        assertFalse(WorkingCopyProvisioningPort.class.isAssignableFrom(WorkspaceMutationPort.class));
+    }
+
     private static final WorkspaceRef WORKSPACE = new WorkspaceRef("workspace-1");
 
     /** 假实现只承认这一个已解析的 revision。 */

@@ -348,6 +348,10 @@ UserProfileNotFoundException             404        NOT_FOUND
 UserProfileStateException                409        CONFLICT
 AiGatewayException                       502        EXTERNAL_CAPABILITY_UNAVAILABLE
 WorkspaceException                       500        INTERNAL_ERROR
+WorkingCopyNotFoundException              404        NOT_FOUND
+EvolutionPlanStateException               409        CONFLICT
+WorkingCopyBasisChangedException          409        CONFLICT
+EvolutionLifecycleConflictException       409        CONFLICT
 Spring MVC 协议层异常                      由框架决定   INVALID_REQUEST / INTERNAL_ERROR
   （405 / 415 / 400 请求体无法解析等）
 其余未预期异常                             500        INTERNAL_ERROR
@@ -874,6 +878,39 @@ GET /api/evolution-plans/{id}
 
 ---
 
+**Working Copy preparation / Plan activation（M3 Task 2）**
+
+```text
+POST /api/evolution-plans/{id}/prepare   → 200 ACTIVE EvolutionPlan
+GET  /api/working-copies/{id}           → 200 WorkingCopy 元数据
+GET  /api/evolution-plans/{id}          → 复用规划资源的读取入口
+```
+
+prepare 只接受 Plan 身份，不接受客户端制造的 Working Copy 路径、状态、revision 或步骤授权。
+Application 加载 Plan、Direction、Base Asset 与 Base Profile，经 PlanActivationPolicy / AssetUsagePolicy
+校验后，将源位置、analyzedRevision 与服务端生成的目录名称交给独立 WorkingCopyProvisioningPort。
+它不依赖 WorkspaceMutationPort，不调用 AI，也不重新分析源码。
+
+Git Adapter 在 `delveforge.workspace.root` 下创建独立 Local Clone，使用完整 commit ID detached checkout，
+并核对源 HEAD 未偏离分析基线、目标实际 HEAD 相符、checkout 干净。源仓库未提交内容不进入克隆。
+根目录必须为绝对路径，可由 `DELVEFORGE_WORKSPACE_ROOT` 覆盖；默认位置见 app 的 application.yml。
+Adapter 拒绝源仓库与托管根目录重叠、已有目标目录和不安全的目录名称。
+
+外部候选成功后，Application 在隔离的领域候选上依次创建 READY WorkingCopy、绑定、由 Policy
+判定并由 Plan.activate 转换状态。EvolutionLifecycleCommitPort 一次提交 READY 元数据与 ACTIVE
+Plan；SQLite 条件更新再次核对 PROPOSED / 未绑定 / SELECTED、Profile revision 与当前资产授权依据。
+持久化只保存 Working Copy 身份、源资产、位置、三个 revision 与状态，不保存代码或 Git 对象。
+事务失败包含 COMMIT 失败；现有 SQLite transaction manager 的 rollbackOnCommitFailure 继续生效。
+
+领域拒绝或提交失败时 Application 请求删除外部候选；provision 自身失败由 Adapter 清理已分配目录。
+清理验证托管位置与本次准备凭据，绝不删除源仓库或采纳已有目录。清理失败以结构化类型记录，
+原失败保留、清理失败作为 suppressed exception；残留目录不构成有效 WorkingCopy，不做残留协调。
+
+显式方向切换还通过同一生命周期提交边界落实 INV-P08：领域操作使旧方向的 PROPOSED / ACTIVE
+Plan 进入 SUPERSEDED，并与 Direction 切换一起提交。并发出现遗漏的新 Plan 时整批回滚；历史内容、
+Evidence、步骤与已有 Working Copy 绑定都保留。新 Plan 的写入继续检查 SELECTED。
+ACTIVE Plan 的步骤仍为 PENDING_CONFIRMATION，baselineRevision 仍为空；M3 不提供步骤确认或执行。
+
 ## 7. Dependency Rules
 
 本节描述代码模块之间允许存在的依赖方向，而不是系统运行时的调用顺序。
@@ -901,7 +938,7 @@ Evolution ──────────┬────────────�
 - Repository Analysis 只能依赖 Workspace 的只读能力，不得获得代码写入、删除或修改权限。
 - Opportunity Discovery 不得直接修改 Repository，也不应依赖 Workspace 的写能力。
 - Evolution Execution 是 MVP 中唯一允许请求 Workspace 写能力的业务流程。
-- Workspace 的只读能力与代码修改能力在 Application 层拆分为两个 Port，使上述限制在类型层面成立：只读流程的依赖中不存在修改能力，而不是仅靠调用约定保证。取舍、已知缺口与重新评估条件见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
+- Workspace 在 Application 层使用互不继承的三个 Port：WorkspaceReadPort（只读）、WorkingCopyProvisioningPort（M3 环境准备）、WorkspaceMutationPort（未来步骤代码修改）。GitWorkspaceAdapter 实现读取和准备，不实现步骤修改。取舍、已知缺口与 M3 refinement 见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
 - Application / Agent Orchestrator 可以协调各业务模块，但业务模块不得反向依赖 Orchestrator。
 - 跨模块协作应通过公开接口和明确的数据模型完成，不得通过直接读取或修改其他模块拥有的数据库表实现。
 - 禁止循环依赖。

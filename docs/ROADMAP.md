@@ -461,13 +461,13 @@ DEFERRED / REVISIT
 
 #### Working Copy
 
-- [ ] 根据 Base Software Asset 创建隔离 Working Copy。
-- [ ] 保证 sourceRevision 与 Base Repository Profile 的 analyzedRevision 一致。
-- [ ] 初始化 currentRevision。
-- [ ] 初始化 lastVerifiedRevision。
-- [ ] 将 Working Copy 与 Evolution Plan 建立绑定。
-- [ ] 实现 PlanActivationPolicy。
-- [ ] 支持 Evolution Plan 从 `PROPOSED → ACTIVE`。
+- [x] 根据 Base Software Asset 创建隔离 Working Copy。
+- [x] 保证 sourceRevision 与 Base Repository Profile 的 analyzedRevision 一致。
+- [x] 初始化 currentRevision。
+- [x] 初始化 lastVerifiedRevision。
+- [x] 将 Working Copy 与 Evolution Plan 建立绑定。
+- [x] 实现 PlanActivationPolicy。
+- [x] 支持 Evolution Plan 从 `PROPOSED → ACTIVE`。
 
 **Acceptance Criteria**
 
@@ -503,11 +503,11 @@ status = PENDING_CONFIRMATION
 
 并且：
 
-- [ ] Working Copy 与原 Software Asset 相互隔离。
-- [ ] Working Copy 的 sourceRevision 可以稳定追溯。
-- [ ] `sourceRevision == analyzedRevision`。
-- [ ] 创建 Working Copy 不得修改原 Software Asset。
-- [ ] Plan ACTIVE 不代表其中所有 Step 已获得执行授权。
+- [x] Working Copy 与原 Software Asset 相互隔离。
+- [x] Working Copy 的 sourceRevision 可以稳定追溯。
+- [x] `sourceRevision == analyzedRevision`。
+- [x] 创建 Working Copy 不得修改原 Software Asset。
+- [x] Plan ACTIVE 不代表其中所有 Step 已获得执行授权。
 
 **Out of Scope**
 
@@ -805,7 +805,7 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 当前处于：
 
 ```text
-M3 — Evolution Planning & Working Copy（Task 1 已实现，Working Copy 尚未开始）
+M3 — Evolution Planning & Working Copy（Task 1 / Task 2 已实现，待里程碑级审查与聚焦 smoke）
 ```
 
 M0、M1 与 M2 的执行清单已归档到 §9 Completed Milestones，不再在此处维护。
@@ -819,7 +819,19 @@ Selected Product Direction + 合法 Base Asset + Base Repository Profile → 一
 当前状态表示、证据追溯与最小资产许可策略见 DOMAIN_MODEL.md §12.5–12.6，
 接口与持久化边界见 ARCHITECTURE.md §6.5。
 
-M3 整体仍为 IN_PROGRESS：ACTIVE Plan + READY Working Copy 的里程碑验收尚未满足。
+**M3 Task 2 — Working Copy Provisioning & Plan Activation（2026-10-05）** 已实现后端完整切片：
+PROPOSED Plan → 当前基线 / 许可校验 → 独立本地 Git clone + analyzedRevision checkout →
+READY WorkingCopy → 绑定 → PlanActivationPolicy → 原子提交 ACTIVE Plan。
+三个 revision 保持相等，步骤仍为 PENDING_CONFIRMATION；创建及失败清理不修改源资产。
+方向切换同批将旧 PROPOSED / ACTIVE Plan 置为 SUPERSEDED，保留历史与 Working Copy 绑定。
+
+已覆盖真实 Git、SQLite 与 HTTP 的确定性链路，以及授权 / revision / 生命周期拒绝、
+克隆失败清理、SQLite 提交失败回滚、并发基线与方向切换原子性。
+M3 功能验收已由自动化链路满足，整体保留 IN_PROGRESS，等待约定的里程碑级审查、聚焦 smoke 与复盘。
+本次没有调用真实 LLM，也未启动 M4。
+
+Task 2 最终执行 `mvnw.cmd verify` 成功：Domain 186、Application 665、Infrastructure 122、
+App 141，共 1114 项测试（较 Task 1 新增 27 项），0 failure / error / skipped；完整后端构建通过。
 
 **M2 — Product Direction Discovery 已完成（2026-10-03）。** 走通了
 「Confirmed UserProfile @ revision + RepositoryProfile @ analyzedRevision → 候选
@@ -840,9 +852,8 @@ M2 期间新增 3 条 ADR（0004 两阶段 Repository Understanding / 0005 分�
 
 ### Next
 
-M3 Task 2 — Working Copy preparation 与 Plan activation。本次不启动。
-Task 2 必须重新校验当前 SELECTED Direction、资产授权、Base Profile 的 analyzedRevision，
-并在开始后续演化前落实 INV-P08 对历史 Plan 失效的约束。
+M3 里程碑级审查与一次聚焦 smoke：重点核对真实规划质量、托管目录配置、完整规划 → 准备链路、
+当前许可语义与历史 Plan 失效。Task 1 / Task 2 实现已完成，M4 尚未启动。
 推进方式按 `docs/retrospectives/m2-product-direction.md` §H 的约定
 （一个里程碑 → 一个相对完整的垂直切片 → 一次里程碑级审查 → 一次聚焦 smoke → 复盘）。
 
@@ -1592,13 +1603,14 @@ DECIDED
 | AI Framework 路线与版本基线                 | **DECIDED**   | 见 ADR-0003                |
 | AI Gateway 第一版具体 Adapter Design        | **DONE**      | M1 Task 5                  |
 | Workspace Gateway 只读 Adapter              | **DONE**      | M1 Task 3                  |
-| Workspace Gateway mutation Adapter          | OPEN          | M3                         |
+| Workspace Gateway provisioning Adapter      | **DONE**      | M3 Task 2                  |
+| Workspace Gateway mutation Adapter          | OPEN          | M4                         |
 | Initial Database Schema                     | **DONE**      | M1 Task 3                  |
 | Frontend / Backend Development API Contract | **DONE**      | M1 Task 4                  |
 
-Workspace 拆成两行，因为两者的前置条件不同：Repository Analysis（M1）只需要
-只读能力；mutation Adapter 要等 M3 出现 Working Copy 与 Evolution Execution
-之后才有真实调用方。M0 关闭时不为此提前实现 Adapter。
+Workspace 分成读取、环境准备与步骤代码修改三个 Port，互不继承。
+Repository Analysis（M1）只需要读取；M3 Task 2 实现独立 clone / checkout 的准备能力，
+不开放步骤写能力；mutation Adapter 与 Step / Working Copy 授权作用域留给 M4。
 
 #### AI Framework 路线与版本基线
 

@@ -60,7 +60,8 @@ class EvolutionPlanningApiIntegrationTest {
     @Autowired EvolutionPlanRepository plans;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean AiGateway ai;
-    @MockitoBean WorkspaceReadPort reads;
+    @MockitoBean(extraInterfaces = com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort.class)
+    WorkspaceReadPort reads;
     @MockitoBean WorkspaceMutationPort mutations;
     private static final SoftwareAssetId ASSET = new SoftwareAssetId("asset");
     private static final RepositoryProfileId PROFILE = new RepositoryProfileId("profile");

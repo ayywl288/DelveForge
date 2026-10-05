@@ -1,5 +1,7 @@
 package com.ayywl.delveforge.app.config;
 import com.ayywl.delveforge.application.evolution.planning.*;
+import com.ayywl.delveforge.application.evolution.provisioning.*;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.persistence.*;
 import com.ayywl.delveforge.domain.asset.AssetUsagePolicy;
@@ -30,5 +32,18 @@ public class EvolutionPlanningUseCaseConfiguration {
     @Bean
     public GetEvolutionPlanUseCase getEvolutionPlanUseCase(EvolutionPlanRepository plans) {
         return new GetEvolutionPlanUseCase(plans);
+    }
+    @Bean
+    public PlanActivationPolicy planActivationPolicy() { return new PlanActivationPolicy(new AssetUsagePolicy()); }
+    @Bean
+    public PrepareEvolutionPlanUseCase prepareEvolutionPlanUseCase(EvolutionPlanRepository plans,
+            ProductDirectionRepository directions, SoftwareAssetRepository assets, RepositoryProfileRepository profiles,
+            WorkingCopyProvisioningPort provisioning, EvolutionLifecycleCommitPort commits, PlanActivationPolicy policy) {
+        return new PrepareEvolutionPlanUseCase(plans, directions, assets, profiles, provisioning, commits, policy,
+                () -> new WorkingCopyId(UUID.randomUUID().toString()));
+    }
+    @Bean
+    public GetWorkingCopyUseCase getWorkingCopyUseCase(WorkingCopyRepository copies) {
+        return new GetWorkingCopyUseCase(copies);
     }
 }

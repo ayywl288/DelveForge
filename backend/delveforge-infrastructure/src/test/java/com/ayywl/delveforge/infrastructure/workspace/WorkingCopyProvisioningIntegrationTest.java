@@ -84,4 +84,22 @@ class WorkingCopyProvisioningIntegrationTest {
         assertTrue(Files.exists(Path.of(prepared.workspace().value())));
         adapter.discard(prepared);
     }
+
+    @Test void realCloneFailureRemovesOnlyItsAllocatedCandidateAndLeavesSourceUntouched() throws Exception {
+        var source = repositories.createCommitted("source", Map.of("report.txt", "one"));
+        var revision = GitTestRepositories.headRevision(source);
+        String blob = GitTestRepositories.runGit(source, "rev-parse", "HEAD:report.txt").trim();
+        Path object = source.resolve(".git/objects").resolve(blob.substring(0, 2)).resolve(blob.substring(2));
+        object.toFile().setWritable(true);
+        Files.writeString(object, "corrupt object"); // Commit/HEAD remain resolvable; real clone transfer fails.
+        var before = GitTestRepositories.snapshot(source);
+        Path root = repositories.directory("managed");
+        Files.createDirectories(root.resolve("existing"));
+        Files.writeString(root.resolve("existing/keep.txt"), "keep");
+        assertThrows(WorkspaceException.class, () -> new GitWorkspaceAdapter(root)
+                .provision(new WorkspaceRef(source.toString()), revision, "candidate"));
+        assertFalse(Files.exists(root.resolve("candidate")));
+        assertEquals("keep", Files.readString(root.resolve("existing/keep.txt")));
+        assertEquals(before, GitTestRepositories.snapshot(source));
+    }
 }
