@@ -16,7 +16,7 @@ package com.ayywl.delveforge.domain.asset;
  * 对后续应如何处理的要求也不同，因此本类型不把它们压成同一个取值。
  *
  * <p>本类型只表达这一事实本身。什么条件下允许复用、是否允许作为 Evolution Base，
- * 属于 AssetUsagePolicy（§12.6、INV-A02～INV-A04），当前尚未实现；本类型不提供
+ * 属于 AssetUsagePolicy（§12.6、INV-A02～INV-A04）；本类型不提供
  * 这类判断，也不从取值推导任何结论。
  */
 public enum UsageAuthorization {

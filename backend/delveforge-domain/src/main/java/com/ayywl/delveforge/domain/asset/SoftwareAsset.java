@@ -172,7 +172,7 @@ public class SoftwareAsset {
      * 允许修改它的任何内容
      * </pre>
      *
-     * <p>后面这些判断属于 AssetUsagePolicy（§12.6、INV-A02～INV-A04），当前尚未实现。
+     * <p>后面这些判断属于 AssetUsagePolicy（§12.6、INV-A02～INV-A04），不能由分析许可替代。
      *
      * <p>本方法不修改任何状态：它只回答「现在能不能读」，不产生任何授权或记录。
      *

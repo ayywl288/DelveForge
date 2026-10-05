@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-09-22
+**Last Updated:** 2026-10-05
 
 ---
 
@@ -444,20 +444,20 @@ DEFERRED / REVISIT
 
 #### Evolution Planning
 
-- [ ] 支持确定 Base Software Asset。
-- [ ] 实现最小 AssetUsagePolicy。
-- [ ] 生成 Current State。
-- [ ] 生成 Target State。
-- [ ] 分析二者之间的 Gap。
-- [ ] 识别 Reusable Capabilities。
-- [ ] 识别 Required Changes。
-- [ ] 生成按顺序组织的 Evolution Steps。
-- [ ] 每个 Step 具有：
-  - [ ] Goal
-  - [ ] Scope
-  - [ ] Planned Changes
-  - [ ] Preconditions
-  - [ ] Verification Criteria
+- [x] 支持确定 Base Software Asset。
+- [x] 实现最小 AssetUsagePolicy。
+- [x] 生成 Current State。
+- [x] 生成 Target State。
+- [x] 分析二者之间的 Gap（组织为复用能力与主要变化）。
+- [x] 识别 Reusable Capabilities。
+- [x] 识别 Required Changes。
+- [x] 生成按顺序组织的 Evolution Steps。
+- [x] 每个 Step 具有：
+  - [x] Goal
+  - [x] Scope
+  - [x] Planned Changes
+  - [x] Preconditions
+  - [x] Verification Criteria
 
 #### Working Copy
 
@@ -761,8 +761,8 @@ Step SUCCEEDED
 |---|---|---|
 | M0 | Project Foundation | DONE |
 | M1 | Discovery Inputs | DONE |
-| M2 | Product Direction Discovery | IN_PROGRESS |
-| M3 | Evolution Planning & Working Copy | TODO |
+| M2 | Product Direction Discovery | DONE |
+| M3 | Evolution Planning & Working Copy | IN_PROGRESS |
 | M4 | First Verified Evolution Step | TODO |
 | M5 | Failure Safety & Recovery | TODO |
 | M6 | MVP End-to-End Validation | TODO |
@@ -805,12 +805,21 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 当前处于：
 
 ```text
-M3 — Evolution Planning & Working Copy（尚未开始）
+M3 — Evolution Planning & Working Copy（Task 1 已实现，Working Copy 尚未开始）
 ```
 
 M0、M1 与 M2 的执行清单已归档到 §9 Completed Milestones，不再在此处维护。
 
 ### Current
+
+**M3 Task 1 — Evolution Planning（2026-10-05）** 已实现后端完整规划切片：
+Selected Product Direction + 合法 Base Asset + Base Repository Profile → 一次 AI 提案 →
+结构 / 引用 / 领域校验 → 事务保存并可读取的 PROPOSED EvolutionPlan。
+步骤均为 PENDING_CONFIRMATION；无 Working Copy、Plan 激活或 Step 执行授权。
+当前状态表示、证据追溯与最小资产许可策略见 DOMAIN_MODEL.md §12.5–12.6，
+接口与持久化边界见 ARCHITECTURE.md §6.5。
+
+M3 整体仍为 IN_PROGRESS：ACTIVE Plan + READY Working Copy 的里程碑验收尚未满足。
 
 **M2 — Product Direction Discovery 已完成（2026-10-03）。** 走通了
 「Confirmed UserProfile @ revision + RepositoryProfile @ analyzedRevision → 候选
@@ -831,10 +840,10 @@ M2 期间新增 3 条 ADR（0004 两阶段 Repository Understanding / 0005 分�
 
 ### Next
 
-M3 — Evolution Planning & Working Copy。
-
-当前不提前将 M3 的实现细节拆分为 Task。具体 Task 应在 M3 即将开始时，
-根据当时已有代码状态进一步拆分；推进方式按 `docs/retrospectives/m2-product-direction.md` §H 的约定
+M3 Task 2 — Working Copy preparation 与 Plan activation。本次不启动。
+Task 2 必须重新校验当前 SELECTED Direction、资产授权、Base Profile 的 analyzedRevision，
+并在开始后续演化前落实 INV-P08 对历史 Plan 失效的约束。
+推进方式按 `docs/retrospectives/m2-product-direction.md` §H 的约定
 （一个里程碑 → 一个相对完整的垂直切片 → 一次里程碑级审查 → 一次聚焦 smoke → 复盘）。
 
 ---

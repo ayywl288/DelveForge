@@ -500,6 +500,8 @@ Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
 | `GET`   | `/api/product-directions/{id}`   | 读取一条已保存的 Product Direction（含其依据与出处）        | 200  | 404  |
 | `POST`  | `/api/product-directions/{id}/select` | 用户明确选择该方向（`CANDIDATE → SELECTED`），已有 `SELECTED` 时原方向同批进入 `SUPERSEDED` | 200 | 404 / 409 |
 | `POST`  | `/api/product-directions/{id}/reject` | 用户明确拒绝该方向（`CANDIDATE → REJECTED`）              | 200 | 404 / 409 |
+| `POST`  | `/api/evolution-plans/planning` | 从 Selected Direction、Base Asset 和 Base Profile 生成并保存 PROPOSED Plan | 201 | 400 / 404 / 409 / 502 |
+| `GET`   | `/api/evolution-plans/{id}` | 读取完整的规划结果、按顺序的步骤及依据出处 | 200 | 404 |
 
 **explore 语义**
 
@@ -830,6 +832,45 @@ Product Discovery 输入基线建立一个持久且明确的语义定义，而�
 
 响应里不出现 `U-E1` / `R2-E3` 这类引用：它们只是一次 AI 调用内的临时编号，
 在 Application 侧就已经被换成了真实依据与出处。
+
+---
+
+**Evolution Planning 语义（M3 Task 1）**
+
+```text
+POST /api/evolution-plans/planning
+{
+  "productDirectionId": "...",
+  "baseAssetId": "...",
+  "baseRepositoryProfileId": "..."
+}
+→ 201 EvolutionPlan
+
+GET /api/evolution-plans/{id}
+→ 200 相同的 EvolutionPlan 资源
+```
+
+请求只指定规划基线；Plan / Step 标识、状态、内容、Working Copy 关联和 Evidence
+不能由请求制造。约定外的请求字段被忽略，与现有接口一致。
+
+- Application 加载三个 Aggregate，先由 EvolutionPlanningService / AssetUsagePolicy
+  校验 SELECTED、Candidate Asset、Profile 归属、确定 analyzedRevision 与使用许可。
+  当前最小许可策略见 DOMAIN_MODEL.md §12.6；不满足时 409，未找到资源时 404。
+- 一次 AI Gateway 调用仅使用已有 Direction 和 Repository Profile 的语义内容，
+  不访问 Workspace、不重新读源码、不触发 Map / Scout。解析器严格检查全部字段形状，
+  将本次调用的 Evidence 引用换成真实 EvidenceBasis，再由 Domain Service 接受提案。
+- 外部调用及解析完成后重新检查可变的方向状态与资产使用许可。SQLite 的实际插入语句
+  再核对方向仍为 SELECTED，避免方向在 AI 调用期间切换后提交旧规划。
+- AI 调用、结构解析、未知 Evidence 引用或提案领域校验失败时返回 502，且不留下 Plan。
+  持久化的身份、内容、步骤与 Evidence 在同一事务中写入；任一失败整体回滚。
+  第二次规划产生新的 Plan，不覆盖旧规划。
+- 响应包含 id / productDirectionId / baseAssetId / baseRepositoryProfileId、currentState
+  （summary / capabilities / modules / limitations）、targetState（problem / targetProduct /
+  differentiation）、reusableCapabilities / changes / steps / risks / evidence / status。
+  evidence 复用 EvidenceBasisPayload，保留真实依据、确认状态和出处，不暴露 AI 临时引用。
+- 初始 status 为 PROPOSED，workingCopyId 为空；steps 保留顺序、id / planId、goal / scope /
+  plannedChanges / preconditions / verificationCriteria，status 为 PENDING_CONFIRMATION，
+  baselineRevision 为空。它们只表达规划和待确认事实，不产生代码操作或执行授权。
 
 ---
 

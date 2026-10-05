@@ -4,6 +4,11 @@ import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDi
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.StaleUserProfileRevisionException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.UserProfileNotConfirmedException;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.evolution.planning.EvolutionPlanNotFoundException;
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanAlreadyExistsException;
+import com.ayywl.delveforge.domain.asset.AssetEvolutionNotAllowedException;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanningPreconditionException;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanningRejectedException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionIntegrityConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
@@ -188,14 +193,14 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * 请求指向的 Product Direction 不存在。
+     * 请求指向的 Product Direction 或 Evolution Plan 不存在。
      *
      * <p>与其它 NOT_FOUND 相同的区分方式：请求形态合法，只是目标不存在。
      */
-    @ExceptionHandler(ProductDirectionNotFoundException.class)
+    @ExceptionHandler({ProductDirectionNotFoundException.class, EvolutionPlanNotFoundException.class})
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ApiErrorResponse handleProductDirectionNotFound(
-            ProductDirectionNotFoundException exception, HttpServletRequest request) {
+            RuntimeException exception, HttpServletRequest request) {
 
         log.warn("operation=interface.request path={} result=NOT_FOUND exception={}",
                 loggedRoute(request), describe(exception));
@@ -211,6 +216,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      * <pre>
      * StaleUserProfileRevisionException   调用方依据的那一版已经不是当前版本
      * UserProfileNotConfirmedException    用于发现的 Profile 尚未 CONFIRMED
+     * EvolutionPlanningPreconditionException / AssetEvolutionNotAllowedException
+     *                                    规划基线或资产许可不满足要求
+     * EvolutionPlanAlreadyExistsException  不得覆盖已保存的规划
      * </pre>
      *
      * <p>两者都不是「请求写错了」：请求可以理解，只是它依据的输入当前不成立。
@@ -218,7 +226,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      * 这正是 409 而不是 400 的语义，也是它与 {@link IllegalArgumentException} 分开的理由。
      */
     @ExceptionHandler({StaleUserProfileRevisionException.class,
-            UserProfileNotConfirmedException.class})
+            UserProfileNotConfirmedException.class, EvolutionPlanningPreconditionException.class,
+            AssetEvolutionNotAllowedException.class, EvolutionPlanAlreadyExistsException.class})
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiErrorResponse handleDiscoveryPreconditionConflict(
             RuntimeException exception, HttpServletRequest request) {
@@ -295,11 +304,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * AI Gateway 调用失败：外部 LLM 能力不可用。
+     * AI 调用、提案解析或规划领域接受失败：本次无法获得可用的 AI 结果。
      */
-    @ExceptionHandler(AiGatewayException.class)
+    @ExceptionHandler({AiGatewayException.class, EvolutionPlanningRejectedException.class})
     @ResponseStatus(HttpStatus.BAD_GATEWAY)
-    public ApiErrorResponse handleAiGatewayFailure(AiGatewayException exception,
+    public ApiErrorResponse handleAiGatewayFailure(RuntimeException exception,
                                                    HttpServletRequest request) {
         log.error("operation=interface.request path={} capability=ai-gateway result=FAILED exception={}",
                 loggedRoute(request), describe(exception));
