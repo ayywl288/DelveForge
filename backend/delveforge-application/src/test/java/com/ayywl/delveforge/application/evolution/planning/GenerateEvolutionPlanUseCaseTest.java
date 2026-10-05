@@ -288,6 +288,32 @@ class GenerateEvolutionPlanUseCaseTest {
     }
 
     @Test
+    void planningInstructionPreservesStructuredContract() throws Exception {
+        seed();
+
+        useCase().generate(request());
+        assertEquals(1, calls.get());
+        assertEquals(AiRole.SYSTEM, sent.messages().getFirst().role());
+        assertEquals(AiResponseFormat.JSON, sent.responseFormat());
+
+        // 固定原有 JSON 示例契约，让提示词语言调整不能悄悄改变字段或结构。
+        String instruction = sent.messages().getFirst().content();
+        String schema = instruction.substring(instruction.indexOf('{'), instruction.lastIndexOf('}') + 1);
+        String expected = """
+                {
+                  "currentState": {"summary":"...", "capabilities":[], "modules":[], "limitations":[]},
+                  "targetState": {"problem":"...", "targetProduct":"...", "differentiation":"..."},
+                  "reusableCapabilities":[], "changes":["..."],
+                  "steps":[{"goal":"...", "scope":"...", "plannedChanges":["..."],
+                            "preconditions":[], "verificationCriteria":["..."]}],
+                  "risks":[], "evidence":["..."]
+                }
+                """;
+        ObjectMapper mapper = new ObjectMapper();
+        assertEquals(mapper.readTree(expected), mapper.readTree(schema));
+    }
+
+    @Test
     void rejectsMissingAndIneligibleBasisBeforeCallingAi() {
         assertThrows(ProductDirectionNotFoundException.class, () -> useCase().generate(request()));
         directions.values.put(new ProductDirectionId("direction"), direction(true));
