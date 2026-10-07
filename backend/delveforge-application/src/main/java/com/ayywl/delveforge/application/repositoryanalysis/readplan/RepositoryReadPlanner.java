@@ -85,6 +85,11 @@ import java.util.Set;
  */
 public final class RepositoryReadPlanner {
 
+    /** M4 扩展可能只缺少工程配置；仍使用同一基础材料预算和凭据政策。 */
+    public RepositoryReadPlan planFoundation(RepositoryMap map) {
+        return plan(map, new Lanes(List.of(), List.of()));
+    }
+
     private final RepositoryMaterialBudget foundationBudget;
 
     private final RepositoryMaterialBudget targetedSourceBudget;

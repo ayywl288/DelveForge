@@ -3,6 +3,7 @@ package com.ayywl.delveforge.infrastructure.workspace;
 import com.ayywl.delveforge.application.port.workspace.PreparedWorkspace;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
@@ -76,7 +77,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @EnableConfigurationProperties(WorkspaceProperties.class)
-public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvisioningPort {
+public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvisioningPort, WorkingCopyInspectionPort {
 
     private static final Logger log = LoggerFactory.getLogger(GitWorkspaceAdapter.class);
 
@@ -96,6 +97,109 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
 
     public GitWorkspaceAdapter(Path managedRoot) {
         this.managedRoot = managedRoot;
+    }
+
+    @Override
+    public void requireTrustedState(WorkspaceRef copy, WorkspaceRef source, String expectedRevision) {
+        Path target = requireManagedCopy(copy);
+        Path original = resolveLocation(source).toAbsolutePath().normalize();
+        try {
+            original = original.toRealPath();
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot inspect original asset isolation", failure);
+        }
+        if (target.startsWith(original) || original.startsWith(target)
+                || canonicalProspectiveRootUnchecked().startsWith(original)) {
+            throw new WorkingCopyBasisChangedException("Working Copy overlaps the original asset");
+        }
+        if (!expectedRevision.equals(headRevision(copy))) {
+            throw new WorkingCopyBasisChangedException("Working Copy HEAD differs from the trusted revision");
+        }
+        // 禁用可选 index 写入与 fsmonitor，准备阶段的检查只读取状态。
+        GitCommandResult status = execute(target, "--no-optional-locks", "-c", "core.fsmonitor=false",
+                "status", "--porcelain=v1", "--untracked-files=all", "--ignored");
+        if (!status.succeeded()) {
+            throw new WorkspaceException("Cannot inspect Working Copy status");
+        }
+        if (!status.stdoutText().isBlank()) {
+            throw new WorkingCopyBasisChangedException("Working Copy contains changes or untracked artifacts");
+        }
+    }
+
+    @Override
+    public void requireSafePaths(WorkspaceRef copy, List<String> paths) {
+        Path target = requireManagedCopy(copy);
+        GitCommandResult tree = execute(target, "ls-tree", "-r", "-z", "HEAD");
+        if (!tree.succeeded()) {
+            throw new WorkspaceException("Cannot inspect Working Copy path modes");
+        }
+        List<String> submodules = new ArrayList<>();
+        for (String entry : tree.stdoutText().split("\u0000")) {
+            if (entry.startsWith("160000 commit ")) {
+                submodules.add(entry.substring(entry.indexOf('\t') + 1));
+            }
+        }
+        try {
+            for (String path : paths) {
+                String safe = requireSafeRelativePath(path, false);
+                if (submodules.stream().anyMatch(prefix -> safe.equals(prefix) || safe.startsWith(prefix + "/"))) {
+                    throw new WorkingCopyBasisChangedException("Proposal cannot modify a submodule tree");
+                }
+                Path resolved = target.resolve(safe).normalize();
+                if (!resolved.startsWith(target) || resolved.equals(target)) {
+                    throw new WorkingCopyBasisChangedException("Proposed path escapes the managed copy");
+                }
+                Path cursor = target;
+                for (Path segment : target.relativize(resolved)) {
+                    cursor = cursor.resolve(segment);
+                    if (Files.exists(cursor, LinkOption.NOFOLLOW_LINKS)) {
+                        if (Files.isSymbolicLink(cursor) || !cursor.toRealPath().equals(cursor)) {
+                            throw new WorkingCopyBasisChangedException("Proposed path crosses a filesystem link");
+                        }
+                        if (!cursor.equals(resolved) && !Files.isDirectory(cursor)) {
+                            throw new WorkingCopyBasisChangedException("Proposed path has a non-directory parent");
+                        }
+                        if (Files.isDirectory(cursor) && Files.exists(cursor.resolve(".git"))) {
+                            throw new WorkingCopyBasisChangedException("Proposed path enters a nested repository");
+                        }
+                        if (cursor.equals(resolved) && !Files.isRegularFile(cursor)) {
+                            throw new WorkingCopyBasisChangedException("Proposed file is not a regular file");
+                        }
+                    }
+                }
+            }
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot inspect proposed paths", failure);
+        }
+    }
+
+    private Path canonicalProspectiveRootUnchecked() {
+        try {
+            return canonicalProspectiveRoot();
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot inspect managed root", failure);
+        }
+    }
+
+    private Path requireManagedCopy(WorkspaceRef copy) {
+        try {
+            Path target = resolveLocation(copy).normalize();
+            Path root = canonicalProspectiveRoot();
+            Path metadata = target.resolve(".git");
+            Path marker = metadata.resolve("delveforge-preparation");
+            if (!root.equals(target.getParent()) || !target.toRealPath().equals(target)
+                    || !Files.isDirectory(metadata, LinkOption.NOFOLLOW_LINKS)
+                    || !metadata.toRealPath().equals(metadata)
+                    || !Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS)
+                    || Files.isSymbolicLink(marker) || !marker.toRealPath().equals(marker)
+                    || Files.readString(marker).isBlank()
+                    || Files.exists(metadata.resolve("objects/info/alternates"))) {
+                throw new WorkingCopyBasisChangedException("Workspace is not an isolated managed Working Copy");
+            }
+            return requireReadableRepository(copy);
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot inspect managed Working Copy", failure);
+        }
     }
 
     @Override

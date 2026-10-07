@@ -3,7 +3,7 @@ package com.ayywl.delveforge.domain.evolution;
 import java.util.List;
 
 /**
- * EvolutionPlan 内部 Entity；M3 不开放授权或代码修改入口。
+ * EvolutionPlan 内部 Entity；授权只能通过 Aggregate Root 建立。
  */
 public final class EvolutionStep {
     private final EvolutionStepId id;
@@ -13,6 +13,7 @@ public final class EvolutionStep {
     private final List<String> plannedChanges;
     private final List<String> preconditions;
     private final List<String> verificationCriteria;
+    private EvolutionStepStatus status = EvolutionStepStatus.PENDING_CONFIRMATION;
 
     private EvolutionStep(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
             List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria) {
@@ -39,6 +40,28 @@ public final class EvolutionStep {
     public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
             List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria) {
         return new EvolutionStep(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
+    }
+
+    public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
+            List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria,
+            EvolutionStepStatus status) {
+        if (status != EvolutionStepStatus.PENDING_CONFIRMATION && status != EvolutionStepStatus.READY) {
+            throw new IllegalArgumentException("Unsupported preparation lifecycle state");
+        }
+        EvolutionStep step = reconstitute(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
+        step.status = status;
+        return step;
+    }
+
+    EvolutionStep copy() {
+        return reconstitute(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria, status);
+    }
+
+    void confirm() {
+        if (status != EvolutionStepStatus.PENDING_CONFIRMATION) {
+            throw new EvolutionPlanStateException("Only a pending Step can be confirmed");
+        }
+        status = EvolutionStepStatus.READY;
     }
 
     public EvolutionStepId id() {
@@ -70,7 +93,7 @@ public final class EvolutionStep {
     }
 
     public EvolutionStepStatus status() {
-        return EvolutionStepStatus.PENDING_CONFIRMATION;
+        return status;
     }
 
     public String baselineRevision() {

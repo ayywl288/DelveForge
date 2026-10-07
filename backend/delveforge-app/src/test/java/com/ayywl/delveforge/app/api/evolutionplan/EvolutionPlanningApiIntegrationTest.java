@@ -63,7 +63,9 @@ class EvolutionPlanningApiIntegrationTest {
     @Autowired EvolutionPlanRepository plans;
     @Autowired JdbcTemplate jdbc;
     @MockitoBean AiGateway ai;
-    @MockitoBean(extraInterfaces = com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort.class)
+    @MockitoBean(extraInterfaces = {
+            com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort.class,
+            com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort.class})
     WorkspaceReadPort reads;
     @MockitoBean WorkspaceMutationPort mutations;
     private static final SoftwareAssetId ASSET = new SoftwareAssetId("asset");

@@ -3,7 +3,7 @@
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-9-15
+**Last Updated:** 2026-10-07
 
 ## 1. Architecture Goals
 
@@ -913,6 +913,50 @@ Plan 进入 SUPERSEDED，并与 Direction 切换一起提交。并发出现遗�
 Evidence、步骤与已有 Working Copy 绑定都保留。新 Plan 的写入继续检查 SELECTED。
 ACTIVE Plan 的步骤仍为 PENDING_CONFIRMATION，baselineRevision 仍为空；M3 不提供步骤确认或执行。
 
+**Step Authorization / Execution Preparation（M4 Task 1）**
+
+```text
+POST /api/evolution-plans/{planId}/steps/{stepId}/confirm
+→ 200 EvolutionPlan（仅当前 Step 为 READY）
+
+POST /api/evolution-plans/{planId}/steps/{stepId}/execution-preparation
+→ 200 { basis, proposal, modelVisiblePaths }
+```
+
+确认是明确用户动作，通过 Aggregate Root 与条件写入保存 READY。准备是独立的只读操作，
+必须已经 READY；结果由 Application 返回给执行编排，不存储 Proposal 或 RepositoryProfile，
+不增加用户 Proposal approval 生命周期。basis 保留 Plan / Step / WorkingCopy 身份及 expectedRevision。
+
+Application 的 `evolution.preparation` 复用既有 Map、Region / File Scout、引用解析、ReadPlanner、
+ReadExecutor 与 RepositorySecretPolicy。调用内查询加入 Step goal / scope / plannedChanges /
+preconditions / verificationCriteria 和最小 TargetState。读取明确使用 WorkingCopy 的当前
+lastVerifiedRevision；历史 RepositoryProfile.analyzedRevision 不参与本次源码选材。
+本调用将测试文件纳入源码候选；M2 Discovery 的分类与候选路由保持原语义。
+
+`WorkingCopyInspectionPort` 是独立只读能力，由 GitWorkspaceAdapter 实现，核对托管直接子目录、
+准备标记、独立 Git 目录、无 alternates、与原资产位置隔离、HEAD 与干净状态；不继承 mutation Port。
+当前保守选择还拒绝 ignored / untracked 产物。提案路径检查拒绝逃逸、链接、子模块 / 嵌套仓库、
+非目录父项和非普通文件。
+准备在模型调用前后及最终返回前重读可变资格与实际基线；它不能替代 Task 2 mutation 前的再次核对。
+
+Coding Gateway 返回 `CHANGE_PROPOSAL` 或 `NEED_MORE_CONTEXT`。后者必须说明具体依赖，
+给出既有且未重复的最窄文件 / 目录范围；Application 在该范围重新 Scout / 读取，纯配置范围直接
+复用基础材料规划。初始发现及扩展共用 Scout 次数、唯一文件数与原文字节额度，扩展轮数有上限。
+每次 AI 消息内容与返回内容也有字节预算，配置位于 `delveforge.evolution.preparation`。
+可见源码始终经过路径排除与内容净化；原文留在调用内，净化过的已有文件在本版本禁止提案修改。
+
+CodingProposal 是未信任的 Application 数据，包含 expectedRevision / summary /
+declaredAffectedPaths / unifiedDiff / verificationStrategy。必要生产和测试改动在同一补丁中。
+严格结构解析后，Application 校验规范安全路径、声明与实际 patch 路径一致、已有目标真实可见、
+旧内容与 hunk 位置及行数精确一致、无重复/别名路径、凭据边界、revision 和预算。
+当前只接受普通文本统一补丁的新建、修改、删除；不接受 rename、二进制和 mode 变更。
+校验结果为调用内 `ValidatedExecutionProposal`，不会触达 WorkspaceMutationPort。
+
+Verification strategy 只描述 HOW，动作限定 BUILD / TEST / FOCUSED_TEST / DIFF_CHECK，
+测试 target 是有界名称而非命令；criterionIndexes 从 1 开始并覆盖所有既有标准。
+这只是结构与引用覆盖校验，不能证明语义 scope、外部 Preconditions 或 Verification Criteria 已满足。
+Task 1 不应用补丁、不生成 Candidate、不推进 revision、不开始执行或运行最终 Verification。
+
 ## 7. Dependency Rules
 
 本节描述代码模块之间允许存在的依赖方向，而不是系统运行时的调用顺序。
@@ -940,7 +984,7 @@ Evolution ──────────┬────────────�
 - Repository Analysis 只能依赖 Workspace 的只读能力，不得获得代码写入、删除或修改权限。
 - Opportunity Discovery 不得直接修改 Repository，也不应依赖 Workspace 的写能力。
 - Evolution Execution 是 MVP 中唯一允许请求 Workspace 写能力的业务流程。
-- Workspace 在 Application 层使用互不继承的三个 Port：WorkspaceReadPort（只读）、WorkingCopyProvisioningPort（M3 环境准备）、WorkspaceMutationPort（未来步骤代码修改）。GitWorkspaceAdapter 实现读取和准备，不实现步骤修改。取舍、已知缺口与 M3 refinement 见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
+- Workspace 在 Application 层使用互不继承的能力 Port：WorkspaceReadPort（只读）、WorkingCopyProvisioningPort（M3 环境准备）、WorkingCopyInspectionPort（M4 执行准备的只读检查）、WorkspaceMutationPort（未来步骤代码修改）。GitWorkspaceAdapter 实现读取、准备和检查，不实现步骤修改。取舍、已知缺口与 M3 / M4 Task 1 refinement 见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
 - Application / Agent Orchestrator 可以协调各业务模块，但业务模块不得反向依赖 Orchestrator。
 - 跨模块协作应通过公开接口和明确的数据模型完成，不得通过直接读取或修改其他模块拥有的数据库表实现。
 - 禁止循环依赖。

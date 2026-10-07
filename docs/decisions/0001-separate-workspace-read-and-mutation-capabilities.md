@@ -239,6 +239,14 @@ Git/文件系统与 SQLite 不形成一个事务：外部候选先准备，READY
 ACTIVE Plan 不构成 Step 授权。M4 仍须按上述 Revisit Conditions 评估绑定 Working Copy / Step
 作用域的 mutation capability；M3 不开放步骤写能力。
 
+## M4 Task 1 refinement — 2026-10-07
+
+执行准备引入独立只读 `WorkingCopyInspectionPort`，核对托管位置、实际可信 revision、
+干净状态、隔离及提案路径的技术可用性。它不继承读写 Port，不授予代码修改能力。
+GitWorkspaceAdapter 在既有读取与准备之外实现此检查能力，仍不实现 WorkspaceMutationPort。
+确认只持久化 READY；调用内理解与已校验提案不设置 baselineRevision，不开始 Execution。
+mutation 的授权作用域与最终执行入口仍按上述 Revisit Conditions 留待 Task 2。
+
 ## References
 
 ```text

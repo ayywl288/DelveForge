@@ -10,6 +10,8 @@ import com.ayywl.delveforge.domain.asset.AssetEvolutionNotAllowedException;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanningPreconditionException;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanningRejectedException;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanStateException;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepNotFoundException;
+import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationBudgetExceededException;
 import com.ayywl.delveforge.application.port.persistence.EvolutionLifecycleConflictException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
 import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
@@ -201,7 +203,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      *
      * <p>与其它 NOT_FOUND 相同的区分方式：请求形态合法，只是目标不存在。
      */
-    @ExceptionHandler({ProductDirectionNotFoundException.class, EvolutionPlanNotFoundException.class})
+    @ExceptionHandler({ProductDirectionNotFoundException.class, EvolutionPlanNotFoundException.class,
+            EvolutionStepNotFoundException.class})
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ApiErrorResponse handleProductDirectionNotFound(
             RuntimeException exception, HttpServletRequest request) {
@@ -232,7 +235,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler({StaleUserProfileRevisionException.class,
             UserProfileNotConfirmedException.class, EvolutionPlanningPreconditionException.class,
             AssetEvolutionNotAllowedException.class, EvolutionPlanAlreadyExistsException.class,
-            EvolutionPlanStateException.class, EvolutionLifecycleConflictException.class, WorkingCopyBasisChangedException.class})
+            EvolutionPlanStateException.class, EvolutionLifecycleConflictException.class, WorkingCopyBasisChangedException.class,
+            ExecutionPreparationBudgetExceededException.class})
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiErrorResponse handleDiscoveryPreconditionConflict(
             RuntimeException exception, HttpServletRequest request) {

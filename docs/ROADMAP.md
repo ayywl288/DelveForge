@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-10-05
+**Last Updated:** 2026-10-07
 
 ---
 
@@ -521,6 +521,8 @@ status = PENDING_CONFIRMATION
 
 ### M4 — First Verified Evolution Step
 
+**Status:** IN_PROGRESS — Task 1（Step Authorization & Execution Preparation）已实现；Task 2 未开始。
+
 **Goal**
 
 第一次真正跑通：
@@ -539,11 +541,11 @@ Verified Software State
 
 **Deliverables**
 
-- [ ] 支持用户确认一个 Evolution Step。
-- [ ] 实现 `PENDING_CONFIRMATION → READY`。
-- [ ] 实现 StepExecutionPolicy。
+- [x] 支持用户确认一个 Evolution Step。
+- [x] 实现 `PENDING_CONFIRMATION → READY`。
+- [x] 实现 StepExecutionPolicy（当前用于 READY 下的只读准备资格；外部前置条件仍须在 mutation 前检查）。
 - [ ] Step 首次执行前记录 baselineRevision。
-- [ ] AI / Coding Capability 根据 Step Scope 产生代码修改方案。
+- [x] AI / Coding Capability 根据 Step Scope 产生代码修改方案（调用内理解、有限上下文扩展与确定性提案校验；不应用补丁）。
 - [ ] Workspace 在 Working Copy 中应用修改。
 - [ ] 形成 Execution Result。
 - [ ] 记录 affectedPaths / changes / warnings / errors。
@@ -765,7 +767,7 @@ Step SUCCEEDED
 | M1 | Discovery Inputs | DONE |
 | M2 | Product Direction Discovery | DONE |
 | M3 | Evolution Planning & Working Copy | DONE |
-| M4 | First Verified Evolution Step | TODO |
+| M4 | First Verified Evolution Step | IN_PROGRESS |
 | M5 | Failure Safety & Recovery | TODO |
 | M6 | MVP End-to-End Validation | TODO |
 
@@ -808,7 +810,7 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 
 ```text
 M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
-M4 — First Verified Evolution Step：TODO，尚未启动
+M4 — First Verified Evolution Step：IN_PROGRESS，Task 1 已实现，Task 2 未启动
 ```
 
 M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
@@ -833,9 +835,10 @@ M3 不再追加优化或 cleanup，除非发现具体阻塞 M4 的正确性问�
 
 ### Next
 
-后续交接到 M4 的首个受用户确认且成功验证的 Evolution Step；本轮不启动实现。
-交接范围为 Step 确认、Step 专属 Repository Understanding、受控 mutation、baselineRevision、
-Candidate State、Verification 与 revision 推进，以及 M4 所需的失败安全边界。
+M4 Task 1 已交付显式确认、Step 专属只读 Repository Understanding、有限 Context Expansion、
+Coding Proposal 和确定性校验，步骤保持 READY，baselineRevision 为空，WorkingCopy revision 不变。
+后续 Task 2 才接入受控 mutation、baselineRevision、Candidate State、Verification 与 revision 推进，
+以及 M4 所需的失败安全边界。本次停止在 Task 1。
 完整 Failure / Repair / Retry / Recovery 流程仍属于 M5。
 继续采用「设计讨论 → 相对完整的垂直切片 → 里程碑级审查 → 聚焦修正 → 一次真实 smoke
 → 复盘」，具体保留与调整见 M3 复盘 §E–F。

@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 内部有哪些核心业务概念，这些概念分别代表什么，以及它们之间如何协作。
 
 **Status:** Stable
-**Last Updated:** 2026-09-14
+**Last Updated:** 2026-10-07
 
 ## 1. Domain Overview
 
@@ -2187,6 +2187,15 @@ PENDING_CONFIRMATION → READY
 **Domain Effects**
 
 用户确认只针对当前 Evolution Step。
+
+**M4 Task 1 当前实现边界：** 确认通过 EvolutionPlan Aggregate Root 在隔离候选上完成，
+只持久化当前 Step 的 `PENDING_CONFIRMATION → READY`；重复确认、非 ACTIVE Plan、
+不可用或不可信的 WorkingCopy、未成功的前序 Required Step 均被拒绝。提交时再次核对
+Plan / Direction / Copy / Asset 授权依据，失败不改变已加载对象或持久状态。
+确认和 READY 下的只读执行准备均不设置 baselineRevision，也不进入 EXECUTING。
+StepExecutionPolicy 判断 Aggregate 可见的生命周期、绑定、顺序与可信 revision 条件；
+依赖 Workspace 或其他外部事实的自然语言 Preconditions 仍须在实际 mutation 前检查。
+只读准备成功不表示这些条件已经满足。
 
 该确认：
 

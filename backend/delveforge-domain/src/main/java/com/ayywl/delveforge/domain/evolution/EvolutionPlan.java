@@ -92,9 +92,19 @@ public final class EvolutionPlan {
      * 先在隔离候选上修改，避免失败时改变 Repository 已加载的对象。
      */
     public EvolutionPlan copy() {
-        // M3 Step 定义不可变，可共享正式值；Plan 的绑定与生命周期仍在隔离候选上修改。
+        // Step 生命周期可变，候选必须隔离内部 Entity，防止失败污染已加载对象。
         return reconstitute(id, productDirectionId, baseAssetId, baseRepositoryProfileId, currentState, targetState,
-                reusableCapabilities, changes, steps, risks, evidence, workingCopyId, status);
+                reusableCapabilities, changes, steps.stream().map(EvolutionStep::copy).toList(), risks, evidence, workingCopyId, status);
+    }
+
+    public EvolutionStep step(EvolutionStepId stepId) {
+        return steps.stream().filter(step -> step.id().equals(stepId)).findFirst()
+                .orElseThrow(() -> new EvolutionStepNotFoundException(stepId));
+    }
+
+    public void confirmStep(EvolutionStepId stepId, WorkingCopy copy, StepExecutionPolicy policy) {
+        policy.requireConfirmationAllowed(this, stepId, copy);
+        step(stepId).confirm();
     }
 
     public void bindWorkingCopy(WorkingCopy copy) {

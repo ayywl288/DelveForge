@@ -90,14 +90,14 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
                 .eq(EvolutionStepDO::getPlanId, id.value()).orderByAsc(EvolutionStepDO::getPosition));
         List<EvolutionStep> steps = new ArrayList<>();
         for (EvolutionStepDO step : stepRows) {
-            if (!EvolutionStepStatus.PENDING_CONFIRMATION.name().equals(step.getStatus()) || step.getBaselineRevision() != null) {
+            if (step.getBaselineRevision() != null) {
                 throw new IllegalStateException("Unsupported stored step lifecycle state");
             }
             Map<String, List<String>> stepSections = loadStepSections(step.getId());
             steps.add(EvolutionStep.reconstitute(new EvolutionStepId(step.getId()),
                     new EvolutionPlanId(step.getPlanId()), step.getGoal(), step.getScope(),
                     values(stepSections, "plannedChanges"), values(stepSections, "preconditions"),
-                    values(stepSections, "verificationCriteria")));
+                    values(stepSections, "verificationCriteria"), EvolutionStepStatus.valueOf(step.getStatus())));
         }
 
         // 已保存的是被接受的领域事实；读取时直接重建正式值，不重新制造 AI 提案。

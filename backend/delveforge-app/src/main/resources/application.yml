@@ -78,6 +78,19 @@ delveforge:
       max-file-bytes: 65536
       max-total-bytes: 229376
 
+  evolution:
+    preparation:
+      # 初始发现与所有扩展共享调用内累计预算；没有无人值守探索循环。
+      max-expansion-rounds: 2
+      max-scout-calls: 24
+      max-files: 48
+      max-file-bytes: 65536
+      max-total-bytes: 524288
+      max-ai-request-bytes: 786432
+      max-proposal-bytes: 262144
+      max-affected-paths: 16
+      max-verification-checks: 16
+
   persistence:
     # SQLite 数据库文件位置。
     #
