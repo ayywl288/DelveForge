@@ -96,6 +96,39 @@ class WorkingCopyInspectionIntegrationTest {
                 () -> adapter.requireSafePaths(new WorkspaceRef(copy.toString()), List.of("module/New.java")));
     }
 
+    @Test void exactSourceTextAllowsUtf8CrLfAndReplacementCharactersButRejectsDifferentContent() throws Exception {
+        String text = "\u4f60\u597d\ufffd\r\n";
+        Files.writeString(copy.resolve("src/Text.java"), text);
+        git(copy, "-c", "core.autocrlf=false", "add", "--", "src/Text.java");
+        git(copy, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "UTF-8 CRLF blob");
+        String current = git(copy, "rev-parse", "HEAD").trim();
+        WorkspaceRef workspace = new WorkspaceRef(copy.toString());
+        assertEquals(text, adapter.readFile(workspace, current, "src/Text.java"));
+        Map<String, String> beforeSource = snapshot(source);
+        Map<String, String> beforeCopy = snapshot(copy);
+        adapter.requireExactSourceText(workspace, current, Map.of("src/Text.java", text, "src/A.java", "old\n"));
+        assertThrows(WorkingCopyTextNotExactException.class,
+                () -> adapter.requireExactSourceText(workspace, current, Map.of("src/Text.java", "different\r\n")));
+        assertEquals(beforeSource, snapshot(source));
+        assertEquals(beforeCopy, snapshot(copy));
+    }
+
+    @Test void exactSourceTextRejectsNonUtf8BlobWithoutChangingAnalysisReadBehavior() throws Exception {
+        Files.write(copy.resolve("src/Legacy.java"), "caf\u00e9\n".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1));
+        git(copy, "-c", "core.autocrlf=false", "add", "--", "src/Legacy.java");
+        git(copy, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "non-UTF-8 blob");
+        String current = git(copy, "rev-parse", "HEAD").trim();
+        WorkspaceRef workspace = new WorkspaceRef(copy.toString());
+        String decoded = adapter.readFile(workspace, current, "src/Legacy.java");
+        assertEquals("caf\ufffd\n", decoded);
+        Map<String, String> beforeSource = snapshot(source);
+        Map<String, String> beforeCopy = snapshot(copy);
+        assertThrows(WorkingCopyTextNotExactException.class,
+                () -> adapter.requireExactSourceText(workspace, current, Map.of("src/Legacy.java", decoded)));
+        assertEquals(beforeSource, snapshot(source));
+        assertEquals(beforeCopy, snapshot(copy));
+    }
+
     private static Map<String, String> snapshot(Path root) throws Exception {
         Map<String, String> result = new TreeMap<>();
         try (var stream = Files.walk(root)) {

@@ -935,7 +935,8 @@ lastVerifiedRevision；历史 RepositoryProfile.analyzedRevision 不参与本次
 
 `WorkingCopyInspectionPort` 是独立只读能力，由 GitWorkspaceAdapter 实现，核对托管直接子目录、
 准备标记、独立 Git 目录、无 alternates、与原资产位置隔离、HEAD 与干净状态；不继承 mutation Port。
-当前保守选择还拒绝 ignored / untracked 产物。提案路径检查拒绝逃逸、链接、子模块 / 嵌套仓库、
+当前保守选择还拒绝 ignored / untracked 产物，以及会隐藏工作树差异的 assume-unchanged /
+skip-worktree 索引标志；检查不清除标志或写入索引。提案路径检查拒绝逃逸、链接、子模块 / 嵌套仓库、
 非目录父项和非普通文件。
 准备在模型调用前后及最终返回前重读可变资格与实际基线；它不能替代 Task 2 mutation 前的再次核对。
 
@@ -948,7 +949,11 @@ Coding Gateway 返回 `CHANGE_PROPOSAL` 或 `NEED_MORE_CONTEXT`。后者必须�
 CodingProposal 是未信任的 Application 数据，包含 expectedRevision / summary /
 declaredAffectedPaths / unifiedDiff / verificationStrategy。必要生产和测试改动在同一补丁中。
 严格结构解析后，Application 校验规范安全路径、声明与实际 patch 路径一致、已有目标真实可见、
-旧内容与 hunk 位置及行数精确一致、无重复/别名路径、凭据边界、revision 和预算。
+旧内容与 hunk 位置及行数精确一致、无重复/别名路径、无目标文件之间的祖先 / 后代冲突
+（包含 Windows 大小写别名）、凭据边界、revision 和预算。
+返回校验结果前，Workspace 的只读 `requireExactSourceText` 核对已有修改目标在 expectedRevision
+中的真实 blob 可严格解码为 UTF-8，且与本调用使用的原文相同；当前版本对无法无损表示的目标
+失败关闭。合法 UTF-8 与 CRLF 保持原样；M2 分析的宽松字符串读取不变。
 当前只接受普通文本统一补丁的新建、修改、删除；不接受 rename、二进制和 mode 变更。
 校验结果为调用内 `ValidatedExecutionProposal`，不会触达 WorkspaceMutationPort。
 

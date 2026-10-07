@@ -4,11 +4,15 @@ import com.ayywl.delveforge.application.port.workspace.PreparedWorkspace;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -18,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
@@ -115,6 +120,17 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         if (!expectedRevision.equals(headRevision(copy))) {
             throw new WorkingCopyBasisChangedException("Working Copy HEAD differs from the trusted revision");
         }
+        // status 会跳过这些索引项；只读检查标志，不能清除标志或刷新 index 来掩盖问题。
+        GitCommandResult flags = execute(target, "--no-optional-locks", "-c", "core.fsmonitor=false",
+                "ls-files", "--cached", "-v", "-z");
+        if (!flags.succeeded()) {
+            throw new WorkspaceException("Cannot inspect Working Copy index flags");
+        }
+        for (String entry : flags.stdoutText().split("\0")) {
+            if (!entry.isEmpty() && (Character.isLowerCase(entry.charAt(0)) || entry.charAt(0) == 'S')) {
+                throw new WorkingCopyBasisChangedException("Working Copy index flags can hide tracked changes");
+            }
+        }
         // 禁用可选 index 写入与 fsmonitor，准备阶段的检查只读取状态。
         GitCommandResult status = execute(target, "--no-optional-locks", "-c", "core.fsmonitor=false",
                 "status", "--porcelain=v1", "--untracked-files=all", "--ignored");
@@ -123,6 +139,30 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         }
         if (!status.stdoutText().isBlank()) {
             throw new WorkingCopyBasisChangedException("Working Copy contains changes or untracked artifacts");
+        }
+    }
+
+    @Override
+    public void requireExactSourceText(WorkspaceRef copy, String revision, Map<String, String> expectedOriginals) {
+        Path target = requireManagedCopy(copy);
+        String commit = requireCommitId(target, revision);
+        for (Map.Entry<String, String> original : expectedOriginals.entrySet()) {
+            String path = requireSafeRelativePath(original.getKey(), false);
+            GitCommandResult blob = execute(target, "cat-file", "blob", commit + ":" + path);
+            if (!blob.succeeded()) {
+                throw new WorkspaceException("Cannot inspect proposal source blob at expected revision");
+            }
+            String exact;
+            try {
+                // 仅 M4 修改资格使用严格解码；M2 的分析读取仍保留既有行为。
+                exact = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(blob.stdout())).toString();
+            } catch (CharacterCodingException invalid) {
+                throw new WorkingCopyTextNotExactException("Proposal source blob is not lossless UTF-8 text");
+            }
+            if (!exact.equals(original.getValue())) {
+                throw new WorkingCopyTextNotExactException("Proposal source text differs from the expected revision blob");
+            }
         }
     }
 

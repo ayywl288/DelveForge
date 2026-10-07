@@ -14,6 +14,7 @@ import com.ayywl.delveforge.domain.evolution.EvolutionStepNotFoundException;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationBudgetExceededException;
 import com.ayywl.delveforge.application.port.persistence.EvolutionLifecycleConflictException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
 import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionIntegrityConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
@@ -236,7 +237,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             UserProfileNotConfirmedException.class, EvolutionPlanningPreconditionException.class,
             AssetEvolutionNotAllowedException.class, EvolutionPlanAlreadyExistsException.class,
             EvolutionPlanStateException.class, EvolutionLifecycleConflictException.class, WorkingCopyBasisChangedException.class,
-            ExecutionPreparationBudgetExceededException.class})
+            ExecutionPreparationBudgetExceededException.class, WorkingCopyTextNotExactException.class})
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiErrorResponse handleDiscoveryPreconditionConflict(
             RuntimeException exception, HttpServletRequest request) {

@@ -47,6 +47,14 @@ public final class CodingProposalValidator {
                 throw new AiGatewayException("Proposed target aliases an existing path");
             }
         }
+        // 当前文本补丁不允许同一目标集合同时把一个路径作为文件和目录。
+        for (String alias : aliases) {
+            for (int separator = alias.indexOf('/'); separator >= 0; separator = alias.indexOf('/', separator + 1)) {
+                if (aliases.contains(alias.substring(0, separator))) {
+                    throw new AiGatewayException("Patch targets have a file-directory conflict");
+                }
+            }
+        }
         List<String> actual = new UnifiedDiffValidator(paths).validate(proposal.unifiedDiff(), visibleOriginals, existingPaths);
         if (!declared.equals(new LinkedHashSet<>(actual))) {
             throw new AiGatewayException("Declared affected paths differ from the actual patch paths");
@@ -74,6 +82,13 @@ public final class CodingProposalValidator {
             throw new AiGatewayException("Verification strategy must address every existing criterion");
         }
         inspection.requireSafePaths(workspace, actual);
+        Map<String, String> modifiedOriginals = new LinkedHashMap<>();
+        for (String path : actual) {
+            if (visibleOriginals.containsKey(path)) {
+                modifiedOriginals.put(path, visibleOriginals.get(path));
+            }
+        }
+        inspection.requireExactSourceText(workspace, basis.expectedRevision(), modifiedOriginals);
         return new ValidatedExecutionProposal(basis, proposal, new ArrayList<>(visibleOriginals.keySet()));
     }
 }

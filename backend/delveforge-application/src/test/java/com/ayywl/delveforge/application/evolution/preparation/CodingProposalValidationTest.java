@@ -19,9 +19,15 @@ class CodingProposalValidationTest {
     private final ExecutionPreparationBasis basis = new ExecutionPreparationBasis(planId, stepId, new WorkingCopyId("copy"), "A");
     private final EvolutionStep step = EvolutionStep.reconstitute(stepId, planId, "goal", "scope",
             List.of("change"), List.of(), List.of("criterion one", "criterion two"), EvolutionStepStatus.READY);
+    private Map<String, String> checkedOriginals;
     private final WorkingCopyInspectionPort inspection = new WorkingCopyInspectionPort() {
         public void requireTrustedState(WorkspaceRef ref, WorkspaceRef source, String revision) { throw new AssertionError(); }
         public void requireSafePaths(WorkspaceRef ref, List<String> paths) {}
+        public void requireExactSourceText(WorkspaceRef ref, String revision, Map<String, String> originals) {
+            assertEquals("managed", ref.value());
+            assertEquals("A", revision);
+            checkedOriginals = Map.copyOf(originals);
+        }
     };
 
     private CodingProposal proposal(String patch, List<String> targets, String revision) {
@@ -37,6 +43,29 @@ class CodingProposalValidationTest {
 
     private static String replace(String path) {
         return "--- a/" + path + "\n+++ b/" + path + "\n@@ -1 +1 @@\n-old\n+new\n";
+    }
+
+    private static String add(String path) {
+        return "--- /dev/null\n+++ b/" + path + "\n@@ -0,0 +1 @@\n+new\n";
+    }
+
+    @Test void rejectsAncestorDescendantTargetsIncludingWindowsCaseAliases() {
+        for (List<String> targets : List.of(List.of("src/New.java", "src/New.java/Child.java"),
+                List.of("SRC/new.JAVA/Child.java", "src/New.java"))) {
+            String patch = targets.stream().map(CodingProposalValidationTest::add).reduce("", String::concat);
+            assertThrows(AiGatewayException.class, () -> validate(proposal(patch, targets, "A"),
+                    Map.of(), Set.of(), Set.of()));
+        }
+        List<String> siblings = List.of("src/New.java", "src/Other.java");
+        assertNotNull(validate(proposal(add(siblings.get(0)) + add(siblings.get(1)), siblings, "A"),
+                Map.of(), Set.of(), Set.of()));
+    }
+
+    @Test void checksExactBlobTextOnlyForExistingModifiedTargetsAtTheInvocationRevision() {
+        List<String> targets = List.of("src/A", "src/New.java");
+        assertNotNull(validate(proposal(replace("src/A") + add("src/New.java"), targets, "A"),
+                Map.of("src/A", "old\n", "src/Unused", "not modified\n"), Set.of(), Set.of("src/A", "src/Unused")));
+        assertEquals(Map.of("src/A", "old\n"), checkedOriginals);
     }
 
     @Test void rejectsUnsafeInternalAndWindowsAliasedPaths() {

@@ -204,6 +204,7 @@ public final class StepRepositoryUnderstanding {
                     if (bytes > limits.maxFileBytes() || readBytes + bytes > limits.maxTotalBytes()) {
                         throw new ExecutionPreparationBudgetExceededException("Actual source bytes exceed budget");
                     }
+                    // M2 字符串读取可能有损；已有修改目标在提案返回前另由 Workspace 核对真实 blob。
                     raw.put(path, content);
                     readBytes += bytes;
                     return content;

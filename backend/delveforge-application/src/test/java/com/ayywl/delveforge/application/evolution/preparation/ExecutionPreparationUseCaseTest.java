@@ -107,6 +107,11 @@ class ExecutionPreparationUseCaseTest {
             }
         }
         public void requireSafePaths(WorkspaceRef ref, List<String> paths) { assertEquals("managed", ref.value()); }
+        public void requireExactSourceText(WorkspaceRef ref, String revision, Map<String, String> originals) {
+            assertEquals("managed", ref.value());
+            assertEquals("trusted", revision);
+            originals.forEach((path, content) -> assertEquals(files.get(path), content));
+        }
     }
 
     private static final class Gateway implements AiGateway {

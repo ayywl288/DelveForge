@@ -13,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -71,6 +73,7 @@ class EvolutionStepPreparationApiIntegrationTest {
         Files.createDirectories(source);
         git(source, "init", "-q");
         Files.writeString(source.resolve("A.java"), "old\n");
+        Files.write(source.resolve("Legacy.java"), "caf\u00e9\n".getBytes(StandardCharsets.ISO_8859_1));
         Files.writeString(source.resolve("application.yml"), "password: CANARY-DB-PASSWORD-0001\n");
         Files.writeString(source.resolve(".env"), "SECRET=never-send\n");
         git(source, "add", ".");
@@ -118,15 +121,83 @@ class EvolutionStepPreparationApiIntegrationTest {
     }
 
     private void readyAndUnchanged() throws Exception {
-        mvc.perform(get("/api/evolution-plans/{id}", planId)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.steps[0].status").value("READY"))
-                .andExpect(jsonPath("$.steps[0].baselineRevision").isEmpty());
+        assertMetadata(EvolutionStepStatus.READY);
         assertEquals("old\n", Files.readString(copy.resolve("A.java")).replace("\r\n", "\n"));
+    }
+
+    private void assertMetadata(EvolutionStepStatus expectedStatus) throws Exception {
+        mvc.perform(get("/api/evolution-plans/{id}", planId)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value(expectedStatus.name()))
+                .andExpect(jsonPath("$.steps[0].baselineRevision").isEmpty());
         assertEquals(revision, git(copy, "rev-parse", "HEAD").trim());
         WorkingCopy state = copies.findById(new WorkingCopyId(plans.findById(new EvolutionPlanId(planId)).orElseThrow().workingCopyId())).orElseThrow();
         assertEquals(revision, state.currentRevision());
         assertEquals(revision, state.lastVerifiedRevision());
         assertEquals(WorkingCopyStatus.READY, state.status());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"--assume-unchanged", "--skip-worktree"})
+    void hiddenWorkingTreeChangesBlockBothConfirmationAndPreparationWithoutChangingIndex(String flag) throws Exception {
+        Map<String, String> beforeSource = snapshot(source);
+        byte[] original = Files.readAllBytes(copy.resolve("A.java"));
+        git(copy, "update-index", flag, "--", "A.java");
+        Files.writeString(copy.resolve("A.java"), "hidden edit\n");
+        assertTrue(git(copy, "--no-optional-locks", "-c", "core.fsmonitor=false", "status", "--porcelain=v1").isEmpty());
+        Map<String, String> beforeConfirmation = snapshot(copy);
+        mvc.perform(post(route("confirm"))).andExpect(status().isConflict());
+        assertMetadata(EvolutionStepStatus.PENDING_CONFIRMATION);
+        verifyNoInteractions(ai);
+        assertEquals(beforeSource, snapshot(source));
+        assertEquals(beforeConfirmation, snapshot(copy));
+
+        git(copy, "update-index", flag.replace("--", "--no-"), "--", "A.java");
+        Files.write(copy.resolve("A.java"), original);
+        confirm();
+        git(copy, "update-index", flag, "--", "A.java");
+        Files.writeString(copy.resolve("A.java"), "hidden edit\n");
+        Map<String, String> beforePreparation = snapshot(copy);
+        mvc.perform(post(route("execution-preparation"))).andExpect(status().isConflict());
+        assertMetadata(EvolutionStepStatus.READY);
+        verifyNoInteractions(ai);
+        assertEquals(beforeSource, snapshot(source));
+        assertEquals(beforePreparation, snapshot(copy));
+    }
+
+    @Test void rejectsPatchAgainstLossilyDecodedNonUtf8BlobWithoutChangingRepositoriesOrState() throws Exception {
+        confirm();
+        String decoded = "caf\ufffd\n";
+        String patch = "--- a/Legacy.java\n+++ b/Legacy.java\n@@ -1 +1 @@\n-" + decoded + "+new\n";
+        String coding = mapper.writeValueAsString(Map.of("type", "CHANGE_PROPOSAL", "expectedRevision", revision,
+                "summary", "Schedule reports", "declaredAffectedPaths", List.of("Legacy.java"), "unifiedDiff", patch,
+                "verificationStrategy", List.of(Map.of("action", "TEST", "target", "", "criterionIndexes", List.of(1)))));
+        when(ai.generate(any())).thenAnswer(invocation -> {
+            AiRequest request = invocation.getArgument(0);
+            JsonNode payload = mapper.readTree(request.messages().stream().filter(message -> message.role() == AiRole.USER)
+                    .findFirst().orElseThrow().content());
+            if (payload.has("sourceFiles")) {
+                assertTrue(request.messages().toString().contains("caf\ufffd"));
+                return coding;
+            }
+            String ref = "";
+            for (JsonNode file : payload.path("fileCatalog")) {
+                if (file.path("path").asText().equals("Legacy.java")) {
+                    ref = file.path("reference").asText();
+                }
+            }
+            assertFalse(ref.isEmpty());
+            return mapper.writeValueAsString(Map.of("focusAreas", List.of(
+                    Map.of("label", "code", "fileRefs", List.of(ref)),
+                    Map.of("label", "behavior", "fileRefs", List.of(ref)),
+                    Map.of("label", "test", "fileRefs", List.of(ref)))));
+        });
+        Map<String, String> beforeSource = snapshot(source);
+        Map<String, String> beforeCopy = snapshot(copy);
+        mvc.perform(post(route("execution-preparation"))).andExpect(status().isConflict());
+        readyAndUnchanged();
+        assertEquals(beforeSource, snapshot(source));
+        assertEquals(beforeCopy, snapshot(copy));
+        verify(ai, times(2)).generate(any());
     }
 
     @Test void confirmationPersistsAndPreparedPatchIsExecutableWithoutChangingEitherRepository() throws Exception {
