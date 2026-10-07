@@ -100,8 +100,8 @@ final class InMemoryWorkspace implements WorkspaceReadPort, WorkspaceMutationPor
     }
 
     @Override
-    public void writeFile(WorkspaceRef workspace, String relativePath, String content) {
-        files.put(relativePath, content);
+    public CandidateMutationResult applyCandidate(AuthorizedStepExecution execution) {
+        throw new UnsupportedOperationException("Read fixture cannot manufacture authorized evolution");
     }
 
     /** 内容的字节数，与真实 Adapter 由 git 给出的 blob 大小口径一致。 */

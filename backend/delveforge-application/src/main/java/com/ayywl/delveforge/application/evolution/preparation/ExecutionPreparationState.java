@@ -68,6 +68,33 @@ public final class ExecutionPreparationState {
         return actual;
     }
 
+    public Loaded requireCheckpoint(Loaded expected, EvolutionStepId stepId, String physicalRevision) {
+        EvolutionPlan plan = plans.findById(expected.plan().id())
+                .orElseThrow(() -> new EvolutionPlanNotFoundException(expected.plan().id()));
+        WorkingCopy copy = copies.findById(expected.copy().id())
+                .orElseThrow(() -> new WorkingCopyNotFoundException(expected.copy().id()));
+        SoftwareAsset asset = assets.findById(plan.baseAssetId())
+                .orElseThrow(() -> new SoftwareAssetNotFoundException(plan.baseAssetId()));
+        EvolutionStep step = plan.step(stepId);
+        EvolutionStep previous = expected.plan().step(stepId);
+        new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
+        if (plan.status() != EvolutionPlanStatus.ACTIVE
+                || !Objects.equals(plan.workingCopyId(), expected.plan().workingCopyId())
+                || directions.findById(plan.productDirectionId()).orElseThrow().status() != ProductDirectionStatus.SELECTED
+                || step.status() != previous.status() || !Objects.equals(step.baselineRevision(), previous.baselineRevision())
+                || !Objects.equals(step.executionResult(), previous.executionResult())
+                || !Objects.equals(step.verificationResult(), previous.verificationResult())
+                || copy.status() != expected.copy().status()
+                || !Objects.equals(copy.currentRevision(), expected.copy().currentRevision())
+                || !Objects.equals(copy.lastVerifiedRevision(), expected.copy().lastVerifiedRevision())
+                || !copy.location().equals(expected.copy().location())
+                || !asset.location().equals(expected.asset().location())) {
+            throw new EvolutionPlanStateException("Execution checkpoint changed");
+        }
+        inspection.requireTrustedState(new WorkspaceRef(copy.location()), new WorkspaceRef(asset.location()), physicalRevision);
+        return new Loaded(plan, copy, asset);
+    }
+
     public record Loaded(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset asset) {
         public ExecutionPreparationBasis basis(EvolutionStepId id) {
             return new ExecutionPreparationBasis(plan.id(), id, copy.id(), copy.lastVerifiedRevision());

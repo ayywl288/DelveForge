@@ -15,19 +15,13 @@ package com.ayywl.delveforge.application.port.workspace;
  * </pre>
  *
  * <p>调用方必须传入当前已授权的 Evolution Step 所绑定 Working Copy 对应的
- * {@link WorkspaceRef}，不得对原始 Software Asset 调用本接口（RULE-DOM-005）。
- * 写能力不等于无限制文件系统访问：具体作用范围由 Adapter 依据该句柄限定。
+ * {@link AuthorizedStepExecution}，不得对原始 Software Asset 调用本接口（RULE-DOM-005）。
+ * 写能力不等于无限制文件系统访问：具体作用范围由 Adapter 依据绑定副本和校验补丁限定。
  *
  * <p>实现由 Infrastructure 层提供。
  */
 public interface WorkspaceMutationPort {
 
-    /**
-     * 把内容写入 Workspace 中的一个文件，已存在时覆盖。
-     *
-     * @param workspace    目标 Workspace，必须是当前 Evolution Step 绑定的 Working Copy
-     * @param relativePath 相对于 Workspace 根目录的文件路径
-     * @param content      文件内容
-     */
-    void writeFile(WorkspaceRef workspace, String relativePath, String content);
+    /** 只应用已授权检查点绑定的校验提案，返回独立检查后的实际 Candidate 事实。 */
+    CandidateMutationResult applyCandidate(AuthorizedStepExecution execution);
 }

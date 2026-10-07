@@ -115,6 +115,44 @@ public final class EvolutionPlan {
         workingCopyId = copy.id();
     }
 
+    public void startStep(EvolutionStepId id, WorkingCopy copy, StepExecutionPolicy policy) {
+        policy.requireExecutionAllowed(this, id, copy);
+        // M4 尚无自然语言前置条件证明器；不能把 AI 的判断作为满足条件的事实。
+        if (!step(id).preconditions().isEmpty()) {
+            throw new EvolutionPlanStateException("External Step Preconditions cannot yet be established for execution");
+        }
+        copy.startEvolution();
+        step(id).start(copy.lastVerifiedRevision());
+    }
+
+    private void requireExecutionOwner(WorkingCopy copy) {
+        if (status != EvolutionPlanStatus.ACTIVE || !copy.id().value().equals(workingCopyId())
+                || !copy.sourceAssetId().equals(baseAssetId)) {
+            throw new EvolutionPlanStateException("Execution checkpoint no longer belongs to the ACTIVE Plan");
+        }
+    }
+
+    public void recordExecution(EvolutionStepId id, WorkingCopy copy, ExecutionResult result) {
+        requireExecutionOwner(copy);
+        EvolutionStep step = step(id);
+        if (step.status() != EvolutionStepStatus.EXECUTING || result == null
+                || step.baselineRevision().equals(result.candidateRevision())) {
+            throw new EvolutionPlanStateException("Invalid execution checkpoint");
+        }
+        copy.requireCheckpoint(step.baselineRevision(), step.baselineRevision());
+        copy.recordCandidate(step.baselineRevision(), result.candidateRevision());
+        step.recordExecution(result);
+    }
+
+    public void succeedStep(EvolutionStepId id, WorkingCopy copy, VerificationResult result) {
+        requireExecutionOwner(copy);
+        EvolutionStep step = step(id);
+        step.requireVerificationAccepted(result);
+        copy.requireCheckpoint(step.baselineRevision(), result.candidateRevision());
+        copy.trustCandidate(step.baselineRevision(), result.candidateRevision());
+        step.succeed(result);
+    }
+
     public void activate(PlanActivationPolicy policy, WorkingCopy copy,
             ProductDirection direction,
             SoftwareAsset asset,

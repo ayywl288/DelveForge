@@ -12,6 +12,13 @@ public class EvolutionStepDO {
     private String scope;
     private String status;
     private String baselineRevision;
+    private String executionResult;
+    private String verificationResult;
+
+    public String getExecutionResult() { return executionResult; }
+    public void setExecutionResult(String value) { executionResult = value; }
+    public String getVerificationResult() { return verificationResult; }
+    public void setVerificationResult(String value) { verificationResult = value; }
 
     public String getId() {
         return id;

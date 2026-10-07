@@ -962,6 +962,37 @@ Verification strategy 只描述 HOW，动作限定 BUILD / TEST / FOCUSED_TEST /
 这只是结构与引用覆盖校验，不能证明语义 scope、外部 Preconditions 或 Verification Criteria 已满足。
 Task 1 不应用补丁、不生成 Candidate、不推进 revision、不开始执行或运行最终 Verification。
 
+**Controlled Execution / Verification（M4 Task 2）**
+
+`POST /api/evolution-plans/{planId}/steps/{stepId}/execute` 在同一调用中复用 Task 1
+准备链路，再次核对 READY / ACTIVE、绑定、授权、前序 Step 与实际可信 revision。
+客户端不能通过回传准备响应来制造 `ValidatedExecutionProposal` 或新的 Proposal approval。
+内部编排也可消费由 Application 校验器构造的调用内提案，但必须重新核对其完整依据。
+
+mutation 接收 `AuthorizedStepExecution`，绑定 EXECUTING 检查点、WorkingCopy、原资产位置、
+可信基线和校验补丁。GitWorkspaceAdapter 只在托管副本中检查并应用该补丁，独立检查实际
+路径与完整修改，再通过 `commit-tree` / `update-ref` 创建一个本地 Candidate B；不运行提交
+hooks，不 push。物理 diff 由 A..B 保留，领域结果只存实际路径、变化统计和时间。
+
+独立 `WorkspaceVerificationPort` 解析有限验证意图。当前实现选择支持真实 A..B
+`DIFF_CHECK`，以及有根 pom.xml / Maven Wrapper 的离线 BUILD、TEST、FOCUSED_TEST；
+不支持的仓库或 target 失败关闭。定向测试仅接受类名或类名#方法名，不能传入 shell / Maven 参数。
+构建与测试在托管副本 `.git` 内本次独立 clone 的精确 B 上运行，检查前后核对 revision、
+受跟踪内容和隐藏 index 标志。临时产物不进入 WorkingCopy 的领域状态；删除仅限本次私有目录。
+这些运行目录不是新的 WorkingCopy Aggregate，也不改变 M3 的隔离副本策略。
+
+验证动作数、单动作 / 调用时间及输出受 `delveforge.workspace.verification` 配置限制。
+Maven 测试还要求本次产生非空、无失败的 Surefire 报告；旧报告、零测试或全 skipped 不能作为成功证据。
+报告读取禁用外部 XML 引用，当前最多 100 份，累计字节不超过输出预算。领域数据与日志不保存
+完整 stdout / stderr、报告正文或源码。Domain 要求同一 B、全部既有 Criteria 的索引覆盖与所有检查通过；
+Criteria 到检查的语义选择仍由 AI 提案，不能把结构覆盖宣称为任意自然语言条件的自动证明。
+
+SQLite 在三个事务检查点同时条件更新 Step 与 WorkingCopy：
+READY → EXECUTING（冻结 A、EVOLVING）；EXECUTING → VERIFYING（ExecutionResult B、current B）；
+VERIFYING → SUCCEEDED（VerificationResult B、lastVerified B）。提交前在隔离对象上完成领域转换，
+事务比较当前生命周期、revision、Plan / Direction / Asset 授权依据。外部操作与数据库不形成一个事务；
+异常保留最后完整检查点，未解决流程或物理 / 持久 revision 不一致会阻止继续执行。M5 实现完整失败转换。
+
 ## 7. Dependency Rules
 
 本节描述代码模块之间允许存在的依赖方向，而不是系统运行时的调用顺序。
@@ -989,7 +1020,7 @@ Evolution ──────────┬────────────�
 - Repository Analysis 只能依赖 Workspace 的只读能力，不得获得代码写入、删除或修改权限。
 - Opportunity Discovery 不得直接修改 Repository，也不应依赖 Workspace 的写能力。
 - Evolution Execution 是 MVP 中唯一允许请求 Workspace 写能力的业务流程。
-- Workspace 在 Application 层使用互不继承的能力 Port：WorkspaceReadPort（只读）、WorkingCopyProvisioningPort（M3 环境准备）、WorkingCopyInspectionPort（M4 执行准备的只读检查）、WorkspaceMutationPort（未来步骤代码修改）。GitWorkspaceAdapter 实现读取、准备和检查，不实现步骤修改。取舍、已知缺口与 M3 / M4 Task 1 refinement 见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
+- Workspace 在 Application 层使用互不继承的能力 Port：WorkspaceReadPort（只读）、WorkingCopyProvisioningPort（M3 环境准备）、WorkingCopyInspectionPort（只读检查）、WorkspaceMutationPort（受控步骤修改）、WorkspaceVerificationPort（有限验证）。GitWorkspaceAdapter 实现读取、准备、检查和修改；独立验证 Adapter 实现验证。只读流程仍只获得读取能力。授权作用域与 M3 / M4 refinement 见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
 - Application / Agent Orchestrator 可以协调各业务模块，但业务模块不得反向依赖 Orchestrator。
 - 跨模块协作应通过公开接口和明确的数据模型完成，不得通过直接读取或修改其他模块拥有的数据库表实现。
 - 禁止循环依赖。

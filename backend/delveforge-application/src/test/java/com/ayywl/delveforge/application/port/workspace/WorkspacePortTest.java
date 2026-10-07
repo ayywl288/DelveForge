@@ -89,14 +89,15 @@ class WorkspacePortTest {
     }
 
     @Test
-    void mutationIsVisibleThroughReadCapability() {
-        InMemoryWorkspace workspace = workspace();
-        WorkspaceReadPort read = workspace;
-        WorkspaceMutationPort mutation = workspace;
-
-        mutation.writeFile(WORKSPACE, "src/main/App.java", "class App { /* evolved */ }");
-
-        assertEquals("class App { /* evolved */ }", read.readFile(WORKSPACE, REVISION, "src/main/App.java"));
+    void mutationRequiresAnAuthorizedExecutionInsteadOfArbitraryFileWrites() throws Exception {
+        assertEquals(CandidateMutationResult.class, WorkspaceMutationPort.class
+                .getMethod("applyCandidate", AuthorizedStepExecution.class).getReturnType());
+        assertThrows(NoSuchMethodException.class, () -> WorkspaceMutationPort.class
+                .getMethod("writeFile", WorkspaceRef.class, String.class, String.class));
+        for (Class<?> other : List.of(WorkspaceReadPort.class, WorkingCopyProvisioningPort.class, WorkspaceMutationPort.class)) {
+            assertFalse(other.isAssignableFrom(WorkspaceVerificationPort.class));
+            assertFalse(WorkspaceVerificationPort.class.isAssignableFrom(other));
+        }
     }
 
     /**

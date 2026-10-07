@@ -842,9 +842,12 @@ M3 不再追加优化或 cleanup，除非发现具体阻塞 M4 的正确性问�
 
 M4 Task 1 已交付显式确认、Step 专属只读 Repository Understanding、有限 Context Expansion、
 Coding Proposal 和确定性校验，步骤保持 READY，baselineRevision 为空，WorkingCopy revision 不变。
-后续 Task 2 才接入受控 mutation、baselineRevision、Candidate State、Verification 与 revision 推进，
-以及 M4 所需的失败安全边界。本次停止在 Task 1。
-完整 Failure / Repair / Retry / Recovery 流程仍属于 M5。
+Task 2 已接入受控 mutation、执行时冻结 baselineRevision、单个本地 Candidate revision、
+独立有限 Verification、三个原子检查点与成功后的可信 revision 推进。异常保留最后完整
+EXECUTING / VERIFYING 检查点并阻止继续演化，不模拟失败转换或回滚。
+当前验证支持 Git diff 与根 Maven Wrapper 离线构建 / 测试；无法证明的非空 Preconditions
+及不支持的验证意图保守拒绝。Task 2 停止后等待审查，不启动 M4 milestone smoke、复盘或 M5。
+完整 Failure / Repair / Retry / Rollback / Recovery 流程仍属于 M5。
 继续采用「设计讨论 → 相对完整的垂直切片 → 里程碑级审查 → 聚焦修正 → 一次真实 smoke
 → 复盘」，具体保留与调整见 M3 复盘 §E–F。
 

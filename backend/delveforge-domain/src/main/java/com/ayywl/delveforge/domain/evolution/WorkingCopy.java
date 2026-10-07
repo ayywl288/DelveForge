@@ -4,7 +4,7 @@ import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 
 /**
  * 独立 Aggregate 只保存元数据，不承担 Git 或文件系统操作。
- * M3 仅创建初始 READY WorkingCopy，尚未实现后续 revision 演化。
+ * Execution 与 Verification 保持当前 revision 和可信 revision 的区别。
  */
 public final class WorkingCopy {
     private final WorkingCopyId id;
@@ -63,6 +63,38 @@ public final class WorkingCopy {
 
     public WorkingCopyId id() {
         return id;
+    }
+
+    public WorkingCopy copy() {
+        return reconstitute(id, sourceAssetId, sourceRevision, location, currentRevision, lastVerifiedRevision, status);
+    }
+
+    void startEvolution() {
+        if ((status != WorkingCopyStatus.READY && status != WorkingCopyStatus.EVOLVING)
+                || currentRevision == null || !currentRevision.equals(lastVerifiedRevision)) {
+            throw new EvolutionPlanStateException("Evolution requires a trusted Working Copy");
+        }
+        status = WorkingCopyStatus.EVOLVING;
+    }
+
+    void requireCheckpoint(String baseline, String current) {
+        if (status != WorkingCopyStatus.EVOLVING || !baseline.equals(lastVerifiedRevision)
+                || !current.equals(currentRevision)) {
+            throw new EvolutionPlanStateException("Working Copy does not match the Step checkpoint");
+        }
+    }
+
+    void recordCandidate(String baseline, String candidate) {
+        requireCheckpoint(baseline, baseline);
+        if (baseline.equals(candidate)) {
+            throw new EvolutionPlanStateException("Candidate must differ from baseline");
+        }
+        currentRevision = candidate;
+    }
+
+    void trustCandidate(String baseline, String candidate) {
+        requireCheckpoint(baseline, candidate);
+        lastVerifiedRevision = candidate;
     }
 
     public SoftwareAssetId sourceAssetId() {

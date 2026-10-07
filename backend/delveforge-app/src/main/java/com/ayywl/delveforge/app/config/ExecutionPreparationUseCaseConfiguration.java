@@ -15,6 +15,14 @@ import org.springframework.context.annotation.Configuration;
 @EnableConfigurationProperties(ExecutionPreparationProperties.class)
 public class ExecutionPreparationUseCaseConfiguration {
     @Bean
+    public com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase executeEvolutionStepUseCase(
+            PrepareEvolutionStepUseCase preparation, ExecutionPreparationState state, StepExecutionPolicy policy,
+            StepExecutionCommitPort commits, WorkspaceMutationPort mutation, WorkspaceVerificationPort verification) {
+        return new com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase(
+                preparation, state, policy, commits, mutation, verification);
+    }
+
+    @Bean
     public StepExecutionPolicy stepExecutionPolicy() {
         return new StepExecutionPolicy();
     }

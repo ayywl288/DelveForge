@@ -14,6 +14,9 @@ public final class EvolutionStep {
     private final List<String> preconditions;
     private final List<String> verificationCriteria;
     private EvolutionStepStatus status = EvolutionStepStatus.PENDING_CONFIRMATION;
+    private String baselineRevision;
+    private ExecutionResult executionResult;
+    private VerificationResult verificationResult;
 
     private EvolutionStep(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
             List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria) {
@@ -54,7 +57,64 @@ public final class EvolutionStep {
     }
 
     EvolutionStep copy() {
-        return reconstitute(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria, status);
+        return reconstitute(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria,
+                status, baselineRevision, executionResult, verificationResult);
+    }
+
+    public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
+            List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria,
+            EvolutionStepStatus status, String baseline, ExecutionResult execution, VerificationResult verification) {
+        EvolutionStep step = reconstitute(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
+        boolean prepared = status == EvolutionStepStatus.PENDING_CONFIRMATION || status == EvolutionStepStatus.READY;
+        boolean executing = status == EvolutionStepStatus.EXECUTING;
+        boolean verifying = status == EvolutionStepStatus.VERIFYING;
+        boolean succeeded = status == EvolutionStepStatus.SUCCEEDED;
+        if ((!prepared && !executing && !verifying && !succeeded)
+                || (prepared && (baseline != null || execution != null || verification != null))
+                || (!prepared && (baseline == null || baseline.isBlank()))
+                || (executing && (execution != null || verification != null))
+                || ((verifying || succeeded) && (execution == null || baseline.equals(execution.candidateRevision())))
+                || (verifying && verification != null)
+                || (succeeded && (verification == null || !execution.candidateRevision().equals(verification.candidateRevision())
+                    || !verification.satisfies(step.verificationCriteria)))) {
+            throw new EvolutionPlanStateException("Incomplete stored Step checkpoint");
+        }
+        step.status = status;
+        step.baselineRevision = baseline;
+        step.executionResult = execution;
+        step.verificationResult = verification;
+        return step;
+    }
+
+    void start(String baseline) {
+        if (status != EvolutionStepStatus.READY || baselineRevision != null) {
+            throw new EvolutionPlanStateException("Only a READY Step can freeze its first baseline");
+        }
+        baselineRevision = PlanningContent.text(baseline, "baselineRevision");
+        status = EvolutionStepStatus.EXECUTING;
+    }
+
+    void recordExecution(ExecutionResult result) {
+        if (status != EvolutionStepStatus.EXECUTING || result == null
+                || baselineRevision.equals(result.candidateRevision())) {
+            throw new EvolutionPlanStateException("Complete execution must create a new Candidate");
+        }
+        executionResult = result;
+        status = EvolutionStepStatus.VERIFYING;
+    }
+
+    void requireVerificationAccepted(VerificationResult result) {
+        if (status != EvolutionStepStatus.VERIFYING || result == null
+                || !executionResult.candidateRevision().equals(result.candidateRevision())
+                || !result.satisfies(verificationCriteria)) {
+            throw new EvolutionPlanStateException("Candidate verification does not satisfy every Step criterion");
+        }
+    }
+
+    void succeed(VerificationResult result) {
+        requireVerificationAccepted(result);
+        verificationResult = result;
+        status = EvolutionStepStatus.SUCCEEDED;
     }
 
     void confirm() {
@@ -97,6 +157,9 @@ public final class EvolutionStep {
     }
 
     public String baselineRevision() {
-        return null;
+        return baselineRevision;
     }
+
+    public ExecutionResult executionResult() { return executionResult; }
+    public VerificationResult verificationResult() { return verificationResult; }
 }

@@ -247,6 +247,20 @@ GitWorkspaceAdapter 在既有读取与准备之外实现此检查能力，仍不
 确认只持久化 READY；调用内理解与已校验提案不设置 baselineRevision，不开始 Execution。
 mutation 的授权作用域与最终执行入口仍按上述 Revisit Conditions 留待 Task 2。
 
+## M4 Task 2 refinement — 2026-10-07
+
+真实 mutation 采用 Option E 的作用域绑定：`AuthorizedStepExecution` 由完整 EXECUTING
+检查点与调用内 `ValidatedExecutionProposal` 建立，包含绑定副本、原资产位置、Step 身份和
+固定基线。它不替代 mutation 前的 Application 资格重读或 Adapter 的实际托管 / revision 检查。
+占位 writeFile 接口被完整补丁应用、实际范围检查和本地 Candidate 创建的窄操作替代。
+
+`WorkspaceVerificationPort` 与其他 Port 独立且互不继承，只接受固定 Candidate 与有限验证意图。
+Git / Maven 命令由 Infrastructure 基于仓库事实解析，不接收任意 shell。只读流程仍不持有写入或验证能力。
+临时验证 checkout 是本次技术产物，不是新的领域 WorkingCopy 或新的软件信任状态。
+
+业务状态与 Git 不组成跨技术事务，三个条件提交检查点保护半权威状态边界；M4 异常暂留
+最后完整检查点并 fail closed，M5 再实现 canonical 失败 / 恢复流程。
+
 ## References
 
 ```text

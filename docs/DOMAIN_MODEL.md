@@ -570,6 +570,7 @@ Evolution Plan 的分析基础来自选定 Product Direction、相关 Repository
 | Field           | Meaning                              |
 | --------------- | ------------------------------------ |
 | `changes`       | 本次实际产生的主要修改               |
+| `candidateRevision` | 完整执行形成的实际 Candidate 软件 revision，供 Verification 精确引用 |
 | `affectedPaths` | 本次修改影响的文件或代码范围         |
 | `warnings`      | 执行过程中出现但未阻止执行完成的问题 |
 | `errors`        | 执行过程中发生的错误                 |
@@ -610,6 +611,7 @@ Evolution Plan 的分析基础来自选定 Product Direction、相关 Repository
 | Field        | Meaning                              |
 | ------------ | ------------------------------------ |
 | `checks`     | 本次执行的验证项                     |
+| `candidateRevision` | 本次检查的实际 Candidate 软件 revision |
 | `passed`     | 是否满足该 Evolution Step 的验证标准 |
 | `failures`   | 未通过的验证项及原因                 |
 | `summary`    | 对整体验证结果的结构化总结           |
@@ -2296,6 +2298,13 @@ Execution 完整结束后产生 Candidate State。
 
 只有完整结束的 Execution 才能够进入 Verification。
 
+**M4 Task 2 当前实现边界：** Domain 通过明确操作冻结 baseline、接受完整 ExecutionResult
+并形成 Candidate、接受同一 Candidate 的完整 VerificationResult 后推进信任。上述三个检查点
+各自原子持久化 Step 与 WorkingCopy；baseline 冻结后不可重设，B 验证成功不再创建第二个 revision。
+当前没有自然语言 Preconditions 的事实检查器，因此执行暂只接受空 Preconditions 的 Step；
+非空条件无法证明时保留 READY 并拒绝 mutation。这是 M4 的保守实现限制，不是删除 `INV-E03`
+或将非空 Preconditions 视为已满足。M4 异常检查点遵循 §6.4，完整失败流程由 M5 实现。
+
 ### 8.11 Verify Evolution Step
 
 **Purpose**
@@ -2342,6 +2351,13 @@ WorkingCopy.currentRevision
 ```
 
 当前 Candidate State 成为新的 Verified State。
+
+**M4 Task 2 当前接受规则：** VerificationResult 必须指向当前 ExecutionResult 的 Candidate B，
+全部技术检查成功、无 failures，并通过检查的 criterionIndexes 覆盖全部既有 Verification Criteria。
+检查保留动作、target、所支持的 Criteria 与有界实际结果摘要；领域不接受缺项、矛盾结果或其他 revision。
+Criteria 定义不被策略替换，AI 负责提出对应的检查；M4 不实现通用自然语言语义证明器。
+结果、SUCCEEDED 与 lastVerifiedRevision = B 一次提交成功后才生效。
+技术失败或持久化失败按 §6.4 暂留 VERIFYING，不保存成功事实或推进可信 revision。
 
 #### Verification Failed
 

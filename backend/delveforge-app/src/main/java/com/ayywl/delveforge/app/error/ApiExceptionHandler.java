@@ -237,6 +237,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             UserProfileNotConfirmedException.class, EvolutionPlanningPreconditionException.class,
             AssetEvolutionNotAllowedException.class, EvolutionPlanAlreadyExistsException.class,
             EvolutionPlanStateException.class, EvolutionLifecycleConflictException.class, WorkingCopyBasisChangedException.class,
+            com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException.class,
             ExecutionPreparationBudgetExceededException.class, WorkingCopyTextNotExactException.class})
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiErrorResponse handleDiscoveryPreconditionConflict(

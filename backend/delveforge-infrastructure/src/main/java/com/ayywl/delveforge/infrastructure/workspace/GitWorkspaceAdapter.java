@@ -9,6 +9,14 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
+import com.ayywl.delveforge.application.port.workspace.AuthorizedStepExecution;
+import com.ayywl.delveforge.application.port.workspace.CandidateMutationResult;
+import com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.Arrays;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -36,8 +44,8 @@ import org.springframework.stereotype.Component;
  *
  * <p>读取和准备能力通过独立 Port 暴露：所有 Git 调用都发生在 Infrastructure
  * 内部（RULE-ARCH-009），Domain 与 Application 只看到 {@link WorkspaceReadPort}
- * 与相对路径。它不实现 {@code WorkspaceMutationPort}，因此 Repository Analysis
- * 等只读流程在类型层面拿不到任何修改能力（RULE-ARCH-010、ADR-0001）。
+ * 与相对路径。M4 写能力通过独立 {@code WorkspaceMutationPort} 暴露，Repository Analysis
+ * 仍只依赖读取 Port，在类型层面拿不到修改能力（RULE-ARCH-010、ADR-0001）。
  *
  * <h2>读取的是已提交内容，不是工作区</h2>
  *
@@ -82,7 +90,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @EnableConfigurationProperties(WorkspaceProperties.class)
-public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvisioningPort, WorkingCopyInspectionPort {
+public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvisioningPort, WorkingCopyInspectionPort, WorkspaceMutationPort {
 
     private static final Logger log = LoggerFactory.getLogger(GitWorkspaceAdapter.class);
 
@@ -219,6 +227,66 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         } catch (IOException failure) {
             throw new WorkspaceException("Cannot inspect managed root", failure);
         }
+    }
+
+    @Override
+    public CandidateMutationResult applyCandidate(AuthorizedStepExecution execution) {
+        WorkspaceRef copy = execution.workingCopy();
+        String baseline = execution.validated().basis().expectedRevision();
+        var proposal = execution.validated().proposal();
+        requireTrustedState(copy, execution.originalAsset(), baseline);
+        requireSafePaths(copy, proposal.declaredAffectedPaths());
+        Path target = requireManagedCopy(copy);
+        Path patch = null;
+        try {
+            patch = Files.createTempFile(target.resolve(".git"), "delveforge-patch-", ".diff");
+            Files.writeString(patch, proposal.unifiedDiff(), StandardCharsets.UTF_8);
+            mutationGit(target, "apply", "--check", "--index", "--whitespace=nowarn", "--", patch.toString());
+            requireTrustedState(copy, execution.originalAsset(), baseline);
+            mutationGit(target, "apply", "--index", "--whitespace=nowarn", "--", patch.toString());
+
+            List<String> actual = Arrays.stream(mutationGit(target, "diff", "--cached", "--no-ext-diff", "--no-renames",
+                    "--name-only", "-z", baseline, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
+            if (!new HashSet<>(actual).equals(new HashSet<>(proposal.declaredAffectedPaths()))
+                    || !mutationGit(target, "diff", "--no-ext-diff", "--name-only", "-z", "--").isEmpty()
+                    || !mutationGit(target, "ls-files", "--others", "--exclude-standard", "-z").isEmpty()
+                    || !mutationGit(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z").isEmpty()
+                    || !baseline.equals(headRevision(copy))) {
+                throw new EvolutionExecutionException("Actual Working Copy change differs from the authorized scope");
+            }
+            requireSafePaths(copy, actual);
+            List<String> changes = mutationGit(target, "diff", "--cached", "--no-ext-diff", "--no-renames",
+                    "--numstat", baseline, "--").lines().toList();
+            String tree = mutationGit(target, "write-tree").trim();
+            String candidate = mutationGit(target, "-c", "user.name=DelveForge", "-c", "user.email=local@delveforge.invalid",
+                    "-c", "commit.gpgSign=false", "commit-tree", tree, "-p", baseline,
+                    "-m", "DelveForge evolution step " + execution.validated().basis().stepId().value()).trim();
+            // update-ref 的旧值核对防止并发 HEAD 漂移；commit-tree 不运行提交 hooks。
+            mutationGit(target, "update-ref", "HEAD", candidate, baseline);
+            requireTrustedState(copy, execution.originalAsset(), candidate);
+            return new CandidateMutationResult(candidate, actual, changes, List.of(), Instant.now());
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot materialize controlled proposal patch", failure);
+        } finally {
+            if (patch != null) {
+                try {
+                    Files.deleteIfExists(patch);
+                } catch (IOException failure) {
+                    throw new WorkspaceException("Cannot remove invocation patch artifact", failure);
+                }
+            }
+        }
+    }
+
+    private String mutationGit(Path directory, String... arguments) {
+        List<String> command = new ArrayList<>(List.of("git", "--no-optional-locks", "-c", "core.fsmonitor=false",
+                "-c", "core.hooksPath=" + directory.resolve(".git/delveforge-disabled-hooks"), "-C", directory.toString()));
+        command.addAll(List.of(arguments));
+        var result = WorkspaceCommandRunner.run(directory, command, Duration.ofSeconds(30), 1048576);
+        if (!result.succeeded()) {
+            throw new EvolutionExecutionException("Controlled Git mutation did not complete (exit " + result.exitCode() + ")");
+        }
+        return result.output();
     }
 
     private Path requireManagedCopy(WorkspaceRef copy) {

@@ -143,8 +143,10 @@ final class RecordingWorkspace implements WorkspaceReadPort, WorkspaceMutationPo
     }
 
     @Override
-    public void writeFile(WorkspaceRef workspace, String relativePath, String content) {
+    public com.ayywl.delveforge.application.port.workspace.CandidateMutationResult applyCandidate(
+            com.ayywl.delveforge.application.port.workspace.AuthorizedStepExecution execution) {
         mutationCalls++;
+        throw new AssertionError("Repository Analysis must not request mutation");
     }
 
     private Map<String, String> filesOf(String revision) {
