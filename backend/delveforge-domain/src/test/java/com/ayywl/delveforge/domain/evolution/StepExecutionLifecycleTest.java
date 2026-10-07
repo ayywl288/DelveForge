@@ -7,6 +7,8 @@ import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import static org.junit.jupiter.api.Assertions.*;
 
 class StepExecutionLifecycleTest {
@@ -17,13 +19,16 @@ class StepExecutionLifecycleTest {
     private final StepExecutionPolicy policy = new StepExecutionPolicy();
 
     private EvolutionPlan plan(List<String> preconditions) {
+        return plan(preconditions, List.of("BUILD passes", "TEST passes"));
+    }
+    private EvolutionPlan plan(List<String> preconditions, List<String> criteria) {
         EvidenceBasis evidence = new EvidenceBasis(new Evidence(EvidenceSourceType.REPOSITORY, "src/A", "source", 0.8, true),
                 new RepositoryProfileEvidenceOrigin(new RepositoryProfileId("profile")));
         return EvolutionPlan.reconstitute(id, new ProductDirectionId("direction"), asset, new RepositoryProfileId("profile"),
                 new CurrentState("current", List.of(), List.of(), List.of()), new TargetState("problem", "target", "difference"),
                 List.of(), List.of("change"), List.of(
-                    EvolutionStep.reconstitute(first, id, "goal", "scope", List.of("change"), preconditions, List.of("one", "two")),
-                    EvolutionStep.reconstitute(second, id, "goal2", "scope2", List.of("change2"), List.of(), List.of("next"))),
+                    EvolutionStep.reconstitute(first, id, "goal", "scope", List.of("change"), preconditions, criteria),
+                    EvolutionStep.reconstitute(second, id, "goal2", "scope2", List.of("change2"), List.of(), List.of("TEST passes"))),
                 List.of(), List.of(evidence), new WorkingCopyId("copy"), EvolutionPlanStatus.ACTIVE);
     }
     private WorkingCopy copy() {
@@ -33,7 +38,8 @@ class StepExecutionLifecycleTest {
         return new ExecutionResult(revision, List.of("1 addition / 1 deletion"), List.of("src/A"), List.of(), List.of(), Instant.now());
     }
     private VerificationResult verification(String revision, boolean passed, List<Integer> criteria) {
-        return new VerificationResult(revision, List.of(new VerificationResult.Check("TEST", "", criteria, passed, "exit")),
+        return new VerificationResult(revision, criteria.stream().map(index -> new VerificationResult.Check(
+                index == 1 ? "BUILD" : "TEST", "", List.of(index), passed, "exit")).toList(),
                 passed, passed ? List.of() : List.of("failed"), "summary", Instant.now());
     }
     @Test void completePathKeepsCandidateUntrustedUntilAllCriteriaPassAndNextStepUsesB() {
@@ -91,6 +97,26 @@ class StepExecutionLifecycleTest {
                 List.of("src/A"), List.of(), List.of("partial"), Instant.now()));
         assertEquals(EvolutionStepStatus.EXECUTING, plan.step(first).status());
         assertEquals("A", copy.currentRevision());
+    }
+    @ParameterizedTest @ValueSource(strings = {"BUILD", "DIFF_CHECK", "TEST", "FOCUSED_TEST"})
+    void unsupportedBusinessEvidenceCannotPromoteCandidateOrRestoreSuccess(String action) {
+        EvolutionPlan plan = plan(List.of(), List.of("Reports run on schedule"));
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        ExecutionResult execution = execution("B");
+        plan.recordExecution(first, copy, execution);
+        VerificationResult result = new VerificationResult("B", List.of(new VerificationResult.Check(action,
+                action.equals("FOCUSED_TEST") ? "UnrelatedTest#value" : "", List.of(1), true, "Passed")),
+                true, List.of(), "Passed", Instant.now());
+        assertThrows(EvolutionPlanStateException.class, () -> plan.succeedStep(first, copy, result));
+        assertEquals(EvolutionStepStatus.VERIFYING, plan.step(first).status());
+        assertNull(plan.step(first).verificationResult());
+        assertEquals("B", copy.currentRevision());
+        assertEquals("A", copy.lastVerifiedRevision());
+        assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
+                List.of("change"), List.of(), List.of("Reports run on schedule"), EvolutionStepStatus.SUCCEEDED,
+                "A", execution, result));
     }
     @Test void unestablishedPreconditionsRejectStartWithoutFreezingOrChangingCopy() {
         EvolutionPlan plan = plan(List.of("external fact"));

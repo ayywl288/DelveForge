@@ -17,6 +17,18 @@ final class WorkspaceCommandRunner {
     }
 
     static Result run(Path directory, List<String> command, Duration timeout, int maxOutputBytes) {
+        return run(directory, command, null, timeout, maxOutputBytes);
+    }
+
+    static Result runWithIndex(Path directory, List<String> command, Path index, Duration timeout, int maxOutputBytes) {
+        if (!index.toAbsolutePath().normalize().getParent().equals(directory.resolve(".git").toAbsolutePath().normalize())
+                || !index.getFileName().toString().startsWith("delveforge-index-")) {
+            throw new WorkspaceException("Controlled index ownership mismatch");
+        }
+        return run(directory, command, index, timeout, maxOutputBytes);
+    }
+
+    private static Result run(Path directory, List<String> command, Path index, Duration timeout, int maxOutputBytes) {
         Process process;
         try {
             java.util.ArrayList<String> resolved = new java.util.ArrayList<>(command);
@@ -27,6 +39,10 @@ final class WorkspaceCommandRunner {
             // 外部 Git 定位变量不能把受控路径重定向到原仓库或另一个 index。
             builder.environment().keySet().removeIf(key -> key.startsWith("GIT_") || key.startsWith("MAVEN_")
                     || key.equals("MVNW_REPOURL") || key.equals("MVNW_USERNAME") || key.equals("MVNW_PASSWORD"));
+            if (index != null) {
+                // 仅内部拥有的临时 index 可覆盖定位；不接受外部环境提供的 Git 路径。
+                builder.environment().put("GIT_INDEX_FILE", index.toString());
+            }
             process = builder.start();
             process.getOutputStream().close();
         } catch (IOException failure) {

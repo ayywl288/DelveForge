@@ -238,26 +238,43 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         requireSafePaths(copy, proposal.declaredAffectedPaths());
         Path target = requireManagedCopy(copy);
         Path patch = null;
+        Path expectedIndex = null;
         try {
             patch = Files.createTempFile(target.resolve(".git"), "delveforge-patch-", ".diff");
             Files.writeString(patch, proposal.unifiedDiff(), StandardCharsets.UTF_8);
+            // 从不可变基线和已验证补丁独立生成预期 tree，不能以共享 index 的早期快照代替它。
+            expectedIndex = Files.createTempFile(target.resolve(".git"), "delveforge-index-", ".tmp");
+            Files.delete(expectedIndex);
+            mutationGit(target, expectedIndex, "read-tree", baseline);
+            mutationGit(target, expectedIndex, "apply", "--cached", "--whitespace=nowarn", "--", patch.toString());
+            String expectedTree = mutationGit(target, expectedIndex, "write-tree").trim();
             mutationGit(target, "apply", "--check", "--index", "--whitespace=nowarn", "--", patch.toString());
             requireTrustedState(copy, execution.originalAsset(), baseline);
             mutationGit(target, "apply", "--index", "--whitespace=nowarn", "--", patch.toString());
 
-            List<String> actual = Arrays.stream(mutationGit(target, "diff", "--cached", "--no-ext-diff", "--no-renames",
+            List<String> indexed = Arrays.stream(mutationGit(target, "diff", "--cached", "--no-ext-diff", "--no-renames",
                     "--name-only", "-z", baseline, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
-            if (!new HashSet<>(actual).equals(new HashSet<>(proposal.declaredAffectedPaths()))
+            if (!new HashSet<>(indexed).equals(new HashSet<>(proposal.declaredAffectedPaths()))
                     || !mutationGit(target, "diff", "--no-ext-diff", "--name-only", "-z", "--").isEmpty()
                     || !mutationGit(target, "ls-files", "--others", "--exclude-standard", "-z").isEmpty()
                     || !mutationGit(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z").isEmpty()
                     || !baseline.equals(headRevision(copy))) {
                 throw new EvolutionExecutionException("Actual Working Copy change differs from the authorized scope");
             }
-            requireSafePaths(copy, actual);
-            List<String> changes = mutationGit(target, "diff", "--cached", "--no-ext-diff", "--no-renames",
-                    "--numstat", baseline, "--").lines().toList();
+            requireSafePaths(copy, indexed);
             String tree = mutationGit(target, "write-tree").trim();
+            if (!tree.equals(expectedTree)) {
+                throw new EvolutionExecutionException("Candidate tree differs from the complete validated patch");
+            }
+            // 发布前只检查固定 tree；路径及执行摘要也必须来自这个不可变版本。
+            List<String> actual = Arrays.stream(mutationGit(target, "diff", "--no-ext-diff", "--no-renames",
+                    "--name-only", "-z", baseline, tree, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
+            if (!new HashSet<>(actual).equals(new HashSet<>(proposal.declaredAffectedPaths()))) {
+                throw new EvolutionExecutionException("Candidate tree exceeds the authorized scope");
+            }
+            requireSafePaths(copy, actual);
+            List<String> changes = mutationGit(target, "diff", "--no-ext-diff", "--no-renames",
+                    "--numstat", baseline, tree, "--").lines().toList();
             String candidate = mutationGit(target, "-c", "user.name=DelveForge", "-c", "user.email=local@delveforge.invalid",
                     "-c", "commit.gpgSign=false", "commit-tree", tree, "-p", baseline,
                     "-m", "DelveForge evolution step " + execution.validated().basis().stepId().value()).trim();
@@ -268,6 +285,14 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         } catch (IOException failure) {
             throw new WorkspaceException("Cannot materialize controlled proposal patch", failure);
         } finally {
+            if (expectedIndex != null) {
+                try {
+                    Files.deleteIfExists(expectedIndex);
+                    Files.deleteIfExists(Path.of(expectedIndex + ".lock"));
+                } catch (IOException failure) {
+                    throw new WorkspaceException("Cannot remove invocation index artifact", failure);
+                }
+            }
             if (patch != null) {
                 try {
                     Files.deleteIfExists(patch);
@@ -279,10 +304,15 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     }
 
     private String mutationGit(Path directory, String... arguments) {
+        return mutationGit(directory, null, arguments);
+    }
+
+    private String mutationGit(Path directory, Path index, String... arguments) {
         List<String> command = new ArrayList<>(List.of("git", "--no-optional-locks", "-c", "core.fsmonitor=false",
                 "-c", "core.hooksPath=" + directory.resolve(".git/delveforge-disabled-hooks"), "-C", directory.toString()));
         command.addAll(List.of(arguments));
-        var result = WorkspaceCommandRunner.run(directory, command, Duration.ofSeconds(30), 1048576);
+        var result = index == null ? WorkspaceCommandRunner.run(directory, command, Duration.ofSeconds(30), 1048576)
+                : WorkspaceCommandRunner.runWithIndex(directory, command, index, Duration.ofSeconds(30), 1048576);
         if (!result.succeeded()) {
             throw new EvolutionExecutionException("Controlled Git mutation did not complete (exit " + result.exitCode() + ")");
         }

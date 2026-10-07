@@ -87,31 +87,15 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                     passed = result.succeeded();
                 } else {
                     requireMaterializedCandidate(run, request.candidateRevision(), deadline);
-                    List<String> args = new ArrayList<>();
-                    if (windows()) {
-                        args.addAll(List.of("cmd.exe", "/d", "/c", "mvnw.cmd"));
-                    } else {
-                        args.addAll(List.of("-DskipTests=false", "-Dmaven.test.skip=false", "-DfailIfNoTests=true"));
-                        args.addAll(List.of("sh", "./mvnw"));
-                    }
-                    args.addAll(List.of("--batch-mode", "--no-transfer-progress", "-o"));
-                    if (action.action() == Action.BUILD) {
-                        args.addAll(List.of("-DskipTests", "package"));
-                    } else {
-                        if (action.action() == Action.FOCUSED_TEST) {
-                            args.add("-Dtest=" + action.target());
-                            args.add("-DfailIfNoTests=true");
-                            args.add("-Dsurefire.failIfNoSpecifiedTests=true");
-                        }
-                        args.add("test");
-                    }
+                    List<String> args = mavenCommand(action, windows());
                     long actionStarted = System.currentTimeMillis();
                     result = command(run, args, deadline);
                     requireMaterializedCandidate(run, request.candidateRevision(), deadline);
                     passed = result.succeeded();
                     if (passed && action.action() != Action.BUILD) {
                         TestEvidence tests = testEvidence(run, actionStarted);
-                        passed = tests.executed() > 0 && tests.failures() == 0;
+                        passed = tests.executed() > 0 && tests.failures() == 0
+                                && (action.action() != Action.FOCUSED_TEST || tests.includes(action.target()));
                         evidence = "; executed=" + tests.executed() + ", failures=" + tests.failures();
                     }
                 }
@@ -140,6 +124,24 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         }
     }
 
+    static List<String> mavenCommand(VerificationAction action, boolean windows) {
+        List<String> args = new ArrayList<>(windows ? List.of("cmd.exe", "/d", "/c", "mvnw.cmd")
+                : List.of("sh", "./mvnw"));
+        args.addAll(List.of("--batch-mode", "--no-transfer-progress", "-o"));
+        if (action.action() == Action.BUILD) {
+            args.addAll(List.of("-DskipTests", "package"));
+        } else {
+            // 两个平台都显式启用测试；测试参数只能跟在 Wrapper 启动程序之后。
+            args.addAll(List.of("-DskipTests=false", "-Dmaven.test.skip=false", "-DfailIfNoTests=true"));
+            if (action.action() == Action.FOCUSED_TEST) {
+                args.add("-Dtest=" + action.target());
+                args.add("-Dsurefire.failIfNoSpecifiedTests=true");
+            }
+            args.add("test");
+        }
+        return List.copyOf(args);
+    }
+
     private void requireMaterializedCandidate(Path run, String candidate, long deadline) {
         var head = command(run, List.of("git", "rev-parse", "HEAD"), deadline);
         var changes = command(run, List.of("git", "--no-optional-locks", "-c", "core.fsmonitor=false",
@@ -155,13 +157,24 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         }
     }
 
-    private record TestEvidence(long executed, long failures) {}
+    record TestEvidence(long executed, long failures, Set<String> passedTests) {
+        boolean includes(String target) {
+            String[] selector = target.split("#", -1);
+            return passedTests.stream().anyMatch(test -> {
+                String[] identity = test.split("#", 2);
+                boolean sameClass = identity[0].equals(selector[0])
+                        || (!selector[0].contains(".") && identity[0].endsWith("." + selector[0]));
+                return sameClass && (selector.length == 1 || identity[1].equals(selector[1]));
+            });
+        }
+    }
 
-    private TestEvidence testEvidence(Path run, long actionStarted) {
+    TestEvidence testEvidence(Path run, long actionStarted) {
         long executed = 0;
         long failures = 0;
         long bytes = 0;
         int reports = 0;
+        Set<String> passedTests = new HashSet<>();
         try (var paths = Files.walk(run)) {
             var factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
@@ -193,11 +206,20 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                 }
                 executed += tests - skipped;
                 failures += failed;
+                var cases = suite.getElementsByTagName("testcase");
+                for (int index = 0; index < cases.getLength(); index++) {
+                    var test = (org.w3c.dom.Element) cases.item(index);
+                    if (test.getElementsByTagName("skipped").getLength() == 0
+                            && test.getElementsByTagName("failure").getLength() == 0
+                            && test.getElementsByTagName("error").getLength() == 0) {
+                        passedTests.add(test.getAttribute("classname") + "#" + test.getAttribute("name"));
+                    }
+                }
             }
         } catch (IOException | javax.xml.parsers.ParserConfigurationException | org.xml.sax.SAXException | NumberFormatException failure) {
             throw new WorkspaceException("Cannot read bounded Maven test evidence", failure);
         }
-        return new TestEvidence(executed, failures);
+        return new TestEvidence(executed, failures, Set.copyOf(passedTests));
     }
 
     private WorkspaceCommandRunner.Result command(Path directory, List<String> command, long deadline) {

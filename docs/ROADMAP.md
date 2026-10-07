@@ -595,6 +595,9 @@ Then
 
 M4 = 成功执行 / 验证路径 + fail-closed 安全。
 
+Task 2 当前自动验证仅支持 DOMAIN_MODEL §8.11 明确定义的技术标准；没有可信对应证据的
+业务 Criteria 拒绝执行，不能用 BUILD / DIFF_CHECK / 无关 TEST 的索引覆盖推进软件信任。
+
 M5 = 完整 Failure / Repair / Retry / Rollback / Recovery 流程。
 
 `DOMAIN_MODEL.md` 定义完整 MVP 目标失败语义，本 Roadmap 定义分阶段实现顺序。

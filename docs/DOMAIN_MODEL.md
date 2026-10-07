@@ -2353,9 +2353,16 @@ WorkingCopy.currentRevision
 当前 Candidate State 成为新的 Verified State。
 
 **M4 Task 2 当前接受规则：** VerificationResult 必须指向当前 ExecutionResult 的 Candidate B，
-全部技术检查成功、无 failures，并通过检查的 criterionIndexes 覆盖全部既有 Verification Criteria。
-检查保留动作、target、所支持的 Criteria 与有界实际结果摘要；领域不接受缺项、矛盾结果或其他 revision。
-Criteria 定义不被策略替换，AI 负责提出对应的检查；M4 不实现通用自然语言语义证明器。
+全部技术检查成功、无 failures，且每项既有 Verification Criterion 都有当前支持的对应事实。
+criterionIndexes 仅为 AI 提议的对应关系，覆盖索引不构成业务行为成立的证据。
+当前保守适配只自动接受以下明确技术标准（精确文本）：`BUILD passes`、`TEST passes`、
+`DIFF_CHECK passes`、`FOCUSED_TEST <class 或 class#method> passes`。它们分别要求实际 Maven Wrapper
+构建成功、至少一个测试实际执行且全部通过、真实 A..B 空白 / 冲突标记检查通过、指定类 / 方法
+在本次新生成的测试报告中确实执行并通过。Domain 独立核对标准与动作 / target，不能任意绑定索引。
+这些标准只证明所述技术事实；BUILD / DIFF_CHECK / 无关 TEST 不能证明“Reports run on schedule”等业务标准。
+没有可信对应证据适配器的标准在执行前保留 READY 并拒绝 mutation；Criteria 不被改写、替换或降低。
+这是 M4 当前能力限制，不是放宽 `INV-V01`，也不引入通用自然语言证明器或新的审批生命周期。
+检查保留动作、target、Criteria 索引与有界实际结果摘要；领域不接受缺项、矛盾结果或其他 revision。
 结果、SUCCEEDED 与 lastVerifiedRevision = B 一次提交成功后才生效。
 技术失败或持久化失败按 §6.4 暂留 VERIFYING，不保存成功事实或推进可信 revision。
 

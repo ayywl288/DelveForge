@@ -13,6 +13,8 @@ import java.nio.file.*;
 import java.time.Duration;
 import java.util.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import static com.ayywl.delveforge.infrastructure.workspace.GitTestRepositories.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -143,6 +145,35 @@ class GitEvolutionExecutionIntegrationTest {
         assertThrows(WorkingCopyBasisChangedException.class, () -> git.applyCandidate(authorized));
         assertEquals(baseline, headRevision(copy));
         assertEquals("public class Report { static int value() { return 0; } }\n", git.readFile(new WorkspaceRef(copy.toString()), baseline, "Report.java"));
+    }
+
+    @ParameterizedTest @ValueSource(booleans = {false, true})
+    void stagedDriftAfterScopeInspectionCannotBecomeCandidate(boolean samePath) throws Exception {
+        AuthorizedStepExecution authorized = fixture(false, 1);
+        Map<String, String> original = snapshot(source);
+        GitWorkspaceAdapter racing = new GitWorkspaceAdapter(repositories.directory("managed")) {
+            private int inspections;
+            @Override public void requireSafePaths(WorkspaceRef workspace, List<String> paths) {
+                super.requireSafePaths(workspace, paths);
+                if (++inspections == 2) {
+                    // 在真实范围检查之后、write-tree 之前，确定性模拟外部 index 写入。
+                    try {
+                        String path = samePath ? "Report.java" : "unexpected.txt";
+                        Files.writeString(copy.resolve(path), "concurrent replacement\n");
+                        runGit(copy, "add", "--", path);
+                    } catch (Exception failure) {
+                        throw new AssertionError(failure);
+                    }
+                }
+            }
+        };
+        assertThrows(EvolutionExecutionException.class, () -> racing.applyCandidate(authorized));
+        assertEquals(baseline, headRevision(copy));
+        assertEquals(EvolutionStepStatus.EXECUTING, plan.step(stepId).status());
+        assertNull(plan.step(stepId).executionResult());
+        assertEquals(baseline, workingCopy.currentRevision());
+        assertEquals(baseline, workingCopy.lastVerifiedRevision());
+        assertEquals(original, snapshot(source));
     }
 
     @Test void unsupportedBuildAndCommandLikeFocusedTargetsFailClosed() throws Exception {

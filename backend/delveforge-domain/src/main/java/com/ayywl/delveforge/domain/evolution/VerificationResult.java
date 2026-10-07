@@ -4,7 +4,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.HashSet;
 
-/** 检查事实不自行赋予信任；Step 对 Candidate 身份及全部 Criteria 覆盖作最终判断。 */
+/** 检查事实不自行赋予信任；Step 对 Candidate 身份及全部 Criteria 的对应证据作最终判断。 */
 public record VerificationResult(String candidateRevision, List<Check> checks, boolean passed,
         List<String> failures, String summary, Instant verifiedAt) {
     public VerificationResult {
@@ -22,13 +22,14 @@ public record VerificationResult(String candidateRevision, List<Check> checks, b
         HashSet<Integer> covered = new HashSet<>();
         for (Check check : checks) {
             for (Integer index : check.criterionIndexes()) {
-                if (index < 1 || index > criteria.size()) {
+                if (index == null || index < 1 || index > criteria.size()
+                        || !VerificationCriterion.supportedBy(criteria.get(index - 1), check.action(), check.target())) {
                     return false;
                 }
                 covered.add(index);
             }
         }
-        return passed && covered.size() == criteria.size();
+        return passed && !criteria.isEmpty() && covered.size() == criteria.size();
     }
 
     public record Check(String action, String target, List<Integer> criterionIndexes, boolean passed, String summary) {

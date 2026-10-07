@@ -42,7 +42,7 @@ class EvolutionStepExecutionApiIntegrationTest {
          "targetState":{"problem":"Manual","targetProduct":"Scheduled","differentiation":"Personal"},
          "reusableCapabilities":["Export"],"changes":["Add scheduling"],
          "steps":[{"goal":"Schedule reports","scope":"reports","plannedChanges":["Add scheduling"],
-         "preconditions":[],"verificationCriteria":["Reports run on schedule"]}],
+         "preconditions":[],"verificationCriteria":["DIFF_CHECK passes"]}],
          "risks":[],"evidence":["R-E1","D-E1"]}
         """;
 
@@ -71,7 +71,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     private Path source;
     private Path copy;
 
-    @BeforeEach void setup() throws Exception {
+    @BeforeEach void setup(TestInfo test) throws Exception {
         source = BASE.resolve("source-" + UUID.randomUUID());
         Files.createDirectories(source);
         git(source, "init", "-q");
@@ -117,7 +117,13 @@ class EvolutionStepExecutionApiIntegrationTest {
                 "Value", "Small", List.of(), new DirectionEvidenceSupport(List.of(basis), List.of(basis), List.of(basis)));
         direction.select();
         directions.save(direction);
-        when(ai.generate(any())).thenReturn(PLANNING);
+        String planning = PLANNING;
+        if (test.getTestMethod().orElseThrow().getName().equals("businessCriterionCannotBeProvenByUnrelatedTechnicalActions")) {
+            planning = PLANNING.replace("DIFF_CHECK passes", "Reports run on schedule");
+        } else if (test.getTestMethod().orElseThrow().getName().equals("executesNewTestInSamePatchWithRealMavenBeforeTrustedPromotion")) {
+            planning = PLANNING.replace("DIFF_CHECK passes", "FOCUSED_TEST ReportTest#report passes");
+        }
+        when(ai.generate(any())).thenReturn(planning);
         JsonNode proposed = mapper.readTree(mvc.perform(post("/api/evolution-plans/planning")
                 .contentType(MediaType.APPLICATION_JSON).content("""
                 {"productDirectionId":"direction","baseAssetId":"asset","baseRepositoryProfileId":"profile"}
@@ -167,7 +173,7 @@ class EvolutionStepExecutionApiIntegrationTest {
                 List<String> paths = patch.contains("ReportTest.java") ? List.of("A.java", "src/test/java/ReportTest.java") : List.of("A.java");
                 return mapper.writeValueAsString(Map.of("type", "CHANGE_PROPOSAL", "expectedRevision", revision, "summary", "change",
                         "declaredAffectedPaths", paths, "unifiedDiff", patch, "verificationStrategy",
-                        List.of(Map.of("action", action, "target", "", "criterionIndexes", List.of(1)))));
+                        List.of(Map.of("action", action, "target", action.equals("FOCUSED_TEST") ? "ReportTest#report" : "", "criterionIndexes", List.of(1)))));
             }
             List<String> refs = new ArrayList<>();
             for (JsonNode file : payload.path("fileCatalog")) {
@@ -215,16 +221,33 @@ class EvolutionStepExecutionApiIntegrationTest {
                 + "+public class ReportTest { @org.junit.jupiter.api.Test void report() throws Exception {"
                 + " org.junit.jupiter.api.Assertions.assertEquals(\"new\", java.nio.file.Files.readString("
                 + "java.nio.file.Path.of(\"A.java\")).strip()); } }\n";
-        coding(patch, "TEST");
+        coding(patch, "FOCUSED_TEST");
         Map<String, String> original = snapshot(source);
         mvc.perform(post(route("execute"))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.steps[0].status").value("SUCCEEDED"))
-                .andExpect(jsonPath("$.steps[0].verificationResult.checks[0].action").value("TEST"));
+                .andExpect(jsonPath("$.steps[0].verificationResult.checks[0].action").value("FOCUSED_TEST"))
+                .andExpect(jsonPath("$.steps[0].verificationResult.checks[0].target").value("ReportTest#report"));
         assertEquals(git(copy, "rev-parse", "HEAD").trim(), persistedCopy().lastVerifiedRevision());
         assertTrue(Files.exists(copy.resolve("src/test/java/ReportTest.java")));
         assertFalse(Files.exists(copy.resolve("target")));
         assertEquals(original, snapshot(source));
         verify(ai, times(2)).generate(any());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"BUILD", "DIFF_CHECK", "TEST", "FOCUSED_TEST"})
+    void businessCriterionCannotBeProvenByUnrelatedTechnicalActions(String action) throws Exception {
+        confirm();
+        String patch = PATCH + "--- /dev/null\n+++ b/src/test/java/ReportTest.java\n@@ -0,0 +1 @@\n"
+                + "+public class ReportTest { @org.junit.jupiter.api.Test void report() {"
+                + " org.junit.jupiter.api.Assertions.assertEquals(1, 1); } }\n";
+        coding(patch, action);
+        Map<String, String> original = snapshot(source);
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        readyAndUnchanged();
+        assertFalse(Files.exists(copy.resolve("src/test/java/ReportTest.java")));
+        assertEquals(original, snapshot(source));
+        assertNull(plans.findById(new EvolutionPlanId(planId)).orElseThrow()
+                .step(new EvolutionStepId(stepId)).verificationResult());
     }
 
     @Test void failedDiffCheckRemainsVerifyingAndBlocksFurtherExecution() throws Exception {

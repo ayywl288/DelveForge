@@ -41,6 +41,7 @@ public final class ExecuteEvolutionStepUseCase {
         if (!basis.equals(loaded.basis(id))) {
             throw new EvolutionExecutionException("Validated proposal basis is stale");
         }
+        requireCriterionEvidence(loaded.plan().step(id), validated.proposal());
         verification.requireSupported(request(loaded, validated, basis.expectedRevision()));
         loaded = state.revalidate(loaded, id, false);
 
@@ -80,6 +81,23 @@ public final class ExecuteEvolutionStepUseCase {
     private CandidateVerification request(Loaded loaded, ValidatedExecutionProposal validated, String candidate) {
         return new CandidateVerification(new WorkspaceRef(loaded.copy().location()), new WorkspaceRef(loaded.asset().location()),
                 validated.basis().expectedRevision(), candidate, validated.proposal().verificationStrategy());
+    }
+
+    private void requireCriterionEvidence(EvolutionStep step, CodingProposal proposal) {
+        HashSet<Integer> supported = new HashSet<>();
+        for (CodingProposal.VerificationAction action : proposal.verificationStrategy()) {
+            for (Integer index : action.criterionIndexes()) {
+                if (index == null || index < 1 || index > step.verificationCriteria().size()
+                        || !VerificationCriterion.supportedBy(step.verificationCriteria().get(index - 1),
+                                action.action().name(), action.target())) {
+                    throw new EvolutionExecutionException("Verification criterion has no supported corresponding evidence");
+                }
+                supported.add(index);
+            }
+        }
+        if (supported.size() != step.verificationCriteria().size()) {
+            throw new EvolutionExecutionException("Verification criteria are not completely supported");
+        }
     }
 
     private VerificationResult result(CodingProposal proposal, String candidate, VerificationFacts facts) {

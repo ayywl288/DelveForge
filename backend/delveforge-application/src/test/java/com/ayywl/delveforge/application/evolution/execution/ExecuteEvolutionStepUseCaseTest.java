@@ -35,12 +35,15 @@ class ExecuteEvolutionStepUseCaseTest {
         int failAt;
         final List<EvolutionPlan> historicalObjects = new ArrayList<>();
         Store() {
+            this("TEST passes");
+        }
+        Store(String criterion) {
             EvidenceBasis evidence = new EvidenceBasis(new Evidence(EvidenceSourceType.REPOSITORY, "src/A.java", "source", 0.8, true),
                     new RepositoryProfileEvidenceOrigin(PROFILE));
             plan = EvolutionPlan.reconstitute(PLAN, new ProductDirectionId("direction"), ASSET, PROFILE,
                     new CurrentState("current", List.of(), List.of(), List.of()), new TargetState("problem", "target", "difference"),
                     List.of(), List.of("change"), List.of(EvolutionStep.reconstitute(STEP, PLAN, "goal", "scope",
-                    List.of("change"), List.of(), List.of("check"), EvolutionStepStatus.READY)), List.of(),
+                    List.of("change"), List.of(), List.of(criterion), EvolutionStepStatus.READY)), List.of(),
                     List.of(evidence), COPY, EvolutionPlanStatus.ACTIVE);
             direction = ProductDirection.create(new ProductDirectionId("direction"), new UserProfileId("user"), 1,
                     List.of(PROFILE), "title", "problem", "target", "match", List.of(ASSET), "difference",
@@ -119,14 +122,23 @@ class ExecuteEvolutionStepUseCaseTest {
     }
 
     private static final class Fixture {
-        final Store store = new Store();
+        final Store store;
         final Workspace workspace = new Workspace();
-        final ExecutionPreparationState state = new ExecutionPreparationState(store, store, store, store, workspace, new StepExecutionPolicy());
-        Fixture() { workspace.store = store; }
+        final ExecutionPreparationState state;
+        Fixture() { this("TEST passes"); }
+        Fixture(String criterion) {
+            store = new Store(criterion);
+            state = new ExecutionPreparationState(store, store, store, store, workspace, new StepExecutionPolicy());
+            workspace.store = store;
+        }
         ValidatedExecutionProposal proposal(String revision) {
+            return proposal(revision, CodingProposal.Action.TEST);
+        }
+        ValidatedExecutionProposal proposal(String revision, CodingProposal.Action action) {
             CodingProposal proposal = new CodingProposal(revision, "change", List.of("src/A.java"),
                     "--- a/src/A.java\n+++ b/src/A.java\n@@ -1 +1 @@\n-old\n+new\n",
-                    List.of(new CodingProposal.VerificationAction(CodingProposal.Action.TEST, "", List.of(1))));
+                    List.of(new CodingProposal.VerificationAction(action,
+                            action == CodingProposal.Action.FOCUSED_TEST ? "UnrelatedTest#value" : "", List.of(1))));
             return new CodingProposalValidator(new DeterministicRepositorySecretPolicy(), workspace,
                     new ExecutionPreparationLimits(2,24,48,65536,524288,786432,262144,16,16))
                     .validate(proposal, new ExecutionPreparationBasis(PLAN, STEP, COPY, revision), store.plan.step(STEP),
@@ -203,6 +215,18 @@ class ExecuteEvolutionStepUseCaseTest {
         assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
         assertNull(f.store.plan.step(STEP).baselineRevision());
         assertEquals(0, f.workspace.mutations);
+    }
+    @ParameterizedTest @ValueSource(strings = {"BUILD", "DIFF_CHECK", "TEST", "FOCUSED_TEST"})
+    void businessCriterionWithUnrelatedTechnicalChecksFailsBeforeMutation(String action) {
+        Fixture f = new Fixture("Reports run on schedule");
+        assertThrows(EvolutionExecutionException.class, () -> f.useCase().execute(f.proposal("A", CodingProposal.Action.valueOf(action))));
+        assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+        assertNull(f.store.plan.step(STEP).baselineRevision());
+        assertEquals("A", f.store.copy.currentRevision());
+        assertEquals("A", f.store.copy.lastVerifiedRevision());
+        assertEquals(0, f.store.commits);
+        assertEquals(0, f.workspace.mutations);
+        assertEquals(0, f.workspace.verifications);
     }
     @Test void failedVerificationOrWrongCandidateNeverMarksSuccess() {
         for (boolean wrong : List.of(true, false)) {
