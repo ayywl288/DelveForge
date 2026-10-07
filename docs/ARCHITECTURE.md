@@ -1200,6 +1200,10 @@ Evolution Step explicitly confirmed by user
 
 ---
 
+上述执行与失败流程描述完整 MVP 目标架构。实现阶段以 `ROADMAP.md` 为准：
+M4 实现成功路径与 fail-closed 安全，M5 实现完整失败 / 恢复流程；M4 异常时保留
+最后完整持久化检查点并阻止后续 Evolution，不表示 Rollback / Recovery 已发生。
+
 ## 9. Architecture Decisions
 
 重大且长期的架构决策记录在 `docs/decisions/`，本节只维护索引。

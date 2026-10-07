@@ -593,9 +593,14 @@ Then
 
 **Out of Scope**
 
-本 Milestone 首先保证正常成功路径可运行。
+M4 = 成功执行 / 验证路径 + fail-closed 安全。
 
-完整 Failure / Repair / Retry / Recovery 流程进入下一 Milestone。
+M5 = 完整 Failure / Repair / Retry / Rollback / Recovery 流程。
+
+`DOMAIN_MODEL.md` 定义完整 MVP 目标失败语义，本 Roadmap 定义分阶段实现顺序。
+M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整持久化检查点；
+不得产生虚假 Candidate、推进 `lastVerifiedRevision` 或标记 Step `SUCCEEDED`，
+必须阻止不一致或未解决状态上的后续 Evolution，且不得声称已完成 Rollback / Recovery。
 
 ---
 

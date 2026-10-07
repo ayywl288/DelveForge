@@ -1313,6 +1313,13 @@ stateDiagram-v2
 
 Working Copy 是实际承载软件演化的隔离代码副本。
 
+**实施阶段：** 本节及 §6.5 描述完整 MVP 目标状态机；实现顺序由 `ROADMAP.md` 定义。
+M4 只实现成功执行 / 验证路径与 fail-closed 安全；完整 Failure / Repair / Retry /
+Rollback / Recovery 转换由 M5 实现。M4 在进入 `EXECUTING` 或 `VERIFYING` 后遇到异常时，
+允许暂留最后完整持久化检查点：不将部分修改作为 Candidate，不推进 `lastVerifiedRevision`，
+不标记 Step `SUCCEEDED`，并阻止不一致或未解决状态上的后续 Evolution。
+暂留检查点不表示 Rollback / Recovery 已发生，也不改变下述最终失败语义。
+
 ```mermaid
 stateDiagram-v2
     [*] --> CREATING
@@ -1366,6 +1373,8 @@ stateDiagram-v2
 ### 6.5 Evolution Step State
 
 Evolution Step 是执行阶段状态约束最严格的领域对象。
+
+以下失败转换属于完整 MVP 目标语义；M4 的暂留检查点边界见 §6.4，M5 才实现完整失败转换。
 
 ```mermaid
 stateDiagram-v2
@@ -1715,6 +1724,10 @@ Invariant 描述的是系统无论采用何种 Controller、数据库、LLM Prov
 | `INV-E07` | Execution 完整完成后形成 Candidate State，并且必须进入 Verification；代码写入成功本身不能令 Step 成功。 |
 | `INV-E08` | Evolution Step 的首次 Execution、Verification Failure 后的 Repair、 以及 FAILED 后的 Retry，都必须具有对应的明确用户授权； 一次授权不得隐式覆盖后续 Repair 或 Retry。 |
 
+`INV-E05` 保持完整 MVP 的最终约束：Execution Failure 保存必要诊断后必须恢复
+`baselineRevision`。其完整失败工作流在 M5 实现；M4 尚未实现该转换时按 §6.4
+保留最后完整检查点并 fail closed，不得据此声称失败已处理、代码已恢复或可继续演化。
+
 ### 7.5 Verification Invariants
 
 | ID        | Invariant                                                    |
@@ -1730,6 +1743,12 @@ Invariant 描述的是系统无论采用何种 Controller、数据库、LLM Prov
 | `INV-V09` | 如果 Working Copy 无法精确恢复到当前 Evolution Step 的 `baselineRevision`，则必须标记为 `UNRECOVERABLE`，且不得继续用于当前 Evolution Plan 的执行。 |
 | `INV-V10` | Working Copy 为 `UNRECOVERABLE` 时，当前 Evolution Plan 不得继续执行后续 Evolution Step。 |
 | `INV-V11` | Evolution Step 从 `RECOVERY_REQUIRED` 恢复为 `FAILED` 的唯一前提是 Working Copy 已精确恢复到该 Step 的 `baselineRevision`；无法恢复到该 Revision 时，当前 Working Copy 必须进入 `UNRECOVERABLE`，当前 Plan 不得继续原执行路径。 |
+
+上述 Verification Failure / Repair / Rollback / Recovery 规则仍为完整 MVP 目标不变量。
+M4 对验证异常或未通过结果可暂留 `VERIFYING` 检查点，M5 再实现完整失败转换；
+期间 `INV-V01`–`INV-V03` 的信任边界始终生效：不得标记成功、不得推进可信 revision，
+不得从该 Candidate 开始后续 Step。暂留 `VERIFYING` 不表示验证仍在运行或已经成功，
+也不表示回滚 / 恢复已完成。
 
 ### 7.6 Plan Completion Invariants
 
