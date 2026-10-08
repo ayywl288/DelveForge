@@ -6,7 +6,7 @@
 
 **Verdict:** **M4 REAL SMOKE: BLOCKED**
 
-最新尝试为下方 §8 的 **Step Contract Simplification** 记录；§1–7 保留此前 BLOCKED 的历史证据。
+最新尝试为下方 §9 的 **Corrected Client / WorkingCopy Preparation** 记录；§1–8 保留此前 BLOCKED 的历史证据。
 
 本次按用户更新的边界做受控 Windows 本地功能尝试，不使用 Docker、VM、容器或沙箱框架。
 应用启动成功，但首次 M1 AI 请求被诊断转发工具拒绝，未到达真实 Provider。
@@ -389,5 +389,97 @@ M4 保持 IN_PROGRESS；实际端到端 Verified B 尚未取得。
   对其它文件、配置、cache、网络及同用户进程的权限；本次不认证任意不可信仓库可安全执行。
 
 在本次首个协议失败处结束，不追加 smoke 或 M5。M4 保持 IN_PROGRESS，端到端 Verified B 尚未取得。
+
+**M4 REAL SMOKE: BLOCKED**
+
+## 9. 第五次尝试：Corrected Client / WorkingCopy Preparation
+
+**Date:** 2026-10-09（UTC+08:00）
+
+**Verdict:** **M4 REAL SMOKE: BLOCKED — WorkingCopy checkout 干净状态守卫拒绝**
+
+### 9.1 离线契约核对与有效输入复用
+
+- 没有修改生产代码、Prompt、API、Domain、Git mutation、验证规则、Maven 配置或依赖。
+  固定实现 revision 为 `56b63aa27400846e656ca2711c937259436ea989`；本次源 revision A 为
+  `aebb0a2804e45fbca8f37b9d9e9efe759591d809`。两者之间仅本验证报告变化，固定 JAR 仍有效。
+- 应用启动及 Provider 调用之前，检查 Discovery / Select / Planning / Prepare / Confirm /
+  Execution Preparation / Execute 的 Controller、请求 DTO、验证规则和六组已有 API 集成测试。
+  将固定 JAR 中真实 DTO 与 Jackson 在隔离目录进行离线反序列化；正确请求通过，旧字段、
+  字符串 revision、空快照列表被拒绝；通过 Controller 反射核对五个无请求体的 POST 路由。
+  离线检查没有启动 Spring 应用，也没有消耗 Provider 请求。
+- Discovery 精确使用 `userProfileId`、JSON 整数 `expectedRevision:29`、`repositoryProfileIds`。
+  Planning 精确使用 `productDirectionId`、`baseAssetId`、`baseRepositoryProfileId`。
+  Select / Prepare / Confirm / Execution Preparation / Execute 不提交请求体。
+  `/prepare` 自身准备 WorkingCopy 并激活 Plan，没有独立 Activate API；`/execute` 内部重新准备提案，
+  不接受客户端传回的序列化可信提案。这些契约与生命周期前提保存在外部 `api-contracts.json`。
+- 从 §8 已停止应用的数据库建立新的隔离文件副本，复制前后 SHA-256 相同，没有手工 SQL 写入。
+  正常 GET 再次核对 CONFIRMED UserProfile `d5ba0573-8832-4bfd-afb8-5e45e6f13667` / revision=29，
+  以及 Asset `c6c27043-6d99-4463-9875-77bc073bab7c` 的位置、readPermissionAllowed=true、
+  usageAuthorization=ALLOWED。旧 RepositoryProfile 也通过正常 GET 读取并保留为历史。
+- 旧快照的 analyzedRevision 为 `56b63aa`，不等于当前源 A。实际
+  `GitWorkspaceAdapter.requireUnchangedBasis` 要求准备时源 HEAD 等于分析 revision，
+  因此通过正常 Analysis API 创建当前 A 的新快照，没有移动 HEAD、改快照或绕过 revision 守卫。
+
+### 9.2 固定环境与真实 API 结果
+
+- 隔离目录：`E:\df-m4-smoke\20261009-direct4-corrected-client`；固定 JAR SHA-256 为
+  `e113420ae9db39fe8fc9cd93fcc9ca99897a39e9774d3c47679603836ed50713`。
+  应用 PID=8360，绑定 `127.0.0.1:18806`。DB / WorkingCopy / runtime / logs / evidence 位于外部目录。
+- 直接 `https://api.deepseek.com`、`deepseek-flash`、timeout=60s，使用既有 Windows JDK 21 / Wrapper。
+  启动环境移除代理变量，没有代理、转发、拦截、容器或 VM。一次性用途凭据经不回显 stdin
+  注入应用环境，没有写入参数或文件；既有 `9eac80c` 子进程凭据过滤保持不变。
+- 验证预算仍为 160 reports / 900s action / 1200s invocation / 8388608 bytes，M4 准备预算未改。
+  没有跳过或过滤测试。生产实现未变，按本任务边界沿用 §8 完整 1337 tests / 0 failures /
+  errors / skipped 的结果，没有重跑全量测试，也没有把该结果视为本次 Candidate 验证。
+
+实际请求如下，全部保存正常 API 请求及响应：
+
+1. GET UserProfile / Asset / 历史 RepositoryProfile → **200 / 200 / 200**。
+2. `POST /api/software-assets/{id}/analysis` → **201**，86.348s。
+   新 RepositoryProfile=`fb046749-066f-4249-bcb1-a88b5d9e4c93`，analyzedRevision=A。
+   36 份材料（foundation=12 / targeted=24），Scout attempts=7（Region=2 / File=5），
+   tooLarge / totalBudgetExceeded=0，secretExcluded=1、sanitizedSpanCount=3。
+   最终分析首次 ACCEPTED，没有触发其一次重试。
+3. `POST /api/product-directions/discovery` → **201**，40.738s，保存 4 个真实候选方向。
+4. `POST /api/product-directions/1b6817a9-1014-4610-9070-b89a5a2532a9/select`
+   → **200**，0.024s，真实方向进入 SELECTED。选择与已确认画像最接近的 Python 命名角色提示方向。
+5. `POST /api/evolution-plans/planning` → **201**，36.546s。
+   Plan=`989d98a6-6f11-433e-8a06-b5f267c78672`，PROPOSED，两个 Step 均 PENDING_CONFIRMATION。
+   真实首步 `cc7f3d14-ecee-49cf-8486-69ba66ab2085` 是补充 RepositoryPathClassifier
+   既有行为的回归基线测试，不改生产输出；第二步才新增 Python 命名规则。
+   两步均使用 `FULL_TEST_SUITE_PASSES / 项目完整自动化测试套件通过`，没有旧 Preconditions。
+   审阅后只授权继续首步，不跳过前序 Step、不预构造或改写模型规划。
+6. `POST /api/evolution-plans/{id}/prepare` → **500 / INTERNAL_ERROR**，5.930s。
+   首次真实失败在 WorkingCopy provisioning，此后没有 Confirm / Execution Preparation / Execute 请求。
+
+真实 AI Gateway 逻辑调用共 10 次：M2 Scout=7、最终分析=1、Discovery=1、Planning=1；M4=0。
+无 HTTP 拦截，传输请求数与 token usage 未独立采集。本次没有 live API payload 字段错误，
+没有重新发送失败的业务请求或进入规划 / 代码修复循环。
+
+### 9.3 首个失败、检查点与完整性
+
+- 第一失败分类：**WORKSPACE_PROVISIONING_CHECKOUT_CLEANLINESS_GUARD**。
+  脱敏日志记录 WorkspaceException，栈定位 `GitWorkspaceAdapter.provision` 第 394 行。
+  对应检查是 checkout 后 `git status --porcelain`：退出非成功或 stdout 非空时拒绝。
+  该异常位置在 clone / checkout / HEAD 核对之后、Domain 激活与数据库提交之前。
+- 现有日志没有保留该次 Git status 的原始退出码 / stdout；失败临时目录已由既有补偿删除。
+  因此不能断言具体脏文件、换行原因或 Git status 是否自身失败，也不能仅凭失败位置宣布产品缺陷。
+  本轮没有重建 checkout 探查、修改环境规避守卫、追加生产修复或发起第二次 smoke。
+- 最终只读 DB：Profile=1、Asset=1、RepositoryProfile=2、Direction=4、Plan=1、Step=2、WorkingCopy=0。
+  V12 成功，旧 Preconditions 行=0；Plan 仍 PROPOSED，workingCopyId=null，两步仍 PENDING_CONFIRMATION，
+  baseline / execution / verification 均 null。三个 M4 执行检查点均未进入。
+  currentRevision / lastVerifiedRevision 不存在，没有 CodingProposal、演化 diff、Candidate B 或 Verified B。
+  **本次 smoke Maven 命令 / Surefire 报告均为 0**，未证明真实演化成功。
+- 应用运行 411.133s 后主动停止，exit=1 为 Windows 显式终止；PID 8360 与 18806 监听均已消失。
+  无待续 Provider 请求、Maven 或自动重试任务，隔离 WorkingCopy 根为空。
+- 报告更新前，原仓库前后 HEAD=A、工作树干净，582 个受控文件及 `.git/HEAD` / index / config
+  SHA-256 完全一致。原资产未被 smoke 修改，后续唯一源码仓库修改是本次验证记录。
+- 外部保留固定 JAR、数据库副本来源 / 哈希、离线 DTO 检查、请求契约清单、脱敏 API、真实规划、
+  checkpoint、日志、业务摘要和完整性快照；凭据格式扫描没有命中。运行文件与秘密不提交源码仓库。
+- 子进程凭据过滤不隔离宿主文件权限。若执行构建 / 测试，代码仍拥有当前 Windows 用户对其它文件、
+  配置、cache、网络及同用户进程的权限；本次是受控本地功能尝试，不认证任意不可信仓库可安全执行。
+
+在首个新的 Workspace 失败处结束，没有 M5 或额外开发。M4 保持 IN_PROGRESS。
 
 **M4 REAL SMOKE: BLOCKED**
