@@ -125,10 +125,12 @@ class EvolutionStepExecutionApiIntegrationTest {
         String method = test.getTestMethod().orElseThrow().getName();
         VerificationCriterion.Kind kind = switch (method) {
             case "businessCriterionCannotBeProvenByUnrelatedTechnicalActions" -> VerificationCriterion.Kind.UNSUPPORTED;
-            case "executesNewTestInSamePatchWithRealMavenBeforeTrustedPromotion" -> VerificationCriterion.Kind.SELECTED_TESTS_PASS;
+            case "executesNewTestInSamePatchWithRealMavenBeforeTrustedPromotion",
+                    "focusedTestInCustomSourceDirectoryStillProvesSelectedTests" -> VerificationCriterion.Kind.SELECTED_TESTS_PASS;
             case "normalM3TechnicalStepBuildsAndPromotesTheActualCandidate", "wrongEvidenceTypeFailsBeforeMutation" -> VerificationCriterion.Kind.BUILD_SUCCEEDS;
             case "focusedTestCannotProveTheFullSuiteCriterion", "fullSuiteCannotBeNarrowedByCandidateConfiguration",
-                    "normalFullSuiteProvesTheStructuredCriterion" -> VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES;
+                    "normalFullSuiteProvesTheStructuredCriterion",
+                    "customTestSourceDirectoryCannotProveFullSuiteOrPromoteTrust" -> VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES;
             default -> VerificationCriterion.Kind.DIFF_CHECK_PASSES;
         };
         var planningNode = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(PLANNING);
@@ -327,6 +329,56 @@ class EvolutionStepExecutionApiIntegrationTest {
         EvolutionStep step = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
         assertTrue(step.verificationResult().checks().getFirst().summary().contains("executed=2"));
         assertEquals(step.executionResult().candidateRevision(), persistedCopy().lastVerifiedRevision());
+    }
+
+    private String customTestSourcePatch() throws Exception {
+        int closingLine = (int) Files.readString(copy.resolve("pom.xml")).lines().count();
+        return "--- a/pom.xml\n+++ b/pom.xml\n@@ -" + closingLine + " +" + closingLine + " @@\n-</project>\n"
+                + "+<build><testSourceDirectory>${project.basedir}/selected/src/test/java</testSourceDirectory></build></project>\n";
+    }
+
+    @Test void customTestSourceDirectoryCannotProveFullSuiteOrPromoteTrust() throws Exception {
+        confirm();
+        coding(suitePatch(true) + customTestSourcePatch() + newFilePatch("selected/src/test/java/PassingTest.java",
+                "public class PassingTest { @org.junit.jupiter.api.Test void value() {} }\n"), "TEST");
+        Map<String, String> original = snapshot(source);
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        EvolutionStep step = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        String candidate = git(copy, "rev-parse", "HEAD").trim();
+        assertNotEquals(revision, candidate);
+        assertEquals(EvolutionStepStatus.VERIFYING, step.status());
+        assertNull(step.verificationResult());
+        assertEquals(candidate, step.executionResult().candidateRevision());
+        assertEquals(candidate, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        Map<String, String> unchangedCandidate = snapshot(copy);
+        VerificationFacts rejected = verification.verify(new CandidateVerification(new WorkspaceRef(copy.toString()),
+                new WorkspaceRef(source.toString()), revision, candidate, List.of(
+                new CodingProposal.VerificationAction(CodingProposal.Action.TEST, "", List.of(1)))));
+        assertFalse(rejected.checks().getFirst().passed(), rejected.toString());
+        // Maven 确实成功退出；输入资格被拒绝后，现有适配器不再认证或报告 TEST 的执行数量。
+        assertTrue(rejected.checks().getFirst().summary().contains("exit 0"), rejected.toString());
+        assertTrue(rejected.checks().getFirst().summary().contains("effective Maven inputs"), rejected.toString());
+        assertEquals(unchangedCandidate, snapshot(copy));
+        assertEquals(original, snapshot(source));
+        reset(ai);
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+    }
+
+    @Test void focusedTestInCustomSourceDirectoryStillProvesSelectedTests() throws Exception {
+        confirm();
+        coding(PATCH + customTestSourcePatch() + newFilePatch("selected/src/test/java/ReportTest.java",
+                "public class ReportTest { @org.junit.jupiter.api.Test void report() {} }\n")
+                + newFilePatch("src/test/java/FailingTest.java", "public class FailingTest {"
+                + " @org.junit.jupiter.api.Test void value() { org.junit.jupiter.api.Assertions.fail(); } }\n"), "FOCUSED_TEST");
+        Map<String, String> original = snapshot(source);
+        mvc.perform(post(route("execute"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("SUCCEEDED"));
+        assertEquals(git(copy, "rev-parse", "HEAD").trim(), persistedCopy().lastVerifiedRevision());
+        assertEquals(git(copy, "show", "HEAD:pom.xml").replace("\r\n", "\n"),
+                Files.readString(copy.resolve("pom.xml")).replace("\r\n", "\n"));
+        assertEquals(original, snapshot(source));
     }
 
     @Test void wrongEvidenceTypeFailsBeforeMutation() throws Exception {

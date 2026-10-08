@@ -146,6 +146,47 @@ class GitEvolutionExecutionIntegrationTest {
         git.requireTrustedState(new WorkspaceRef(copy.toString()), new WorkspaceRef(source.toString()), candidate.revision());
     }
 
+    @Test void realReactorUsesEachModulesDefaultTestSourceDirectory() throws Exception {
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("pom.xml", """
+            <project xmlns="http://maven.apache.org/POM/4.0.0"><modelVersion>4.0.0</modelVersion>
+              <parent><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-parent</artifactId>
+                <version>3.5.16</version><relativePath/></parent>
+              <groupId>test</groupId><artifactId>reactor</artifactId><version>1</version><packaging>pom</packaging>
+              <properties><java.version>21</java.version></properties>
+              <modules><module>nested/first</module><module>second</module></modules>
+              <dependencies><dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId>
+                <scope>test</scope></dependency></dependencies>
+            </project>
+            """);
+        for (String module : List.of("nested/first", "second")) {
+            String artifact = Path.of(module).getFileName().toString();
+            files.put(module + "/pom.xml", "<project><modelVersion>4.0.0</modelVersion><parent><groupId>test</groupId>"
+                    + "<artifactId>reactor</artifactId><version>1</version><relativePath>"
+                    + (module.startsWith("nested/") ? "../../pom.xml" : "../pom.xml")
+                    + "</relativePath></parent><artifactId>" + artifact + "</artifactId></project>\n");
+            files.put(module + "/src/test/java/PassingTest.java", "public class PassingTest {"
+                    + " @org.junit.jupiter.api.Test void value() {} }\n");
+        }
+        Path root = Path.of("../..").toAbsolutePath().normalize();
+        for (String path : List.of("mvnw", "mvnw.cmd", ".mvn/wrapper/maven-wrapper.properties")) {
+            files.put(path, Files.readString(root.resolve(path)));
+        }
+        source = repositories.createCommitted("reactor-source", files);
+        baseline = headRevision(source);
+        copy = Path.of(git.provision(new WorkspaceRef(source.toString()), baseline, "reactor-copy").workspace().value());
+        Map<String, String> original = snapshot(source);
+        Map<String, String> unchangedCopy = snapshot(copy);
+        // 三份继承 Boot 的生效 POM 使用明确的有界预算，不绕过普通项目的配置检查。
+        var reactorVerification = new GitWorkspaceVerificationAdapter(git, git,
+                new VerificationProperties(Duration.ofSeconds(60), Duration.ofSeconds(180), 4 * 1048576, 16));
+        VerificationFacts facts = reactorVerification.verify(request(baseline, CodingProposal.Action.TEST));
+        assertTrue(facts.checks().getFirst().passed(), facts.toString());
+        assertTrue(facts.checks().getFirst().summary().contains("executed=2"), facts.toString());
+        assertEquals(original, snapshot(source));
+        assertEquals(unchangedCopy, snapshot(copy));
+    }
+
     @Test void realTestFailureProducesFailedFactWithoutPromotingOrRewritingCandidate() throws Exception {
         var authorized = fixture(true, 2);
         CandidateMutationResult candidate = git.applyCandidate(authorized);

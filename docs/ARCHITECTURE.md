@@ -999,7 +999,11 @@ BUILD、DIFF_CHECK 或无关 TEST 的成功不能证明任意业务标准。
 生效 POM（含继承与活跃 profile）仅存于验证运行目录的 `.git` 内，限制字节 / 项目数并禁用 XML
 外部引用。对实际 Surefire / execution 的选择、跳过、未知配置及测试编译筛选失败关闭。
 当前只支持普通 Surefire test 生命周期；自定义 provider、Failsafe、extensions、非默认测试源码
-路径等不能获得全套证据。离线 Help 插件不可用或生效配置无法确认时同样拒绝，不推进软件信任。
+路径等不能获得全套证据。全套证据要求每个项目的生效 `testSourceDirectory` 规范化后精确等于
+该项目 `basedir/src/test/java`；不按目录后缀推断。当前从真实根 POM 和生效 modules 路径，以唯一、
+可直接确定的 Maven 坐标关联各项目的 basedir；无法确定、坐标含未解析表达式、缺失 / 重复项目、
+越界 / 路径别名或超出预算时拒绝全套证据。此限制不改变 FOCUSED_TEST 的定向测试证据资格。
+离线 Help 插件不可用或生效配置无法确认时同样拒绝，不推进软件信任。
 
 V11 为既有 evolution_step_section_item 增加 criterion_kind；value 继续保存 description。
 迁移不重写历史文字、顺序或业务检查点；旧文本全部标为 UNSUPPORTED，不推断技术或业务类型。

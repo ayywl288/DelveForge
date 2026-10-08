@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.workspace;
 
 import java.nio.file.*;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -9,6 +10,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class MavenFullSuiteInputsTest {
     @TempDir Path run;
+
+    @BeforeEach void writeActualProject() throws Exception {
+        write("pom.xml", "<project><groupId>example</groupId><artifactId>report</artifactId><version>1</version></project>");
+    }
 
     private void write(String path, String content) throws Exception {
         Files.createDirectories(run.resolve(path).getParent());
@@ -29,6 +34,51 @@ class MavenFullSuiteInputsTest {
         write(MavenFullSuiteInputs.EFFECTIVE_POM, pom("<skipTests>false</skipTests><trimStackTrace>true</trimStackTrace>"));
         assertTrue(MavenFullSuiteInputs.localConfigurationSupported(run, 4096));
         assertTrue(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"selected/src/test/java", "other/src/test/java", "src/test/alternate"})
+    void customDirectoriesCannotMasqueradeAsTheProjectDefault(String directory) throws Exception {
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, pom("").replace(run.resolve("src/test/java").toString(),
+                run.resolve(directory).toString()));
+        assertFalse(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
+    }
+
+    @Test void normalizedDefaultDirectoryIsAccepted() throws Exception {
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, pom("").replace(run.resolve("src/test/java").toString(),
+                run.resolve("src/../src/test/java").toString()));
+        assertTrue(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
+    }
+
+    @Test void unknownOrAmbiguousProjectLocationsFailClosed() throws Exception {
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, pom(""));
+        Files.delete(run.resolve("pom.xml"));
+        assertFalse(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
+        writeActualProject();
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, pom("").replace("<artifactId>report</artifactId>", "<artifactId>unknown</artifactId>"));
+        assertFalse(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, "<projects>" + pom("") + pom("") + "</projects>");
+        assertFalse(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
+        write("pom.xml", "<project><groupId>example</groupId><artifactId>report</artifactId><version>${revision}</version></project>");
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, pom(""));
+        assertFalse(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
+    }
+
+    @Test void eachModuleUsesItsOwnDeclaredProjectDirectory() throws Exception {
+        String root = pom("").replace("<build>", "<modules><module>nested/module</module></modules><build>");
+        String module = pom("").replace("<artifactId>report</artifactId>", "<artifactId>child</artifactId>")
+                .replace(run.resolve("src/test/java").toString(), run.resolve("nested/module/src/test/java").toString());
+        write("nested/module/pom.xml", "<project><parent><groupId>example</groupId><artifactId>report</artifactId>"
+                + "<version>1</version></parent><artifactId>child</artifactId></project>");
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, "<projects>" + module + root + "</projects>");
+        assertTrue(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, "<projects>" + root + module.replace(
+                run.resolve("nested/module/src/test/java").toString(), run.resolve("nested/module/selected/src/test/java").toString()) + "</projects>");
+        assertFalse(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, "<projects>" + root + module.replace(
+                run.resolve("nested/module/src/test/java").toString(), run.resolve("src/test/java").toString()) + "</projects>");
+        assertFalse(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, root);
+        assertFalse(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
     }
 
     @ParameterizedTest @ValueSource(strings = {"-Dtest=PassingTest", "-Dgroups=fast", "-Dsurefire.excludesFile=omit.txt",
@@ -62,7 +112,11 @@ class MavenFullSuiteInputsTest {
     }
 
     @Test void everyReactorProjectAndExecutionMustRetainDefaultSuiteSemantics() throws Exception {
-        write(MavenFullSuiteInputs.EFFECTIVE_POM, "<projects>" + pom("") + pom("<test>PassingTest</test>") + "</projects>");
+        write("child/pom.xml", "<project><groupId>example</groupId><artifactId>child</artifactId><version>1</version></project>");
+        String root = pom("").replace("<build>", "<modules><module>child</module></modules><build>");
+        String module = pom("<test>PassingTest</test>").replace("<artifactId>report</artifactId>", "<artifactId>child</artifactId>")
+                .replace(run.resolve("src/test/java").toString(), run.resolve("child/src/test/java").toString());
+        write(MavenFullSuiteInputs.EFFECTIVE_POM, "<projects>" + root + module + "</projects>");
         assertFalse(MavenFullSuiteInputs.effectivePomSupported(run, 4096));
         write(MavenFullSuiteInputs.EFFECTIVE_POM, pom("").replace("<phase>test</phase>", "<phase>none</phase>"));
         assertFalse(MavenFullSuiteInputs.effectivePomSupported(run, 4096));

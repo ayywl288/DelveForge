@@ -53,27 +53,90 @@ final class MavenFullSuiteInputs {
             if (xml.isBlank()) {
                 return false;
             }
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
-            factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-            var parser = factory.newDocumentBuilder();
-            parser.setErrorHandler(new org.xml.sax.helpers.DefaultHandler() {
-                @Override public void fatalError(org.xml.sax.SAXParseException failure) throws org.xml.sax.SAXException {
-                    throw failure;
-                }
-            });
-            Element root = parser.parse(new org.xml.sax.InputSource(new java.io.StringReader(xml))).getDocumentElement();
+            Element root = parse(xml);
             List<Element> projects = root.getTagName().equals("project") ? List.of(root)
                     : root.getTagName().equals("projects") ? children(root, "project") : List.of();
-            return !projects.isEmpty() && projects.size() <= 100
-                    && projects.stream().allMatch(project -> projectSupported(project, run));
-        } catch (IOException | javax.xml.parsers.ParserConfigurationException | org.xml.sax.SAXException failure) {
+            if (projects.isEmpty() || projects.size() > 100) {
+                return false;
+            }
+            Map<Element, Path> basedirs = projectBasedirs(projects, run, maxBytes);
+            return basedirs.size() == projects.size()
+                    && projects.stream().allMatch(project -> projectSupported(project, basedirs.get(project)));
+        } catch (IOException | javax.xml.parsers.ParserConfigurationException | org.xml.sax.SAXException
+                | InvalidPathException failure) {
             return false;
         }
     }
 
-    private static boolean projectSupported(Element project, Path run) {
+    private static Map<Element, Path> projectBasedirs(List<Element> projects, Path run, int maxBytes)
+            throws IOException, javax.xml.parsers.ParserConfigurationException, org.xml.sax.SAXException {
+        // effective-pom 不记录 basedir；从真实根 POM 及生效 modules 建立独立的项目位置证据。
+        // 不从 testSourceDirectory 或可自定义的 build.directory 反推默认目录。
+        Path root = run.toAbsolutePath().normalize();
+        Deque<Path> pending = new ArrayDeque<>(List.of(root));
+        Set<Path> visited = new HashSet<>();
+        Map<Element, Path> basedirs = new HashMap<>();
+        long remaining = maxBytes;
+        while (!pending.isEmpty()) {
+            Path basedir = pending.removeFirst();
+            if (!basedir.startsWith(root) || !visited.add(basedir) || visited.size() > projects.size()) {
+                return Map.of();
+            }
+            String source = text(root, root.relativize(basedir.resolve("pom.xml")).toString(), maxBytes);
+            remaining -= source.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (source.isBlank() || remaining < 0 || !basedir.toRealPath().equals(basedir)) {
+                return Map.of();
+            }
+            Element actual = parse(source);
+            if (!actual.getTagName().equals("project")) {
+                return Map.of();
+            }
+            List<Element> matches = projects.stream().filter(project -> sameProject(actual, project)).toList();
+            if (matches.size() != 1 || basedirs.putIfAbsent(matches.getFirst(), basedir) != null) {
+                return Map.of();
+            }
+            for (Element module : children(child(matches.getFirst(), "modules"), "module")) {
+                String name = module.getTextContent().strip();
+                Path path = Path.of(name);
+                if (name.isEmpty() || name.contains("${") || path.isAbsolute()) {
+                    return Map.of();
+                }
+                pending.addLast(basedir.resolve(path).normalize());
+            }
+        }
+        return basedirs;
+    }
+
+    private static boolean sameProject(Element actual, Element effective) {
+        for (String name : List.of("groupId", "artifactId", "version")) {
+            String coordinate = value(actual, name);
+            if (coordinate.isEmpty() && !name.equals("artifactId")) {
+                coordinate = value(child(actual, "parent"), name);
+            }
+            // 无法确定的坐标（例如 ${revision}）不猜测；重名 / 不完整 reactor 同样拒绝。
+            if (coordinate.isEmpty() || coordinate.contains("${") || !coordinate.equals(value(effective, name))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Element parse(String xml)
+            throws javax.xml.parsers.ParserConfigurationException, org.xml.sax.SAXException, IOException {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        var parser = factory.newDocumentBuilder();
+        parser.setErrorHandler(new org.xml.sax.helpers.DefaultHandler() {
+            @Override public void fatalError(org.xml.sax.SAXParseException failure) throws org.xml.sax.SAXException {
+                throw failure;
+            }
+        });
+        return parser.parse(new org.xml.sax.InputSource(new java.io.StringReader(xml))).getDocumentElement();
+    }
+
+    private static boolean projectSupported(Element project, Path basedir) {
         if (value(project, "groupId").isEmpty() || value(project, "artifactId").isEmpty()
                 || value(project, "version").isEmpty()) {
             return false;
@@ -96,8 +159,8 @@ final class MavenFullSuiteInputs {
             return false;
         }
         try {
-            Path path = Path.of(testSource).toAbsolutePath().normalize();
-            if (!path.startsWith(run.toAbsolutePath().normalize()) || !path.endsWith(Path.of("src", "test", "java"))) {
+            Path path = Path.of(testSource);
+            if (!path.isAbsolute() || !path.normalize().equals(basedir.resolve("src/test/java").normalize())) {
                 return false;
             }
         } catch (InvalidPathException failure) {
