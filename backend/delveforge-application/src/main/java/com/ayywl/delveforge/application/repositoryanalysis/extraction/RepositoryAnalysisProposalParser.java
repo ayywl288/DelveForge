@@ -2,6 +2,7 @@ package com.ayywl.delveforge.application.repositoryanalysis.extraction;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
+import com.ayywl.delveforge.application.port.ai.AiOutputContractViolationException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -86,14 +87,14 @@ public final class RepositoryAnalysisProposalParser {
     private static String requiredText(JsonNode root, String field) {
         JsonNode node = root.get(field);
         if (node == null || node.isNull()) {
-            throw new AiGatewayException("AI 返回缺少字段 " + field);
+            throw new AiOutputContractViolationException("AI 返回缺少字段 " + field);
         }
         if (!node.isTextual()) {
-            throw new AiGatewayException("AI 返回的 " + field + " 不是字符串");
+            throw new AiOutputContractViolationException("AI 返回的 " + field + " 不是字符串");
         }
         String value = node.asText();
         if (value.isBlank()) {
-            throw new AiGatewayException("AI 返回的 " + field + " 为空");
+            throw new AiOutputContractViolationException("AI 返回的 " + field + " 为空");
         }
         return value;
     }
@@ -106,19 +107,19 @@ public final class RepositoryAnalysisProposalParser {
     private static List<String> requiredSection(JsonNode root, String field) {
         JsonNode node = root.get(field);
         if (node == null || node.isNull()) {
-            throw new AiGatewayException("AI 返回缺少字段 " + field);
+            throw new AiOutputContractViolationException("AI 返回缺少字段 " + field);
         }
         if (!node.isArray()) {
-            throw new AiGatewayException("AI 返回的 " + field + " 不是数组");
+            throw new AiOutputContractViolationException("AI 返回的 " + field + " 不是数组");
         }
 
         List<String> values = new ArrayList<>(node.size());
         for (JsonNode element : node) {
             if (!element.isTextual()) {
-                throw new AiGatewayException("AI 返回的 " + field + " 含非字符串元素");
+                throw new AiOutputContractViolationException("AI 返回的 " + field + " 含非字符串元素");
             }
             if (element.asText().isBlank()) {
-                throw new AiGatewayException("AI 返回的 " + field + " 含空值");
+                throw new AiOutputContractViolationException("AI 返回的 " + field + " 含空值");
             }
             values.add(element.asText());
         }
@@ -129,16 +130,16 @@ public final class RepositoryAnalysisProposalParser {
     private static List<RepositoryEvidenceProposal> evidence(JsonNode root) {
         JsonNode node = root.get(FIELD_EVIDENCE);
         if (node == null || node.isNull()) {
-            throw new AiGatewayException("AI 返回缺少字段 " + FIELD_EVIDENCE);
+            throw new AiOutputContractViolationException("AI 返回缺少字段 " + FIELD_EVIDENCE);
         }
         if (!node.isArray()) {
-            throw new AiGatewayException("AI 返回的 " + FIELD_EVIDENCE + " 不是数组");
+            throw new AiOutputContractViolationException("AI 返回的 " + FIELD_EVIDENCE + " 不是数组");
         }
 
         List<RepositoryEvidenceProposal> evidence = new ArrayList<>(node.size());
         for (JsonNode element : node) {
             if (!element.isObject()) {
-                throw new AiGatewayException("AI 返回的 evidence 含非对象元素");
+                throw new AiOutputContractViolationException("AI 返回的 evidence 含非对象元素");
             }
             evidence.add(new RepositoryEvidenceProposal(
                     requiredText(element, EVIDENCE_FIELD_CLAIM),

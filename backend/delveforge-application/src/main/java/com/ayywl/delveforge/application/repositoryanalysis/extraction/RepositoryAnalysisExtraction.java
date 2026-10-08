@@ -3,6 +3,7 @@ package com.ayywl.delveforge.application.repositoryanalysis.extraction;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiMessage;
+import com.ayywl.delveforge.application.port.ai.AiOutputContractViolationException;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
@@ -14,6 +15,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 把 Repository 材料交给 AI，得到结构化的分析提议。
@@ -45,6 +48,9 @@ import java.util.Set;
  * 它必须确实来自本次交给模型的文件，否则整次分析被拒绝。
  */
 public final class RepositoryAnalysisExtraction {
+
+    private static final Logger log = LoggerFactory.getLogger(RepositoryAnalysisExtraction.class);
+    private static final int MAX_ATTEMPTS = 2;
 
     /**
      * 系统指令。
@@ -100,7 +106,7 @@ public final class RepositoryAnalysisExtraction {
     /**
      * 依据给定的 Repository 材料提取分析提议。
      *
-     * <p>AI 调用与解析都发生在同一步内，两者任一失败都以异常结束，不返回半成品。
+     * <p>输出契约违反只重问一次；调用失败直接结束，不返回半成品。
      *
      * @param files 从 Repository 读出的材料，不得为 {@code null} 或空
      * @return 模型提出、并已通过结构校验的分析提议
@@ -109,12 +115,32 @@ public final class RepositoryAnalysisExtraction {
      */
     public RepositoryAnalysisProposal extract(List<RepositorySourceFile> files) {
         requireFiles(files);
+        List<RepositorySourceFile> materials = List.copyOf(files);
+        AiRequest request = buildRequest(materials);
 
-        RepositoryAnalysisProposal proposal =
-                proposalParser.parse(aiGateway.generate(buildRequest(files)));
-        requireEvidenceRefersToSentFiles(proposal, files);
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            log.info("operation=repository-final-analysis attempt={} maxAttempts={} result=STARTED",
+                    attempt, MAX_ATTEMPTS);
+            // 调用在捕获范围之外，网络、鉴权与 Provider 失败不能被当成输出不合规重试。
+            String rawOutput = aiGateway.generate(request);
+            try {
+                RepositoryAnalysisProposal proposal = proposalParser.parse(rawOutput);
+                requireEvidenceRefersToSentFiles(proposal, materials);
+                log.info("operation=repository-final-analysis attempt={} maxAttempts={} result=ACCEPTED",
+                        attempt, MAX_ATTEMPTS);
+                return proposal;
+            } catch (AiOutputContractViolationException violation) {
+                // 只记次数和分类，不记录可能含源码或秘密的响应与异常消息。
+                log.warn("operation=repository-final-analysis attempt={} maxAttempts={} "
+                                + "result=CONTRACT_REJECTED retrying={}",
+                        attempt, MAX_ATTEMPTS, attempt < MAX_ATTEMPTS);
+                if (attempt == MAX_ATTEMPTS) {
+                    throw violation;
+                }
+            }
+        }
 
-        return proposal;
+        throw new IllegalStateException("Final analysis attempt loop completed without a result");
     }
 
     /**
@@ -145,7 +171,7 @@ public final class RepositoryAnalysisExtraction {
 
         for (RepositoryEvidenceProposal evidence : proposal.evidence()) {
             if (!sentPaths.contains(evidence.sourceRef())) {
-                throw new AiGatewayException(
+                throw new AiOutputContractViolationException(
                         "AI 提出的依据指向了本次没有提供的文件: " + evidence.sourceRef());
             }
         }

@@ -42,23 +42,23 @@ public final class AiJsonObjectReader {
 
     public JsonNode read(String rawAiOutput) {
         if (rawAiOutput == null || rawAiOutput.isBlank()) {
-            throw new AiGatewayException("AI 返回内容为空");
+            throw new AiOutputContractViolationException("AI 返回内容为空");
         }
 
         JsonNode root;
         try (JsonParser parser = objectMapper.getFactory().createParser(rawAiOutput)) {
             root = objectMapper.readTree(parser);
             if (parser.nextToken() != null) {
-                throw new AiGatewayException("AI 返回内容在 json 对象之后还有多余内容");
+                throw new AiOutputContractViolationException("AI 返回内容在 json 对象之后还有多余内容");
             }
         } catch (JsonProcessingException exception) {
-            throw new AiGatewayException("AI 返回内容不是合法 json", exception);
+            throw new AiOutputContractViolationException("AI 返回内容不是合法 json", exception);
         } catch (IOException exception) {
             throw new AiGatewayException("无法读取 AI 返回内容", exception);
         }
 
         if (root == null || !root.isObject()) {
-            throw new AiGatewayException("AI 返回内容不是 json 对象");
+            throw new AiOutputContractViolationException("AI 返回内容不是 json 对象");
         }
         return root;
     }

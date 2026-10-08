@@ -2,11 +2,13 @@ package com.ayywl.delveforge.application.repositoryanalysis.extraction;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.ai.AiOutputContractViolationException;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
@@ -14,6 +16,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 
 /**
  * 验证 Repository 分析提议的提取编排：材料交给 AI，解析结果作为提议返回。
@@ -207,7 +211,110 @@ class RepositoryAnalysisExtractionTest {
         aiGateway.respond("{\"purpose\":\"只有一个字段\"}");
 
         assertThrows(AiGatewayException.class, () -> extraction.extract(FILES));
+        assertEquals(2, aiGateway.callCount());
+    }
+
+    @ParameterizedTest
+    @MethodSource("malformedOutputs")
+    void retriesOutputContractViolationsOnceWithTheIdenticalRequest(String malformed) {
+        List<AiRequest> requests = new ArrayList<>();
+        RepositoryAnalysisExtraction retrying = new RepositoryAnalysisExtraction(request -> {
+            requests.add(request);
+            return requests.size() == 1 ? malformed : VALID_RESPONSE;
+        }, new ObjectMapper());
+
+        assertEquals("个人记账工具", retrying.extract(FILES).purpose());
+        assertEquals(2, requests.size());
+        assertSame(requests.get(0), requests.get(1));
+    }
+
+    private static java.util.stream.Stream<String> malformedOutputs() {
+        return java.util.stream.Stream.of("not-json", "[]", "{\"purpose\":\"只有一个字段\"}",
+                VALID_RESPONSE + "解释文字", VALID_RESPONSE + " {}",
+                VALID_RESPONSE.replace("\"个人记账工具\"", "42"),
+                VALID_RESPONSE.replace("[\"Java 21\", \"Spring Boot\"]", "42"),
+                VALID_RESPONSE.replace("\"sourceRef\": \"pom.xml\"", "\"sourceRef\": null"));
+    }
+
+    @Test
+    void retryStillRejectsUnknownEvidenceAndNeverMakesAThirdCall() {
+        List<AiRequest> requests = new ArrayList<>();
+        RepositoryAnalysisExtraction retrying = new RepositoryAnalysisExtraction(request -> {
+            requests.add(request);
+            return requests.size() == 1 ? VALID_RESPONSE + " trailing"
+                    : VALID_RESPONSE.replace("pom.xml", "not-sent.xml");
+        }, new ObjectMapper());
+
+        assertThrows(AiOutputContractViolationException.class, () -> retrying.extract(FILES));
+        assertEquals(2, requests.size());
+    }
+
+    @Test
+    void retriesUnknownReferencesAndKeepsTheOriginalMaterialsSnapshot() {
+        List<RepositorySourceFile> mutableMaterials = new ArrayList<>(FILES);
+        List<AiRequest> requests = new ArrayList<>();
+        RepositoryAnalysisExtraction retrying = new RepositoryAnalysisExtraction(request -> {
+            requests.add(request);
+            if (requests.size() == 1) {
+                mutableMaterials.clear();
+                return VALID_RESPONSE.replace("pom.xml", "not-sent.xml");
+            }
+            return VALID_RESPONSE;
+        }, new ObjectMapper());
+
+        assertEquals("pom.xml", retrying.extract(mutableMaterials).evidence().get(0).sourceRef());
+        assertEquals(2, requests.size());
+        assertSame(requests.get(0), requests.get(1));
+        assertTrue(requests.get(1).messages().get(1).content().contains(FILES.get(0).content()));
+    }
+
+    @ParameterizedTest
+    @MethodSource("nonRetryableFailures")
+    void neverRetriesFailuresFromTheProviderCallEvenIfTheyUseAContractSubtype(RuntimeException failure) {
+        aiGateway.failWith(failure);
+        assertSame(failure, assertThrows(RuntimeException.class, () -> extraction.extract(FILES)));
         assertEquals(1, aiGateway.callCount());
+    }
+
+    private static java.util.stream.Stream<RuntimeException> nonRetryableFailures() {
+        return java.util.stream.Stream.of(new AiGatewayException("authentication failure"),
+                new AiGatewayException("transport timeout", new java.net.http.HttpTimeoutException("timeout")),
+                new com.ayywl.delveforge.application.port.workspace.WorkspaceException("workspace failure"),
+                new com.ayywl.delveforge.application.repositoryanalysis.region.ScoutCallBudgetExceededException(
+                        "budget exceeded"),
+                new IllegalArgumentException("unrelated domain failure"),
+                new AiOutputContractViolationException("provider boundary failure"));
+    }
+
+    @Test
+    void doesNotTreatParserInfrastructureIoFailureAsAnOutputContractViolation() {
+        ObjectMapper failingMapper = new ObjectMapper(new com.fasterxml.jackson.core.JsonFactory() {
+            @Override
+            public com.fasterxml.jackson.core.JsonParser createParser(String content) throws java.io.IOException {
+                throw new java.io.IOException("reader failure");
+            }
+        });
+        aiGateway.respond(VALID_RESPONSE);
+        RepositoryAnalysisExtraction failing = new RepositoryAnalysisExtraction(aiGateway, failingMapper);
+
+        AiGatewayException failure = assertThrows(AiGatewayException.class, () -> failing.extract(FILES));
+        assertFalse(failure instanceof AiOutputContractViolationException);
+        assertEquals(1, aiGateway.callCount());
+    }
+
+    @Test
+    void providerFailureDuringTheSecondCallIsNotRetriedAgain() {
+        List<AiRequest> requests = new ArrayList<>();
+        AiGatewayException failure = new AiGatewayException("timeout");
+        RepositoryAnalysisExtraction retrying = new RepositoryAnalysisExtraction(request -> {
+            requests.add(request);
+            if (requests.size() == 1) {
+                return VALID_RESPONSE + " trailing";
+            }
+            throw failure;
+        }, new ObjectMapper());
+        assertSame(failure, assertThrows(AiGatewayException.class, () -> retrying.extract(FILES)));
+        assertEquals(2, requests.size());
     }
 
     @Test

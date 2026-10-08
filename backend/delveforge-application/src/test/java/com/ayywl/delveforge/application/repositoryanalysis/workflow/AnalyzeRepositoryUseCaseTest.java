@@ -3,6 +3,7 @@ package com.ayywl.delveforge.application.repositoryanalysis.workflow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -580,6 +581,7 @@ class AnalyzeRepositoryUseCaseTest {
         assertThrows(AiGatewayException.class, () -> useCase.analyze(ASSET_ID));
 
         assertEquals(0, profileRepository.saveCount());
+        assertEquals(2, aiGateway.callCount(), "Scout 与最终调用各一次，调用失败不重试");
     }
 
     @Test
@@ -587,11 +589,13 @@ class AnalyzeRepositoryUseCaseTest {
         seedAsset(true);
         workspace.givenRevision(REVISION_A, FILES_AT_A);
         workspace.givenHeadRevision(REVISION_A);
-        aiGateway.respondAll(SCOUT_RESPONSE, "{\"purpose\":\"只有一个字段\"}");
+        aiGateway.respondAll(SCOUT_RESPONSE, "{\"purpose\":\"只有一个字段\"}",
+                "{\"purpose\":\"只有一个字段\"}");
 
         assertThrows(AiGatewayException.class, () -> useCase.analyze(ASSET_ID));
 
         assertEquals(0, profileRepository.saveCount());
+        assertEquals(3, aiGateway.callCount(), "一次 Scout、两次最终分析，失败后不保存");
     }
 
     /**
@@ -603,11 +607,33 @@ class AnalyzeRepositoryUseCaseTest {
         workspace.givenRevision(REVISION_A, FILES_AT_A);
         workspace.givenHeadRevision(REVISION_A);
         aiGateway.respondAll(SCOUT_RESPONSE,
+                PROPOSAL.replace(POM, "some/nonexistent/file.java"),
                 PROPOSAL.replace(POM, "some/nonexistent/file.java"));
 
         assertThrows(AiGatewayException.class, () -> useCase.analyze(ASSET_ID));
 
         assertEquals(0, profileRepository.saveCount());
+        assertEquals(3, aiGateway.callCount());
+    }
+
+    @Test
+    void finalRetryReusesSanitizedMaterialsWithoutRepeatingScoutOrReadsAndSavesOnlyOnce() {
+        seedAsset(true);
+        workspace.givenRevision(REVISION_A, CANARY_FILES_AT_A);
+        workspace.givenHeadRevision(REVISION_A);
+        aiGateway.respondAll(SCOUT_RESPONSE, PROPOSAL + " trailing", PROPOSAL);
+
+        useCase.analyze(ASSET_ID);
+
+        assertEquals(3, aiGateway.callCount(), "一次 Scout，加初次与重试最终分析");
+        assertEquals(1, profileRepository.saveCount());
+        assertEquals(1, profileRepository.size());
+        assertSame(aiGateway.requests.get(1), aiGateway.requests.get(2));
+        String material = finalAnalyzerRequest();
+        assertFalse(material.contains("CANARY-CONFIG-VALUE-0001"));
+        assertFalse(material.contains("CANARY-SOURCE-VALUE-0001"));
+        assertTrue(material.contains(DeterministicRepositorySecretPolicy.REDACTION_MARKER));
+        assertEquals(workspace.readPaths().size(), new java.util.HashSet<>(workspace.readPaths()).size());
     }
 
     /**
