@@ -992,10 +992,20 @@ kind 是 WHAT，有限 action 是 HOW，具体测试 target 只由 M4 在本次�
 动作 / target；无法适配的业务标准在 mutation 前拒绝。定向测试还须从本次报告确认实际类 / 方法。
 BUILD、DIFF_CHECK 或无关 TEST 的成功不能证明任意业务标准。
 定向方法证据仅规范化支持的 Surefire Java 参数签名和数字调用后缀，保持准确的类 / 方法身份。
+名义 TEST 不能单凭成功退出与非空报告证明全套语义。当前 Workspace 对 `.mvn/maven.config`
+仅接受有限的显示 / 离线参数，对 `.mvn/jvm.config` 仅接受内存参数；选择器、reactor 缩小参数、
+未知参数及 core extensions 拒绝全套证据，不改写配置。受控进程隔离 Maven / Java 注入变量并禁用
+用户 mavenrc。TEST 在同一有界、离线 Maven 会话执行固定 Help 3.5.1 effective-pom 与 test；
+生效 POM（含继承与活跃 profile）仅存于验证运行目录的 `.git` 内，限制字节 / 项目数并禁用 XML
+外部引用。对实际 Surefire / execution 的选择、跳过、未知配置及测试编译筛选失败关闭。
+当前只支持普通 Surefire test 生命周期；自定义 provider、Failsafe、extensions、非默认测试源码
+路径等不能获得全套证据。离线 Help 插件不可用或生效配置无法确认时同样拒绝，不推进软件信任。
 
 V11 为既有 evolution_step_section_item 增加 criterion_kind；value 继续保存 description。
 迁移不重写历史文字、顺序或业务检查点；旧文本全部标为 UNSUPPORTED，不推断技术或业务类型。
 Repository 恢复正式 Criterion 值，API 返回对象列表，M4 模型直接接收相同结构。
+历史恢复仅验证完整检查点的结构一致性与记录的通过事实，不重新应用当前 Criterion 证据资格。
+原有 SUCCEEDED / EXECUTING / VERIFYING 事实保持可读；UNSUPPORTED 不因历史可读而获得新的执行资格。
 
 Candidate 发布前从固定 baseline 与已验证补丁在内部临时 index 生成预期 tree，核对即将提交的
 不可变 tree 完全一致，并从该固定 tree 生成真实路径与变化摘要；早期共享 index 检查不构成发布依据。

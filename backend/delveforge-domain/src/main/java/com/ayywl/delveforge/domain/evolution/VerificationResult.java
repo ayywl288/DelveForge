@@ -32,6 +32,20 @@ public record VerificationResult(String candidateRevision, List<Check> checks, b
         return passed && !criteria.isEmpty() && covered.size() == criteria.size();
     }
 
+    /** 历史结构检查不赋予标准当前执行资格，也不重新解释历史证据类型。 */
+    boolean recordsPassedCoverage(int criterionCount) {
+        HashSet<Integer> covered = new HashSet<>();
+        for (Check check : checks) {
+            for (Integer index : check.criterionIndexes()) {
+                if (index == null || index < 1 || index > criterionCount) {
+                    return false;
+                }
+                covered.add(index);
+            }
+        }
+        return passed && criterionCount > 0 && covered.size() == criterionCount;
+    }
+
     public record Check(String action, String target, List<Integer> criterionIndexes, boolean passed, String summary) {
         public Check {
             if (!List.of("BUILD", "TEST", "FOCUSED_TEST", "DIFF_CHECK").contains(action)) {

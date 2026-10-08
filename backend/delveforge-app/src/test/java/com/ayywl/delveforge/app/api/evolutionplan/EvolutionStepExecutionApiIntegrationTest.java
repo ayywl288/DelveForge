@@ -2,6 +2,8 @@ package com.ayywl.delveforge.app.api.evolutionplan;
 
 import com.ayywl.delveforge.application.port.ai.*;
 import com.ayywl.delveforge.application.port.persistence.*;
+import com.ayywl.delveforge.application.port.workspace.*;
+import com.ayywl.delveforge.application.evolution.preparation.CodingProposal;
 import com.ayywl.delveforge.domain.asset.*;
 import com.ayywl.delveforge.domain.direction.*;
 import com.ayywl.delveforge.domain.evidence.*;
@@ -63,6 +65,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     @MockitoBean AiGateway ai;
     @Autowired com.ayywl.delveforge.application.evolution.preparation.PrepareEvolutionStepUseCase preparation;
     @Autowired com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase execute;
+    @Autowired WorkspaceVerificationPort verification;
 
 
     private String planId;
@@ -124,7 +127,8 @@ class EvolutionStepExecutionApiIntegrationTest {
             case "businessCriterionCannotBeProvenByUnrelatedTechnicalActions" -> VerificationCriterion.Kind.UNSUPPORTED;
             case "executesNewTestInSamePatchWithRealMavenBeforeTrustedPromotion" -> VerificationCriterion.Kind.SELECTED_TESTS_PASS;
             case "normalM3TechnicalStepBuildsAndPromotesTheActualCandidate", "wrongEvidenceTypeFailsBeforeMutation" -> VerificationCriterion.Kind.BUILD_SUCCEEDS;
-            case "focusedTestCannotProveTheFullSuiteCriterion" -> VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES;
+            case "focusedTestCannotProveTheFullSuiteCriterion", "fullSuiteCannotBeNarrowedByCandidateConfiguration",
+                    "normalFullSuiteProvesTheStructuredCriterion" -> VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES;
             default -> VerificationCriterion.Kind.DIFF_CHECK_PASSES;
         };
         var planningNode = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(PLANNING);
@@ -280,6 +284,49 @@ class EvolutionStepExecutionApiIntegrationTest {
                 .step(new EvolutionStepId(stepId)).executionResult().affectedPaths());
         assertEquals(original, snapshot(source));
         verify(ai, times(2)).generate(any());
+    }
+
+    private String suitePatch(boolean failing) {
+        return PATCH + newFilePatch("src/test/java/PassingTest.java", "public class PassingTest {"
+                + " @org.junit.jupiter.api.Test void value() {} }\n")
+                + newFilePatch("src/test/java/FailingTest.java", "public class FailingTest {"
+                + " @org.junit.jupiter.api.Test void value() { org.junit.jupiter.api.Assertions.assertTrue("
+                + !failing + "); } }\n");
+    }
+
+    private String newFilePatch(String path, String content) {
+        return "--- /dev/null\n+++ b/" + path + "\n@@ -0,0 +1 @@\n+" + content;
+    }
+
+    @ParameterizedTest @ValueSource(strings = {".mvn/maven.config", ".mvn/jvm.config"})
+    void fullSuiteCannotBeNarrowedByCandidateConfiguration(String configuration) throws Exception {
+        confirm();
+        coding(suitePatch(true) + newFilePatch(configuration, "-Dtest=PassingTest\n"), "TEST");
+        Map<String, String> original = snapshot(source);
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        EvolutionStep step = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(EvolutionStepStatus.VERIFYING, step.status());
+        assertEquals(revision, step.baselineRevision());
+        assertNull(step.verificationResult());
+        assertNotEquals(revision, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(original, snapshot(source));
+        VerificationFacts rejected = verification.verify(new CandidateVerification(new WorkspaceRef(copy.toString()),
+                new WorkspaceRef(source.toString()), revision, persistedCopy().currentRevision(), List.of(
+                new CodingProposal.VerificationAction(CodingProposal.Action.TEST, "", List.of(1)))));
+        assertFalse(rejected.checks().getFirst().passed());
+        assertTrue(rejected.checks().getFirst().summary().contains("NOT_RUN"));
+        assertFalse(rejected.checks().getFirst().summary().contains("exit"));
+    }
+
+    @Test void normalFullSuiteProvesTheStructuredCriterion() throws Exception {
+        confirm();
+        coding(suitePatch(false), "TEST");
+        mvc.perform(post(route("execute"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("SUCCEEDED"));
+        EvolutionStep step = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertTrue(step.verificationResult().checks().getFirst().summary().contains("executed=2"));
+        assertEquals(step.executionResult().candidateRevision(), persistedCopy().lastVerifiedRevision());
     }
 
     @Test void wrongEvidenceTypeFailsBeforeMutation() throws Exception {

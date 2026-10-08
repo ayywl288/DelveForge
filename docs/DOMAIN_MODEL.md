@@ -2382,6 +2382,9 @@ M3 不提供类 / 方法名称。FULL_TEST_SUITE_PASSES 不能用单个定向测
 允许受支持的 Surefire 参数签名与数字调用后缀（例如 `value(int)[1]`），不允许方法前缀匹配。
 DIFF_CHECK 只检查真实 A..B 的空白错误 / 冲突标记，不声称证明业务行为或替代 mutation 的授权范围检查。
 Domain 独立核对 kind、动作与有界 target，不能任意绑定索引。
+`TEST` 名称本身不证明全套语义。Workspace 必须检查实际 Maven 输入与生效的 Surefire 配置；
+仓库本地参数、继承 / 活跃 profile 中的 test / includes / excludes / groups 等选择器不得将
+全套证据缩小为部分测试。当前无法确定全套语义的配置失败关闭，不删除或改写仓库配置。
 这些标准只证明所述技术事实；BUILD / DIFF_CHECK / 无关 TEST 不能证明“Reports run on schedule”等业务标准。
 没有可信对应证据适配器的标准在执行前保留 READY 并拒绝 mutation；Criteria 不被改写、替换或降低。
 这是 M4 当前能力限制，不是放宽 `INV-V01`，也不引入通用自然语言证明器或新的审批生命周期。
@@ -6077,7 +6080,10 @@ EvolutionPlanningService 不负责：
 - M3 → M4 的最小契约修正：verificationCriteria 每项为 kind + description 的正式值；
   规划提示 / 解析器要求显式类别，不生成 M4 动作或测试 target。V11 仅为既有标准补上 UNSUPPORTED，
   保留原文、身份与顺序，不猜测历史类别或改写已有生命周期 / revision / 结果。
-  旧未分类标准不可获得新的自动成功判定；不符合现行信任条件的历史成功检查点继续失败关闭。
+  旧未分类标准不可获得新的自动成功判定。历史完整检查点按结构事实恢复，不重新应用今日的
+  Criterion 证据资格规则：SUCCEEDED 必须保存 baseline、完整 ExecutionResult、同一 Candidate 的
+  passed VerificationResult 及完整有效的标准索引。保留状态、revision、结果与原文，不重做或制造
+  历史授权 / 验证；缺失或矛盾记录仍失败关闭。新的执行 / 成功转移继续严格校验当前结构化契约。
 - Plan 使用已有 `EvidenceBasis` 保存依据及出处，并要求至少一条来自 Base Profile 的依据；
   其他依据只能来自该 Profile 或 Selected Direction 已保存的 Evidence Support。
 - 初始 Plan 仅为 PROPOSED，workingCopyId 为空；所有 Step 为 PENDING_CONFIRMATION，

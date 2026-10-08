@@ -37,6 +37,10 @@ class GitEvolutionExecutionIntegrationTest {
     }
 
     private AuthorizedStepExecution fixture(boolean maven, int assertion, boolean parameterized) throws Exception {
+        return fixture(maven, assertion, parameterized, "");
+    }
+
+    private AuthorizedStepExecution fixture(boolean maven, int assertion, boolean parameterized, String mavenOverrides) throws Exception {
         Map<String, String> files = new LinkedHashMap<>();
         files.put("Report.java", "public class Report { static int value() { return 0; } }\n");
         if (maven) {
@@ -56,6 +60,11 @@ class GitEvolutionExecutionIntegrationTest {
             Path root = Path.of("../..").toAbsolutePath().normalize();
             for (String path : List.of("mvnw", "mvnw.cmd", ".mvn/wrapper/maven-wrapper.properties")) {
                 files.put(path, Files.readString(root.resolve(path)));
+            }
+            if (!mavenOverrides.isEmpty()) {
+                files.put("pom.xml", files.get("pom.xml").replace("</project>", mavenOverrides + "</project>"));
+                files.put("src/test/java/FailingTest.java", "public class FailingTest { @org.junit.jupiter.api.Test"
+                        + " void omitted() { org.junit.jupiter.api.Assertions.fail(\"Must not be omitted\"); } }\n");
             }
         }
         source = repositories.createCommitted("source", files);
@@ -168,6 +177,28 @@ class GitEvolutionExecutionIntegrationTest {
         CandidateMutationResult candidate = git.applyCandidate(authorized);
         assertFalse(verification.verify(request(candidate.revision(), CodingProposal.Action.FOCUSED_TEST)).checks().getFirst().passed());
         assertEquals(baseline, workingCopy.lastVerifiedRevision());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {
+        "<name>ReportTest</name><build><plugins><plugin>"
+                + "<artifactId>maven-surefire-plugin</artifactId><configuration><test>${project.name}</test></configuration>"
+                + "</plugin></plugins></build>",
+        "<build><plugins><plugin><artifactId>maven-surefire-plugin</artifactId><configuration><includes>"
+                + "<include>**/ReportTest.java</include></includes></configuration></plugin></plugins></build>",
+        "<profiles><profile><id>default</id><activation><activeByDefault>true</activeByDefault></activation><build><plugins>"
+                + "<plugin><artifactId>maven-surefire-plugin</artifactId><configuration><excludes><exclude>**/FailingTest.java</exclude>"
+                + "</excludes></configuration></plugin></plugins></build></profile></profiles>"
+    })
+    void successfulMavenWithEffectivePomSelectorsIsNotFullSuiteEvidence(String configuration) throws Exception {
+        AuthorizedStepExecution authorized = fixture(true, 1, false, configuration);
+        CandidateMutationResult candidate = git.applyCandidate(authorized);
+        Map<String, String> original = snapshot(source);
+        VerificationFacts facts = verification.verify(request(candidate.revision(), CodingProposal.Action.TEST));
+        assertFalse(facts.checks().getFirst().passed(), facts.toString());
+        assertTrue(facts.checks().getFirst().summary().contains("effective Maven inputs"), facts.toString());
+        assertEquals(baseline, workingCopy.lastVerifiedRevision());
+        assertEquals(candidate.revision(), headRevision(copy));
+        assertEquals(original, snapshot(source));
     }
 
     @Test void externalRevisionOrArtifactsRejectMutationWithoutCandidate() throws Exception {

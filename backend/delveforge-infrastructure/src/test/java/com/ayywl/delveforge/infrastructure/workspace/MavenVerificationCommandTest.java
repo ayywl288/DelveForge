@@ -21,6 +21,9 @@ class MavenVerificationCommandTest {
                 expected.addAll(List.of("-DskipTests=false", "-Dmaven.test.skip=false", "-DfailIfNoTests=true"));
                 if (action == CodingProposal.Action.FOCUSED_TEST) {
                     expected.addAll(List.of("-Dtest=ScheduleTest#schedule", "-Dsurefire.failIfNoSpecifiedTests=true"));
+                } else {
+                    expected.addAll(List.of("-Doutput=" + MavenFullSuiteInputs.EFFECTIVE_POM,
+                            MavenFullSuiteInputs.EFFECTIVE_POM_GOAL));
                 }
                 expected.add("test");
             }

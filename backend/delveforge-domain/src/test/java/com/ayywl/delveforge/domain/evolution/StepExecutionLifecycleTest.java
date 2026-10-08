@@ -99,7 +99,7 @@ class StepExecutionLifecycleTest {
         assertEquals("A", copy.currentRevision());
     }
     @ParameterizedTest @ValueSource(strings = {"BUILD", "DIFF_CHECK", "TEST", "FOCUSED_TEST"})
-    void unsupportedBusinessEvidenceCannotPromoteCandidateOrRestoreSuccess(String action) {
+    void unsupportedBusinessEvidenceCannotPromoteCandidateButRecordedHistoryRemainsReadable(String action) {
         EvolutionPlan plan = plan(List.of(), List.of(VerificationCriterion.unsupported("Reports run on schedule")));
         WorkingCopy copy = copy();
         plan.confirmStep(first, copy, policy);
@@ -114,9 +114,15 @@ class StepExecutionLifecycleTest {
         assertNull(plan.step(first).verificationResult());
         assertEquals("B", copy.currentRevision());
         assertEquals("A", copy.lastVerifiedRevision());
-        assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
+        EvolutionStep historical = EvolutionStep.reconstitute(first, id, "goal", "scope",
                 List.of("change"), List.of(), List.of(VerificationCriterion.unsupported("Reports run on schedule")), EvolutionStepStatus.SUCCEEDED,
-                "A", execution, result));
+                "A", execution, result);
+        assertEquals(EvolutionStepStatus.SUCCEEDED, historical.status());
+        assertEquals(result, historical.verificationResult());
+        assertEquals(execution, historical.executionResult());
+        assertEquals("A", historical.baselineRevision());
+        assertFalse(result.satisfies(historical.verificationCriteria()));
+        assertThrows(EvolutionPlanStateException.class, () -> historical.start("B"));
     }
     @Test void unestablishedPreconditionsRejectStartWithoutFreezingOrChangingCopy() {
         EvolutionPlan plan = plan(List.of("external fact"));
@@ -134,5 +140,18 @@ class StepExecutionLifecycleTest {
                 List.of("change"), List.of(), List.of(VerificationCriterion.unsupported("one")), EvolutionStepStatus.READY, "A", null, null));
         assertThrows(EvolutionPlanStateException.class, () -> new VerificationResult("B", List.of(
                 new VerificationResult.Check("TEST", "", List.of(1), false, "failed")), true, List.of(), "summary", Instant.now()));
+    }
+
+    @Test void historicalSuccessMustStillBeStructurallyCompleteAndRecordPassingFacts() {
+        List<VerificationCriterion> criteria = List.of(VerificationCriterion.unsupported("BUILD passes"));
+        for (VerificationResult result : List.of(verification("C", true, List.of(1)),
+                verification("B", false, List.of(1)), verification("B", true, List.of(2)))) {
+            assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
+                    List.of("change"), List.of(), criteria, EvolutionStepStatus.SUCCEEDED, "A", execution("B"), result));
+        }
+        assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
+                List.of("change"), List.of(), criteria, EvolutionStepStatus.SUCCEEDED, null, execution("B"), verification("B", true, List.of(1))));
+        assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
+                List.of("change"), List.of(), criteria, EvolutionStepStatus.SUCCEEDED, "A", null, verification("B", true, List.of(1))));
     }
 }

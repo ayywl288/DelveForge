@@ -76,9 +76,10 @@ public final class EvolutionStep {
                 || ((verifying || succeeded) && (execution == null || baseline.equals(execution.candidateRevision())))
                 || (verifying && verification != null)
                 || (succeeded && (verification == null || !execution.candidateRevision().equals(verification.candidateRevision())
-                    || !verification.satisfies(step.verificationCriteria)))) {
+                    || !verification.recordsPassedCoverage(step.verificationCriteria.size())))) {
             throw new EvolutionPlanStateException("Incomplete stored Step checkpoint");
         }
+        // 历史完整检查点恢复记录的事实；新的成功转移仍通过 satisfies 校验现行证据资格。
         step.status = status;
         step.baselineRevision = baseline;
         step.executionResult = execution;

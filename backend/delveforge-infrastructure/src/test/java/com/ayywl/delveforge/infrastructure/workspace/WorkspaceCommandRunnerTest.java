@@ -21,6 +21,14 @@ class WorkspaceCommandRunnerTest {
                 Path.of("."), probe("sleep"), Duration.ofMillis(200), 1024));
         assertTrue(time.getMessage().contains("time budget"));
     }
+    @Test void testSelectorsCannotEnterThroughInheritedMavenOrJavaVariablesOrRc() {
+        java.util.Map<String, String> environment = new java.util.HashMap<>(java.util.Map.of(
+                "MAVEN_ARGS", "-Dtest=PassingTest", "maven_opts", "-Dgroups=fast",
+                "JAVA_TOOL_OPTIONS", "-Dtest=PassingTest", "_JAVA_OPTIONS", "-Dtest=PassingTest",
+                "JDK_JAVA_OPTIONS", "-Dtest=PassingTest", "MAVEN_SKIP_RC", "false", "PATH", "existing-path"));
+        WorkspaceCommandRunner.isolateEnvironment(environment);
+        assertEquals(java.util.Map.of("MAVEN_SKIP_RC", "true", "PATH", "existing-path"), environment);
+    }
     public static class Probe {
         public static void main(String[] args) throws Exception {
             if (args[0].equals("output")) {

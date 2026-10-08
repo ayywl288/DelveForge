@@ -80,6 +80,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                 WorkspaceCommandRunner.Result result;
                 String evidence = "";
                 boolean passed;
+                boolean attempted = true;
                 if (action.action() == Action.DIFF_CHECK) {
                     // --check 检查真实 A..B 的冲突标记和空白错误，不读取 AI 摘要。
                     result = command(copy, List.of("git", "--no-optional-locks", "diff", "--no-ext-diff",
@@ -87,11 +88,26 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                     passed = result.succeeded();
                 } else {
                     requireMaterializedCandidate(run, request.candidateRevision(), deadline);
+                    if (action.action() == Action.TEST) {
+                        // 本动作必须重新产出证明，不能复用前一个动作或模板留下的生效 POM。
+                        Files.deleteIfExists(run.resolve(MavenFullSuiteInputs.EFFECTIVE_POM));
+                    }
                     List<String> args = mavenCommand(action, windows());
                     long actionStarted = System.currentTimeMillis();
-                    result = command(run, args, deadline);
+                    boolean fullSuiteInputs = action.action() != Action.TEST
+                            || MavenFullSuiteInputs.localConfigurationSupported(run, budgets.maxOutputBytes());
+                    attempted = fullSuiteInputs;
+                    result = fullSuiteInputs ? command(run, args, deadline) : new WorkspaceCommandRunner.Result(1, "");
                     requireMaterializedCandidate(run, request.candidateRevision(), deadline);
                     passed = result.succeeded();
+                    if (action.action() == Action.TEST) {
+                        passed = passed && MavenFullSuiteInputs.effectivePomSupported(run, budgets.maxOutputBytes());
+                        if (!passed && !fullSuiteInputs) {
+                            evidence = "; unsupported full-suite Maven inputs";
+                        } else if (!passed && result.succeeded()) {
+                            evidence = "; effective Maven inputs do not establish full-suite semantics";
+                        }
+                    }
                     if (passed && action.action() != Action.BUILD) {
                         TestEvidence tests = testEvidence(run, actionStarted);
                         passed = tests.executed() > 0 && tests.failures() == 0
@@ -102,7 +118,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                 String outcome = result.output().contains("No tests matching pattern") ? "NO_MATCHING_TESTS"
                         : result.output().contains("No tests were executed") ? "NO_TESTS" : "COMPLETED";
                 checks.add(new VerificationFacts.Check(action.action(), action.target(), passed,
-                        action.action() + " " + outcome + " with exit " + result.exitCode() + evidence));
+                        action.action() + " " + (attempted ? outcome + " with exit " + result.exitCode() : "NOT_RUN") + evidence));
                 if (!passed) {
                     // 保持每个预定动作的对应事实，剩余动作明确为未执行，不能推断成功。
                     for (int index = checks.size(); index < request.strategy().size(); index++) {
@@ -136,6 +152,10 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
             if (action.action() == Action.FOCUSED_TEST) {
                 args.add("-Dtest=" + action.target());
                 args.add("-Dsurefire.failIfNoSpecifiedTests=true");
+            } else {
+                // 同一 Maven 会话产出生效 POM 并运行 test，保持相同 profile / settings / 属性输入。
+                args.add("-Doutput=" + MavenFullSuiteInputs.EFFECTIVE_POM);
+                args.add(MavenFullSuiteInputs.EFFECTIVE_POM_GOAL);
             }
             args.add("test");
         }

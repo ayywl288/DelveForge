@@ -37,8 +37,7 @@ final class WorkspaceCommandRunner {
             }
             ProcessBuilder builder = new ProcessBuilder(resolved).directory(directory.toFile()).redirectErrorStream(true);
             // 外部 Git 定位变量不能把受控路径重定向到原仓库或另一个 index。
-            builder.environment().keySet().removeIf(key -> key.startsWith("GIT_") || key.startsWith("MAVEN_")
-                    || key.equals("MVNW_REPOURL") || key.equals("MVNW_USERNAME") || key.equals("MVNW_PASSWORD"));
+            isolateEnvironment(builder.environment());
             if (index != null) {
                 // 仅内部拥有的临时 index 可覆盖定位；不接受外部环境提供的 Git 路径。
                 builder.environment().put("GIT_INDEX_FILE", index.toString());
@@ -88,5 +87,16 @@ final class WorkspaceCommandRunner {
     private static void stop(Process process) {
         process.descendants().forEach(ProcessHandle::destroyForcibly);
         process.destroyForcibly();
+    }
+
+    static void isolateEnvironment(java.util.Map<String, String> environment) {
+        environment.keySet().removeIf(key -> {
+            String upper = key.toUpperCase(java.util.Locale.ROOT);
+            return upper.startsWith("GIT_") || upper.startsWith("MAVEN_")
+                    || upper.equals("MVNW_REPOURL") || upper.equals("MVNW_USERNAME") || upper.equals("MVNW_PASSWORD")
+                    || upper.equals("JAVA_TOOL_OPTIONS") || upper.equals("_JAVA_OPTIONS") || upper.equals("JDK_JAVA_OPTIONS");
+        });
+        // 启动脚本不得通过用户 mavenrc 重新注入测试选择或 JVM 属性。
+        environment.put("MAVEN_SKIP_RC", "true");
     }
 }
