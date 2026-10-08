@@ -806,7 +806,9 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
 
         Process process;
         try {
-            process = new ProcessBuilder(command).start();
+            ProcessBuilder builder = new ProcessBuilder(command);
+            WorkspaceCommandRunner.removeProviderCredentials(builder.environment());
+            process = builder.start();
         } catch (IOException e) {
             throw new WorkspaceException(
                     "无法执行 git 命令（运行环境里找不到 git 可执行文件）: " + command, e);

@@ -100,6 +100,7 @@ final class WorkspaceCommandRunner {
 
     /** 删除可注入 Git / Maven / JVM 定位或选择的外部变量，不接受环境替代固定命令意图。 */
     static void isolateEnvironment(java.util.Map<String, String> environment) {
+        removeProviderCredentials(environment);
         environment.keySet().removeIf(key -> {
             String upper = key.toUpperCase(java.util.Locale.ROOT);
             return upper.startsWith("GIT_") || upper.startsWith("MAVEN_")
@@ -109,5 +110,16 @@ final class WorkspaceCommandRunner {
         });
         // 启动脚本不得通过用户 mavenrc 重新注入测试选择或 JVM 属性。
         environment.put("MAVEN_SKIP_RC", "true");
+    }
+
+    /** Provider 凭据只供应用调用模型；环境过滤不代表宿主文件系统沙箱。 */
+    static void removeProviderCredentials(java.util.Map<String, String> environment) {
+        environment.keySet().removeIf(key -> {
+            String canonical = key.replace("_", "").replace("-", "").replace(".", "")
+                    .toUpperCase(java.util.Locale.ROOT);
+            // Spring 的聚合 JSON 也可能携带凭据，不能作为完整配置透传给仓库进程。
+            return canonical.equals("DEEPSEEKAPIKEY") || canonical.equals("DELVEFORGEAIDEEPSEEKAPIKEY")
+                    || canonical.equals("SPRINGAPPLICATIONJSON");
+        });
     }
 }

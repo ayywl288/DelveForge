@@ -997,6 +997,8 @@ BUILD、DIFF_CHECK 或无关 TEST 的成功不能证明任意业务标准。
 仅接受有限的显示 / 离线参数，对 `.mvn/jvm.config` 仅接受内存参数；选择器、reactor 缩小参数、
 未知参数及 core extensions 拒绝全套证据，不改写配置。受控进程隔离 Maven / Java 注入变量并禁用
 用户 mavenrc。TEST 在同一有界、离线 Maven 会话执行固定 Help 3.5.1 effective-pom 与 test；
+Git 与验证子进程启动前移除 DeepSeek 凭据环境变量（含配置名别名）及可能携带凭据的
+`SPRING_APPLICATION_JSON`；应用本身保留 Provider 配置。该过滤不是宿主文件系统权限沙箱。
 生效 POM（含继承与活跃 profile）仅存于验证运行目录的 `.git` 内，限制字节 / 项目数并禁用 XML
 外部引用。对实际 Surefire / execution 的选择、跳过、未知配置及测试编译筛选失败关闭。
 当前只支持普通 Surefire test 生命周期；自定义 provider、Failsafe、extensions、非默认测试源码
