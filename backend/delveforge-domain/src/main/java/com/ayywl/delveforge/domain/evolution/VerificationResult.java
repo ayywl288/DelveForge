@@ -18,12 +18,12 @@ public record VerificationResult(String candidateRevision, List<Check> checks, b
         }
     }
 
-    public boolean satisfies(List<String> criteria) {
+    public boolean satisfies(List<VerificationCriterion> criteria) {
         HashSet<Integer> covered = new HashSet<>();
         for (Check check : checks) {
             for (Integer index : check.criterionIndexes()) {
                 if (index == null || index < 1 || index > criteria.size()
-                        || !VerificationCriterion.supportedBy(criteria.get(index - 1), check.action(), check.target())) {
+                        || !criteria.get(index - 1).supportedBy(check.action(), check.target())) {
                     return false;
                 }
                 covered.add(index);

@@ -158,13 +158,25 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
     }
 
     record TestEvidence(long executed, long failures, Set<String> passedTests) {
+        private static final String TYPE = "[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:\\[\\])*";
+        private static final java.util.regex.Pattern METHOD = java.util.regex.Pattern.compile(
+                "([A-Za-z_][A-Za-z0-9_]*)(?:\\((?:" + TYPE + "(?:, ?" + TYPE + ")*)?\\))?(?:\\[[1-9][0-9]*\\])?");
+
         boolean includes(String target) {
+            if (executed == 0 || failures != 0) {
+                return false;
+            }
             String[] selector = target.split("#", -1);
             return passedTests.stream().anyMatch(test -> {
                 String[] identity = test.split("#", 2);
+                if (identity.length != 2) {
+                    return false;
+                }
                 boolean sameClass = identity[0].equals(selector[0])
                         || (!selector[0].contains(".") && identity[0].endsWith("." + selector[0]));
-                return sameClass && (selector.length == 1 || identity[1].equals(selector[1]));
+                // 只剥离支持的 Java 参数签名与数字调用后缀，绝不做方法前缀匹配。
+                var method = METHOD.matcher(identity[1]);
+                return sameClass && method.matches() && (selector.length == 1 || method.group(1).equals(selector[1]));
             });
         }
     }

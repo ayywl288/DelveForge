@@ -21,4 +21,11 @@ final class PlanningContent {
         values.forEach(value -> text(value, field));
         return List.copyOf(values);
     }
+
+    static List<VerificationCriterion> criteria(List<VerificationCriterion> values) {
+        if (values == null || values.isEmpty()) {
+            throw new IllegalArgumentException("step.verificationCriteria is required");
+        }
+        return List.copyOf(values);
+    }
 }

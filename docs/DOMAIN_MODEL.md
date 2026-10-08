@@ -534,6 +534,14 @@ Evolution Plan 的分析基础来自选定 Product Direction、相关 Repository
 
 `baselineRevision` 在 Step 实际开始执行时确定，原则上应等于当时 Working Copy 的 `lastVerifiedRevision`。
 
+#### Verification Criterion（M3 → M4 契约修正）
+
+Step 的 `verificationCriteria` 为有序、非空的 `VerificationCriterion` Value Object 列表，
+每项包含 `kind` 与 `description`，仍由 EvolutionPlan / Step 拥有，不引入新 Aggregate。
+kind 定义机器可读的 WHAT；description 给出人类可读含义。M3 不选择验证动作、命令、测试类或方法。
+具体 HOW 与 target 由 M4 基于本次 Repository Understanding 提议，Application / Domain 独立校验证据适配。
+当前支持的种类、说明与证据边界见 §8.11；任意业务语义不得被归类为技术 WHAT 而降低标准。
+
 ### 3.9 Execution Result
 
 **Definition**
@@ -2355,10 +2363,25 @@ WorkingCopy.currentRevision
 **M4 Task 2 当前接受规则：** VerificationResult 必须指向当前 ExecutionResult 的 Candidate B，
 全部技术检查成功、无 failures，且每项既有 Verification Criterion 都有当前支持的对应事实。
 criterionIndexes 仅为 AI 提议的对应关系，覆盖索引不构成业务行为成立的证据。
-当前保守适配只自动接受以下明确技术标准（精确文本）：`BUILD passes`、`TEST passes`、
-`DIFF_CHECK passes`、`FOCUSED_TEST <class 或 class#method> passes`。它们分别要求实际 Maven Wrapper
-构建成功、至少一个测试实际执行且全部通过、真实 A..B 空白 / 冲突标记检查通过、指定类 / 方法
-在本次新生成的测试报告中确实执行并通过。Domain 独立核对标准与动作 / target，不能任意绑定索引。
+当前结构化 WHAT 与技术证据的确定性对应为：
+
+| Criterion kind | 当前 description | 支持的 M4 action |
+| --- | --- | --- |
+| `BUILD_SUCCEEDS` | 项目构建成功 | `BUILD` |
+| `FULL_TEST_SUITE_PASSES` | 项目完整自动化测试套件通过 | `TEST` |
+| `SELECTED_TESTS_PASS` | 本步骤选择的自动化测试通过 | `FOCUSED_TEST` 或 `TEST` |
+| `DIFF_CHECK_PASSES` | 本次代码差异无空白错误或冲突标记 | `DIFF_CHECK` |
+| `UNSUPPORTED` | 保留原始业务或未分类说明 | 无自动证据适配 |
+
+kind 是必须显式提供的语义类别，不从英文或中文 prose 推断。当前技术 description 使用表中固定
+中文说明，防止夹带该 kind 无法证明的额外承诺；这是本版保守校验选择，不是通用语义分类器。
+业务效果或额外条件必须保留为 UNSUPPORTED，不能删掉业务要求改成技术标准。
+SELECTED_TESTS_PASS 仅承诺实际选择的测试通过，不证明测试完整覆盖业务语义；目标在 M4 获得源码后选择，
+M3 不提供类 / 方法名称。FULL_TEST_SUITE_PASSES 不能用单个定向测试替代。
+构建必须实际成功；测试须在本次报告中实际执行、无失败。定向测试独立核对类与逻辑方法身份，
+允许受支持的 Surefire 参数签名与数字调用后缀（例如 `value(int)[1]`），不允许方法前缀匹配。
+DIFF_CHECK 只检查真实 A..B 的空白错误 / 冲突标记，不声称证明业务行为或替代 mutation 的授权范围检查。
+Domain 独立核对 kind、动作与有界 target，不能任意绑定索引。
 这些标准只证明所述技术事实；BUILD / DIFF_CHECK / 无关 TEST 不能证明“Reports run on schedule”等业务标准。
 没有可信对应证据适配器的标准在执行前保留 READY 并拒绝 mutation；Criteria 不被改写、替换或降低。
 这是 M4 当前能力限制，不是放宽 `INV-V01`，也不引入通用自然语言证明器或新的审批生命周期。
@@ -6051,6 +6074,10 @@ EvolutionPlanningService 不负责：
 - 每个 Step 的 plannedChanges 与 verificationCriteria 至少一项；preconditions 必须显式
   出现，独立的首步允许空列表，表示没有 Step 专属依赖。步骤粒度、范围和验证标准的语义
   质量仍需用户审阅；字段非空不意味着系统能证明增量一定有界或可验证。
+- M3 → M4 的最小契约修正：verificationCriteria 每项为 kind + description 的正式值；
+  规划提示 / 解析器要求显式类别，不生成 M4 动作或测试 target。V11 仅为既有标准补上 UNSUPPORTED，
+  保留原文、身份与顺序，不猜测历史类别或改写已有生命周期 / revision / 结果。
+  旧未分类标准不可获得新的自动成功判定；不符合现行信任条件的历史成功检查点继续失败关闭。
 - Plan 使用已有 `EvidenceBasis` 保存依据及出处，并要求至少一条来自 Base Profile 的依据；
   其他依据只能来自该 Profile 或 Selected Direction 已保存的 Evidence Support。
 - 初始 Plan 仅为 PROPOSED，workingCopyId 为空；所有 Step 为 PENDING_CONFIRMATION，

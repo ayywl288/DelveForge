@@ -25,6 +25,11 @@ public final class PrepareEvolutionStepUseCase {
         不修改凭据净化过的文件，不把净化占位符写回源码。
         verificationStrategy 描述 HOW；不改变现有 verificationCriteria。criterionIndexes 从 1 开始，
         必须覆盖全部标准；动作只能 BUILD、TEST、FOCUSED_TEST、DIFF_CHECK。
+        verificationCriteria 每项包含 kind 和 description，表达 WHAT，而非具体测试目标。
+        BUILD_SUCCEEDS 只能由 BUILD 支持；FULL_TEST_SUITE_PASSES 只能由 TEST 支持；
+        SELECTED_TESTS_PASS 可由 FOCUSED_TEST 或 TEST 支持；DIFF_CHECK_PASSES 只能由 DIFF_CHECK 支持。
+        具体定向测试类 / 方法必须根据本次真实仓库上下文选择，不能由 M3 标准预先指定。
+        UNSUPPORTED 业务标准没有当前自动证据适配器，不得改写为技术标准或声称技术检查能证明它。
         仅 FOCUSED_TEST 可以有非空 target（测试名称），其他动作 target=""；禁止 shell 命令。
         若确实缺少一个具体实现依赖，可输出：
         {"type":"NEED_MORE_CONTEXT","expectedRevision":"原样复制",

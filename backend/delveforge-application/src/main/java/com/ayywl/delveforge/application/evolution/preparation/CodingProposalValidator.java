@@ -75,6 +75,11 @@ public final class CodingProposalValidator {
                 if (index == null || index <= 0 || index > step.verificationCriteria().size() || !seen.add(index)) {
                     throw new AiGatewayException("Verification strategy references an unknown or duplicate criterion");
                 }
+                var criterion = step.verificationCriteria().get(index - 1);
+                if (criterion.kind() != com.ayywl.delveforge.domain.evolution.VerificationCriterion.Kind.UNSUPPORTED
+                        && !criterion.supportedBy(check.action().name(), check.target())) {
+                    throw new AiGatewayException("Verification action cannot support the declared criterion kind");
+                }
                 covered.add(index);
             }
         }

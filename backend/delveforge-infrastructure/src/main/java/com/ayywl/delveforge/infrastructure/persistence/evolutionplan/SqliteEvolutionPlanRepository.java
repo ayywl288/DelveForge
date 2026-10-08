@@ -94,7 +94,7 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
             steps.add(EvolutionStep.reconstitute(new EvolutionStepId(step.getId()),
                     new EvolutionPlanId(step.getPlanId()), step.getGoal(), step.getScope(),
                     values(stepSections, "plannedChanges"), values(stepSections, "preconditions"),
-                    values(stepSections, "verificationCriteria"), EvolutionStepStatus.valueOf(step.getStatus()),
+                    loadCriteria(step.getId()), EvolutionStepStatus.valueOf(step.getStatus()),
                     step.getBaselineRevision(), StepResultJson.read(step.getExecutionResult(), ExecutionResult.class),
                     StepResultJson.read(step.getVerificationResult(), VerificationResult.class)));
         }
@@ -142,7 +142,16 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         stepMapper.insert(row);
         insertStepSection(step.id().value(), "plannedChanges", step.plannedChanges());
         insertStepSection(step.id().value(), "preconditions", step.preconditions());
-        insertStepSection(step.id().value(), "verificationCriteria", step.verificationCriteria());
+        for (int index = 0; index < step.verificationCriteria().size(); index++) {
+            VerificationCriterion criterion = step.verificationCriteria().get(index);
+            var item = new EvolutionStepSectionItemDO();
+            item.setStepId(step.id().value());
+            item.setSection("verificationCriteria");
+            item.setPosition(index);
+            item.setValue(criterion.description());
+            item.setCriterionKind(criterion.kind().name());
+            stepSectionMapper.insert(item);
+        }
     }
 
     private void insertStepSection(String stepId, String section, List<String> values) {
@@ -197,6 +206,15 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         Map<String, List<String>> result = new LinkedHashMap<>();
         rows.forEach(row -> result.computeIfAbsent(row.getSection(), key -> new ArrayList<>()).add(row.getValue()));
         return result;
+    }
+
+    private List<VerificationCriterion> loadCriteria(String stepId) {
+        return stepSectionMapper.selectList(new LambdaQueryWrapper<EvolutionStepSectionItemDO>()
+                .eq(EvolutionStepSectionItemDO::getStepId, stepId)
+                .eq(EvolutionStepSectionItemDO::getSection, "verificationCriteria")
+                .orderByAsc(EvolutionStepSectionItemDO::getPosition)).stream()
+                .map(row -> new VerificationCriterion(VerificationCriterion.Kind.valueOf(row.getCriterionKind()), row.getValue()))
+                .toList();
     }
 
     private List<EvidenceBasis> loadEvidence(String id) {

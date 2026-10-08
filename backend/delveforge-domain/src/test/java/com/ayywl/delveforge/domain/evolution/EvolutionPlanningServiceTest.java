@@ -43,9 +43,9 @@ class EvolutionPlanningServiceTest {
                 new TargetState("Manual exports", "Scheduled reports", "Personal schedule"),
                 List.of("Render", "Export"), List.of("Add scheduling"),
                 List.of(new PlanningStepProposal("Schedule reports", "Reporting scheduling",
-                        List.of("Add scheduling capability"), List.of(), List.of("Reports run at the user-selected time")),
+                        List.of("Add scheduling capability"), List.of(), List.of(VerificationCriterion.unsupported("Reports run at the user-selected time"))),
                         new PlanningStepProposal("Expose schedule management", "Personal schedule controls",
-                        List.of("Manage schedules"), List.of("Scheduling capability exists"), List.of("Users can change schedules"))),
+                        List.of("Manage schedules"), List.of("Scheduling capability exists"), List.of(VerificationCriterion.unsupported("Users can change schedules")))),
                 List.of("Missed reports"), List.of(BASIS));
     }
 
@@ -328,9 +328,9 @@ class EvolutionPlanningServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> service.plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), proposal()));
         assertThrows(IllegalArgumentException.class, () -> new PlanningStepProposal("Goal", " ",
-                List.of("Change"), List.of(), List.of("Criterion")));
+                List.of("Change"), List.of(), List.of(VerificationCriterion.unsupported("Criterion"))));
         assertThrows(IllegalArgumentException.class, () -> new PlanningStepProposal("Goal", "Scope",
-                List.of(), List.of(), List.of("Criterion")));
+                List.of(), List.of(), List.of(VerificationCriterion.unsupported("Criterion"))));
         assertThrows(IllegalArgumentException.class, () -> new PlanningStepProposal("Goal", "Scope",
                 List.of("Change"), List.of(), List.of()));
     }

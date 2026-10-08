@@ -33,6 +33,10 @@ class GitEvolutionExecutionIntegrationTest {
     private WorkingCopy workingCopy;
 
     private AuthorizedStepExecution fixture(boolean maven, int assertion) throws Exception {
+        return fixture(maven, assertion, false);
+    }
+
+    private AuthorizedStepExecution fixture(boolean maven, int assertion, boolean parameterized) throws Exception {
         Map<String, String> files = new LinkedHashMap<>();
         files.put("Report.java", "public class Report { static int value() { return 0; } }\n");
         if (maven) {
@@ -62,7 +66,7 @@ class GitEvolutionExecutionIntegrationTest {
         plan = EvolutionPlan.reconstitute(planId, new ProductDirectionId("direction"), assetId,
                 new RepositoryProfileId("profile"), new CurrentState("current", List.of(), List.of(), List.of()),
                 new TargetState("problem", "target", "difference"), List.of(), List.of("change"),
-                List.of(EvolutionStep.reconstitute(stepId, planId, "goal", "scope", List.of("change"), List.of(), List.of("check"),
+                List.of(EvolutionStep.reconstitute(stepId, planId, "goal", "scope", List.of("change"), List.of(), List.of(VerificationCriterion.unsupported("check")),
                         EvolutionStepStatus.READY)), List.of(), List.of(evidence), new WorkingCopyId("copy"), EvolutionPlanStatus.ACTIVE);
         workingCopy = WorkingCopy.reconstitute(new WorkingCopyId("copy"), assetId, baseline, copy.toString(),
                 baseline, baseline, WorkingCopyStatus.READY);
@@ -73,8 +77,12 @@ class GitEvolutionExecutionIntegrationTest {
         List<String> affected = new ArrayList<>(List.of(report));
         if (maven) {
             String testPath = "src/test/java/ReportTest.java";
+            String annotation = parameterized
+                    ? " @org.junit.jupiter.params.ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(ints={1,2})"
+                    : " @org.junit.jupiter.api.Test";
+            String signature = parameterized ? " void value(int input)" : " void value()";
             patch += "--- /dev/null\n+++ b/" + testPath + "\n@@ -0,0 +1 @@\n+public class ReportTest {"
-                    + " @org.junit.jupiter.api.Test void value() { org.junit.jupiter.api.Assertions.assertEquals("
+                    + annotation + signature + " { org.junit.jupiter.api.Assertions.assertEquals("
                     + assertion + ", Report.value()); } }\n";
             affected.add(testPath);
         }
@@ -136,6 +144,29 @@ class GitEvolutionExecutionIntegrationTest {
         assertFalse(facts.checks().getFirst().passed());
         assertFalse(facts.checks().getLast().passed());
         assertEquals(candidate.revision(), headRevision(copy));
+        assertEquals(baseline, workingCopy.lastVerifiedRevision());
+    }
+
+    @Test void actualParameterizedMethodEvidenceSupportsTheRequestedLogicalMethod() throws Exception {
+        AuthorizedStepExecution authorized = fixture(true, 1, true);
+        CandidateMutationResult candidate = git.applyCandidate(authorized);
+        VerificationFacts facts = verification.verify(request(candidate.revision(), CodingProposal.Action.FOCUSED_TEST));
+        assertTrue(facts.checks().getFirst().passed(), facts.toString());
+        assertTrue(facts.checks().getFirst().summary().contains("executed=2"));
+        assertEquals(candidate.revision(), headRevision(copy));
+        assertEquals(baseline, workingCopy.lastVerifiedRevision());
+        for (String target : List.of("ReportTest#valueExtra", "OtherTest#value")) {
+            CandidateVerification wrong = new CandidateVerification(new WorkspaceRef(copy.toString()),
+                    new WorkspaceRef(source.toString()), baseline, candidate.revision(),
+                    List.of(new CodingProposal.VerificationAction(CodingProposal.Action.FOCUSED_TEST, target, List.of(1))));
+            assertFalse(verification.verify(wrong).checks().getFirst().passed());
+        }
+    }
+
+    @Test void failingParameterizedInvocationsNeverSupportSuccessfulVerification() throws Exception {
+        AuthorizedStepExecution authorized = fixture(true, 2, true);
+        CandidateMutationResult candidate = git.applyCandidate(authorized);
+        assertFalse(verification.verify(request(candidate.revision(), CodingProposal.Action.FOCUSED_TEST)).checks().getFirst().passed());
         assertEquals(baseline, workingCopy.lastVerifiedRevision());
     }
 

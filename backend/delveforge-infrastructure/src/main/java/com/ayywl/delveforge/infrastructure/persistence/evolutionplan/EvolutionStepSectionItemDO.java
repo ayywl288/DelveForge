@@ -8,6 +8,10 @@ public class EvolutionStepSectionItemDO {
     private String section;
     private Integer position;
     private String value;
+    private String criterionKind;
+
+    public String getCriterionKind() { return criterionKind; }
+    public void setCriterionKind(String criterionKind) { this.criterionKind = criterionKind; }
 
     public String getStepId() {
         return stepId;

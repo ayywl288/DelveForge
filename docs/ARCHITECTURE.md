@@ -985,9 +985,17 @@ hooks，不 push。物理 diff 由 A..B 保留，领域结果只存实际路径�
 Maven 测试还要求本次产生非空、无失败的 Surefire 报告；旧报告、零测试或全 skipped 不能作为成功证据。
 报告读取禁用外部 XML 引用，当前最多 100 份，累计字节不超过输出预算。领域数据与日志不保存
 完整 stdout / stderr、报告正文或源码。Domain 要求同一 B、所有检查通过以及全部既有 Criteria 的
-可信对应事实。索引映射由 AI 提议，领域按 DOMAIN_MODEL §8.11 的当前技术标准适配独立核对
+可信对应事实。M3 规划 / API / M4 输入中的 VerificationCriterion 均包含 kind 与 description：
+kind 是 WHAT，有限 action 是 HOW，具体测试 target 只由 M4 在本次源码理解后选择。
+技术说明按 DOMAIN_MODEL §8.11 的当前受控含义验证，业务或历史未分类文本保留为 UNSUPPORTED。
+索引映射由 AI 提议，领域按 kind 的证据适配独立核对
 动作 / target；无法适配的业务标准在 mutation 前拒绝。定向测试还须从本次报告确认实际类 / 方法。
 BUILD、DIFF_CHECK 或无关 TEST 的成功不能证明任意业务标准。
+定向方法证据仅规范化支持的 Surefire Java 参数签名和数字调用后缀，保持准确的类 / 方法身份。
+
+V11 为既有 evolution_step_section_item 增加 criterion_kind；value 继续保存 description。
+迁移不重写历史文字、顺序或业务检查点；旧文本全部标为 UNSUPPORTED，不推断技术或业务类型。
+Repository 恢复正式 Criterion 值，API 返回对象列表，M4 模型直接接收相同结构。
 
 Candidate 发布前从固定 baseline 与已验证补丁在内部临时 index 生成预期 tree，核对即将提交的
 不可变 tree 完全一致，并从该固定 tree 生成真实路径与变化摘要；早期共享 index 检查不构成发布依据。

@@ -12,14 +12,14 @@ public final class EvolutionStep {
     private final String scope;
     private final List<String> plannedChanges;
     private final List<String> preconditions;
-    private final List<String> verificationCriteria;
+    private final List<VerificationCriterion> verificationCriteria;
     private EvolutionStepStatus status = EvolutionStepStatus.PENDING_CONFIRMATION;
     private String baselineRevision;
     private ExecutionResult executionResult;
     private VerificationResult verificationResult;
 
     private EvolutionStep(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
-            List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria) {
+            List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria) {
         if (id == null || planId == null) {
             throw new IllegalArgumentException("Step identity, owner and definition are required");
         }
@@ -29,11 +29,11 @@ public final class EvolutionStep {
         this.scope = PlanningContent.text(scope, "step.scope");
         this.plannedChanges = PlanningContent.section(plannedChanges, "step.plannedChanges", true);
         this.preconditions = PlanningContent.section(preconditions, "step.preconditions", false);
-        this.verificationCriteria = PlanningContent.section(verificationCriteria, "step.verificationCriteria", true);
+        this.verificationCriteria = PlanningContent.criteria(verificationCriteria);
     }
 
     static EvolutionStep planned(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
-            List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria) {
+            List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria) {
         return new EvolutionStep(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
     }
 
@@ -41,12 +41,12 @@ public final class EvolutionStep {
      * 从已保存的正式定义还原 M3 Step，不制造新的提案或执行授权。
      */
     public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
-            List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria) {
+            List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria) {
         return new EvolutionStep(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
     }
 
     public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
-            List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria,
+            List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria,
             EvolutionStepStatus status) {
         if (status != EvolutionStepStatus.PENDING_CONFIRMATION && status != EvolutionStepStatus.READY) {
             throw new IllegalArgumentException("Unsupported preparation lifecycle state");
@@ -62,7 +62,7 @@ public final class EvolutionStep {
     }
 
     public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
-            List<String> plannedChanges, List<String> preconditions, List<String> verificationCriteria,
+            List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria,
             EvolutionStepStatus status, String baseline, ExecutionResult execution, VerificationResult verification) {
         EvolutionStep step = reconstitute(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
         boolean prepared = status == EvolutionStepStatus.PENDING_CONFIRMATION || status == EvolutionStepStatus.READY;
@@ -148,7 +148,7 @@ public final class EvolutionStep {
         return preconditions;
     }
 
-    public List<String> verificationCriteria() {
+    public List<VerificationCriterion> verificationCriteria() {
         return verificationCriteria;
     }
 

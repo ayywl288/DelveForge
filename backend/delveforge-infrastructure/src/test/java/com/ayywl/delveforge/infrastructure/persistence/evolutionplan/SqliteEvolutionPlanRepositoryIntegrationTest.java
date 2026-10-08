@@ -90,9 +90,9 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
                 new TargetState("Manual exports", "Scheduled reports", "Personal schedule"),
                 List.of("Render", "Export"), List.of("Add scheduling"),
                 List.of(new PlanningStepProposal("Schedule reports", "Reporting scheduling",
-                        List.of("Add scheduling capability"), List.of(), List.of("Reports run at the user-selected time")),
+                        List.of("Add scheduling capability"), List.of(), List.of(VerificationCriterion.unsupported("Reports run at the user-selected time"))),
                         new PlanningStepProposal("Expose schedule management", "Personal schedule controls",
-                        List.of("Manage schedules"), List.of("Scheduling capability exists"), List.of("Users can change schedules"))),
+                        List.of("Manage schedules"), List.of("Scheduling capability exists"), List.of(VerificationCriterion.unsupported("Users can change schedules")))),
                 List.of("Missed reports"), List.of(BASIS));
     }
 
@@ -119,6 +119,23 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
         return new EvolutionPlanningService(new AssetUsagePolicy(), () -> new EvolutionPlanId(id),
                 () -> new EvolutionStepId(id + "-step-" + ids.incrementAndGet()))
                 .plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), proposal());
+    }
+
+    @Test void structuredCriterionKindsAndDescriptionsSurviveAtomicSaveAndRestoration() {
+        PlanningProposal original = proposal();
+        PlanningProposal technical = new PlanningProposal(original.currentState(), original.targetState(),
+                original.reusableCapabilities(), original.changes(), List.of(new PlanningStepProposal("保持工程可构建", "报表工程",
+                        List.of("调整工程代码"), List.of(), List.of(
+                                VerificationCriterion.technical(VerificationCriterion.Kind.BUILD_SUCCEEDS),
+                                VerificationCriterion.technical(VerificationCriterion.Kind.SELECTED_TESTS_PASS)))),
+                original.risks(), original.evidence());
+        EvolutionPlan plan = new EvolutionPlanningService(new AssetUsagePolicy(), () -> new EvolutionPlanId("technical"),
+                () -> new EvolutionStepId("technical-step")).plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), technical);
+        plans.save(plan);
+        EvolutionPlan restored = plans.findById(plan.id()).orElseThrow();
+        assertEquals(plan.steps().getFirst().verificationCriteria(), restored.steps().getFirst().verificationCriteria());
+        assertEquals("BUILD_SUCCEEDS", jdbc.queryForObject("SELECT criterion_kind FROM evolution_step_section_item WHERE step_id='technical-step' AND section='verificationCriteria' AND position=0", String.class));
+        assertEquals("项目构建成功", jdbc.queryForObject("SELECT value FROM evolution_step_section_item WHERE step_id='technical-step' AND section='verificationCriteria' AND position=0", String.class));
     }
 
     private WorkingCopy ready(String id) {

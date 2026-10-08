@@ -46,7 +46,7 @@ class WorkingCopyActivationApiIntegrationTest {
         {"currentState":{"summary":"Existing exports","capabilities":["Export"],"modules":["reports"],"limitations":[]},
          "targetState":{"problem":"Manual exports","targetProduct":"Scheduled reports","differentiation":"Personal schedule"},
          "reusableCapabilities":["Render"],"changes":["Add scheduling"],
-         "steps":[{"goal":"Schedule reports","scope":"reports","plannedChanges":["Add scheduling"],"preconditions":[],"verificationCriteria":["Reports run on schedule"]}],
+         "steps":[{"goal":"Schedule reports","scope":"reports","plannedChanges":["Add scheduling"],"preconditions":[],"verificationCriteria":[{"kind":"UNSUPPORTED","description":"Reports run on schedule"}]}],
          "risks":[],"evidence":["R-E1","D-E1"]}
         """;
     @DynamicPropertySource static void properties(DynamicPropertyRegistry registry) {

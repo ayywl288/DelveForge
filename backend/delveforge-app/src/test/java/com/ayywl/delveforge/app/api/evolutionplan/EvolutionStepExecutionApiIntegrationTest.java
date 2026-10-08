@@ -42,7 +42,7 @@ class EvolutionStepExecutionApiIntegrationTest {
          "targetState":{"problem":"Manual","targetProduct":"Scheduled","differentiation":"Personal"},
          "reusableCapabilities":["Export"],"changes":["Add scheduling"],
          "steps":[{"goal":"Schedule reports","scope":"reports","plannedChanges":["Add scheduling"],
-         "preconditions":[],"verificationCriteria":["DIFF_CHECK passes"]}],
+         "preconditions":[],"verificationCriteria":[{"kind":"DIFF_CHECK_PASSES","description":"本次代码差异无空白错误或冲突标记"}]}],
          "risks":[],"evidence":["R-E1","D-E1"]}
         """;
 
@@ -76,6 +76,8 @@ class EvolutionStepExecutionApiIntegrationTest {
         Files.createDirectories(source);
         git(source, "init", "-q");
         Files.writeString(source.resolve("A.java"), "old\n");
+        Files.createDirectories(source.resolve("src/main/java"));
+        Files.writeString(source.resolve("src/main/java/Report.java"), "public class Report { public static int value() { return 0; } }\n");
         Path repositoryRoot = Path.of("../..").toAbsolutePath().normalize();
         for (String path : List.of("mvnw", "mvnw.cmd", ".mvn/wrapper/maven-wrapper.properties")) {
             Path destination = source.resolve(path);
@@ -117,18 +119,36 @@ class EvolutionStepExecutionApiIntegrationTest {
                 "Value", "Small", List.of(), new DirectionEvidenceSupport(List.of(basis), List.of(basis), List.of(basis)));
         direction.select();
         directions.save(direction);
-        String planning = PLANNING;
-        if (test.getTestMethod().orElseThrow().getName().equals("businessCriterionCannotBeProvenByUnrelatedTechnicalActions")) {
-            planning = PLANNING.replace("DIFF_CHECK passes", "Reports run on schedule");
-        } else if (test.getTestMethod().orElseThrow().getName().equals("executesNewTestInSamePatchWithRealMavenBeforeTrustedPromotion")) {
-            planning = PLANNING.replace("DIFF_CHECK passes", "FOCUSED_TEST ReportTest#report passes");
-        }
-        when(ai.generate(any())).thenReturn(planning);
+        String method = test.getTestMethod().orElseThrow().getName();
+        VerificationCriterion.Kind kind = switch (method) {
+            case "businessCriterionCannotBeProvenByUnrelatedTechnicalActions" -> VerificationCriterion.Kind.UNSUPPORTED;
+            case "executesNewTestInSamePatchWithRealMavenBeforeTrustedPromotion" -> VerificationCriterion.Kind.SELECTED_TESTS_PASS;
+            case "normalM3TechnicalStepBuildsAndPromotesTheActualCandidate", "wrongEvidenceTypeFailsBeforeMutation" -> VerificationCriterion.Kind.BUILD_SUCCEEDS;
+            case "focusedTestCannotProveTheFullSuiteCriterion" -> VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES;
+            default -> VerificationCriterion.Kind.DIFF_CHECK_PASSES;
+        };
+        var planningNode = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(PLANNING);
+        var stepNode = (com.fasterxml.jackson.databind.node.ObjectNode) planningNode.path("steps").get(0);
+        stepNode.put("goal", "增量调整报表工程基础代码");
+        stepNode.putArray("plannedChanges").add("调整报表工程代码");
+        var criterion = (com.fasterxml.jackson.databind.node.ObjectNode) stepNode.path("verificationCriteria").get(0);
+        criterion.put("kind", kind.name());
+        criterion.put("description", kind == VerificationCriterion.Kind.UNSUPPORTED ? "Reports run on schedule" : kind.description());
+        when(ai.generate(any())).thenAnswer(invocation -> {
+            AiRequest request = invocation.getArgument(0);
+            String instruction = request.messages().getFirst().content();
+            assertTrue(instruction.contains("BUILD_SUCCEEDS"));
+            assertTrue(instruction.contains("不得提供如何执行的命令或测试类名"));
+            assertFalse(instruction.contains("ReportTest"));
+            assertFalse(planningNode.toString().contains("ReportTest"));
+            return mapper.writeValueAsString(planningNode);
+        });
         JsonNode proposed = mapper.readTree(mvc.perform(post("/api/evolution-plans/planning")
                 .contentType(MediaType.APPLICATION_JSON).content("""
                 {"productDirectionId":"direction","baseAssetId":"asset","baseRepositoryProfileId":"profile"}
                 """)).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
         planId = proposed.path("id").asText();
+        assertEquals(kind.name(), proposed.path("steps").get(0).path("verificationCriteria").get(0).path("kind").asText());
         stepId = proposed.path("steps").get(0).path("id").asText();
         JsonNode active = mapper.readTree(mvc.perform(post("/api/evolution-plans/{id}/prepare", planId))
                 .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
@@ -170,14 +190,21 @@ class EvolutionStepExecutionApiIntegrationTest {
             JsonNode payload = mapper.readTree(request.messages().stream().filter(message -> message.role() == AiRole.USER)
                     .findFirst().orElseThrow().content());
             if (payload.has("sourceFiles")) {
-                List<String> paths = patch.contains("ReportTest.java") ? List.of("A.java", "src/test/java/ReportTest.java") : List.of("A.java");
+                VerificationCriterion criterion = plans.findById(new EvolutionPlanId(planId)).orElseThrow()
+                        .step(new EvolutionStepId(stepId)).verificationCriteria().getFirst();
+                JsonNode suppliedCriterion = payload.path("step").path("verificationCriteria").get(0);
+                assertEquals(criterion.kind().name(), suppliedCriterion.path("kind").asText());
+                assertEquals(criterion.description(), suppliedCriterion.path("description").asText());
+                assertFalse(suppliedCriterion.toString().contains("ReportTest"));
+                List<String> paths = java.util.regex.Pattern.compile("(?m)^\\+\\+\\+ b/(.+)$").matcher(patch)
+                        .results().map(match -> match.group(1)).toList();
                 return mapper.writeValueAsString(Map.of("type", "CHANGE_PROPOSAL", "expectedRevision", revision, "summary", "change",
                         "declaredAffectedPaths", paths, "unifiedDiff", patch, "verificationStrategy",
                         List.of(Map.of("action", action, "target", action.equals("FOCUSED_TEST") ? "ReportTest#report" : "", "criterionIndexes", List.of(1)))));
             }
             List<String> refs = new ArrayList<>();
             for (JsonNode file : payload.path("fileCatalog")) {
-                if (file.path("path").asText().equals("A.java")) {
+                if (patch.contains("a/" + file.path("path").asText() + "\n")) {
                     refs.add(file.path("reference").asText());
                 }
             }
@@ -218,7 +245,8 @@ class EvolutionStepExecutionApiIntegrationTest {
     @Test void executesNewTestInSamePatchWithRealMavenBeforeTrustedPromotion() throws Exception {
         confirm();
         String patch = PATCH + "--- /dev/null\n+++ b/src/test/java/ReportTest.java\n@@ -0,0 +1 @@\n"
-                + "+public class ReportTest { @org.junit.jupiter.api.Test void report() throws Exception {"
+                + "+public class ReportTest { @org.junit.jupiter.params.ParameterizedTest"
+                + " @org.junit.jupiter.params.provider.ValueSource(ints={1,2}) void report(int input) throws Exception {"
                 + " org.junit.jupiter.api.Assertions.assertEquals(\"new\", java.nio.file.Files.readString("
                 + "java.nio.file.Path.of(\"A.java\")).strip()); } }\n";
         coding(patch, "FOCUSED_TEST");
@@ -227,11 +255,45 @@ class EvolutionStepExecutionApiIntegrationTest {
                 .andExpect(jsonPath("$.steps[0].status").value("SUCCEEDED"))
                 .andExpect(jsonPath("$.steps[0].verificationResult.checks[0].action").value("FOCUSED_TEST"))
                 .andExpect(jsonPath("$.steps[0].verificationResult.checks[0].target").value("ReportTest#report"));
+        assertTrue(plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId))
+                .verificationResult().checks().getFirst().summary().contains("executed=2"));
         assertEquals(git(copy, "rev-parse", "HEAD").trim(), persistedCopy().lastVerifiedRevision());
         assertTrue(Files.exists(copy.resolve("src/test/java/ReportTest.java")));
         assertFalse(Files.exists(copy.resolve("target")));
         assertEquals(original, snapshot(source));
         verify(ai, times(2)).generate(any());
+    }
+
+    @Test void normalM3TechnicalStepBuildsAndPromotesTheActualCandidate() throws Exception {
+        confirm();
+        String report = "src/main/java/Report.java";
+        String old = "public class Report { public static int value() { return 0; } }\n";
+        coding("--- a/" + report + "\n+++ b/" + report + "\n@@ -1 +1 @@\n-" + old + "+" + old.replace("return 0", "return 1"), "BUILD");
+        Map<String, String> original = snapshot(source);
+        mvc.perform(post(route("execute"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.steps[0].verificationCriteria[0].kind").value("BUILD_SUCCEEDS"))
+                .andExpect(jsonPath("$.steps[0].verificationCriteria[0].description").value("项目构建成功"))
+                .andExpect(jsonPath("$.steps[0].verificationResult.checks[0].action").value("BUILD"));
+        assertEquals(git(copy, "rev-parse", "HEAD").trim(), persistedCopy().lastVerifiedRevision());
+        assertEquals(List.of(report), plans.findById(new EvolutionPlanId(planId)).orElseThrow()
+                .step(new EvolutionStepId(stepId)).executionResult().affectedPaths());
+        assertEquals(original, snapshot(source));
+        verify(ai, times(2)).generate(any());
+    }
+
+    @Test void wrongEvidenceTypeFailsBeforeMutation() throws Exception {
+        confirm();
+        coding(PATCH, "DIFF_CHECK");
+        mvc.perform(post(route("execute"))).andExpect(status().isBadGateway());
+        readyAndUnchanged();
+    }
+
+    @Test void focusedTestCannotProveTheFullSuiteCriterion() throws Exception {
+        confirm();
+        coding(PATCH, "FOCUSED_TEST");
+        mvc.perform(post(route("execute"))).andExpect(status().isBadGateway());
+        readyAndUnchanged();
     }
 
     @ParameterizedTest @ValueSource(strings = {"BUILD", "DIFF_CHECK", "TEST", "FOCUSED_TEST"})

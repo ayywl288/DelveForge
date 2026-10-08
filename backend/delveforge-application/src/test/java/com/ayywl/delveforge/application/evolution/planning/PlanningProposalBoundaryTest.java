@@ -20,7 +20,7 @@ class PlanningProposalBoundaryTest {
               "targetState":{"problem":"Manual exports","targetProduct":"Scheduled reports","differentiation":"Personal"},
               "reusableCapabilities":["Export"],"changes":["Add scheduling"],
               "steps":[{"goal":"Schedule reports","scope":"Reporting","plannedChanges":["Add scheduling"],
-                        "preconditions":[],"verificationCriteria":["Reports run on schedule"]}],
+                        "preconditions":[],"verificationCriteria":[{"kind":"UNSUPPORTED","description":"Reports run on schedule"}]}],
               "risks":[],"evidence":["R-E1"]
             }
             """;
@@ -78,5 +78,25 @@ class PlanningProposalBoundaryTest {
 
         assertEquals(List.of("unknown"), candidate.evidenceReferences());
         assertThrows(AiGatewayException.class, () -> resolver.resolve(candidate, Map.of("R-E1", basis)));
+    }
+
+    @Test void parserKeepsStructuredTechnicalWhatWithoutSelectingConcreteM4Targets() {
+        String technical = JSON.replace("\"kind\":\"UNSUPPORTED\",\"description\":\"Reports run on schedule\"",
+                "\"kind\":\"BUILD_SUCCEEDS\",\"description\":\"项目构建成功\"");
+        var criterion = parser.parse(technical).steps().getFirst().verificationCriteria().getFirst();
+        assertEquals(com.ayywl.delveforge.domain.evolution.VerificationCriterion.Kind.BUILD_SUCCEEDS, criterion.kind());
+        assertEquals("项目构建成功", criterion.description());
+        assertFalse(technical.contains("ReportTest"));
+        assertEquals(criterion, resolver.resolve(parser.parse(technical), Map.of("R-E1", basis))
+                .steps().getFirst().verificationCriteria().getFirst());
+    }
+
+    @Test void untypedUnknownAndSemanticallyContradictoryCriteriaAreRejected() {
+        for (String bad : List.of("\"Reports run on schedule\"", "{\"kind\":\"UNKNOWN\",\"description\":\"项目构建成功\"}",
+                "{\"kind\":\"BUILD_SUCCEEDS\",\"description\":\"Reports run on schedule\"}",
+                "{\"kind\":\"BUILD_SUCCEEDS\"}")) {
+            String invalid = JSON.replace("{\"kind\":\"UNSUPPORTED\",\"description\":\"Reports run on schedule\"}", bad);
+            assertThrows(AiGatewayException.class, () -> parser.parse(invalid));
+        }
     }
 }

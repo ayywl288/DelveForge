@@ -19,16 +19,16 @@ class StepExecutionLifecycleTest {
     private final StepExecutionPolicy policy = new StepExecutionPolicy();
 
     private EvolutionPlan plan(List<String> preconditions) {
-        return plan(preconditions, List.of("BUILD passes", "TEST passes"));
+        return plan(preconditions, List.of(VerificationCriterion.technical(VerificationCriterion.Kind.BUILD_SUCCEEDS), VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES)));
     }
-    private EvolutionPlan plan(List<String> preconditions, List<String> criteria) {
+    private EvolutionPlan plan(List<String> preconditions, List<VerificationCriterion> criteria) {
         EvidenceBasis evidence = new EvidenceBasis(new Evidence(EvidenceSourceType.REPOSITORY, "src/A", "source", 0.8, true),
                 new RepositoryProfileEvidenceOrigin(new RepositoryProfileId("profile")));
         return EvolutionPlan.reconstitute(id, new ProductDirectionId("direction"), asset, new RepositoryProfileId("profile"),
                 new CurrentState("current", List.of(), List.of(), List.of()), new TargetState("problem", "target", "difference"),
                 List.of(), List.of("change"), List.of(
                     EvolutionStep.reconstitute(first, id, "goal", "scope", List.of("change"), preconditions, criteria),
-                    EvolutionStep.reconstitute(second, id, "goal2", "scope2", List.of("change2"), List.of(), List.of("TEST passes"))),
+                    EvolutionStep.reconstitute(second, id, "goal2", "scope2", List.of("change2"), List.of(), List.of(VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES)))),
                 List.of(), List.of(evidence), new WorkingCopyId("copy"), EvolutionPlanStatus.ACTIVE);
     }
     private WorkingCopy copy() {
@@ -100,7 +100,7 @@ class StepExecutionLifecycleTest {
     }
     @ParameterizedTest @ValueSource(strings = {"BUILD", "DIFF_CHECK", "TEST", "FOCUSED_TEST"})
     void unsupportedBusinessEvidenceCannotPromoteCandidateOrRestoreSuccess(String action) {
-        EvolutionPlan plan = plan(List.of(), List.of("Reports run on schedule"));
+        EvolutionPlan plan = plan(List.of(), List.of(VerificationCriterion.unsupported("Reports run on schedule")));
         WorkingCopy copy = copy();
         plan.confirmStep(first, copy, policy);
         plan.startStep(first, copy, policy);
@@ -115,7 +115,7 @@ class StepExecutionLifecycleTest {
         assertEquals("B", copy.currentRevision());
         assertEquals("A", copy.lastVerifiedRevision());
         assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
-                List.of("change"), List.of(), List.of("Reports run on schedule"), EvolutionStepStatus.SUCCEEDED,
+                List.of("change"), List.of(), List.of(VerificationCriterion.unsupported("Reports run on schedule")), EvolutionStepStatus.SUCCEEDED,
                 "A", execution, result));
     }
     @Test void unestablishedPreconditionsRejectStartWithoutFreezingOrChangingCopy() {
@@ -129,9 +129,9 @@ class StepExecutionLifecycleTest {
     }
     @Test void invalidRestoredCheckpointsAndContradictoryVerificationAreRejected() {
         assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
-                List.of("change"), List.of(), List.of("one"), EvolutionStepStatus.VERIFYING, "A", null, null));
+                List.of("change"), List.of(), List.of(VerificationCriterion.unsupported("one")), EvolutionStepStatus.VERIFYING, "A", null, null));
         assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
-                List.of("change"), List.of(), List.of("one"), EvolutionStepStatus.READY, "A", null, null));
+                List.of("change"), List.of(), List.of(VerificationCriterion.unsupported("one")), EvolutionStepStatus.READY, "A", null, null));
         assertThrows(EvolutionPlanStateException.class, () -> new VerificationResult("B", List.of(
                 new VerificationResult.Check("TEST", "", List.of(1), false, "failed")), true, List.of(), "summary", Instant.now()));
     }

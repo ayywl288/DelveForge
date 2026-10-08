@@ -35,9 +35,9 @@ class ExecuteEvolutionStepUseCaseTest {
         int failAt;
         final List<EvolutionPlan> historicalObjects = new ArrayList<>();
         Store() {
-            this("TEST passes");
+            this(VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES));
         }
-        Store(String criterion) {
+        Store(VerificationCriterion criterion) {
             EvidenceBasis evidence = new EvidenceBasis(new Evidence(EvidenceSourceType.REPOSITORY, "src/A.java", "source", 0.8, true),
                     new RepositoryProfileEvidenceOrigin(PROFILE));
             plan = EvolutionPlan.reconstitute(PLAN, new ProductDirectionId("direction"), ASSET, PROFILE,
@@ -125,8 +125,8 @@ class ExecuteEvolutionStepUseCaseTest {
         final Store store;
         final Workspace workspace = new Workspace();
         final ExecutionPreparationState state;
-        Fixture() { this("TEST passes"); }
-        Fixture(String criterion) {
+        Fixture() { this(VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES)); }
+        Fixture(VerificationCriterion criterion) {
             store = new Store(criterion);
             state = new ExecutionPreparationState(store, store, store, store, workspace, new StepExecutionPolicy());
             workspace.store = store;
@@ -218,7 +218,7 @@ class ExecuteEvolutionStepUseCaseTest {
     }
     @ParameterizedTest @ValueSource(strings = {"BUILD", "DIFF_CHECK", "TEST", "FOCUSED_TEST"})
     void businessCriterionWithUnrelatedTechnicalChecksFailsBeforeMutation(String action) {
-        Fixture f = new Fixture("Reports run on schedule");
+        Fixture f = new Fixture(VerificationCriterion.unsupported("Reports run on schedule"));
         assertThrows(EvolutionExecutionException.class, () -> f.useCase().execute(f.proposal("A", CodingProposal.Action.valueOf(action))));
         assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
         assertNull(f.store.plan.step(STEP).baselineRevision());

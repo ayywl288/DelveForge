@@ -27,7 +27,7 @@ public final class EvolutionPlanningExtraction {
               "targetState": {"problem":"...", "targetProduct":"...", "differentiation":"..."},
               "reusableCapabilities":[], "changes":["..."],
               "steps":[{"goal":"...", "scope":"...", "plannedChanges":["..."],
-                        "preconditions":[], "verificationCriteria":["..."]}],
+                        "preconditions":[], "verificationCriteria":[{"kind":"BUILD_SUCCEEDS","description":"项目构建成功"}]}],
               "risks":[], "evidence":["..."]
             }
             CurrentState 是与规划相关的事实投影，不是完整 Profile 的副本：
@@ -42,6 +42,14 @@ public final class EvolutionPlanningExtraction {
             plannedChanges 表达主要工程改造类别，不是具体补丁。
             preconditions 列出 Step 专属依赖；没有依赖时使用 []，不要重复全局执行不变量。
             verificationCriteria 表达必须证明什么，不得提供如何执行的命令或测试类名。
+            每项标准必须包含 kind 和 description。技术种类及其准确说明为：
+            BUILD_SUCCEEDS = 项目构建成功；FULL_TEST_SUITE_PASSES = 项目完整自动化测试套件通过；
+            SELECTED_TESTS_PASS = 本步骤选择的自动化测试通过；
+            DIFF_CHECK_PASSES = 本次代码差异无空白错误或冲突标记。
+            技术 description 必须逐字使用上述说明，不得夹带调度、数据正确性等业务承诺。
+            业务标准使用 UNSUPPORTED 和原本的人类可读业务描述；不得降低为技术标准，当前 M4 会拒绝自动执行。
+            纯技术增量可使用上述技术 WHAT。具体 BUILD / TEST / FOCUSED_TEST / DIFF_CHECK 动作和目标
+            由 M4 阅读真实源码后选择；此处不得生成测试类、方法、命令或英文执行协议字符串。
             不要生成文件、类、方法或行级任务，不要生成具体命令或可执行代码。
             不要规划范围无界的整个项目重写。
             evidence 只能包含所提供的 Evidence Catalog 中的引用，并且必须包含来自 Base Profile 的依据。

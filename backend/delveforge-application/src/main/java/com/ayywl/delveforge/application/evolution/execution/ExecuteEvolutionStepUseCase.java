@@ -88,8 +88,7 @@ public final class ExecuteEvolutionStepUseCase {
         for (CodingProposal.VerificationAction action : proposal.verificationStrategy()) {
             for (Integer index : action.criterionIndexes()) {
                 if (index == null || index < 1 || index > step.verificationCriteria().size()
-                        || !VerificationCriterion.supportedBy(step.verificationCriteria().get(index - 1),
-                                action.action().name(), action.target())) {
+                        || !step.verificationCriteria().get(index - 1).supportedBy(action.action().name(), action.target())) {
                     throw new EvolutionExecutionException("Verification criterion has no supported corresponding evidence");
                 }
                 supported.add(index);

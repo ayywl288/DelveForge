@@ -597,6 +597,8 @@ M4 = 成功执行 / 验证路径 + fail-closed 安全。
 
 Task 2 当前自动验证仅支持 DOMAIN_MODEL §8.11 明确定义的技术标准；没有可信对应证据的
 业务 Criteria 拒绝执行，不能用 BUILD / DIFF_CHECK / 无关 TEST 的索引覆盖推进软件信任。
+M3 → M4 契约修正采用 kind + description 的 WHAT，动作与测试 target 留到 M4 决定；
+不从自然语言猜测类别，不将既有业务标准降低为“测试通过”。历史文本保留为 UNSUPPORTED。
 
 M5 = 完整 Failure / Repair / Retry / Rollback / Recovery 流程。
 
