@@ -6,6 +6,7 @@ import java.util.List;
  * EvolutionPlan 内部 Entity；授权只能通过 Aggregate Root 建立。
  */
 public final class EvolutionStep {
+
     private final EvolutionStepId id;
     private final EvolutionPlanId planId;
     private final String goal;
@@ -13,7 +14,9 @@ public final class EvolutionStep {
     private final List<String> plannedChanges;
     private final List<String> preconditions;
     private final List<VerificationCriterion> verificationCriteria;
+
     private EvolutionStepStatus status = EvolutionStepStatus.PENDING_CONFIRMATION;
+    // 首次进入 EXECUTING 时冻结的可信起点；Candidate 或验证成功均不改写这项历史事实。
     private String baselineRevision;
     private ExecutionResult executionResult;
     private VerificationResult verificationResult;
@@ -61,6 +64,7 @@ public final class EvolutionStep {
                 status, baselineRevision, executionResult, verificationResult);
     }
 
+    /** 恢复完整历史检查点；不以当前证据适配规则重新判定已保存的成功事实。 */
     public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
             List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria,
             EvolutionStepStatus status, String baseline, ExecutionResult execution, VerificationResult verification) {
@@ -75,8 +79,9 @@ public final class EvolutionStep {
                 || (executing && (execution != null || verification != null))
                 || ((verifying || succeeded) && (execution == null || baseline.equals(execution.candidateRevision())))
                 || (verifying && verification != null)
-                || (succeeded && (verification == null || !execution.candidateRevision().equals(verification.candidateRevision())
-                    || !verification.recordsPassedCoverage(step.verificationCriteria.size())))) {
+                || (succeeded && (verification == null
+                        || !execution.candidateRevision().equals(verification.candidateRevision())
+                        || !verification.recordsPassedCoverage(step.verificationCriteria.size())))) {
             throw new EvolutionPlanStateException("Incomplete stored Step checkpoint");
         }
         // 历史完整检查点恢复记录的事实；新的成功转移仍通过 satisfies 校验现行证据资格。
@@ -161,6 +166,11 @@ public final class EvolutionStep {
         return baselineRevision;
     }
 
-    public ExecutionResult executionResult() { return executionResult; }
-    public VerificationResult verificationResult() { return verificationResult; }
+    public ExecutionResult executionResult() {
+        return executionResult;
+    }
+
+    public VerificationResult verificationResult() {
+        return verificationResult;
+    }
 }

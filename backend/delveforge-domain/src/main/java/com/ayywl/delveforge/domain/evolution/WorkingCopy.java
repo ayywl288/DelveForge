@@ -11,7 +11,10 @@ public final class WorkingCopy {
     private final SoftwareAssetId sourceAssetId;
     private final String sourceRevision;
     private final String location;
+
+    // 已完成执行的当前版本；在 VERIFYING 检查点可指向尚未受信的 Candidate。
     private String currentRevision;
+    // 只有 Domain 接受 Verification 后才推进，后续 Step 必须从这个版本出发。
     private String lastVerifiedRevision;
     private WorkingCopyStatus status;
 
@@ -84,6 +87,7 @@ public final class WorkingCopy {
         }
     }
 
+    /** 接受完整执行产生的 Candidate，仅更新当前版本，不提升信任。 */
     void recordCandidate(String baseline, String candidate) {
         requireCheckpoint(baseline, baseline);
         if (baseline.equals(candidate)) {
@@ -92,6 +96,7 @@ public final class WorkingCopy {
         currentRevision = candidate;
     }
 
+    /** 由 Plan 在 Step 验证已被接受后调用；不创建第二个软件 revision。 */
     void trustCandidate(String baseline, String candidate) {
         requireCheckpoint(baseline, candidate);
         lastVerifiedRevision = candidate;

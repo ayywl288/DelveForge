@@ -1,13 +1,21 @@
 package com.ayywl.delveforge.application.evolution.preparation;
 
-import com.ayywl.delveforge.application.port.ai.*;
+import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
+
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.charset.StandardCharsets;
-import java.util.*;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+/** 严格解析 Coding Gateway 的两种 JSON 响应；结构合法不代表补丁事实或执行资格成立。 */
 public final class CodingProposalParser {
+
     private final AiJsonObjectReader reader;
     private final ExecutionPreparationLimits limits;
 
@@ -20,6 +28,7 @@ public final class CodingProposalParser {
         if (output == null || output.getBytes(StandardCharsets.UTF_8).length > limits.maxProposalBytes()) {
             throw new AiGatewayException("Coding response exceeds budget");
         }
+
         JsonNode root = reader.read(output);
         String type = text(root, "type");
         String revision = text(root, "expectedRevision");
@@ -30,6 +39,7 @@ public final class CodingProposalParser {
         if (!"CHANGE_PROPOSAL".equals(type)) {
             throw new AiGatewayException("Unknown coding response type");
         }
+
         fields(root, Set.of("type", "expectedRevision", "summary", "declaredAffectedPaths",
                 "unifiedDiff", "verificationStrategy"));
         List<String> paths = new ArrayList<>();
@@ -39,6 +49,7 @@ public final class CodingProposalParser {
             }
             paths.add(path.asText());
         }
+
         List<CodingProposal.VerificationAction> checks = new ArrayList<>();
         for (JsonNode check : array(root, "verificationStrategy", limits.maxVerificationChecks())) {
             fields(check, Set.of("action", "target", "criterionIndexes"));

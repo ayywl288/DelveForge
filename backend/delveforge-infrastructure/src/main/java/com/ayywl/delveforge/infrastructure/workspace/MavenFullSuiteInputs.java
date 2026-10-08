@@ -1,18 +1,36 @@
 package com.ayywl.delveforge.infrastructure.workspace;
 
 import java.io.IOException;
-import java.nio.file.*;
-import java.util.*;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
 import org.w3c.dom.Element;
 
-/** 仅认证当前支持的 Maven / Surefire 全套输入；未知配置拒绝，不修改仓库配置。 */
+/**
+ * 为完整测试套件证据检查实际 Maven 输入与生效配置；未知配置拒绝，不改写仓库配置。
+ * 不限制 FOCUSED_TEST 的选择范围，也不从成功退出推断全套语义。
+ */
 final class MavenFullSuiteInputs {
+
     static final String EFFECTIVE_POM = ".git/delveforge-effective-pom.xml";
     static final String EFFECTIVE_POM_GOAL = "org.apache.maven.plugins:maven-help-plugin:3.5.1:effective-pom";
-    private static final Set<String> SAFE_MAVEN_ARGUMENTS = Set.of("-B", "--batch-mode", "-ntp", "--no-transfer-progress",
+
+    // 只接受不会缩小 reactor 或测试选择范围的本地 Maven 参数。
+    private static final Set<String> SAFE_MAVEN_ARGUMENTS = Set.of(
+            "-B", "--batch-mode", "-ntp", "--no-transfer-progress",
             "-o", "--offline", "-e", "--errors", "-q", "--quiet", "-V", "--show-version");
+
     private static final Set<String> SELECTION_PROPERTIES = Set.of("test", "it.test", "groups", "excludedGroups",
             "surefire.includes", "surefire.excludes", "surefire.includesFile", "surefire.excludesFile",
             "surefire.suiteXmlFiles", "surefire.includeJUnit5Engines", "surefire.excludeJUnit5Engines");
@@ -47,6 +65,7 @@ final class MavenFullSuiteInputs {
         }
     }
 
+    /** 每个生效项目都必须关联独立的 basedir 并满足支持规则；无法建立对应时拒绝全套证据。 */
     static boolean effectivePomSupported(Path run, int maxBytes) {
         try {
             String xml = text(run, EFFECTIVE_POM, maxBytes);
@@ -77,6 +96,7 @@ final class MavenFullSuiteInputs {
         Set<Path> visited = new HashSet<>();
         Map<Element, Path> basedirs = new HashMap<>();
         long remaining = maxBytes;
+
         while (!pending.isEmpty()) {
             Path basedir = pending.removeFirst();
             if (!basedir.startsWith(root) || !visited.add(basedir) || visited.size() > projects.size()) {
@@ -154,6 +174,8 @@ final class MavenFullSuiteInputs {
         if (build == null || !children(child(build, "extensions"), null).isEmpty()) {
             return false;
         }
+
+        // 默认测试目录属于当前项目，不按后缀接受自定义路径，也不把所有模块套用根 basedir。
         String testSource = value(build, "testSourceDirectory");
         if (testSource.isEmpty()) {
             return false;
@@ -166,6 +188,7 @@ final class MavenFullSuiteInputs {
         } catch (InvalidPathException failure) {
             return false;
         }
+
         for (Element plugin : children(child(build, "plugins"), "plugin")) {
             String artifact = value(plugin, "artifactId");
             if (value(plugin, "extensions").equals("true") || artifact.equals("maven-failsafe-plugin")) {
@@ -193,7 +216,8 @@ final class MavenFullSuiteInputs {
                         configurations.addAll(children(execution, "configuration")));
                 for (Element configuration : configurations) {
                     if (child(configuration, "testIncludes") != null || child(configuration, "testExcludes") != null
-                            || (!value(configuration, "skip").isEmpty() && !value(configuration, "skip").equals("false"))) {
+                            || (!value(configuration, "skip").isEmpty()
+                                && !value(configuration, "skip").equals("false"))) {
                         return false;
                     }
                 }

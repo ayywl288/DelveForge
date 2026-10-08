@@ -1,22 +1,25 @@
 package com.ayywl.delveforge.infrastructure.workspace;
 
+import com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException;
+import com.ayywl.delveforge.application.port.workspace.AuthorizedStepExecution;
+import com.ayywl.delveforge.application.port.workspace.CandidateMutationResult;
 import com.ayywl.delveforge.application.port.workspace.PreparedWorkspace;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
-import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
-import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
-import com.ayywl.delveforge.application.port.workspace.AuthorizedStepExecution;
-import com.ayywl.delveforge.application.port.workspace.CandidateMutationResult;
-import com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.HashSet;
-import java.util.Arrays;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.stereotype.Component;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -26,18 +29,17 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.stereotype.Component;
 
 /**
  * 通过 Local Git 分别提供仓库读取与隔离环境准备能力。
@@ -90,7 +92,8 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @EnableConfigurationProperties(WorkspaceProperties.class)
-public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvisioningPort, WorkingCopyInspectionPort, WorkspaceMutationPort {
+public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvisioningPort,
+        WorkingCopyInspectionPort, WorkspaceMutationPort {
 
     private static final Logger log = LoggerFactory.getLogger(GitWorkspaceAdapter.class);
 
@@ -112,6 +115,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         this.managedRoot = managedRoot;
     }
 
+    /** 只核对物理 revision、隔离与干净状态；Candidate 通过此检查不等于已获得领域信任。 */
     @Override
     public void requireTrustedState(WorkspaceRef copy, WorkspaceRef source, String expectedRevision) {
         Path target = requireManagedCopy(copy);
@@ -128,6 +132,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         if (!expectedRevision.equals(headRevision(copy))) {
             throw new WorkingCopyBasisChangedException("Working Copy HEAD differs from the trusted revision");
         }
+
         // status 会跳过这些索引项；只读检查标志，不能清除标志或刷新 index 来掩盖问题。
         GitCommandResult flags = execute(target, "--no-optional-locks", "-c", "core.fsmonitor=false",
                 "ls-files", "--cached", "-v", "-z");
@@ -139,6 +144,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
                 throw new WorkingCopyBasisChangedException("Working Copy index flags can hide tracked changes");
             }
         }
+
         // 禁用可选 index 写入与 fsmonitor，准备阶段的检查只读取状态。
         GitCommandResult status = execute(target, "--no-optional-locks", "-c", "core.fsmonitor=false",
                 "status", "--porcelain=v1", "--untracked-files=all", "--ignored");
@@ -163,8 +169,11 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             String exact;
             try {
                 // 仅 M4 修改资格使用严格解码；M2 的分析读取仍保留既有行为。
-                exact = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
-                        .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(blob.stdout())).toString();
+                exact = StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPORT)
+                        .onUnmappableCharacter(CodingErrorAction.REPORT)
+                        .decode(ByteBuffer.wrap(blob.stdout()))
+                        .toString();
             } catch (CharacterCodingException invalid) {
                 throw new WorkingCopyTextNotExactException("Proposal source blob is not lossless UTF-8 text");
             }
@@ -229,6 +238,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         }
     }
 
+    /** 应用绑定 EXECUTING 检查点的补丁，发布一个本地 Candidate；不更新领域状态或模拟回滚。 */
     @Override
     public CandidateMutationResult applyCandidate(AuthorizedStepExecution execution) {
         WorkspaceRef copy = execution.workingCopy();
@@ -237,17 +247,21 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         requireTrustedState(copy, execution.originalAsset(), baseline);
         requireSafePaths(copy, proposal.declaredAffectedPaths());
         Path target = requireManagedCopy(copy);
+
         Path patch = null;
         Path expectedIndex = null;
         try {
             patch = Files.createTempFile(target.resolve(".git"), "delveforge-patch-", ".diff");
             Files.writeString(patch, proposal.unifiedDiff(), StandardCharsets.UTF_8);
+
             // 从不可变基线和已验证补丁独立生成预期 tree，不能以共享 index 的早期快照代替它。
             expectedIndex = Files.createTempFile(target.resolve(".git"), "delveforge-index-", ".tmp");
             Files.delete(expectedIndex);
             mutationGit(target, expectedIndex, "read-tree", baseline);
             mutationGit(target, expectedIndex, "apply", "--cached", "--whitespace=nowarn", "--", patch.toString());
             String expectedTree = mutationGit(target, expectedIndex, "write-tree").trim();
+
+            // 可变 index / 工作树只是执行载体，不能替代后面的不可变快照校验。
             mutationGit(target, "apply", "--check", "--index", "--whitespace=nowarn", "--", patch.toString());
             requireTrustedState(copy, execution.originalAsset(), baseline);
             mutationGit(target, "apply", "--index", "--whitespace=nowarn", "--", patch.toString());
@@ -266,6 +280,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             if (!tree.equals(expectedTree)) {
                 throw new EvolutionExecutionException("Candidate tree differs from the complete validated patch");
             }
+
             // 发布前只检查固定 tree；路径及执行摘要也必须来自这个不可变版本。
             List<String> actual = Arrays.stream(mutationGit(target, "diff", "--no-ext-diff", "--no-renames",
                     "--name-only", "-z", baseline, tree, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
@@ -275,9 +290,11 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             requireSafePaths(copy, actual);
             List<String> changes = mutationGit(target, "diff", "--no-ext-diff", "--no-renames",
                     "--numstat", baseline, tree, "--").lines().toList();
+
             String candidate = mutationGit(target, "-c", "user.name=DelveForge", "-c", "user.email=local@delveforge.invalid",
                     "-c", "commit.gpgSign=false", "commit-tree", tree, "-p", baseline,
                     "-m", "DelveForge evolution step " + execution.validated().basis().stepId().value()).trim();
+
             // update-ref 的旧值核对防止并发 HEAD 漂移；commit-tree 不运行提交 hooks。
             mutationGit(target, "update-ref", "HEAD", candidate, baseline);
             requireTrustedState(copy, execution.originalAsset(), candidate);

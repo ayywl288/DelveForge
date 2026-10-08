@@ -1,8 +1,14 @@
 package com.ayywl.delveforge.application.evolution.preparation;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
-import java.util.*;
-import java.util.regex.*;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 只接受普通文本统一补丁，按完整旧文件精确检查 hunk。

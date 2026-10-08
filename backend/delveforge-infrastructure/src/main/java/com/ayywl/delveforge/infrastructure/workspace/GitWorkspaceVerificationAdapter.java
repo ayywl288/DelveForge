@@ -1,26 +1,48 @@
 package com.ayywl.delveforge.infrastructure.workspace;
 
-import com.ayywl.delveforge.application.port.workspace.*;
 import com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException;
 import com.ayywl.delveforge.application.evolution.preparation.CodingProposal.Action;
 import com.ayywl.delveforge.application.evolution.preparation.CodingProposal.VerificationAction;
+import com.ayywl.delveforge.application.port.workspace.CandidateVerification;
+import com.ayywl.delveforge.application.port.workspace.VerificationFacts;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceVerificationPort;
+
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.stereotype.Component;
+
 import java.io.IOException;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
-import org.springframework.stereotype.Component;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
-/** 固定 Candidate 的隔离验证运行目录避免构建产物污染演化副本；不是新的领域 WorkingCopy。 */
+/**
+ * 在固定 Candidate 上执行有限 Git / Maven 检查，只返回技术事实，不决定 Step 成功。
+ * 私有运行目录隔离构建产物，不是新的领域 WorkingCopy；未知证据配置失败关闭。
+ */
 @Component
 @EnableConfigurationProperties(VerificationProperties.class)
 public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPort {
+
     private final WorkspaceReadPort read;
     private final WorkingCopyInspectionPort inspection;
+    // 单动作与整次调用同时受限，报告读取也复用输出字节上限。
     private final VerificationProperties budgets;
 
-    public GitWorkspaceVerificationAdapter(WorkspaceReadPort read, WorkingCopyInspectionPort inspection, VerificationProperties budgets) {
+    public GitWorkspaceVerificationAdapter(WorkspaceReadPort read, WorkingCopyInspectionPort inspection,
+            VerificationProperties budgets) {
         this.read = read;
         this.inspection = inspection;
         this.budgets = budgets;
@@ -45,10 +67,12 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                         || !files.contains(".mvn/wrapper/maven-wrapper.properties")) {
                     throw new EvolutionExecutionException("Verification requires a supported Maven Wrapper project");
                 }
-                inspection.requireSafePaths(request.workingCopy(), List.of("pom.xml", wrapper, ".mvn/wrapper/maven-wrapper.properties"));
+                inspection.requireSafePaths(request.workingCopy(), List.of("pom.xml", wrapper,
+                        ".mvn/wrapper/maven-wrapper.properties"));
                 if (action.action() == Action.FOCUSED_TEST) {
                     // Surefire 的单一类或类#方法选择；拒绝 Maven 参数、通配、shell 与属性扩展。
-                    if (action.target() == null || !action.target().matches("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*(#[A-Za-z_][A-Za-z0-9_]*)?")) {
+                    if (action.target() == null
+                            || !action.target().matches("[A-Za-z_][A-Za-z0-9_]*(\\.[A-Za-z_][A-Za-z0-9_]*)*(#[A-Za-z_][A-Za-z0-9_]*)?")) {
                         throw new EvolutionExecutionException("Unsupported focused test selector");
                     }
                 } else if (action.target() != null && !action.target().isBlank()) {
@@ -58,10 +82,12 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         }
     }
 
+    /** 从精确 Candidate 物化验证环境；检查前后核对源码，失败不推断剩余动作成功。 */
     @Override
     public VerificationFacts verify(CandidateVerification request) {
         inspection.requireTrustedState(request.workingCopy(), request.originalAsset(), request.candidateRevision());
         requireSupported(request);
+
         Path copy = Path.of(request.workingCopy().value());
         Path run = null;
         long deadline = System.nanoTime() + budgets.invocationTimeout().toNanos();
@@ -69,13 +95,16 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         try {
             // 位于 .git 内的本次私有目录不会进入 Candidate 或影响后续可信状态检查。
             run = Files.createTempDirectory(copy.resolve(".git"), "delveforge-verification-");
-            boolean buildRequested = request.strategy().stream().anyMatch(action -> action.action() != Action.DIFF_CHECK);
+            boolean buildRequested = request.strategy().stream()
+                    .anyMatch(action -> action.action() != Action.DIFF_CHECK);
             if (buildRequested) {
                 requireSuccess(command(copy, List.of("git", "clone", "--no-local", "--no-checkout", "--template=", "--",
                         copy.toString(), run.toString()), deadline), "Candidate verification materialization");
                 requireSuccess(command(run, List.of("git", "-c", "core.hooksPath=" + run.resolve(".git/disabled-hooks"),
-                        "checkout", "--detach", request.candidateRevision()), deadline), "Candidate verification checkout");
+                        "checkout", "--detach", request.candidateRevision()), deadline),
+                        "Candidate verification checkout");
             }
+
             for (VerificationAction action : request.strategy()) {
                 WorkspaceCommandRunner.Result result;
                 String evidence = "";
@@ -100,6 +129,8 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                     result = fullSuiteInputs ? command(run, args, deadline) : new WorkspaceCommandRunner.Result(1, "");
                     requireMaterializedCandidate(run, request.candidateRevision(), deadline);
                     passed = result.succeeded();
+
+                    // 成功退出不能独立证明全套语义或选定测试实际执行，必须再核对本次配置及报告。
                     if (action.action() == Action.TEST) {
                         passed = passed && MavenFullSuiteInputs.effectivePomSupported(run, budgets.maxOutputBytes());
                         if (!passed && !fullSuiteInputs) {
@@ -108,6 +139,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                             evidence = "; effective Maven inputs do not establish full-suite semantics";
                         }
                     }
+
                     if (passed && action.action() != Action.BUILD) {
                         TestEvidence tests = testEvidence(run, actionStarted);
                         passed = tests.executed() > 0 && tests.failures() == 0
@@ -118,7 +150,8 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                 String outcome = result.output().contains("No tests matching pattern") ? "NO_MATCHING_TESTS"
                         : result.output().contains("No tests were executed") ? "NO_TESTS" : "COMPLETED";
                 checks.add(new VerificationFacts.Check(action.action(), action.target(), passed,
-                        action.action() + " " + (attempted ? outcome + " with exit " + result.exitCode() : "NOT_RUN") + evidence));
+                        action.action() + " "
+                                + (attempted ? outcome + " with exit " + result.exitCode() : "NOT_RUN") + evidence));
                 if (!passed) {
                     // 保持每个预定动作的对应事实，剩余动作明确为未执行，不能推断成功。
                     for (int index = checks.size(); index < request.strategy().size(); index++) {
@@ -129,6 +162,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                     break;
                 }
             }
+
             inspection.requireTrustedState(request.workingCopy(), request.originalAsset(), request.candidateRevision());
             return new VerificationFacts(request.candidateRevision(), checks, Instant.now());
         } catch (IOException failure) {
@@ -169,7 +203,8 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         var flags = command(run, List.of("git", "--no-optional-locks", "ls-files", "-v", "-z"), deadline);
         boolean hidden = Arrays.stream(flags.output().split("\0")).anyMatch(entry -> !entry.isEmpty()
                 && (Character.isLowerCase(entry.charAt(0)) || entry.charAt(0) == 'S'));
-        if (!head.succeeded() || !candidate.equals(head.output().trim()) || !changes.succeeded() || !changes.output().isBlank()) {
+        if (!head.succeeded() || !candidate.equals(head.output().trim()) || !changes.succeeded()
+                || !changes.output().isBlank()) {
             throw new EvolutionExecutionException("Verification changed the Candidate source or revision");
         }
         if (!flags.succeeded() || hidden) {
@@ -177,7 +212,9 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         }
     }
 
+    /** 本次报告的执行数量与成功测试身份；身份规范化仅用于受支持的定向选择器。 */
     record TestEvidence(long executed, long failures, Set<String> passedTests) {
+
         private static final String TYPE = "[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:\\[\\])*";
         private static final java.util.regex.Pattern METHOD = java.util.regex.Pattern.compile(
                 "([A-Za-z_][A-Za-z0-9_]*)(?:\\((?:" + TYPE + "(?:, ?" + TYPE + ")*)?\\))?(?:\\[[1-9][0-9]*\\])?");
@@ -201,6 +238,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         }
     }
 
+    /** 只接受本动作新产生、位置与数量均受限的 Surefire 报告，不复用旧报告或原始输出。 */
     TestEvidence testEvidence(Path run, long actionStarted) {
         long executed = 0;
         long failures = 0;
@@ -225,15 +263,18 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                 }
                 var parser = factory.newDocumentBuilder();
                 parser.setErrorHandler(new org.xml.sax.helpers.DefaultHandler() {
-                    @Override public void fatalError(org.xml.sax.SAXParseException failure) throws org.xml.sax.SAXException {
+                    @Override
+                    public void fatalError(org.xml.sax.SAXParseException failure) throws org.xml.sax.SAXException {
                         throw failure;
                     }
                 });
                 var suite = parser.parse(report.toFile()).getDocumentElement();
                 long tests = Long.parseLong(suite.getAttribute("tests"));
                 long skipped = Long.parseLong(suite.getAttribute("skipped"));
-                long failed = Long.parseLong(suite.getAttribute("failures")) + Long.parseLong(suite.getAttribute("errors"));
-                if (!suite.getTagName().equals("testsuite") || tests < 0 || skipped < 0 || skipped > tests || failed < 0) {
+                long failed = Long.parseLong(suite.getAttribute("failures"))
+                        + Long.parseLong(suite.getAttribute("errors"));
+                if (!suite.getTagName().equals("testsuite") || tests < 0 || skipped < 0 || skipped > tests
+                        || failed < 0) {
                     throw new EvolutionExecutionException("Invalid Maven test evidence");
                 }
                 executed += tests - skipped;
@@ -248,7 +289,8 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                     }
                 }
             }
-        } catch (IOException | javax.xml.parsers.ParserConfigurationException | org.xml.sax.SAXException | NumberFormatException failure) {
+        } catch (IOException | javax.xml.parsers.ParserConfigurationException
+                | org.xml.sax.SAXException | NumberFormatException failure) {
             throw new WorkspaceException("Cannot read bounded Maven test evidence", failure);
         }
         return new TestEvidence(executed, failures, Set.copyOf(passedTests));
@@ -269,7 +311,9 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         }
     }
 
-    private static boolean windows() { return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win"); }
+    private static boolean windows() {
+        return System.getProperty("os.name").toLowerCase(Locale.ROOT).contains("win");
+    }
 
     private void removeRun(Path copy, Path run) {
         if (!run.toAbsolutePath().normalize().getParent().equals(copy.resolve(".git").toAbsolutePath().normalize())

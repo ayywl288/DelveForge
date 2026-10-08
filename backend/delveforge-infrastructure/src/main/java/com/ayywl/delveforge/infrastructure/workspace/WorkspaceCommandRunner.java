@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.workspace;
 
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
+
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -12,8 +13,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Workspace 内部的有界进程执行；调用方只使用已解析的固定参数，不输出源码或 stderr。 */
 final class WorkspaceCommandRunner {
+
     record Result(int exitCode, String output) {
-        boolean succeeded() { return exitCode == 0; }
+        boolean succeeded() {
+            return exitCode == 0;
+        }
     }
 
     static Result run(Path directory, List<String> command, Duration timeout, int maxOutputBytes) {
@@ -21,7 +25,8 @@ final class WorkspaceCommandRunner {
     }
 
     static Result runWithIndex(Path directory, List<String> command, Path index, Duration timeout, int maxOutputBytes) {
-        if (!index.toAbsolutePath().normalize().getParent().equals(directory.resolve(".git").toAbsolutePath().normalize())
+        if (!index.toAbsolutePath().normalize().getParent()
+                .equals(directory.resolve(".git").toAbsolutePath().normalize())
                 || !index.getFileName().toString().startsWith("delveforge-index-")) {
             throw new WorkspaceException("Controlled index ownership mismatch");
         }
@@ -35,7 +40,9 @@ final class WorkspaceCommandRunner {
             if (resolved.getFirst().equals("git")) {
                 resolved.addAll(1, List.of("-c", "core.longpaths=true"));
             }
-            ProcessBuilder builder = new ProcessBuilder(resolved).directory(directory.toFile()).redirectErrorStream(true);
+            ProcessBuilder builder = new ProcessBuilder(resolved)
+                    .directory(directory.toFile())
+                    .redirectErrorStream(true);
             // 外部 Git 定位变量不能把受控路径重定向到原仓库或另一个 index。
             isolateEnvironment(builder.environment());
             if (index != null) {
@@ -47,6 +54,7 @@ final class WorkspaceCommandRunner {
         } catch (IOException failure) {
             throw new WorkspaceException("Cannot start controlled Workspace operation", failure);
         }
+
         AtomicBoolean overflow = new AtomicBoolean();
         AtomicBoolean readFailed = new AtomicBoolean();
         ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -66,6 +74,7 @@ final class WorkspaceCommandRunner {
                 readFailed.set(true);
             }
         });
+
         try {
             if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
                 stop(process);
@@ -89,12 +98,14 @@ final class WorkspaceCommandRunner {
         process.destroyForcibly();
     }
 
+    /** 删除可注入 Git / Maven / JVM 定位或选择的外部变量，不接受环境替代固定命令意图。 */
     static void isolateEnvironment(java.util.Map<String, String> environment) {
         environment.keySet().removeIf(key -> {
             String upper = key.toUpperCase(java.util.Locale.ROOT);
             return upper.startsWith("GIT_") || upper.startsWith("MAVEN_")
                     || upper.equals("MVNW_REPOURL") || upper.equals("MVNW_USERNAME") || upper.equals("MVNW_PASSWORD")
-                    || upper.equals("JAVA_TOOL_OPTIONS") || upper.equals("_JAVA_OPTIONS") || upper.equals("JDK_JAVA_OPTIONS");
+                    || upper.equals("JAVA_TOOL_OPTIONS") || upper.equals("_JAVA_OPTIONS")
+                    || upper.equals("JDK_JAVA_OPTIONS");
         });
         // 启动脚本不得通过用户 mavenrc 重新注入测试选择或 JVM 属性。
         environment.put("MAVEN_SKIP_RC", "true");

@@ -3,16 +3,31 @@ package com.ayywl.delveforge.application.evolution.preparation;
 import com.ayywl.delveforge.application.evolution.planning.EvolutionPlanNotFoundException;
 import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDirectionNotFoundException;
-import com.ayywl.delveforge.application.port.persistence.*;
-import com.ayywl.delveforge.application.port.workspace.*;
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
+import com.ayywl.delveforge.application.port.persistence.SoftwareAssetRepository;
+import com.ayywl.delveforge.application.port.persistence.WorkingCopyRepository;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
-import com.ayywl.delveforge.domain.asset.*;
+import com.ayywl.delveforge.domain.asset.AssetUsagePolicy;
+import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.direction.ProductDirectionStatus;
-import com.ayywl.delveforge.domain.evolution.*;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStateException;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
+import com.ayywl.delveforge.domain.evolution.EvolutionStep;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
+import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
+import com.ayywl.delveforge.domain.evolution.WorkingCopy;
+import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
+
 import java.util.Objects;
 
-/** 每次外部调用前后重读可变资格，准备依据始终来自受信副本。 */
+/** 只读加载和重查可变资格，结合 Domain 生命周期与 Workspace 实际状态拒绝过期依据。 */
 public final class ExecutionPreparationState {
+
     private final EvolutionPlanRepository plans;
     private final WorkingCopyRepository copies;
     private final SoftwareAssetRepository assets;
@@ -31,6 +46,7 @@ public final class ExecutionPreparationState {
         this.policy = Objects.requireNonNull(policy);
     }
 
+    /** confirmation 区分待确认与已 READY 的资格；这里只核对，不改变生命周期。 */
     public Loaded load(EvolutionPlanId id, EvolutionStepId stepId, boolean confirmation) {
         EvolutionPlan plan = plans.findById(id).orElseThrow(() -> new EvolutionPlanNotFoundException(id));
         plan.step(stepId);
@@ -46,6 +62,7 @@ public final class ExecutionPreparationState {
                 != ProductDirectionStatus.SELECTED) {
             throw new EvolutionPlanStateException("Direction is no longer SELECTED");
         }
+
         new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
         if (confirmation) {
             policy.requireConfirmationAllowed(plan, stepId, copy);
@@ -68,6 +85,10 @@ public final class ExecutionPreparationState {
         return actual;
     }
 
+    /**
+     * 核对持久化检查点和指定的物理 revision。mutation 后、记录 Candidate 前，数据库仍可保留 A，
+     * 因此物理 revision 由编排明确传入，不能直接用 currentRevision 替代。
+     */
     public Loaded requireCheckpoint(Loaded expected, EvolutionStepId stepId, String physicalRevision) {
         EvolutionPlan plan = plans.findById(expected.plan().id())
                 .orElseThrow(() -> new EvolutionPlanNotFoundException(expected.plan().id()));
@@ -80,8 +101,10 @@ public final class ExecutionPreparationState {
         new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
         if (plan.status() != EvolutionPlanStatus.ACTIVE
                 || !Objects.equals(plan.workingCopyId(), expected.plan().workingCopyId())
-                || directions.findById(plan.productDirectionId()).orElseThrow().status() != ProductDirectionStatus.SELECTED
-                || step.status() != previous.status() || !Objects.equals(step.baselineRevision(), previous.baselineRevision())
+                || directions.findById(plan.productDirectionId()).orElseThrow().status()
+                        != ProductDirectionStatus.SELECTED
+                || step.status() != previous.status() || !Objects.equals(step.baselineRevision(),
+                        previous.baselineRevision())
                 || !Objects.equals(step.executionResult(), previous.executionResult())
                 || !Objects.equals(step.verificationResult(), previous.verificationResult())
                 || copy.status() != expected.copy().status()
@@ -91,7 +114,8 @@ public final class ExecutionPreparationState {
                 || !asset.location().equals(expected.asset().location())) {
             throw new EvolutionPlanStateException("Execution checkpoint changed");
         }
-        inspection.requireTrustedState(new WorkspaceRef(copy.location()), new WorkspaceRef(asset.location()), physicalRevision);
+        inspection.requireTrustedState(new WorkspaceRef(copy.location()), new WorkspaceRef(asset.location()),
+                physicalRevision);
         return new Loaded(plan, copy, asset);
     }
 

@@ -1,6 +1,8 @@
 package com.ayywl.delveforge.application.evolution.preparation;
 
-import com.ayywl.delveforge.domain.evolution.*;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
+import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
 
 /** 调用内依据，Task 2 必须重新核对，不能作为持久执行授权令牌。 */
 public record ExecutionPreparationBasis(EvolutionPlanId planId, EvolutionStepId stepId,

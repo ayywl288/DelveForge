@@ -19,7 +19,8 @@ public final class StepExecutionPolicy {
         requireAllowed(plan, id, copy, EvolutionStepStatus.READY);
     }
 
-    private void requireAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy, EvolutionStepStatus expected) {
+    private void requireAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy,
+            EvolutionStepStatus expected) {
         EvolutionStep step = plan.step(id);
         if (plan.status() != EvolutionPlanStatus.ACTIVE || step.status() != expected
                 || copy == null || !copy.id().value().equals(plan.workingCopyId())

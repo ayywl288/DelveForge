@@ -14,7 +14,15 @@ public final class ValidatedExecutionProposal {
         this.modelVisiblePaths = List.copyOf(visible);
     }
 
-    public ExecutionPreparationBasis basis() { return basis; }
-    public CodingProposal proposal() { return proposal; }
-    public List<String> modelVisiblePaths() { return modelVisiblePaths; }
+    public ExecutionPreparationBasis basis() {
+        return basis;
+    }
+
+    public CodingProposal proposal() {
+        return proposal;
+    }
+
+    public List<String> modelVisiblePaths() {
+        return modelVisiblePaths;
+    }
 }

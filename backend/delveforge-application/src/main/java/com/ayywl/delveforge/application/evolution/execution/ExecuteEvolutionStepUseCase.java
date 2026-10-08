@@ -1,17 +1,39 @@
 package com.ayywl.delveforge.application.evolution.execution;
 
-import com.ayywl.delveforge.application.evolution.preparation.*;
+import com.ayywl.delveforge.application.evolution.preparation.CodingProposal;
+import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationBasis;
+import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState.Loaded;
+import com.ayywl.delveforge.application.evolution.preparation.PrepareEvolutionStepUseCase;
+import com.ayywl.delveforge.application.evolution.preparation.ValidatedExecutionProposal;
 import com.ayywl.delveforge.application.port.persistence.StepExecutionCommitPort;
-import com.ayywl.delveforge.application.port.workspace.*;
-import com.ayywl.delveforge.domain.evolution.*;
+import com.ayywl.delveforge.application.port.workspace.AuthorizedStepExecution;
+import com.ayywl.delveforge.application.port.workspace.CandidateMutationResult;
+import com.ayywl.delveforge.application.port.workspace.CandidateVerification;
+import com.ayywl.delveforge.application.port.workspace.VerificationFacts;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceVerificationPort;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+import com.ayywl.delveforge.domain.evolution.EvolutionStep;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
+import com.ayywl.delveforge.domain.evolution.ExecutionResult;
+import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
+import com.ayywl.delveforge.domain.evolution.VerificationResult;
+import com.ayywl.delveforge.domain.evolution.WorkingCopy;
+
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 
-/** 外部操作与 SQLite 不组成事务；只提交完整业务检查点，异常时不制造补偿事实。 */
+/**
+ * 编排授权 Step 的 Candidate 修改、验证及可信 revision 推进；生命周期由 Domain 决定。
+ * Git 与 SQLite 不组成事务，只保存三个完整检查点；异常时不制造回滚或恢复事实。
+ */
 public final class ExecuteEvolutionStepUseCase {
+
     private final PrepareEvolutionStepUseCase preparation;
     private final ExecutionPreparationState state;
     private final StepExecutionPolicy policy;
@@ -34,6 +56,7 @@ public final class ExecuteEvolutionStepUseCase {
         return execute(preparation.prepare(planId, stepId));
     }
 
+    /** 重新核对提案依据后执行；成功返回已保存的 Plan，异常保留最后完整检查点。 */
     public EvolutionPlan execute(ValidatedExecutionProposal validated) {
         // 准备时通过校验不代表此刻仍可执行；写入前重查受信 revision（A）与证据资格。
         ExecutionPreparationBasis basis = validated.basis();
@@ -61,7 +84,8 @@ public final class ExecuteEvolutionStepUseCase {
                 new WorkspaceRef(loaded.asset().location()), validated));
         if (candidate.revision() == null || candidate.revision().equals(basis.expectedRevision())
                 || candidate.changedPaths().size() != new HashSet<>(candidate.changedPaths()).size()
-                || !new HashSet<>(candidate.changedPaths()).equals(new HashSet<>(validated.proposal().declaredAffectedPaths()))) {
+                || !new HashSet<>(candidate.changedPaths())
+                        .equals(new HashSet<>(validated.proposal().declaredAffectedPaths()))) {
             throw new EvolutionExecutionException("Actual mutation does not match the validated scope");
         }
 
@@ -75,6 +99,7 @@ public final class ExecuteEvolutionStepUseCase {
 
         Loaded verifying = new Loaded(candidatePlan, candidateCopy, executing.asset());
         state.requireCheckpoint(verifying, id, candidate.revision());
+
         // 验证固定的 B；Workspace 返回实际事实，是否满足 Criteria 仍由 Domain 决定。
         VerificationFacts facts = verification.verify(request(verifying, validated, candidate.revision()));
         VerificationResult result = result(validated.proposal(), candidate.revision(), facts);
@@ -89,7 +114,8 @@ public final class ExecuteEvolutionStepUseCase {
     }
 
     private CandidateVerification request(Loaded loaded, ValidatedExecutionProposal validated, String candidate) {
-        return new CandidateVerification(new WorkspaceRef(loaded.copy().location()), new WorkspaceRef(loaded.asset().location()),
+        return new CandidateVerification(new WorkspaceRef(loaded.copy().location()),
+                new WorkspaceRef(loaded.asset().location()),
                 validated.basis().expectedRevision(), candidate, validated.proposal().verificationStrategy());
     }
 
@@ -99,7 +125,8 @@ public final class ExecuteEvolutionStepUseCase {
         for (CodingProposal.VerificationAction action : proposal.verificationStrategy()) {
             for (Integer index : action.criterionIndexes()) {
                 if (index == null || index < 1 || index > step.verificationCriteria().size()
-                        || !step.verificationCriteria().get(index - 1).supportedBy(action.action().name(), action.target())) {
+                        || !step.verificationCriteria().get(index - 1).supportedBy(action.action().name(),
+                                action.target())) {
                     throw new EvolutionExecutionException("Verification criterion has no supported corresponding evidence");
                 }
                 supported.add(index);
@@ -110,8 +137,10 @@ public final class ExecuteEvolutionStepUseCase {
         }
     }
 
+    /** 先核对实际 Candidate 与动作身份，再关联已校验的 Criteria 索引；不在这里赋予软件信任。 */
     private VerificationResult result(CodingProposal proposal, String candidate, VerificationFacts facts) {
-        if (!candidate.equals(facts.candidateRevision()) || facts.checks().size() != proposal.verificationStrategy().size()) {
+        if (!candidate.equals(facts.candidateRevision())
+                || facts.checks().size() != proposal.verificationStrategy().size()) {
             throw new EvolutionExecutionException("Verification facts do not identify the requested Candidate and checks");
         }
 

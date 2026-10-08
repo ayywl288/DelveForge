@@ -7,6 +7,7 @@ import com.ayywl.delveforge.domain.direction.ProductDirectionId;
 import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
+
 import java.util.HashSet;
 import java.util.List;
 
@@ -115,6 +116,7 @@ public final class EvolutionPlan {
         workingCopyId = copy.id();
     }
 
+    /** 在可执行的可信副本上冻结 Step 起点；Application 随后原子保存这两个领域对象。 */
     public void startStep(EvolutionStepId id, WorkingCopy copy, StepExecutionPolicy policy) {
         policy.requireExecutionAllowed(this, id, copy);
         // M4 尚无自然语言前置条件证明器；不能把 AI 的判断作为满足条件的事实。
@@ -132,6 +134,7 @@ public final class EvolutionPlan {
         }
     }
 
+    /** 完整执行才能形成 Candidate；记录后进入 VERIFYING，可信 revision 保持原基线。 */
     public void recordExecution(EvolutionStepId id, WorkingCopy copy, ExecutionResult result) {
         requireExecutionOwner(copy);
         EvolutionStep step = step(id);
@@ -144,6 +147,7 @@ public final class EvolutionPlan {
         step.recordExecution(result);
     }
 
+    /** 同一 Candidate 满足全部标准后，才同时记录 Step 成功与 WorkingCopy 信任推进。 */
     public void succeedStep(EvolutionStepId id, WorkingCopy copy, VerificationResult result) {
         requireExecutionOwner(copy);
         EvolutionStep step = step(id);

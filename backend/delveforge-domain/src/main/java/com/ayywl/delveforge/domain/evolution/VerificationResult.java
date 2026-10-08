@@ -1,8 +1,8 @@
 package com.ayywl.delveforge.domain.evolution;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.HashSet;
+import java.util.List;
 
 /** 检查事实不自行赋予信任；Step 对 Candidate 身份及全部 Criteria 的对应证据作最终判断。 */
 public record VerificationResult(String candidateRevision, List<Check> checks, boolean passed,
@@ -19,6 +19,7 @@ public record VerificationResult(String candidateRevision, List<Check> checks, b
     }
 
     public boolean satisfies(List<VerificationCriterion> criteria) {
+        // 模型提议的索引不是证据；每个对应动作必须独立满足该 Criterion 的证据类型。
         HashSet<Integer> covered = new HashSet<>();
         for (Check check : checks) {
             for (Integer index : check.criterionIndexes()) {

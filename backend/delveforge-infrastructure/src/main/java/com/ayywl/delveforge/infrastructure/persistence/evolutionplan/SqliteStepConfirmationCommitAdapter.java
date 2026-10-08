@@ -4,12 +4,18 @@ import com.ayywl.delveforge.application.port.persistence.EvolutionLifecycleConfl
 import com.ayywl.delveforge.application.port.persistence.StepConfirmationCommitPort;
 import com.ayywl.delveforge.domain.asset.AssetUsagePolicy;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
-import com.ayywl.delveforge.domain.evolution.*;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
+import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
+import com.ayywl.delveforge.domain.evolution.WorkingCopy;
+
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+/** 在旧资格仍匹配时保存明确确认事实；不冻结基线，也不开始源码执行。 */
 @Repository
 public class SqliteStepConfirmationCommitAdapter implements StepConfirmationCommitPort {
+
     private final EvolutionStepMapper steps;
 
     public SqliteStepConfirmationCommitAdapter(EvolutionStepMapper steps) {

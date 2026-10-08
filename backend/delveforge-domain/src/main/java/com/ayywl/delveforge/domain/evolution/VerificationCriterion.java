@@ -1,6 +1,6 @@
 package com.ayywl.delveforge.domain.evolution;
 
-/** WHAT 的正式值；kind 不依赖自然语言分类，description 不得夹带未被该种类证明的承诺。 */
+/** WHAT 的正式值；kind 显式声明技术含义，description 不得夹带该种类不能证明的承诺。 */
 public record VerificationCriterion(Kind kind, String description) {
     public VerificationCriterion {
         if (kind == null || description == null || description.isBlank()) {
@@ -20,6 +20,7 @@ public record VerificationCriterion(Kind kind, String description) {
         return new VerificationCriterion(Kind.UNSUPPORTED, description);
     }
 
+    /** 只判断证据类型能否适配标准，不声称对应动作已经执行或通过。 */
     public boolean supportedBy(String action, String target) {
         if (action == null || target == null) {
             return false;
@@ -43,7 +44,13 @@ public record VerificationCriterion(Kind kind, String description) {
         UNSUPPORTED("");
 
         private final String description;
-        Kind(String description) { this.description = description; }
-        public String description() { return description; }
+
+        Kind(String description) {
+            this.description = description;
+        }
+
+        public String description() {
+            return description;
+        }
     }
 }
