@@ -6,7 +6,7 @@
 
 **Verdict:** **M4 REAL SMOKE: BLOCKED**
 
-最新尝试为下方 §6 的 **Direct DeepSeek HTTPS** 记录；§1–5 保留前次转发工具阻断的历史证据。
+最新尝试为下方 §7 的 **Final Analyzer Retry Stabilization** 记录；§1–6 保留此前 BLOCKED 的历史证据。
 
 本次按用户更新的边界做受控 Windows 本地功能尝试，不使用 Docker、VM、容器或沙箱框架。
 应用启动成功，但首次 M1 AI 请求被诊断转发工具拒绝，未到达真实 Provider。
@@ -190,5 +190,118 @@ M2 Scout 共 7，M2 最终分析 1。它们使用真实直连 Provider；不是�
 
 按一个有界尝试的限制在首个失败处停止，无自动 Repair / Retry、M5 或其它开发任务。
 M4 保持 IN_PROGRESS，真实端到端演化成功尚未证明。
+
+**M4 REAL SMOKE: BLOCKED**
+
+## 7. 第三次尝试：Final Analyzer Retry Stabilization
+
+**Date:** 2026-10-08（UTC+08:00）
+
+**Verdict:** **M4 REAL SMOKE: BLOCKED — 首步非空 Preconditions 不满足当前执行能力**
+
+### 7.1 聚焦修复与验证
+
+- 修复提交 / 源码 revision A：`95a72428e0e72d23d6fb82a514d2cca89e9b9544`。
+- 最终 `RepositoryAnalysisExtraction` 对模型输出契约违反最多调用两次（初次 + 一次重试）。
+  请求只构造一次，材料建立不可变快照；不重新 Scout、读取或净化，不修补模型内容。
+- `AiOutputContractViolationException` 区分已收到内容的 JSON / 字段 / 引用契约错误。
+  严格 JSON Reader 的接受规则没有改变；Reader I/O 等技术失败仍是普通 AI 边界失败。
+  最终 Parser 的字段错误及本次材料之外的 Evidence 引用也明确归为输出契约违反。
+- Provider 调用在捕获范围之外；即使 Gateway 自己抛同名契约子类型也不重试。
+  网络、鉴权、超时、Workspace、预算及无关 Domain 失败均不自动重试。
+  Domain 创建与保存仍在完整提案通过之后执行，两次失败不保存 Profile。
+- 聚合日志只记录 operation、attempt、maxAttempts、result 与 retrying，不输出响应或异常消息。
+  未改 prompt、Domain 不变量、依赖、M4 mutation / verification 或 JSON 接受规则。
+- 聚焦 6 个测试类：**105 tests，0 failures / errors / skipped，BUILD SUCCESS**，14.214s。
+  新覆盖第二次成功、耗尽、严格引用、输入快照、同一个请求、技术 I/O 不重试，以及
+  正常流程不重跑 Scout / Workspace、不泄露原始 canary、只保存一次。
+- 完整 `mvnw.cmd verify`：**1329 tests，0 failures / errors / skipped，BUILD SUCCESS**，12:25。
+  Domain / Application / Infrastructure / App 分别为 216 / 732 / 212 / 169。
+  测试通过后才提交并启动 smoke；没有重复运行测试来制造成功结果。
+
+### 7.2 固定制品、复用输入与直连环境
+
+- 新隔离目录：`E:\df-m4-smoke\20261008-direct2-retry`。
+  JAR、DB、Workspace、日志、临时目录和证据各自位于该目录内；原仓库不作为应用运行目录。
+- 固定 JAR 来自本次完整验证，与 A 的实现对应。
+  SHA-256：`d35b8171e11b708d7bc786eee4775c8b9165e06d83ed7325645561facc45d1b4`。
+- 输入 DB 为 §6 应用停止后的字节一致副本，保存了相同的已确认 Profile 和有授权 Asset，
+  当时没有 RepositoryProfile / Direction / Plan / Step / WorkingCopy。保留复制前后 SHA-256，
+  没有编辑 SQL、字段或下游实体；没有改动前次 DB。
+- 启动后通过正常 GET 核对 Profile=`CONFIRMED / revision=29`，Asset 的 location 为原仓库，
+  readPermission=true、usageAuthorization=`ALLOWED`。新 Repository Analysis 重新解析当前 A，
+  没有复用旧 revision 的分析快照。正常 API 支持该继续流程。
+- 使用现有 Windows JDK 21、Maven Wrapper 和 `9eac80c` 凭据过滤。
+  Key 只经不回显输入进入应用环境，不写参数或文件。
+- 应用 PID 54656，绑定 `127.0.0.1:18804`；直接 DeepSeek HTTPS，model=`deepseek-flash`，timeout=60s。
+  启动前只读确认直连配置，没有预检 Provider 请求，没有 proxy、interceptor、容器或新基础设施。
+  验证预算仍为 160 reports / 900s action / 1200s invocation / 8388608 bytes。
+
+### 7.3 实际 API、生成结果与重试观察
+
+1. GET 复用 Profile / Asset → **200 / 200**，0.383s / 0.018s。
+   标识沿用 §6，状态与授权通过核对。
+2. `POST /api/software-assets/{id}/analysis` → **201**，89.615s。
+   RepositoryProfile=`4c6b9891-ceea-482d-8f02-8e58e42dce0a`，analyzedRevision=A。
+   日志：Region attempts=2、File attempts=5，材料=36（foundation=12、targeted=24），
+   tooLarge / totalBudgetExceeded=0，secretExcluded=1、sanitizedSpanCount=3。
+   最终分析日志为 `attempt=1 maxAttempts=2 STARTED → ACCEPTED`；**本次真实调用未触发最终分析重试**。
+   重试路径的成功与耗尽由前述自动化回归证明，不冒充本次真实观察。
+3. `POST /api/product-directions/discovery` → **201**，28.368s，产生 4 个真实候选。
+   其中一个为“补齐 Python 下划线文件命名的角色提示（RepositoryPathClassifier 小步增量）”。
+4. 正常 select → **200**，0.053s。
+   Direction=`99c0ca60-f2fd-4511-991b-d83e31e8d735`，状态=`SELECTED`；
+   选择与已授权的小型仓库分析改进及正负回归目标一致，未手工构造方向。
+5. `POST /api/evolution-plans/planning` → **201**，28.364s。
+   Plan=`fe74bc4f-386a-4978-a0e4-c93ff0ebc8bb`，`PROPOSED`，仅一个 Step。
+   Step=`1dfcd69b-019a-44da-b005-8c6e4ceb7c45`，目标为补齐 Python 下划线文件名角色提示，
+   同一补丁附正负确定性回归；范围限于该命名风格，保持其它语言与原规则。
+   Criterion 正常生成为 `FULL_TEST_SUITE_PASSES / 项目完整自动化测试套件通过`。
+6. 发现下述执行资格阻断后停止，只读 GET Plan → **200**，0.037s。
+
+本次源码调用点与日志可核对 10 次 AI Gateway 逻辑调用：M2 Scout 7、最终分析 1、方向 1、规划 1。
+不包含复用输入在前次运行中的 M1 调用；没有 HTTP 拦截，传输层请求数与 token usage 未独立采集。
+API 保留真实生成的 Profile、方向与 Plan，不伪造 Step、Proposal 或验证结果。
+RepositoryProfile 仍读取了 README 的旧进度描述并产生“文档与实现不一致”的判断；
+该事实作为材料质量风险保留，不在本次改写 Profile 或修正 README。
+
+### 7.4 确切第一阻断：M3 / M4 执行资格不兼容
+
+模型为首步生成了三个非空 Preconditions（原文）：
+
+1. 实际源码确认现有 Python 下划线文件名未参与角色推断，并确认其它语言与已有规则的边界
+2. 在独立 WorkingCopy 中准备可构建的仓库副本，原仓库保持不动
+3. 本地 JDK 21 与离线 Maven Wrapper 可用，测试不依赖外部服务
+
+该 Plan 的 JSON、字段与 Criterion 已被正常接受；阻断不是最终分析重试耗尽、Provider 传输失败，
+也不是 Maven 测试失败。问题是首步包含自然语言源码确认及全局环境前提，当前执行没有这些条件的证明能力。
+现有 `EvolutionPlan.startStep()` 第 123–124 行对非空 Preconditions 抛
+`EvolutionPlanStateException("External Step Preconditions cannot yet be established for execution")`。
+当前 M3 指令要求仅列 Step 专属依赖、不重复全局执行不变量，但本次输出仍混入了这些条件。
+
+因此在执行就绪检查处停止，没有删除条件、声称条件已被证明、修改规则、重问规划或手工修改数据库。
+**没有发出 prepare / confirm / execute 请求，也没有观测到这些端点返回 409**；
+报告不把源码中可确定的资格阻断伪造成一次已经发生的 HTTP / 执行失败。
+没有为了到达该已知阻断而继续消耗源码 Scout 或 Coding Proposal 调用。
+
+### 7.5 最终状态、完整性与风险
+
+- DB：Profile=1、Asset=1、RepositoryProfile=1、Direction=4、Plan=1、Step=1、WorkingCopy=0。
+  只读 checkpoint 记录 Plan=`PROPOSED`，Step=`PENDING_CONFIRMATION`，baseline / execution / verification=null。
+  这是规划状态，不是三个 M4 执行检查点。
+- 没有 WorkingCopy，currentRevision / lastVerifiedRevision 不存在；没有 Candidate / Verified B、
+  CodingProposal、演化代码 diff、ExecutionResult 或 VerificationResult。
+  **本次 smoke Maven 命令及 Surefire 报告均为 0**；1329 项结果只证明修复实现，不能证明演化成功。
+- 应用已停止，运行约 689.288s；exit=1 为 Windows 显式终止。未留下本次监听或自动重试任务。
+- 报告更新前的前后快照：HEAD 均为 A、工作树干净，580 个受控文件与
+  `.git/HEAD` / index / config 的 SHA-256 完全一致。原资产未被 smoke 修改。
+- 外部目录保留输入快照来源与哈希、脱敏 API、业务摘要、聚合日志、DB、checkpoint、固定 JAR、
+  修复测试日志及最终审计；30 个文本产物和 DB 的 Provider key 格式扫描无命中。
+  不提交运行文件或秘密；只追加本次记录，保留全部此前 BLOCKED 历史。
+- 环境过滤仍不隔离宿主文件权限。构建 / 测试若被执行，拥有当前 Windows 用户对其它文件、
+  配置、cache、网络与同用户进程的权限。本次是受控本地功能尝试，不能认证任意不可信仓库可安全执行。
+
+在第一执行资格阻断处结束，没有额外生产修复、第二次 smoke、M5、语言 Adapter 或规划结果改写。
+M4 保持 IN_PROGRESS；实际端到端 Verified B 尚未取得。
 
 **M4 REAL SMOKE: BLOCKED**
