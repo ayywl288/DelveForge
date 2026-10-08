@@ -86,7 +86,7 @@ public final class EvolutionPlanningService {
         EvolutionPlanId planId = planIds.get();
         List<EvolutionStep> steps = proposal.steps().stream()
                 .map(step -> EvolutionStep.planned(stepIds.get(), planId, step.goal(), step.scope(),
-                        step.plannedChanges(), step.preconditions(), step.verificationCriteria()))
+                        step.plannedChanges(), step.verificationCriteria()))
                 .toList();
 
         // 提案仅作为决策输入；接受后 Aggregate 直接拥有正式值，不保留 Proposal 对象。

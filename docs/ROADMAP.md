@@ -126,7 +126,7 @@ Product Direction 的最终选择属于用户。
 ```text
 Goal
 Scope
-Preconditions
+Planned Changes
 Verification Criteria
 ```
 
@@ -458,7 +458,6 @@ DEFERRED / REVISIT
   - [x] Goal
   - [x] Scope
   - [x] Planned Changes
-  - [x] Preconditions
   - [x] Verification Criteria
 
 #### Working Copy
@@ -543,7 +542,7 @@ Verified Software State
 
 - [x] 支持用户确认一个 Evolution Step。
 - [x] 实现 `PENDING_CONFIRMATION → READY`。
-- [x] 实现 StepExecutionPolicy（确认、准备与执行资格；无法证明的非空 Preconditions 失败关闭）。
+- [x] 实现 StepExecutionPolicy（确认、准备与执行资格；生命周期、前序步骤与可信副本守卫）。
 - [x] Step 首次执行前记录 baselineRevision。
 - [x] AI / Coding Capability 根据 Step Scope 产生代码修改方案（调用内理解、有限上下文扩展与确定性提案校验；不应用补丁）。
 - [x] Workspace 在 Working Copy 中应用修改。
@@ -850,9 +849,9 @@ Coding Proposal 和确定性校验，步骤保持 READY，baselineRevision 为�
 Task 2 已接入受控 mutation、执行时冻结 baselineRevision、单个本地 Candidate revision、
 独立有限 Verification、三个原子检查点与成功后的可信 revision 推进。异常保留最后完整
 EXECUTING / VERIFYING 检查点并阻止继续演化，不模拟失败转换或回滚。
-当前验证支持 Git diff 与根 Maven Wrapper 离线构建 / 测试；无法证明的非空 Preconditions
-及不支持的验证意图保守拒绝。Task 1 / Task 2 及里程碑审查已通过（审查基线 `0c5d8c0`）；
-M4 保持 IN_PROGRESS，等待真实 Provider smoke 与复盘。尚未启动 smoke、复盘或 M5。
+当前验证支持 Git diff 与根 Maven Wrapper 离线构建 / 测试；未知外部依赖及不支持的验证意图
+保守拒绝。当前 MVP 已移除 Step 自由文本 Preconditions，V12 要求含旧条件的可推进历史计划重新规划。Task 1 / Task 2 及里程碑审查已通过（审查基线 `0c5d8c0`）；
+M4 保持 IN_PROGRESS，等待真实 Provider smoke 成功与复盘。已有 BLOCKED smoke 记录见 docs/validation/m4-windows-local-functional-smoke.md；尚未开始 M5。
 完整 Failure / Repair / Retry / Rollback / Recovery 流程仍属于 M5。
 继续采用「设计讨论 → 相对完整的垂直切片 → 里程碑级审查 → 聚焦修正 → 一次真实 smoke
 → 复盘」，具体保留与调整见 M3 复盘 §E–F。

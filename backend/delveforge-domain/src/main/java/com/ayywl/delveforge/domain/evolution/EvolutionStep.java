@@ -12,7 +12,6 @@ public final class EvolutionStep {
     private final String goal;
     private final String scope;
     private final List<String> plannedChanges;
-    private final List<String> preconditions;
     private final List<VerificationCriterion> verificationCriteria;
 
     private EvolutionStepStatus status = EvolutionStepStatus.PENDING_CONFIRMATION;
@@ -22,7 +21,7 @@ public final class EvolutionStep {
     private VerificationResult verificationResult;
 
     private EvolutionStep(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
-            List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria) {
+            List<String> plannedChanges, List<VerificationCriterion> verificationCriteria) {
         if (id == null || planId == null) {
             throw new IllegalArgumentException("Step identity, owner and definition are required");
         }
@@ -31,44 +30,43 @@ public final class EvolutionStep {
         this.goal = PlanningContent.text(goal, "step.goal");
         this.scope = PlanningContent.text(scope, "step.scope");
         this.plannedChanges = PlanningContent.section(plannedChanges, "step.plannedChanges", true);
-        this.preconditions = PlanningContent.section(preconditions, "step.preconditions", false);
         this.verificationCriteria = PlanningContent.criteria(verificationCriteria);
     }
 
     static EvolutionStep planned(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
-            List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria) {
-        return new EvolutionStep(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
+            List<String> plannedChanges, List<VerificationCriterion> verificationCriteria) {
+        return new EvolutionStep(id, planId, goal, scope, plannedChanges, verificationCriteria);
     }
 
     /**
      * 从已保存的正式定义还原 M3 Step，不制造新的提案或执行授权。
      */
     public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
-            List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria) {
-        return new EvolutionStep(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
+            List<String> plannedChanges, List<VerificationCriterion> verificationCriteria) {
+        return new EvolutionStep(id, planId, goal, scope, plannedChanges, verificationCriteria);
     }
 
     public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
-            List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria,
+            List<String> plannedChanges, List<VerificationCriterion> verificationCriteria,
             EvolutionStepStatus status) {
         if (status != EvolutionStepStatus.PENDING_CONFIRMATION && status != EvolutionStepStatus.READY) {
             throw new IllegalArgumentException("Unsupported preparation lifecycle state");
         }
-        EvolutionStep step = reconstitute(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
+        EvolutionStep step = reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria);
         step.status = status;
         return step;
     }
 
     EvolutionStep copy() {
-        return reconstitute(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria,
+        return reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria,
                 status, baselineRevision, executionResult, verificationResult);
     }
 
     /** 恢复完整历史检查点；不以当前证据适配规则重新判定已保存的成功事实。 */
     public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
-            List<String> plannedChanges, List<String> preconditions, List<VerificationCriterion> verificationCriteria,
+            List<String> plannedChanges, List<VerificationCriterion> verificationCriteria,
             EvolutionStepStatus status, String baseline, ExecutionResult execution, VerificationResult verification) {
-        EvolutionStep step = reconstitute(id, planId, goal, scope, plannedChanges, preconditions, verificationCriteria);
+        EvolutionStep step = reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria);
         boolean prepared = status == EvolutionStepStatus.PENDING_CONFIRMATION || status == EvolutionStepStatus.READY;
         boolean executing = status == EvolutionStepStatus.EXECUTING;
         boolean verifying = status == EvolutionStepStatus.VERIFYING;
@@ -148,10 +146,6 @@ public final class EvolutionStep {
 
     public List<String> plannedChanges() {
         return plannedChanges;
-    }
-
-    public List<String> preconditions() {
-        return preconditions;
     }
 
     public List<VerificationCriterion> verificationCriteria() {

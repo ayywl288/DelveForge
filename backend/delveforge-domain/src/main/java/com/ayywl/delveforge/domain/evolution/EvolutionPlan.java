@@ -119,10 +119,6 @@ public final class EvolutionPlan {
     /** 在可执行的可信副本上冻结 Step 起点；Application 随后原子保存这两个领域对象。 */
     public void startStep(EvolutionStepId id, WorkingCopy copy, StepExecutionPolicy policy) {
         policy.requireExecutionAllowed(this, id, copy);
-        // M4 尚无自然语言前置条件证明器；不能把 AI 的判断作为满足条件的事实。
-        if (!step(id).preconditions().isEmpty()) {
-            throw new EvolutionPlanStateException("External Step Preconditions cannot yet be established for execution");
-        }
         copy.startEvolution();
         step(id).start(copy.lastVerifiedRevision());
     }

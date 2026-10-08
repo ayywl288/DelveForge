@@ -43,7 +43,7 @@ class ExecuteEvolutionStepUseCaseTest {
             plan = EvolutionPlan.reconstitute(PLAN, new ProductDirectionId("direction"), ASSET, PROFILE,
                     new CurrentState("current", List.of(), List.of(), List.of()), new TargetState("problem", "target", "difference"),
                     List.of(), List.of("change"), List.of(EvolutionStep.reconstitute(STEP, PLAN, "goal", "scope",
-                    List.of("change"), List.of(), List.of(criterion), EvolutionStepStatus.READY)), List.of(),
+                    List.of("change"), List.of(criterion), EvolutionStepStatus.READY)), List.of(),
                     List.of(evidence), COPY, EvolutionPlanStatus.ACTIVE);
             direction = ProductDirection.create(new ProductDirectionId("direction"), new UserProfileId("user"), 1,
                     List.of(PROFILE), "title", "problem", "target", "match", List.of(ASSET), "difference",

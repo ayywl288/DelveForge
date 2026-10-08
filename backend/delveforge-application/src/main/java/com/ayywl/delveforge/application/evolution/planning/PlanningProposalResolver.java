@@ -28,8 +28,7 @@ public final class PlanningProposalResolver {
         }
 
         List<PlanningStepProposal> steps = proposal.steps().stream()
-                .map(step -> new PlanningStepProposal(step.goal(), step.scope(), step.plannedChanges(),
-                        step.preconditions(), step.verificationCriteria()))
+                .map(step -> new PlanningStepProposal(step.goal(), step.scope(), step.plannedChanges(), step.verificationCriteria()))
                 .toList();
         return new PlanningProposal(proposal.currentState(), proposal.targetState(),
                 proposal.reusableCapabilities(), proposal.changes(), steps, proposal.risks(), evidence);

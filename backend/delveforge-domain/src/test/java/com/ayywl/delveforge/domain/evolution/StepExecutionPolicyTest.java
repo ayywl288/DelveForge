@@ -21,9 +21,9 @@ class StepExecutionPolicyTest {
         return EvolutionPlan.reconstitute(planId, new ProductDirectionId("direction"), asset,
                 new RepositoryProfileId("profile"), new CurrentState("current", List.of(), List.of(), List.of()),
                 new TargetState("problem", "target", "difference"), List.of(), List.of("change"),
-                List.of(EvolutionStep.reconstitute(first, planId, "goal", "scope", List.of("change"), List.of(), List.of(VerificationCriterion.unsupported("check"))),
+                List.of(EvolutionStep.reconstitute(first, planId, "goal", "scope", List.of("change"), List.of(VerificationCriterion.unsupported("check"))),
                         EvolutionStep.reconstitute(new EvolutionStepId("second"), planId, "goal2", "scope2",
-                                List.of("change2"), List.of(), List.of(VerificationCriterion.unsupported("check2")))),
+                                List.of("change2"), List.of(VerificationCriterion.unsupported("check2")))),
                 List.of(), List.of(evidence), new WorkingCopyId("copy"), EvolutionPlanStatus.ACTIVE);
     }
 

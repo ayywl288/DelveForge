@@ -90,9 +90,9 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
                 new TargetState("Manual exports", "Scheduled reports", "Personal schedule"),
                 List.of("Render", "Export"), List.of("Add scheduling"),
                 List.of(new PlanningStepProposal("Schedule reports", "Reporting scheduling",
-                        List.of("Add scheduling capability"), List.of(), List.of(VerificationCriterion.unsupported("Reports run at the user-selected time"))),
+                        List.of("Add scheduling capability"), List.of(VerificationCriterion.unsupported("Reports run at the user-selected time"))),
                         new PlanningStepProposal("Expose schedule management", "Personal schedule controls",
-                        List.of("Manage schedules"), List.of("Scheduling capability exists"), List.of(VerificationCriterion.unsupported("Users can change schedules")))),
+                        List.of("Manage schedules"), List.of(VerificationCriterion.unsupported("Users can change schedules")))),
                 List.of("Missed reports"), List.of(BASIS));
     }
 
@@ -125,7 +125,7 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
         PlanningProposal original = proposal();
         PlanningProposal technical = new PlanningProposal(original.currentState(), original.targetState(),
                 original.reusableCapabilities(), original.changes(), List.of(new PlanningStepProposal("保持工程可构建", "报表工程",
-                        List.of("调整工程代码"), List.of(), List.of(
+                        List.of("调整工程代码"), List.of(
                                 VerificationCriterion.technical(VerificationCriterion.Kind.BUILD_SUCCEEDS),
                                 VerificationCriterion.technical(VerificationCriterion.Kind.SELECTED_TESTS_PASS)))),
                 original.risks(), original.evidence());
@@ -292,7 +292,6 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
             assertEquals(before.goal(), after.goal());
             assertEquals(before.scope(), after.scope());
             assertEquals(before.plannedChanges(), after.plannedChanges());
-            assertEquals(before.preconditions(), after.preconditions());
             assertEquals(before.verificationCriteria(), after.verificationCriteria());
             assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, after.status());
             assertNull(after.baselineRevision());

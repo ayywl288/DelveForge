@@ -27,7 +27,7 @@ public final class EvolutionPlanningExtraction {
               "targetState": {"problem":"...", "targetProduct":"...", "differentiation":"..."},
               "reusableCapabilities":[], "changes":["..."],
               "steps":[{"goal":"...", "scope":"...", "plannedChanges":["..."],
-                        "preconditions":[], "verificationCriteria":[{"kind":"BUILD_SUCCEEDS","description":"项目构建成功"}]}],
+                        "verificationCriteria":[{"kind":"BUILD_SUCCEEDS","description":"项目构建成功"}]}],
               "risks":[], "evidence":["..."]
             }
             CurrentState 是与规划相关的事实投影，不是完整 Profile 的副本：
@@ -40,7 +40,10 @@ public final class EvolutionPlanningExtraction {
             生成有顺序的 Step 列表，至少包含一个 Step；每个 Step 都应有意义、范围有界、可独立验证且适合用户显式授权。
             scope 限定该 Step 的业务或工程责任范围。
             plannedChanges 表达主要工程改造类别，不是具体补丁。
-            preconditions 列出 Step 专属依赖；没有依赖时使用 []，不要重复全局执行不变量。
+            当前 MVP 不包含 Step preconditions 字段，也不得生成替代的自由文本依赖字段。
+            前序 Step 依赖由步骤顺序表达，执行要求全部前序 Step 已成功。
+            不得假定真实外部依赖已经满足；依赖现有受控验证无法证明的外部条件时，
+            必须以 UNSUPPORTED 标准保留该验证要求，不得将其降为可自动执行的技术标准。
             verificationCriteria 表达必须证明什么，不得提供如何执行的命令或测试类名。
             每项标准必须包含 kind 和 description。技术种类及其准确说明为：
             BUILD_SUCCEEDS = 项目构建成功；FULL_TEST_SUITE_PASSES = 项目完整自动化测试套件通过；

@@ -55,9 +55,9 @@ class GenerateEvolutionPlanUseCaseTest {
                 new TargetState("Manual exports", "Scheduled reports", "Personal schedule"),
                 List.of("Render", "Export"), List.of("Add scheduling"),
                 List.of(new PlanningStepProposal("Schedule reports", "Reporting scheduling",
-                        List.of("Add scheduling capability"), List.of(), List.of(VerificationCriterion.unsupported("Reports run at the user-selected time"))),
+                        List.of("Add scheduling capability"), List.of(VerificationCriterion.unsupported("Reports run at the user-selected time"))),
                         new PlanningStepProposal("Expose schedule management", "Personal schedule controls",
-                        List.of("Manage schedules"), List.of("Scheduling capability exists"), List.of(VerificationCriterion.unsupported("Users can change schedules")))),
+                        List.of("Manage schedules"), List.of(VerificationCriterion.unsupported("Users can change schedules")))),
                 List.of("Missed reports"), List.of(BASIS));
     }
 
@@ -65,7 +65,7 @@ class GenerateEvolutionPlanUseCaseTest {
 {"currentState":{"summary":"Existing exports","capabilities":["Export"],"modules":["reports"],"limitations":["No scheduling"]},
 "targetState":{"problem":"Manual exports","targetProduct":"Scheduled reports","differentiation":"Personal schedule"},
 "reusableCapabilities":["Render"],"changes":["Add scheduling"],
-"steps":[{"goal":"Schedule reports","scope":"Reporting scheduling","plannedChanges":["Add scheduling"],"preconditions":[],"verificationCriteria":[{"kind":"UNSUPPORTED","description":"Reports run on schedule"}]}],
+"steps":[{"goal":"Schedule reports","scope":"Reporting scheduling","plannedChanges":["Add scheduling"],"verificationCriteria":[{"kind":"UNSUPPORTED","description":"Reports run on schedule"}]}],
 "risks":[],"evidence":["R-E1","D-E1"]}
             """;
     private final Directions directions = new Directions();
@@ -305,7 +305,7 @@ class GenerateEvolutionPlanUseCaseTest {
                   "targetState": {"problem":"...", "targetProduct":"...", "differentiation":"..."},
                   "reusableCapabilities":[], "changes":["..."],
                   "steps":[{"goal":"...", "scope":"...", "plannedChanges":["..."],
-                            "preconditions":[], "verificationCriteria":[{"kind":"BUILD_SUCCEEDS","description":"项目构建成功"}]}],
+                             "verificationCriteria":[{"kind":"BUILD_SUCCEEDS","description":"项目构建成功"}]}],
                   "risks":[], "evidence":["..."]
                 }
                 """;

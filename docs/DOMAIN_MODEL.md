@@ -525,7 +525,6 @@ Evolution Plan 的分析基础来自选定 Product Direction、相关 Repository
 | `goal`                 | 本步骤需要实现的明确目标                                     |
 | `scope`                | 本步骤允许修改的业务或代码范围                               |
 | `plannedChanges`       | 预计执行的主要变化                                           |
-| `preconditions`        | 执行该步骤前必须满足的条件                                   |
 | `verificationCriteria` | 判断该步骤是否成功的标准                                     |
 | `status`               | 当前步骤的生命周期状态                                       |
 | `executionResult`      | 实际执行产生的结果                                           |
@@ -1432,7 +1431,7 @@ stateDiagram-v2
 | ---------------------- | -------------------- | --------------------- | ------------------------------------------------------------ |
 | `PENDING_CONFIRMATION` | User Confirm         | `READY`               | 用户明确确认当前 Step                                        |
 | `PENDING_CONFIRMATION` | User Reject          | `CANCELLED`           | 用户明确取消当前 Step                                        |
-| `READY`                | Start Execution      | `EXECUTING`           | Working Copy 可用，Preconditions 满足，并记录 baselineRevision |
+| `READY`                | Start Execution      | `EXECUTING`           | Working Copy 可信可用、前序 Required Step 已成功，并记录 baselineRevision |
 | `EXECUTING`            | Execution Complete   | `VERIFYING`           | 当前一次执行完整结束，并已产生 Execution Result              |
 | `EXECUTING`            | Execution Failure    | `ROLLING_BACK`        | 已保存错误信息、Execution Result 与当前 Diff                 |
 | `VERIFYING`            | Verification Pass    | `SUCCEEDED`           | Verification Criteria 全部满足                               |
@@ -1703,7 +1702,7 @@ Invariant 描述的是系统无论采用何种 Controller、数据库、LLM Prov
 | `INV-P04` | Evolution Plan 必须同时具有明确的 Current State 与 Target State。 |
 | `INV-P05` | Current State 必须以 Base Repository Profile 为主要软件事实依据，Target State 必须来源于 Selected Product Direction。 |
 | `INV-P06` | 每个 Evolution Step 必须属于且只能属于一个 Evolution Plan。  |
-| `INV-P07` | Evolution Step 必须具有明确 Goal、Scope、Preconditions 与 Verification Criteria，不能以无限范围的“一次性完成整个项目改造”作为合法 Step。 |
+| `INV-P07` | Evolution Step 必须具有明确 Goal、Scope、Planned Changes 与 Verification Criteria，不能以无限范围的“一次性完成整个项目改造”作为合法 Step。 |
 | `INV-P08` | 如果 Evolution Plan 所对应的 Product Direction 已进入 `SUPERSEDED`，该 Plan 不得开始新的 Evolution Step；仍处于 `PROPOSED` 或 `ACTIVE` 的历史 Plan 必须先进入 `SUPERSEDED` 或 `ABANDONED`。 |
 | `INV-E09` | 当前 MVP 中 Evolution Step 按 Evolution Plan 定义的顺序执行；一个 Step 只有在其所有前序 Required Evolution Step 均处于 `SUCCEEDED` 时才能开始 Execution。 |
 
@@ -1727,7 +1726,7 @@ Invariant 描述的是系统无论采用何种 Controller、数据库、LLM Prov
 | --------- | ------------------------------------------------------------ |
 | `INV-E01` | Evolution Step 未经用户明确确认，不得进入实际代码执行。      |
 | `INV-E02` | Step 开始执行时，其所属 Evolution Plan 必须处于 `ACTIVE`。   |
-| `INV-E03` | Step 开始执行前必须满足其 Preconditions。                    |
+| `INV-E03` | Step 开始执行前必须通过确定性的生命周期、前序 Required Step、资产授权、WorkingCopy 隔离与可信 revision 检查；无法证明的真实外部依赖必须失败关闭，不得由 AI 宣称已满足。                    |
 | `INV-E04` | 同一 Working Copy 在同一时刻最多只能有一个 Evolution Step 处于 EXECUTING、VERIFYING、VERIFICATION_FAILED、ROLLING_BACK 或 RECOVERY_REQUIRED 相关流程中。 |
 | `INV-E05` | Execution Failure 表示本次执行未可靠完成；系统必须先保存必要诊断信息，再恢复到该 Step 的 `baselineRevision`。 |
 | `INV-E06` | Execution 未完整完成时产生的部分修改不得被视为 Candidate State。 |
@@ -2096,9 +2095,16 @@ Base Software Asset
 Goal
 Scope
 Planned Changes
-Preconditions
 Verification Criteria
 ```
+
+**当前 MVP 的 Step 契约与历史兼容**
+
+Step 不包含 LLM 生成的 `preconditions`，新的 Planning Proposal 若仍携带该字段必须拒绝并重新生成。
+Use Case 中的 Preconditions 章节仍表达系统必须检查的执行条件，不是可由模型填写的字段。
+V12 迁移将含历史 Preconditions 分项的 PROPOSED / ACTIVE Plan 标记为 SUPERSEDED，要求通过正常流程重新规划；
+历史条件原文、Step 授权 / baseline / 结果及 WorkingCopy 状态与 revisions 保持原样。
+该迁移不表示旧条件已满足，也不表示未完成执行已经回滚或恢复；无该分项的旧计划保持原资格。
 
 ### 8.7 Prepare Working Copy
 
@@ -2223,8 +2229,8 @@ PENDING_CONFIRMATION → READY
 Plan / Direction / Copy / Asset 授权依据，失败不改变已加载对象或持久状态。
 确认和 READY 下的只读执行准备均不设置 baselineRevision，也不进入 EXECUTING。
 StepExecutionPolicy 判断 Aggregate 可见的生命周期、绑定、顺序与可信 revision 条件；
-依赖 Workspace 或其他外部事实的自然语言 Preconditions 仍须在实际 mutation 前检查。
-只读准备成功不表示这些条件已经满足。
+当前 MVP 不包含 LLM 生成的 Step preconditions 或替代自由文本依赖字段；
+真实外部依赖不能由模型声明视为满足，必须由现有受控能力提供证据，否则失败关闭。
 
 该确认：
 
@@ -2258,7 +2264,6 @@ Working Copy
 - 当前 Step 的所有前序 Required Evolution Step 必须已经处于 `SUCCEEDED`。
 - Evolution Plan 必须处于 `ACTIVE`。
 - Working Copy 必须处于允许执行修改的状态。
-- Step Preconditions 必须全部满足。
 - 当前不得存在其他正在占用同一 Working Copy 的 Evolution Step。
 - Working Copy 必须具有明确 `lastVerifiedRevision`。
 
@@ -2309,9 +2314,9 @@ Execution 完整结束后产生 Candidate State。
 **M4 Task 2 当前实现边界：** Domain 通过明确操作冻结 baseline、接受完整 ExecutionResult
 并形成 Candidate、接受同一 Candidate 的完整 VerificationResult 后推进信任。上述三个检查点
 各自原子持久化 Step 与 WorkingCopy；baseline 冻结后不可重设，B 验证成功不再创建第二个 revision。
-当前没有自然语言 Preconditions 的事实检查器，因此执行暂只接受空 Preconditions 的 Step；
-非空条件无法证明时保留 READY 并拒绝 mutation。这是 M4 的保守实现限制，不是删除 `INV-E03`
-或将非空 Preconditions 视为已满足。M4 异常检查点遵循 §6.4，完整失败流程由 M5 实现。
+当前 MVP 已移除自由文本 Step preconditions；`INV-E03` 由明确的确定性守卫与可证明的外部事实保护。
+移除字段不授予执行权限，不改变 baseline / lastVerifiedRevision、顺序或 Verification-before-trust 规则。
+M4 异常检查点遵循 §6.4，完整失败流程由 M5 实现。
 
 ### 8.11 Verify Evolution Step
 
@@ -3983,7 +3988,6 @@ Step Definition 包括：
 goal
 scope
 plannedChanges
-preconditions
 verificationCriteria
 ```
 
@@ -5364,7 +5368,7 @@ WorkingCopy Aggregate
              │                                              │
              │ Plan 是否 ACTIVE                              │ Working Copy 是否可写
              │ Step 是否 READY                               │ 当前状态是否安全
-             │ Plan / Step 自身能够判断的 Preconditions        │ Revision 是否满足要求
+             │ Plan / Step 的生命周期与前序步骤状态        │ Revision 是否满足要求
              │ 当前 Step 是否可推进                            │ 是否允许实际修改
              │                                               │
              └─────────────┬─────────────────────────────────┘
@@ -6074,9 +6078,9 @@ EvolutionPlanningService 不负责：
   differentiation 原文，拒绝规划提案替换或弱化这些输入。
 - Gap 只作为规划推理，以 reusableCapabilities 与 changes 表达，不独立持久化。
   reusableCapabilities 必须来自 Base Profile 的 capabilities 或 reusableAssets。
-- 每个 Step 的 plannedChanges 与 verificationCriteria 至少一项；preconditions 必须显式
-  出现，独立的首步允许空列表，表示没有 Step 专属依赖。步骤粒度、范围和验证标准的语义
-  质量仍需用户审阅；字段非空不意味着系统能证明增量一定有界或可验证。
+- 每个 Step 的 plannedChanges 与 verificationCriteria 至少一项；当前 MVP 不生成或接受
+  preconditions，自由文本外部条件不能成为执行授权。前序依赖由有序 Required Steps 表达。
+  步骤粒度、范围和验证标准的语义质量仍需用户审阅；字段非空不意味着系统能证明增量一定有界或可验证。
 - M3 → M4 的最小契约修正：verificationCriteria 每项为 kind + description 的正式值；
   规划提示 / 解析器要求显式类别，不生成 M4 动作或测试 target。V11 仅为既有标准补上 UNSUPPORTED，
   保留原文、身份与顺序，不猜测历史类别或改写已有生命周期 / revision / 结果。

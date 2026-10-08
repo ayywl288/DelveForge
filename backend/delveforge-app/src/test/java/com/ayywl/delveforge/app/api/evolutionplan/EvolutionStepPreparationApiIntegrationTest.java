@@ -42,7 +42,7 @@ class EvolutionStepPreparationApiIntegrationTest {
          "targetState":{"problem":"Manual","targetProduct":"Scheduled","differentiation":"Personal"},
          "reusableCapabilities":["Export"],"changes":["Add scheduling"],
          "steps":[{"goal":"Schedule reports","scope":"reports","plannedChanges":["Add scheduling"],
-         "preconditions":[],"verificationCriteria":[{"kind":"UNSUPPORTED","description":"Reports run on schedule"}]}],
+         "verificationCriteria":[{"kind":"UNSUPPORTED","description":"Reports run on schedule"}]}],
          "risks":[],"evidence":["R-E1","D-E1"]}
         """;
 

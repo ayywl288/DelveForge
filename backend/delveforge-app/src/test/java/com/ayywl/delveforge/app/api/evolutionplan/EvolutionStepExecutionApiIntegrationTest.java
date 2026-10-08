@@ -44,7 +44,7 @@ class EvolutionStepExecutionApiIntegrationTest {
          "targetState":{"problem":"Manual","targetProduct":"Scheduled","differentiation":"Personal"},
          "reusableCapabilities":["Export"],"changes":["Add scheduling"],
          "steps":[{"goal":"Schedule reports","scope":"reports","plannedChanges":["Add scheduling"],
-         "preconditions":[],"verificationCriteria":[{"kind":"DIFF_CHECK_PASSES","description":"本次代码差异无空白错误或冲突标记"}]}],
+         "verificationCriteria":[{"kind":"DIFF_CHECK_PASSES","description":"本次代码差异无空白错误或冲突标记"}]}],
          "risks":[],"evidence":["R-E1","D-E1"]}
         """;
 
@@ -154,6 +154,8 @@ class EvolutionStepExecutionApiIntegrationTest {
                 {"productDirectionId":"direction","baseAssetId":"asset","baseRepositoryProfileId":"profile"}
                 """)).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
         planId = proposed.path("id").asText();
+        assertFalse(proposed.path("steps").get(0).has("preconditions"));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM evolution_step_section_item WHERE section='preconditions'", Integer.class));
         assertEquals(kind.name(), proposed.path("steps").get(0).path("verificationCriteria").get(0).path("kind").asText());
         stepId = proposed.path("steps").get(0).path("id").asText();
         JsonNode active = mapper.readTree(mvc.perform(post("/api/evolution-plans/{id}/prepare", planId))

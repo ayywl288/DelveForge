@@ -3,7 +3,7 @@ package com.ayywl.delveforge.domain.evolution;
 import java.util.Set;
 
 /**
- * 只判断 Plan / WorkingCopy 可见的生命周期和可信基线；外部前置条件仍由 Application 检查。
+ * 只判断 Plan / WorkingCopy 可见的生命周期和可信基线；资产授权与物理 revision 仍由 Application / Workspace 检查。
  * 本策略不会设置 baselineRevision，也不会开始 Execution。
  */
 public final class StepExecutionPolicy {

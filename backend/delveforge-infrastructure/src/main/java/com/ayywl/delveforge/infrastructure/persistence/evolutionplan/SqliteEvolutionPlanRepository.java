@@ -93,7 +93,7 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
             Map<String, List<String>> stepSections = loadStepSections(step.getId());
             steps.add(EvolutionStep.reconstitute(new EvolutionStepId(step.getId()),
                     new EvolutionPlanId(step.getPlanId()), step.getGoal(), step.getScope(),
-                    values(stepSections, "plannedChanges"), values(stepSections, "preconditions"),
+                    values(stepSections, "plannedChanges"),
                     loadCriteria(step.getId()), EvolutionStepStatus.valueOf(step.getStatus()),
                     step.getBaselineRevision(), StepResultJson.read(step.getExecutionResult(), ExecutionResult.class),
                     StepResultJson.read(step.getVerificationResult(), VerificationResult.class)));
@@ -141,7 +141,6 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         row.setBaselineRevision(step.baselineRevision());
         stepMapper.insert(row);
         insertStepSection(step.id().value(), "plannedChanges", step.plannedChanges());
-        insertStepSection(step.id().value(), "preconditions", step.preconditions());
         for (int index = 0; index < step.verificationCriteria().size(); index++) {
             VerificationCriterion criterion = step.verificationCriteria().get(index);
             var item = new EvolutionStepSectionItemDO();

@@ -33,7 +33,7 @@ class VerificationCriterionMigrationIntegrationTest {
             }
             assertEquals(List.of("Reports run on schedule", "项目构建成功"), criteria.stream().map(VerificationCriterion::description).toList());
             EvolutionStep restored = EvolutionStep.reconstitute(new EvolutionStepId("step"), new EvolutionPlanId("plan"),
-                    "goal", "scope", List.of("change"), List.of(), criteria, EvolutionStepStatus.READY);
+                    "goal", "scope", List.of("change"), criteria, EvolutionStepStatus.READY);
             assertEquals(criteria, restored.verificationCriteria());
             assertFalse(criteria.get(1).supportedBy("BUILD", ""));
         }

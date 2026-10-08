@@ -37,7 +37,7 @@ class ExecutionPreparationUseCaseTest {
                 new CurrentState("current", List.of(), List.of(), List.of()),
                 new TargetState("problem", "target", "difference"), List.of(), List.of("change"),
                 List.of(EvolutionStep.reconstitute(STEP, PLAN, "Schedule reports", "Reports only",
-                        List.of("Add scheduling"), List.of(), List.of(VerificationCriterion.unsupported("Reports run on schedule")))),
+                        List.of("Add scheduling"), List.of(VerificationCriterion.unsupported("Reports run on schedule")))),
                 List.of(), List.of(basis), COPY, EvolutionPlanStatus.ACTIVE);
     }
 

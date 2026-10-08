@@ -75,7 +75,7 @@ class GitEvolutionExecutionIntegrationTest {
         plan = EvolutionPlan.reconstitute(planId, new ProductDirectionId("direction"), assetId,
                 new RepositoryProfileId("profile"), new CurrentState("current", List.of(), List.of(), List.of()),
                 new TargetState("problem", "target", "difference"), List.of(), List.of("change"),
-                List.of(EvolutionStep.reconstitute(stepId, planId, "goal", "scope", List.of("change"), List.of(), List.of(VerificationCriterion.unsupported("check")),
+                List.of(EvolutionStep.reconstitute(stepId, planId, "goal", "scope", List.of("change"), List.of(VerificationCriterion.unsupported("check")),
                         EvolutionStepStatus.READY)), List.of(), List.of(evidence), new WorkingCopyId("copy"), EvolutionPlanStatus.ACTIVE);
         workingCopy = WorkingCopy.reconstitute(new WorkingCopyId("copy"), assetId, baseline, copy.toString(),
                 baseline, baseline, WorkingCopyStatus.READY);

@@ -878,10 +878,14 @@ GET /api/evolution-plans/{id}
   differentiation）、reusableCapabilities / changes / steps / risks / evidence / status。
   evidence 复用 EvidenceBasisPayload，保留真实依据、确认状态和出处，不暴露 AI 临时引用。
 - 初始 status 为 PROPOSED，workingCopyId 为空；steps 保留顺序、id / planId、goal / scope /
-  plannedChanges / preconditions / verificationCriteria，status 为 PENDING_CONFIRMATION，
+  plannedChanges / verificationCriteria，status 为 PENDING_CONFIRMATION，
   baselineRevision 为空。它们只表达规划和待确认事实，不产生代码操作或执行授权。
 
 ---
+
+当前 MVP 不包含 Step preconditions；Planning Parser 明确拒绝该旧字段，不静默丢弃模型提出的条件。
+新持久化不写该分项。V12 保留历史分项及执行检查点，将含旧条件的 PROPOSED / ACTIVE Plan
+标记 SUPERSEDED，正常 API 可读历史，但必须重新规划，不能将移除字段解释为满足旧条件。
 
 **Working Copy preparation / Plan activation（M3 Task 2）**
 
@@ -932,7 +936,7 @@ POST /api/evolution-plans/{planId}/steps/{stepId}/execution-preparation
 
 Application 的 `evolution.preparation` 复用既有 Map、Region / File Scout、引用解析、ReadPlanner、
 ReadExecutor 与 RepositorySecretPolicy。调用内查询加入 Step goal / scope / plannedChanges /
-preconditions / verificationCriteria 和最小 TargetState。读取明确使用 WorkingCopy 的当前
+verificationCriteria 和最小 TargetState。读取明确使用 WorkingCopy 的当前
 lastVerifiedRevision；历史 RepositoryProfile.analyzedRevision 不参与本次源码选材。
 本调用将测试文件纳入源码候选；M2 Discovery 的分类与候选路由保持原语义。
 
@@ -962,7 +966,7 @@ declaredAffectedPaths / unifiedDiff / verificationStrategy。必要生产和测�
 
 Verification strategy 只描述 HOW，动作限定 BUILD / TEST / FOCUSED_TEST / DIFF_CHECK，
 测试 target 是有界名称而非命令；criterionIndexes 从 1 开始并覆盖所有既有标准。
-这只是结构与引用覆盖校验，不能证明语义 scope、外部 Preconditions 或 Verification Criteria 已满足。
+这只是结构与引用覆盖校验，不能证明语义 scope、外部依赖或 Verification Criteria 已满足。
 Task 1 不应用补丁、不生成 Candidate、不推进 revision、不开始执行或运行最终 Verification。
 
 **Controlled Execution / Verification（M4 Task 2）**

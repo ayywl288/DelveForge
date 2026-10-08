@@ -18,7 +18,7 @@ class CodingProposalValidationTest {
     private final EvolutionStepId stepId = new EvolutionStepId("step");
     private final ExecutionPreparationBasis basis = new ExecutionPreparationBasis(planId, stepId, new WorkingCopyId("copy"), "A");
     private final EvolutionStep step = EvolutionStep.reconstitute(stepId, planId, "goal", "scope",
-            List.of("change"), List.of(), List.of(VerificationCriterion.unsupported("criterion one"), VerificationCriterion.unsupported("criterion two")), EvolutionStepStatus.READY);
+            List.of("change"), List.of(VerificationCriterion.unsupported("criterion one"), VerificationCriterion.unsupported("criterion two")), EvolutionStepStatus.READY);
     private Map<String, String> checkedOriginals;
     private final WorkingCopyInspectionPort inspection = new WorkingCopyInspectionPort() {
         public void requireTrustedState(WorkspaceRef ref, WorkspaceRef source, String revision) { throw new AssertionError(); }

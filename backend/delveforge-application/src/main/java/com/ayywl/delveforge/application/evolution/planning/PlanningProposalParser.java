@@ -12,7 +12,7 @@ import java.util.List;
 
 /**
  * 严格校验 AI 协议字段结构；临时 Evidence 引用由 PlanningProposalResolver 还原。
- * 额外字段沿用既有 AI 解析器的忽略行为，不能据此制造领域状态。
+ * 已移除的 Step preconditions 明确拒绝；其余额外字段不能制造领域状态。
  */
 public final class PlanningProposalParser {
     private final AiJsonObjectReader reader;
@@ -39,8 +39,11 @@ public final class PlanningProposalParser {
             if (!step.isObject()) {
                 throw new AiGatewayException("Planning step must be an object");
             }
+            if (step.has("preconditions")) {
+                throw new AiGatewayException("Step preconditions are not supported; regenerate the planning proposal");
+            }
             steps.add(new AiPlanningStepProposal(text(step, "goal"), text(step, "scope"),
-                    requiredSection(step, "plannedChanges"), section(step, "preconditions"),
+                    requiredSection(step, "plannedChanges"),
                     criteria(step)));
         }
 

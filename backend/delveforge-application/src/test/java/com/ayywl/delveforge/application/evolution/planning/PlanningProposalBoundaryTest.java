@@ -20,7 +20,7 @@ class PlanningProposalBoundaryTest {
               "targetState":{"problem":"Manual exports","targetProduct":"Scheduled reports","differentiation":"Personal"},
               "reusableCapabilities":["Export"],"changes":["Add scheduling"],
               "steps":[{"goal":"Schedule reports","scope":"Reporting","plannedChanges":["Add scheduling"],
-                        "preconditions":[],"verificationCriteria":[{"kind":"UNSUPPORTED","description":"Reports run on schedule"}]}],
+                        "verificationCriteria":[{"kind":"UNSUPPORTED","description":"Reports run on schedule"}]}],
               "risks":[],"evidence":["R-E1"]
             }
             """;
@@ -36,7 +36,6 @@ class PlanningProposalBoundaryTest {
 
         assertEquals(List.of("R-E1"), candidate.evidenceReferences());
         assertEquals("Schedule reports", candidate.steps().getFirst().goal());
-        assertEquals(List.of(), candidate.steps().getFirst().preconditions());
         assertThrows(UnsupportedOperationException.class, () -> candidate.evidenceReferences().clear());
     }
 
@@ -44,6 +43,14 @@ class PlanningProposalBoundaryTest {
     void parserRejectsMalformedJsonTrailingExplanationAndSecondValue() {
         for (String malformed : List.of("not json", "[]", JSON + " explanation", JSON + " {}")) {
             assertThrows(AiGatewayException.class, () -> parser.parse(malformed));
+        }
+    }
+
+    @Test
+    void retiredPreconditionsCannotBeSilentlyDroppedFromNewModelOutput() {
+        for (String oldValue : List.of("[]", "[\"external service is available\"]", "null", "\"dependency\"")) {
+            String legacy = JSON.replace("\"plannedChanges\":", "\"preconditions\":" + oldValue + ",\"plannedChanges\":");
+            assertThrows(AiGatewayException.class, () -> parser.parse(legacy));
         }
     }
 

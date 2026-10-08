@@ -7,13 +7,11 @@ import java.util.List;
  * EvolutionStep 接受其字段形成正式定义，不长期持有这个提案对象。
  */
 public record PlanningStepProposal(String goal, String scope, List<String> plannedChanges,
-                                   List<String> preconditions, List<VerificationCriterion> verificationCriteria) {
+                                   List<VerificationCriterion> verificationCriteria) {
     public PlanningStepProposal {
         goal = PlanningContent.text(goal, "step.goal");
         scope = PlanningContent.text(scope, "step.scope");
         plannedChanges = PlanningContent.section(plannedChanges, "step.plannedChanges", true);
-        // 首个独立增量允许没有 Step 专属依赖。
-        preconditions = PlanningContent.section(preconditions, "step.preconditions", false);
         verificationCriteria = PlanningContent.criteria(verificationCriteria);
     }
 }
