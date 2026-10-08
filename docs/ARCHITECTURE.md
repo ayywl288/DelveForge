@@ -983,7 +983,8 @@ hooks，不 push。物理 diff 由 A..B 保留，领域结果只存实际路径�
 
 验证动作数、单动作 / 调用时间及输出受 `delveforge.workspace.verification` 配置限制。
 Maven 测试还要求本次产生非空、无失败的 Surefire 报告；旧报告、零测试或全 skipped 不能作为成功证据。
-报告读取禁用外部 XML 引用，当前最多 100 份，累计字节不超过输出预算。领域数据与日志不保存
+报告读取禁用外部 XML 引用，份数受 `max-test-reports` 限制（默认 100），超限失败关闭，
+不截断报告集合；累计字节不超过输出预算。领域数据与日志不保存
 完整 stdout / stderr、报告正文或源码。Domain 要求同一 B、所有检查通过以及全部既有 Criteria 的
 可信对应事实。M3 规划 / API / M4 输入中的 VerificationCriterion 均包含 kind 与 description：
 kind 是 WHAT，有限 action 是 HOW，具体测试 target 只由 M4 在本次源码理解后选择。

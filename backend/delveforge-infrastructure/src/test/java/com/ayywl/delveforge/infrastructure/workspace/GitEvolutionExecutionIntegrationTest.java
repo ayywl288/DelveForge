@@ -25,7 +25,7 @@ class GitEvolutionExecutionIntegrationTest {
     private final SoftwareAssetId assetId = new SoftwareAssetId("asset");
     private final GitWorkspaceAdapter git = new GitWorkspaceAdapter(repositories.directory("managed"));
     private final GitWorkspaceVerificationAdapter verification = new GitWorkspaceVerificationAdapter(git, git,
-            new VerificationProperties(Duration.ofSeconds(60), Duration.ofSeconds(180), 1048576, 16));
+            new VerificationProperties(Duration.ofSeconds(60), Duration.ofSeconds(180), 1048576, 16, 100));
     private Path source;
     private Path copy;
     private String baseline;
@@ -179,7 +179,7 @@ class GitEvolutionExecutionIntegrationTest {
         Map<String, String> unchangedCopy = snapshot(copy);
         // 三份继承 Boot 的生效 POM 使用明确的有界预算，不绕过普通项目的配置检查。
         var reactorVerification = new GitWorkspaceVerificationAdapter(git, git,
-                new VerificationProperties(Duration.ofSeconds(60), Duration.ofSeconds(180), 4 * 1048576, 16));
+                new VerificationProperties(Duration.ofSeconds(60), Duration.ofSeconds(180), 4 * 1048576, 16, 100));
         VerificationFacts facts = reactorVerification.verify(request(baseline, CodingProposal.Action.TEST));
         assertTrue(facts.checks().getFirst().passed(), facts.toString());
         assertTrue(facts.checks().getFirst().summary().contains("executed=2"), facts.toString());

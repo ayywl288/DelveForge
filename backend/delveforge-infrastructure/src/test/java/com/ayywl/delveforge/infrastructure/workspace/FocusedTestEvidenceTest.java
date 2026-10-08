@@ -23,7 +23,7 @@ class FocusedTestEvidenceTest {
             </testsuite>
             """);
         var adapter = new GitWorkspaceVerificationAdapter(null, null,
-                new VerificationProperties(java.time.Duration.ofSeconds(60), java.time.Duration.ofSeconds(180), 1048576, 16));
+                new VerificationProperties(java.time.Duration.ofSeconds(60), java.time.Duration.ofSeconds(180), 1048576, 16, 100));
         var evidence = adapter.testEvidence(run, 0);
         assertTrue(evidence.includes("UnrelatedTest#value"));
         assertTrue(evidence.includes("example.UnrelatedTest"));
@@ -59,7 +59,7 @@ class FocusedTestEvidenceTest {
             </testsuite>
             """);
         var adapter = new GitWorkspaceVerificationAdapter(null, null,
-                new VerificationProperties(java.time.Duration.ofSeconds(60), java.time.Duration.ofSeconds(180), 1048576, 16));
+                new VerificationProperties(java.time.Duration.ofSeconds(60), java.time.Duration.ofSeconds(180), 1048576, 16, 100));
         assertFalse(adapter.testEvidence(run, 0).includes("ReportTest#value"));
     }
 }

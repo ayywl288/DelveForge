@@ -243,21 +243,24 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         long executed = 0;
         long failures = 0;
         long bytes = 0;
-        int reports = 0;
+        long reports = 0;
         Set<String> passedTests = new HashSet<>();
         try (var paths = Files.walk(run)) {
             var factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
             factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
             factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
-            for (Path report : paths.filter(path -> path.getFileName().toString().startsWith("TEST-")
+            var reportPaths = paths.filter(path -> path.getFileName().toString().startsWith("TEST-")
                     && path.getFileName().toString().endsWith(".xml")
-                    && path.getParent().getFileName().toString().equals("surefire-reports")).limit(101).toList()) {
+                    && path.getParent().getFileName().toString().equals("surefire-reports")).iterator();
+            // 不截断报告集合；旧报告不提供证据，第一份超预算的新报告必须使整次读取失败。
+            while (reportPaths.hasNext()) {
+                Path report = reportPaths.next();
                 if (Files.getLastModifiedTime(report, LinkOption.NOFOLLOW_LINKS).toMillis() <= actionStarted) {
                     continue;
                 }
                 bytes += Files.size(report);
-                if (++reports > 100 || bytes > budgets.maxOutputBytes() || Files.isSymbolicLink(report)
+                if (++reports > budgets.maxTestReports() || bytes > budgets.maxOutputBytes() || Files.isSymbolicLink(report)
                         || !report.toRealPath().startsWith(run)) {
                     throw new EvolutionExecutionException("Test evidence exceeds its bounded invocation or location");
                 }

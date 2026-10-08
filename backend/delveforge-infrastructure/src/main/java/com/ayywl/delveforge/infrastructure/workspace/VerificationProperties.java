@@ -9,11 +9,11 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "delveforge.workspace.verification")
 public record VerificationProperties(@DefaultValue("120s") Duration actionTimeout,
         @DefaultValue("300s") Duration invocationTimeout, @DefaultValue("1048576") int maxOutputBytes,
-        @DefaultValue("16") int maxActions) {
+        @DefaultValue("16") int maxActions, @DefaultValue("100") int maxTestReports) {
     public VerificationProperties {
         if (actionTimeout == null || invocationTimeout == null || actionTimeout.isNegative() || actionTimeout.isZero()
                 || invocationTimeout.isNegative() || invocationTimeout.isZero() || maxOutputBytes < 1024
-                || maxActions < 1) {
+                || maxActions < 1 || maxTestReports < 1) {
             throw new IllegalArgumentException("Verification budgets must be positive");
         }
     }
