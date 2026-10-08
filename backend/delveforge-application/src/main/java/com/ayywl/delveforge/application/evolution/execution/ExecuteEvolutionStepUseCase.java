@@ -35,16 +35,20 @@ public final class ExecuteEvolutionStepUseCase {
     }
 
     public EvolutionPlan execute(ValidatedExecutionProposal validated) {
+        // 准备时通过校验不代表此刻仍可执行；写入前重查受信 revision（A）与证据资格。
         ExecutionPreparationBasis basis = validated.basis();
         EvolutionStepId id = basis.stepId();
         Loaded loaded = state.load(basis.planId(), id, false);
         if (!basis.equals(loaded.basis(id))) {
             throw new EvolutionExecutionException("Validated proposal basis is stale");
         }
+
         requireCriterionEvidence(loaded.plan().step(id), validated.proposal());
         verification.requireSupported(request(loaded, validated, basis.expectedRevision()));
         loaded = state.revalidate(loaded, id, false);
 
+        // 检查点 1：在副本上冻结 baseline=A 并保存 EXECUTING，再允许 Workspace 修改。
+        // 副本隔离保证提交失败不会污染已加载的领域对象。
         EvolutionPlan plan = loaded.plan().copy();
         WorkingCopy copy = loaded.copy().copy();
         plan.startStep(id, copy, policy);
@@ -52,6 +56,7 @@ public final class ExecuteEvolutionStepUseCase {
         Loaded executing = new Loaded(plan, copy, loaded.asset());
         state.requireCheckpoint(executing, id, basis.expectedRevision());
 
+        // Candidate B 与受影响路径必须来自实际 mutation；提案声明不能替代执行事实。
         CandidateMutationResult candidate = mutation.applyCandidate(AuthorizedStepExecution.from(plan, id, copy,
                 new WorkspaceRef(loaded.asset().location()), validated));
         if (candidate.revision() == null || candidate.revision().equals(basis.expectedRevision())
@@ -59,6 +64,8 @@ public final class ExecuteEvolutionStepUseCase {
                 || !new HashSet<>(candidate.changedPaths()).equals(new HashSet<>(validated.proposal().declaredAffectedPaths()))) {
             throw new EvolutionExecutionException("Actual mutation does not match the validated scope");
         }
+
+        // 检查点 2：只记录完整执行结果，进入 VERIFYING；current=B，lastVerified 仍为 A。
         executing = state.requireCheckpoint(executing, id, candidate.revision());
         EvolutionPlan candidatePlan = executing.plan().copy();
         WorkingCopy candidateCopy = executing.copy().copy();
@@ -68,8 +75,11 @@ public final class ExecuteEvolutionStepUseCase {
 
         Loaded verifying = new Loaded(candidatePlan, candidateCopy, executing.asset());
         state.requireCheckpoint(verifying, id, candidate.revision());
+        // 验证固定的 B；Workspace 返回实际事实，是否满足 Criteria 仍由 Domain 决定。
         VerificationFacts facts = verification.verify(request(verifying, validated, candidate.revision()));
         VerificationResult result = result(validated.proposal(), candidate.revision(), facts);
+
+        // 检查点 3：Domain 接受后才把 lastVerified 从 A 推进到 B，并保存 SUCCEEDED。
         verifying = state.requireCheckpoint(verifying, id, candidate.revision());
         EvolutionPlan succeeded = verifying.plan().copy();
         WorkingCopy trusted = verifying.copy().copy();
@@ -84,6 +94,7 @@ public final class ExecuteEvolutionStepUseCase {
     }
 
     private void requireCriterionEvidence(EvolutionStep step, CodingProposal proposal) {
+        // AI 的索引对应只是建议；每项标准的证据类型必须符合既有 Domain 契约。
         HashSet<Integer> supported = new HashSet<>();
         for (CodingProposal.VerificationAction action : proposal.verificationStrategy()) {
             for (Integer index : action.criterionIndexes()) {
@@ -103,6 +114,7 @@ public final class ExecuteEvolutionStepUseCase {
         if (!candidate.equals(facts.candidateRevision()) || facts.checks().size() != proposal.verificationStrategy().size()) {
             throw new EvolutionExecutionException("Verification facts do not identify the requested Candidate and checks");
         }
+
         List<VerificationResult.Check> checks = new ArrayList<>();
         List<String> failures = new ArrayList<>();
         for (int index = 0; index < facts.checks().size(); index++) {
@@ -117,6 +129,7 @@ public final class ExecuteEvolutionStepUseCase {
                 failures.add("Check " + (index + 1) + " failed: " + fact.action());
             }
         }
+
         return new VerificationResult(candidate, checks, failures.isEmpty(), failures,
                 failures.isEmpty() ? "All requested checks passed" : "Candidate checks failed", facts.verifiedAt());
     }

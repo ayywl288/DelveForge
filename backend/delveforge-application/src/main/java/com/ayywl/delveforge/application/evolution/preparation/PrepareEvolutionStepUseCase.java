@@ -55,8 +55,10 @@ public final class PrepareEvolutionStepUseCase {
     }
 
     public ValidatedExecutionProposal prepare(EvolutionPlanId planId, EvolutionStepId stepId) {
+        // 这里只读受信 revision（A），保持 READY；baseline 到真正开始执行时才冻结。
         ExecutionPreparationState.Loaded loaded = state.load(planId, stepId, false);
         EvolutionStep step = loaded.plan().step(stepId);
+
         Map<String, Object> query = new LinkedHashMap<>();
         query.put("goal", step.goal());
         query.put("scope", step.scope());
@@ -64,9 +66,13 @@ public final class PrepareEvolutionStepUseCase {
         query.put("preconditions", step.preconditions());
         query.put("verificationCriteria", step.verificationCriteria());
         query.put("targetState", loaded.plan().targetState());
+
+        // Step 语义引导本次选材；源码上下文只存在于 Session，不生成持久化 RepositoryProfile。
         StepRepositoryUnderstanding.Session session = understanding.begin(new WorkspaceRef(loaded.copy().location()),
                 loaded.copy().lastVerifiedRevision(), query, () -> state.revalidate(loaded, stepId, false));
         session.discover("", "");
+
+        // 仅为具体缺失依赖补充上下文；轮次预算阻止编码请求变成无限探索。
         for (int round = 0; round <= limits.maxExpansionRounds(); round++) {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("expectedRevision", loaded.copy().lastVerifiedRevision());
@@ -74,10 +80,12 @@ public final class PrepareEvolutionStepUseCase {
             payload.put("sourceFiles", session.material());
             payload.put("readOnlyPaths", session.visibleOriginals().keySet().stream().filter(session::sanitized).toList());
             payload.put("remainingExpansionRounds", limits.maxExpansionRounds() - round);
+
             CodingResponse response = parser.parse(session.call(new AiRequest(List.of(
                     new AiMessage(AiRole.SYSTEM, INSTRUCTION), new AiMessage(AiRole.USER, json(payload))),
                     AiResponseFormat.JSON)));
             if (response instanceof CodingResponse.Change change) {
+                // AI 输出仍是未受信提案；净化文件只可作上下文，不能依据占位符回写源码。
                 Set<String> sanitized = new HashSet<>();
                 session.visibleOriginals().keySet().stream().filter(session::sanitized).forEach(sanitized::add);
                 ValidatedExecutionProposal validated = validator.validate(change.proposal(), loaded.basis(stepId),
@@ -86,6 +94,7 @@ public final class PrepareEvolutionStepUseCase {
                 state.revalidate(loaded, stepId, false);
                 return validated;
             }
+
             CodingResponse.NeedMore need = (CodingResponse.NeedMore) response;
             if (!need.expectedRevision().equals(loaded.copy().lastVerifiedRevision())) {
                 throw new AiGatewayException("Context request uses a different revision");

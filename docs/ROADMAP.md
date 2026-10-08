@@ -521,7 +521,7 @@ status = PENDING_CONFIRMATION
 
 ### M4 — First Verified Evolution Step
 
-**Status:** IN_PROGRESS — Task 1（Step Authorization & Execution Preparation）已实现；Task 2 未开始。
+**Status:** IN_PROGRESS — Task 1 / Task 2 已实现并通过独立审查，里程碑审查通过；待真实 Provider smoke 与复盘。
 
 **Goal**
 
@@ -543,18 +543,18 @@ Verified Software State
 
 - [x] 支持用户确认一个 Evolution Step。
 - [x] 实现 `PENDING_CONFIRMATION → READY`。
-- [x] 实现 StepExecutionPolicy（当前用于 READY 下的只读准备资格；外部前置条件仍须在 mutation 前检查）。
-- [ ] Step 首次执行前记录 baselineRevision。
+- [x] 实现 StepExecutionPolicy（确认、准备与执行资格；无法证明的非空 Preconditions 失败关闭）。
+- [x] Step 首次执行前记录 baselineRevision。
 - [x] AI / Coding Capability 根据 Step Scope 产生代码修改方案（调用内理解、有限上下文扩展与确定性提案校验；不应用补丁）。
-- [ ] Workspace 在 Working Copy 中应用修改。
-- [ ] 形成 Execution Result。
-- [ ] 记录 affectedPaths / changes / warnings / errors。
-- [ ] Execution 完成后形成 Candidate State。
-- [ ] 支持运行 Build / Test / Diff 等 Verification。
-- [ ] 形成 Verification Result。
-- [ ] Verification Passed 后将 Step 标记为 `SUCCEEDED`。
-- [ ] 成功后更新 Working Copy.lastVerifiedRevision。
-- [ ] 保证后续 Step 只能建立在 Verified Revision 上。
+- [x] Workspace 在 Working Copy 中应用修改。
+- [x] 形成 Execution Result。
+- [x] 记录 affectedPaths / changes / warnings / errors。
+- [x] Execution 完成后形成 Candidate State。
+- [x] 支持运行 Build / Test / Diff 等 Verification。
+- [x] 形成 Verification Result。
+- [x] Verification Passed 后将 Step 标记为 `SUCCEEDED`。
+- [x] 成功后更新 Working Copy.lastVerifiedRevision。
+- [x] 保证后续 Step 只能建立在 Verified Revision 上。
 
 **Acceptance Criteria**
 
@@ -820,7 +820,7 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 
 ```text
 M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
-M4 — First Verified Evolution Step：IN_PROGRESS，Task 1 已实现，Task 2 未启动
+M4 — First Verified Evolution Step：IN_PROGRESS，Task 1 / Task 2 已实现并通过审查，待真实 smoke 与复盘
 ```
 
 M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
@@ -851,7 +851,8 @@ Task 2 已接入受控 mutation、执行时冻结 baselineRevision、单个本�
 独立有限 Verification、三个原子检查点与成功后的可信 revision 推进。异常保留最后完整
 EXECUTING / VERIFYING 检查点并阻止继续演化，不模拟失败转换或回滚。
 当前验证支持 Git diff 与根 Maven Wrapper 离线构建 / 测试；无法证明的非空 Preconditions
-及不支持的验证意图保守拒绝。Task 2 停止后等待审查，不启动 M4 milestone smoke、复盘或 M5。
+及不支持的验证意图保守拒绝。Task 1 / Task 2 及里程碑审查已通过（审查基线 `0c5d8c0`）；
+M4 保持 IN_PROGRESS，等待真实 Provider smoke 与复盘。尚未启动 smoke、复盘或 M5。
 完整 Failure / Repair / Retry / Rollback / Recovery 流程仍属于 M5。
 继续采用「设计讨论 → 相对完整的垂直切片 → 里程碑级审查 → 聚焦修正 → 一次真实 smoke
 → 复盘」，具体保留与调整见 M3 复盘 §E–F。
