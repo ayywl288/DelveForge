@@ -6,7 +6,7 @@
 
 **Verdict:** **M4 REAL SMOKE: BLOCKED**
 
-最新尝试为下方 §7 的 **Final Analyzer Retry Stabilization** 记录；§1–6 保留此前 BLOCKED 的历史证据。
+最新尝试为下方 §8 的 **Step Contract Simplification** 记录；§1–7 保留此前 BLOCKED 的历史证据。
 
 本次按用户更新的边界做受控 Windows 本地功能尝试，不使用 Docker、VM、容器或沙箱框架。
 应用启动成功，但首次 M1 AI 请求被诊断转发工具拒绝，未到达真实 Provider。
@@ -303,5 +303,91 @@ RepositoryProfile 仍读取了 README 的旧进度描述并产生“文档与实
 
 在第一执行资格阻断处结束，没有额外生产修复、第二次 smoke、M5、语言 Adapter 或规划结果改写。
 M4 保持 IN_PROGRESS；实际端到端 Verified B 尚未取得。
+
+**M4 REAL SMOKE: BLOCKED**
+
+## 8. 第四次尝试：Step Contract Simplification
+
+**Date:** 2026-10-08（UTC+08:00）
+
+**Verdict:** **M4 REAL SMOKE: BLOCKED — smoke 客户端 Discovery 请求字段错误**
+
+### 8.1 聚焦契约简化与测试
+
+- 修复提交 / 源 revision A：`56b63aa27400846e656ca2711c937259436ea989`。
+- 按用户明确的领域决策移除当前 MVP 的 `EvolutionStep.preconditions`，同步 Domain
+  Entity / Factory、Planning Proposal / Prompt / Parser / Mapping、API、持久化写入和 M4 特定拒绝分支。
+  新模型输出若仍携带该旧字段（包括空列表 / null）明确拒绝，不静默丢弃条件。
+- 保留显式确认、前序 Required Steps 成功、Plan / Step / WorkingCopy 生命周期、资产授权、
+  物理 revision 一致性、baseline 冻结、范围限制、三个原子检查点和 Verification-before-trust 守卫。
+  未增加依赖字段、条件引擎、执行能力、验证豁免或 M5。
+- V12 是新增迁移，未改已应用的迁移：含历史 Preconditions 分项的 PROPOSED / ACTIVE Plan
+  进入 SUPERSEDED，必须重新规划；原条件文本、Step 状态 / baseline / 结果及 WorkingCopy
+  revisions 原样保留。无旧条件的计划资格不变，不把删除字段解释为条件满足或已完成恢复。
+- DOMAIN_MODEL（含 INV-P07 / INV-E03）、ARCHITECTURE、ROADMAP 已同步；
+  其他 Use Case 的 Preconditions 章节保留，M4 仍为 IN_PROGRESS。
+- 聚焦 15 个测试类：**137 tests，0 failures / errors / skipped，BUILD SUCCESS**，08:07。
+  包括旧字段拒绝、V11→V12 的 7 项真实迁移回归、正常 M3→M4 实际 Maven 路径及原守卫回归。
+- 完整 `mvnw.cmd verify`：**1337 tests，0 failures / errors / skipped，BUILD SUCCESS**，14:29。
+  Domain / Application / Infrastructure / App 为 216 / 733 / 219 / 169；生成 121 份 Surefire XML。
+  测试均通过后提交，未在失败测试之后继续 smoke。
+
+### 8.2 固定制品与环境
+
+- 外部隔离目录：`E:\df-m4-smoke\20261008-direct3-no-preconditions`；
+  artifact / data / workspaces / logs / tmp / evidence / requests 均位于该目录。
+- 使用本次完整验证构建的固定 JAR，SHA-256：
+  `e113420ae9db39fe8fc9cd93fcc9ca99897a39e9774d3c47679603836ed50713`。
+  应用 PID 70460，绑定 `127.0.0.1:18805`，现已停止。
+- 复用 §6 已停止应用的仅输入 DB，复制前后 SHA-256 相同，无 WAL；没有编辑 SQL 或历史实体。
+  正常 GET 核对 Profile=`CONFIRMED / revision=29`，Asset 的位置、readPermissionAllowed=true、
+  usageAuthorization=ALLOWED 均有效。该输入 DB 没有任何下游实体。
+- 现有 JDK 21、Maven Wrapper、直接 `https://api.deepseek.com` / `deepseek-flash` / timeout=60s。
+  离线检查不消耗 Provider 请求；无 proxy / interceptor / 转发工具 / 容器 / VM。
+  凭据只通过不回显输入进入应用环境，保留 `9eac80c` subprocess 过滤，不写参数或文件。
+- 验证预算保持 160 reports / 900s action / 1200s invocation / 8388608 bytes。
+  本次完整验证耗时接近 action 预算，已保留为风险；本次没有实际演化 Verification，
+  不把预算风险误报成已发生的超时，也未为获得成功扩大预算。
+
+### 8.3 实际 API 与首个失败
+
+1. GET Profile / Asset → **200 / 200**，0.438s / 0.018s。
+2. `POST /api/software-assets/{id}/analysis` → **201**，77.910s。
+   RepositoryProfile=`8035d731-f4da-4401-8cc2-05875216491c`，analyzedRevision 精确等于 A。
+   Region attempts=2、File attempts=5，材料=36（foundation=12、targeted=24）；
+   tooLarge / totalBudgetExceeded=0，secretExcluded=1、sanitizedSpanCount=3。
+   最终分析为 `attempt=1 maxAttempts=2 STARTED → ACCEPTED`，没有触发最终分析重试。
+3. `POST /api/product-directions/discovery` → **400 / INVALID_REQUEST**，0.068s。
+   smoke 客户端提供了 `expectedUserProfileRevision:29`，但实际
+   `ProductDirectionDiscoveryRequest` 第 63 行要求 `expectedRevision`，第 71–73 行拒绝缺失值。
+   日志为 `PROTOCOL_ERROR / HttpMessageNotReadableException`，在 Controller 请求解析时拒绝，
+   未进入 Direction Discovery Use Case、Domain 接受或 Provider 调用。
+
+第一失败分类：**SMOKE_CLIENT_REQUEST_CONTRACT_ERROR**。这是本次调用构造错误，
+不是本轮产品契约简化失败、旧 Preconditions 阻断、Provider / JSON 失败或 Maven 失败。
+没有将参数错误归咎于应用，也没有修改请求重发、重跑规划、追加生产修复或启动第二次 smoke。
+因此本次未能验证真实 M3→M4 下游链路；自动化成功不能替代缺失的 live 证据。
+
+本次日志与源码调用点可核对 8 次 AI Gateway 逻辑调用：M2 Scout 7、最终分析 1；
+不包含复用输入的历史 M1。没有 HTTP 拦截，传输请求数和 token usage 未独立采集。
+只保留真实接受的分析结果和正常 API 请求 / 响应，不伪造模型输出。
+
+### 8.4 最终状态、完整性与风险
+
+- DB：Profile=1、Asset=1、RepositoryProfile=1；Direction / Plan / Step / WorkingCopy 均为 0。
+  正常启动已应用 V12；不存在旧 Step 条件分项，没有手工改数据库记录。
+- 没有 Step 或 WorkingCopy，三个 M4 执行检查点均未进入；baseline / current / lastVerified
+  revisions 不存在，没有 Candidate / Verified B、CodingProposal、演化 diff 或执行 / 验证结果。
+  **smoke Maven 命令与 Surefire 报告均为 0**；1337 项结果仅是修复验证。
+- 应用运行约 314.043s 后主动停止；exit=1 是 Windows 显式终止，不是应用崩溃。
+  未留下 PID 70460 或 18805 监听，无后续 Provider 请求、自动重试或构建进程。
+- 报告更新前的完整性快照：HEAD 均为 A、工作树干净；582 个受控文件及
+  `.git/HEAD` / index / config 哈希完全一致。原资产未被 smoke 修改。
+- 外部保留固定 JAR、输入副本哈希、脱敏 API、聚合日志、DB、业务摘要、完整性快照和修复测试日志。
+  24 个文本产物及 DB 的 Provider key 格式扫描均无命中，运行产物与凭据不提交源码仓库。
+- 凭据环境过滤仍不隔离宿主文件权限。若执行构建 / 测试，代码拥有当前 Windows 用户
+  对其它文件、配置、cache、网络及同用户进程的权限；本次不认证任意不可信仓库可安全执行。
+
+在本次首个协议失败处结束，不追加 smoke 或 M5。M4 保持 IN_PROGRESS，端到端 Verified B 尚未取得。
 
 **M4 REAL SMOKE: BLOCKED**
