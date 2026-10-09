@@ -6,15 +6,21 @@ import com.ayywl.delveforge.application.port.ai.AiMessage;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.StringJoiner;
 
 /**
  * {@link AiGateway} 的 DeepSeek 实现：直接调用 DeepSeek 的 OpenAI 兼容 HTTP API（ADR-0003）。
@@ -30,6 +36,8 @@ import org.springframework.web.client.RestClient;
  * 异常只携带说明与原因链，日志侧不记录 message（见 ADR-0002）；API Key 不写入任何日志。
  */
 public class DeepSeekAiGatewayAdapter implements AiGateway {
+
+    private static final Logger log = LoggerFactory.getLogger(DeepSeekAiGatewayAdapter.class);
 
     private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
     private static final String JSON_RESPONSE_TYPE = "json_object";
@@ -50,6 +58,8 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
     @Override
     public String generate(AiRequest request) {
         requireApiKey();
+        long started = System.nanoTime();
+        int[] responseStatus = {0};
 
         try {
             String responseBody = restClient.post()
@@ -58,15 +68,38 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(toRequestBody(request))
                     .retrieve()
+                    .onStatus(status -> {
+                        // 只旁观响应状态；返回 false 保留默认 HTTP 错误处理，不接受错误响应。
+                        responseStatus[0] = status.value();
+                        return false;
+                    }, (ignoredRequest, ignoredResponse) -> {})
                     .body(String.class);
 
             return extractContent(responseBody);
         } catch (AiGatewayException exception) {
             throw exception;
         } catch (RuntimeException exception) {
+            logFailure(exception, responseStatus[0], started);
             // 网络、HTTP 状态码与反序列化失败都在这里统一翻译，避免第三方异常类型泄漏出去。
             throw new AiGatewayException("调用 DeepSeek 失败", exception);
         }
+    }
+
+    /** 未收到状态时不推断响应阶段；原因链只取类型，限制深度且不传 Throwable 给日志。 */
+    private void logFailure(RuntimeException exception, int status, long started) {
+        boolean httpError = exception instanceof RestClientResponseException;
+        String phase = httpError ? "HTTP_STATUS" : status == 0 ? "REQUEST" : "RESPONSE_BODY";
+        String code = httpError ? "PROVIDER_HTTP_ERROR"
+                : status == 0 ? "PROVIDER_EXCHANGE_FAILED" : "PROVIDER_RESPONSE_READ_FAILED";
+        StringJoiner types = new StringJoiner(">");
+        Throwable cause = exception;
+        for (int depth = 0; cause != null && depth < 8; depth++) {
+            types.add(cause.getClass().getName());
+            cause = cause.getCause();
+        }
+        log.warn("operation=ai-gateway.generate phase={} code={} elapsedMs={} httpStatus={} exceptionTypes={}",
+                phase, code, (System.nanoTime() - started) / 1_000_000,
+                status == 0 ? "UNKNOWN" : Integer.toString(status), types.toString());
     }
 
     private void requireApiKey() {

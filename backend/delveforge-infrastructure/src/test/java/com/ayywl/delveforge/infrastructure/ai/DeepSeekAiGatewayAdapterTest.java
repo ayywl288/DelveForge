@@ -1,29 +1,44 @@
 package com.ayywl.delveforge.infrastructure.ai;
 
+import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.ai.AiMessage;
+import com.ayywl.delveforge.application.port.ai.AiRequest;
+import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
+import com.ayywl.delveforge.application.port.ai.AiRole;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.mock.http.client.MockClientHttpResponse;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetSocketAddress;
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
-
-import com.ayywl.delveforge.application.port.ai.AiGatewayException;
-import com.ayywl.delveforge.application.port.ai.AiMessage;
-import com.ayywl.delveforge.application.port.ai.AiRequest;
-import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
-import com.ayywl.delveforge.application.port.ai.AiRole;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.time.Duration;
-import java.util.List;
-import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 
 /**
  * 验证 DeepSeek Adapter 与真实 HTTP 客户端的集成：请求形状、鉴权头、响应解析与失败翻译。
@@ -32,6 +47,7 @@ import org.springframework.web.client.RestClient;
  * 也不产生真实 LLM 调用（AGENTS.md §10.6）。被替换的只是网络边界——
  * 请求构造与响应解析都是 Adapter 的真实代码。
  */
+@ExtendWith(OutputCaptureExtension.class)
 class DeepSeekAiGatewayAdapterTest {
 
     private static final String BASE_URL = "https://api.deepseek.example";
@@ -104,10 +120,13 @@ class DeepSeekAiGatewayAdapterTest {
     }
 
     @Test
-    void failsOnProviderErrorStatus() {
+    void failsOnProviderErrorStatus(CapturedOutput output) {
         server.expect(requestTo(BASE_URL + "/chat/completions")).andRespond(withServerError());
 
         assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        assertTrue(output.getAll().contains("phase=HTTP_STATUS code=PROVIDER_HTTP_ERROR"));
+        assertTrue(output.getAll().contains("httpStatus=500"));
+        server.verify();
     }
 
     @Test
@@ -132,6 +151,86 @@ class DeepSeekAiGatewayAdapterTest {
                 .andRespond(withSuccess(chatCompletion("   "), MediaType.APPLICATION_JSON));
 
         assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+    }
+
+    @Test
+    void recordsResponseReadFailureWithoutLoggingRuntimeText(CapturedOutput output) {
+        String sentinel = "private-provider-prompt-source-credential";
+        server.expect(requestTo(BASE_URL + "/chat/completions")).andRespond(request -> {
+            MockClientHttpResponse response = new MockClientHttpResponse(new InputStream() {
+                @Override
+                public int read() throws IOException {
+                    throw new IOException(sentinel);
+                }
+            }, HttpStatus.OK);
+            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            return response;
+        });
+
+        assertThrows(AiGatewayException.class, () -> adapter.generate(new AiRequest(
+                List.of(new AiMessage(AiRole.USER, sentinel)), AiResponseFormat.JSON)));
+        String logs = output.getAll();
+        assertTrue(logs.contains("phase=RESPONSE_BODY code=PROVIDER_RESPONSE_READ_FAILED"));
+        assertTrue(logs.contains("httpStatus=200"));
+        assertTrue(logs.matches("(?s).*elapsedMs=\\d+.*"));
+        assertTrue(logs.contains("java.io.IOException"));
+        assertFalse(logs.contains(sentinel));
+        assertFalse(logs.contains(API_KEY));
+        assertFalse(logs.contains("Authorization"));
+        server.verify();
+    }
+
+    @Test
+    void recordsExchangeFailureWithoutInventingAResponseStatus(CapturedOutput output) {
+        String sentinel = "private-exchange-error";
+        server.expect(requestTo(BASE_URL + "/chat/completions")).andRespond(request -> {
+            throw new IOException(sentinel);
+        });
+
+        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        String logs = output.getAll();
+        assertTrue(logs.contains("phase=REQUEST code=PROVIDER_EXCHANGE_FAILED"));
+        assertTrue(logs.contains("httpStatus=UNKNOWN"));
+        assertTrue(logs.contains("java.io.IOException"));
+        assertFalse(logs.contains(sentinel));
+        assertFalse(logs.contains(API_KEY));
+        server.verify();
+    }
+
+    /** 使用实际配置的 JDK HTTP 客户端；期限关闭流可以表现为普通 IOException，不能仅靠类型推断超时。 */
+    @Test
+    void diagnosesRealJdkBodyReadFailureWithKnownStatus(CapturedOutput output) throws Exception {
+        HttpServer provider = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        CountDownLatch release = new CountDownLatch(1);
+        provider.createContext("/chat/completions", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, 0);
+            try {
+                exchange.getResponseBody().write("{\"choices\":[".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                exchange.getResponseBody().flush();
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        provider.start();
+        try {
+            var actual = new DeepSeekAiGatewayConfiguration().deepSeekAiGateway(new DeepSeekProperties(
+                    "http://127.0.0.1:" + provider.getAddress().getPort(), API_KEY, MODEL,
+                    Duration.ofMillis(1500)));
+            assertThrows(AiGatewayException.class, () -> actual.generate(jsonRequest()));
+            String logs = output.getAll();
+            assertTrue(logs.contains("phase=RESPONSE_BODY code=PROVIDER_RESPONSE_READ_FAILED"));
+            assertTrue(logs.contains("httpStatus=200"));
+            assertTrue(logs.contains("java.io.IOException"));
+            assertFalse(logs.contains(API_KEY));
+        } finally {
+            release.countDown();
+            provider.stop(0);
+        }
     }
 
     private static AiRequest jsonRequest() {
