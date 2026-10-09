@@ -136,11 +136,18 @@ class GitEvolutionExecutionIntegrationTest {
         var authorized = fixture(true, 1);
         var before = snapshot(source);
         CandidateMutationResult candidate = git.applyCandidate(authorized);
+        List<Path> metadataBefore;
+        try (var entries = Files.list(copy.resolve(".git"))) {
+            metadataBefore = entries.sorted().toList();
+        }
         VerificationFacts facts = verification.verify(request(candidate.revision(), CodingProposal.Action.BUILD,
                 CodingProposal.Action.TEST, CodingProposal.Action.FOCUSED_TEST, CodingProposal.Action.DIFF_CHECK));
         assertEquals(4, facts.checks().size());
         assertTrue(facts.checks().stream().allMatch(VerificationFacts.Check::passed), facts.toString());
         assertFalse(Files.exists(copy.resolve("target")));
+        try (var entries = Files.list(copy.resolve(".git"))) {
+            assertEquals(metadataBefore, entries.sorted().toList());
+        }
         assertEquals(before, snapshot(source));
         assertEquals(candidate.revision(), headRevision(copy));
         git.requireTrustedState(new WorkspaceRef(copy.toString()), new WorkspaceRef(source.toString()), candidate.revision());

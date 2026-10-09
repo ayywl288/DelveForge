@@ -36,6 +36,9 @@ import java.util.Set;
 @EnableConfigurationProperties(VerificationProperties.class)
 public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPort {
 
+    // Windows 下验证中的嵌套 Git fixture 也占用路径预算；目录仍只属于本次 .git 内的调用。
+    private static final String RUN_DIRECTORY_PREFIX = "dfv-";
+
     private final WorkspaceReadPort read;
     private final WorkingCopyInspectionPort inspection;
     // 单动作与整次调用同时受限，报告读取也复用输出字节上限。
@@ -94,7 +97,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         List<VerificationFacts.Check> checks = new ArrayList<>();
         try {
             // 位于 .git 内的本次私有目录不会进入 Candidate 或影响后续可信状态检查。
-            run = Files.createTempDirectory(copy.resolve(".git"), "delveforge-verification-");
+            run = Files.createTempDirectory(copy.resolve(".git"), RUN_DIRECTORY_PREFIX);
             boolean buildRequested = request.strategy().stream()
                     .anyMatch(action -> action.action() != Action.DIFF_CHECK);
             if (buildRequested) {
@@ -320,7 +323,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
 
     private void removeRun(Path copy, Path run) {
         if (!run.toAbsolutePath().normalize().getParent().equals(copy.resolve(".git").toAbsolutePath().normalize())
-                || !run.getFileName().toString().startsWith("delveforge-verification-")) {
+                || !run.getFileName().toString().startsWith(RUN_DIRECTORY_PREFIX)) {
             throw new WorkspaceException("Verification cleanup ownership mismatch");
         }
         try (var paths = Files.walk(run)) {
