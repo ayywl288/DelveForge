@@ -66,7 +66,8 @@ class WorkingCopyProvisioningDiagnosticsTest {
             } else if (command.contains("clone")) {
                 Files.createDirectory(copy.resolve(".git"));
             } else if (command.contains("status")) {
-                assertEquals(List.of("git", "-C", copy.toString(), "status", "--porcelain"), command);
+                assertEquals(List.of("git", "-C", copy.toString(), "-c", "core.longpaths=true",
+                        "status", "--porcelain"), command);
                 statusCalls.incrementAndGet();
                 output = statusOutput;
                 error = statusError;

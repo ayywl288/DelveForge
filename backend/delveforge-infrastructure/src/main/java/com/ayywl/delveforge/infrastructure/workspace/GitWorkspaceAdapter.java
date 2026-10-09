@@ -803,10 +803,12 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
      * 只读 stdout 的一方会与子进程互相等待。
      */
     private GitCommandResult execute(Path repository, String... arguments) {
-        List<String> command = new ArrayList<>(arguments.length + 3);
+        List<String> command = new ArrayList<>(arguments.length + 5);
         command.add(GIT_EXECUTABLE);
         command.add("-C");
         command.add(repository.toString());
+        // 与受控写入执行器一致：Windows 长路径必须实际落盘，不能依赖宿主 Git 的默认值。
+        command.addAll(List.of("-c", "core.longpaths=true"));
         command.addAll(List.of(arguments));
 
         Process process;

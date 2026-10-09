@@ -46,6 +46,29 @@ class WorkingCopyProvisioningIntegrationTest {
     }
 
     @Test
+    void longWindowsCheckoutPathsAreMaterializedAndRemainClean() throws Exception {
+        var root = repositories.directory("managed");
+        String name = "copy";
+        // 只让目标文件越过 260 字符；源文件仍可由默认 Git 建立，避免夹具自身先失败。
+        int filenameLength = Math.max(1, 262 - root.resolve(name).toString().length() - 9);
+        String relative = "src/" + "f".repeat(filenameLength) + ".txt";
+        var source = repositories.createCommitted("source", Map.of(relative, "committed"));
+        var before = GitTestRepositories.snapshot(source);
+        assertTrue(root.resolve(name).resolve(relative).toString().length() > 260);
+
+        var adapter = new GitWorkspaceAdapter(root);
+        PreparedWorkspace prepared = adapter.provision(new WorkspaceRef(source.toString()),
+                GitTestRepositories.headRevision(source), name);
+
+        Path copy = Path.of(prepared.workspace().value());
+        assertEquals("committed", Files.readString(copy.resolve(relative)));
+        assertEquals("", GitTestRepositories.runGit(copy, "-c", "core.longpaths=true", "status", "--porcelain"));
+        assertEquals(before, GitTestRepositories.snapshot(source));
+        adapter.discard(prepared);
+        assertFalse(Files.exists(copy));
+    }
+
+    @Test
     void rejectsStaleRevisionBeforeCreatingAnyCandidate() throws Exception {
         var source = repositories.createCommitted("source", Map.of("report.txt", "one"));
         String old = GitTestRepositories.headRevision(source);
