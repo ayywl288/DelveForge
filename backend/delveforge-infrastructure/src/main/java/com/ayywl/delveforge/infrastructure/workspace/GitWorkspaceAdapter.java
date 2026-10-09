@@ -391,6 +391,11 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             }
             GitCommandResult status = execute(target, "status", "--porcelain");
             if (!status.succeeded() || !status.stdoutText().isBlank()) {
+                // 在补偿删除前保留失败类别；路径与 Git 自由文本不得进入日志。
+                log.warn("operation=workspace.provision phase=POST_CHECKOUT_STATUS result={} "
+                                + "exitCode={} stdoutBytes={} stderrPresent={}",
+                        status.succeeded() ? "STATUS_OUTPUT_NONEMPTY" : "STATUS_COMMAND_FAILED",
+                        status.exitCode(), status.stdout().length, !status.stderr().isEmpty());
                 throw new WorkspaceException("Working Copy checkout is not clean");
             }
             requireUnchangedBasis(source, commit);
