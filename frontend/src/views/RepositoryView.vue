@@ -1,0 +1,174 @@
+<script setup lang="ts">
+import { computed, ref } from "vue";
+import type { WorkspaceSession } from "../state/session";
+import type { UsageAuthorization } from "../api/types";
+import ContentList from "../components/ContentList.vue";
+import EvidenceList from "../components/EvidenceList.vue";
+import RevisionText from "../components/RevisionText.vue";
+defineProps<{ s: WorkspaceSession }>();
+const emit = defineEmits<{ next: [] }>();
+const location = ref("");
+const permission = ref("");
+const license = ref("");
+const authorization = ref<UsageAuthorization | "">("");
+const absolute = computed(
+  () =>
+    /^[a-zA-Z]:[\\/]/.test(location.value.trim()) ||
+    location.value.trim().startsWith("/") ||
+    location.value.trim().startsWith("\\\\"),
+);
+</script>
+<template>
+  <div class="two-column">
+    <section class="panel">
+      <span class="eyebrow">LOCAL & AUTHORIZED</span>
+      <h2>连接已有代码</h2>
+      <p class="muted">
+        后端在本机读取路径，浏览器不访问目录。分析只读；执行阶段会创建独立
+        WorkingCopy。
+      </p>
+      <form
+        class="stack"
+        @submit.prevent="
+          s.register({
+            location: location.trim(),
+            readPermissionAllowed: permission === 'true',
+            licenseInfo: license.trim() || null,
+            usageAuthorization: authorization as UsageAuthorization,
+          })
+        "
+      >
+        <label for="repo-path">本地 Git 仓库绝对路径</label
+        ><input
+          id="repo-path" name="repo-path" autocomplete="off"
+          v-model="location"
+          placeholder="例如 C:\projects\my-java-app"
+          required
+          :disabled="!!s.busy"
+          aria-describedby="path-help"
+        />
+        <p id="path-help" class="meta">
+          注册只保存授权信息；分析时才检查实际 Git 仓库。请输入受信任的小型 Java
+          / Maven 项目。
+        </p>
+        <p v-if="location && !absolute" class="field-error">请输入绝对路径。</p>
+        <label for="read-permission">读取与分析权限</label
+        ><select
+          id="read-permission" name="read-permission" autocomplete="off"
+          v-model="permission"
+          required
+          :disabled="!!s.busy"
+        >
+          <option disabled value="">请明确选择</option>
+          <option value="true">我允许系统读取和分析此仓库</option>
+          <option value="false">不允许读取</option>
+        </select>
+        <label for="license">已知许可证</label
+        ><input
+          id="license" name="license" autocomplete="off"
+          v-model="license"
+          placeholder="许可证名称或使用条款；未知可留空"
+          :disabled="!!s.busy"
+        />
+        <label for="usage-auth">复用 / 二次开发授权</label
+        ><select
+          id="usage-auth" name="usage-auth" autocomplete="off"
+          v-model="authorization"
+          required
+          :disabled="!!s.busy"
+        >
+          <option disabled value="">请明确选择</option>
+          <option value="ALLOWED">已明确允许 · ALLOWED</option>
+          <option value="DENIED">明确不允许 · DENIED</option>
+          <option value="UNCLEAR">尚未确认 · UNCLEAR</option>
+        </select>
+        <button
+          :disabled="!!s.busy || !absolute || !permission || !authorization"
+        >
+          注册此仓库
+        </button>
+      </form>
+    </section>
+    <section class="panel">
+      <h2>已登记仓库</h2>
+      <p v-if="!s.assets.length" class="empty">
+        尚未注册。填写路径和授权后，单独启动分析。
+      </p>
+      <article v-for="asset in s.assets" :key="asset.id" class="asset-card">
+        <h3>{{ asset.location }}</h3>
+        <p>
+          读取：{{ asset.readPermissionAllowed ? "允许" : "不允许" }} · 使用：{{
+            asset.usageAuthorization
+          }}
+        </p>
+        <p class="meta">
+          许可证：{{ asset.licenseInfo || "未知" }} · {{ asset.type }} /
+          {{ asset.source }}
+        </p>
+        <button
+          class="secondary"
+          :disabled="!!s.busy || !asset.readPermissionAllowed"
+          @click="s.analyze(asset.id)"
+        >
+          分析仓库（调用 AI）
+        </button>
+        <details class="object-id">
+          <summary>资产 ID</summary>
+          <code>{{ asset.id }}</code>
+        </details>
+      </article>
+      <div class="inline-note">
+        分析结果不代表任意仓库可安全执行。M4 验证只支持既有 Java / Maven
+        场景；Windows 宿主执行没有系统级沙箱。
+      </div>
+    </section>
+  </div>
+  <section
+    v-for="repository in s.repositories"
+    :key="repository.id"
+    class="panel repository-result"
+  >
+    <div class="panel-header">
+      <div>
+        <span class="eyebrow">REPOSITORY PROFILE</span>
+        <h2>{{ repository.purpose }}</h2>
+      </div>
+      <span class="tag">只读分析</span>
+    </div>
+    <RevisionText
+      label="analyzedRevision"
+      :value="repository.analyzedRevision"
+    />
+    <div class="result-grid">
+      <ContentList title="技术栈" :items="repository.techStack" /><ContentList
+        title="模块"
+        :items="repository.modules"
+      /><ContentList
+        title="已有能力"
+        :items="repository.capabilities"
+      /><ContentList
+        title="可复用资产"
+        :items="repository.reusableAssets"
+      /><ContentList title="限制" :items="repository.limitations" /><ContentList
+        title="风险"
+        :items="repository.risks"
+      />
+    </div>
+    <EvidenceList :items="repository.evidence" title="源码与分析依据" />
+    <details class="object-id">
+      <summary>快照与资产绑定</summary>
+      <p>
+        RepositoryProfile <code>{{ repository.id }}</code>
+      </p>
+      <p>
+        SoftwareAsset <code>{{ repository.assetId }}</code>
+      </p>
+    </details>
+  </section>
+  <div v-if="s.repositories.length" class="stage-footer">
+    <p>用已确认画像与这些分析快照，探索候选产品方向。</p>
+    <button :disabled="s.profile?.status !== 'CONFIRMED'" @click="emit('next')">
+      探索产品方向 →
+    </button>
+  </div>
+</template>

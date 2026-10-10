@@ -1,0 +1,255 @@
+import { createApp, nextTick, reactive, type Component } from "vue";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import DiscoveryView from "../src/views/DiscoveryView.vue";
+import DirectionsView from "../src/views/DirectionsView.vue";
+import PlanView from "../src/views/PlanView.vue";
+import RepositoryView from "../src/views/RepositoryView.vue";
+import EvolutionView from "../src/views/EvolutionView.vue";
+import { createSession, type WorkspaceSession } from "../src/state/session";
+import {
+  copy,
+  asset,
+  direction,
+  plan,
+  profile,
+  repository,
+  successfulPlan,
+} from "./fixtures";
+const cleanup: (() => void)[] = [];
+function mount(component: Component, s: WorkspaceSession) {
+  const root = document.createElement("div");
+  document.body.append(root);
+  const app = createApp(component, { s });
+  app.mount(root);
+  cleanup.push(() => {
+    app.unmount();
+    s.dispose();
+  });
+  return root;
+}
+const session = () => reactive(createSession());
+const button = (root: HTMLElement, text: string) =>
+  [...root.querySelectorAll("button")].find((item) =>
+    item.textContent?.includes(text),
+  )!;
+const settle = async () => {
+  for (let i = 0; i < 20; i++) {
+    await Promise.resolve();
+    await nextTick();
+  }
+};
+afterEach(() => cleanup.splice(0).forEach((fn) => fn()));
+describe("五阶段 Vue 交互（合成 API 夹具）", () => {
+  it("仓库分析结果按业务字段展示，保留 analyzedRevision 与 Evidence", async () => {
+    const s = session(); s.assets = [asset()]; s.ids.assetIds = ["asset-1"];
+    const fetcher = vi.fn(async (_url: string, _options?: RequestInit) => new Response(JSON.stringify(repository())));
+    vi.stubGlobal("fetch", fetcher); const root = mount(RepositoryView, s);
+    button(root, "分析仓库（调用 AI）").click(); await settle();
+    expect(fetcher.mock.calls[0]?.[0]).toBe("/api/software-assets/asset-1/analysis");
+    expect(fetcher.mock.calls[0]?.[1]?.body).toBeUndefined();
+    expect(root.textContent).toContain("Java 报表工具"); expect(root.textContent).toContain("ReportService");
+    expect(root.textContent).toContain("只能手动执行"); expect(root.textContent).toContain("a".repeat(40));
+    expect(root.textContent).toContain("源码与分析依据");
+  });
+  it("对话只显示实际 nextQuestion，Profile Confirm 必须审阅且使用当前 revision", async () => {
+    const s = session();
+    s.profile = profile();
+    s.ids.profileId = "profile-1";
+    const reviewed = {
+      ...profile(),
+      revision: 4,
+      status: "REVIEWING",
+      interests: ["数据可视化"],
+      painPoints: ["重复导出"],
+    };
+    const fetcher = vi.fn(
+      async (url: string, _options?: RequestInit) =>
+        new Response(
+          JSON.stringify(
+            url.endsWith("discovery-turn")
+              ? {
+                  profile: reviewed,
+                  sufficient: true,
+                  missingAreas: [],
+                  nextQuestion: null,
+                }
+              : { ...reviewed, status: "CONFIRMED" },
+          ),
+        ),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const root = mount(DiscoveryView, s);
+    const input = root.querySelector("textarea")!;
+    input.value = "我经常重复导出报表";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    root
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await settle();
+    expect(root.textContent).toContain("重复导出");
+    expect(root.querySelectorAll(".message.agent")).toHaveLength(0);
+    const confirm = button(root, "确认当前画像");
+    expect(confirm.disabled).toBe(true);
+    const check = root.querySelector(".review-box input") as HTMLInputElement;
+    check.checked = true;
+    check.dispatchEvent(new Event("change", { bubbles: true }));
+    await nextTick();
+    confirm.click();
+    await settle();
+    expect(
+      fetcher.mock.calls.some(
+        ([url, options]) =>
+          url.endsWith("/confirm") && options?.body === '{"revision":4}',
+      ),
+    ).toBe(true);
+    expect(root.textContent).toContain("CONFIRMED");
+  });
+  it("仓库授权没有预选，绝对路径及权限是明确表单输入", async () => {
+    const s = session();
+    const register = vi.spyOn(s, "register").mockResolvedValue();
+    const root = mount(RepositoryView, s);
+    expect(button(root, "注册此仓库").disabled).toBe(true);
+    expect(
+      [...root.querySelectorAll("select")].every(
+        (select) => select.value === "",
+      ),
+    ).toBe(true);
+    const path = root.querySelector("#repo-path") as HTMLInputElement;
+    path.value = "C:\\projects\\authorized";
+    path.dispatchEvent(new Event("input", { bubbles: true }));
+    const permission = root.querySelector(
+      "#read-permission",
+    ) as HTMLSelectElement;
+    permission.value = "true";
+    permission.dispatchEvent(new Event("change", { bubbles: true }));
+    const auth = root.querySelector("#usage-auth") as HTMLSelectElement;
+    auth.value = "UNCLEAR";
+    auth.dispatchEvent(new Event("change", { bubbles: true }));
+    await nextTick();
+    button(root, "注册此仓库").click();
+    await settle();
+    expect(register).toHaveBeenCalledWith({
+      location: "C:\\projects\\authorized",
+      readPermissionAllowed: true,
+      licenseInfo: null,
+      usageAuthorization: "UNCLEAR",
+    });
+    expect(
+      [...root.querySelectorAll("input,select")].every(
+        (input) => !!root.querySelector(`label[for="${input.id}"]`),
+      ),
+    ).toBe(true);
+  });
+  it("候选不会自动选择，Select / Reject 要经过独立确认", async () => {
+    const s = session();
+    s.profile = { ...profile(), revision: 2, status: "CONFIRMED" };
+    s.directions = [direction()];
+    const decide = vi.spyOn(s, "decide").mockResolvedValue();
+    const root = mount(DirectionsView, s);
+    await settle();
+    expect(decide).not.toHaveBeenCalled();
+    expect(root.textContent).toContain("可配置的定时报表工具");
+    button(root, "选择此方向").click();
+    await nextTick();
+    expect(decide).not.toHaveBeenCalled();
+    expect(root.querySelector("dialog")?.hasAttribute("open")).toBe(true);
+    button(root, "明确选择").click();
+    await settle();
+    expect(decide).toHaveBeenCalledWith("direction-1", "select");
+    button(root, "拒绝").click();
+    await nextTick();
+    button(root, "明确拒绝").click();
+    await settle();
+    expect(decide).toHaveBeenCalledWith("direction-1", "reject");
+  });
+  it("Plan Prepare 不等于 Step 授权，前一步未完成时禁止后续授权", async () => {
+    const s = session();
+    s.plan = plan();
+    s.plan.status = "PROPOSED";
+    s.plan.workingCopyId = null;
+    s.plan.steps[0]!.status = "PENDING_CONFIRMATION";
+    const prepare = vi.spyOn(s, "prepare").mockResolvedValue();
+    const confirm = vi.spyOn(s, "confirmStep").mockResolvedValue();
+    const root = mount(PlanView, s);
+    expect(root.textContent).toContain("新增调度配置");
+    expect(root.textContent).toContain("调度测试通过");
+    expect(button(root, "Prepare WorkingCopy").disabled).toBe(true);
+    expect(button(root, "审阅并授权此 Step").disabled).toBe(true);
+    const review = root.querySelector(".prepare-box input") as HTMLInputElement;
+    review.checked = true;
+    review.dispatchEvent(new Event("change", { bubbles: true }));
+    await nextTick();
+    button(root, "Prepare WorkingCopy").click();
+    await nextTick();
+    button(root, "准备 WorkingCopy").click();
+    await settle();
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(confirm).not.toHaveBeenCalled();
+    s.plan.status = "ACTIVE";
+    s.copy = copy();
+    await nextTick();
+    button(root, "审阅并授权此 Step").click();
+    await nextTick();
+    button(root, "明确授权 Step").click();
+    await settle();
+    expect(confirm).toHaveBeenCalledWith("step-1");
+    s.plan.steps.push({ ...s.plan.steps[0]!, id: "step-2" });
+    await nextTick();
+    expect(
+      [...root.querySelectorAll("button")]
+        .filter((item) => item.textContent?.includes("审阅并授权此 Step"))
+        .at(-1)?.disabled,
+    ).toBe(true);
+  });
+  it("风险确认前不会 execute，断线 READY 展示待核对并保持禁用", async () => {
+    const s = session();
+    s.plan = plan();
+    s.copy = copy();
+    const execute = vi.spyOn(s, "execute").mockResolvedValue();
+    const root = mount(EvolutionView, s);
+    button(root, "审阅风险并执行此 Step").click();
+    await nextTick();
+    const confirm = button(root, "执行当前 Step");
+    expect(confirm.disabled).toBe(true);
+    expect(execute).not.toHaveBeenCalled();
+    const check = root.querySelector("dialog input") as HTMLInputElement;
+    check.checked = true;
+    check.dispatchEvent(new Event("change", { bubbles: true }));
+    await nextTick();
+    confirm.click();
+    await settle();
+    expect(execute).toHaveBeenCalledWith("step-1");
+    s.receipt = {
+      planId: "plan-1",
+      stepId: "step-1",
+      startedAt: "2026-10-10T00:00:00Z",
+    };
+    await nextTick();
+    expect(root.textContent).toContain("执行结果待核对");
+    expect(root.textContent).toContain("READY");
+    expect(root.textContent).not.toContain("PREPARING");
+    expect(button(root, "审阅风险并执行此 Step").disabled).toBe(true);
+  });
+  it("显示保存的 Verification 动作与 Candidate，不执行下一 Step，不解析 HTML", async () => {
+    const s = session();
+    s.plan = successfulPlan();
+    s.plan.steps[0]!.executionResult!.changes = [
+      "<img src=x onerror=alert(1)>",
+    ];
+    s.copy = {
+      ...copy(),
+      currentRevision: "b".repeat(40),
+      lastVerifiedRevision: "b".repeat(40),
+    };
+    const execute = vi.spyOn(s, "execute");
+    const root = mount(EvolutionView, s);
+    expect(root.textContent).toContain("TEST");
+    expect(root.textContent).toContain("src/ReportService.java");
+    expect(root.textContent).toContain(
+      "lastVerifiedRevision 与该 Candidate 一致",
+    );
+    expect(root.querySelector("img")).toBeNull();
+    expect(execute).not.toHaveBeenCalled();
+    expect(button(root, "审阅风险并执行此 Step").disabled).toBe(true);
+  });
+});

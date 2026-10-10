@@ -76,7 +76,7 @@ Elasticsearch 搜索与聚合能力。一个可能的方向是复用索引、筛
 ### 准备环境
 
 - **JDK 21**，配置好 `JAVA_HOME`；**Git CLI** 可从 `PATH` 调用。
-- **Node.js `^20.19.0 || >=22.12.0` + npm**（启动前端时需要）。
+- **Node.js `^20.19.0 || >=22.12.0` + pnpm 12.9.1**（启动前端时需要）。
 - **DeepSeek API Key**，供用户探索、分析、方向发现、规划与代码提案使用。
 - Maven Wrapper 已包含在仓库中；SQLite 无需独立数据库服务。
 
@@ -112,18 +112,20 @@ Maven Wrapper 与离线可运行测试的小型 Java Git 仓库；Windows 本机
 
 ```bash
 cd frontend
-npm ci
-npm run dev
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-打开 `http://localhost:5173`；开发服务器会将 `/api` 代理到本地后端。
-**当前 Vue 页面主要用于连通性检查，完整业务流程通过 REST API 使用。**
+打开 `http://127.0.0.1:5173`；开发服务器会将 `/api` 代理到本地后端。
+五阶段 Web 界面支持需求聊天、画像审阅、仓库分析、方向选择、计划准备与受控执行。
+使用步骤与断线处理见 [Frontend README](frontend/README.md)。AI 操作产生 Provider 费用；
+执行前还需独立授权 Step 并确认宿主运行风险，页面不会自动执行下一步。
 
 <a id="usage"></a>
 
 ## 💡 Usage
 
-启动服务后，可使用 Postman、curl 等 HTTP 客户端按下面的顺序体验。
+启动服务后，优先通过 Web 页面按阶段体验；下列 API 顺序也适用于 HTTP 客户端。
 表中的 `{id}` 分别使用前一步返回的画像、资产或方向 ID。
 
 | 步骤 | 操作 | API |
@@ -188,7 +190,7 @@ Frontend ──HTTP──▶ App
 | Frontend | Vue 3 · TypeScript · Vite |
 
 核心流程有自动化测试与真实仓库验证覆盖。后端在根目录运行 `./mvnw clean verify`；
-前端安装依赖后在 `frontend/` 运行 `npm run build`，完成类型检查与生产构建。
+前端在 `frontend/` 运行 `pnpm test` 和 `pnpm build`，完成交互测试、类型检查与生产构建。
 
 ## 🗺 Roadmap
 
@@ -212,6 +214,7 @@ Frontend ──HTTP──▶ App
 - [ROADMAP](docs/ROADMAP.md) — 开发计划与验收标准
 - [M4 本地使用](docs/M4_LOCAL_USAGE.md) — 配置、API 顺序、确认与失败边界
 - [M4 交付冻结](docs/validation/m4-delivery-closeout.md) — 合并、最终验证与证据归档
+- [Minimal Web 验证](docs/validation/minimal-web-experience.md) — UI 契约、离线联通与交互边界
 - [ADRs](docs/decisions/) — 关键设计决策与取舍
 - Engineering notes — [开发复盘](docs/retrospectives/) / [验证记录](docs/validation/)
 

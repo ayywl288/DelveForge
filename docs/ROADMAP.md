@@ -1905,6 +1905,23 @@ Verification 900s / 1200s、8 MiB 输出、160 XML。原默认配置保留，未
 
 ---
 
+### Task B — Minimal Web Experience
+
+**Completed: 2026-10-10。** 既有 Vue 3 / TypeScript / Vite 基础上交付需求聊天与六维画像、
+授权仓库分析、候选方向决定、演化规划 / WorkingCopy / Step 确认，以及真实检查点和验证结果视图。
+按本任务授权改用 pnpm 锁文件，新增开发交互测试，不改变 M0–M4 后端、领域或 Prompt。
+
+验收采用合成 API 前端回归、类型检查、生产构建及新数据库的本机 Proxy 联通；没有新付费
+Provider Smoke 或代码演化，因此不声称通过 Web 完成了第二次真实 Verified B。
+长请求、刷新和断线只查询实际状态，不自动重复 execute；缺失的历史 / diff / 请求任务 API
+如实保留为交互限制，见 [Task B 验证](validation/minimal-web-experience.md) 与
+[前端使用](../frontend/README.md)。
+
+**Task B: DONE。M0–M4 后端继续 FROZEN，M5 继续 DEFERRED。停止新增前后端功能；**
+下一阶段仅在另行授权后进行新仓库产品体验、代码复盘与实习准备，不以本记录启动新功能。
+
+---
+
 以下为记录格式，供后续 Milestone 使用：
 
 ### Mx — Milestone Name

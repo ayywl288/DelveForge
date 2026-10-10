@@ -424,6 +424,13 @@ Frontend 调用     使用相对路径 /api/...
 Backend           不为开发环境开放 CORS
 ```
 
+Task B 的本地 Web Experience 展示既有 REST 用例。Vue 负责表单与结构化展示，
+`frontend/src/api/client.ts` 对齐 Controller DTO，`state/session.ts` 协调请求与 GET 恢复，
+不增加后端领域状态。浏览器仅存储对象 ID 和执行等待标记，业务正文只留在页面内存。
+同步 execute 无客户端或 Proxy 短期限；断线和刷新不重放命令。Web Locks 仅协调同 origin
+标签页，不替代后端授权、revision 或 Workspace 检查。实际限制见
+[Web 验证记录](validation/minimal-web-experience.md)。
+
 目的是避免 Frontend 源码绑定具体 Backend 地址：
 
 ```
@@ -459,7 +466,8 @@ GET /api/system/connectivity
 
 ```
 Backend    ./mvnw verify      编译 + 模块依赖校验 + 全部测试 + 打包
-Frontend   npm ci && npm run build   类型检查 + 生产构建
+Frontend   pnpm install --frozen-lockfile && pnpm test && pnpm build
+           Vue / HTTP 交互回归 + 类型检查（含测试）+ 生产构建
 ```
 
 两条命令链相互独立，都能在全新环境中重复执行，且不依赖真实 LLM、
@@ -477,8 +485,8 @@ delveforge-app              上下文装配 / HTTP 端点 / 错误映射 / 配�
 需要数据库的测试使用 `target/test-databases/<uuid>/` 下的临时 SQLite 文件。
 
 当前未引入 CI/CD、Coverage Gate、Failsafe 阶段拆分与 E2E 平台；
-Frontend 也未引入 lint 与 test。引入时机见仓库根 `README.md`
-与 `frontend/README.md`。
+Frontend 采用 Vitest + jsdom 验证五阶段交互和长请求，夹具不依赖真实 LLM。
+未引入独立 lint 或浏览器 E2E 平台，入口见 `frontend/README.md`。
 
 ### 6.5 Backend API Contract（当前范围）
 
