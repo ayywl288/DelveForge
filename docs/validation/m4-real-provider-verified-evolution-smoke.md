@@ -8,6 +8,8 @@
 
 本文是验证与复盘记录，**不是架构或领域语义的 Source of Truth，也不单独宣布 M4 里程碑完成**。此次重写只读既有 API JSON、停止后的 SQLite、Git 和测试报告，没有新调用 Provider、启动 Smoke 或执行 Maven。报告的文档提交与历史演化 A→B 是不同事件。
 
+**后续交付注记（2026-10-10）：** Task A 已将成功维护分支以 merge `bf949db` 整合至 main，并提供显式 `m4-local` profile；Candidate B 的业务修改未合入 main。本文“开发分支未合并”和原资产 HEAD=A 等描述是当时 Smoke 的历史事实，继续保留。当前 M4 DONE / FROZEN、M5 DEFERRED 的交付状态及后续离线检查见 [交付关闭记录](m4-delivery-closeout.md)；正常运行配置见 [本地使用](../M4_LOCAL_USAGE.md)。Task A 没有重跑真实 Provider Smoke，不为默认配置补造成功证明。
+
 ## 1. 真实业务执行案例
 
 此案例复用了前序已确认画像、已选择方向，以及已经准备并确认的单步 Plan。以下按业务调用顺序连接这些真实对象；并不把多次失败运行改写成一次从零到成功的调用。方向的历史发现快照与最终规划的 A 快照分别保留。

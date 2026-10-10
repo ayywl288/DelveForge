@@ -44,7 +44,7 @@
 - **Code Organization:** Maven Module 负责主要 Architecture Layer Boundary，各 Module 内部优先按照 Feature / Domain Concept 组织代码。
 - **AI / Agent Integration:** 业务模块只能依赖内部 AI Gateway 抽象；首个真实 Adapter 直接调用 DeepSeek 的 OpenAI 兼容 HTTP API，**不引入 Spring AI / Spring AI Alibaba**（[ADR-0003](decisions/0003-first-ai-adapter-uses-deepseek-http-api.md)）。
   - Adapter 使用 `RestClient`（`spring-web`）与 Jackson；两者本来就通过 `delveforge-app` 的 `spring-boot-starter-web` 存在于本项目，只是显式声明到真正使用它们的模块。
-  - 不引入 AI Framework 的依据是当前需求与框架能力不匹配：只需要一次 `messages → JSON completion`，而 Tool Calling、多模型路由、Streaming 与 Agent 能力都在当前范围之外（AGENTS.md §8.3）。
+  - 不引入 AI Framework 的依据是当前需求与框架能力不匹配：业务只需要一次 `messages → 完整 completion`，Tool Calling、多模型路由、业务流式接口与通用 Agent 能力不在当前实现范围。M4 在 Provider Adapter 内可选地消费有界 SSE，Port 仍只返回完整文本（ADR-0003）。
   - **该选择被 AI Gateway Port 隔离**：更换 Provider 或改用 AI Framework 都只影响 Infrastructure 内的 Adapter。
   - 重新评估的条件见 ADR-0003：出现 Tool Calling / 多 Provider / Agent 需求，或升级到 Spring Boot 4.x 时。
   - 无论走哪条路线，业务模块都不得直接依赖具体 Provider SDK、Provider 专有 API 类型或 Spring AI Alibaba 实现类型。
@@ -1277,6 +1277,10 @@ Evolution Step explicitly confirmed by user
 上述执行与失败流程描述完整 MVP 目标架构。实现阶段以 `ROADMAP.md` 为准：
 M4 实现成功路径与 fail-closed 安全，M5 实现完整失败 / 恢复流程；M4 异常时保留
 最后完整持久化检查点并阻止后续 Evolution，不表示 Rollback / Recovery 已发生。
+
+2026-10-10 交付状态：M4 DONE / FROZEN，真实受控 Verified B 已完成；M5 DEFERRED。
+显式本地成功配置与默认配置的区别、Java/Maven 支持范围见 [M4 本地使用](M4_LOCAL_USAGE.md)，
+合并及离线最终验证见 [交付关闭记录](validation/m4-delivery-closeout.md)。此状态不扩大上述失败语义。
 
 ## 9. Architecture Decisions
 

@@ -26,7 +26,8 @@ DelveForge 面向已有一定开发经验、希望找到个人项目方向的开
 提出值得继续探索的产品方向。
 
 **Evolution Before Rewrite**：优先从已有软件出发，找到通往目标产品的演化路径。
-目前可以完成用户探索、仓库分析和方向选择；演化规划与代码执行尚未实现。
+目前后端已完成 M0–M4：用户探索、仓库分析、方向选择、演化规划，以及隔离副本中的代码修改和验证。
+已有一次真实 Provider 驱动的 Verified B；M4 冻结，M5 失败恢复暂缓。
 
 <a id="features"></a>
 
@@ -40,6 +41,8 @@ DelveForge 面向已有一定开发经验、希望找到个人项目方向的开
   将已确认画像与一个或多个仓库画像结合，生成 3–5 个个性化候选方向。
 - **Human Review & Selection · 由你作出选择**<br>
   查看每个方向的用户匹配、资产复用、差异化、技术价值、复杂度、风险与依据，再选择或拒绝。
+- **Evolution Planning & Execution · 小步改造与验证**<br>
+  审阅 Plan、准备独立 WorkingCopy、明确确认 Step；系统校验 CodingProposal，再修改副本并运行 Maven / Git 检查。验证通过后才推进可信 revision。
 
 ## 🧭 How It Works
 
@@ -53,6 +56,10 @@ flowchart TD
     RP --> D
     D --> C["候选产品方向"]
     C --> S["你审阅并选择 / 拒绝"]
+    S --> P["Evolution Plan · 你审阅范围与标准"]
+    P --> W["独立 WorkingCopy · 你确认当前 Step"]
+    W --> E["校验提案 → 修改副本 → Candidate"]
+    E --> V["Maven / Git Verification → Verified B"]
 ```
 
 **一个例子：**你想做数据由自己掌控的个人记账工具，而手边的后端项目已有
@@ -70,7 +77,7 @@ Elasticsearch 搜索与聚合能力。一个可能的方向是复用索引、筛
 
 - **JDK 21**，配置好 `JAVA_HOME`；**Git CLI** 可从 `PATH` 调用。
 - **Node.js `^20.19.0 || >=22.12.0` + npm**（启动前端时需要）。
-- **DeepSeek API Key**，供用户探索、仓库分析与方向发现使用。
+- **DeepSeek API Key**，供用户探索、分析、方向发现、规划与代码提案使用。
 - Maven Wrapper 已包含在仓库中；SQLite 无需独立数据库服务。
 
 ### 克隆并启动后端
@@ -80,18 +87,24 @@ git clone https://github.com/ayywl288/DelveForge.git
 cd DelveForge
 ./mvnw -DskipTests package
 export DEEPSEEK_API_KEY="<your-key>"
-java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar
+java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar --spring.profiles.active=m4-local
 ```
 
-Windows PowerShell 将 `./mvnw` 换成 `./mvnw.cmd`，并用以下命令设置凭据：
+Windows 上的 PowerShell 7 将 `./mvnw` 换成 `./mvnw.cmd`，并用不回显输入设置凭据：
 
 ```powershell
-$env:DEEPSEEK_API_KEY = "<your-key>"
+$env:DEEPSEEK_API_KEY = Read-Host 'DeepSeek API Key' -MaskInput
 ```
 
-后端默认运行于 `http://localhost:8080`，SQLite 文件默认位于 `./data/delveforge.db`。
+上述本地 profile 运行于 `http://127.0.0.1:8080`，SQLite 默认位于 `./data/m4-local/delveforge.db`，
+Workspace 和日志位置可覆盖。不指定 profile 时数据库默认仍为 `./data/delveforge.db`。
 未设置 Key 时仍可启动服务，但需要模型的请求会失败。真实凭据不要提交到仓库。
 高级配置见 [application.yml](backend/delveforge-app/src/main/resources/application.yml)。
+
+普通本地 M4 使用请按 [M4 本地使用说明](docs/M4_LOCAL_USAGE.md) 配置独立数据库、Workspace 和日志，
+显式启用 `m4-local` profile。它复用首次 PASS 的 SSE 与有界高预算；默认非流式配置没有同等真实 M4
+成功证明。这些预算影响所有 AI 阶段，并非已验证的最优默认值。当前仅面向授权、受信任且具备根
+Maven Wrapper 与离线可运行测试的小型 Java Git 仓库；Windows 本机执行不是 OS 沙箱。
 
 ### 启动前端
 
@@ -123,6 +136,11 @@ npm run dev
 | 6 | 分析仓库，取得仓库画像 | `POST /api/software-assets/{id}/analysis` |
 | 7 | 以确认后的用户画像和仓库画像发现方向 | `POST /api/product-directions/discovery` |
 | 8 | 查看方向，再显式选择或拒绝 | `GET /api/product-directions/{id}`、`POST /api/product-directions/{id}/select` 或 `/reject` |
+| 9 | 根据选择的方向和基础资产规划 | `POST /api/evolution-plans/planning` |
+| 10 | 审阅 Plan，准备独立副本 | `POST /api/evolution-plans/{planId}/prepare` |
+| 11 | 明确确认当前 Step | `POST /api/evolution-plans/{planId}/steps/{stepId}/confirm` |
+| 12 | 生成并校验提案，执行与验证 | `POST /api/evolution-plans/{planId}/steps/{stepId}/execute` |
+| 13 | 核对结果及可信 revision | `GET /api/evolution-plans/{planId}`、`GET /api/working-copies/{id}` |
 
 Discovery turn 的请求形如 `{"input":"我想做自托管记账工具，主要会 Java，只有周末有时间。"}`。
 信息不足时按 `nextQuestion` 继续回答；进入 `REVIEWING` 后检查画像，
@@ -177,9 +195,12 @@ Frontend ──HTTP──▶ App
 - ✅ **M0 — Foundation**
 - ✅ **M1 — User Discovery + Repository Analysis**
 - ✅ **M2 — Product Direction Discovery**
-- ➡️ **M3 — Evolution Planning**：下一阶段，尚未开始
+- ✅ **M3 — Evolution Planning & Working Copy**：DONE / FROZEN
+- ✅ **M4 — First Verified Evolution Step**：DONE / FROZEN
+- **M5 — Failure Safety & Recovery**：DEFERRED
 
-完整计划见 [ROADMAP](docs/ROADMAP.md)。当前完成的是方向发现与选择，尚不包含演化计划或代码执行。
+完整计划见 [ROADMAP](docs/ROADMAP.md)，真实代码案例与故障过程见 [M4 报告](docs/validation/m4-real-provider-verified-evolution-smoke.md)。
+一次受控 PASS 不证明任意仓库的稳定性或安全性；后端功能开发现已暂停。
 
 <a id="documentation"></a>
 
@@ -189,6 +210,8 @@ Frontend ──HTTP──▶ App
 - [ARCHITECTURE](docs/ARCHITECTURE.md) — 系统结构与技术边界
 - [DOMAIN_MODEL](docs/DOMAIN_MODEL.md) — 领域语义、状态机与不变量
 - [ROADMAP](docs/ROADMAP.md) — 开发计划与验收标准
+- [M4 本地使用](docs/M4_LOCAL_USAGE.md) — 配置、API 顺序、确认与失败边界
+- [M4 交付冻结](docs/validation/m4-delivery-closeout.md) — 合并、最终验证与证据归档
 - [ADRs](docs/decisions/) — 关键设计决策与取舍
 - Engineering notes — [开发复盘](docs/retrospectives/) / [验证记录](docs/validation/)
 

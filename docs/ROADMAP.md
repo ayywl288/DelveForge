@@ -520,7 +520,7 @@ status = PENDING_CONFIRMATION
 
 ### M4 — First Verified Evolution Step
 
-**Status:** IN_PROGRESS — Task 1 / Task 2 已实现并通过独立审查，里程碑审查通过；待真实 Provider smoke 与复盘。
+**Status:** DONE / FROZEN（2026-10-10）— Task 1 / Task 2、独立审查、真实受控 Verified B、复盘与交付整合已完成。证据见 §9 M4 完成记录。
 
 **Goal**
 
@@ -585,10 +585,10 @@ Then
 
 并且：
 
-- [ ] 未经用户确认不得修改代码。
-- [ ] Execution Complete 不等同于 Step Success。
-- [ ] Verification Passed 才允许推进 lastVerifiedRevision。
-- [ ] 原 Software Asset 始终未被修改。
+- [x] 未经用户确认不得修改代码。
+- [x] Execution Complete 不等同于 Step Success。
+- [x] Verification Passed 才允许推进 lastVerifiedRevision。
+- [x] 原 Software Asset 始终未被 Evolution 修改。
 
 **Out of Scope**
 
@@ -609,6 +609,8 @@ M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整�
 ---
 
 ### M5 — Failure Safety & Recovery
+
+**Status:** DEFERRED（2026-10-10）— 本轮后端交付结束后暂缓，不开始实现。
 
 **Goal**
 
@@ -776,8 +778,8 @@ Step SUCCEEDED
 | M1 | Discovery Inputs | DONE |
 | M2 | Product Direction Discovery | DONE |
 | M3 | Evolution Planning & Working Copy | DONE |
-| M4 | First Verified Evolution Step | IN_PROGRESS |
-| M5 | Failure Safety & Recovery | TODO |
+| M4 | First Verified Evolution Step | DONE / FROZEN |
+| M5 | Failure Safety & Recovery | DEFERRED |
 | M6 | MVP End-to-End Validation | TODO |
 
 统一状态：
@@ -787,7 +789,10 @@ TODO
 IN_PROGRESS
 BLOCKED
 DONE
+DEFERRED
 ```
+
+`FROZEN` 是已完成里程碑的开发冻结标记；`DEFERRED` 表示明确暂缓，不表示功能已经实现。
 
 状态变化原则：
 
@@ -819,7 +824,9 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 
 ```text
 M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
-M4 — First Verified Evolution Step：IN_PROGRESS，Task 1 / Task 2 已实现并通过审查，待真实 smoke 与复盘
+M4 — First Verified Evolution Step：DONE / FROZEN（2026-10-10）
+M5 — Failure Safety & Recovery：DEFERRED
+后端功能开发暂停；不追加 M4 优化或开始 M5。
 ```
 
 M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
@@ -842,19 +849,22 @@ R1 发现方向、同一资产 R2 重新规划并准备的路径已修复；Pars
 [M3 retrospective](retrospectives/m3-evolution-planning-working-copy.md)。
 M3 不再追加优化或 cleanup，除非发现具体阻塞 M4 的正确性问题。
 
-### Next
+### Delivery Closeout
 
-M4 Task 1 已交付显式确认、Step 专属只读 Repository Understanding、有限 Context Expansion、
-Coding Proposal 和确定性校验，步骤保持 READY，baselineRevision 为空，WorkingCopy revision 不变。
-Task 2 已接入受控 mutation、执行时冻结 baselineRevision、单个本地 Candidate revision、
-独立有限 Verification、三个原子检查点与成功后的可信 revision 推进。异常保留最后完整
-EXECUTING / VERIFYING 检查点并阻止继续演化，不模拟失败转换或回滚。
-当前验证支持 Git diff 与根 Maven Wrapper 离线构建 / 测试；未知外部依赖及不支持的验证意图
-保守拒绝。当前 MVP 已移除 Step 自由文本 Preconditions，V12 要求含旧条件的可推进历史计划重新规划。Task 1 / Task 2 及里程碑审查已通过（审查基线 `0c5d8c0`）；
-M4 保持 IN_PROGRESS，等待真实 Provider smoke 成功与复盘。已有 BLOCKED smoke 记录见 docs/validation/m4-windows-local-functional-smoke.md；尚未开始 M5。
-完整 Failure / Repair / Retry / Rollback / Recovery 流程仍属于 M5。
-继续采用「设计讨论 → 相对完整的垂直切片 → 里程碑级审查 → 聚焦修正 → 一次真实 smoke
-→ 复盘」，具体保留与调整见 M3 复盘 §E–F。
+M4 已完成一次真实直接 Provider → CodingProposal → WorkingCopy mutation → Candidate B →
+BUILD / TEST / DIFF_CHECK → SUCCEEDED / lastVerifiedRevision=B。成功执行器为
+`9efee445`；其维护修复已通过保留历史的 merge 整合，Candidate B 的业务改动没有合入 main。
+完整业务输入、Plan、代码 diff 和排障过程见 [M4 真实案例](validation/m4-real-provider-verified-evolution-smoke.md)。
+
+当前仅支持受信任、授权、根 Maven Wrapper 离线可运行的小型 Java/Maven Git 仓库及有限技术
+Verification；未知依赖、无法证明的测试选择器和未支持的业务 Criteria 保守拒绝。显式本地
+`m4-local` profile 复用成功 SSE / timeout / token / response 和 Verification 预算，所有 AI 阶段
+共用其预算；默认非流式配置没有同等真实成功证明，详见 [本地使用](M4_LOCAL_USAGE.md)。
+
+完整失败恢复仍属于暂缓的 M5。M4 异常保留 EXECUTING / VERIFYING 最后完整检查点，
+阻止未解决状态上的继续执行，不模拟成功、重试或回滚。Windows 宿主执行不是 OS 沙箱。
+历史 BLOCKED 与 UNKNOWN 继续保留，整合、最终验证和归档见
+[交付关闭记录](validation/m4-delivery-closeout.md)。后端功能开发到此冻结。
 
 ---
 
@@ -1862,6 +1872,36 @@ M3 Deliverables 与 Acceptance Criteria 全部满足，审查问题已修正。�
 
 M3 STATUS: FROZEN。验收、审查修正、focused smoke 与文档同步均已完成。
 后续不进行 M3 优化或 cleanup，除非出现具体阻塞 M4 的正确性问题；M4 仍为 TODO。
+
+---
+
+### M4 — First Verified Evolution Step
+
+**Completed / Frozen：2026-10-10。**
+
+真实直接 Provider 执行器 `9efee445` 在固定 A=`47ca448` 的隔离 WorkingCopy 中，完成
+Python 文件名角色提示与三个实际新增测试，生成 B=`6dfdc121`；实际 BUILD / TEST / DIFF_CHECK
+通过，Candidate 1346 tests 无失败，Step SUCCEEDED，lastVerifiedRevision 由 A 推进到 B。
+原资产没有被 Evolution 修改。Plan 保持 ACTIVE，没有开始下一 Step 或 M5。
+
+M4 维护分支以 merge `bf949db` 进入 main，保留八份维护提交与报告历史；Candidate B
+的业务代码未合入 main。新增显式 `m4-local` 配置提交 `1830e67`，复用已成功的 SSE true、
+connect / idle 90s、total 300s、98,304 tokens、32 MiB 响应、64 KiB 事件预算，以及
+Verification 900s / 1200s、8 MiB 输出、160 XML。原默认配置保留，未取得同等真实 M4 证明。
+当前所有 AI 阶段共用 Provider 预算；这不是最优预算或任意仓库可靠性声明。
+
+交付聚焦回归 111 项通过，合并与配置后的 Wrapper `verify` 1376 项通过，零失败 / 错误 / 跳过。
+独立新 SQLite 的 V1–V12 迁移、仅本机监听、新画像创建与授权资产登记均通过；夹具真实 Maven
+测试通过，源码不变，没有调用 Provider 或再执行真实 Smoke。历史数据库 / Verified B 原件保留。
+根目录 28 份忽略且无引用日志带 hash 清单归档到仓库外，九个历史证据目录原地保留。
+
+业务 walkthrough、完整 Plan、关键 diff 与失败链见 [M4 真实案例](validation/m4-real-provider-verified-evolution-smoke.md)；
+版本、验证与外部索引见 [交付关闭记录](validation/m4-delivery-closeout.md)；配置和 API 见
+[本地使用](M4_LOCAL_USAGE.md)。历史 UNKNOWN 不改写；Java/Maven 有限技术验证、Windows
+宿主文件系统风险与未实现的失败恢复继续是交付限制。
+
+**M4 STATUS: DONE / FROZEN。M5 STATUS: DEFERRED。后端功能开发暂停。**
+本关闭任务只整合与配置，没有新增业务功能、Prompt 优化、领域变化、验证器放宽或前端开发。
 
 ---
 
