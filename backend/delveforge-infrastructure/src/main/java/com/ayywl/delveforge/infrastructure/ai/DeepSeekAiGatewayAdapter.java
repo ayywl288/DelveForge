@@ -14,9 +14,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,48 +63,109 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
     @Override
     public String generate(AiRequest request) {
         requireApiKey();
-        long started = System.nanoTime();
-        int[] responseStatus = {0};
+        ReadProgress progress = new ReadProgress();
 
         try {
+            byte[] requestBody = objectMapper.writeValueAsBytes(toRequestBody(request));
+            progress.requestBytes = requestBody.length;
             String responseBody = restClient.post()
                     .uri(CHAT_COMPLETIONS_PATH)
                     .header(HttpHeaders.AUTHORIZATION, BEARER_PREFIX + properties.apiKey())
                     .contentType(MediaType.APPLICATION_JSON)
-                    .body(toRequestBody(request))
-                    .retrieve()
-                    .onStatus(status -> {
-                        // 只旁观响应状态；返回 false 保留默认 HTTP 错误处理，不接受错误响应。
-                        responseStatus[0] = status.value();
-                        return false;
-                    }, (ignoredRequest, ignoredResponse) -> {})
-                    .body(String.class);
+                    .body(requestBody)
+                    .exchange((ignoredRequest, response) -> readResponse(response, progress));
 
-            return extractContent(responseBody);
+            String content = extractContent(responseBody);
+            logProgress("COMPLETE", "PROVIDER_RESPONSE_COMPLETE", "NONE", progress);
+            return content;
         } catch (AiGatewayException exception) {
             throw exception;
-        } catch (RuntimeException exception) {
-            logFailure(exception, responseStatus[0], started);
-            // 网络、HTTP 状态码与反序列化失败都在这里统一翻译，避免第三方异常类型泄漏出去。
+        } catch (IOException | RuntimeException exception) {
+            logFailure(exception, progress);
+            // 网络与 HTTP 失败只携带固定说明；日志不输出第三方异常文本或正文。
             throw new AiGatewayException("调用 DeepSeek 失败", exception);
         }
     }
 
-    /** 未收到状态时不推断响应阶段；原因链只取类型，限制深度且不传 Throwable 给日志。 */
-    private void logFailure(RuntimeException exception, int status, long started) {
+    /** 仅旁观固定状态、时间与计数；不记录任何响应头值或正文片段。 */
+    private String readResponse(ClientHttpResponse response, ReadProgress progress) throws IOException {
+        progress.status = response.getStatusCode().value();
+        progress.headersMs = progress.elapsedMs();
+        progress.contentLength = response.getHeaders().getContentLength();
+        MediaType type = response.getHeaders().getContentType();
+        progress.contentType = type == null ? "UNKNOWN"
+                : MediaType.APPLICATION_JSON.isCompatibleWith(type) ? "JSON" : "OTHER";
+        if (response.getStatusCode().isError()) {
+            // exchange 不经过 retrieve 的状态处理；仍拒绝 HTTP 错误，且不读取错误正文或头信息。
+            throw new RestClientResponseException("Provider HTTP error", progress.status, "", null, null,
+                    StandardCharsets.UTF_8);
+        }
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (InputStream body = response.getBody()) {
+            byte[] buffer = new byte[8192];
+            int count;
+            while ((count = body.read(buffer)) != -1) {
+                if (count == 0) {
+                    continue;
+                }
+                long now = progress.elapsedMs();
+                if (progress.firstByteMs < 0) {
+                    progress.firstByteMs = now;
+                }
+                progress.lastByteMs = now;
+                progress.bodyBytes += count;
+                for (int index = 0; index < count; index++) {
+                    int value = buffer[index] & 0xff;
+                    if (value != ' ' && value != '\n' && value != '\r' && value != '\t') {
+                        progress.nonWhitespaceBytes++;
+                    }
+                }
+                bytes.write(buffer, 0, count);
+            }
+        }
+        return bytes.toString(StandardCharsets.UTF_8);
+    }
+
+    private void logFailure(Throwable exception, ReadProgress progress) {
         boolean httpError = exception instanceof RestClientResponseException;
-        String phase = httpError ? "HTTP_STATUS" : status == 0 ? "REQUEST" : "RESPONSE_BODY";
+        String phase = httpError ? "HTTP_STATUS" : progress.status == 0 ? "REQUEST" : "RESPONSE_BODY";
         String code = httpError ? "PROVIDER_HTTP_ERROR"
-                : status == 0 ? "PROVIDER_EXCHANGE_FAILED" : "PROVIDER_RESPONSE_READ_FAILED";
+                : progress.status == 0 ? "PROVIDER_EXCHANGE_FAILED" : "PROVIDER_RESPONSE_READ_FAILED";
         StringJoiner types = new StringJoiner(">");
         Throwable cause = exception;
         for (int depth = 0; cause != null && depth < 8; depth++) {
             types.add(cause.getClass().getName());
             cause = cause.getCause();
         }
-        log.warn("operation=ai-gateway.generate phase={} code={} elapsedMs={} httpStatus={} exceptionTypes={}",
-                phase, code, (System.nanoTime() - started) / 1_000_000,
-                status == 0 ? "UNKNOWN" : Integer.toString(status), types.toString());
+        logProgress(phase, code, types.toString(), progress);
+    }
+
+    private void logProgress(String phase, String code, String types, ReadProgress progress) {
+        log.info("operation=ai-gateway.generate phase={} code={} elapsedMs={} httpStatus={} exceptionTypes={} "
+                        + "requestBytes={} bodyBytes={} nonWhitespaceBytes={} headersMs={} firstByteMs={} "
+                        + "lastByteMs={} contentType={} contentLength={} stream=false maxTokens=PROVIDER_DEFAULT",
+                phase, code, progress.elapsedMs(), progress.status == 0 ? "UNKNOWN" : progress.status, types,
+                progress.requestBytes, progress.bodyBytes, progress.nonWhitespaceBytes, progress.headersMs,
+                progress.firstByteMs, progress.lastByteMs, progress.contentType, progress.contentLength);
+    }
+
+    /** 调用内独占的观测状态；时间点相对于本次 Gateway 调用，不由整体 API 时长反推。 */
+    private static final class ReadProgress {
+        private final long started = System.nanoTime();
+        private int status;
+        private int requestBytes;
+        private long bodyBytes;
+        private long nonWhitespaceBytes;
+        private long headersMs = -1;
+        private long firstByteMs = -1;
+        private long lastByteMs = -1;
+        private long contentLength = -1;
+        private String contentType = "UNKNOWN";
+
+        private long elapsedMs() {
+            return (System.nanoTime() - started) / 1_000_000;
+        }
     }
 
     private void requireApiKey() {

@@ -233,6 +233,49 @@ class DeepSeekAiGatewayAdapterTest {
         }
     }
 
+    @Test
+    void recordsPartialReadProgressWithoutRuntimeText(CapturedOutput output) {
+        server.expect(requestTo(BASE_URL + "/chat/completions")).andRespond(request -> {
+            InputStream body = new java.io.SequenceInputStream(
+                    new java.io.ByteArrayInputStream("\n \r".getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                    new InputStream() {
+                        @Override
+                        public int read() throws IOException {
+                            throw new IOException("private-body-and-header-value");
+                        }
+                    });
+            MockClientHttpResponse response = new MockClientHttpResponse(body, HttpStatus.OK);
+            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            response.getHeaders().set("X-Private", "private-body-and-header-value");
+            return response;
+        });
+
+        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        String logs = output.getAll();
+        assertTrue(logs.contains("bodyBytes=3 nonWhitespaceBytes=0"), logs);
+        assertTrue(logs.contains("contentType=JSON"));
+        assertTrue(logs.matches("(?s).*headersMs=\\d+.*firstByteMs=\\d+.*"));
+        assertFalse(logs.contains("private-body-and-header-value"));
+        assertFalse(logs.contains("X-Private"));
+        server.verify();
+    }
+
+    @Test
+    void recordsCompletedResponseSizeWithoutContent(CapturedOutput output) throws Exception {
+        String body = chatCompletion("private-source-marker");
+        server.expect(requestTo(BASE_URL + "/chat/completions"))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+
+        assertEquals("private-source-marker", adapter.generate(jsonRequest()));
+        String logs = output.getAll();
+        assertTrue(logs.contains("phase=COMPLETE code=PROVIDER_RESPONSE_COMPLETE"));
+        assertTrue(logs.contains("bodyBytes=" + body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length));
+        assertTrue(logs.matches("(?s).*requestBytes=\\d+.*"));
+        assertFalse(logs.contains("private-source-marker"));
+        assertFalse(logs.contains(API_KEY));
+        server.verify();
+    }
+
     private static AiRequest jsonRequest() {
         return new AiRequest(
                 List.of(new AiMessage(AiRole.USER, "问题")), AiResponseFormat.JSON);
