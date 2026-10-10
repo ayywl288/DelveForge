@@ -1,0 +1,29 @@
+# 显式启用：--spring.profiles.active=m4-local。
+# 复用首次真实 M4 PASS 的预算；不是最优默认值，也不是任意仓库的成功承诺。
+# 当前 AI Gateway 共用这些参数，所有 AI 阶段都会受本 profile 影响。
+server:
+  address: 127.0.0.1
+
+delveforge:
+  persistence:
+    database-file: ${DELVEFORGE_PERSISTENCE_DATABASE_FILE:./data/m4-local/delveforge.db}
+  workspace:
+    root: ${DELVEFORGE_WORKSPACE_ROOT:${user.home}/.delveforge/m4-local/workspaces}
+    verification:
+      action-timeout: 900s
+      invocation-timeout: 1200s
+      max-output-bytes: 8388608
+      max-test-reports: 160
+  ai:
+    deepseek:
+      # Endpoint、Model、Key 继承 application.yml，可通过环境变量覆盖。
+      streaming: true
+      timeout: 90s
+      stream-timeout: 300s
+      max-tokens: 98304
+      max-response-bytes: 33554432
+      max-event-bytes: 65536
+
+logging:
+  file:
+    name: ${DELVEFORGE_LOG_DIR:./logs/m4-local}/delveforge.log
