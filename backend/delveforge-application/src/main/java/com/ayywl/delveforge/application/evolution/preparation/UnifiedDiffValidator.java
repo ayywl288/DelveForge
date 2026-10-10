@@ -99,6 +99,15 @@ final class UnifiedDiffValidator {
                     }
                     if (kind != '+') {
                         if (seenOld >= oldCount || !oldLines.get(oldOffset + seenOld).equals(line.substring(1))) {
+                            // 固定分类与数字区分超出旧行数和正文不匹配；不记录源码、补丁或路径。
+                            String code = seenOld >= oldCount
+                                    ? "DIFF_HUNK_OLD_COUNT_EXHAUSTED" : "DIFF_CONTEXT_MISMATCH";
+                            int expectedChars = seenOld >= oldCount
+                                    ? -1 : oldLines.get(oldOffset + seenOld).length();
+                            log.warn("operation=coding-proposal.validate code={} oldLine={} oldCount={} "
+                                            + "seenOld={} newCount={} seenNew={} expectedChars={} actualChars={}",
+                                    code, oldOffset + seenOld + 1, oldCount, seenOld, newCount, seenNew,
+                                    expectedChars, line.length() - 1);
                             throw new AiGatewayException("Patch context does not match the expected revision");
                         }
                         seenOld++;

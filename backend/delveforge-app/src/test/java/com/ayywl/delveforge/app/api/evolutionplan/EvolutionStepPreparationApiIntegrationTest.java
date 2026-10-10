@@ -271,6 +271,39 @@ class EvolutionStepPreparationApiIntegrationTest {
         verify(ai, times(2)).generate(any());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @ExtendWith(OutputCaptureExtension.class)
+    void invalidOldLinesLogOnlyCategoryAndCounts(boolean exhausted, CapturedOutput output) throws Exception {
+        confirm();
+        Map<String, String> beforeSource = snapshot(source);
+        Map<String, String> beforeCopy = snapshot(copy);
+        String sentinel = "PRIVATE-OLD-LINE-NEVER-LOG";
+        String patch = exhausted
+                ? "--- a/A.java\n+++ b/A.java\n@@ -1 +1,2 @@\n old\n-" + sentinel + "\n+new\n"
+                : "--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-" + sentinel + "\n+new\n";
+        String coding = mapper.writeValueAsString(Map.of("type", "CHANGE_PROPOSAL", "expectedRevision", revision,
+                "summary", sentinel, "declaredAffectedPaths", List.of("A.java"), "unifiedDiff", patch,
+                "verificationStrategy", List.of(Map.of("action", "TEST", "target", "", "criterionIndexes", List.of(1)))));
+        String scout = """
+                {"focusAreas":[{"label":"code","fileRefs":["RF-1"]},
+                {"label":"behavior","fileRefs":["RF-1"]},{"label":"test","fileRefs":["RF-1"]}]}
+                """;
+        when(ai.generate(any())).thenReturn(scout, coding);
+        mvc.perform(post(route("execution-preparation"))).andExpect(status().isBadGateway());
+        readyAndUnchanged();
+        assertEquals(beforeSource, snapshot(source));
+        assertEquals(beforeCopy, snapshot(copy));
+        String logs = output.getAll();
+        assertTrue(logs.contains("code=" + (exhausted
+                ? "DIFF_HUNK_OLD_COUNT_EXHAUSTED" : "DIFF_CONTEXT_MISMATCH")));
+        assertTrue(logs.contains("oldCount=1"));
+        assertTrue(logs.contains("expectedChars=" + (exhausted ? -1 : 3)));
+        assertFalse(logs.contains(sentinel));
+        assertFalse(logs.contains("CANARY-DB-PASSWORD-0001"));
+        verify(ai, times(2)).generate(any());
+    }
+
     @Test void rejectedAIProposalLeavesPersistedReadyAndSourceUnchanged() throws Exception {
         confirm();
         when(ai.generate(any())).thenReturn("""
