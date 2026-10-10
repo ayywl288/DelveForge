@@ -180,4 +180,27 @@ class CodingProposalValidationTest {
             assertThrows(AiGatewayException.class, () -> parser.parse(mapper.writeValueAsString(root)));
         }
     }
+
+    @Test
+    void completeFileHunkPreservesExactUnchangedContext() {
+        String patch = "--- a/src/A\n+++ b/src/A\n@@ -1,3 +1,4 @@\n"
+                + " one\n-two\n+second\n+extra\n three\n";
+        assertEquals(List.of("src/A"), new UnifiedDiffValidator(paths).validate(patch,
+                Map.of("src/A", "one\ntwo\nthree\n"), Set.of("src/A")));
+    }
+
+    @Test
+    void invalidOffsetsRemainRejectedWithoutRepairingTheProposal() {
+        for (String patch : List.of(
+                "--- a/src/A\n+++ b/src/A\n@@ -9 +9 @@\n-three\n+third\n",
+                "--- a/src/A\n+++ b/src/A\n@@ -1 +2 @@\n-one\n+first\n",
+                "--- a/src/A\n+++ b/src/A\n@@ -1 +1,2 @@\n-one\n+first\n+extra\n"
+                        + "@@ -3 +3 @@\n-three\n+third\n",
+                "--- a/src/A\n+++ b/src/A\n@@ -1 +1 @@\n-one\n+first\n"
+                        + "@@ -1 +1 @@\n-one\n+again\n")) {
+            assertThrows(AiGatewayException.class, () -> new UnifiedDiffValidator(paths).validate(patch,
+                    Map.of("src/A", "one\ntwo\nthree\n"), Set.of("src/A")));
+        }
+    }
+
 }

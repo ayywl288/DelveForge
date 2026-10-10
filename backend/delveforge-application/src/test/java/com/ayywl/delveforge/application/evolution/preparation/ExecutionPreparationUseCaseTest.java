@@ -397,4 +397,35 @@ class ExecutionPreparationUseCaseTest {
         assertTrue(g.workspace.reads.isEmpty());
         g.assertReady();
     }
+
+    @Test
+    void suppliesExactLineCountsWithoutChangingLfCrLfOrMissingFinalNewlineContent() {
+        for (String original : List.of("one\n尾\n", "one\r\n尾")) {
+            Fixture f = new Fixture();
+            f.workspace.files.put("src/A.java", original);
+            f.confirm();
+            String patch = "--- a/src/A.java\n+++ b/src/A.java\n@@ -1,2 +1,2 @@\n "
+                    + (original.contains("\r") ? "one\r\n" : "one\n") + "-尾\n"
+                    + (original.endsWith("\n") ? "" : "\\ No newline at end of file\n") + "+third\n";
+            f.gateway.coding.add(proposal(patch, List.of("src/A.java")));
+            assertNotNull(f.useCase().prepare(PLAN, STEP));
+            JsonNode input = json(f.gateway.requests.getLast().messages().stream()
+                    .filter(message -> message.role() == AiRole.USER).findFirst().orElseThrow().content());
+            assertEquals(2, input.path("sourceFileLineCounts").path("src/A.java").asLong());
+            boolean foundExact = false;
+            for (JsonNode file : input.path("sourceFiles")) {
+                if (file.path("relativePath").asText().equals("src/A.java")) {
+                    assertEquals(original, file.path("content").asText());
+                    foundExact = true;
+                }
+            }
+            assertTrue(foundExact);
+            assertEquals(original, f.workspace.files.get("src/A.java"));
+            assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+            assertNull(f.store.plan.step(STEP).baselineRevision());
+            assertEquals("trusted", f.store.copy.currentRevision());
+            assertEquals("trusted", f.store.copy.lastVerifiedRevision());
+        }
+    }
+
 }

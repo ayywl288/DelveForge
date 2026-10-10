@@ -6,6 +6,7 @@ import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
+import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
@@ -36,6 +37,14 @@ public final class PrepareEvolutionStepUseCase {
          "unifiedDiff":"--- a/src/file.java\\n+++ b/src/file.java\\n@@ -1 +1 @@\\n-old\\n+new\\n",
          "verificationStrategy":[{"action":"TEST","target":"","criterionIndexes":[1]}]}
         unifiedDiff 使用 LF、结尾换行、精确旧内容和 hunk 行数，路径为规范 Git 相对路径。
+        为避免猜测定位，优先每个已有文件使用一个从第 1 行开始、覆盖完整旧文件的 hunk：
+        @@ -1,N +1,M @@；N 取 sourceFileLineCounts 中该文件的实际行数，M 为修改后实际行数。
+        sourceFiles 原文没有插入行号或改写换行；末尾换行不另算一个空行。
+        所有未修改行逐字保留为以一个空格开头的 context；删除行以 - 开头，新增行以 + 开头。
+        输出前逐行核数：N=context+删除行数，M=context+新增行数；不能省略中间正文或使用占位符。
+        如果使用局部 hunk，旧起点必须对应 sourceFiles 中实际的 1-based 行号，范围不得超出旧文件；
+        新起点必须等于旧起点加此前 hunks 的累计净增行数，所有 hunks 按旧位置排序且不得重叠。
+        不得凭记忆猜测行号或修正旧正文来匹配补丁；每个已有文件的旧内容仍必须与可见原文一致。
         新建或删除文件使用 /dev/null，不允许 rename、二进制补丁、mode 变化或内部路径。
         不修改凭据净化过的文件，不把净化占位符写回源码。
         verificationStrategy 描述 HOW；不改变现有 verificationCriteria。criterionIndexes 从 1 开始，
@@ -94,6 +103,17 @@ public final class PrepareEvolutionStepUseCase {
             payload.put("expectedRevision", loaded.copy().lastVerifiedRevision());
             payload.put("step", query);
             payload.put("sourceFiles", session.material());
+            // 与严格 diff 校验的 LF 切行一致；只补充定位数字，不改写模型可见原文。
+            Map<String, Long> lineCounts = new LinkedHashMap<>();
+            for (RepositorySourceFile file : session.material()) {
+                String content = file.content();
+                long count = content.chars().filter(character -> character == '\n').count();
+                if (!content.isEmpty() && !content.endsWith("\n")) {
+                    count++;
+                }
+                lineCounts.put(file.relativePath(), count);
+            }
+            payload.put("sourceFileLineCounts", lineCounts);
             payload.put("readOnlyPaths",
                     session.visibleOriginals().keySet().stream().filter(session::sanitized).toList());
             payload.put("remainingExpansionRounds", limits.maxExpansionRounds() - round);

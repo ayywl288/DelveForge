@@ -2,6 +2,9 @@ package com.ayywl.delveforge.application.evolution.preparation;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -15,6 +18,7 @@ import java.util.regex.Pattern;
  * 不执行 Git，不接受二进制、rename、mode 或不明确的路径语法。
  */
 final class UnifiedDiffValidator {
+    private static final Logger log = LoggerFactory.getLogger(UnifiedDiffValidator.class);
     private static final Pattern HUNK = Pattern.compile("@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@(?: .*)?");
     private final ProposalPathPolicy paths;
 
@@ -74,6 +78,11 @@ final class UnifiedDiffValidator {
                 int newOffset = newCount == 0 ? newStart : newStart - 1;
                 if (oldOffset < oldEnd || newOffset < newEnd || oldOffset > oldLines.size()
                         || (long) oldOffset + oldCount > oldLines.size() || newOffset != oldOffset + delta) {
+                    // 只记录定位数字；不泄漏补丁、源码、路径或异常文本，校验条件保持原样。
+                    log.warn("operation=coding-proposal.validate code=DIFF_HUNK_POSITION_INVALID "
+                                    + "oldStart={} oldCount={} newStart={} newCount={} oldEnd={} newEnd={} "
+                                    + "oldLineCount={} delta={}",
+                            oldStart, oldCount, newStart, newCount, oldEnd, newEnd, oldLines.size(), delta);
                     throw invalid();
                 }
                 int seenOld = 0;

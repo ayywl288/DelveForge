@@ -13,11 +13,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -237,6 +240,35 @@ class EvolutionStepPreparationApiIntegrationTest {
         mvc.perform(post(route("execution-preparation"))).andExpect(status().isConflict());
         verifyNoInteractions(ai);
         assertNull(plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId)).baselineRevision());
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void malformedHunkLogsOnlyNumericBoundsAndPreservesReadyState(CapturedOutput output) throws Exception {
+        confirm();
+        Map<String, String> beforeSource = snapshot(source);
+        Map<String, String> beforeCopy = snapshot(copy);
+        String sentinel = "PRIVATE-PROPOSAL-MATERIAL-NEVER-LOG";
+        String patch = "--- a/A.java\n+++ b/A.java\n@@ -9 +9 @@\n-old\n+" + sentinel + "\n";
+        String coding = mapper.writeValueAsString(Map.of("type", "CHANGE_PROPOSAL", "expectedRevision", revision,
+                "summary", sentinel, "declaredAffectedPaths", List.of("A.java"), "unifiedDiff", patch,
+                "verificationStrategy", List.of(Map.of("action", "TEST", "target", "", "criterionIndexes", List.of(1)))));
+        String scout = """
+                {"focusAreas":[{"label":"code","fileRefs":["RF-1"]},
+                {"label":"behavior","fileRefs":["RF-1"]},{"label":"test","fileRefs":["RF-1"]}]}
+                """;
+        when(ai.generate(any())).thenReturn(scout, coding);
+        mvc.perform(post(route("execution-preparation"))).andExpect(status().isBadGateway());
+        readyAndUnchanged();
+        assertEquals(beforeSource, snapshot(source));
+        assertEquals(beforeCopy, snapshot(copy));
+        String logs = output.getAll();
+        assertTrue(logs.contains("code=DIFF_HUNK_POSITION_INVALID"));
+        assertTrue(logs.contains("oldStart=9 oldCount=1 newStart=9 newCount=1"));
+        assertTrue(logs.contains("oldLineCount=1"));
+        assertFalse(logs.contains(sentinel));
+        assertFalse(logs.contains("CANARY-DB-PASSWORD-0001"));
+        verify(ai, times(2)).generate(any());
     }
 
     @Test void rejectedAIProposalLeavesPersistedReadyAndSourceUnchanged() throws Exception {
