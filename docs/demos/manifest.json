@@ -1,0 +1,156 @@
+{
+  "schemaVersion": 1,
+  "createdAt": "2026-10-10T16:37:09.723428+00:00",
+  "releaseStatus": "LOCAL_ONLY_NOT_PUBLISHED",
+  "validationLevel": "BUILD_READY",
+  "aiEvolutionVerified": false,
+  "testedJdk": "21.0.12.1",
+  "testedPlatform": "Windows",
+  "mavenVersion": "3.9.14",
+  "wrapperVersion": "3.3.4",
+  "demos": [
+    {
+      "id": "expense-tracker",
+      "upstreamUrl": "https://github.com/akshitap30/ExpenseTracker",
+      "upstreamRevision": "d1b1678caef82f1ae034daaf0f4986814ff5a2f1",
+      "sourceSubdirectory": ".",
+      "license": "MIT",
+      "licenseFiles": [
+        "LICENSE",
+        "MAVEN-WRAPPER-LICENSE.txt"
+      ],
+      "importedRevision": "f20410398d5b47ab3694c1b86d18ccd637894813",
+      "baselineRevision": "afb14c051daa5a5cf00ebc7a2257a887fdaa6194",
+      "javaTarget": "21",
+      "bundleFile": "expense-tracker.bundle",
+      "sizeBytes": 44325,
+      "sha256": "1c7958066e491db2be350f75eed65dea8507add99555bcbb5a94635412019b66",
+      "validationLevel": "BUILD_READY",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "baselineVerification": "mvnw.cmd verify",
+      "restoreVerification": {
+        "headMatches": true,
+        "cleanAfterClone": true,
+        "mavenStatus": "BUILD_SUCCESS",
+        "command": "mvnw.cmd -o verify",
+        "cleanAfterBuild": true,
+        "tests": 12,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "evidenceDirectory": "evidence/expense-tracker",
+      "sourceCodeChanged": false,
+      "baselineVerificationRevision": "afb14c051daa5a5cf00ebc7a2257a887fdaa6194",
+      "licenseSha256": {
+        "LICENSE": "06af661d06ee49905b8f680bce4238020090e7ba04ae7f8216863fe1dfe14fb0",
+        "MAVEN-WRAPPER-LICENSE.txt": "56dfc19e0dc836e30177332f73e8e6fbc297941acf3d906eec6eaaa46c2c452a"
+      },
+      "adaptationPatch": "evidence/expense-tracker/adaptation.patch",
+      "licenseFingerprintSource": "Bundle-restored worktree (clone with core.autocrlf=false)"
+    },
+    {
+      "id": "todolist-api",
+      "upstreamUrl": "https://github.com/EddyPBR/todolist-api",
+      "upstreamRevision": "15353cdd6fd7b3f743e9ed47ee5a4f5152339ff5",
+      "sourceSubdirectory": ".",
+      "license": "MIT",
+      "licenseFiles": [
+        "LICENSE",
+        "MAVEN-WRAPPER-LICENSE.txt"
+      ],
+      "importedRevision": "ceb3b9d2c8973e320cc57bf0e670cd43c6594212",
+      "baselineRevision": "6f032fae8e4859d063063e49bac8d3ca895b4888",
+      "javaTarget": "17",
+      "bundleFile": "todolist-api.bundle",
+      "sizeBytes": 85949,
+      "sha256": "d51a8383552977585e1f0a0491c434b89a57c18ce9bd7d4aa8990e61bc8f89da",
+      "validationLevel": "BUILD_READY",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "baselineVerification": "mvnw.cmd verify",
+      "restoreVerification": {
+        "headMatches": true,
+        "cleanAfterClone": true,
+        "mavenStatus": "BUILD_SUCCESS",
+        "command": "mvnw.cmd -o verify",
+        "cleanAfterBuild": true,
+        "tests": 4,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "evidenceDirectory": "evidence/todolist-api",
+      "sourceCodeChanged": false,
+      "baselineVerificationRevision": "855efb07140430fd0029b76f754623c6480ad1ab",
+      "licenseSha256": {
+        "LICENSE": "83fe4974b9bd0ad7c9732bdfd9370087c1e851f5f549c53bab442f383449267c",
+        "MAVEN-WRAPPER-LICENSE.txt": "56dfc19e0dc836e30177332f73e8e6fbc297941acf3d906eec6eaaa46c2c452a"
+      },
+      "adaptationPatch": "evidence/todolist-api/adaptation.patch",
+      "licenseFingerprintSource": "Bundle-restored worktree (clone with core.autocrlf=false)"
+    },
+    {
+      "id": "gs-rest-service",
+      "upstreamUrl": "https://github.com/spring-guides/gs-rest-service",
+      "upstreamRevision": "3f4cef01152596c19bc4d37939409358812b1421",
+      "sourceSubdirectory": "complete (Maven files only)",
+      "license": "Apache-2.0",
+      "licenseFiles": [
+        "LICENSE.txt",
+        "LICENSE.writing.txt"
+      ],
+      "importedRevision": "39a69b411c8b0c352869f7efa5138f49d05f43ee",
+      "baselineRevision": "e38e4a1cc1f54c036d40dd111ab50d103b154c06",
+      "javaTarget": "17",
+      "bundleFile": "gs-rest-service.bundle",
+      "sizeBytes": 19970,
+      "sha256": "8552c907826ac305b2a8363ac19d08c26295144e6789f8d91c49a54b4487e38b",
+      "validationLevel": "BUILD_READY",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "baselineVerification": "mvnw.cmd verify",
+      "restoreVerification": {
+        "headMatches": true,
+        "cleanAfterClone": true,
+        "mavenStatus": "BUILD_SUCCESS",
+        "command": "mvnw.cmd -o verify",
+        "cleanAfterBuild": true,
+        "tests": 3,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "evidenceDirectory": "evidence/gs-rest-service",
+      "sourceCodeChanged": false,
+      "baselineVerificationRevision": "23a63bf22bcc689d6a41a003b7abb3391ab68693",
+      "licenseSha256": {
+        "LICENSE.txt": "10e30e9bd8834d52c72cef7f67fc0adc1c14e3e83b816ed39e0c9b9b284b27e9",
+        "LICENSE.writing.txt": "aa48c1d696f8aa02c65497cb47269f83e2ef3ffc7b6fd0ddfc4d22f854d65ab5"
+      },
+      "adaptationPatch": "evidence/gs-rest-service/adaptation.patch",
+      "licenseFingerprintSource": "Bundle-restored worktree (clone with core.autocrlf=false)"
+    }
+  ],
+  "bundleDirectory": "bundles",
+  "restoredDirectory": "restored-final",
+  "delveforgeStages": {
+    "C1": "7d8c7912e22bef7eda5f19ef4acc847c3bdcc5a5",
+    "C2": "10b7ac04306dc16184ddd2bbb7819d038d371708"
+  },
+  "notes": [
+    "BUILD_READY is not EVOLUTION_VERIFIED.",
+    "No paid Provider or evolution run was performed for these demos.",
+    "Original business Java sources are unchanged.",
+    "Offline restore verification uses the dependency cache populated by prior reviewed builds.",
+    "TodoList and Spring REST have a follow-up line-ending metadata commit after C2 verification.",
+    "Release attachments have not been published."
+  ]
+}

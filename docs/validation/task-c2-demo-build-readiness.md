@@ -51,6 +51,11 @@ TodoList 第一次尝试因本任务新增测试的 JSON 字符串转义错误�
 失败、错误、跳过均为 0。计数取自真实 Surefire XML，不是模型描述。上表为依赖已下载后的
 验证耗时，不包含第一次下载。构建后的 Git 工作树均干净，target 被各仓库忽略。
 
+**C3 后续还原检查：** TodoList 与 Spring REST 新增的强制 POM LF 规则与原 CRLF blob
+不匹配，导致 fresh clone 显示 POM 修改。去掉规则、保留原 POM 后追加独立适配提交并通过
+还原验证；上表保留 C2 当时的验证 revision，最终 Bundle baseline 以
+[manifest](../demos/manifest.json) 为准，过程见 [C3](task-c3-demo-bundle-delivery.md)。
+
 证据根为 `E:\df-demo-pack\20261011`：
 
 - `upstream/`：原始 clone 及固定 commit 的 zip 导出，保持只读来源。

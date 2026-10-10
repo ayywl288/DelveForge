@@ -1977,3 +1977,11 @@ Domain Model
 C1 仅修复 M1 同版本充分性复用、并发保存和探索/审阅展示；C2 准备三个许可清晰的
 Java/Maven BUILD_READY 演示基线；C3 准备本地 Bundle、Catalog 与 README。
 不新增演化能力，不调用付费 Provider，不自动发布/push；M4 保持冻结，M5 仍暂缓。
+
+**Completed: 2026-10-11。** C1 已完成同版本评估复用、原子保存与会话/审阅分离，
+完整后端 1401 项及前端 34 项通过；C2 三个固定许可来源的独立基线构建通过；C3 三份
+Bundle 均还原到新目录，HEAD/工作树与 manifest 一致，离线 Maven 测试通过。
+三份仅为 BUILD_READY，尚未由真实 Provider 演化；GitHub Release 附件待用户确认发布。
+见 [C1](validation/task-c1-user-discovery-consistency.md)、
+[C2](validation/task-c2-demo-build-readiness.md)、[C3](validation/task-c3-demo-bundle-delivery.md)
+与 [Demo Catalog](demos/README.md)。本任务后等待手动验收，不继续扩展功能或开始 M5。

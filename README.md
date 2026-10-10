@@ -12,7 +12,7 @@
 ![Spring Boot 3.5](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F)
 ![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D)
 
-[了解功能](#features) · [快速开始](#getting-started) · [如何使用](#usage) · [文档](#documentation)
+[了解功能](#features) · [快速开始](#getting-started) · [演示仓库](#demo-repositories) · [如何使用](#usage) · [文档](#documentation)
 
 </div>
 
@@ -69,6 +69,19 @@ Elasticsearch 搜索与聚合能力。一个可能的方向是复用索引、筛
 这个例子来自已有验证中的方向建议，不代表每次都会生成相同结果，也不代表改造已经完成。
 同一个需求配上不同的软件资产，可以得到不同的演化路径。
 
+### 已完成的真实演化
+
+DelveForge 已用自己的 Java/Maven 仓库完成一次真实 DeepSeek → CodingProposal → Candidate
+→ Maven Verification。用户希望仓库分析能从 `shop_service.py`、`place_order_use_case.py`
+这类 Python 文件名识别应用服务角色。模型修改了隔离 WorkingCopy 内的分类器与回归测试，
+补充正例、Python 反例及其它语言保持不变的检查。
+
+Candidate 的 **1346 项测试**与 BUILD / DIFF_CHECK 均通过后，Step 才成为 SUCCEEDED，
+`lastVerifiedRevision` 从 A (`47ca448`) 推进到 B (`6dfdc12`)。原始仓库没有被演化修改。
+执行器为 `9efee445`，其维护修复后来已整合至 main；Candidate 的业务补丁未合入 main。
+完整 Plan、实际 diff 与排障过程见 [首次 Verified B](docs/validation/m4-real-provider-verified-evolution-smoke.md)。
+这是一次受控功能 PASS，不是任意仓库都能演化成功的证明。
+
 <a id="getting-started"></a>
 
 ## 🚀 Getting Started
@@ -96,6 +109,20 @@ Windows 上的 PowerShell 7 将 `./mvnw` 换成 `./mvnw.cmd`，并用不回显�
 $env:DEEPSEEK_API_KEY = Read-Host 'DeepSeek API Key' -MaskInput
 ```
 
+Key 仅注入**后端进程的环境变量**；不要放在前端 `.env`、浏览器存储或请求正文。
+Endpoint / model 可用 `DELVEFORGE_AI_DEEPSEEK_BASEURL` / `DELVEFORGE_AI_DEEPSEEK_MODEL`
+覆盖。数据库、Workspace 与日志可通过以下变量选择自己的运行目录：
+
+```powershell
+$localRunRoot = Join-Path $env:LOCALAPPDATA 'DelveForge\local-demo'
+$env:DELVEFORGE_PERSISTENCE_DATABASE_FILE = Join-Path $localRunRoot 'data\delveforge.db'
+$env:DELVEFORGE_WORKSPACE_ROOT = Join-Path $localRunRoot 'workspaces'
+$env:DELVEFORGE_LOG_DIR = Join-Path $localRunRoot 'logs'
+```
+
+设置后再启动 JAR。若要体验全新环境，选择新的运行目录，不要删除原业务数据库。
+重复启动同一路径会保留此前画像，且只能有一个应用实例使用该 DB / Workspace。
+
 上述本地 profile 运行于 `http://127.0.0.1:8080`，SQLite 默认位于 `./data/m4-local/delveforge.db`，
 Workspace 和日志位置可覆盖。不指定 profile 时数据库默认仍为 `./data/delveforge.db`。
 未设置 Key 时仍可启动服务，但需要模型的请求会失败。真实凭据不要提交到仓库。
@@ -121,6 +148,25 @@ pnpm dev
 使用步骤与断线处理见 [Frontend README](frontend/README.md)。AI 操作产生 Provider 费用；
 执行前还需独立授权 Step 并确认宿主运行风险，页面不会自动执行下一步。
 
+<a id="demo-repositories"></a>
+
+## 演示仓库
+
+准备了三份固定来源、许可清晰的独立 Git Bundle，源码与历史在主仓库外。
+**公开附件待发布**；当前没有下载链接。目录、SHA-256、还原与注册命令见
+[Demo Catalog](docs/demos/README.md) 和 [manifest](docs/demos/manifest.json)。
+
+| 演示 / 待发布文件 | 当前能力 | 许可 | 验证等级 |
+|---|---|---|---|
+| ExpenseTracker · `expense-tracker.bundle` | 费用 CRUD、用户范围、搜索/分类/分页 | MIT | BUILD_READY；12 测试通过 |
+| TodoList API · `todolist-api.bundle` | 认证、任务 CRUD、日期及归属检查 | MIT | BUILD_READY；4 测试通过 |
+| Spring REST · `gs-rest-service.bundle` | 官方 complete Maven 问候接口 | Apache-2.0 | BUILD_READY；3 测试通过 |
+
+三份均已从 Bundle 还原，HEAD 和清单一致、工作树干净，JDK 21 下 Maven 测试可运行。
+它们**尚未获得 AI 演化验证**。保留上游业务代码，只适配 Wrapper、本地测试及配置；每套
+提供两个未预先实现的新方向。TodoList 的实体响应/更新限制、ExpenseTracker 的邮件依赖
+等边界见 Catalog，测试通过不表示可直接投入生产。
+
 <a id="usage"></a>
 
 ## 💡 Usage
@@ -133,7 +179,8 @@ pnpm dev
 | 1 | 创建用户画像 | `POST /api/user-profiles` |
 | 2 | 提交需求，按返回问题继续探索 | `POST /api/user-profiles/{id}/discovery-turn` |
 | 3 | 查看画像，必要时纠正字段 | `GET /api/user-profiles/{id}`、`PATCH /api/user-profiles/{id}` |
-| 4 | 审阅后确认当前版本 | `POST /api/user-profiles/{id}/confirm` |
+| 4a | 用户主动进入画像审阅 | `POST /api/user-profiles/{id}/sufficiency-assessment`，`{"revision": N}` |
+| 4b | 核对六区和依据，再确认当前版本 | `POST /api/user-profiles/{id}/confirm`，`{"revision": N}` |
 | 5 | 登记本地 Git 仓库及授权信息 | `POST /api/software-assets` |
 | 6 | 分析仓库，取得仓库画像 | `POST /api/software-assets/{id}/analysis` |
 | 7 | 以确认后的用户画像和仓库画像发现方向 | `POST /api/product-directions/discovery` |
@@ -145,8 +192,10 @@ pnpm dev
 | 13 | 核对结果及可信 revision | `GET /api/evolution-plans/{planId}`、`GET /api/working-copies/{id}` |
 
 Discovery turn 的请求形如 `{"input":"我想做自托管记账工具，主要会 Java，只有周末有时间。"}`。
-信息不足时按 `nextQuestion` 继续回答；进入 `REVIEWING` 后检查画像，
-确认时提交你实际审阅版本的 `{"revision": N}`。
+按 `nextQuestion` 连续回答；`sufficient=true` 只表示可以审阅，仍可继续探索。
+首次达到条件会提示选择，后续不逐轮弹窗。同一版本审阅优先复用服务端有效评估；内容变更
+后旧结论失效。进入审阅后核对六区、依据与待核实内容，再显式确认实际版本 `N`。
+确认后不会自动提问；需要时主动重新开启探索，历史方向仍绑定原画像版本。
 
 登记仓库时提供 `location`、`readPermissionAllowed`、`licenseInfo` 与 `usageAuthorization`，
 按真实权限填写。取得分析结果后，方向发现请求的形状如下：
@@ -162,6 +211,19 @@ Discovery turn 的请求形如 `{"input":"我想做自托管记账工具，主�
 将示例中的 ID 和 `23` 换成实际返回的值。选择新方向时，原先选中的方向会进入 `SUPERSEDED`；
 系统不会替你选择，也不会在选择后自动修改代码。
 详细操作记录见 [端到端使用示例](docs/validation/m2-product-direction-e2e-smoke.md#13-复现)。
+
+### 当前使用范围
+
+自定义授权仓库可以尝试分析、发现方向和规划；真实代码演化当前面向小型 Java/Maven Git
+项目，要求根 Maven Wrapper、可运行的实际测试、干净的受校验 Git revision。先审查构建
+脚本并运行 Wrapper 准备依赖缓存，生产 Verification 使用离线 Maven。JDK 21 是 DelveForge
+运行要求，演示项目的 Java 编译目标可为 17 或 21。
+
+当前技术验证支持 BUILD、完整/指定 Java 测试与 Git diff 检查；不支持的业务标准不会被算作
+通过。**Windows 执行 Maven 不是 OS 级隔离**，仅使用受信任仓库和合成数据。模型输出、
+Patch 与单次 PASS 都不能提供任意仓库的成功率或安全认证。M5 Repair / Retry / Recovery
+尚未实现；执行失败或断线后先查实际状态，不能靠重发 execute、手工改库或 reset Candidate
+恢复。详细边界见 [M4 本地使用](docs/M4_LOCAL_USAGE.md)。
 
 ## 🏗 Engineering & Architecture
 
@@ -215,6 +277,8 @@ Frontend ──HTTP──▶ App
 - [M4 本地使用](docs/M4_LOCAL_USAGE.md) — 配置、API 顺序、确认与失败边界
 - [M4 交付冻结](docs/validation/m4-delivery-closeout.md) — 合并、最终验证与证据归档
 - [Minimal Web 验证](docs/validation/minimal-web-experience.md) — UI 契约、离线联通与交互边界
+- [Demo Catalog](docs/demos/README.md) — 三套 BUILD_READY 基线、待发布附件及还原步骤
+- [User Discovery 一致性修复](docs/validation/task-c1-user-discovery-consistency.md) — 同版本审阅、提示与会话保留
 - [ADRs](docs/decisions/) — 关键设计决策与取舍
 - Engineering notes — [开发复盘](docs/retrospectives/) / [验证记录](docs/validation/)
 
