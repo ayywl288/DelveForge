@@ -14,8 +14,8 @@ import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
  * 或声明「不足」却说不出缺什么、也提不出下一个问题，都属于自相矛盾的输出，
  * 不能被当成合法的评估结果接受。
  *
- * <p>内容是否真的足够不由本类判断，也不由 Application 判断——那只影响「要不要尝试
- * EXPLORING → REVIEWING」，而那条转移是否被允许由 Domain 决定。
+ * <p>本类只检查结构与自洽性。具体内容由评估器结合 AI 与用户依据判断，
+ * 基本缺失检查在 Application；显式审阅的状态转换仍由 Domain 决定。
  */
 public final class ProfileSufficiencyProposalParser {
 

@@ -14,6 +14,10 @@ import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoun
 import com.ayywl.delveforge.application.userdiscovery.shared.InMemoryUserProfileRepository;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.ProfileSufficiencyEvaluator;
 import com.ayywl.delveforge.domain.user.UserProfile;
+import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
+import com.ayywl.delveforge.application.userdiscovery.review.ContinueDiscoveryUseCase;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import com.ayywl.delveforge.domain.user.UserProfileStatus;
@@ -88,8 +92,8 @@ class RunUserDiscoveryTurnUseCaseTest {
     }
 
     @Test
-    void movesToReviewingAndSavesOnceWhenSufficient() {
-        seedProfile();
+    void staysExploringAndSavesOnceWhenSufficient() {
+        seedReadyProfile();
         int savesBefore = repository.saveCount();
         aiGateway.respondWith(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
 
@@ -98,10 +102,10 @@ class RunUserDiscoveryTurnUseCaseTest {
         assertTrue(turn.sufficiency().sufficient());
         assertEquals(List.of(), turn.sufficiency().missingAreas());
         assertNull(turn.sufficiency().nextQuestion());
-        assertEquals(UserProfileStatus.REVIEWING, turn.profile().status());
+        assertEquals(UserProfileStatus.EXPLORING, turn.profile().status());
 
         UserProfile reloaded = repository.findById(PROFILE_ID).orElseThrow();
-        assertEquals(UserProfileStatus.REVIEWING, reloaded.status());
+        assertEquals(UserProfileStatus.EXPLORING, reloaded.status());
         assertEquals(List.of("图片处理"), reloaded.interests());
         assertEquals(INITIAL_REVISION + 3, reloaded.revision(), "状态变化不推进 revision");
         assertEquals(savesBefore + 1, repository.saveCount(), "一整轮只保存一次");
@@ -218,7 +222,7 @@ class RunUserDiscoveryTurnUseCaseTest {
      */
     @Test
     void advancesAcrossTurnsUntilSufficient() {
-        seedProfile();
+        seedReadyProfile();
         aiGateway.respondWith(EXTRACTION_RESPONSE, INSUFFICIENT_RESPONSE);
 
         UserDiscoveryTurn first = useCase.run(PROFILE_ID, USER_INPUT);
@@ -232,7 +236,7 @@ class RunUserDiscoveryTurnUseCaseTest {
         UserDiscoveryTurn second = useCase.run(PROFILE_ID, nextQuestion + " —— 主要用 Java");
 
         assertTrue(second.sufficiency().sufficient());
-        assertEquals(UserProfileStatus.REVIEWING, second.profile().status());
+        assertEquals(UserProfileStatus.EXPLORING, second.profile().status());
         assertEquals(List.of("图片处理"), second.profile().interests(), "上一轮的内容应当保留");
         assertEquals(List.of("Java"), second.profile().technicalCapabilities());
     }
@@ -290,6 +294,36 @@ class RunUserDiscoveryTurnUseCaseTest {
         UserProfile profile = UserProfile.create(PROFILE_ID);
         repository.save(profile);
         return profile;
+    }
+
+    private UserProfile seedReadyProfile() {
+        UserProfile profile = UserProfile.reconstitute(PROFILE_ID, UserProfileStatus.EXPLORING, 1,
+                List.of(), List.of(), List.of(), List.of("Java"), List.of("做一个批量头像裁剪工具"),
+                List.of("每周三小时"), List.of(new Evidence(EvidenceSourceType.USER_INPUT,
+                        "我用Java，希望每周三小时完成头像裁剪工具", "目标、基础与时间范围", null, false)));
+        repository.save(profile);
+        return profile;
+    }
+
+    @Test
+    void continueDiscoveryAllowsConsecutiveSufficientTurnsUntilExplicitReview() {
+        seedReadyProfile();
+        aiGateway.respondWith(SUFFICIENT_RESPONSE);
+        AssessProfileSufficiencyUseCase review = new AssessProfileSufficiencyUseCase(
+                repository, new ProfileSufficiencyEvaluator(aiGateway, new ObjectMapper()));
+        assertEquals(UserProfileStatus.REVIEWING, review.assess(PROFILE_ID).profileStatus());
+        new ContinueDiscoveryUseCase(repository).continueDiscovery(PROFILE_ID);
+
+        for (String input : List.of("再补充一种输出尺寸", "再补充预览功能")) {
+            aiGateway.respondWith("{}", SUFFICIENT_RESPONSE);
+            UserDiscoveryTurn turn = useCase.run(PROFILE_ID, input);
+            assertTrue(turn.sufficiency().sufficient());
+            assertEquals(UserProfileStatus.EXPLORING, turn.profile().status());
+            assertThrows(UserProfileStateException.class,
+                    () -> turn.profile().confirm(turn.profile().revision()));
+        }
+        aiGateway.respondWith(SUFFICIENT_RESPONSE);
+        assertEquals(UserProfileStatus.REVIEWING, review.assess(PROFILE_ID).profileStatus());
     }
 
     /**

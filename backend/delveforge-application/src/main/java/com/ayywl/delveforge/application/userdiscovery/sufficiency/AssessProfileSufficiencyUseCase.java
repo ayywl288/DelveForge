@@ -9,7 +9,7 @@ import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 
 /**
- * 判断当前 User Profile 的信息是否已经足够进入 Review 阶段（DOMAIN_MODEL.md §6.1）。
+ * 用户显式请求进入 Review：重新判断当前信息，充分才推进状态（DOMAIN_MODEL.md §6.1）。
  *
  * <pre>
  * 当前 User Profile
@@ -36,7 +36,7 @@ import com.ayywl.delveforge.domain.user.UserProfileStateException;
  * <p>信息不足时本 Use Case 不写入任何内容，也不推进 revision——{@code revision} 只由
  * 六个内容区与 Evidence 的实际变化推进（§6.1），状态本身不在其中。
  *
- * <p>本 Use Case 不包含：Review / Correct / Confirm、REVIEWING → CONFIRMED、
+ * <p>本 Use Case 不包含：内容纠正 / Confirm、REVIEWING → CONFIRMED、
  * CONFIRMED → EXPLORING，也不保存评估历史。
  */
 public class AssessProfileSufficiencyUseCase {
@@ -71,13 +71,16 @@ public class AssessProfileSufficiencyUseCase {
     public SufficiencyAssessment assess(UserProfileId userProfileId) {
         UserProfile candidate = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
 
-        SufficiencyAssessment assessment =
-                profileSufficiencyEvaluator.evaluateAndApply(candidate);
+        // 这是用户显式请求进入审阅的入口，普通对话轮不调用此状态转换。
+        candidate.requireExplorationAllowed();
+        SufficiencyAssessment assessment = profileSufficiencyEvaluator.evaluate(candidate);
 
         // 只有真的发生了状态转移才写入：信息不足时不产生任何持久化副作用。
         if (assessment.sufficient()) {
+            candidate.beginReview();
             userProfileRepository.save(candidate);
         }
-        return assessment;
+        return new SufficiencyAssessment(assessment.sufficient(), assessment.missingAreas(),
+                assessment.nextQuestion(), candidate.status());
     }
 }

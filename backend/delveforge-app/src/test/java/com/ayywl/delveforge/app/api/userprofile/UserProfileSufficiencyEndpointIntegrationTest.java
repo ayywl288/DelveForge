@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -82,7 +83,7 @@ class UserProfileSufficiencyEndpointIntegrationTest {
 
     @Test
     void movesToReviewingWhenSufficient() throws Exception {
-        String id = createProfile();
+        String id = createReadyProfile();
         given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
 
         mockMvc.perform(assess(id))
@@ -94,7 +95,7 @@ class UserProfileSufficiencyEndpointIntegrationTest {
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("REVIEWING"))
-                .andExpect(jsonPath("$.revision").value(1));
+                .andExpect(jsonPath("$.revision").value(5));
     }
 
     /**
@@ -128,7 +129,7 @@ class UserProfileSufficiencyEndpointIntegrationTest {
      */
     @Test
     void rejectsRepeatedAssessmentWithConflict() throws Exception {
-        String id = createProfile();
+        String id = createReadyProfile();
         given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
 
         mockMvc.perform(assess(id))
@@ -143,7 +144,7 @@ class UserProfileSufficiencyEndpointIntegrationTest {
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("REVIEWING"))
-                .andExpect(jsonPath("$.revision").value(1));
+                .andExpect(jsonPath("$.revision").value(5));
     }
 
     private String createProfile() throws Exception {
@@ -151,6 +152,20 @@ class UserProfileSufficiencyEndpointIntegrationTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         return objectMapper.readTree(body).path("id").asText();
+    }
+
+    private String createReadyProfile() throws Exception {
+        String id = createProfile();
+        mockMvc.perform(patch("/api/user-profiles/{id}", id).contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"technicalCapabilities":["Java接口开发"],
+                         "projectGoals":["做一个展示接口与测试的求职作品"],"constraints":["每周五小时"],
+                         "additionalEvidence":[{"sourceType":"USER_INPUT",
+                           "sourceRef":"用Java做接口与测试求职作品，每周五小时",
+                           "claim":"用户明确说明项目成果、开发基础与时间", "confirmed":false}]}
+                        """))
+                .andExpect(status().isOk());
+        return id;
     }
 
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder assess(String id) {

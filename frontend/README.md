@@ -22,7 +22,7 @@ pnpm dev
 
 | 阶段 | 用户操作 | 实际接口与决定 |
 |---|---|---|
-| 需求探索 | 创建画像，多轮回答实际下一轮问题；逐维纠正六维画像 | create / discovery-turn / PATCH / sufficiency-assessment；充分后 REVIEWING，勾选审阅并 confirm 当前 revision |
+| 需求探索 | 创建画像，连续多轮回答实际问题；逐维纠正六维画像；自主进入审阅 | discovery-turn 充分仍保持探索；点击进入审阅调用 sufficiency-assessment，充分才 REVIEWING，勾选审阅并 confirm 当前画像版本 |
 | 理解仓库 | 输入绝对路径，明确读取权限、许可证、复用授权；注册后单独分析 | software-assets / analysis；展示分析结构、Evidence、analyzedRevision |
 | 产品方向 | 选择分析快照、生成候选、展开各业务字段与三类依据 | discovery；Select / Reject 独立确认，没有默认选择 |
 | 演化规划 | 选择授权基础快照，查看 Current / Target / Reuse / Changes / Risks 和有序 Step | planning；审阅后 prepare 激活 Plan 并创建 WorkingCopy；没有 Plan confirm API；Step 需各自 confirm |

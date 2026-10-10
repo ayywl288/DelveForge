@@ -106,6 +106,12 @@ export function createSession() {
         "浏览器无法保存对象 ID；刷新后请使用恢复入口。执行操作需要可用的本地存储。";
     }
   };
+  function appendQuestion(question: string | null) {
+    if (!question || messages.value.some(
+      (message) => message.role === "agent" && message.text === question,
+    )) return;
+    messages.value.push({ role: "agent", text: question });
+  }
   function setPlan(value: EvolutionPlan) {
     planVersion++;
     plan.value = value;
@@ -184,7 +190,11 @@ export function createSession() {
       };
       await Promise.all([
         load("画像", async () => {
-          if (ids.profileId) profile.value = await api.profile(ids.profileId);
+          if (ids.profileId) {
+            const latest = await api.profile(ids.profileId);
+            if (latest.revision !== profile.value?.revision) sufficiency.value = null;
+            profile.value = latest;
+          }
         }),
         load("仓库授权", async () => {
           assets.value = await Promise.all(ids.assetIds.map(api.asset));
@@ -386,9 +396,9 @@ export function createSession() {
           const result = await api.discoveryTurn(profile.value!.id, input);
           profile.value = result.profile;
           sufficiency.value = result;
-          if (result.nextQuestion)
-            messages.value.push({ role: "agent", text: result.nextQuestion });
+          appendQuestion(result.nextQuestion);
         } catch (failure) {
+          sufficiency.value = null;
           const last = messages.value.at(-1);
           if (last) last.failed = true;
           try {
@@ -409,8 +419,10 @@ export function createSession() {
     },
     async assess() {
       if (profile.value)
-        await run("重新评估充分性", async () => {
+        await run("评估并请求进入审阅", async () => {
+          sufficiency.value = null;
           sufficiency.value = await api.assess(profile.value!.id);
+          appendQuestion(sufficiency.value.nextQuestion);
           profile.value = await api.profile(ids.profileId);
         });
     },
@@ -423,6 +435,7 @@ export function createSession() {
               revision,
             );
           } catch (failure) {
+            sufficiency.value = null;
             profile.value = await api.profile(ids.profileId);
             throw failure;
           }

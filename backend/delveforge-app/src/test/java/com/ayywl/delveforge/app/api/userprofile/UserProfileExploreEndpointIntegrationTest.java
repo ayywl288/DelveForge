@@ -92,6 +92,14 @@ class UserProfileExploreEndpointIntegrationTest {
     @Test
     void keepsUpdatingContentWhileReviewing() throws Exception {
         String id = createProfile();
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(
+                        "/api/user-profiles/{id}", id).contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"technicalCapabilities":["Java接口开发"],"projectGoals":["接口与测试求职作品"],
+                         "constraints":["每周五小时"],"additionalEvidence":[{"sourceType":"USER_INPUT",
+                           "sourceRef":"用Java做求职作品，每周五小时","claim":"项目成果与范围", "confirmed":false}]}
+                        """))
+                .andExpect(status().isOk());
         given(aiGateway.generate(any())).willReturn(
                 "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"\"}");
         mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id))
@@ -105,11 +113,11 @@ class UserProfileExploreEndpointIntegrationTest {
                 .andExpect(jsonPath("$.status").value("REVIEWING"))
                 .andExpect(jsonPath("$.interests[0]").value("Review 阶段补充的兴趣"))
                 // 一个内容区 + 一条 Evidence
-                .andExpect(jsonPath("$.revision").value(3));
+                .andExpect(jsonPath("$.revision").value(7));
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("REVIEWING"))
-                .andExpect(jsonPath("$.revision").value(3))
+                .andExpect(jsonPath("$.revision").value(7))
                 .andExpect(jsonPath("$.interests[0]").value("Review 阶段补充的兴趣"));
     }
 

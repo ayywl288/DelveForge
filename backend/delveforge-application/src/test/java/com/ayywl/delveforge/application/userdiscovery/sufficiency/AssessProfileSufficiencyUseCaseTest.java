@@ -12,6 +12,8 @@ import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
 import com.ayywl.delveforge.domain.user.UserProfile;
+import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStatus;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
@@ -74,7 +76,12 @@ class AssessProfileSufficiencyUseCaseTest {
 
     @Test
     void movesToReviewingWhenSufficient() {
-        UserProfile profile = seedProfile();
+        UserProfile profile = UserProfile.reconstitute(PROFILE_ID, UserProfileStatus.EXPLORING, 1,
+                List.of("图片处理"), List.of(), List.of(), List.of("Java图像处理"),
+                List.of("为每周更新头像实现批量裁剪工具"), List.of("每周三小时"),
+                List.of(new Evidence(EvidenceSourceType.USER_INPUT, "用Java做头像裁剪，每周三小时",
+                        "需要头像裁剪工具", null, false)));
+        repository.save(profile);
         int revisionBefore = profile.revision();
         aiGateway.respond(SUFFICIENT_RESPONSE);
 

@@ -6,8 +6,8 @@ import java.util.List;
  * 一轮 User Discovery 在 HTTP 接口上的表示。
  *
  * <p>{@code profile} 是这一轮结束时的 User Profile，它同时承载了
- * {@code status} 与 {@code revision}：{@code sufficient} 为 true 时 {@code status}
- * 一定是 {@code REVIEWING}（由 Domain 决定，不是接口层写死的）。
+ * {@code status} 与 {@code revision}：本轮仍为 {@code EXPLORING}；{@code sufficient}
+ * 为 true 只代表最低审阅条件满足，不代表用户已经选择结束探索。
  *
  * <p>{@code sufficient} 为 false 时，{@code missingAreas} 与 {@code nextQuestion}
  * 描述还缺什么、下一句该问什么；调用方用 {@code nextQuestion} 向用户提问，拿到回答后

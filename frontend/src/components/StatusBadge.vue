@@ -1,5 +1,7 @@
 <script setup lang="ts">
-defineProps<{ status: string }>();
+withDefaults(defineProps<{ status: string; showCode?: boolean }>(), {
+  showCode: true,
+});
 const labels: Record<string, string> = {
   EXPLORING: "探索中",
   REVIEWING: "待审阅",
@@ -30,6 +32,6 @@ const labels: Record<string, string> = {
 </script>
 <template>
   <span class="badge" :data-status="status"
-    >{{ labels[status] ?? status }} <small>{{ status }}</small></span
+    >{{ labels[status] ?? status }} <small v-if="showCode">{{ status }}</small></span
   >
 </template>

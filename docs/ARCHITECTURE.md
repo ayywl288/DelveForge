@@ -503,7 +503,7 @@ Frontend 采用 Vitest + jsdom 验证五阶段交互和长请求，夹具不依�
 | `POST`  | `/api/user-profiles/{id}/confirm` | 用户确认 Profile（`REVIEWING → CONFIRMED`），请求体须携带所依据的 revision | 200 | 400 / 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/continue-discovery` | 用户选择继续探索（`REVIEWING → EXPLORING`） | 200 | 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/reopen-discovery` | 用户重新开启探索（`CONFIRMED → EXPLORING`） | 200 | 404 / 409 |
-| `POST`  | `/api/user-profiles/{id}/discovery-turn` | 一轮 User Discovery：提取 → 更新 → 评估 → 必要时进入 Review | 200 | 400 / 404 / 409 / 502 |
+| `POST`  | `/api/user-profiles/{id}/discovery-turn` | 一轮 User Discovery：提取 → 更新 → 评估最低审阅条件，保持探索 | 200 | 400 / 404 / 409 / 502 |
 | `POST`  | `/api/software-assets`           | 登记一个 Software Asset（只登记元数据，不访问文件系统）     | 201  | 400  |
 | `GET`   | `/api/software-assets/{id}`      | 读取已登记的资产元数据                                     | 200  | 404  |
 | `POST`  | `/api/software-assets/{id}/analysis` | 分析该资产的 Repository，形成一份新的 Repository Profile | 201 | 404 / 409 / 502 |
@@ -537,7 +537,8 @@ AI 调用失败或返回内容无法解析时返回 502，与其它外部能力�
 响应体    {"sufficient": …, "missingAreas": [...], "nextQuestion": …, "profileStatus": "…"}
 ```
 
-系统把「当前 Profile」交给 AI Gateway，得到一份充分性建议，再决定是否推进状态：
+该入口表示用户显式请求进入审阅。系统把当前六区内容与 Evidence（含 sourceRef 原始依据）
+交给 AI Gateway，得到充分性建议。先校验 EXPLORING，非法起点不调用 AI；充分时才请求状态转换：
 
 ```text
 insufficient   Profile 保持 EXPLORING，不写入、不推进 revision
@@ -549,6 +550,11 @@ sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是�
 会被解析层拒绝，按 502 处理且不改变任何状态。
 
 评估结果当前不持久化，每次调用都会重新评估。
+
+充分性不是六区非空或条目计数：AI 需核对具体动机 / 期望成果、技术基础、约束及用户输入依据；
+兴趣、学习和求职可充分，painPoints 可为空。Application 同时拦截缺失目标、技术基础、约束
+或 USER_INPUT Evidence 的正面建议。该检查不能证明自然语言的语义真实性，仍需要用户审阅。
+一次不足仅返回一个最有价值的问题；达到最低条件不为了固定轮数追加问题。
 
 **discovery-turn 语义**
 
@@ -567,26 +573,26 @@ sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是�
 评估      对「本轮已经更新过的候选 Profile」判断信息是否足够
      ↓
 insufficient  保存更新后的 Profile，返回 missingAreas + nextQuestion，仍为 EXPLORING
-sufficient    执行 EXPLORING → REVIEWING，保存 Profile，返回 REVIEWING
+sufficient    保存更新后的 Profile，返回最低条件已满足，仍为 EXPLORING；等待用户选择审阅
 ```
 
 - **`discovery-turn` 只能从 `EXPLORING` 开始**：`REVIEWING` 与 `CONFIRMED` 下调用直接 409，
   不调用 AI、不改动内容。这道校验由 Domain 提供
-  （`UserProfile.requireExplorationAllowed()`）。若没有它，同一轮输入会因为模型恰好判断
-  「足够」或「不足」而走向不同结局——「足够」时状态转移被拒、「不足」时内容被照常写入，
-  等于让 AI 决定领域状态是否被接受。
+  （`UserProfile.requireExplorationAllowed()`）。AI 对话不能悄悄退出用户审阅，
+  也不能重开已确认的画像；这两个动作仍分别需要显式 Continue / Reopen。
 - **一轮只保存一次**：整轮作用在同一个候选 Profile 上，只在最后写入。它不是把
   `explore` 与 `sufficiency-assessment` 串起来——那样会在探索结束后先落一次库，
   随后的评估失败就会留下「本轮只完成一半」的持久化状态。
 - **评估针对更新后的候选 Profile**：用户这一轮说的信息必须先进入 Profile 再判断够不够。
 - **失败原子性**：提取的 AI 调用/解析失败、内容更新被 Aggregate 拒绝、评估的 AI 调用/解析
-  失败、`beginReview` 被拒绝——四个失败点都不会产生持久化副作用。
+  失败均不会产生持久化副作用。普通对话轮不调用 `beginReview`。
 - **循环跨 HTTP 请求**：一轮返回 `nextQuestion`，调用方据此向用户提问，拿到回答后再发起
   下一轮。服务端不做 `while`、不等待用户、不保存对话记录。
-- `sufficient` 为 true 时 `profile.status` 一定是 `REVIEWING`——由 Domain 决定，
-  不是接口层写死的。
+- `sufficient` 为 true 仅表示最低条件满足，`profile.status` 仍为 `EXPLORING`。
+  用户可自然补充多轮，或显式调用 `sufficiency-assessment` 进入审阅；不得自动 Confirm。
 
-`explore` 与 `sufficiency-assessment` 保留为更细的步骤入口；`discovery-turn` 是它们的组合。
+`explore` 与 `sufficiency-assessment` 保留：前者只提取，后者是显式审阅请求。
+`discovery-turn` 复用同一提取和评估组件，但不组合后者的状态转换副作用。
 `explore` 保持原有行为：它只做提取与更新，`REVIEWING` 下仍可调用（状态保持不变）；
 `REVIEWING` 起点限制只加在「整轮」入口 `discovery-turn` 上。
 

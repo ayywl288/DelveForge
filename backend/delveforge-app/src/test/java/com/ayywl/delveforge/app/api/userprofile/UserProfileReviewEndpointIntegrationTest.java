@@ -89,17 +89,17 @@ class UserProfileReviewEndpointIntegrationTest {
         patchInterests(id, List.of("兴趣 A"));
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("REVIEWING"))
-                .andExpect(jsonPath("$.revision").value(2));
+                .andExpect(jsonPath("$.revision").value(6));
 
         // 再次修正
         patchInterests(id, List.of("兴趣 B"));
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("REVIEWING"))
-                .andExpect(jsonPath("$.revision").value(3));
+                .andExpect(jsonPath("$.revision").value(7));
 
         // Confirm：状态变化，revision 不变。确认必须携带用户所看的 revision
-        confirmProfile(id, 3)
-                .andExpect(jsonPath("$.revision").value(3))
+        confirmProfile(id, 7)
+                .andExpect(jsonPath("$.revision").value(7))
                 .andExpect(jsonPath("$.interests[0]").value("兴趣 B"));
 
         // 合法请求恰好调用一次，且拿到的是映射后的参数——它同时是另一处
@@ -110,11 +110,11 @@ class UserProfileReviewEndpointIntegrationTest {
                 .confirm(invokedProfile.capture(), invokedRevision.capture());
 
         assertEquals(new UserProfileId(id), invokedProfile.getValue());
-        assertEquals(3, invokedRevision.getValue().intValue());
+        assertEquals(7, invokedRevision.getValue().intValue());
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("CONFIRMED"))
-                .andExpect(jsonPath("$.revision").value(3));
+                .andExpect(jsonPath("$.revision").value(7));
     }
 
     /**
@@ -130,7 +130,7 @@ class UserProfileReviewEndpointIntegrationTest {
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("REVIEWING"))
-                .andExpect(jsonPath("$.revision").value(2));
+                .andExpect(jsonPath("$.revision").value(6));
     }
 
     @Test
@@ -141,7 +141,7 @@ class UserProfileReviewEndpointIntegrationTest {
         mockMvc.perform(action(id, "continue-discovery"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("EXPLORING"))
-                .andExpect(jsonPath("$.revision").value(1));
+                .andExpect(jsonPath("$.revision").value(5));
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("EXPLORING"));
@@ -156,7 +156,7 @@ class UserProfileReviewEndpointIntegrationTest {
         mockMvc.perform(action(id, "reopen-discovery"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("EXPLORING"))
-                .andExpect(jsonPath("$.revision").value(1));
+                .andExpect(jsonPath("$.revision").value(5));
     }
 
     /**
@@ -173,7 +173,7 @@ class UserProfileReviewEndpointIntegrationTest {
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("EXPLORING"))
-                .andExpect(jsonPath("$.revision").value(2));
+                .andExpect(jsonPath("$.revision").value(6));
     }
 
     /**
@@ -246,10 +246,10 @@ class UserProfileReviewEndpointIntegrationTest {
         patchInterests(id, List.of("兴趣 B"));
 
         int reviewedRevision = currentRevision(id);
-        assertEquals(3, reviewedRevision,
-                "本用例的前提是当前 revision 恰好等于 3.9 截断后的取值，否则测不到有损转换");
+        assertEquals(7, reviewedRevision,
+                "本用例的前提是当前 revision 恰好等于 7.9 截断后的取值，否则测不到有损转换");
 
-        for (String rawRevision : List.of("3.9", "3.0", "1e2", "\"3\"", "99999999999")) {
+        for (String rawRevision : List.of("7.9", "7.0", "1e2", "\"7\"", "99999999999")) {
             mockMvc.perform(post("/api/user-profiles/{id}/confirm", id)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("{ \"revision\": " + rawRevision + " }"))
@@ -314,6 +314,16 @@ class UserProfileReviewEndpointIntegrationTest {
     }
 
     private void assessSufficient(String id) throws Exception {
+        // 使用正常 API 补齐实际业务与输入依据，不能靠替身的 true 把空画像推进审阅。
+        mockMvc.perform(patch("/api/user-profiles/{id}", id).contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"technicalCapabilities":["Java接口开发"],
+                         "projectGoals":["做一个展示接口与测试的求职作品"],"constraints":["每周五小时"],
+                         "additionalEvidence":[{"sourceType":"USER_INPUT",
+                           "sourceRef":"用Java做接口与测试求职作品，每周五小时",
+                           "claim":"用户明确说明项目成果、开发基础与时间", "confirmed":false}]}
+                        """))
+                .andExpect(status().isOk());
         given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
         mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id))
                 .andExpect(status().isOk())

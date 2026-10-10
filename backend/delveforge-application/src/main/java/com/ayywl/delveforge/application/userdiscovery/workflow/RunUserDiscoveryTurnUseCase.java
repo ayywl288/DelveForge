@@ -12,7 +12,7 @@ import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 
 /**
- * 面向产品的一轮 User Discovery：一次请求完成「提取 → 更新 → 评估 → 必要时进入 Review」。
+ * 面向产品的一轮 User Discovery：提取 → 更新 → 评估最低审阅条件，保持探索。
  *
  * <pre>
  * 本轮用户输入
@@ -22,7 +22,7 @@ import com.ayywl.delveforge.domain.user.UserProfileStateException;
  * ProfileSufficiencyEvaluator  对「已经更新过的候选 Profile」评估信息是否足够
  *         ↓
  * insufficient  保存更新后的 Profile，返回 missingAreas + nextQuestion，仍为 EXPLORING
- * sufficient    Domain 执行 EXPLORING → REVIEWING，保存 Profile，返回 REVIEWING
+ * sufficient    返回最低条件已满足，仍为 EXPLORING，等待用户显式选择进入审阅
  * </pre>
  *
  * <h2>一轮只保存一次</h2>
@@ -36,13 +36,12 @@ import com.ayywl.delveforge.domain.user.UserProfileStateException;
  *
  * <h2>失败时不留下半轮结果</h2>
  *
- * <p>四个失败点都不会产生持久化副作用：
+ * <p>以下失败点都不会产生持久化副作用：
  *
  * <pre>
  * 提取的 AI 调用 / 解析失败   候选 Profile 还没被改动，也没有写入
  * 内容更新被 Aggregate 拒绝   改动留在候选副本上，写入还没发生
  * 评估的 AI 调用 / 解析失败   同上
- * beginReview 被 Domain 拒绝  同上
  * </pre>
  *
  * <h2>跨请求的循环</h2>
@@ -105,7 +104,7 @@ public class RunUserDiscoveryTurnUseCase {
 
         profileExtraction.applyTo(candidate, userInput);
         SufficiencyAssessment sufficiency =
-                profileSufficiencyEvaluator.evaluateAndApply(candidate);
+                profileSufficiencyEvaluator.evaluate(candidate);
 
         // 一轮只保存一次：整轮成功后写入，因此任何一步失败都不会留下半轮结果。
         userProfileRepository.save(candidate);

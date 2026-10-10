@@ -14,7 +14,7 @@ const editValue = ref("");
 const reopen = ref(false);
 const chat = ref<HTMLElement>();
 watch(
-  () => `${props.s.profile?.id}:${props.s.profile?.revision}`,
+  () => `${props.s.profile?.id}:${props.s.profile?.revision}:${props.s.profile?.status}`,
   () => {
     reviewed.value = false;
     editing.value = null;
@@ -67,7 +67,7 @@ async function save() {
     <section class="panel chat-panel" aria-labelledby="chat-heading">
       <div class="panel-header">
         <h2 id="chat-heading">需求对话</h2>
-        <StatusBadge :status="s.profile.status" />
+        <StatusBadge :status="s.profile.status" :show-code="false" />
       </div>
       <div
         ref="chat"
@@ -104,6 +104,12 @@ async function save() {
         </article>
         <p v-if="s.busy" class="request-note" role="status">
           {{ s.busy }}… 正在等待实际响应。
+        </p>
+        <p
+          v-else-if="s.sufficiency?.sufficient && s.profile.status === 'EXPLORING'"
+          class="request-note"
+        >
+          已达到最低审阅条件，系统没有返回下一轮问题。你可以继续补充，或选择进入审阅。
         </p>
       </div>
       <form class="composer" @submit.prevent="send">
@@ -144,7 +150,7 @@ async function save() {
           <span class="eyebrow">LIVE PROFILE</span>
           <h2 id="profile-heading">你的六维画像</h2>
         </div>
-        <span class="version">r{{ s.profile.revision }}</span>
+        <span class="version">画像版本 {{ s.profile.revision }}</span>
       </div>
       <section
         v-for="section in profileSections"
@@ -169,14 +175,14 @@ async function save() {
         </ul>
         <p v-else class="muted">{{ section.hint }} · 尚未提取</p>
       </section>
-      <EvidenceList :items="s.profile.evidence" title="画像依据" />
+      <EvidenceList :items="s.profile.evidence" title="画像依据" friendly />
       <div class="review-box">
         <h3>充分性与审阅</h3>
         <template v-if="s.sufficiency"
           ><p>
             {{
               s.sufficiency.sufficient
-                ? "本次评估：信息充分"
+                ? "本次评估：达到最低审阅条件"
                 : "本次评估：仍需补充"
             }}
           </p>
@@ -185,12 +191,9 @@ async function save() {
               {{ area }}
             </li>
           </ul>
-          <p v-if="s.sufficiency.nextQuestion">
-            下一轮问题：{{ s.sufficiency.nextQuestion }}
-          </p></template
-        >
+        </template>
         <p v-else class="muted">
-          本页没有当前 revision 的充分性结果。上方状态来自持久化画像。
+          本页没有当前画像版本的充分性结果。上方状态来自保存的画像。
         </p>
         <button
           v-if="s.profile.status === 'EXPLORING'"
@@ -198,7 +201,7 @@ async function save() {
           :disabled="!!s.busy"
           @click="s.assess"
         >
-          重新评估（调用 AI）
+          进入审阅（先调用 AI 评估）
         </button>
         <template v-if="s.profile.status === 'REVIEWING'"
           ><label class="check"
@@ -206,7 +209,7 @@ async function save() {
               v-model="reviewed"
               type="checkbox"
               :disabled="!!s.busy"
-            />我已审阅 revision {{ s.profile.revision }}，内容准确</label
+            />我已审阅画像版本 {{ s.profile.revision }}，内容准确</label
           >
           <button
             :disabled="!reviewed || !!s.busy"
@@ -222,6 +225,7 @@ async function save() {
       <details class="object-id">
         <summary>画像 ID · 用于恢复</summary>
         <code>{{ s.profile.id }}</code>
+        <p>原始状态：{{ s.profile.status }} · revision={{ s.profile.revision }}</p>
       </details>
     </aside>
   </div>
@@ -235,7 +239,7 @@ async function save() {
   >
     <p>
       每行一个条目，空白表示清空该维度。保存会更新画像
-      revision，请重新审阅。当前接口没有客户端 revision 锁，请避免多处同时编辑。
+      版本，请重新审阅。当前接口没有版本冲突检查，请避免多处同时编辑。
     </p>
     <label for="profile-edit">{{
       profileSections.find((item) => item.key === editing)?.label
@@ -253,8 +257,8 @@ async function save() {
     "
   >
     <p>
-      画像将进入
-      EXPLORING。后续方向与计划仍保留其原始画像版本；新生成操作需要再次确认更新后的画像。
+      画像将回到探索中，可以连续补充多轮，再自主选择审阅。后续方向与计划仍保留其原始画像版本；
+      新生成操作需要再次确认更新后的画像。此操作不会生成或恢复历史 Agent 问题。
     </p>
   </ConfirmDialog>
 </template>

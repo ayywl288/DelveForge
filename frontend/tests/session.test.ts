@@ -26,11 +26,11 @@ describe("恢复与显式授权", () => {
     const s = make(); s.profile.value = profile(); s.ids.profileId = "profile-1";
     const discovery = vi.spyOn(api, "discoveryTurn");
     discovery.mockResolvedValueOnce({ profile: { ...profile(), revision: 2, painPoints: ["重复导出"] }, sufficient: false, missingAreas: ["constraints"], nextQuestion: "每周能投入多少时间？" });
-    discovery.mockResolvedValueOnce({ profile: { ...profile(), revision: 3, status: "REVIEWING", constraints: ["每周三小时"] }, sufficient: true, missingAreas: [], nextQuestion: null });
+    discovery.mockResolvedValueOnce({ profile: { ...profile(), revision: 3, status: "EXPLORING", constraints: ["每周三小时"] }, sufficient: true, missingAreas: [], nextQuestion: null });
     await s.turn("重复导出报表");
     expect(s.profile.value?.status).toBe("EXPLORING"); expect(s.messages.value.at(-1)?.text).toBe("每周能投入多少时间？");
     await s.turn("每周三小时");
-    expect(s.profile.value?.status).toBe("REVIEWING"); expect(s.profile.value?.constraints).toEqual(["每周三小时"]);
+    expect(s.profile.value?.status).toBe("EXPLORING"); expect(s.profile.value?.constraints).toEqual(["每周三小时"]);
     expect(s.messages.value.map(message => message.role)).toEqual(["user", "agent", "user"]);
   });
   it("刷新仅 GET，聊天与敏感业务内容不会进入存储", async () => {
@@ -83,7 +83,7 @@ describe("恢复与显式授权", () => {
       painPoints: ["真实响应条目"],
     };
     vi.spyOn(api, "discoveryTurn").mockResolvedValue({
-      profile: reviewed,
+      profile: { ...reviewed, status: "EXPLORING" },
       sufficient: true,
       missingAreas: [],
       nextQuestion: null,
@@ -95,6 +95,8 @@ describe("恢复与显式授权", () => {
     await s.turn("输入");
     expect(s.profile.value?.painPoints).toEqual(["真实响应条目"]);
     expect(s.sufficiency.value?.sufficient).toBe(true);
+    vi.spyOn(api, "assess").mockResolvedValue({ sufficient: true, missingAreas: [], nextQuestion: null, profileStatus: "REVIEWING" });
+    await s.assess();
     await s.confirmProfile(8);
     expect(confirm).toHaveBeenCalledWith("profile-1", 8);
     expect(s.profile.value?.revision).toBe(9);
@@ -103,6 +105,43 @@ describe("恢复与显式授权", () => {
     expect(localStorage.getItem(sessionKey) ?? "").not.toContain(
       "真实响应条目",
     );
+  });
+});
+describe("M1 问题显示与连续探索", () => {
+  it("评估与对话的真实问题只在聊天中插入一次，继续与 GET 不生成问题", async () => {
+    const s = make(); s.profile.value = profile(); s.ids.profileId = "profile-1";
+    const assessment = { sufficient: false, missingAreas: ["具体场景"], nextQuestion: "具体哪个环节最麻烦？", profileStatus: "EXPLORING" as const };
+    vi.spyOn(api, "assess").mockResolvedValue(assessment);
+    vi.spyOn(api, "profile").mockResolvedValue(profile());
+    await s.assess(); await s.assess();
+    vi.spyOn(api, "discoveryTurn").mockResolvedValue({ ...assessment, profile: profile() });
+    await s.turn("集卡周期长");
+    expect(s.messages.value.filter(m => m.role === "agent")).toEqual([{ role: "agent", text: assessment.nextQuestion }]);
+    vi.spyOn(api, "resumeDiscovery").mockResolvedValue(profile());
+    await s.resumeDiscovery();
+    expect(s.messages.value.filter(m => m.role === "agent")).toHaveLength(1);
+    vi.spyOn(api, "connectivity").mockResolvedValue({ service: "delveforge", status: "UP", timestamp: "2026-10-10" });
+    await s.restore();
+    expect(s.messages.value.filter(m => m.role === "agent")).toHaveLength(1);
+  });
+  it("继续探索后多轮充分仍保持探索，评估失败不伪造 Agent 问题", async () => {
+    const s = make(); s.profile.value = { ...profile(), status: "REVIEWING" }; s.ids.profileId = "profile-1";
+    vi.spyOn(api, "resumeDiscovery").mockResolvedValue(profile());
+    await s.resumeDiscovery();
+    const turns = vi.spyOn(api, "discoveryTurn").mockResolvedValue({ profile: profile(), sufficient: true, missingAreas: [], nextQuestion: null });
+    await s.turn("补充一"); await s.turn("补充二");
+    expect(turns).toHaveBeenCalledTimes(2); expect(s.profile.value?.status).toBe("EXPLORING");
+    expect(s.messages.value.filter(m => m.role === "agent")).toHaveLength(0);
+    vi.spyOn(api, "assess").mockRejectedValue(new ApiError(502, "EXTERNAL_CAPABILITY_UNAVAILABLE"));
+    await s.assess(); expect(s.sufficiency.value).toBeNull(); expect(s.error.value).toBeTruthy();
+    expect(s.messages.value.filter(m => m.role === "agent")).toHaveLength(0);
+    turns.mockRejectedValue(new ApiError(502, "EXTERNAL_CAPABILITY_UNAVAILABLE"));
+    vi.spyOn(api, "profile").mockResolvedValue({ ...profile(), status: "CONFIRMED" });
+    await s.turn("这一轮未收到成功响应");
+    expect(turns).toHaveBeenCalledTimes(3);
+    expect(s.profile.value?.status).toBe("CONFIRMED");
+    expect(s.messages.value.at(-1)?.failed).toBe(true);
+    expect(s.messages.value.filter(m => m.role === "agent")).toHaveLength(0);
   });
 });
 describe("长同步 execute", () => {

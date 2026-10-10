@@ -3,6 +3,6 @@
  *
  * <p>AI 只提出「够不够、缺什么、下一问是什么」；{@code ProfileSufficiencyProposal}
  * 里没有状态字段，因此模型无法表达、更无法设置 {@code UserProfileStatus}。
- * 是否真的进入 REVIEWING 由 {@code UserProfile.beginReview()} 依据 §6.1 判断。
+ * 普通对话轮只评估；显式审阅请求满足条件后调用 {@code UserProfile.beginReview()}。
  */
 package com.ayywl.delveforge.application.userdiscovery.sufficiency;

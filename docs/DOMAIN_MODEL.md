@@ -1179,7 +1179,7 @@ User Profile 在探索过程中不断通过用户输入、系统分析和用户�
 stateDiagram-v2
     [*] --> EXPLORING
 
-    EXPLORING --> REVIEWING: Information sufficient
+    EXPLORING --> REVIEWING: User requests review + information sufficient
     REVIEWING --> EXPLORING: Continue discovery
     REVIEWING --> REVIEWING: User corrects profile
     REVIEWING --> CONFIRMED: User confirms profile
@@ -1198,6 +1198,14 @@ stateDiagram-v2
 #### Important Rules
 
 - User Profile 中影响项目发现的重要信息发生变化时，`revision` 必须增加。
+- 信息达到最低审阅条件与用户决定结束探索是两个不同事实。普通 discovery-turn 返回
+  `sufficient=true` 时仍保持 `EXPLORING`；用户显式请求审阅后，Application 重新评估当前内容，
+  充分时才调用 Domain 的 `beginReview()`。继续探索一次后可以连续回答多轮，不自动回到审阅。
+- 最低审阅条件是能据用户依据区分个人相关的项目方向：有具体动机或使用场景、期望成果、
+  技术基础及影响范围的约束。兴趣、学习、求职均可构成动机，不强制要求 painPoints 非空；
+  六区都有条目并不证明需求已具体。语义质量结合 AI 建议与原始 Evidence 判断，最终仍由用户审阅。
+- 当前 Application 拒绝将缺失 projectGoals、technicalCapabilities、constraints 或 USER_INPUT
+  Evidence 的画像判为充分；未确认的 Evidence 不自动变成已确认事实。没有重要约束可显式记录。
 - 用户在 REVIEWING 阶段纠正 Profile 后，仍然可以保持 REVIEWING，但产生新的 revision。
 - CONFIRMED 并不意味着 User Profile 永久冻结。
 - 用户重新开始探索后，可以从 CONFIRMED 回到 EXPLORING。
@@ -1874,7 +1882,8 @@ New / Updated Evidence
 - 更新 interests、behaviors、painPoints、technicalCapabilities、projectGoals 或 constraints。
 - 当影响项目发现的重要内容发生变化时增加 `revision`。
 - 不确定推断不得自动视为用户确认事实。
-- 当信息已经足够供用户检查时，可以从 `EXPLORING` 进入 `REVIEWING`。
+- 普通探索轮只返回最低审阅条件与下一问，不自动结束探索。用户显式请求审阅且信息足够时，
+  才从 `EXPLORING` 进入 `REVIEWING`；确认仍须在 REVIEWING 绑定当前 revision。
 
 ### 8.2 Review / Confirm User Profile
 

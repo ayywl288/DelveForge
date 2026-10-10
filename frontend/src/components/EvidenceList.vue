@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import type { Evidence, EvidenceBasis } from "../api/types";
-defineProps<{ items?: Evidence[]; bases?: EvidenceBasis[]; title?: string }>();
+defineProps<{
+  items?: Evidence[];
+  bases?: EvidenceBasis[];
+  title?: string;
+  friendly?: boolean;
+}>();
+const sources: Record<string, string> = {
+  USER_INPUT: "来自你的输入",
+  REPOSITORY: "来自仓库事实",
+};
 </script>
 <template>
   <details class="evidence">
@@ -17,13 +26,23 @@ defineProps<{ items?: Evidence[]; bases?: EvidenceBasis[]; title?: string }>();
     >
       <p>{{ item.evidence.claim }}</p>
       <div class="meta">
-        {{ item.evidence.sourceType }} ·
-        {{ item.evidence.confirmed ? "已确认" : "未确认" }}
+        {{ friendly
+          ? (sources[item.evidence.sourceType] ?? item.evidence.sourceType)
+          : item.evidence.sourceType }} ·
+        {{ friendly
+          ? (item.evidence.confirmed ? "依据已核对" : "提取结论待核对")
+          : (item.evidence.confirmed ? "已确认" : "未确认") }}
         <span v-if="item.evidence.confidence != null">
-          · confidence {{ item.evidence.confidence }}</span
+          · {{ friendly ? "推断可信程度" : "confidence" }}
+          {{ item.evidence.confidence }}</span
         >
       </div>
       <code>{{ item.evidence.sourceRef }}</code>
+      <details v-if="friendly">
+        <summary>原始字段</summary>
+        <code>sourceType={{ item.evidence.sourceType }} ·
+          confirmed={{ item.evidence.confirmed }}</code>
+      </details>
       <p v-if="item.origin" class="meta">
         {{ item.origin.kind }} ·
         {{ item.origin.userProfileId ?? item.origin.repositoryProfileId

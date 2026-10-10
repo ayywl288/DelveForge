@@ -44,6 +44,9 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
             {
               "interests": ["图片处理"],
               "painPoints": ["头像裁剪麻烦"],
+              "technicalCapabilities": ["Java图像处理"],
+              "projectGoals": ["给每周更换的头像批量裁剪"],
+              "constraints": ["每周三小时"],
               "evidenceClaims": ["用户需要频繁处理头像图片"]
             }
             """;
@@ -91,11 +94,11 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("EXPLORING"))
-                .andExpect(jsonPath("$.revision").value(4));
+                .andExpect(jsonPath("$.revision").value(7));
     }
 
     @Test
-    void movesToReviewingWhenSufficient() throws Exception {
+    void staysExploringWhenMinimumReviewConditionsAreMet() throws Exception {
         String id = createProfile();
         given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
 
@@ -104,12 +107,12 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(jsonPath("$.sufficient").value(true))
                 .andExpect(jsonPath("$.missingAreas").isEmpty())
                 .andExpect(jsonPath("$.nextQuestion").doesNotExist())
-                .andExpect(jsonPath("$.profile.status").value("REVIEWING"))
-                .andExpect(jsonPath("$.profile.revision").value(4));
+                .andExpect(jsonPath("$.profile.status").value("EXPLORING"))
+                .andExpect(jsonPath("$.profile.revision").value(7));
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
-                .andExpect(jsonPath("$.status").value("REVIEWING"))
-                .andExpect(jsonPath("$.revision").value(4));
+                .andExpect(jsonPath("$.status").value("EXPLORING"))
+                .andExpect(jsonPath("$.revision").value(7));
     }
 
     /**
@@ -134,7 +137,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         mockMvc.perform(turn(id, nextQuestion + " —— 主要用 Java"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sufficient").value(true))
-                .andExpect(jsonPath("$.profile.status").value("REVIEWING"))
+                .andExpect(jsonPath("$.profile.status").value("EXPLORING"))
                 .andExpect(jsonPath("$.profile.interests[0]").value("图片处理"))
                 .andExpect(jsonPath("$.profile.technicalCapabilities[0]").value("Java"));
     }
@@ -169,6 +172,10 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         String id = createProfile();
         given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
         mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
+        given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
+        mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.profileStatus").value("REVIEWING"));
 
         mockMvc.perform(turn(id, "已经进入 Review 了，还想再来一轮"))
                 .andExpect(status().isConflict())
@@ -176,7 +183,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("REVIEWING"))
-                .andExpect(jsonPath("$.revision").value(4))
+                .andExpect(jsonPath("$.revision").value(7))
                 .andExpect(jsonPath("$.interests[0]").value("图片处理"));
     }
 
@@ -187,6 +194,32 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         mockMvc.perform(turn(id, "   "))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    @Test
+    void explicitContinueAllowsMultipleTurnsAndOnlyExplicitReviewEnablesConfirm() throws Exception {
+        String id = createProfile();
+        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
+        mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
+        given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
+        mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.profileStatus").value("REVIEWING"));
+        mockMvc.perform(post("/api/user-profiles/{id}/continue-discovery", id)).andExpect(status().isOk());
+        for (String input : java.util.List.of("希望输出两个尺寸", "还希望保留原图")) {
+            given(aiGateway.generate(any())).willReturn("{}", SUFFICIENT_RESPONSE);
+            mockMvc.perform(turn(id, input)).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.sufficient").value(true))
+                    .andExpect(jsonPath("$.profile.status").value("EXPLORING"));
+        }
+        mockMvc.perform(post("/api/user-profiles/{id}/confirm", id).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"revision\":7}"))
+                .andExpect(status().isConflict());
+        given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
+        mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.profileStatus").value("REVIEWING"));
+        mockMvc.perform(post("/api/user-profiles/{id}/confirm", id).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"revision\":7}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CONFIRMED"));
     }
 
     @Test

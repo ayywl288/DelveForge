@@ -65,3 +65,6 @@ execute 发送前重新 GET Plan / WorkingCopy，并核对 ACTIVE、目标 READY
 - 仍限授权、可信 Java / Maven 场景。Windows 宿主文件系统风险、非默认 Provider 成功配置成本、默认配置未获同等证明、M5 未实现继续适用，见 [本地使用](../M4_LOCAL_USAGE.md)。
 
 本任务后停止新增前后端功能；新授权仓库真实体验须另行授权。
+
+后续记录：用户另行授权了 [M1 充分性与对话修复](user-discovery-sufficiency-conversation-fix.md)。
+上文保留 Task B 提交时的行为和证据；当前 discovery-turn 的充分结论不再自动进入 REVIEWING。

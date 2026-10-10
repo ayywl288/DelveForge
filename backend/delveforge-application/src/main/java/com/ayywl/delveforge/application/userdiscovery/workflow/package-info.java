@@ -2,7 +2,7 @@
  * Workflow：把 Exploration 与 Sufficiency 组合成面向产品的一轮 User Discovery。
  *
  * <pre>
- * RunUserDiscoveryTurnUseCase   一次请求完成「提取 → 更新 → 评估 → 必要时进入 Review」
+ * RunUserDiscoveryTurnUseCase   一次请求完成「提取 → 更新 → 评估最低条件」，保持探索
  * UserDiscoveryTurn             该轮的结果：结束时的 Profile + 同一轮的充分性结论
  * </pre>
  *

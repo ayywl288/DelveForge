@@ -229,7 +229,7 @@ Repository Profile
 - [x] 支持 User Profile revision。
 - [x] 支持 Profile Sufficiency Assessment，判断当前用户信息是否已经足以支持具有个人相关性的 Product Direction Discovery。
 - [x] 当信息不足时，能够识别重要缺失信息并继续探索。
-- [x] 当信息足够时，使 User Profile 从 `EXPLORING` 进入 `REVIEWING`。
+- [x] 当信息足够且用户显式请求审阅时，使 User Profile 从 `EXPLORING` 进入 `REVIEWING`。
 - [x] 支持用户 Review / Correct / Confirm Profile。
 - [x] 保存关键 Profile 判断对应的 Evidence。
 
@@ -262,7 +262,7 @@ When
 如果信息已经足够：
 停止继续无目的探索，
 形成可供用户检查的 User Profile，
-并进入 REVIEWING。
+用户可继续补充，或显式请求进入 REVIEWING。
 
 同时系统完成 Repository Analysis。
 
@@ -1921,6 +1921,14 @@ Provider Smoke 或代码演化，因此不声称通过 Web 完成了第二次真
 下一阶段仅在另行授权后进行新仓库产品体验、代码复盘与实习准备，不以本记录启动新功能。
 
 ---
+
+### M1 交付后聚焦修复 — Sufficiency / Conversation Flow
+
+用户于 2026-10-10 单独授权修复真实 Web 体验中发现的 M1 问题；这是 M4 冻结后的有限例外。
+六区内容与用户依据共同参与充分性判断；普通对话轮满足最低条件仍保持探索，用户显式请求
+审阅才评估并推进 REVIEWING。确认当前版本、Evidence 语义与失败原子性保持不变。
+nextQuestion 统一加入本页聊天并去重，不构造未保存的历史。M2–M4 实现继续冻结，M5 暂缓。
+验证及限制见 [M1 聚焦修复](validation/user-discovery-sufficiency-conversation-fix.md)。
 
 以下为记录格式，供后续 Milestone 使用：
 

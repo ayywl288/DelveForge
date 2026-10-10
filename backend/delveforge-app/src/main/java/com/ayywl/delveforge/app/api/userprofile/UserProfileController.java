@@ -109,7 +109,7 @@ public class UserProfileController {
     }
 
     /**
-     * 评估当前 Profile 的信息是否足够进入 Review 阶段。
+     * 用户显式请求进入审阅：评估当前 Profile，充分才进入 Review。
      *
      * <p>是否需要状态转移由 Application 与 Domain 决定；本层只返回结果，
      * 不判断「足够」的含义，也不接触状态。
@@ -120,8 +120,7 @@ public class UserProfileController {
     }
 
     /**
-     * 面向产品的一轮 User Discovery：一轮用户输入完成「提取 → 更新 → 评估 → 必要时进入
-     * Review」。
+     * 面向产品的一轮 User Discovery：提取 → 更新 → 评估最低审阅条件，保持探索。
      *
      * <p>整轮作用在同一个候选 Profile 上并只保存一次；任何一步失败都不会留下半轮结果。
      * 返回的 {@code sufficient} 为 false 时，调用方用 {@code nextQuestion} 向用户提问，

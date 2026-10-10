@@ -10,7 +10,8 @@ import java.util.List;
  * 调用方拿到的就是本次的结果（ROADMAP.md M1 只要求「判断是否足够」，未要求历史）。
  *
  * <p>{@code profileStatus} 是评估结束后 Profile 的实际状态：信息不足时保持
- * {@code EXPLORING}，足够且 Domain 允许该转移时为 {@code REVIEWING}。
+ * {@code EXPLORING}；普通对话充分时仍为 {@code EXPLORING}，显式审阅请求
+ * 充分且 Domain 允许转移时为 {@code REVIEWING}。
  *
  * @param sufficient    本次评估的结论
  * @param missingAreas  仍缺失的重要信息或维度；足够时为空列表

@@ -40,6 +40,23 @@ const settle = async () => {
 };
 afterEach(() => cleanup.splice(0).forEach((fn) => fn()));
 describe("五阶段 Vue 交互（合成 API 夹具）", () => {
+  it("单独评估的 nextQuestion 进入左侧聊天，右侧仅展示缺失信息与审阅操作", async () => {
+    const s = session(); s.profile = profile(); s.ids.profileId = "profile-1";
+    const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(
+      url.endsWith("sufficiency-assessment")
+        ? { sufficient: false, missingAreas: ["尚不明确具体操作环节"], nextQuestion: "最近一次集卡哪里麻烦？", profileStatus: "EXPLORING" }
+        : profile(),
+    )));
+    vi.stubGlobal("fetch", fetcher); const root = mount(DiscoveryView, s);
+    button(root, "进入审阅").click(); await settle();
+    button(root, "进入审阅").click(); await settle();
+    expect(root.querySelectorAll(".message.agent")).toHaveLength(1);
+    expect(root.querySelector(".chat-log")?.textContent).toContain("最近一次集卡哪里麻烦？");
+    expect(root.querySelector(".review-box")?.textContent).not.toContain("最近一次集卡哪里麻烦？");
+    expect(root.querySelector(".review-box")?.textContent).toContain("尚不明确具体操作环节");
+    expect(root.querySelector("textarea")?.disabled).toBe(false);
+    expect(root.textContent).toContain("画像版本 1");
+  });
   it("仓库分析结果按业务字段展示，保留 analyzedRevision 与 Evidence", async () => {
     const s = session(); s.assets = [asset()]; s.ids.assetIds = ["asset-1"];
     const fetcher = vi.fn(async (_url: string, _options?: RequestInit) => new Response(JSON.stringify(repository())));
@@ -58,7 +75,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     const reviewed = {
       ...profile(),
       revision: 4,
-      status: "REVIEWING",
+      status: "EXPLORING",
       interests: ["数据可视化"],
       painPoints: ["重复导出"],
     };
@@ -73,7 +90,11 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
                   missingAreas: [],
                   nextQuestion: null,
                 }
-              : { ...reviewed, status: "CONFIRMED" },
+              : url.endsWith("sufficiency-assessment")
+                ? { sufficient: true, missingAreas: [], nextQuestion: null, profileStatus: "REVIEWING" }
+                : url.includes("/confirm")
+                  ? { ...reviewed, status: "CONFIRMED" }
+                  : { ...reviewed, status: "REVIEWING" },
           ),
         ),
     );
@@ -88,6 +109,9 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     await settle();
     expect(root.textContent).toContain("重复导出");
     expect(root.querySelectorAll(".message.agent")).toHaveLength(0);
+    expect(root.textContent).toContain("系统没有返回下一轮问题");
+    expect(root.querySelector("textarea")?.disabled).toBe(false);
+    button(root, "进入审阅").click(); await settle();
     const confirm = button(root, "确认当前画像");
     expect(confirm.disabled).toBe(true);
     const check = root.querySelector(".review-box input") as HTMLInputElement;
@@ -102,7 +126,23 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
           url.endsWith("/confirm") && options?.body === '{"revision":4}',
       ),
     ).toBe(true);
-    expect(root.textContent).toContain("CONFIRMED");
+    expect(root.querySelector(".badge")?.textContent?.trim()).toBe("已确认");
+    expect(root.querySelector("textarea")?.disabled).toBe(true);
+    expect(root.querySelectorAll(".review-box input")).toHaveLength(0);
+    expect(button(root, "纠正").disabled).toBe(true);
+  });
+  it("继续探索并重新进入审阅后，即使版本没变也要重新勾选审阅", async () => {
+    const s = session(); s.profile = { ...profile(), status: "REVIEWING" };
+    const root = mount(DiscoveryView, s);
+    const check = root.querySelector(".review-box input") as HTMLInputElement;
+    check.checked = true; check.dispatchEvent(new Event("change", { bubbles: true })); await nextTick();
+    expect(button(root, "确认当前画像").disabled).toBe(false);
+    s.profile = profile(); await nextTick();
+    expect(root.querySelector("textarea")?.disabled).toBe(false);
+    s.profile = { ...profile(), status: "REVIEWING" }; await nextTick();
+    expect(button(root, "确认当前画像").disabled).toBe(true);
+    s.profile = { ...profile(), status: "CONFIRMED" }; await nextTick();
+    expect(root.querySelector("textarea")?.disabled).toBe(true);
   });
   it("仓库授权没有预选，绝对路径及权限是明确表单输入", async () => {
     const s = session();
