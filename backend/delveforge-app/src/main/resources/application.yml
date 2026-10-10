@@ -115,8 +115,16 @@ delveforge:
       # 也能完成上下文装配；真正调用时才会因缺少 Key 而失败。
       api-key: ${DEEPSEEK_API_KEY:}
 
-      # 单次调用的连接与读超时。
+      # 连接期限；非流式为总读取期限，流式为无字节进展的空闲期限。
       timeout: 60s
+      # SSE 仅是 Adapter 内部传输；Application 仍接收完整文本并执行原有严格校验。
+      streaming: false
+      # 流式绝对期限与 timeout 的连接 / 空闲期限独立；任何增量均不能延长它。
+      stream-timeout: 300s
+      # 显式限制总生成量（含思考），不接受因 length 截断的结果。
+      max-tokens: 16384
+      max-response-bytes: 8388608
+      max-event-bytes: 65536
 
 spring:
   application:

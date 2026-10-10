@@ -180,3 +180,22 @@ application.port.ai.AiGateway
 infrastructure.ai.DeepSeekAiGatewayAdapter
 infrastructure.ai.DeepSeekAiGatewayConfiguration
 ```
+
+## 2026-10-10：M4 内部有界 SSE 读取
+
+M4 的真实 CodingProposal 请求收到 HTTP 200 后，非流式正文只有一个空白字节，
+在配置的读取期限附近失败；这不证明历史传输故障的具体根因。离线实测确认当前
+Spring JDK request factory 的读取总期限不会被字节进展重置。
+
+当前选择允许通过配置在 Infrastructure 内部读取 DeepSeek SSE。仍直接调用同一 HTTP
+API，不增加 AI 框架、自动重试或业务流式接口。`AiGateway.generate` 仍只返回一次完整的
+未经业务解析的 content；Application 的提案校验和 Domain 接受规则保持原样。
+
+读取受独立的空闲期限、绝对期限、总响应字节、单事件字节与显式生成 token 上限约束。
+SSE 必须收到 `finish_reason=stop` 和 `[DONE]`；EOF、截断及其他结束原因均失败关闭。
+思考增量只统计数量，不累计或记录正文；诊断只记录固定阶段、失败码、状态、时序、
+计数与异常类型。非流式默认保留，同样拒绝超预算或未正常结束的 completion。
+
+本选择解决当前有界接收与可诊断性需求，不把 streaming 视为所有 Provider 故障的根因
+或保证。2026-09-17 的 streaming 排除项针对首次 Adapter Task；本次没有改变 Port、
+领域状态、Provider 策略或 MVP 里业务接口的范围。
