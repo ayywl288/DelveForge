@@ -84,6 +84,42 @@ class SqliteUserProfileRepositoryIntegrationTest {
     private UserProfileEvidenceMapper evidenceMapper;
 
     @Test
+    void sufficiencyIsBoundToSnapshotAndInvalidatedByContentAndEvidence() {
+        UserProfile profile = UserProfile.create(PROFILE_ID);
+        repository.save(profile);
+        repository.recordSufficientAssessment(profile);
+        assertTrue(repository.hasSufficientAssessment(PROFILE_ID, 1));
+        UserProfile expected = repository.findById(PROFILE_ID).orElseThrow();
+        UserProfile changed = repository.findById(PROFILE_ID).orElseThrow();
+        changed.recordEvidence(USER_EVIDENCE);
+        repository.saveIfUnchanged(changed, expected);
+        assertTrue(!repository.hasSufficientAssessment(PROFILE_ID, 1));
+        assertTrue(!repository.hasSufficientAssessment(PROFILE_ID, changed.revision()));
+        assertThrows(com.ayywl.delveforge.domain.user.UserProfileStateException.class,
+                () -> repository.recordSufficientAssessment(expected));
+        assertEquals(changed.revision(), repository.findById(PROFILE_ID).orElseThrow().revision());
+    }
+
+    @Test
+    void atomicSaveRejectsStatusRaceAndSameRevisionForgedContent() {
+        UserProfile profile = UserProfile.create(PROFILE_ID);
+        repository.save(profile);
+        UserProfile stale = repository.findById(PROFILE_ID).orElseThrow();
+        UserProfile reviewing = repository.findById(PROFILE_ID).orElseThrow();
+        reviewing.beginReview();
+        repository.saveIfUnchanged(reviewing, stale);
+        stale.updateInterests(List.of("并发探索结果"));
+        assertThrows(com.ayywl.delveforge.domain.user.UserProfileStateException.class,
+                () -> repository.saveIfUnchanged(stale, profile));
+        UserProfile forged = UserProfile.reconstitute(PROFILE_ID, UserProfileStatus.REVIEWING, 1,
+                List.of("不存在的快照内容"), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+        assertThrows(com.ayywl.delveforge.domain.user.UserProfileStateException.class,
+                () -> repository.recordSufficientAssessment(forged));
+        assertEquals(UserProfileStatus.REVIEWING, repository.findById(PROFILE_ID).orElseThrow().status());
+        assertTrue(!repository.hasSufficientAssessment(PROFILE_ID, 1));
+    }
+
+    @Test
     void savesAndReloadsEmptyProfileAtInitialRevision() {
         UserProfile profile = UserProfile.create(PROFILE_ID);
 

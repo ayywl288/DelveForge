@@ -278,7 +278,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("EXPLORING"))
                 .andExpect(jsonPath("$.revision").value(7));
-        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(4)).generate(any());
+        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(3)).generate(any());
     }
 
     @Test
@@ -309,6 +309,24 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         mockMvc.perform(turn("unknown-profile", USER_INPUT))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    void reviewReusesRealTurnAssessmentAndRejectsStaleRevision() throws Exception {
+        String id = createProfile();
+        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
+        mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
+        mockMvc.perform(get("/api/user-profiles/{id}/review-readiness", id))
+                .andExpect(jsonPath("$.revision").value(7)).andExpect(jsonPath("$.sufficient").value(true));
+        org.mockito.Mockito.reset(aiGateway);
+        given(aiGateway.generate(any())).willThrow(new AiGatewayException("不应重新评估"));
+        mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":6}"))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":7}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.nextQuestion").doesNotExist());
+        org.mockito.Mockito.verifyNoInteractions(aiGateway);
     }
 
     private String createProfile() throws Exception {

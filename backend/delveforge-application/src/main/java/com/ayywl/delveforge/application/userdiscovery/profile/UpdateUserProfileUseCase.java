@@ -56,6 +56,8 @@ public class UpdateUserProfileUseCase {
                 userProfileRepository.findById(request.profileId())
                         .orElseThrow(() -> new UserProfileNotFoundException(request.profileId())));
 
+        UserProfile expected = UserProfileCandidates.copyOf(candidate);
+
         applySection(request.interests(), candidate::updateInterests);
         applySection(request.behaviors(), candidate::updateBehaviors);
         applySection(request.painPoints(), candidate::updatePainPoints);
@@ -69,7 +71,7 @@ public class UpdateUserProfileUseCase {
             }
         }
 
-        userProfileRepository.save(candidate);
+        userProfileRepository.saveIfUnchanged(candidate, expected);
         return candidate;
     }
 

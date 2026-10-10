@@ -79,6 +79,16 @@ export function createSession() {
   const plan = ref<EvolutionPlan | null>(null);
   const copy = ref<WorkingCopy | null>(null);
   const sufficiency = ref<Sufficiency | null>(null);
+  const reviewChoicePending = ref(false);
+  const reviewChoiceShown = new Set<string>();
+  function acceptSufficiency(value: Sufficiency) {
+    sufficiency.value = value;
+    if (value.sufficient && profile.value?.status === "EXPLORING" &&
+      !reviewChoiceShown.has(profile.value.id)) {
+      reviewChoiceShown.add(profile.value.id);
+      reviewChoicePending.value = true;
+    }
+  }
   const activeQuestion = ref<{ profileId: string; revision: number; text: string } | null>(null);
   const nextQuestion = computed(() =>
     profile.value?.status === "EXPLORING" &&
@@ -148,7 +158,7 @@ export function createSession() {
         notice.value = "下一问所依据的画像版本或状态已经变化，未加入聊天。请核对当前画像。";
         return;
       }
-      sufficiency.value = result;
+      acceptSufficiency(result);
       appendQuestion(result.nextQuestion);
     } catch (failure) {
       await refreshProfileAfterFailure();
@@ -237,6 +247,14 @@ export function createSession() {
             const latest = await api.profile(ids.profileId);
             if (latest.revision !== profile.value?.revision) sufficiency.value = null;
             profile.value = latest;
+            reviewChoicePending.value = false;
+            sufficiency.value = null;
+            const readiness = await api.reviewReadiness(latest.id);
+            if (readiness.profileId === latest.id && readiness.revision === latest.revision &&
+              readiness.sufficient === true) {
+              reviewChoiceShown.add(latest.id);
+              sufficiency.value = { sufficient: true, missingAreas: [], nextQuestion: null };
+            }
           }
         }),
         load("仓库授权", async () => {
@@ -377,6 +395,8 @@ export function createSession() {
     plan,
     copy,
     sufficiency,
+    reviewChoicePending,
+    dismissReviewChoice() { reviewChoicePending.value = false; },
     nextQuestion,
     messages,
     busy,
@@ -442,7 +462,7 @@ export function createSession() {
           activeQuestion.value = null;
           const result = await api.discoveryTurn(profile.value!.id, input, previousQuestions());
           profile.value = result.profile;
-          sufficiency.value = result;
+          acceptSufficiency(result);
           appendQuestion(result.nextQuestion);
         } catch (failure) {
           const last = messages.value.at(-1);
@@ -467,14 +487,16 @@ export function createSession() {
           sufficiency.value = null;
           activeQuestion.value = null;
           try {
-            const result = await api.assess(profile.value!.id);
+            const result = await api.assess(profile.value!.id, assessedRevision);
             profile.value = await api.profile(ids.profileId);
             if (profile.value.revision !== assessedRevision) {
               notice.value = "画像版本在评估期间发生了变化；当前内容已重新读取，请审阅当前版本。";
               return;
             }
             sufficiency.value = result;
-            appendQuestion(result.nextQuestion);
+            if (!result.sufficient) {
+              notice.value = "本版没有可复用的充分结果，本次评估仍需补充；未向聊天插入新问题。";
+            }
           } catch (failure) {
             await refreshProfileAfterFailure();
             throw failure;

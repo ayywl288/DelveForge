@@ -499,7 +499,8 @@ Frontend 采用 Vitest + jsdom 验证五阶段交互和长请求，夹具不依�
 | `GET`   | `/api/user-profiles/{id}`        | 返回当前（最新）revision 的 Profile                        | 200  | 404  |
 | `PATCH` | `/api/user-profiles/{id}`        | 结构化 partial update，返回更新后的 Profile                | 200  | 400 / 404 |
 | `POST`  | `/api/user-profiles/{id}/explore`| 提交一轮用户自然语言输入，由 AI 提出建议后更新，返回更新后的 Profile | 200  | 400 / 404 / 502 |
-| `POST`  | `/api/user-profiles/{id}/sufficiency-assessment` | 评估当前 Profile 信息是否足够进入 Review 阶段 | 200 | 404 / 502 |
+| `POST`  | `/api/user-profiles/{id}/sufficiency-assessment` | 复用本版服务端充分结果，无记录才评估，显式请求审阅 | 200 | 400 / 404 / 409 / 502 |
+| `GET`   | `/api/user-profiles/{id}/review-readiness` | 读取本版通过记录；无记录为未知，不调用 AI | 200 | 404 |
 | `POST`  | `/api/user-profiles/{id}/confirm` | 用户确认 Profile（`REVIEWING → CONFIRMED`），请求体须携带所依据的 revision | 200 | 400 / 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/continue-discovery` | 用户选择继续探索（`REVIEWING → EXPLORING`） | 200 | 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/reopen-discovery` | 用户重新开启探索（`CONFIRMED → EXPLORING`） | 200 | 404 / 409 |
@@ -534,12 +535,13 @@ AI 调用失败或返回内容无法解析时返回 502，与其它外部能力�
 **sufficiency-assessment 语义**
 
 ```text
-请求体    无
-响应体    {"sufficient": …, "missingAreas": [...], "nextQuestion": …, "profileStatus": "…"}
+请求体    {"revision": 7}（旧无体调用兼容；Vue 总是传实际版本）
+响应体    {"sufficient": …, "missingAreas": [...], "nextQuestion": null, "profileStatus": "…"}
 ```
 
 该入口表示用户显式请求进入审阅。系统把当前六区内容与 Evidence（含 sourceRef 原始依据）
-交给 AI Gateway，得到充分性建议。先校验 EXPLORING，非法起点不调用 AI；充分时才请求状态转换：
+在无本版通过记录时交给 AI Gateway，得到充分性建议。先校验 EXPLORING 与请求 revision；
+有记录则零 AI 调用，无记录才评估一次。充分时才请求状态转换：
 
 ```text
 insufficient   Profile 保持 EXPLORING，不写入、不推进 revision
@@ -550,13 +552,24 @@ sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是�
 `profileStatus` 始终由 Domain 决定。模型输出自相矛盾（例如声明足够却列出缺失信息）
 会被解析层拒绝，按 502 处理且不改变任何状态。
 
-评估结果当前不持久化，每次调用都会重新评估。
+服务端只保存每份 Profile 当前通过最低充分性检查的 revision（`user_profile_sufficiency`）；
+它依赖既有 ID + revision 内容快照，不保存 Prompt、原始响应、问题或历史评估。
+同版审阅优先复用该结果；内容或 Evidence 更新的事务删除旧记录。只读下一问可记录
+服务端通过结果，但不保存用户事实。浏览器 sufficient 标志不具有状态转换权限。
+审阅保存、确认以及所有 M1 更新均通过 `saveIfUnchanged` 检查原始版本、状态与快照；
+SQLite 条件 UPDATE 先取得写锁，检查和保存同事务，AI 调用始终在事务外。
 
 充分性不是六区非空或条目计数：AI 需核对具体动机 / 期望成果、技术基础、约束及用户输入依据；
 兴趣、学习和求职可充分，painPoints 可为空。Application 同时拦截缺失目标、技术基础、约束
 或 USER_INPUT Evidence 的正面建议。该检查不能证明自然语言的语义真实性，仍需要用户审阅。
-一次不足仅返回一个最有价值的问题；充分与下一问不再互斥。显式审阅充分时返回空问题，
+探索中一次不足仅返回一个最有价值的问题；充分与下一问不再互斥。显式审阅无论是否充分均返回空问题，
 持续探索时仍提出一个有价值的深入问题，不为了固定轮数或填字段追加问题。
+
+**review-readiness 语义**
+
+`GET /api/user-profiles/{id}/review-readiness` 返回 `{profileId, revision, sufficient: true|null}`。
+true 仅表示本版服务端已通过；null 表示没有有效通过记录，不冒充 AI 不足结论。
+刷新用 GET 恢复非阻塞提示，版本不匹配则丢弃；不恢复问题、不调用 Provider。
 
 **discovery-turn 语义**
 
@@ -608,6 +621,7 @@ sufficient    保存更新后的 Profile，返回最低条件已满足与深入�
 
 响应为 `{revision, sufficient, missingAreas, nextQuestion}`。仅在 EXPLORING、请求版本等于当前
 revision 时调用一次既有 `ProfileSufficiencyEvaluator`，完全不写入 Profile / Evidence / 状态。
+通过的充分性可以记录为本版元数据；问题与原始响应仍不保存。
 调用后再次读取，若版本或探索状态变化则 409，丢弃旧问题；不接受非整数 revision。
 用户明确索取或主动 Continue / Reopen 后，前端使用此入口；不会伪造输入调用 discovery-turn。
 状态转换与提问是两个请求：转换已经成功但提问失败时，保留真实 EXPLORING，显示错误，

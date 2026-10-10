@@ -14,6 +14,19 @@ const editing = ref<ProfileSection | null>(null);
 const editValue = ref("");
 const reopen = ref(false);
 const chat = ref<HTMLElement>();
+const activeTab = ref<"chat" | "review">(props.s.profile?.status === "REVIEWING" ? "review" : "chat");
+watch(() => props.s.profile?.status, (status, previous) => {
+  if (status === "REVIEWING") activeTab.value = "review";
+  if (status === "EXPLORING" && previous !== "EXPLORING") activeTab.value = "chat";
+});
+async function enterReview() {
+  props.s.dismissReviewChoice();
+  await props.s.assess();
+}
+async function keepExploring() {
+  props.s.dismissReviewChoice();
+  await continueExploring();
+}
 watch(
   () => `${props.s.profile?.id}:${props.s.profile?.revision}:${props.s.profile?.status}`,
   () => {
@@ -78,9 +91,18 @@ async function save() {
         <h2 id="chat-heading">需求对话</h2>
         <StatusBadge :status="s.profile.status" :show-code="false" />
       </div>
-      <ProfileReview v-if="s.profile.status === 'REVIEWING'" :profile="s.profile" :sufficiency="s.sufficiency" :busy="!!s.busy" @edit="edit" />
+      <div class="discovery-tabs" role="group" aria-label="探索与画像视图">
+        <button class="secondary" :aria-pressed="activeTab === 'chat'" @click="activeTab = 'chat'">本次对话</button>
+        <button class="secondary" :aria-pressed="activeTab === 'review'" @click="activeTab = 'review'">画像审阅</button>
+      </div>
+      <div v-if="s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient" class="readiness-banner" role="status">
+        已有足够信息供你审阅。可以继续回答下一问，也可随时进入画像审阅。
+        <button class="text-button" :disabled="!!s.busy" @click="enterReview">进入画像审阅</button>
+      </div>
+      <ProfileReview v-if="activeTab === 'review'" :profile="s.profile" :sufficiency="s.sufficiency"
+        :busy="!!s.busy || s.profile.status === 'CONFIRMED'" @edit="edit" />
       <div
-        v-show="s.profile.status !== 'REVIEWING'"
+        v-show="activeTab === 'chat'"
         ref="chat"
         class="chat-log"
         role="log"
@@ -124,7 +146,7 @@ async function save() {
           已达到最低审阅条件，本页没有可继续回答的下一问。可主动请 Agent 提问，或选择进入画像审阅。
         </p>
       </div>
-      <form v-show="s.profile.status !== 'REVIEWING'" class="composer" @submit.prevent="send">
+      <form v-show="activeTab === 'chat' && s.profile.status === 'EXPLORING'" class="composer" @submit.prevent="send">
         <label for="discovery-input">你的想法</label>
         <textarea
           id="discovery-input" name="discovery-input" autocomplete="off"
@@ -164,6 +186,7 @@ async function save() {
         </div>
         <span class="version">画像版本 {{ s.profile.revision }}</span>
       </div>
+      <template v-if="activeTab === 'chat'">
       <section
         v-for="section in profileSections"
         :key="section.key"
@@ -188,6 +211,8 @@ async function save() {
         <p v-else class="muted">{{ section.hint }} · 尚未提取</p>
       </section>
       <EvidenceList :items="s.profile.evidence" title="画像依据" friendly />
+      </template>
+      <p v-else class="muted">六维内容与依据已在画像审阅视图展开；请逐项核对后确认。</p>
       <div class="review-box">
         <h3>充分性与审阅</h3>
         <template v-if="s.sufficiency"
@@ -213,10 +238,15 @@ async function save() {
           v-if="s.profile.status === 'EXPLORING'"
           class="secondary"
           :disabled="!!s.busy"
-          @click="s.assess"
+          @click="enterReview"
         >
-          进入画像审阅（先调用 AI 评估）
+          进入画像审阅
         </button>
+        <p v-if="s.profile.status === 'EXPLORING'" class="meta">
+          {{ s.sufficiency?.sufficient
+            ? "审阅优先复用后端保存的本版充分结果，不重复提问。"
+            : "没有本版通过结果时，审阅会调用一次 AI 评估；若仍需补充，只显示缺失信息，不向聊天插入新问题。" }}
+        </p>
         <template v-if="s.profile.status === 'REVIEWING'"
           ><label class="check"
             ><input
@@ -226,7 +256,7 @@ async function save() {
             />我已审阅画像版本 {{ s.profile.revision }}，内容准确</label
           >
           <button
-            :disabled="!reviewed || !!s.busy"
+            :disabled="!reviewed || !!s.busy || activeTab !== 'review'"
             @click="s.confirmProfile(s.profile.revision)"
           >
             确认当前画像
@@ -243,6 +273,11 @@ async function save() {
       </details>
     </aside>
   </div>
+  <ConfirmDialog :open="s.reviewChoicePending && s.profile?.status === 'EXPLORING'"
+    title="现在可以审阅你的画像了" confirm-label="审阅并确认画像" cancel-label="继续深入探索"
+    :disabled="!!s.busy" @close="keepExploring" @confirm="enterReview">
+    <p>系统已对当前画像给出充分结果。你可以继续回答已有问题，或进入审阅后逐项核对并显式确认；此按钮不会自动确认。</p>
+  </ConfirmDialog>
   <ConfirmDialog
     :open="!!editing"
     title="纠正画像条目"

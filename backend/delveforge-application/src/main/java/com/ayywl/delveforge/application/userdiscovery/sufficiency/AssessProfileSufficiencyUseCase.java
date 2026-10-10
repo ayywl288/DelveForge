@@ -9,14 +9,14 @@ import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 
 /**
- * 用户显式请求进入 Review：重新判断当前信息，充分才推进状态（DOMAIN_MODEL.md §6.1）。
+ * 用户显式请求进入 Review：复用本版服务端充分性；无记录才评估，充分才推进状态（DOMAIN_MODEL.md §6.1）。
  *
  * <pre>
  * 当前 User Profile
  *         ↓
  * AI Gateway（只提出「够不够、缺什么、下一问」）
  *         ↓
- * insufficient → 返回 Assessment + nextQuestion，Profile 保持 EXPLORING
+ * insufficient → 返回缺失信息，不插入探索问题，Profile 保持 EXPLORING
  * sufficient   → Domain 执行状态转移，Profile 进入 REVIEWING 并被保存
  * </pre>
  *
@@ -69,18 +69,35 @@ public class AssessProfileSufficiencyUseCase {
      * @throws UserProfileStateException    Domain 拒绝这条状态转移
      */
     public SufficiencyAssessment assess(UserProfileId userProfileId) {
-        UserProfile candidate = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile current = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        return assess(userProfileId, current.revision());
+    }
+
+    public SufficiencyAssessment assess(UserProfileId userProfileId, int expectedRevision) {
+        UserProfile expected = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        if (expected.revision() != expectedRevision) {
+            throw new UserProfileStateException("审阅所依据的画像版本已经变化");
+        }
+        UserProfile candidate = UserProfileCandidates.copyOf(expected);
 
         // 这是用户显式请求进入审阅的入口，普通对话轮不调用此状态转换。
         candidate.requireExplorationAllowed();
-        SufficiencyAssessment assessment = profileSufficiencyEvaluator.evaluate(candidate);
+        boolean reused = userProfileRepository.hasSufficientAssessment(userProfileId, expectedRevision);
+        SufficiencyAssessment assessment = reused
+                ? new SufficiencyAssessment(true, java.util.List.of(), null, candidate.status())
+                : profileSufficiencyEvaluator.evaluate(candidate);
+
+        UserProfile current = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        if (current.revision() != expected.revision() || current.status() != expected.status()) {
+            throw new UserProfileStateException("评估期间画像已经变化，请重新读取");
+        }
 
         // 只有真的发生了状态转移才写入：信息不足时不产生任何持久化副作用。
         if (assessment.sufficient()) {
             candidate.beginReview();
-            userProfileRepository.save(candidate);
+            userProfileRepository.saveWithSufficiency(candidate, expected, true);
         }
         return new SufficiencyAssessment(assessment.sufficient(), assessment.missingAreas(),
-                assessment.sufficient() ? null : assessment.nextQuestion(), candidate.status());
+                null, candidate.status());
     }
 }

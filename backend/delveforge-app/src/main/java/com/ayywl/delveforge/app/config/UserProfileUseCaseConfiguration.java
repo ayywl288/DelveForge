@@ -12,6 +12,7 @@ import com.ayywl.delveforge.application.userdiscovery.review.ContinueDiscoveryUs
 import com.ayywl.delveforge.application.userdiscovery.review.ReopenDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AskDiscoveryQuestionUseCase;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.GetProfileReviewReadinessUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.ProfileSufficiencyEvaluator;
 import com.ayywl.delveforge.application.userdiscovery.workflow.RunUserDiscoveryTurnUseCase;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -80,6 +81,11 @@ public class UserProfileUseCaseConfiguration {
     public AskDiscoveryQuestionUseCase askDiscoveryQuestionUseCase(
             UserProfileRepository userProfileRepository, ProfileSufficiencyEvaluator evaluator) {
         return new AskDiscoveryQuestionUseCase(userProfileRepository, evaluator);
+    }
+
+    @Bean
+    public GetProfileReviewReadinessUseCase getProfileReviewReadinessUseCase(UserProfileRepository repository) {
+        return new GetProfileReviewReadinessUseCase(repository);
     }
 
     @Bean

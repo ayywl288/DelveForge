@@ -61,9 +61,10 @@ public class ConfirmUserProfileUseCase {
      *                                      或 {@code expectedRevision} 已过期
      */
     public UserProfile confirm(UserProfileId userProfileId, int expectedRevision) {
-        UserProfile candidate = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile expected = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile candidate = UserProfileCandidates.copyOf(expected);
         candidate.confirm(expectedRevision);
-        userProfileRepository.save(candidate);
+        userProfileRepository.saveIfUnchanged(candidate, expected);
         return candidate;
     }
 }

@@ -73,7 +73,7 @@ class UserProfileSufficiencyEndpointIntegrationTest {
                 .andExpect(jsonPath("$.sufficient").value(false))
                 .andExpect(jsonPath("$.missingAreas.length()").value(2))
                 .andExpect(jsonPath("$.missingAreas[0]").value("缺少真实行为"))
-                .andExpect(jsonPath("$.nextQuestion").value("你最近有没有反复做过、觉得麻烦的事情？"))
+                .andExpect(jsonPath("$.nextQuestion").doesNotExist())
                 .andExpect(jsonPath("$.profileStatus").value("EXPLORING"));
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))

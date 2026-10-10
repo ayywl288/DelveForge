@@ -6,6 +6,7 @@ import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStatus;
+import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -100,6 +101,47 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
         deleteSnapshot(profileId, revision);
         insertSectionItems(profileId, revision, profile);
         insertEvidence(profileId, revision, profile);
+        userProfileMapper.invalidateSufficiency(profileId, revision);
+    }
+
+    @Override
+    @Transactional
+    public void saveIfUnchanged(UserProfile profile, UserProfile expected) {
+        requireUnchanged(expected);
+        if (!profile.id().equals(expected.id())) {
+            throw new IllegalArgumentException("候选与原始画像必须属于同一个 ID");
+        }
+        save(profile);
+    }
+
+    @Override
+    @Transactional
+    public void saveWithSufficiency(UserProfile profile, UserProfile expected, boolean sufficient) {
+        saveIfUnchanged(profile, expected);
+        if (sufficient) {
+            userProfileMapper.recordSufficient(profile.id().value(), profile.revision());
+        }
+    }
+
+    @Override
+    @Transactional
+    public void recordSufficientAssessment(UserProfile expected) {
+        requireUnchanged(expected);
+        userProfileMapper.recordSufficient(expected.id().value(), expected.revision());
+    }
+
+    @Override
+    public boolean hasSufficientAssessment(UserProfileId id, int revision) {
+        return userProfileMapper.sufficientCount(id.value(), revision) == 1;
+    }
+
+    private void requireUnchanged(UserProfile expected) {
+        // 先取得 SQLite 写锁再检查快照；AI 调用在事务外，不长期占用数据库锁。
+        if (userProfileMapper.lockCurrent(expected.id().value(), expected.revision(),
+                expected.status().name()) != 1
+                || !matchesStoredContent(expected.id().value(), expected.revision(), expected)) {
+            throw new UserProfileStateException("画像版本、状态或内容已经变化，请重新读取");
+        }
     }
 
     @Override

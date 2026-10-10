@@ -108,12 +108,36 @@ describe("恢复与显式授权", () => {
   });
 });
 describe("M1 问题显示与连续探索", () => {
+  it("刷新只读取本版服务端充分性并显示非阻塞提示，不重开弹窗或生成问题", async () => {
+    const s = make(); s.ids.profileId = "profile-1";
+    vi.spyOn(api, "connectivity").mockResolvedValue({ service: "delveforge", status: "UP", timestamp: "now" });
+    vi.spyOn(api, "profile").mockResolvedValue(profile());
+    vi.spyOn(api, "reviewReadiness").mockResolvedValue({ profileId: "profile-1", revision: 1, sufficient: true });
+    const ask = vi.spyOn(api, "discoveryQuestion");
+    await s.restore();
+    expect(s.sufficiency.value?.sufficient).toBe(true);
+    expect(s.reviewChoicePending.value).toBe(false); expect(s.messages.value).toEqual([]);
+    expect(ask).not.toHaveBeenCalled();
+    vi.spyOn(api, "reviewReadiness").mockResolvedValue({ profileId: "profile-1", revision: 0, sufficient: true });
+    s.sufficiency.value = null; await s.restore(); expect(s.sufficiency.value).toBeNull();
+  });
+  it("恢复尚无充分记录的画像，不抑制后续首次真实充分弹窗", async () => {
+    const s = make(); s.ids.profileId = "profile-1";
+    vi.spyOn(api, "connectivity").mockResolvedValue({ service: "delveforge", status: "UP", timestamp: "now" });
+    vi.spyOn(api, "profile").mockResolvedValue(profile());
+    vi.spyOn(api, "reviewReadiness").mockResolvedValue({ profileId: "profile-1", revision: 1, sufficient: null });
+    await s.restore();
+    vi.spyOn(api, "discoveryTurn").mockResolvedValue({ profile: profile(), sufficient: true,
+      missingAreas: [], nextQuestion: "先展示什么能力？" });
+    await s.turn("先展示事务能力"); expect(s.reviewChoicePending.value).toBe(true);
+  });
   it("评估与对话的真实问题只在聊天中插入一次，GET 不生成问题", async () => {
     const s = make(); s.profile.value = profile(); s.ids.profileId = "profile-1";
     const assessment = { sufficient: false, missingAreas: ["具体场景"], nextQuestion: "具体哪个环节最麻烦？", profileStatus: "EXPLORING" as const };
     vi.spyOn(api, "assess").mockResolvedValue(assessment);
     vi.spyOn(api, "profile").mockResolvedValue(profile());
     await s.assess(); await s.assess();
+    expect(s.messages.value).toHaveLength(0);
     vi.spyOn(api, "discoveryTurn").mockResolvedValue({ ...assessment, profile: profile() });
     await s.turn("集卡周期长");
     expect(s.messages.value.filter(m => m.role === "agent")).toEqual([{ role: "agent", text: assessment.nextQuestion }]);

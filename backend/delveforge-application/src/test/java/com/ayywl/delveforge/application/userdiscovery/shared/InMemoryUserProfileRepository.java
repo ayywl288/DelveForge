@@ -21,10 +21,15 @@ public final class InMemoryUserProfileRepository implements UserProfileRepositor
 
     private final Map<UserProfileId, UserProfile> profiles = new HashMap<>();
 
+    private final Map<UserProfileId, Integer> sufficientRevisions = new HashMap<>();
+
     private int saveCount;
 
     @Override
     public void save(UserProfile profile) {
+        if (!java.util.Objects.equals(sufficientRevisions.get(profile.id()), profile.revision())) {
+            sufficientRevisions.remove(profile.id());
+        }
         profiles.put(profile.id(), profile);
         saveCount++;
     }
@@ -32,6 +37,37 @@ public final class InMemoryUserProfileRepository implements UserProfileRepositor
     @Override
     public Optional<UserProfile> findById(UserProfileId id) {
         return Optional.ofNullable(profiles.get(id));
+    }
+
+    @Override
+    public synchronized void saveIfUnchanged(UserProfile profile, UserProfile expected) {
+        requireUnchanged(expected);
+        save(profile);
+    }
+
+    @Override
+    public synchronized void saveWithSufficiency(UserProfile profile, UserProfile expected, boolean sufficient) {
+        saveIfUnchanged(profile, expected);
+        if (sufficient) { recordSufficientAssessment(profile); }
+    }
+
+    @Override
+    public synchronized void recordSufficientAssessment(UserProfile expected) {
+        requireUnchanged(expected);
+        sufficientRevisions.put(expected.id(), expected.revision());
+    }
+
+    @Override
+    public boolean hasSufficientAssessment(UserProfileId id, int revision) {
+        return java.util.Objects.equals(sufficientRevisions.get(id), revision);
+    }
+
+    private void requireUnchanged(UserProfile expected) {
+        UserProfile current = profiles.get(expected.id());
+        if (current == null || current.revision() != expected.revision()
+                || current.status() != expected.status()) {
+            throw new com.ayywl.delveforge.domain.user.UserProfileStateException("画像已变化");
+        }
     }
 
     /** 累计调用 {@link #save} 的次数。 */

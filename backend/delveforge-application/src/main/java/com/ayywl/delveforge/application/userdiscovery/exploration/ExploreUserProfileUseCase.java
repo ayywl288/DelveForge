@@ -73,11 +73,12 @@ public class ExploreUserProfileUseCase {
     public UserProfile explore(UserProfileId userProfileId, String userInput) {
         ProfileExtraction.requireUserInput(userInput);
 
-        UserProfile candidate = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile expected = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile candidate = UserProfileCandidates.copyOf(expected);
 
         profileExtraction.applyTo(candidate, userInput);
 
-        userProfileRepository.save(candidate);
+        userProfileRepository.saveIfUnchanged(candidate, expected);
         return candidate;
     }
 }

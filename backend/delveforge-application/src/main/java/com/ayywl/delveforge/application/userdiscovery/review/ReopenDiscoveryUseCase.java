@@ -40,9 +40,10 @@ public class ReopenDiscoveryUseCase {
      * @throws UserProfileStateException    当前状态不是 {@code CONFIRMED}
      */
     public UserProfile reopenDiscovery(UserProfileId userProfileId) {
-        UserProfile candidate = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile expected = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile candidate = UserProfileCandidates.copyOf(expected);
         candidate.reopenDiscovery();
-        userProfileRepository.save(candidate);
+        userProfileRepository.saveIfUnchanged(candidate, expected);
         return candidate;
     }
 }

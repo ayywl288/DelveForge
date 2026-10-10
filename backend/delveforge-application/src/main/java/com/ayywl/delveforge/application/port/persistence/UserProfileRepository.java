@@ -59,4 +59,16 @@ public interface UserProfileRepository {
      * @return 对应的 Profile；不存在时为空
      */
     Optional<UserProfile> findById(UserProfileId id);
+
+    /** 原子检查原始版本、状态及内容后保存；并发变化必须作为状态冲突拒绝。 */
+    void saveIfUnchanged(UserProfile profile, UserProfile expected);
+
+    /** 与 Profile 保存同一事务记录服务端通过的最低充分性；不保存问题或评估历史。 */
+    void saveWithSufficiency(UserProfile profile, UserProfile expected, boolean sufficient);
+
+    /** 只记录已通过的评估，不改变 Profile 内容、Evidence、revision 或状态。 */
+    void recordSufficientAssessment(UserProfile expected);
+
+    /** 只匹配当前内容快照；没有记录表示未知，不能解释为 AI 判定不足。 */
+    boolean hasSufficientAssessment(UserProfileId id, int revision);
 }

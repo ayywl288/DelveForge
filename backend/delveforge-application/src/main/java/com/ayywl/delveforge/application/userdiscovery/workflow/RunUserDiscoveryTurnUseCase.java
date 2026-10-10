@@ -103,7 +103,8 @@ public class RunUserDiscoveryTurnUseCase {
         ProfileExtraction.requireUserInput(userInput);
         List<String> questions = DiscoveryQuestions.validate(previousQuestions);
 
-        UserProfile candidate = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile expected = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile candidate = UserProfileCandidates.copyOf(expected);
 
         // 先由 Domain 判定「能不能开始一轮探索」：放在提取之前，
         // 因此非法状态下既不会产生 AI 调用，也不会改动候选 Profile。
@@ -115,7 +116,7 @@ public class RunUserDiscoveryTurnUseCase {
                 profileSufficiencyEvaluator.evaluateForExploration(candidate, questions);
 
         // 一轮只保存一次：整轮成功后写入，因此任何一步失败都不会留下半轮结果。
-        userProfileRepository.save(candidate);
+        userProfileRepository.saveWithSufficiency(candidate, expected, sufficiency.sufficient());
         return new UserDiscoveryTurn(candidate, sufficiency);
     }
 }

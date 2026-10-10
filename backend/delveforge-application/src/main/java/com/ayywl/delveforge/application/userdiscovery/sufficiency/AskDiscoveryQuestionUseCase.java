@@ -29,6 +29,9 @@ public final class AskDiscoveryQuestionUseCase {
 
         // 长 AI 请求期间若画像已变化，丢弃旧版问题；不把旧评估放到新的审阅/确认版本上。
         requireCurrentExploration(UserProfileCandidates.loadCopy(repository, id), revision);
+        if (result.sufficient()) {
+            repository.recordSufficientAssessment(snapshot);
+        }
         return result;
     }
 

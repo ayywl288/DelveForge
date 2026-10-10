@@ -24,6 +24,7 @@ import com.ayywl.delveforge.application.userdiscovery.review.ContinueDiscoveryUs
 import com.ayywl.delveforge.application.userdiscovery.review.ReopenDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AskDiscoveryQuestionUseCase;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.GetProfileReviewReadinessUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
 import com.ayywl.delveforge.application.userdiscovery.workflow.RunUserDiscoveryTurnUseCase;
 import com.ayywl.delveforge.application.userdiscovery.workflow.UserDiscoveryTurn;
@@ -60,6 +61,7 @@ public class UserProfileController {
     private final ReopenDiscoveryUseCase reopenDiscoveryUseCase;
     private final RunUserDiscoveryTurnUseCase runUserDiscoveryTurnUseCase;
     private final AskDiscoveryQuestionUseCase askDiscoveryQuestionUseCase;
+    private final GetProfileReviewReadinessUseCase getProfileReviewReadinessUseCase;
 
     public UserProfileController(CreateUserProfileUseCase createUserProfileUseCase,
                                  GetUserProfileUseCase getUserProfileUseCase,
@@ -70,7 +72,8 @@ public class UserProfileController {
                                  ContinueDiscoveryUseCase continueDiscoveryUseCase,
                                  ReopenDiscoveryUseCase reopenDiscoveryUseCase,
                                  RunUserDiscoveryTurnUseCase runUserDiscoveryTurnUseCase,
-                                 AskDiscoveryQuestionUseCase askDiscoveryQuestionUseCase) {
+                                 AskDiscoveryQuestionUseCase askDiscoveryQuestionUseCase,
+                                 GetProfileReviewReadinessUseCase getProfileReviewReadinessUseCase) {
         this.createUserProfileUseCase = createUserProfileUseCase;
         this.getUserProfileUseCase = getUserProfileUseCase;
         this.updateUserProfileUseCase = updateUserProfileUseCase;
@@ -81,6 +84,7 @@ public class UserProfileController {
         this.reopenDiscoveryUseCase = reopenDiscoveryUseCase;
         this.runUserDiscoveryTurnUseCase = runUserDiscoveryTurnUseCase;
         this.askDiscoveryQuestionUseCase = askDiscoveryQuestionUseCase;
+        this.getProfileReviewReadinessUseCase = getProfileReviewReadinessUseCase;
     }
 
     @PostMapping
@@ -119,8 +123,19 @@ public class UserProfileController {
      * 不判断「足够」的含义，也不接触状态。
      */
     @PostMapping("/{id}/sufficiency-assessment")
-    public SufficiencyAssessmentResponse assessSufficiency(@PathVariable String id) {
-        return toResponse(assessProfileSufficiencyUseCase.assess(new UserProfileId(id)));
+    public SufficiencyAssessmentResponse assessSufficiency(@PathVariable String id,
+            @RequestBody(required = false) ConfirmUserProfileRequest request) {
+        if (request != null && request.revision() == null) {
+            throw new IllegalArgumentException("审阅请求必须携带所依据的 revision");
+        }
+        return toResponse(request == null
+                ? assessProfileSufficiencyUseCase.assess(new UserProfileId(id))
+                : assessProfileSufficiencyUseCase.assess(new UserProfileId(id), request.revision()));
+    }
+
+    @GetMapping("/{id}/review-readiness")
+    public GetProfileReviewReadinessUseCase.Readiness reviewReadiness(@PathVariable String id) {
+        return getProfileReviewReadinessUseCase.get(new UserProfileId(id));
     }
 
     /**

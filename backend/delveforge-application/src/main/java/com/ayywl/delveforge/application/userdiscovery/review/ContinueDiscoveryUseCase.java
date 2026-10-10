@@ -40,9 +40,10 @@ public class ContinueDiscoveryUseCase {
      * @throws UserProfileStateException    当前状态不是 {@code REVIEWING}
      */
     public UserProfile continueDiscovery(UserProfileId userProfileId) {
-        UserProfile candidate = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile expected = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
+        UserProfile candidate = UserProfileCandidates.copyOf(expected);
         candidate.continueDiscovery();
-        userProfileRepository.save(candidate);
+        userProfileRepository.saveIfUnchanged(candidate, expected);
         return candidate;
     }
 }

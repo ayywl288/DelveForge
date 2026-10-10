@@ -141,3 +141,6 @@ Provider 调用/解析失败、无下一问或重复下一问都不会保存半�
 [会话](../../frontend/src/state/session.ts)、[画像审阅](../../frontend/src/components/ProfileReview.vue)。
 前轮历史记录仍在 [充分性与对话修复](user-discovery-sufficiency-conversation-fix.md)，其中旧下一问限制
 描述的是该轮交付状态，以本次契约修订和当前实现为准。
+
+后续 C1 同版本审阅复用与视图区分见 [Task C1 记录](task-c1-user-discovery-consistency.md)。
+本文原有每次审阅调用一次 AI、不保存评估及主区域替换的描述是该轮历史交付状态。

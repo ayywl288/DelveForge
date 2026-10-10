@@ -531,7 +531,7 @@ summary {
   margin: 0;
 }
 .chat-log {
-  height: 480px;
+  height: clamp(520px, 62vh, 760px);
   overflow: auto;
   padding: 24px;
   scrollbar-width: thin;
@@ -967,7 +967,7 @@ dialog::backdrop {
     padding: 48px 60px;
   }
   .chat-log {
-    height: 530px;
+    height: 650px;
   }
 }
 @media (max-width: 1200px) {
@@ -1204,3 +1204,8 @@ dialog::backdrop {
     scroll-behavior: auto !important;
   }
 }
+
+.discovery-tabs { display: flex; gap: 10px; padding: 14px 24px; border-bottom: 1px solid var(--line); }
+.discovery-tabs [aria-pressed="true"] { color: var(--ink); border-color: currentColor; }
+.readiness-banner { padding: 14px 24px; background: #f5f6f2; border-bottom: 1px solid var(--line); }
+.profile-review .evidence[open] { max-height: 340px; overflow-y: auto; }

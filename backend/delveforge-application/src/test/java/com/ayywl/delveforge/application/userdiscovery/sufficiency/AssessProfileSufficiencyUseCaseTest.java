@@ -66,7 +66,7 @@ class AssessProfileSufficiencyUseCaseTest {
 
         assertFalse(assessment.sufficient());
         assertEquals(List.of("缺少真实行为", "缺少技术能力"), assessment.missingAreas());
-        assertEquals("你最近有没有反复做过、觉得麻烦的事情？", assessment.nextQuestion());
+        assertNull(assessment.nextQuestion(), "审阅请求只反馈缺失信息，不插入新的探索问题");
         assertEquals(UserProfileStatus.EXPLORING, assessment.profileStatus());
 
         assertEquals(UserProfileStatus.EXPLORING, profile.status(), "信息不足时保持 EXPLORING");
@@ -222,6 +222,38 @@ class AssessProfileSufficiencyUseCaseTest {
         UserProfile profile = UserProfile.create(PROFILE_ID);
         repository.save(profile);
         return profile;
+    }
+
+    @Test
+    void reusesServerResultUntilContentOrEvidenceChanges() {
+        UserProfile profile = UserProfile.create(PROFILE_ID);
+        profile.updateProjectGoals(List.of("头像裁剪工具"));
+        profile.updateTechnicalCapabilities(List.of("Java 图像处理"));
+        profile.updateConstraints(List.of("每周三小时"));
+        profile.recordEvidence(new Evidence(EvidenceSourceType.USER_INPUT, "每周三小时做Java头像裁剪",
+                "希望做头像裁剪", null, false));
+        repository.save(profile);
+        repository.recordSufficientAssessment(profile);
+        aiGateway.failWith(new AiGatewayException("不应调用"));
+
+        assertTrue(useCase.assess(PROFILE_ID, profile.revision()).sufficient());
+        assertEquals(0, aiGateway.callCount());
+        UserProfile current = repository.findById(PROFILE_ID).orElseThrow();
+        current.continueDiscovery();
+        current.updateConstraints(List.of("每周两小时"));
+        repository.save(current);
+        assertFalse(repository.hasSufficientAssessment(PROFILE_ID, current.revision()));
+        assertThrows(AiGatewayException.class, () -> useCase.assess(PROFILE_ID, current.revision()));
+        assertEquals(UserProfileStatus.EXPLORING, current.status());
+        assertEquals(1, aiGateway.callCount());
+    }
+
+    @Test
+    void rejectsOldRevisionBeforeCallingProvider() {
+        UserProfile profile = seedProfile();
+        assertThrows(UserProfileStateException.class,
+                () -> useCase.assess(PROFILE_ID, profile.revision() + 1));
+        assertEquals(0, aiGateway.callCount());
     }
 
     /**

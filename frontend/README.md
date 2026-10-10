@@ -71,3 +71,8 @@ tests/                  自动化合成夹具，非真实 Provider 证据
 ```
 
 现有 API 无历史列表、聊天、充分性评估、已接受 CodingProposal 或 Git diff 的历史查询。`execution-preparation` 会调用 AI，execute 仍重新准备，因此本页未增加额外付费预览。详情见 [Task B 验证](../docs/validation/minimal-web-experience.md)。M5、正式部署和其它前后端新功能不在本任务范围。
+
+C1：首次真实充分结果显示一次选择弹窗；已有问题的继续探索不追加 AI 调用。
+“本次对话 / 画像审阅”可切换；审阅视图不重复右侧大段画像，依据可折叠。
+审阅 POST 携带 revision，同版服务端充分结果直接复用；无记录才评估，不插入新探索问题。
+刷新只读 review-readiness 恢复提示，不恢复聊天或自动提问。

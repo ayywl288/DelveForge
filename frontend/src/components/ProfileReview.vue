@@ -42,6 +42,6 @@ const pending = computed(
     <h4>待核实内容 · {{ pending }} 条依据</h4>
     <p>下方标为“提取结论待核对”的内容尚未单独确认。确认画像并不表示每条依据已经单独核实。</p>
     <p class="meta">当前数据没有逐条画像内容与依据的关联字段；这里完整展示本版依据，不能推断每条内容对应哪一条依据。纠正画像不会删除旧依据。</p>
-    <EvidenceList :items="profile.evidence" title="本版画像与原始输入依据" friendly expanded />
+    <EvidenceList :items="profile.evidence" title="本版画像与原始输入依据" friendly />
   </section>
 </template>

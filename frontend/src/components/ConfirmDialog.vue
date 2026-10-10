@@ -5,6 +5,7 @@ const props = defineProps<{
   title: string;
   confirmLabel: string;
   disabled?: boolean;
+  cancelLabel?: string;
 }>();
 const emit = defineEmits<{ close: []; confirm: [] }>();
 const dialog = ref<HTMLDialogElement>();
@@ -38,7 +39,7 @@ onMounted(sync);
     <div class="dialog-body"><slot /></div>
     <div class="actions">
       <button class="secondary" autofocus @click="emit('close')">
-        返回审阅
+        {{ cancelLabel ?? "返回审阅" }}
       </button>
       <button :disabled="disabled" @click="emit('confirm')">
         {{ confirmLabel }}

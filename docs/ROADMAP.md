@@ -1971,3 +1971,9 @@ Domain Model
 ```
 
 应同时同步更新对应文档，而不是只在 Roadmap 中记录。
+
+### Task C — 用户交互一致性与演示包（用户授权收尾）
+
+C1 仅修复 M1 同版本充分性复用、并发保存和探索/审阅展示；C2 准备三个许可清晰的
+Java/Maven BUILD_READY 演示基线；C3 准备本地 Bundle、Catalog 与 README。
+不新增演化能力，不调用付费 Provider，不自动发布/push；M4 保持冻结，M5 仍暂缓。

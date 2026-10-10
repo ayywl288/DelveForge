@@ -53,7 +53,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     for (const text of ["画像版本 7", "战绩趋势", "每周战队练习", "手工统计耗时", "完成过Java接口", "六周完成可展示作品", "每周五小时", "可投入五小时", "每周五小时做Java作品", "提取结论待核对"]) {
       expect(review.textContent).toContain(text);
     }
-    expect(review.querySelector(".evidence")?.hasAttribute("open")).toBe(true);
+    expect(review.querySelector(".evidence")?.hasAttribute("open")).toBe(false);
     expect(root.querySelector("form")?.style.display).toBe("none");
     expect(button(root, "返回探索并提问")).toBeTruthy();
     const check = root.querySelector(".review-box input") as HTMLInputElement;
@@ -78,7 +78,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     button(root, "继续深入探索").click(); await settle();
     expect(fetcher).toHaveBeenCalledTimes(1); expect(root.querySelectorAll(".message.agent")).toHaveLength(1);
   });
-  it("单独评估的 nextQuestion 进入左侧聊天，右侧仅展示缺失信息与审阅操作", async () => {
+  it("审阅不足只反馈缺失信息，不将独立评估的问题插入聊天", async () => {
     const s = session(); s.profile = profile(); s.ids.profileId = "profile-1";
     const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(
       url.endsWith("sufficiency-assessment")
@@ -88,12 +88,36 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     vi.stubGlobal("fetch", fetcher); const root = mount(DiscoveryView, s);
     button(root, "进入画像审阅").click(); await settle();
     button(root, "进入画像审阅").click(); await settle();
-    expect(root.querySelectorAll(".message.agent")).toHaveLength(1);
-    expect(root.querySelector(".chat-log")?.textContent).toContain("最近一次集卡哪里麻烦？");
+    expect(root.querySelectorAll(".message.agent")).toHaveLength(0);
+    expect(root.querySelector(".chat-log")?.textContent).not.toContain("最近一次集卡哪里麻烦？");
     expect(root.querySelector(".review-box")?.textContent).not.toContain("最近一次集卡哪里麻烦？");
     expect(root.querySelector(".review-box")?.textContent).toContain("尚不明确具体操作环节");
     expect(root.querySelector("textarea")?.disabled).toBe(false);
     expect(root.textContent).toContain("画像版本 1");
+  });
+  it("首次真实充分结果只弹一次，继续不调用 AI，审阅与对话可切换", async () => {
+    const s = session(); s.profile = profile(); s.ids.profileId = "profile-1";
+    s.sufficiency = { sufficient: false, missingAreas: ["目标"], nextQuestion: null };
+    let revision = 1;
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      profile: { ...profile(), revision: revision++ }, sufficient: true, missingAreas: [],
+      nextQuestion: revision === 2 ? "首先展示哪项能力？" : "首个使用者是谁？",
+    })));
+    vi.stubGlobal("fetch", fetcher); const root = mount(DiscoveryView, s);
+    await s.turn("展示Java持久化能力"); await settle();
+    expect(root.querySelector("dialog[open]")?.textContent).toContain("现在可以审阅");
+    button(root.querySelector("dialog[open]") as HTMLElement, "继续深入探索").click(); await settle();
+    expect(s.reviewChoicePending).toBe(false); expect(fetcher).toHaveBeenCalledTimes(1);
+    await s.turn("先展示事务能力"); await settle();
+    expect(s.reviewChoicePending).toBe(false); expect(root.querySelector("dialog[open]")).toBeNull();
+    s.profile = { ...s.profile!, status: "REVIEWING" }; await settle();
+    expect(root.querySelector(".profile-review")).not.toBeNull();
+    expect(root.querySelector(".profile-panel")?.textContent).not.toContain("首先展示哪项能力");
+    button(root, "本次对话").click(); await settle();
+    expect(root.querySelector(".chat-log")?.textContent).toContain("首先展示哪项能力？");
+    expect(root.querySelector(".profile-review")).toBeNull();
+    s.profile = { ...s.profile!, status: "EXPLORING" }; await settle();
+    expect(root.querySelector(".chat-log")?.getAttribute("style")).not.toContain("display: none");
   });
   it("仓库分析结果按业务字段展示，保留 analyzedRevision 与 Evidence", async () => {
     const s = session(); s.assets = [asset()]; s.ids.assetIds = ["asset-1"];

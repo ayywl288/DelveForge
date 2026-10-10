@@ -98,8 +98,11 @@ export const api = {
     }),
   patchProfile: (value: string, patch: ProfilePatch) =>
     request<UserProfile>(profile(value), "PATCH", patch),
-  assess: (value: string) =>
-    request<Assessment>(`${profile(value)}/sufficiency-assessment`, "POST"),
+  assess: (value: string, revision?: number) =>
+    request<Assessment>(`${profile(value)}/sufficiency-assessment`, "POST",
+      revision === undefined ? undefined : { revision }),
+  reviewReadiness: (value: string) =>
+    request<{ profileId: string; revision: number; sufficient: true | null }>(`${profile(value)}/review-readiness`),
   confirmProfile: (value: string, revision: number) =>
     request<UserProfile>(`${profile(value)}/confirm`, "POST", { revision }),
   resumeDiscovery: (value: string, confirmed: boolean) =>
