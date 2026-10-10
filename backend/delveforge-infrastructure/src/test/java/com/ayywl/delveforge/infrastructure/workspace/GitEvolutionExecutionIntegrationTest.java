@@ -111,6 +111,49 @@ class GitEvolutionExecutionIntegrationTest {
                         action == CodingProposal.Action.FOCUSED_TEST ? "ReportTest#value" : "", List.of(1))).toList());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void refusesPreExistingPrivatePathWithoutRemovingIt(boolean directory) throws Exception {
+        AuthorizedStepExecution authorized = fixture(false, 1);
+        CandidateMutationResult candidate = git.applyCandidate(authorized);
+        Map<String, String> original = snapshot(source);
+        Path run = copy.resolve(".git/v");
+        Path sentinel = run;
+        if (directory) {
+            Files.createDirectory(run);
+            sentinel = run.resolve("keep.txt");
+        }
+        Files.writeString(sentinel, "owned by another invocation");
+        assertThrows(WorkspaceException.class,
+                () -> verification.verify(request(candidate.revision(), CodingProposal.Action.DIFF_CHECK)));
+        assertEquals("owned by another invocation", Files.readString(sentinel));
+        assertEquals(directory, Files.isDirectory(run));
+        assertEquals(candidate.revision(), headRevision(copy));
+        assertEquals(baseline, workingCopy.lastVerifiedRevision());
+        assertEquals(original, snapshot(source));
+    }
+
+    @Test
+    void repeatedChecksCreateFreshPrivateDirectoriesAndLeaveNoArtifacts() throws Exception {
+        AuthorizedStepExecution authorized = fixture(false, 1);
+        CandidateMutationResult candidate = git.applyCandidate(authorized);
+        Map<String, String> original = snapshot(source);
+        List<Path> metadataBefore;
+        try (var entries = Files.list(copy.resolve(".git"))) {
+            metadataBefore = entries.sorted().toList();
+        }
+        for (int call = 0; call < 2; call++) {
+            VerificationFacts facts = verification.verify(request(candidate.revision(), CodingProposal.Action.DIFF_CHECK));
+            assertTrue(facts.checks().getFirst().passed(), facts.toString());
+            try (var entries = Files.list(copy.resolve(".git"))) {
+                assertEquals(metadataBefore, entries.sorted().toList());
+            }
+            assertEquals(candidate.revision(), headRevision(copy));
+            assertEquals(baseline, workingCopy.lastVerifiedRevision());
+        }
+        assertEquals(original, snapshot(source));
+    }
+
     @Test void createsExactlyOneInternalCandidateAndDiffVerificationLeavesOriginalUntouched() throws Exception {
         var authorized = fixture(false, 1);
         var before = snapshot(source);

@@ -1,29 +1,44 @@
 package com.ayywl.delveforge.infrastructure.ai;
 
+import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.ai.AiMessage;
+import com.ayywl.delveforge.application.port.ai.AiRequest;
+import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
+import com.ayywl.delveforge.application.port.ai.AiRole;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.mock.http.client.MockClientHttpResponse;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
+
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetSocketAddress;
+import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.jsonPath;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
-
-import com.ayywl.delveforge.application.port.ai.AiGatewayException;
-import com.ayywl.delveforge.application.port.ai.AiMessage;
-import com.ayywl.delveforge.application.port.ai.AiRequest;
-import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
-import com.ayywl.delveforge.application.port.ai.AiRole;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.time.Duration;
-import java.util.List;
-import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
 
 /**
  * 验证 DeepSeek Adapter 与真实 HTTP 客户端的集成：请求形状、鉴权头、响应解析与失败翻译。
@@ -32,6 +47,7 @@ import org.springframework.web.client.RestClient;
  * 也不产生真实 LLM 调用（AGENTS.md §10.6）。被替换的只是网络边界——
  * 请求构造与响应解析都是 Adapter 的真实代码。
  */
+@ExtendWith(OutputCaptureExtension.class)
 class DeepSeekAiGatewayAdapterTest {
 
     private static final String BASE_URL = "https://api.deepseek.example";
@@ -46,7 +62,8 @@ class DeepSeekAiGatewayAdapterTest {
     private final DeepSeekAiGatewayAdapter adapter = new DeepSeekAiGatewayAdapter(
             restClientBuilder.build(),
             new ObjectMapper(),
-            new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5)));
+            new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5),
+                    false, Duration.ofSeconds(10), 16384, 8388608, 65536));
 
     @Test
     void sendsMessagesWithJsonResponseFormatAndReturnsContent() throws Exception {
@@ -96,7 +113,8 @@ class DeepSeekAiGatewayAdapterTest {
         DeepSeekAiGatewayAdapter withoutKey = new DeepSeekAiGatewayAdapter(
                 restClientBuilder.build(),
                 new ObjectMapper(),
-                new DeepSeekProperties(BASE_URL, "  ", MODEL, Duration.ofSeconds(5)));
+                new DeepSeekProperties(BASE_URL, "  ", MODEL, Duration.ofSeconds(5),
+                        false, Duration.ofSeconds(10), 16384, 8388608, 65536));
 
         assertThrows(AiGatewayException.class, () -> withoutKey.generate(jsonRequest()));
 
@@ -104,10 +122,13 @@ class DeepSeekAiGatewayAdapterTest {
     }
 
     @Test
-    void failsOnProviderErrorStatus() {
+    void failsOnProviderErrorStatus(CapturedOutput output) {
         server.expect(requestTo(BASE_URL + "/chat/completions")).andRespond(withServerError());
 
         assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        assertTrue(output.getAll().contains("phase=HTTP_STATUS code=PROVIDER_HTTP_ERROR"));
+        assertTrue(output.getAll().contains("httpStatus=500"));
+        server.verify();
     }
 
     @Test
@@ -121,7 +142,7 @@ class DeepSeekAiGatewayAdapterTest {
     @Test
     void failsWhenMessageContentIsMissing() {
         server.expect(requestTo(BASE_URL + "/chat/completions"))
-                .andRespond(withSuccess("{\"choices\":[{\"message\":{}}]}", MediaType.APPLICATION_JSON));
+                .andRespond(withSuccess("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{}}]}", MediaType.APPLICATION_JSON));
 
         assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
     }
@@ -134,6 +155,317 @@ class DeepSeekAiGatewayAdapterTest {
         assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
     }
 
+    @Test
+    void recordsResponseReadFailureWithoutLoggingRuntimeText(CapturedOutput output) {
+        String sentinel = "private-provider-prompt-source-credential";
+        server.expect(requestTo(BASE_URL + "/chat/completions")).andRespond(request -> {
+            MockClientHttpResponse response = new MockClientHttpResponse(new InputStream() {
+                @Override
+                public int read() throws IOException {
+                    throw new IOException(sentinel);
+                }
+            }, HttpStatus.OK);
+            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            return response;
+        });
+
+        assertThrows(AiGatewayException.class, () -> adapter.generate(new AiRequest(
+                List.of(new AiMessage(AiRole.USER, sentinel)), AiResponseFormat.JSON)));
+        String logs = output.getAll();
+        assertTrue(logs.contains("phase=RESPONSE_BODY code=PROVIDER_RESPONSE_READ_FAILED"));
+        assertTrue(logs.contains("httpStatus=200"));
+        assertTrue(logs.matches("(?s).*elapsedMs=\\d+.*"));
+        assertTrue(logs.contains("java.io.IOException"));
+        assertFalse(logs.contains(sentinel));
+        assertFalse(logs.contains(API_KEY));
+        assertFalse(logs.contains("Authorization"));
+        server.verify();
+    }
+
+    @Test
+    void recordsExchangeFailureWithoutInventingAResponseStatus(CapturedOutput output) {
+        String sentinel = "private-exchange-error";
+        server.expect(requestTo(BASE_URL + "/chat/completions")).andRespond(request -> {
+            throw new IOException(sentinel);
+        });
+
+        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        String logs = output.getAll();
+        assertTrue(logs.contains("phase=REQUEST code=PROVIDER_EXCHANGE_FAILED"));
+        assertTrue(logs.contains("httpStatus=UNKNOWN"));
+        assertTrue(logs.contains("java.io.IOException"));
+        assertFalse(logs.contains(sentinel));
+        assertFalse(logs.contains(API_KEY));
+        server.verify();
+    }
+
+    /** 使用实际配置的 JDK HTTP 客户端；期限关闭流可以表现为普通 IOException，不能仅靠类型推断超时。 */
+    @Test
+    void diagnosesRealJdkBodyReadFailureWithKnownStatus(CapturedOutput output) throws Exception {
+        HttpServer provider = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        CountDownLatch release = new CountDownLatch(1);
+        provider.createContext("/chat/completions", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, 0);
+            try {
+                exchange.getResponseBody().write("{\"choices\":[".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                exchange.getResponseBody().flush();
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        provider.start();
+        try {
+            var actual = new DeepSeekAiGatewayConfiguration().deepSeekAiGateway(new DeepSeekProperties(
+                    "http://127.0.0.1:" + provider.getAddress().getPort(), API_KEY, MODEL,
+                    Duration.ofMillis(1500), false, Duration.ofSeconds(10), 16384, 8388608, 65536));
+            assertThrows(AiGatewayException.class, () -> actual.generate(jsonRequest()));
+            String logs = output.getAll();
+            assertTrue(logs.contains("phase=RESPONSE_BODY code=PROVIDER_RESPONSE_READ_FAILED"));
+            assertTrue(logs.contains("httpStatus=200"));
+            assertTrue(logs.contains("java.io.IOException"));
+            assertFalse(logs.contains(API_KEY));
+        } finally {
+            release.countDown();
+            provider.stop(0);
+        }
+    }
+
+    @Test
+    void recordsPartialReadProgressWithoutRuntimeText(CapturedOutput output) {
+        server.expect(requestTo(BASE_URL + "/chat/completions")).andRespond(request -> {
+            InputStream body = new java.io.SequenceInputStream(
+                    new java.io.ByteArrayInputStream("\n \r".getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                    new InputStream() {
+                        @Override
+                        public int read() throws IOException {
+                            throw new IOException("private-body-and-header-value");
+                        }
+                    });
+            MockClientHttpResponse response = new MockClientHttpResponse(body, HttpStatus.OK);
+            response.getHeaders().setContentType(MediaType.APPLICATION_JSON);
+            response.getHeaders().set("X-Private", "private-body-and-header-value");
+            return response;
+        });
+
+        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        String logs = output.getAll();
+        assertTrue(logs.contains("bodyBytes=3 nonWhitespaceBytes=0"), logs);
+        assertTrue(logs.contains("contentType=JSON"));
+        assertTrue(logs.matches("(?s).*headersMs=\\d+.*firstByteMs=\\d+.*"));
+        assertFalse(logs.contains("private-body-and-header-value"));
+        assertFalse(logs.contains("X-Private"));
+        server.verify();
+    }
+
+    @Test
+    void recordsCompletedResponseSizeWithoutContent(CapturedOutput output) throws Exception {
+        String body = chatCompletion("private-source-marker");
+        server.expect(requestTo(BASE_URL + "/chat/completions"))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+
+        assertEquals("private-source-marker", adapter.generate(jsonRequest()));
+        String logs = output.getAll();
+        assertTrue(logs.contains("phase=COMPLETE code=PROVIDER_RESPONSE_COMPLETE"));
+        assertTrue(logs.contains("bodyBytes=" + body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length));
+        assertTrue(logs.matches("(?s).*requestBytes=\\d+.*"));
+        assertFalse(logs.contains("private-source-marker"));
+        assertFalse(logs.contains(API_KEY));
+        server.verify();
+    }
+
+    @Test
+    void streamsCompleteContentAndKeepsProposalText(CapturedOutput output) throws Exception {
+        String body = ": keep-alive\r\n\r\n" + streamChunk(null, "private-reasoning-marker", null)
+                + streamChunk("{\"value\":\"", null, null) + streamChunk("中文\"}", null, null)
+                + streamChunk(null, null, "stop") + "data: [DONE]\n\n";
+        server.expect(requestTo(BASE_URL + "/chat/completions"))
+                .andExpect(jsonPath("$.stream").value(true))
+                .andExpect(jsonPath("$.max_tokens").value(16384))
+                .andExpect(jsonPath("$.response_format.type").value("json_object"))
+                .andRespond(withSuccess(body, MediaType.TEXT_EVENT_STREAM));
+
+        assertEquals("{\"value\":\"中文\"}", streamingAdapter(8388608, 65536).generate(jsonRequest()));
+        assertFalse(output.getAll().contains("private-reasoning-marker"));
+        assertFalse(output.getAll().contains(API_KEY));
+        server.verify();
+    }
+
+    @Test
+    void refusesResponseOverByteBudget() throws Exception {
+        String body = chatCompletion("x".repeat(2048));
+        server.expect(requestTo(BASE_URL + "/chat/completions"))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+        var bounded = new DeepSeekAiGatewayAdapter(restClientBuilder.build(), new ObjectMapper(),
+                new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5),
+                        false, Duration.ofSeconds(10), 16384, 1024, 512));
+
+        assertThrows(AiGatewayException.class, () -> bounded.generate(jsonRequest()));
+        server.verify();
+    }
+
+    @Test
+    void rejectsLengthTruncationEvenWhenNonStreamingContentIsValidJson(CapturedOutput output) throws Exception {
+        String body = chatCompletion("{}").replace("\"finish_reason\":\"stop\"", "\"finish_reason\":\"length\"");
+        server.expect(requestTo(BASE_URL + "/chat/completions"))
+                .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
+        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        assertTrue(output.getAll().contains("code=PROVIDER_RESPONSE_INCOMPLETE"));
+        server.verify();
+    }
+
+    @Test
+    void excludesProviderErrorHeadersAndBodyFromDiagnostics(CapturedOutput output) {
+        server.expect(requestTo(BASE_URL + "/chat/completions")).andRespond(request -> {
+            MockClientHttpResponse response = new MockClientHttpResponse("private-error-response".getBytes(),
+                    HttpStatus.INTERNAL_SERVER_ERROR);
+            response.getHeaders().set("X-Private", "private-error-header");
+            return response;
+        });
+        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        assertFalse(output.getAll().contains("private-error-response"));
+        assertFalse(output.getAll().contains("private-error-header"));
+        assertTrue(output.getAll().contains("phase=HTTP_STATUS code=PROVIDER_HTTP_ERROR"));
+        server.verify();
+    }
+
+    @Test
+    void actualClientAcceptsACompleteStreamThatProgressesBeyondIdleBudget(CapturedOutput output) throws Exception {
+        HttpServer provider = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        String ending = streamChunk("{\"ok\":true}", null, "stop") + "data: [DONE]\n\n";
+        provider.createContext("/chat/completions", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            try {
+                for (int index = 0; index < 8; index++) {
+                    exchange.getResponseBody().write(": keep-alive\n\n".getBytes());
+                    exchange.getResponseBody().flush();
+                    Thread.sleep(100);
+                }
+                byte[] bytes = ending.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                for (byte value : bytes) {
+                    // 单字节网络分片也必须经过真正的 UTF-8 解码与完整 SSE 终止校验。
+                    exchange.getResponseBody().write(value);
+                }
+                exchange.getResponseBody().flush();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        provider.start();
+        try {
+            var actual = actualStream(provider, Duration.ofMillis(400), Duration.ofSeconds(3));
+            assertEquals("{\"ok\":true}", actual.generate(jsonRequest()));
+            assertTrue(output.getAll().contains("contentType=EVENT_STREAM"));
+            assertFalse(output.getAll().contains(API_KEY));
+        } finally {
+            provider.stop(0);
+        }
+    }
+
+    @Test
+    void actualClientStopsAnIdleStreamWithoutReturningItsFragment(CapturedOutput output) throws Exception {
+        HttpServer provider = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        CountDownLatch release = new CountDownLatch(1);
+        provider.createContext("/chat/completions", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            try {
+                exchange.getResponseBody().write(": keep-alive\n\n".getBytes());
+                exchange.getResponseBody().flush();
+                release.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        provider.start();
+        try {
+            assertThrows(AiGatewayException.class,
+                    () -> actualStream(provider, Duration.ofMillis(400), Duration.ofSeconds(3)).generate(jsonRequest()));
+            assertTrue(output.getAll().contains("code=PROVIDER_RESPONSE_IDLE_TIMEOUT"));
+            assertTrue(output.getAll().contains("httpStatus=200"));
+            assertFalse(output.getAll().contains(API_KEY));
+        } finally {
+            release.countDown();
+            provider.stop(0);
+        }
+    }
+
+    @Test
+    void actualClientCannotExtendAbsoluteDeadlineWithKeepAlive(CapturedOutput output) throws Exception {
+        HttpServer provider = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        CountDownLatch release = new CountDownLatch(1);
+        provider.createContext("/chat/completions", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            try {
+                for (int index = 0; index < 30 && release.getCount() > 0; index++) {
+                    exchange.getResponseBody().write(": keep-alive\n\n".getBytes());
+                    exchange.getResponseBody().flush();
+                    Thread.sleep(100);
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                exchange.close();
+            }
+        });
+        provider.start();
+        try {
+            long started = System.nanoTime();
+            assertThrows(AiGatewayException.class, () -> actualStream(provider, Duration.ofMillis(500),
+                    Duration.ofMillis(1300)).generate(jsonRequest()));
+            long elapsed = (System.nanoTime() - started) / 1_000_000;
+            assertTrue(elapsed >= 800 && elapsed < 5000, "elapsed=" + elapsed);
+            assertTrue(output.getAll().contains("code=PROVIDER_RESPONSE_READ_FAILED"));
+            assertFalse(output.getAll().contains("code=PROVIDER_RESPONSE_IDLE_TIMEOUT"));
+        } finally {
+            release.countDown();
+            provider.stop(0);
+        }
+    }
+
+    private static com.ayywl.delveforge.application.port.ai.AiGateway actualStream(HttpServer provider,
+            Duration idle, Duration absolute) {
+        return new DeepSeekAiGatewayConfiguration().deepSeekAiGateway(new DeepSeekProperties(
+                "http://127.0.0.1:" + provider.getAddress().getPort(), API_KEY, MODEL, idle,
+                true, absolute, 16384, 8388608, 65536));
+    }
+
+    private DeepSeekAiGatewayAdapter streamingAdapter(int responseBytes, int eventBytes) {
+        return new DeepSeekAiGatewayAdapter(restClientBuilder.build(), new ObjectMapper(),
+                new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5),
+                        true, Duration.ofSeconds(10), 16384, responseBytes, eventBytes));
+    }
+
+    private static String streamChunk(String content, String reasoning, String finish) throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode root = mapper.createObjectNode().put("object", "chat.completion.chunk");
+        ObjectNode choice = root.putArray("choices").addObject().put("index", 0);
+        if (finish != null) {
+            choice.put("finish_reason", finish);
+        }
+        ObjectNode delta = choice.putObject("delta");
+        if (content != null) {
+            delta.put("content", content);
+        }
+        if (reasoning != null) {
+            delta.put("reasoning_content", reasoning);
+        }
+        return "data: " + mapper.writeValueAsString(root) + "\n\n";
+    }
+
     private static AiRequest jsonRequest() {
         return new AiRequest(
                 List.of(new AiMessage(AiRole.USER, "问题")), AiResponseFormat.JSON);
@@ -142,7 +474,8 @@ class DeepSeekAiGatewayAdapterTest {
     private static String chatCompletion(String content) throws Exception {
         ObjectMapper objectMapper = new ObjectMapper();
         ObjectNode root = objectMapper.createObjectNode();
-        root.putArray("choices").addObject().putObject("message").put("content", content);
+        root.putArray("choices").addObject().put("finish_reason", "stop")
+                .putObject("message").put("content", content);
         return objectMapper.writeValueAsString(root);
     }
 }

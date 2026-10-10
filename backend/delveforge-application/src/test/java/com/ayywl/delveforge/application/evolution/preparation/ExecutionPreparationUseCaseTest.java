@@ -397,4 +397,100 @@ class ExecutionPreparationUseCaseTest {
         assertTrue(g.workspace.reads.isEmpty());
         g.assertReady();
     }
+
+    @Test
+    void numberedMaterialRetainsExactLfCrLfAndMissingFinalNewlineText() {
+        for (String original : List.of("one\n尾\n", "one\r\n尾")) {
+            Fixture f = new Fixture();
+            f.workspace.files.put("src/A.java", original);
+            f.confirm();
+            String patch = "--- a/src/A.java\n+++ b/src/A.java\n@@ -1,2 +1,2 @@\n "
+                    + (original.contains("\r") ? "one\r\n" : "one\n") + "-尾\n"
+                    + (original.endsWith("\n") ? "" : "\\ No newline at end of file\n") + "+third\n";
+            f.gateway.coding.add(proposal(patch, List.of("src/A.java")));
+            assertNotNull(f.useCase().prepare(PLAN, STEP));
+            JsonNode input = json(f.gateway.requests.getLast().messages().stream()
+                    .filter(message -> message.role() == AiRole.USER).findFirst().orElseThrow().content());
+            assertEquals(2, input.path("sourceFileLineCounts").path("src/A.java").asLong());
+            boolean foundExact = false;
+            for (JsonNode file : input.path("sourceFiles")) {
+                if (file.path("relativePath").asText().equals("src/A.java")) {
+                    assertFalse(file.has("content"));
+                    JsonNode lines = file.path("numberedLines");
+                    assertEquals(2, lines.size());
+                    assertEquals(original.contains("\r") ? "one\r" : "one", lines.path("1").asText());
+                    assertEquals("尾", lines.path("2").asText());
+                    assertEquals(original.endsWith("\n"), file.path("endsWithLf").asBoolean());
+                    assertEquals(original, reconstruct(file));
+                    foundExact = true;
+                }
+            }
+            assertTrue(foundExact);
+            assertEquals(original, f.workspace.files.get("src/A.java"));
+            assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+            assertNull(f.store.plan.step(STEP).baselineRevision());
+            assertEquals("trusted", f.store.copy.currentRevision());
+            assertEquals("trusted", f.store.copy.lastVerifiedRevision());
+        }
+    }
+
+    private static String reconstruct(JsonNode file) {
+        List<String> lines = new ArrayList<>();
+        file.path("numberedLines").elements().forEachRemaining(line -> lines.add(line.asText()));
+        return String.join("\n", lines) + (file.path("endsWithLf").asBoolean() ? "\n" : "");
+    }
+
+    @Test
+    void numberedMaterialRepresentsEmptyFilesAndTrailingBlankLinesExactly() {
+        for (String original : List.of("", "\n", "first\n\n")) {
+            Fixture f = new Fixture();
+            f.workspace.files.put("src/A.java", original);
+            f.confirm();
+            String hunk = original.isEmpty() ? "@@ -0,0 +1 @@\n+third\n"
+                    : original.equals("\n") ? "@@ -1 +1 @@\n-\n+third\n"
+                    : "@@ -1,2 +1,2 @@\n first\n-\n+third\n";
+            f.gateway.coding.add(proposal("--- a/src/A.java\n+++ b/src/A.java\n" + hunk, List.of("src/A.java")));
+            assertNotNull(f.useCase().prepare(PLAN, STEP));
+            JsonNode input = json(f.gateway.requests.getLast().messages().stream()
+                    .filter(message -> message.role() == AiRole.USER).findFirst().orElseThrow().content());
+            for (JsonNode file : input.path("sourceFiles")) {
+                if (file.path("relativePath").asText().equals("src/A.java")) {
+                    assertFalse(file.has("content"));
+                    assertEquals(original, reconstruct(file));
+                    assertEquals(original.isEmpty() ? 0 : original.equals("\n") ? 1 : 2,
+                            file.path("numberedLines").size());
+                }
+            }
+            assertEquals(original, f.workspace.files.get("src/A.java"));
+            assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+            assertNull(f.store.plan.step(STEP).baselineRevision());
+        }
+    }
+
+    @Test
+    void numberedMaterialStillFailsClosedAtTheExistingRequestBudget() {
+        Fixture accepted = new Fixture();
+        accepted.workspace.files.put("src/A.java", "old\n" + "line\n".repeat(200));
+        accepted.confirm();
+        accepted.gateway.coding.add(proposal(PATCH, List.of("src/A.java")));
+        assertNotNull(accepted.useCase().prepare(PLAN, STEP));
+        AiRequest request = accepted.gateway.requests.getLast();
+        int bytes = request.messages().stream()
+                .mapToInt(message -> message.content().getBytes(StandardCharsets.UTF_8).length).sum();
+        ExecutionPreparationLimits reduced = new ExecutionPreparationLimits(2, 24, 48, 65536,
+                524288, bytes - 1, 262144, 16, 16);
+        Fixture rejected = new Fixture(reduced, 65536);
+        rejected.workspace.files.put("src/A.java", accepted.workspace.files.get("src/A.java"));
+        rejected.confirm();
+        rejected.gateway.coding.add(proposal(PATCH, List.of("src/A.java")));
+        assertThrows(ExecutionPreparationBudgetExceededException.class,
+                () -> rejected.useCase().prepare(PLAN, STEP));
+        assertEquals(1, rejected.gateway.coding.size());
+        assertEquals(EvolutionStepStatus.READY, rejected.store.plan.step(STEP).status());
+        assertNull(rejected.store.plan.step(STEP).baselineRevision());
+        assertEquals("trusted", rejected.store.copy.currentRevision());
+        assertEquals("trusted", rejected.store.copy.lastVerifiedRevision());
+        assertEquals(accepted.workspace.files.get("src/A.java"), rejected.workspace.files.get("src/A.java"));
+    }
+
 }

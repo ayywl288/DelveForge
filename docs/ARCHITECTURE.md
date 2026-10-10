@@ -953,6 +953,11 @@ Coding Gateway 返回 `CHANGE_PROPOSAL` 或 `NEED_MORE_CONTEXT`。后者必须�
 每次 AI 消息内容与返回内容也有字节预算，配置位于 `delveforge.evolution.preparation`。
 可见源码始终经过路径排除与内容净化；原文留在调用内，净化过的已有文件在本版本禁止提案修改。
 
+Coding 输入当前把每份净化文件表示为单份编号行及末尾 LF 标记，替换原整段文本表示，
+不重复发送源码；编号只辅助 hunk 定位，定位元数据也计入既有请求字节预算。该表示可逐字
+还原完整原文，Session 原文、净化禁写规则与后续精确 blob / hunk 校验不变；不自动修正提案。
+这是当前的输入表示选择，不是新的领域授权或补丁接受规则。
+
 CodingProposal 是未信任的 Application 数据，包含 expectedRevision / summary /
 declaredAffectedPaths / unifiedDiff / verificationStrategy。必要生产和测试改动在同一补丁中。
 严格结构解析后，Application 校验规范安全路径、声明与实际 patch 路径一致、已有目标真实可见、

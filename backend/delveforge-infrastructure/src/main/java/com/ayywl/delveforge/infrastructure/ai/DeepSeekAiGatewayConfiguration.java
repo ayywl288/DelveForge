@@ -1,13 +1,15 @@
 package com.ayywl.delveforge.infrastructure.ai;
 
 import com.ayywl.delveforge.application.port.ai.AiGateway;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.net.http.HttpClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
+
+import java.net.http.HttpClient;
 
 /**
  * DeepSeek AI Gateway 的装配。
@@ -30,7 +32,8 @@ public class DeepSeekAiGatewayConfiguration {
                 .build();
 
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-        requestFactory.setReadTimeout(properties.timeout());
+        // JDK factory 的期限覆盖完整读取；SSE 另在 Adapter 监督空闲时间，不能让增量延长总期限。
+        requestFactory.setReadTimeout(properties.streaming() ? properties.streamTimeout() : properties.timeout());
 
         RestClient restClient = RestClient.builder()
                 .baseUrl(properties.baseUrl())

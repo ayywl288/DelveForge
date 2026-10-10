@@ -1,7 +1,8 @@
 package com.ayywl.delveforge.infrastructure.ai;
 
-import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+
+import java.time.Duration;
 
 /**
  * DeepSeek Provider 配置。
@@ -15,14 +16,24 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param baseUrl DeepSeek API 基地址，OpenAI 兼容
  * @param apiKey  API Key；只从外部配置 / 环境变量读取
  * @param model   模型 ID
- * @param timeout 单次调用的读超时
+ * @param timeout 连接超时；非流式总读取期限，流式读取的空闲期限
+ * @param streaming 是否在 Provider 边界内部读取 SSE；Port 仍只返回完整文本
+ * @param streamTimeout 流式响应的绝对期限，不被 keep-alive 或增量延长
+ * @param maxTokens Provider 总生成 token 上限，包含其思考输出
+ * @param maxResponseBytes HTTP 响应总字节上限
+ * @param maxEventBytes 单个 SSE 事件字节上限
  */
 @ConfigurationProperties("delveforge.ai.deepseek")
 public record DeepSeekProperties(
         String baseUrl,
         String apiKey,
         String model,
-        Duration timeout) {
+        Duration timeout,
+        boolean streaming,
+        Duration streamTimeout,
+        int maxTokens,
+        int maxResponseBytes,
+        int maxEventBytes) {
 
     public DeepSeekProperties {
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -31,8 +42,15 @@ public record DeepSeekProperties(
         if (model == null || model.isBlank()) {
             throw new IllegalArgumentException("必须配置 delveforge.ai.deepseek.model");
         }
-        if (timeout == null) {
+        if (timeout == null || timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("必须配置 delveforge.ai.deepseek.timeout");
+        }
+        if (streamTimeout == null || streamTimeout.isZero() || streamTimeout.isNegative()
+                || streamTimeout.compareTo(timeout) < 0) {
+            throw new IllegalArgumentException("流式绝对期限不得小于连接 / 空闲期限");
+        }
+        if (maxTokens <= 0 || maxResponseBytes <= 0 || maxEventBytes <= 0 || maxEventBytes > maxResponseBytes) {
+            throw new IllegalArgumentException("Provider 输出及响应预算必须为正且事件不得超过总响应预算");
         }
     }
 }

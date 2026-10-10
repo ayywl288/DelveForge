@@ -2,6 +2,9 @@ package com.ayywl.delveforge.application.evolution.preparation;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -15,6 +18,7 @@ import java.util.regex.Pattern;
  * 不执行 Git，不接受二进制、rename、mode 或不明确的路径语法。
  */
 final class UnifiedDiffValidator {
+    private static final Logger log = LoggerFactory.getLogger(UnifiedDiffValidator.class);
     private static final Pattern HUNK = Pattern.compile("@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@(?: .*)?");
     private final ProposalPathPolicy paths;
 
@@ -74,6 +78,11 @@ final class UnifiedDiffValidator {
                 int newOffset = newCount == 0 ? newStart : newStart - 1;
                 if (oldOffset < oldEnd || newOffset < newEnd || oldOffset > oldLines.size()
                         || (long) oldOffset + oldCount > oldLines.size() || newOffset != oldOffset + delta) {
+                    // 只记录定位数字；不泄漏补丁、源码、路径或异常文本，校验条件保持原样。
+                    log.warn("operation=coding-proposal.validate code=DIFF_HUNK_POSITION_INVALID "
+                                    + "oldStart={} oldCount={} newStart={} newCount={} oldEnd={} newEnd={} "
+                                    + "oldLineCount={} delta={}",
+                            oldStart, oldCount, newStart, newCount, oldEnd, newEnd, oldLines.size(), delta);
                     throw invalid();
                 }
                 int seenOld = 0;
@@ -90,6 +99,15 @@ final class UnifiedDiffValidator {
                     }
                     if (kind != '+') {
                         if (seenOld >= oldCount || !oldLines.get(oldOffset + seenOld).equals(line.substring(1))) {
+                            // 固定分类与数字区分超出旧行数和正文不匹配；不记录源码、补丁或路径。
+                            String code = seenOld >= oldCount
+                                    ? "DIFF_HUNK_OLD_COUNT_EXHAUSTED" : "DIFF_CONTEXT_MISMATCH";
+                            int expectedChars = seenOld >= oldCount
+                                    ? -1 : oldLines.get(oldOffset + seenOld).length();
+                            log.warn("operation=coding-proposal.validate code={} oldLine={} oldCount={} "
+                                            + "seenOld={} newCount={} seenNew={} expectedChars={} actualChars={}",
+                                    code, oldOffset + seenOld + 1, oldCount, seenOld, newCount, seenNew,
+                                    expectedChars, line.length() - 1);
                             throw new AiGatewayException("Patch context does not match the expected revision");
                         }
                         seenOld++;
