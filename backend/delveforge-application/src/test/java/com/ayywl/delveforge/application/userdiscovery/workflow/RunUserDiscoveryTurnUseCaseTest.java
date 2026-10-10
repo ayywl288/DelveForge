@@ -51,7 +51,7 @@ class RunUserDiscoveryTurnUseCaseTest {
             """;
 
     private static final String SUFFICIENT_RESPONSE =
-            "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"\"}";
+            "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"希望先支持哪一种裁剪场景？\"}";
 
     private static final String INSUFFICIENT_RESPONSE = """
             {
@@ -101,7 +101,7 @@ class RunUserDiscoveryTurnUseCaseTest {
 
         assertTrue(turn.sufficiency().sufficient());
         assertEquals(List.of(), turn.sufficiency().missingAreas());
-        assertNull(turn.sufficiency().nextQuestion());
+        assertEquals("希望先支持哪一种裁剪场景？", turn.sufficiency().nextQuestion());
         assertEquals(UserProfileStatus.EXPLORING, turn.profile().status());
 
         UserProfile reloaded = repository.findById(PROFILE_ID).orElseThrow();
@@ -281,6 +281,36 @@ class RunUserDiscoveryTurnUseCaseTest {
     void rejectsBlankUserInput() {
         assertThrows(IllegalArgumentException.class, () -> useCase.run(PROFILE_ID, "   "));
         assertEquals(0, aiGateway.callCount());
+    }
+
+    @Test
+    void acknowledgementsAndQuestionRequestsDoNotCreateFactsOrEvidence() {
+        UserProfile profile = seedReadyProfile();
+        for (String input : List.of("嗯", "下一个问题是啥？", "呢")) {
+            aiGateway.respondWith(SUFFICIENT_RESPONSE);
+            int callsBefore = aiGateway.callCount();
+            UserDiscoveryTurn turn = useCase.run(PROFILE_ID, input);
+            assertEquals(callsBefore + 1, aiGateway.callCount(), "只评估与提问，不调用提取模型");
+            assertEquals(profile.revision(), turn.profile().revision());
+            assertEquals(profile.evidence(), turn.profile().evidence());
+            assertEquals(profile.projectGoals(), turn.profile().projectGoals());
+            assertTrue(turn.sufficiency().sufficient());
+            assertEquals("希望先支持哪一种裁剪场景？", turn.sufficiency().nextQuestion());
+        }
+    }
+
+    @Test
+    void absentOrRepeatedNextQuestionRejectsTheWholeTurnWithoutSaving() {
+        for (String response : List.of("{\"sufficient\":true,\"missingAreas\":[]}", SUFFICIENT_RESPONSE)) {
+            UserProfile profile = seedReadyProfile();
+            int savesBefore = repository.saveCount();
+            aiGateway.respondWith(EXTRACTION_RESPONSE, response);
+            assertThrows(AiGatewayException.class, () -> useCase.run(
+                    PROFILE_ID, USER_INPUT, List.of("希望先支持哪一种裁剪场景？")));
+            assertEquals(savesBefore, repository.saveCount());
+            assertEquals(1, profile.revision());
+            assertEquals(List.of(), repository.findById(PROFILE_ID).orElseThrow().interests());
+        }
     }
 
     @Test

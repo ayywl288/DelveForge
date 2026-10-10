@@ -108,7 +108,7 @@ describe("恢复与显式授权", () => {
   });
 });
 describe("M1 问题显示与连续探索", () => {
-  it("评估与对话的真实问题只在聊天中插入一次，继续与 GET 不生成问题", async () => {
+  it("评估与对话的真实问题只在聊天中插入一次，GET 不生成问题", async () => {
     const s = make(); s.profile.value = profile(); s.ids.profileId = "profile-1";
     const assessment = { sufficient: false, missingAreas: ["具体场景"], nextQuestion: "具体哪个环节最麻烦？", profileStatus: "EXPLORING" as const };
     vi.spyOn(api, "assess").mockResolvedValue(assessment);
@@ -118,6 +118,8 @@ describe("M1 问题显示与连续探索", () => {
     await s.turn("集卡周期长");
     expect(s.messages.value.filter(m => m.role === "agent")).toEqual([{ role: "agent", text: assessment.nextQuestion }]);
     vi.spyOn(api, "resumeDiscovery").mockResolvedValue(profile());
+    s.profile.value = { ...profile(), status: "REVIEWING" };
+    vi.spyOn(api, "discoveryQuestion").mockResolvedValue({ ...assessment, revision: 1 });
     await s.resumeDiscovery();
     expect(s.messages.value.filter(m => m.role === "agent")).toHaveLength(1);
     vi.spyOn(api, "connectivity").mockResolvedValue({ service: "delveforge", status: "UP", timestamp: "2026-10-10" });
@@ -127,6 +129,8 @@ describe("M1 问题显示与连续探索", () => {
   it("继续探索后多轮充分仍保持探索，评估失败不伪造 Agent 问题", async () => {
     const s = make(); s.profile.value = { ...profile(), status: "REVIEWING" }; s.ids.profileId = "profile-1";
     vi.spyOn(api, "resumeDiscovery").mockResolvedValue(profile());
+    vi.spyOn(api, "discoveryQuestion").mockRejectedValue(new ApiError(502, "EXTERNAL_CAPABILITY_UNAVAILABLE"));
+    vi.spyOn(api, "profile").mockResolvedValue(profile());
     await s.resumeDiscovery();
     const turns = vi.spyOn(api, "discoveryTurn").mockResolvedValue({ profile: profile(), sufficient: true, missingAreas: [], nextQuestion: null });
     await s.turn("补充一"); await s.turn("补充二");
@@ -142,6 +146,75 @@ describe("M1 问题显示与连续探索", () => {
     expect(s.profile.value?.status).toBe("CONFIRMED");
     expect(s.messages.value.at(-1)?.failed).toBe(true);
     expect(s.messages.value.filter(m => m.role === "agent")).toHaveLength(0);
+  });
+});
+describe("持续引导与只读下一问", () => {
+  it("充分前后都有实际问题，继续探索复用当前问题；三轮没有第三次独立追问", async () => {
+    const s = make(); s.profile.value = profile(); s.ids.profileId = "profile-1";
+    const turn = vi.spyOn(api, "discoveryTurn");
+    const questions = ["每周能投入多少时间？", "首先想展示哪项能力？", "首个使用场景是什么？"];
+    questions.forEach((nextQuestion, index) => turn.mockResolvedValueOnce({
+      profile: { ...profile(), revision: index + 2 }, sufficient: index > 0,
+      missingAreas: index === 0 ? ["投入时间"] : [], nextQuestion,
+    }));
+    const ask = vi.spyOn(api, "discoveryQuestion");
+    await s.turn("想做Java作品");
+    await s.turn("每周五小时");
+    await s.continueExploring();
+    expect(ask).not.toHaveBeenCalled();
+    await s.turn("想展示持久化和测试");
+    expect(s.messages.value.filter(m => m.role === "agent").map(m => m.text)).toEqual(questions);
+    expect(turn).toHaveBeenCalledTimes(3);
+    expect(turn.mock.calls[2]?.[2]).toEqual(questions.slice(0, 2));
+    expect(s.profile.value?.status).toBe("EXPLORING");
+  });
+  it("没有问题时按需调用一次，不伪造用户消息，不并发或自动重试", async () => {
+    const s = make(); s.profile.value = profile(); s.ids.profileId = "profile-1";
+    let resolve!: (value: { revision: number; sufficient: boolean; missingAreas: string[]; nextQuestion: string }) => void;
+    const ask = vi.spyOn(api, "discoveryQuestion").mockImplementation(() => new Promise(r => { resolve = r; }));
+    const first = s.continueExploring();
+    await s.continueExploring();
+    expect(ask).toHaveBeenCalledTimes(1);
+    resolve({ revision: 1, sufficient: true, missingAreas: [], nextQuestion: "你希望谁先使用这个项目？" });
+    await first;
+    expect(ask).toHaveBeenCalledWith("profile-1", 1, []);
+    expect(s.messages.value).toEqual([{ role: "agent", text: "你希望谁先使用这个项目？" }]);
+    await s.continueExploring();
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(sessionKey) ?? "").not.toContain("这个项目");
+  });
+  it("确认不会提问；用户主动 reopen 才切换状态并调用一次只读提问", async () => {
+    const s = make(); s.profile.value = { ...profile(), status: "REVIEWING" }; s.ids.profileId = "profile-1";
+    vi.spyOn(api, "confirmProfile").mockResolvedValue({ ...profile(), status: "CONFIRMED" });
+    const ask = vi.spyOn(api, "discoveryQuestion").mockResolvedValue({ revision: 1, sufficient: true, missingAreas: [], nextQuestion: "你想继续深入哪个使用场景？" });
+    const turn = vi.spyOn(api, "discoveryTurn");
+    await s.confirmProfile(1);
+    await s.turn("静默修改已确认画像"); await s.continueExploring();
+    expect(ask).not.toHaveBeenCalled(); expect(turn).not.toHaveBeenCalled();
+    const resume = vi.spyOn(api, "resumeDiscovery").mockResolvedValue(profile());
+    await s.resumeDiscovery();
+    expect(resume).toHaveBeenCalledWith("profile-1", true); expect(ask).toHaveBeenCalledTimes(1);
+    expect(s.profile.value?.revision).toBe(1); expect(s.messages.value.at(-1)?.role).toBe("agent");
+  });
+  it("返回探索后提问断线保留实际探索状态，不造问题、不重复切换或调用", async () => {
+    const s = make(); s.profile.value = { ...profile(), status: "REVIEWING" }; s.ids.profileId = "profile-1";
+    const resume = vi.spyOn(api, "resumeDiscovery").mockResolvedValue(profile());
+    const ask = vi.spyOn(api, "discoveryQuestion").mockRejectedValue(new ApiError(0, "CONNECTION_LOST"));
+    vi.spyOn(api, "profile").mockResolvedValue(profile());
+    await s.resumeDiscovery();
+    expect(s.profile.value?.status).toBe("EXPLORING"); expect(s.messages.value).toEqual([]);
+    expect(s.sufficiency.value).toBeNull(); expect(s.error.value).toContain("结果尚不确定");
+    expect(resume).toHaveBeenCalledTimes(1); expect(ask).toHaveBeenCalledTimes(1);
+  });
+  it("问题绑定旧版本时丢弃，GET 和刷新只恢复画像，不自动调用 Provider", async () => {
+    const s = make(); s.profile.value = profile(); s.ids.profileId = "profile-1";
+    const ask = vi.spyOn(api, "discoveryQuestion").mockResolvedValue({ revision: 0, sufficient: true, missingAreas: [], nextQuestion: "过期问题" });
+    await s.continueExploring(); expect(s.messages.value).toEqual([]);
+    vi.spyOn(api, "connectivity").mockResolvedValue({ service: "backend", status: "UP", timestamp: "" });
+    vi.spyOn(api, "profile").mockResolvedValue({ ...profile(), revision: 2, status: "REVIEWING" });
+    await s.restore();
+    expect(s.sufficiency.value).toBeNull(); expect(ask).toHaveBeenCalledTimes(1);
+    expect(s.messages.value).toEqual([]);
   });
 });
 describe("长同步 execute", () => {

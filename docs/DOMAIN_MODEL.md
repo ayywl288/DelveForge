@@ -1201,6 +1201,11 @@ stateDiagram-v2
 - 信息达到最低审阅条件与用户决定结束探索是两个不同事实。普通 discovery-turn 返回
   `sufficient=true` 时仍保持 `EXPLORING`；用户显式请求审阅后，Application 重新评估当前内容，
   充分时才调用 Domain 的 `beginReview()`。继续探索一次后可以连续回答多轮，不自动回到审阅。
+- 最低充分性、是否继续探索、是否进入审阅是独立概念。`EXPLORING` 的普通对话轮即使
+  `sufficient=true` 仍返回下一问；问题用于深入与方向有关的场景或取舍，不为了填满六区。
+  下一问不是用户事实，不记录为 Evidence，也不因提问推进 revision。
+- 用户主动 Continue / Reopen 后可请求只读下一问；该能力仅在 EXPLORING、针对当前 revision
+  可用，不替代合法状态转换。确认与页面刷新不自动调用 AI，不重构未持久化的对话或评估。
 - 最低审阅条件是能据用户依据区分个人相关的项目方向：有具体动机或使用场景、期望成果、
   技术基础及影响范围的约束。兴趣、学习、求职均可构成动机，不强制要求 painPoints 非空；
   六区都有条目并不证明需求已具体。语义质量结合 AI 建议与原始 Evidence 判断，最终仍由用户审阅。
@@ -1884,6 +1889,7 @@ New / Updated Evidence
 - 不确定推断不得自动视为用户确认事实。
 - 普通探索轮只返回最低审阅条件与下一问，不自动结束探索。用户显式请求审阅且信息足够时，
   才从 `EXPLORING` 进入 `REVIEWING`；确认仍须在 REVIEWING 绑定当前 revision。
+- 附和与请求下一问不构成新的业务事实，不能凭空增加画像断言或 Evidence。
 
 ### 8.2 Review / Confirm User Profile
 
@@ -1918,6 +1924,8 @@ User Profile = CONFIRMED
 - 用户纠正 Profile 时，应同步调整对应 Evidence 或确认状态。
 - 用户确认只确认当前 revision。
 - 后续重新探索可以产生新的 revision，不影响历史 Product Direction 的追溯。
+- 审阅展示当前版本的六区内容及本版真实 Evidence，区分已核对与待核对的提取结论。
+  当前 Evidence 不带逐条画像内容关联字段，界面不能伪造关联；纠正后仍须审阅新 revision。
 
 ### 8.3 Analyze Repository
 

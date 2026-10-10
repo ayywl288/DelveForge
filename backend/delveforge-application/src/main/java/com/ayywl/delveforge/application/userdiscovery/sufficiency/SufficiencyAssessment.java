@@ -15,7 +15,7 @@ import java.util.List;
  *
  * @param sufficient    本次评估的结论
  * @param missingAreas  仍缺失的重要信息或维度；足够时为空列表
- * @param nextQuestion  信息不足时最值得继续询问的问题；足够时为 {@code null}
+ * @param nextQuestion  探索时的下一问，与 sufficient 独立；显式审阅充分时可为空
  * @param profileStatus 评估结束后 User Profile 的状态
  */
 public record SufficiencyAssessment(

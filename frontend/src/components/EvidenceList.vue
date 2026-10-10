@@ -5,6 +5,7 @@ defineProps<{
   bases?: EvidenceBasis[];
   title?: string;
   friendly?: boolean;
+  expanded?: boolean;
 }>();
 const sources: Record<string, string> = {
   USER_INPUT: "来自你的输入",
@@ -12,7 +13,7 @@ const sources: Record<string, string> = {
 };
 </script>
 <template>
-  <details class="evidence">
+  <details class="evidence" :open="expanded">
     <summary>
       {{ title ?? "查看依据" }} · {{ bases?.length ?? items?.length ?? 0 }}
     </summary>

@@ -1930,6 +1930,12 @@ Provider Smoke 或代码演化，因此不声称通过 Web 完成了第二次真
 nextQuestion 统一加入本页聊天并去重，不构造未保存的历史。M2–M4 实现继续冻结，M5 暂缓。
 验证及限制见 [M1 聚焦修复](validation/user-discovery-sufficiency-conversation-fix.md)。
 
+后续真实手动体验暴露“充分即无下一问”的残留契约。另行授权的 Conversation Continuation &
+Review 修复将最低充分性与下一问分开：普通对话仍两次模型调用；用户主动 Continue / Reopen
+后使用仅限当前探索版本的只读提问。审阅展示六区和真实依据，不新增状态或持久化对话。
+验证见 [连续探索与画像审阅修复](validation/user-discovery-conversation-continuation-review-fix.md)。
+M2–M4 实现保持冻结，M5 继续暂缓。
+
 以下为记录格式，供后续 Milestone 使用：
 
 ### Mx — Milestone Name

@@ -3,6 +3,10 @@
 日期：2026-10-10。Task B 先独立提交为 `c07b51d`，本次是用户明确授权的后续 M1 修复。
 未更改 M2–M4、Provider Gateway、Workspace、Git、Verification 或持久化结构，没有付费调用。
 
+本报告保留该轮的实际行为与证据。之后发现的“充分后没有下一问”与审阅体验问题，已另行
+授权修复，见 [连续探索与画像审阅](user-discovery-conversation-continuation-review-fix.md)。
+下文 nextQuestion=null、Continue 不提问的限制是历史状态，不再代表当前契约。
+
 ## 1. 从实际代码确认的原因
 
 | 问题 | 修复前的实际行为 | 可以确认及不能确认的部分 |

@@ -53,10 +53,7 @@ public final class ProfileSufficiencyProposalParser {
             if (missingAreas != null && !missingAreas.isEmpty()) {
                 throw new AiGatewayException("结果矛盾：声明信息已足够，却给出了缺失信息");
             }
-            if (nextQuestion != null) {
-                throw new AiGatewayException("结果矛盾：声明信息已足够，却给出了下一个问题");
-            }
-            return new ProfileSufficiencyProposal(true, List.of(), null);
+            return new ProfileSufficiencyProposal(true, List.of(), nextQuestion);
         }
 
         if (missingAreas == null || missingAreas.isEmpty()) {

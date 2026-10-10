@@ -86,9 +86,11 @@ class ProfileSufficiencyProposalParserTest {
     }
 
     @Test
-    void rejectsSufficientResultThatAsksNextQuestion() {
-        assertThrows(AiGatewayException.class, () -> parser.parse(
-                "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"你平时喜欢什么？\"}"));
+    void acceptsSufficientResultWithAnOptionalDeeperQuestion() {
+        ProfileSufficiencyProposal proposal = parser.parse(
+                "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"你希望先改善哪个使用环节？\"}");
+        assertTrue(proposal.sufficient());
+        assertEquals("你希望先改善哪个使用环节？", proposal.nextQuestion());
     }
 
     @Test

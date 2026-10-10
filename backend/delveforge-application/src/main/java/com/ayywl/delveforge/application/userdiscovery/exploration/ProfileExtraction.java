@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -72,6 +73,8 @@ public final class ProfileExtraction {
               不要臆测用户没有表达过的信息，也不要为了填充而编造内容。
             - evidenceClaims 只写本轮用户输入直接支撑的判断，每条一句话。
               不要写入本轮输入之外、也无法从当前 Profile 读到的依据。
+            - “嗯”“呢”“下一个问题是什么”等附和或流程请求不是业务事实。
+              没有新事实时返回 {}，不要重述旧事实为本轮新增 Evidence，也不要据此推断偏好。
             """;
 
     private final AiGateway aiGateway;
@@ -121,6 +124,13 @@ public final class ProfileExtraction {
             throw new IllegalArgumentException("ProfileExtraction 必须指定 candidate");
         }
         requireUserInput(userInput);
+
+        // 明确的附和与提问请求没有新事实；不让模型将它们扩写为画像或 Evidence。
+        String conversationalInput = userInput.strip().replaceAll("[\\s，。！？,.!?]", "");
+        if (Set.of("嗯", "嗯嗯", "呢", "下一个问题是什么", "下一个问题是啥", "下一个问题",
+                "下一问", "继续提问", "请继续提问", "继续探索", "继续").contains(conversationalInput)) {
+            return;
+        }
 
         UserProfileProposal proposal = proposalParser.parse(
                 aiGateway.generate(buildRequest(candidate, userInput)));

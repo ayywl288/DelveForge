@@ -12,7 +12,7 @@ import java.util.List;
  * <p>两个方向的结果都是完整且自洽的：
  *
  * <pre>
- * sufficient = true    missingAreas 为空，nextQuestion 为 null
+ * sufficient = true    missingAreas 为空，nextQuestion 可表示继续深入的问题
  * sufficient = false   missingAreas 非空，nextQuestion 非空
  * </pre>
  *
@@ -20,7 +20,7 @@ import java.util.List;
  *
  * @param sufficient    是否已足够支撑 Product Direction Discovery
  * @param missingAreas  仍缺失的重要信息或维度；足够时为空列表
- * @param nextQuestion  信息不足时最值得继续询问的问题；足够时为 {@code null}
+ * @param nextQuestion  下一问与最低充分性独立；持续探索时非空，显式审阅充分时可为空
  */
 public record ProfileSufficiencyProposal(
         boolean sufficient,

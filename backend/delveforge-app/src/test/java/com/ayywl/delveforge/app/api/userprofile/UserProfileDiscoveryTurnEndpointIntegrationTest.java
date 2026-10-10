@@ -52,7 +52,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
             """;
 
     private static final String SUFFICIENT_RESPONSE =
-            "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"\"}";
+            "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"希望先支持哪一种裁剪场景？\"}";
 
     private static final String INSUFFICIENT_RESPONSE = """
             {
@@ -106,7 +106,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sufficient").value(true))
                 .andExpect(jsonPath("$.missingAreas").isEmpty())
-                .andExpect(jsonPath("$.nextQuestion").doesNotExist())
+                .andExpect(jsonPath("$.nextQuestion").value("希望先支持哪一种裁剪场景？"))
                 .andExpect(jsonPath("$.profile.status").value("EXPLORING"))
                 .andExpect(jsonPath("$.profile.revision").value(7));
 
@@ -220,6 +220,88 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         mockMvc.perform(post("/api/user-profiles/{id}/confirm", id).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"revision\":7}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CONFIRMED"));
+    }
+
+    @Test
+    void questionEndpointReadsTheCurrentProfileWithoutUpdatingIt() throws Exception {
+        String id = createProfile();
+        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
+        mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
+        String before = mockMvc.perform(get("/api/user-profiles/{id}", id)).andReturn()
+                .getResponse().getContentAsString(StandardCharsets.UTF_8);
+        int revision = objectMapper.readTree(before).path("revision").asInt();
+        given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
+
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"revision\":" + revision + ",\"previousQuestions\":[\"之前的问题？\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(revision))
+                .andExpect(jsonPath("$.sufficient").value(true))
+                .andExpect(jsonPath("$.nextQuestion").value("希望先支持哪一种裁剪场景？"));
+        org.junit.jupiter.api.Assertions.assertEquals(before,
+                mockMvc.perform(get("/api/user-profiles/{id}", id)).andReturn()
+                        .getResponse().getContentAsString(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void questionEndpointRejectsInvalidAndStaleRevisionAndNonExploringStates() throws Exception {
+        String id = createProfile();
+        for (String body : java.util.List.of("{}", "{\"revision\":1.5}", "{\"revision\":\"1\"}")) {
+            mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":2}"))
+                .andExpect(status().isConflict());
+        org.mockito.Mockito.verifyNoInteractions(aiGateway);
+
+        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
+        mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
+        given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
+        mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id)).andExpect(status().isOk());
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":7}"))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/api/user-profiles/{id}/confirm", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":7}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":7}"))
+                .andExpect(status().isConflict());
+        mockMvc.perform(post("/api/user-profiles/{id}/reopen-discovery", id))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(7));
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":7}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.nextQuestion").isString());
+        mockMvc.perform(get("/api/user-profiles/{id}", id))
+                .andExpect(jsonPath("$.status").value("EXPLORING"))
+                .andExpect(jsonPath("$.revision").value(7));
+        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(4)).generate(any());
+    }
+
+    @Test
+    void invalidNextQuestionAndTransportFailureDoNotSaveAHalfTurn() throws Exception {
+        String id = createProfile();
+        for (String response : java.util.List.of("{\"sufficient\":true}", SUFFICIENT_RESPONSE)) {
+            given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, response);
+            mockMvc.perform(post("/api/user-profiles/{id}/discovery-turn", id)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new DiscoveryTurnRequest(
+                                    USER_INPUT, java.util.List.of("希望先支持哪一种裁剪场景？")))))
+                    .andExpect(status().isBadGateway());
+            mockMvc.perform(get("/api/user-profiles/{id}", id))
+                    .andExpect(jsonPath("$.revision").value(1))
+                    .andExpect(jsonPath("$.evidence").isEmpty());
+        }
+        given(aiGateway.generate(any())).willThrow(new AiGatewayException("读取正文失败"));
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":1}"))
+                .andExpect(status().isBadGateway());
+        mockMvc.perform(get("/api/user-profiles/{id}", id))
+                .andExpect(jsonPath("$.revision").value(1))
+                .andExpect(jsonPath("$.status").value("EXPLORING"));
     }
 
     @Test

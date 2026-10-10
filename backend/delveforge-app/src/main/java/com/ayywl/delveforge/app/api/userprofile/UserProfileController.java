@@ -23,6 +23,7 @@ import com.ayywl.delveforge.application.userdiscovery.review.ConfirmUserProfileU
 import com.ayywl.delveforge.application.userdiscovery.review.ContinueDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.review.ReopenDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.AskDiscoveryQuestionUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
 import com.ayywl.delveforge.application.userdiscovery.workflow.RunUserDiscoveryTurnUseCase;
 import com.ayywl.delveforge.application.userdiscovery.workflow.UserDiscoveryTurn;
@@ -58,6 +59,7 @@ public class UserProfileController {
     private final ContinueDiscoveryUseCase continueDiscoveryUseCase;
     private final ReopenDiscoveryUseCase reopenDiscoveryUseCase;
     private final RunUserDiscoveryTurnUseCase runUserDiscoveryTurnUseCase;
+    private final AskDiscoveryQuestionUseCase askDiscoveryQuestionUseCase;
 
     public UserProfileController(CreateUserProfileUseCase createUserProfileUseCase,
                                  GetUserProfileUseCase getUserProfileUseCase,
@@ -67,7 +69,8 @@ public class UserProfileController {
                                  ConfirmUserProfileUseCase confirmUserProfileUseCase,
                                  ContinueDiscoveryUseCase continueDiscoveryUseCase,
                                  ReopenDiscoveryUseCase reopenDiscoveryUseCase,
-                                 RunUserDiscoveryTurnUseCase runUserDiscoveryTurnUseCase) {
+                                 RunUserDiscoveryTurnUseCase runUserDiscoveryTurnUseCase,
+                                 AskDiscoveryQuestionUseCase askDiscoveryQuestionUseCase) {
         this.createUserProfileUseCase = createUserProfileUseCase;
         this.getUserProfileUseCase = getUserProfileUseCase;
         this.updateUserProfileUseCase = updateUserProfileUseCase;
@@ -77,6 +80,7 @@ public class UserProfileController {
         this.continueDiscoveryUseCase = continueDiscoveryUseCase;
         this.reopenDiscoveryUseCase = reopenDiscoveryUseCase;
         this.runUserDiscoveryTurnUseCase = runUserDiscoveryTurnUseCase;
+        this.askDiscoveryQuestionUseCase = askDiscoveryQuestionUseCase;
     }
 
     @PostMapping
@@ -123,13 +127,27 @@ public class UserProfileController {
      * 面向产品的一轮 User Discovery：提取 → 更新 → 评估最低审阅条件，保持探索。
      *
      * <p>整轮作用在同一个候选 Profile 上并只保存一次；任何一步失败都不会留下半轮结果。
-     * 返回的 {@code sufficient} 为 false 时，调用方用 {@code nextQuestion} 向用户提问，
+     * 无论 {@code sufficient} 是否为 true，调用方都可用 {@code nextQuestion} 向用户提问，
      * 拿到回答后再发起下一轮——循环跨 HTTP 请求完成，服务端不等待用户。
      */
     @PostMapping("/{id}/discovery-turn")
     public DiscoveryTurnResponse discoveryTurn(@PathVariable String id,
-                                               @RequestBody ExploreUserProfileRequest request) {
-        return toResponse(runUserDiscoveryTurnUseCase.run(new UserProfileId(id), request.input()));
+                                               @RequestBody DiscoveryTurnRequest request) {
+        return toResponse(runUserDiscoveryTurnUseCase.run(
+                new UserProfileId(id), request.input(), request.previousQuestions()));
+    }
+
+    /** 用户主动索取下一问：只读、一次 AI 调用，不改变画像或探索状态。 */
+    @PostMapping("/{id}/discovery-question")
+    public DiscoveryQuestionResponse discoveryQuestion(@PathVariable String id,
+                                                       @RequestBody DiscoveryQuestionRequest request) {
+        if (request.revision() == null) {
+            throw new IllegalArgumentException("下一问请求必须携带所依据的 revision");
+        }
+        SufficiencyAssessment result = askDiscoveryQuestionUseCase.ask(
+                new UserProfileId(id), request.revision(), request.previousQuestions());
+        return new DiscoveryQuestionResponse(
+                request.revision(), result.sufficient(), result.missingAreas(), result.nextQuestion());
     }
 
     /**

@@ -2,6 +2,7 @@ import type {
   Assessment,
   AssetInput,
   DiscoveryTurn,
+  DiscoveryQuestion,
   EvolutionPlan,
   ProductDirection,
   ProfilePatch,
@@ -85,9 +86,15 @@ export const api = {
     ),
   createProfile: () => request<UserProfile>("/user-profiles", "POST"),
   profile: (value: string) => request<UserProfile>(profile(value)),
-  discoveryTurn: (value: string, input: string) =>
+  discoveryTurn: (value: string, input: string, previousQuestions: string[] = []) =>
     request<DiscoveryTurn>(`${profile(value)}/discovery-turn`, "POST", {
       input,
+      previousQuestions,
+    }),
+  discoveryQuestion: (value: string, revision: number, previousQuestions: string[]) =>
+    request<DiscoveryQuestion>(`${profile(value)}/discovery-question`, "POST", {
+      revision,
+      previousQuestions,
     }),
   patchProfile: (value: string, patch: ProfilePatch) =>
     request<UserProfile>(profile(value), "PATCH", patch),

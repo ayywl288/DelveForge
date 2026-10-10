@@ -504,6 +504,7 @@ Frontend 采用 Vitest + jsdom 验证五阶段交互和长请求，夹具不依�
 | `POST`  | `/api/user-profiles/{id}/continue-discovery` | 用户选择继续探索（`REVIEWING → EXPLORING`） | 200 | 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/reopen-discovery` | 用户重新开启探索（`CONFIRMED → EXPLORING`） | 200 | 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/discovery-turn` | 一轮 User Discovery：提取 → 更新 → 评估最低审阅条件，保持探索 | 200 | 400 / 404 / 409 / 502 |
+| `POST`  | `/api/user-profiles/{id}/discovery-question` | 用户按需只读评估并取得下一问，不提取、不保存、不转移状态 | 200 | 400 / 404 / 409 / 502 |
 | `POST`  | `/api/software-assets`           | 登记一个 Software Asset（只登记元数据，不访问文件系统）     | 201  | 400  |
 | `GET`   | `/api/software-assets/{id}`      | 读取已登记的资产元数据                                     | 200  | 404  |
 | `POST`  | `/api/software-assets/{id}/analysis` | 分析该资产的 Repository，形成一份新的 Repository Profile | 201 | 404 / 409 / 502 |
@@ -554,14 +555,15 @@ sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是�
 充分性不是六区非空或条目计数：AI 需核对具体动机 / 期望成果、技术基础、约束及用户输入依据；
 兴趣、学习和求职可充分，painPoints 可为空。Application 同时拦截缺失目标、技术基础、约束
 或 USER_INPUT Evidence 的正面建议。该检查不能证明自然语言的语义真实性，仍需要用户审阅。
-一次不足仅返回一个最有价值的问题；达到最低条件不为了固定轮数追加问题。
+一次不足仅返回一个最有价值的问题；充分与下一问不再互斥。显式审阅充分时返回空问题，
+持续探索时仍提出一个有价值的深入问题，不为了固定轮数或填字段追加问题。
 
 **discovery-turn 语义**
 
 面向产品的主要入口：一次请求完成一整轮 User Discovery。
 
 ```text
-请求体    {"input": "<本轮用户输入的原文>"}
+请求体    {"input": "<本轮用户输入的原文>", "previousQuestions": ["<本页实际已提问题>"]}
 响应体    {"profile": {…}, "sufficient": …, "missingAreas": […], "nextQuestion": …}
 ```
 
@@ -573,7 +575,7 @@ sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是�
 评估      对「本轮已经更新过的候选 Profile」判断信息是否足够
      ↓
 insufficient  保存更新后的 Profile，返回 missingAreas + nextQuestion，仍为 EXPLORING
-sufficient    保存更新后的 Profile，返回最低条件已满足，仍为 EXPLORING；等待用户选择审阅
+sufficient    保存更新后的 Profile，返回最低条件已满足与深入下一问，仍为 EXPLORING
 ```
 
 - **`discovery-turn` 只能从 `EXPLORING` 开始**：`REVIEWING` 与 `CONFIRMED` 下调用直接 409，
@@ -590,6 +592,27 @@ sufficient    保存更新后的 Profile，返回最低条件已满足，仍为 
   下一轮。服务端不做 `while`、不等待用户、不保存对话记录。
 - `sufficient` 为 true 仅表示最低条件满足，`profile.status` 仍为 `EXPLORING`。
   用户可自然补充多轮，或显式调用 `sufficiency-assessment` 进入审阅；不得自动 Confirm。
+
+普通业务输入仍是两次 Gateway 调用：一次提取、一次评估兼提问，没有第三次追问调用。
+`previousQuestions` 可省略；当前实现最多八个非空问题，每个最多 512 字符，仅用于避免重复，
+不是用户事实，不持久化。Prompt 引导避免语义重复与无关问题；Application 拒绝近期相同文本、
+空白或超长问题，无自动重试。评估失败仍使整轮候选不保存。
+明确的“嗯”“呢”“下一个问题是什么”等附和/流程请求在提取前跳过，只有一次评估调用。
+其余自然语言的事实提取仍依靠模型与用户审阅，不宣称此规则能穷举所有非业务输入。
+
+**discovery-question 语义**
+
+```json
+{"revision": 7, "previousQuestions": ["每周能投入多少时间？"]}
+```
+
+响应为 `{revision, sufficient, missingAreas, nextQuestion}`。仅在 EXPLORING、请求版本等于当前
+revision 时调用一次既有 `ProfileSufficiencyEvaluator`，完全不写入 Profile / Evidence / 状态。
+调用后再次读取，若版本或探索状态变化则 409，丢弃旧问题；不接受非整数 revision。
+用户明确索取或主动 Continue / Reopen 后，前端使用此入口；不会伪造输入调用 discovery-turn。
+状态转换与提问是两个请求：转换已经成功但提问失败时，保留真实 EXPLORING，显示错误，
+不回滚已完成的用户决定，也不自动重试。普通对话、Confirm、GET 或刷新不额外调用该入口。
+刷新后没有历史问题；用户可按需取得新问题。浏览器只在内存保留本页问题，不持久化聊天正文。
 
 `explore` 与 `sufficiency-assessment` 保留：前者只提取，后者是显式审阅请求。
 `discovery-turn` 复用同一提取和评估组件，但不组合后者的状态转换副作用。
@@ -1100,9 +1123,11 @@ sequenceDiagram
     U->>O: Start Discovery / Send Message
     O->>UD: Process User Input
 
-    loop Until profile information is sufficient
-        UD->>AI: Analyze current conversation and profile draft
-        AI-->>UD: Missing information / Next question
+    loop While user chooses to explore (across HTTP requests)
+        UD->>AI: Extract facts from real input
+        AI-->>UD: Structured Profile Proposal
+        UD->>AI: Assess candidate + Evidence / Propose next question
+        AI-->>UD: Sufficiency + Next question (even when sufficient)
 
         UD-->>O: Next Question
         O-->>U: Ask Question
@@ -1111,17 +1136,16 @@ sequenceDiagram
         O->>UD: Process Answer
     end
 
-    UD->>AI: Generate Structured User Profile
-    AI-->>UD: User Profile
-
-    UD-->>O: Draft User Profile
-    O-->>U: Show Profile for Review
+    U->>O: Request review explicitly
+    O->>UD: Assess current Profile for review
+    UD->>AI: Assess without requesting deeper question
+    AI-->>UD: Sufficiency
+    UD-->>O: REVIEWING only if sufficient
+    O-->>U: Show current six sections + Evidence + revision
 
     alt User requests correction
         U->>O: Correct Profile
         O->>UD: Update Profile
-        UD->>AI: Refine Profile
-        AI-->>UD: Updated User Profile
         UD-->>O: Updated Profile
         O-->>U: Show Updated Profile
     else User confirms

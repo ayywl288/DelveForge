@@ -40,6 +40,44 @@ const settle = async () => {
 };
 afterEach(() => cleanup.splice(0).forEach((fn) => fn()));
 describe("五阶段 Vue 交互（合成 API 夹具）", () => {
+  it("审阅主体显示六区实际内容、当前版本、全部依据和待核实状态，纠正使勾选失效", async () => {
+    const s = session();
+    s.profile = { ...profile(), status: "REVIEWING", revision: 7, interests: ["战绩趋势"],
+      behaviors: ["每周战队练习"], painPoints: ["手工统计耗时"], technicalCapabilities: ["完成过Java接口"],
+      projectGoals: ["六周完成可展示作品"], constraints: ["每周五小时"], evidence: [
+        { sourceType: "USER_INPUT", sourceRef: "每周五小时做Java作品", claim: "可投入五小时", confidence: null, confirmed: false },
+      ] };
+    s.sufficiency = { sufficient: true, missingAreas: [], nextQuestion: null };
+    const root = mount(DiscoveryView, s);
+    const review = root.querySelector(".profile-review")!;
+    for (const text of ["画像版本 7", "战绩趋势", "每周战队练习", "手工统计耗时", "完成过Java接口", "六周完成可展示作品", "每周五小时", "可投入五小时", "每周五小时做Java作品", "提取结论待核对"]) {
+      expect(review.textContent).toContain(text);
+    }
+    expect(review.querySelector(".evidence")?.hasAttribute("open")).toBe(true);
+    expect(root.querySelector("form")?.style.display).toBe("none");
+    expect(button(root, "返回探索并提问")).toBeTruthy();
+    const check = root.querySelector(".review-box input") as HTMLInputElement;
+    check.checked = true; check.dispatchEvent(new Event("change", { bubbles: true })); await nextTick();
+    expect(button(root, "确认当前画像").disabled).toBe(false);
+    s.profile = { ...s.profile, revision: 8, constraints: ["改为两小时"] }; s.sufficiency = null; await nextTick();
+    expect(button(root, "确认当前画像").disabled).toBe(true);
+    expect(review.textContent).toContain("画像版本 8"); expect(review.textContent).toContain("改为两小时");
+    expect(review.textContent).toContain("不会重构评估结果");
+  });
+  it("充分后的两个选择明确，继续探索显示实际问题且不重复请求", async () => {
+    const s = session(); s.profile = profile(); s.ids.profileId = "profile-1";
+    s.sufficiency = { sufficient: true, missingAreas: [], nextQuestion: null };
+    const fetcher = vi.fn(async (_url: string, _options?: RequestInit) => new Response(JSON.stringify({
+      revision: 1, sufficient: true, missingAreas: [], nextQuestion: "你希望先让谁使用这个项目？",
+    })));
+    vi.stubGlobal("fetch", fetcher); const root = mount(DiscoveryView, s);
+    expect(button(root, "进入画像审阅")).toBeTruthy();
+    button(root, "继续深入探索").click(); await settle();
+    expect(root.querySelector(".chat-log")?.textContent).toContain("你希望先让谁使用这个项目？");
+    expect(root.querySelector(".review-box")?.textContent).not.toContain("你希望先让谁使用这个项目？");
+    button(root, "继续深入探索").click(); await settle();
+    expect(fetcher).toHaveBeenCalledTimes(1); expect(root.querySelectorAll(".message.agent")).toHaveLength(1);
+  });
   it("单独评估的 nextQuestion 进入左侧聊天，右侧仅展示缺失信息与审阅操作", async () => {
     const s = session(); s.profile = profile(); s.ids.profileId = "profile-1";
     const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(
@@ -48,8 +86,8 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
         : profile(),
     )));
     vi.stubGlobal("fetch", fetcher); const root = mount(DiscoveryView, s);
-    button(root, "进入审阅").click(); await settle();
-    button(root, "进入审阅").click(); await settle();
+    button(root, "进入画像审阅").click(); await settle();
+    button(root, "进入画像审阅").click(); await settle();
     expect(root.querySelectorAll(".message.agent")).toHaveLength(1);
     expect(root.querySelector(".chat-log")?.textContent).toContain("最近一次集卡哪里麻烦？");
     expect(root.querySelector(".review-box")?.textContent).not.toContain("最近一次集卡哪里麻烦？");
@@ -109,9 +147,9 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     await settle();
     expect(root.textContent).toContain("重复导出");
     expect(root.querySelectorAll(".message.agent")).toHaveLength(0);
-    expect(root.textContent).toContain("系统没有返回下一轮问题");
+    expect(root.textContent).toContain("本页没有可继续回答的下一问");
     expect(root.querySelector("textarea")?.disabled).toBe(false);
-    button(root, "进入审阅").click(); await settle();
+    button(root, "进入画像审阅").click(); await settle();
     const confirm = button(root, "确认当前画像");
     expect(confirm.disabled).toBe(true);
     const check = root.querySelector(".review-box input") as HTMLInputElement;

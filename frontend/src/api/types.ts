@@ -45,6 +45,9 @@ export interface DiscoveryTurn extends Sufficiency {
 export interface Assessment extends Sufficiency {
   profileStatus: UserProfile["status"];
 }
+export interface DiscoveryQuestion extends Sufficiency {
+  revision: number;
+}
 export type UsageAuthorization = "ALLOWED" | "DENIED" | "UNCLEAR";
 export interface AssetInput {
   location: string;

@@ -81,6 +81,6 @@ public class AssessProfileSufficiencyUseCase {
             userProfileRepository.save(candidate);
         }
         return new SufficiencyAssessment(assessment.sufficient(), assessment.missingAreas(),
-                assessment.nextQuestion(), candidate.status());
+                assessment.sufficient() ? null : assessment.nextQuestion(), candidate.status());
     }
 }

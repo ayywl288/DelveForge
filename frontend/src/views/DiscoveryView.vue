@@ -5,6 +5,7 @@ import type { WorkspaceSession } from "../state/session";
 import StatusBadge from "../components/StatusBadge.vue";
 import EvidenceList from "../components/EvidenceList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import ProfileReview from "../components/ProfileReview.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
 const emit = defineEmits<{ next: [] }>();
 const input = ref("");
@@ -32,6 +33,14 @@ async function send() {
   if (!input.value.trim() || props.s.busy) return;
   await props.s.turn(input.value.trim());
   if (!props.s.error) input.value = "";
+}
+async function continueExploring() {
+  await props.s.continueExploring();
+  await nextTick();
+  if (!props.s.error && chat.value) {
+    chat.value.scrollTop = chat.value.scrollHeight;
+    document.getElementById("discovery-input")?.focus();
+  }
 }
 function edit(key: ProfileSection) {
   editing.value = key;
@@ -69,7 +78,9 @@ async function save() {
         <h2 id="chat-heading">需求对话</h2>
         <StatusBadge :status="s.profile.status" :show-code="false" />
       </div>
+      <ProfileReview v-if="s.profile.status === 'REVIEWING'" :profile="s.profile" :sufficiency="s.sufficiency" :busy="!!s.busy" @edit="edit" />
       <div
+        v-show="s.profile.status !== 'REVIEWING'"
         ref="chat"
         class="chat-log"
         role="log"
@@ -81,8 +92,9 @@ async function save() {
           <h3>你的下一步，从哪里开始？</h3>
           <p>
             可以从一个反复遇到的问题，或一个想尝试的项目说起。这是页面提示，实际
-            Agent 问题将在提交后显示。
+            Agent 问题将在提交后显示，也可以主动索取下一问。
           </p>
+          <button v-if="s.profile.status === 'EXPLORING'" class="secondary" :disabled="!!s.busy" @click="continueExploring">请 Agent 提出下一问</button>
           <p class="meta">
             刷新后画像可恢复，历史对话和充分性评估没有读取
             API，页面不会重构旧消息。
@@ -106,13 +118,13 @@ async function save() {
           {{ s.busy }}… 正在等待实际响应。
         </p>
         <p
-          v-else-if="s.sufficiency?.sufficient && s.profile.status === 'EXPLORING'"
+          v-else-if="s.sufficiency?.sufficient && s.profile.status === 'EXPLORING' && !s.nextQuestion"
           class="request-note"
         >
-          已达到最低审阅条件，系统没有返回下一轮问题。你可以继续补充，或选择进入审阅。
+          已达到最低审阅条件，本页没有可继续回答的下一问。可主动请 Agent 提问，或选择进入画像审阅。
         </p>
       </div>
-      <form class="composer" @submit.prevent="send">
+      <form v-show="s.profile.status !== 'REVIEWING'" class="composer" @submit.prevent="send">
         <label for="discovery-input">你的想法</label>
         <textarea
           id="discovery-input" name="discovery-input" autocomplete="off"
@@ -140,7 +152,7 @@ async function save() {
           }}，发送下一轮前需显式继续探索。
         </p>
         <button class="text-button" :disabled="!!s.busy" @click="reopen = true">
-          {{ s.profile.status === "CONFIRMED" ? "重新开启探索" : "继续探索" }}
+          {{ s.profile.status === "CONFIRMED" ? "重新开启探索" : "返回探索并提问" }}
         </button>
       </div>
     </section>
@@ -195,13 +207,15 @@ async function save() {
         <p v-else class="muted">
           本页没有当前画像版本的充分性结果。上方状态来自保存的画像。
         </p>
+        <button v-if="s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient" class="secondary" :disabled="!!s.busy" @click="continueExploring">继续深入探索</button>
+        <button v-else-if="s.profile.status === 'EXPLORING' && s.messages.length && !s.nextQuestion" class="secondary" :disabled="!!s.busy" @click="continueExploring">请 Agent 提出下一问</button>
         <button
           v-if="s.profile.status === 'EXPLORING'"
           class="secondary"
           :disabled="!!s.busy"
           @click="s.assess"
         >
-          进入审阅（先调用 AI 评估）
+          进入画像审阅（先调用 AI 评估）
         </button>
         <template v-if="s.profile.status === 'REVIEWING'"
           ><label class="check"
@@ -258,7 +272,7 @@ async function save() {
   >
     <p>
       画像将回到探索中，可以连续补充多轮，再自主选择审阅。后续方向与计划仍保留其原始画像版本；
-      新生成操作需要再次确认更新后的画像。此操作不会生成或恢复历史 Agent 问题。
+      新生成操作需要再次确认更新后的画像。返回探索后将调用 AI 提出一个新的问题，不恢复历史消息。
     </p>
   </ConfirmDialog>
 </template>

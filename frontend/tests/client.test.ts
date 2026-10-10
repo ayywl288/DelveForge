@@ -31,7 +31,7 @@ describe("真实 DTO 请求契约", () => {
         options.body && JSON.parse(options.body),
       ]),
     ).toEqual([
-      ["/api/user-profiles/p/discovery-turn", "POST", { input: "需求" }],
+      ["/api/user-profiles/p/discovery-turn", "POST", { input: "需求", previousQuestions: [] }],
       ["/api/user-profiles/p/confirm", "POST", { revision: 7 }],
       [
         "/api/software-assets",
@@ -97,5 +97,17 @@ describe("真实 DTO 请求契约", () => {
       new ApiError(0, "CONNECTION_LOST"),
     );
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("只读提问携带当前画像版本与有界问题上下文，reopen 仍使用原接口", async () => {
+    const fetcher = vi.fn(async (_url: string, _options?: RequestInit) => new Response("{}"));
+    vi.stubGlobal("fetch", fetcher);
+    await api.discoveryQuestion("p", 3, ["已经提过的问题？"]);
+    await api.resumeDiscovery("p", true);
+    await api.resumeDiscovery("p", false);
+    expect(fetcher.mock.calls.map(([url, options]) => [url, options?.method, options?.body])).toEqual([
+      ["/api/user-profiles/p/discovery-question", "POST", '{"revision":3,"previousQuestions":["已经提过的问题？"]}'],
+      ["/api/user-profiles/p/reopen-discovery", "POST", undefined],
+      ["/api/user-profiles/p/continue-discovery", "POST", undefined],
+    ]);
   });
 });

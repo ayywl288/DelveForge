@@ -6,10 +6,13 @@ import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileExtract
 import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoundException;
 import com.ayywl.delveforge.application.userdiscovery.shared.UserProfileCandidates;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.ProfileSufficiencyEvaluator;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.DiscoveryQuestions;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
+
+import java.util.List;
 
 /**
  * 面向产品的一轮 User Discovery：提取 → 更新 → 评估最低审阅条件，保持探索。
@@ -22,7 +25,7 @@ import com.ayywl.delveforge.domain.user.UserProfileStateException;
  * ProfileSufficiencyEvaluator  对「已经更新过的候选 Profile」评估信息是否足够
  *         ↓
  * insufficient  保存更新后的 Profile，返回 missingAreas + nextQuestion，仍为 EXPLORING
- * sufficient    返回最低条件已满足，仍为 EXPLORING，等待用户显式选择进入审阅
+ * sufficient    返回最低条件已满足与深入下一问，仍为 EXPLORING，等待用户显式选择进入审阅
  * </pre>
  *
  * <h2>一轮只保存一次</h2>
@@ -93,7 +96,12 @@ public class RunUserDiscoveryTurnUseCase {
      * @throws UserProfileStateException    当前状态不允许本轮修改或状态转移
      */
     public UserDiscoveryTurn run(UserProfileId userProfileId, String userInput) {
+        return run(userProfileId, userInput, List.of());
+    }
+
+    public UserDiscoveryTurn run(UserProfileId userProfileId, String userInput, List<String> previousQuestions) {
         ProfileExtraction.requireUserInput(userInput);
+        List<String> questions = DiscoveryQuestions.validate(previousQuestions);
 
         UserProfile candidate = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
 
@@ -104,7 +112,7 @@ public class RunUserDiscoveryTurnUseCase {
 
         profileExtraction.applyTo(candidate, userInput);
         SufficiencyAssessment sufficiency =
-                profileSufficiencyEvaluator.evaluate(candidate);
+                profileSufficiencyEvaluator.evaluateForExploration(candidate, questions);
 
         // 一轮只保存一次：整轮成功后写入，因此任何一步失败都不会留下半轮结果。
         userProfileRepository.save(candidate);

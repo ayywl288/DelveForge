@@ -79,6 +79,13 @@ export function createSession() {
   const plan = ref<EvolutionPlan | null>(null);
   const copy = ref<WorkingCopy | null>(null);
   const sufficiency = ref<Sufficiency | null>(null);
+  const activeQuestion = ref<{ profileId: string; revision: number; text: string } | null>(null);
+  const nextQuestion = computed(() =>
+    profile.value?.status === "EXPLORING" &&
+    activeQuestion.value?.profileId === profile.value.id &&
+    activeQuestion.value?.revision === profile.value.revision
+      ? activeQuestion.value.text : null,
+  );
   const messages = ref<
     { role: "user" | "agent"; text: string; failed?: boolean }[]
   >([]);
@@ -107,10 +114,46 @@ export function createSession() {
     }
   };
   function appendQuestion(question: string | null) {
-    if (!question || messages.value.some(
-      (message) => message.role === "agent" && message.text === question,
-    )) return;
-    messages.value.push({ role: "agent", text: question });
+    activeQuestion.value = null;
+    const text = question?.trim();
+    if (!text || !profile.value || profile.value.status !== "EXPLORING") return;
+    if (messages.value.some((message) => message.role === "agent" && message.text.trim() === text)) {
+      notice.value = "Agent 返回了本页已经提过的问题，未重复插入；可以直接补充想法或按需索取下一问。";
+      return;
+    }
+    messages.value.push({ role: "agent", text });
+    activeQuestion.value = { profileId: profile.value.id, revision: profile.value.revision, text };
+  }
+  function previousQuestions() {
+    return messages.value.filter(message => message.role === "agent" && message.text.length <= 512)
+      .map(message => message.text).slice(-8);
+  }
+  async function refreshProfileAfterFailure() {
+    sufficiency.value = null;
+    activeQuestion.value = null;
+    try {
+      profile.value = await api.profile(ids.profileId);
+    } catch {
+      /* 查询也失败时保留已知画像，并显示原请求失败。 */
+    }
+  }
+  async function askQuestion() {
+    const current = profile.value;
+    if (!current || current.status !== "EXPLORING") return;
+    try {
+      const result = await api.discoveryQuestion(current.id, current.revision, previousQuestions());
+      if (disposed) return;
+      if (profile.value?.id !== current.id || profile.value?.revision !== result.revision ||
+        profile.value?.status !== "EXPLORING") {
+        notice.value = "下一问所依据的画像版本或状态已经变化，未加入聊天。请核对当前画像。";
+        return;
+      }
+      sufficiency.value = result;
+      appendQuestion(result.nextQuestion);
+    } catch (failure) {
+      await refreshProfileAfterFailure();
+      throw failure;
+    }
   }
   function setPlan(value: EvolutionPlan) {
     planVersion++;
@@ -334,6 +377,7 @@ export function createSession() {
     plan,
     copy,
     sufficiency,
+    nextQuestion,
     messages,
     busy,
     error,
@@ -374,6 +418,7 @@ export function createSession() {
       plan.value = null;
       copy.value = null;
       sufficiency.value = null;
+      activeQuestion.value = null;
       messages.value = [];
       remember();
       await restore();
@@ -383,29 +428,26 @@ export function createSession() {
         profile.value = await api.createProfile();
         ids.profileId = profile.value.id;
         sufficiency.value = null;
+        activeQuestion.value = null;
         messages.value = [];
         remember();
       });
     },
     async turn(input: string) {
-      if (!profile.value || !input.trim()) return;
+      if (!profile.value || profile.value.status !== "EXPLORING" || !input.trim()) return;
       await run("理解需求并更新画像", async () => {
         const message = { role: "user" as const, text: input };
         messages.value.push(message);
         try {
-          const result = await api.discoveryTurn(profile.value!.id, input);
+          activeQuestion.value = null;
+          const result = await api.discoveryTurn(profile.value!.id, input, previousQuestions());
           profile.value = result.profile;
           sufficiency.value = result;
           appendQuestion(result.nextQuestion);
         } catch (failure) {
-          sufficiency.value = null;
           const last = messages.value.at(-1);
           if (last) last.failed = true;
-          try {
-            profile.value = await api.profile(ids.profileId);
-          } catch {
-            /* 保留已知画像，显示请求错误。 */
-          }
+          await refreshProfileAfterFailure();
           throw failure;
         }
       });
@@ -415,15 +457,28 @@ export function createSession() {
         await run("保存画像纠正", async () => {
           profile.value = await api.patchProfile(profile.value!.id, patch);
           sufficiency.value = null;
+          activeQuestion.value = null;
         });
     },
     async assess() {
       if (profile.value)
         await run("评估并请求进入审阅", async () => {
+          const assessedRevision = profile.value!.revision;
           sufficiency.value = null;
-          sufficiency.value = await api.assess(profile.value!.id);
-          appendQuestion(sufficiency.value.nextQuestion);
-          profile.value = await api.profile(ids.profileId);
+          activeQuestion.value = null;
+          try {
+            const result = await api.assess(profile.value!.id);
+            profile.value = await api.profile(ids.profileId);
+            if (profile.value.revision !== assessedRevision) {
+              notice.value = "画像版本在评估期间发生了变化；当前内容已重新读取，请审阅当前版本。";
+              return;
+            }
+            sufficiency.value = result;
+            appendQuestion(result.nextQuestion);
+          } catch (failure) {
+            await refreshProfileAfterFailure();
+            throw failure;
+          }
         });
     },
     async confirmProfile(revision: number) {
@@ -434,6 +489,7 @@ export function createSession() {
               profile.value!.id,
               revision,
             );
+            activeQuestion.value = null;
           } catch (failure) {
             sufficiency.value = null;
             profile.value = await api.profile(ids.profileId);
@@ -442,14 +498,30 @@ export function createSession() {
         });
     },
     async resumeDiscovery() {
-      if (profile.value)
+      if (profile.value && profile.value.status !== "EXPLORING")
         await run("重新进入探索", async () => {
-          profile.value = await api.resumeDiscovery(
-            profile.value!.id,
-            profile.value!.status === "CONFIRMED",
-          );
-          sufficiency.value = null;
+          try {
+            profile.value = await api.resumeDiscovery(
+              profile.value!.id,
+              profile.value!.status === "CONFIRMED",
+            );
+            sufficiency.value = null;
+            activeQuestion.value = null;
+          } catch (failure) {
+            await refreshProfileAfterFailure();
+            throw failure;
+          }
+          // 用户主动返回探索后才索取一次问题；问题失败不撤销已完成的合法状态转换。
+          await askQuestion();
         });
+    },
+    async continueExploring() {
+      if (busy.value || !profile.value || profile.value.status !== "EXPLORING") return;
+      if (nextQuestion.value) {
+        notice.value = "请直接回答聊天区的下一轮问题，可以连续探索。";
+        return;
+      }
+      await run("生成下一轮探索问题", askQuestion);
     },
     async register(input: AssetInput) {
       await run("注册仓库授权", async () => {

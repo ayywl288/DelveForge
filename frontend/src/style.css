@@ -537,6 +537,13 @@ summary {
   scrollbar-width: thin;
   overscroll-behavior: contain;
 }
+
+.profile-review {
+  max-height: 650px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+}
 .chat-intro {
   padding: 35px 3px;
   color: var(--muted);
