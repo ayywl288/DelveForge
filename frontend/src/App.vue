@@ -8,6 +8,7 @@ import PlanView from "./views/PlanView.vue";
 import EvolutionView from "./views/EvolutionView.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import ProjectsView from "./views/ProjectsView.vue";
+import NavigationIcon, { type NavigationIconName } from "./components/NavigationIcon.vue";
 import { stageIndex, projectIssueText } from "./state/projectPresentation";
 const s = reactive(createSession());
 const stage = ref(-1);
@@ -33,30 +34,35 @@ async function inspectPendingProject() {
   const result = await s.openProject("plan:" + s.receipt.planId);
   if (result) projectOpened(stageIndex(result));
 }
-const stages = [
+const stages: { title: string; en: string; icon: NavigationIconName; description: string }[] = [
   {
     title: "需求探索",
     en: "User Discovery",
+    icon: "discovery",
     description: "从你的兴趣、日常和目标中，找到值得解决的问题。",
   },
   {
     title: "理解仓库",
     en: "Repository Understanding",
+    icon: "repository",
     description: "理解已有代码能做什么，让演化有据可依。",
   },
   {
     title: "产品方向",
     en: "Product Direction",
+    icon: "direction",
     description: "比较真实候选，明确选择你愿意投入的方向。",
   },
   {
     title: "演化规划",
     en: "Evolution Planning",
+    icon: "planning",
     description: "复用已有能力，把目标拆成有范围、有验收标准的步骤。",
   },
   {
     title: "验证演化",
     en: "Verified Evolution",
+    icon: "evolution",
     description: "观察代码变更与真实验证，只有通过验证才推进可信 revision。",
   },
 ];
@@ -119,14 +125,20 @@ onUnmounted(s.dispose);
         href="#"
         aria-label="DelveForge 首页"
         @click.prevent="stage = -1"
-        ><span class="brand-mark" aria-hidden="true">d<span>f</span></span
-        ><span>DelveForge<small>PERSONAL SOFTWARE EVOLUTION</small></span></a
+        ><span class="brand-mark" aria-hidden="true">df</span
+        ><span>DelveForge</span></a
       >
-      <div class="nav-label">从想法，到下一次提交</div>
-      <button class="sidebar-button project-entry" :aria-current="stage === -1 ? 'page' : undefined"
-        @click="stage = -1">项目工作台</button>
-      <p v-if="s.projectContext" class="sidebar-project">{{ s.projectContext.name }}</p>
-      <nav aria-label="演化阶段">
+      <nav class="app-navigation" aria-label="工作空间">
+        <button class="nav-stage project-entry" :class="{ active: stage === -1 }"
+          :aria-current="stage === -1 ? 'page' : undefined" @click="stage = -1">
+          <NavigationIcon name="projects" /><span>项目工作台</span>
+        </button>
+      </nav>
+      <div class="project-navigation-heading">
+        <span class="nav-label">当前项目</span>
+        <p class="sidebar-project">{{ s.projectContext?.name ?? s.plan?.targetState.targetProduct ?? '尚未打开项目' }}</p>
+      </div>
+      <nav class="workflow-navigation" aria-label="演化阶段">
         <button
           v-for="(item, index) in stages"
           :key="item.en"
@@ -135,14 +147,8 @@ onUnmounted(s.dispose);
           :aria-current="stage === index ? 'step' : undefined"
           @click="stage = index"
         >
-          <span class="nav-number"
-            >{{ done[index] ? "✓" : `0${index + 1}`
-            }}<span class="sr-only">{{
-              done[index] ? "已有阶段结果" : ""
-            }}</span></span
-          ><span
-            >{{ item.title }}<small>{{ item.en }}</small></span
-          ><span class="nav-arrow" aria-hidden="true">↗</span>
+          <NavigationIcon :name="item.icon" /><span>{{ item.title }}</span>
+          <span v-if="done[index]" class="nav-result"><span class="sr-only">已有阶段结果</span></span>
         </button>
       </nav>
       <div class="sidebar-bottom">
@@ -166,16 +172,14 @@ onUnmounted(s.dispose);
     <main id="main-content" class="main-content" tabindex="-1">
       <header class="page-header">
         <div>
-          <div class="eyebrow">
-            DELVEFORGE / {{ stage === -1 ? 'PROJECTS' : stages[stage]?.en.toUpperCase() }}
-          </div>
-          <h1>{{ stage === -1 ? '项目工作台' : stages[stage]?.title }}<span class="heading-dot">.</span></h1>
-          <p>{{ stage === -1 ? '找回已保存的进度，或开始一个新的演化流程。' : stages[stage]?.description }}</p>
+          <h1>{{ stage === -1 ? '项目工作台' : stages[stage]?.title }}</h1>
+          <p>{{ stage === -1 ? '管理已保存的演化流程，继续上次进度。' : stages[stage]?.description }}</p>
         </div>
         <button
           class="secondary refresh"
+          v-if="stage !== -1"
           :disabled="!!s.busy"
-          @click="stage === -1 ? s.loadProjects(false) : s.restore()"
+          @click="s.restore()"
         >
           刷新已知对象
         </button>
@@ -225,10 +229,6 @@ onUnmounted(s.dispose);
           @next="stage = 4"
           @directions="stage = 2"
       /><EvolutionView v-else :s="s" /></KeepAlive>
-      <footer class="app-footer">
-        <span>AI 提出建议 · 你选择方向 · 后端决定状态</span
-        ><span>本地 Web Experience</span>
-      </footer>
     </main>
   </div>
   <ConfirmDialog
@@ -240,8 +240,8 @@ onUnmounted(s.dispose);
   >
     <p>
       这里只保存对象 ID；画像、源码、模型响应和凭据不写入浏览器存储。现有 API
-      没有历史列表，请使用已知
-      ID。空白字段表示不加载该类对象，不会删除后端数据。
+      可从工作台打开历史项目；此入口用于精确查询已知 ID。
+      空白字段表示不加载该类对象，不会删除后端数据。
     </p>
     <div class="stack">
       <label for="recover-profile">UserProfile ID</label

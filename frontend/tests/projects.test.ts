@@ -468,7 +468,7 @@ describe("项目上下文恢复与隔离", () => {
   });
 });
 
-it("项目工作台用卡片显示真实计数，明确创建与恢复，UUID 恢复仅在高级区", async () => {
+it("项目工作台用紧凑列表显示真实计数，明确创建与恢复，UUID 恢复仅在高级区", async () => {
   const saved = workspace("saved", true);
   const summary: ProjectSummary = { key: saved.key, name: "已保存 REST 项目", legacy: false, stage: "EVOLUTION",
     direction: "REST", repositories: [{ assetId: "asset-saved", location: "C:/trusted/rest" }],
@@ -482,12 +482,14 @@ it("项目工作台用卡片显示真实计数，明确创建与恢复，UUID �
   const root = document.createElement("div"); document.body.append(root);
   const app = createApp(App); app.mount(root); cleanups.push(() => app.unmount()); await settle();
   expect(root.querySelector("h1")?.textContent).toContain("项目工作台");
-  expect(root.querySelector(".project-card")?.textContent).toContain("1/4");
-  expect(root.querySelector(".project-card")?.textContent).toContain("c822cc3");
+  expect(root.querySelector(".project-row")?.textContent).toContain("1/4");
+  expect(root.querySelector(".project-details")?.textContent).toContain("c822cc3");
   expect(root.querySelector(".advanced-recovery")?.textContent).toContain("恢复已知对象");
-  (root.querySelector(".project-card button") as HTMLButtonElement).click(); await settle();
+  (root.querySelector(".project-actions button") as HTMLButtonElement).click(); await settle();
   expect(root.querySelector("h1")?.textContent).toContain("验证演化"); expect(execute).not.toHaveBeenCalled();
   (root.querySelector(".project-entry") as HTMLButtonElement).click(); await settle();
+  (root.querySelector(".new-project summary") as HTMLElement).click(); await nextTick();
+  expect(root.querySelector(".new-project")?.hasAttribute("open")).toBe(true);
   const input = root.querySelector("#project-name") as HTMLInputElement;
   input.value = "全新项目"; input.dispatchEvent(new Event("input", { bubbles: true })); await nextTick();
   const blank = workspace("blank"); blank.userProfile = null; blank.stage = "DISCOVERY";
@@ -496,4 +498,60 @@ it("项目工作台用卡片显示真实计数，明确创建与恢复，UUID �
   vi.mocked(api.project).mockResolvedValue(blank); vi.spyOn(api, "createProject").mockResolvedValue(blank.context!);
   const form = root.querySelector(".new-project form")!; form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
   expect(root.querySelector("h1")?.textContent).toContain("需求探索"); expect(root.textContent).toContain("开始需求探索");
+});
+
+it("列表保留完整技术信息与需要核对的问题，没有 Plan 时不显示虚构进度或状态", async () => {
+  const saved = workspace("metadata", true);
+  const revision = "c822cc384234342a95f5239f2b4ce060002f0d15";
+  const planned = { ...summary(saved), currentRevision: revision, lastVerifiedRevision: revision,
+    repositories: [{ assetId: "asset-metadata", location: "E:/trusted/rest-service" }],
+    issues: ["PROFILE_BASIS_CHANGED"] };
+  const empty = { ...summary(workspace("new")), totalSteps: 0, succeededSteps: 0, stepCounts: {},
+    planStatus: null, currentRevision: null, lastVerifiedRevision: null };
+  vi.spyOn(api, "projects").mockResolvedValue([planned, empty]);
+  vi.spyOn(api, "resources").mockResolvedValue([]);
+  const execute = vi.spyOn(api, "execute"); const generate = vi.spyOn(api, "generatePlan");
+  const s = reactive(make()); const root = document.createElement("div"); document.body.append(root);
+  const app = createApp(ProjectsView, { s }); app.mount(root);
+  cleanups.push(() => { app.unmount(); root.remove(); }); await settle();
+  const rows = root.querySelectorAll(".project-row");
+  expect(rows).toHaveLength(2);
+  expect(rows[0]!.querySelector(".project-details")?.hasAttribute("open")).toBe(false);
+  (rows[0]!.querySelector(".project-details summary") as HTMLElement).click(); await nextTick();
+  expect(rows[0]!.querySelector(".project-details")?.hasAttribute("open")).toBe(true);
+  expect(rows[0]!.querySelector(".project-metadata")?.textContent).toContain(revision);
+  expect(rows[0]!.querySelector(".project-metadata")?.textContent).toContain("E:/trusted/rest-service");
+  expect(rows[0]!.querySelector(".project-row-issues summary")?.textContent).toContain("1 项需要核对");
+  expect(rows[1]!.querySelector(".project-progress")).toBeNull();
+  expect(rows[1]!.querySelector(".badge")).toBeNull();
+  expect(rows[1]!.textContent).toContain("尚未生成计划");
+  expect(rows[1]!.textContent).toContain("未保存活动时间");
+  expect(execute).not.toHaveBeenCalled(); expect(generate).not.toHaveBeenCalled();
+});
+
+it("展开新流程并选择已确认画像后，仍由用户提交精确的复用身份", async () => {
+  const saved = workspace("reuse-ui"); stubReads(saved);
+  vi.spyOn(api, "projects").mockResolvedValue([]);
+  vi.spyOn(api, "resources").mockResolvedValue([
+    { id: "shared-user", summary: "已确认画像", status: "CONFIRMED", revision: 2,
+      location: null, assetId: null, analyzedRevision: null },
+    { id: "draft-user", summary: "探索画像", status: "EXPLORING", revision: 0,
+      location: null, assetId: null, analyzedRevision: null },
+  ]);
+  const create = vi.spyOn(api, "createProject").mockResolvedValue(saved.context!);
+  const createProfile = vi.spyOn(api, "createProfile"); const execute = vi.spyOn(api, "execute");
+  const s = reactive(make()); const root = document.createElement("div"); document.body.append(root);
+  const app = createApp(ProjectsView, { s }); app.mount(root);
+  cleanups.push(() => { app.unmount(); root.remove(); }); await settle();
+  (root.querySelector(".new-project summary") as HTMLElement).click();
+  (root.querySelector('input[value="reuse"]') as HTMLInputElement).click(); await settle();
+  const input = root.querySelector("#project-name") as HTMLInputElement;
+  input.value = "复用流程"; input.dispatchEvent(new Event("input", { bubbles: true })); await nextTick();
+  const select = root.querySelector("#project-profile") as HTMLSelectElement;
+  expect([...select.options].map(option => option.value)).toEqual(["", "shared-user"]);
+  expect(create).not.toHaveBeenCalled();
+  select.value = "shared-user"; select.dispatchEvent(new Event("change", { bubbles: true })); await nextTick();
+  root.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+  expect(create).toHaveBeenCalledWith("复用流程", "shared-user");
+  expect(createProfile).not.toHaveBeenCalled(); expect(execute).not.toHaveBeenCalled();
 });

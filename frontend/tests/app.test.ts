@@ -13,7 +13,10 @@ it('切换阶段保留未发送草稿，刷新恢复不自动发送业务 POST',
     for (let i = 0; i < 20; i++) { await Promise.resolve(); await nextTick() }
     const input = root.querySelector('#discovery-input') as HTMLTextAreaElement
     input.value = '尚未发送的草稿'; input.dispatchEvent(new Event('input', { bubbles: true })); await nextTick()
-    const nav = root.querySelectorAll('.nav-stage'); (nav[1] as HTMLButtonElement).click(); await nextTick(); (nav[0] as HTMLButtonElement).click(); await nextTick()
+    const nav = root.querySelectorAll('.workflow-navigation .nav-stage'); (nav[1] as HTMLButtonElement).click(); await nextTick(); (nav[0] as HTMLButtonElement).click(); await nextTick()
+    expect(root.querySelector('.app-navigation .project-entry')).not.toBeNull()
+    expect(root.querySelectorAll('.workflow-navigation .navigation-icon')).toHaveLength(5)
+    expect(root.querySelector('.workflow-navigation [aria-current="step"]')?.textContent).toContain('需求探索')
     expect((root.querySelector('#discovery-input') as HTMLTextAreaElement).value).toBe('尚未发送的草稿')
     expect(fetcher.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true)
     expect(localStorage.getItem(sessionKey)).not.toContain('尚未发送的草稿')
