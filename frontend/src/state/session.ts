@@ -125,6 +125,7 @@ export function createSession() {
   const historyLoading = ref(false);
   const historyError = ref("");
   const historyMore = ref(false);
+  const showingDeletedProjects = ref(false);
   const projectSyncError = ref(false);
   const contextEpoch = ref(0);
   let historyRequest = 0;
@@ -253,7 +254,7 @@ export function createSession() {
     }
     if (saveContext && projectIssues.value.some(issue => !issue.startsWith("WORKSPACE_") &&
       (issue.endsWith("_MISSING") || issue.endsWith("_UNREADABLE") || issue === "ASSOCIATION_MISMATCH" ||
-        issue === "FLOW_OWNERSHIP_UNKNOWN"))) {
+        issue === "FLOW_OWNERSHIP_UNKNOWN" || issue === "PROJECT_DELETED"))) {
       error.value = "项目关联资源缺失或不一致，不能继续修改。请核对数据或建立新流程；历史对象没有被删除。";
       return;
     }
@@ -454,19 +455,25 @@ export function createSession() {
       );
     });
   }
-  async function loadProjects(more = false) {
-    if (historyLoading.value) return;
+  async function loadProjects(more = false, deleted = showingDeletedProjects.value) {
+    if (historyLoading.value && deleted === showingDeletedProjects.value) return;
+    if (deleted !== showingDeletedProjects.value) {
+      projects.value = [];
+      historyMore.value = false;
+    }
+    showingDeletedProjects.value = deleted;
     const version = ++historyRequest;
     historyLoading.value = true;
     historyError.value = "";
     try {
-      const loaded = await api.projects(more ? projects.value.length : 0);
+      const loaded = await api.projects(more ? projects.value.length : 0, deleted);
       if (disposed || version !== historyRequest) return;
       if (!Array.isArray(loaded)) throw new ApiError(0, "RESPONSE_UNREADABLE");
       projects.value = more ? [...projects.value, ...loaded] : loaded;
       historyMore.value = loaded.length === 50;
     } catch (failure) {
-      historyError.value = failure instanceof ApiError ? failure.message : "历史项目读取失败，请核对连接。";
+      if (!disposed && version === historyRequest)
+        historyError.value = failure instanceof ApiError ? failure.message : "历史项目读取失败，请核对连接。";
     } finally {
       if (version === historyRequest) historyLoading.value = false;
     }
@@ -519,7 +526,7 @@ export function createSession() {
     let stage: string | null = null;
     await run("读取已保存项目", async () => {
       let workspace = await api.project(key);
-      if (workspace.legacy && adopt) {
+        if (workspace.legacy && adopt && !workspace.issues.includes("PROJECT_DELETED")) {
         const planId = workspace.plan?.id;
         const invalid = workspace.issues.some(issue => !issue.startsWith("WORKSPACE_") &&
           (issue.endsWith("_MISSING") || issue.endsWith("_UNREADABLE") || issue === "ASSOCIATION_MISMATCH" ||
@@ -568,6 +575,67 @@ export function createSession() {
       }
     }
   }
+
+  function clearNavigation() {
+    contextEpoch.value++;
+    planVersion++;
+    clearTimeout(timer);
+    projectContext.value = null;
+    projectIssues.value = [];
+    boundProfileRevision.value = null;
+    projectSyncError.value = false;
+    planningRounds.value = [];
+    roundsError.value = "";
+    Object.assign(ids, emptyIds());
+    profile.value = null;
+    assets.value = [];
+    repositories.value = [];
+    directions.value = [];
+    plan.value = null;
+    copy.value = null;
+    sufficiency.value = null;
+    activeQuestion.value = null;
+    reviewChoicePending.value = false;
+    planningAuthorizationIssue.value = null;
+    messages.value = [];
+    remember();
+    try { localStorage.removeItem(projectKey); } catch {
+      notice.value = "浏览器无法清除导航 ID；刷新后仍须核对已删除状态，未决执行标记保留。";
+    }
+    // 未决 execute 标记不是导航数据；不删除 executionKey，不把切换视为取消。
+  }
+
+  function deletionBlocked(project: ProjectSummary) {
+    const marker = readReceipt() ?? receipt.value;
+    return !!marker && (marker.planId === project.planId ||
+      planningRounds.value.some(round => round.key === project.key) &&
+      planningRounds.value.some(round => round.planId === marker.planId)) ||
+      Object.entries(project.stepCounts).some(([status, count]) => count > 0 &&
+        !["PENDING_CONFIRMATION", "SUCCEEDED", "FAILED", "CANCELLED"].includes(status)) ||
+      !!project.currentRevision && project.currentRevision !== project.lastVerifiedRevision;
+  }
+
+  async function changeProjectVisibility(project: ProjectSummary, deleted: boolean) {
+    let completed = false;
+    if (deleted && deletionBlocked(project)) {
+      error.value = "此项目有已授权或未决执行，不能删除。请先查询真实状态，等待标记会保留。";
+      return false;
+    }
+    const epoch = contextEpoch.value;
+    await run(deleted ? "从工作台删除项目" : "恢复项目到工作台", async () => {
+      if (deleted) await api.deleteProject(project.key, project.version);
+      else await api.restoreProject(project.key, project.version);
+      if (disposed) return;
+      completed = true;
+      const currentKey = projectContext.value ? "project:" + projectContext.value.id
+        : ids.planId ? "plan:" + ids.planId : "";
+      if (currentKey === project.key && contextEpoch.value === epoch) clearNavigation();
+      notice.value = deleted ? "项目已从正常工作台移除。业务数据和本地代码保留，可从已删除项目恢复。"
+        : "项目已恢复到工作台。方向、计划和验证状态没有改变。";
+      await loadProjects(false);
+    }, false);
+    return completed;
+  }
   return {
     ids,
     profile,
@@ -602,6 +670,10 @@ export function createSession() {
     historyLoading,
     historyError,
     historyMore,
+    showingDeletedProjects,
+    deletionBlocked,
+    deleteProject: (project: ProjectSummary) => changeProjectVisibility(project, true),
+    restoreProject: (project: ProjectSummary) => changeProjectVisibility(project, false),
     projectSyncError,
     contextEpoch,
     loadProjects,
@@ -609,7 +681,15 @@ export function createSession() {
     async initialize() {
       let saved: string | null = null;
       try { saved = localStorage.getItem(projectKey); } catch { /* ID 无法读取时显示工作台。 */ }
-      if (saved && validId(saved)) return openProject("project:" + saved, false);
+      if (saved && validId(saved)) {
+        const stage = await openProject("project:" + saved, false);
+        if (projectIssues.value.includes("PROJECT_DELETED")) {
+          clearNavigation();
+          notice.value = "上次打开的项目已从工作台删除，可在已删除项目中恢复。业务数据和本地代码保留。";
+          return null;
+        }
+        return stage;
+      }
       await restore();
       return null;
     },

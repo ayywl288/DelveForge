@@ -20,6 +20,7 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceStorageUnavailableException;
 import com.ayywl.delveforge.application.project.EvolutionFlowScopeException;
 import com.ayywl.delveforge.application.project.ProjectContextConflictException;
+import com.ayywl.delveforge.application.project.ProjectDeletionBlockedException;
 import com.ayywl.delveforge.application.project.ProjectNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
@@ -100,6 +101,16 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 loggedRoute(request), describe(exception));
         return new ApiErrorResponse(ApiErrorCode.PROJECT_CONTEXT_CONFLICT,
                 messageFor(ApiErrorCode.PROJECT_CONTEXT_CONFLICT), request.getRequestURI(), Instant.now());
+    }
+
+    @ExceptionHandler(ProjectDeletionBlockedException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiErrorResponse handleProjectDeletionBlocked(ProjectDeletionBlockedException exception,
+            HttpServletRequest request) {
+        log.warn("operation=interface.request path={} result=PROJECT_DELETION_BLOCKED exception={}",
+                loggedRoute(request), describe(exception));
+        return new ApiErrorResponse(ApiErrorCode.PROJECT_DELETION_BLOCKED,
+                messageFor(ApiErrorCode.PROJECT_DELETION_BLOCKED), request.getRequestURI(), Instant.now());
     }
 
     /** 原因链深度上限，避免异常链被异常构造时日志失控。 */
@@ -483,6 +494,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             case ASSET_AUTHORIZATION_CONFLICT -> "仓库授权版本已变化，请重新读取并核对；本次操作未提交";
             case ASSET_ALREADY_REGISTERED -> "此仓库已登记，请选择已有资产；补充许可证应修改原记录";
             case PROJECT_CONTEXT_CONFLICT -> "项目关联或版本已变化，请重新打开项目核对；本次上下文未保存";
+            case PROJECT_DELETION_BLOCKED -> "存在已授权或未决执行、未验证版本或缺失的执行记录，不能删除项目；请先查询真实状态";
             case EVOLUTION_FLOW_SCOPE_CONFLICT -> "流程归属缺失或不一致，请只读查看历史";
         };
     }

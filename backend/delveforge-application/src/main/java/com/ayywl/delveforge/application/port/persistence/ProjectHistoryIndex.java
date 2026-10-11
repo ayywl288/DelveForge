@@ -6,6 +6,10 @@ import java.util.List;
 public interface ProjectHistoryIndex {
     List<String> historyKeys(int offset, int limit);
 
+    default List<String> historyKeys(int offset, int limit, boolean deleted) {
+        return deleted ? List.of() : historyKeys(offset, limit);
+    }
+
     List<String> resourceIds(ResourceKind kind, int offset, int limit);
 
     enum ResourceKind { USER_PROFILE, SOFTWARE_ASSET, REPOSITORY_PROFILE }

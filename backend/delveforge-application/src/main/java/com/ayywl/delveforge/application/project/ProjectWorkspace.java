@@ -13,5 +13,15 @@ import java.util.List;
 public record ProjectWorkspace(String key, ProjectFlowContext context, boolean legacy,
         UserProfile userProfile, List<SoftwareAsset> assets, List<RepositoryProfile> repositoryProfiles,
         List<ProductDirection> directions, EvolutionPlan plan, WorkingCopy workingCopy,
-        String stage, Integer boundUserProfileRevision, List<String> issues) {
+        String stage, Integer boundUserProfileRevision, List<String> issues, ProjectVisibility visibility) {
+
+    public ProjectWorkspace(String key, ProjectFlowContext context, boolean legacy,
+            UserProfile userProfile, List<SoftwareAsset> assets, List<RepositoryProfile> repositoryProfiles,
+            List<ProductDirection> directions, EvolutionPlan plan, WorkingCopy workingCopy,
+            String stage, Integer boundUserProfileRevision, List<String> issues) {
+        this(key, context, legacy, userProfile, assets, repositoryProfiles, directions, plan, workingCopy,
+                stage, boundUserProfileRevision, issues,
+                new ProjectVisibility(key, context == null ? 0 : context.version(),
+                        context == null ? null : context.deletedAt()));
+    }
 }

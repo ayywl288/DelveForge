@@ -2025,8 +2025,17 @@ WorkingCopy 与 Verification 守卫继续有效。
 
 ### Task F-Fix — 项目方向隔离与重新规划
 
-稳定 flowId 将 Direction 选择和 Plan 废弃限定在同一演化流程。V16 仅从明确引用建立
+**DONE（2026-10-11）。** 稳定 flowId 将 Direction 选择和 Plan 废弃限定在同一演化流程。V16 仅从明确引用建立
 旧记录归属，未知归属只读；不恢复任何 SUPERSEDED 终态。新规划轮次保存
 previousContextId，不替换原 planId。查看历史、切换项目和建立轮次不会调用 AI，
 只有用户明确点击规划才使用当前选定的资产和分析快照。决策见 ADR-0008。
+
+追加的项目删除/恢复采用 V17 导航软删除，保留业务对象和磁盘代码。默认列表隐藏，
+已删除列表可显式恢复；同一 flowId 的规划轮次独立保留。CAS 拒绝过期请求，READY 或
+未决执行禁止删除。恢复不改变 Direction、Plan 或验证状态。决策见 ADR-0009。
+
+F-Fix 首次完整 verify 1457 项 PASS；追加最终 verify 1468 项 PASS，前端 80 项、类型检查
+与构建 PASS。升级前备份及手动验收见
+[软删除与恢复记录](validation/task-f-fix-project-deletion-recovery.md)。没有操作用户数据库，
+没有付费 Provider / 真实 Step 请求，也没有推送远端。
 **M0–M4 继续 FROZEN，M5 继续 DEFERRED；本任务结束后等待用户手动验收，不扩展功能。**

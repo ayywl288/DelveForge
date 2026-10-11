@@ -79,6 +79,7 @@ public interface EvolutionPlanMapper extends BaseMapper<EvolutionPlanDO> {
             UPDATE project_flow_context SET plan_id = #{plan.id.value}, version = version + 1,
                 updated_at = #{updatedAt}
             WHERE id = #{project.contextId} AND version = #{project.expectedVersion} AND plan_id IS NULL
+                AND deleted_at IS NULL
                 AND flow_id = (SELECT flow_id FROM product_direction WHERE id = #{plan.productDirectionId.value})
                 AND user_profile_id = (SELECT user_profile_id FROM product_direction WHERE id = #{plan.productDirectionId.value})
                 AND EXISTS (SELECT 1 FROM json_each(repository_profile_ids) WHERE value = #{plan.baseRepositoryProfileId.value})

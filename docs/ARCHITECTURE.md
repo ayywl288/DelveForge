@@ -1433,9 +1433,20 @@ V16 增加 Direction / Plan / Context 的 flow_id 和 Context.previous_context_i
 contextId / expectedVersion，保存时原子核对上下文、画像版本及分析成员；假项目身份失败。
 Select 依据目标方向持久化归属查询旧 SELECTED；同一事务提交旧方向和旧 Plan 失效，
 不影响别的作用域。Plan 插入继承 Direction 归属，激活、Step 确认、执行检查点 SQL 继续
-要求同作用域、合法状态、授权、隔离及 revision。原无 project 参数 API 使用 standalone 作用域。
+要求同作用域、合法状态、授权、隔离及 revision。无 project 参数的方向发现使用 standalone
+作用域；选择按目标的实际归属限定范围，规划继承该归属。Web 正常请求包含上下文 CAS。
 
 历史迁移只沿明确 Context ID / Plan -> Direction 引用归属；歧义或缺失保持只读。
 SUPERSEDED 不自动恢复。重新规划创建同 flowId、previousContextId 相连的新上下文，
 保留旧 planId；新 Plan 仍使用用户明确选定的 Asset 和 RepositoryProfile，不从旧 B 推断分析基线。
 决策及回滚限制见 [ADR-0008](decisions/0008-stable-evolution-flow-scope-and-planning-rounds.md)。
+
+### 项目工作台软删除
+
+V17 在 ProjectFlowContext 添加 deleted_at，删除和恢复共用现有 version CAS。
+未认领的旧 Plan 投影在 project_legacy_visibility 单独保存标记和版本，避免默认查询重新
+投影已经删除的项目。默认历史过滤标记，deleted=true 仅查询已删除记录；共享资源目录不变。
+可见性事务先取得 SQLite 写锁，再检查实际步骤和副本版本，最后提交导航标记。
+已删除上下文不能关联更新、发现/选择方向、绑定新 Plan 或创建下一轮次；恢复不产生领域转换。
+不存在新的执行状态机或后台取消能力。范围与 READY 的保守限制见
+[ADR-0009](decisions/0009-project-navigation-soft-deletion.md)。

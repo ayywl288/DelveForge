@@ -18,14 +18,14 @@ public interface ProductDirectionMapper extends BaseMapper<ProductDirectionDO> {
 
     @Update("""
             UPDATE project_flow_context SET version = version WHERE id = #{project.contextId}
-                AND version = #{project.expectedVersion} AND flow_id IS NOT NULL
+                AND version = #{project.expectedVersion} AND flow_id IS NOT NULL AND deleted_at IS NULL
             """)
     int lockProject(@Param("project")
             ProjectScopeBasis project);
 
     @Select("""
             SELECT flow_id FROM project_flow_context WHERE id = #{project.contextId}
-                AND version = #{project.expectedVersion} AND user_profile_id = #{userId}
+                AND version = #{project.expectedVersion} AND user_profile_id = #{userId} AND deleted_at IS NULL
             """)
     String discoveryFlow(@Param("project")
             ProjectScopeBasis project,
@@ -34,7 +34,7 @@ public interface ProductDirectionMapper extends BaseMapper<ProductDirectionDO> {
     @Select("""
             SELECT COUNT(*) FROM project_flow_context c, json_each(c.repository_profile_ids) j
             JOIN repository_profile r ON r.id = j.value
-            WHERE c.id = #{contextId} AND j.value = #{repositoryId}
+            WHERE c.id = #{contextId} AND j.value = #{repositoryId} AND c.deleted_at IS NULL
                 AND EXISTS (SELECT 1 FROM json_each(c.asset_ids) a WHERE a.value = r.asset_id)
             """)
     int containsRepository(@Param("contextId") String contextId,
@@ -43,7 +43,7 @@ public interface ProductDirectionMapper extends BaseMapper<ProductDirectionDO> {
     @Select("""
             SELECT COUNT(*) FROM project_flow_context c JOIN product_direction d ON d.flow_id = c.flow_id
             WHERE c.id = #{project.contextId} AND c.version = #{project.expectedVersion} AND d.id = #{directionId}
-                AND c.user_profile_id = d.user_profile_id
+                AND c.user_profile_id = d.user_profile_id AND c.deleted_at IS NULL
             """)
     int containsDirection(@Param("project")
             ProjectScopeBasis project,
@@ -56,7 +56,7 @@ public interface ProductDirectionMapper extends BaseMapper<ProductDirectionDO> {
             @Param("revision") int revision);
 
     @Select("""
-            SELECT COUNT(*) FROM project_flow_context WHERE id = #{contextId} AND plan_id IS NULL
+            SELECT COUNT(*) FROM project_flow_context WHERE id = #{contextId} AND plan_id IS NULL AND deleted_at IS NULL
             """)
     int unplannedContext(String contextId);
 }

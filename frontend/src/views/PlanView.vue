@@ -62,9 +62,10 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
     <p v-if="s.roundsError" role="alert">{{ s.roundsError }}</p>
     <div class="actions">
       <button v-for="round in s.planningRounds" :key="round.key" class="secondary"
-        :disabled="!!s.busy || round.key === 'project:' + s.projectContext.id" @click="s.openProject(round.key, false)">
+        :disabled="!!s.busy || !!round.deletedAt || round.key === 'project:' + s.projectContext.id" @click="s.openProject(round.key, false)">
         {{ round.planStatus ? `计划 ${round.planId?.slice(0, 8)} · ${round.planStatus}` : '尚未生成计划的轮次' }}
         · {{ round.succeededSteps }}/{{ round.totalSteps }} 已验证
+        <span v-if="round.deletedAt"> · 已删除，可从工作台恢复</span>
       </button>
     </div>
   </section>

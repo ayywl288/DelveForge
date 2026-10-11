@@ -201,6 +201,7 @@ export interface ProjectContext {
   version: number;
   flowId: string;
   previousContextId: string | null;
+  deletedAt: string | null;
 }
 export interface ProjectSummary {
   key: string;
@@ -219,7 +220,10 @@ export interface ProjectSummary {
   currentRevision: string | null;
   lastVerifiedRevision: string | null;
   issues: string[];
+  version: number;
+  deletedAt: string | null;
 }
+export interface ProjectVisibility { key: string; version: number; deletedAt: string | null }
 export interface ProjectWorkspace {
   key: string;
   context: ProjectContext | null;
@@ -233,6 +237,7 @@ export interface ProjectWorkspace {
   stage: ProjectStage;
   boundUserProfileRevision: number | null;
   issues: string[];
+  visibility?: ProjectVisibility;
 }
 export type ResourceKind = "USER_PROFILE" | "SOFTWARE_ASSET" | "REPOSITORY_PROFILE";
 export interface ResourceSummary {

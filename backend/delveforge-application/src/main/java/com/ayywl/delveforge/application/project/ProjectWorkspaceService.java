@@ -64,8 +64,29 @@ public final class ProjectWorkspaceService {
     }
 
     public List<ProjectWorkspace> list(int offset, int limit) {
+        return list(offset, limit, false);
+    }
+
+    public List<ProjectWorkspace> list(int offset, int limit, boolean deleted) {
         requirePage(offset, limit);
-        return index.historyKeys(offset, limit).stream().map(this::get).toList();
+        return index.historyKeys(offset, limit, deleted).stream().map(this::get).toList();
+    }
+
+    /** 精确工作台身份和版本；只改导航标记，不读写 Git 或执行生命周期。 */
+    public ProjectVisibility changeVisibility(String key, long expectedVersion, boolean deleted) {
+        if (key == null || !(key.startsWith("project:") || key.startsWith("plan:")) || expectedVersion < 0) {
+            throw new IllegalArgumentException("Project identity and version are required");
+        }
+        ProjectFlowContext.requireId(key.substring(key.startsWith("project:") ? 8 : 5));
+        if (deleted) {
+            ProjectWorkspace workspace = get(key);
+            if (workspace.issues().stream().anyMatch(issue -> issue.equals("PLAN_MISSING")
+                    || issue.equals("PLAN_UNREADABLE") || issue.equals("WORKING_COPY_MISSING")
+                    || issue.equals("WORKING_COPY_UNREADABLE"))) {
+                throw new ProjectDeletionBlockedException();
+            }
+        }
+        return contexts.changeVisibility(key, expectedVersion, deleted, clock.instant());
     }
 
     public List<?> resources(ProjectHistoryIndex.ResourceKind kind, int offset, int limit) {
@@ -99,7 +120,7 @@ public final class ProjectWorkspaceService {
     public ProjectFlowContext update(String id, long expectedVersion, String profileId, List<String> assetIds,
             List<String> repositoryIds, List<String> directionIds, String planId) {
         ProjectFlowContext current = contexts.findById(id).orElseThrow(ProjectNotFoundException::new);
-        if (current.version() != expectedVersion
+        if (current.deletedAt() != null || current.version() != expectedVersion
                 || current.userProfileId() != null && !current.userProfileId().equals(profileId)
                 || current.planId() != null && !current.planId().equals(planId)
                 || !assetIds.containsAll(current.assetIds())
@@ -136,8 +157,12 @@ public final class ProjectWorkspaceService {
                 if (issues.contains("PLAN_MISSING")) {
                     throw new ProjectNotFoundException();
                 }
+                ProjectVisibility visibility = contexts.visibility(key);
+                if (visibility.deletedAt() != null) {
+                    issues.add("PROJECT_DELETED");
+                }
                 return new ProjectWorkspace(key, null, true, null, List.of(), List.of(), List.of(), null, null,
-                        "PLANNING", null, List.copyOf(issues));
+                        "PLANNING", null, List.copyOf(issues), visibility);
             }
             // 旧记录仅沿保存的引用读取；EPOCH 只作内部临时值，响应不发布伪造创建时间。
             return load(key, legacyBasis(plan), true);
@@ -171,7 +196,7 @@ public final class ProjectWorkspaceService {
     /** 用户主动开始新轮次，原 planId 不变；不读取旧副本源码、不调用 AI 或执行。 */
     public ProjectFlowContext beginPlanningRound(String contextId, long expectedVersion) {
         ProjectFlowContext basis = contexts.findById(contextId).orElseThrow(ProjectNotFoundException::new);
-        if (basis.version() != expectedVersion || basis.planId() == null) {
+        if (basis.deletedAt() != null || basis.version() != expectedVersion || basis.planId() == null) {
             throw new ProjectContextConflictException();
         }
         ProjectWorkspace workspace = load("project:" + contextId, basis, false);
@@ -183,6 +208,9 @@ public final class ProjectWorkspaceService {
         Optional<ProjectFlowContext> existing = contexts.findByFlow(basis.flowId()).stream()
                 .filter(context -> contextId.equals(context.previousContextId())).findFirst();
         if (existing.isPresent()) {
+            if (existing.get().deletedAt() != null) {
+                throw new ProjectContextConflictException();
+            }
             return existing.get();
         }
         Instant now = clock.instant();
@@ -222,6 +250,11 @@ public final class ProjectWorkspaceService {
 
     private ProjectWorkspace load(String key, ProjectFlowContext basis, boolean legacy) {
         List<String> issues = new ArrayList<>();
+        ProjectVisibility visibility = legacy ? contexts.visibility(key)
+                : new ProjectVisibility(key, basis.version(), basis.deletedAt());
+        if (visibility.deletedAt() != null) {
+            issues.add("PROJECT_DELETED");
+        }
         LinkedHashSet<String> assetIds = new LinkedHashSet<>(basis.assetIds());
         LinkedHashSet<String> repositoryIds = new LinkedHashSet<>(basis.repositoryProfileIds());
         if (!legacy) {
@@ -327,7 +360,7 @@ public final class ProjectWorkspaceService {
                 : loadedRepos.isEmpty() ? "REPOSITORY" : "DIRECTION";
         return new ProjectWorkspace(key, legacy ? null : basis, legacy, user, List.copyOf(loadedAssets),
                 List.copyOf(loadedRepos), List.copyOf(loadedDirections), plan, copy, stage, boundRevision,
-                issues.stream().distinct().toList());
+                issues.stream().distinct().toList(), visibility);
     }
 
     private static <T> T read(Supplier<Optional<T>> read, String kind, List<String> issues) {
@@ -346,7 +379,7 @@ public final class ProjectWorkspaceService {
 
     private static boolean invalidAssociation(String issue) {
         return !issue.startsWith("WORKSPACE_") && (issue.endsWith("_MISSING")
-                || issue.endsWith("_UNREADABLE") || issue.equals("ASSOCIATION_MISMATCH"));
+                || issue.endsWith("_UNREADABLE") || issue.equals("ASSOCIATION_MISMATCH") || issue.equals("PROJECT_DELETED"));
     }
 
     private static String title(String value) {

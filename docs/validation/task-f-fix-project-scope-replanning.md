@@ -50,7 +50,7 @@ Planning API；Plan 写入与上下文绑定原子提交，失败不会留下半
 
 确定性测试覆盖共享画像 / 分析的项目隔离、同作用域替代、保存成功证据、不同与同作用域
 并发选择、伪造归属、上下文 CAS、新轮次绑定、AI 期间版本变化回滚、旧迁移和前端
-延迟响应。Provider 均为测试替身。Maven Wrapper `verify` PASS（9 分 14 秒）；
+延迟响应。Provider 均为测试替身。Maven Wrapper `verify` 1457 项 PASS（9 分 14 秒）；
 前端 7 文件、75 项测试 PASS，typecheck / build PASS。证据分别为
 `logs/task-f-fix-verify-host.log`、`logs/task-f-fix-frontend-final.log`、
 `logs/task-f-fix-typecheck-final.log`、`logs/task-f-fix-build-final.log`（本机忽略日志，非发布附件）。

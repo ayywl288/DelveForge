@@ -26,6 +26,7 @@ import com.ayywl.delveforge.domain.user.UserProfileStatus;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +52,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -282,5 +284,48 @@ class ProjectDirectionScopeIntegrationTest {
                 Integer.class, selected));
         assertEquals(null, jdbc.queryForObject("SELECT plan_id FROM project_flow_context WHERE id=?",
                 String.class, a.path("id").asText()));
+    }
+
+    @Test
+    void deletedContextCannotSelectOrPlanEvenWithItsLatestVersion() throws Exception {
+        JsonNode a = project(one);
+        String selected = candidate(a, one);
+        assertEquals(200, select(a, selected));
+        mvc.perform(delete("/api/projects/{key}", "project:" + a.path("id").asText())
+                .contentType(MediaType.APPLICATION_JSON).content(json.createObjectNode()
+                        .put("expectedVersion", a.path("version").asLong()).toString()))
+                .andExpect(status().isOk());
+        ObjectNode current = (ObjectNode) a.deepCopy();
+        current.put("version", a.path("version").asLong() + 1);
+        assertEquals(409, select(current, selected));
+        var request = json.createObjectNode().put("productDirectionId", selected).put("baseAssetId", one)
+                .put("baseRepositoryProfileId", one);
+        request.set("project", json.readTree(scope(current)));
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(request.toString()))
+                .andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void deletionDuringPlanningInvalidatesContextAndRollsBackNewPlanWithoutUndoingDeletion() throws Exception {
+        JsonNode a = project(one);
+        String selected = candidate(a, one);
+        assertEquals(200, select(a, selected));
+        when(ai.generate(any())).thenAnswer(invocation -> {
+            mvc.perform(delete("/api/projects/{key}", "project:" + a.path("id").asText())
+                    .contentType(MediaType.APPLICATION_JSON).content(json.createObjectNode()
+                            .put("expectedVersion", a.path("version").asLong()).toString()))
+                    .andExpect(status().isOk());
+            return PROPOSAL;
+        });
+        var request = json.createObjectNode().put("productDirectionId", selected).put("baseAssetId", one)
+                .put("baseRepositoryProfileId", one);
+        request.set("project", json.readTree(scope(a)));
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(request.toString()))
+                .andExpect(status().isConflict());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM evolution_plan WHERE product_direction_id=?",
+                Integer.class, selected));
+        assertEquals(a.path("version").asInt() + 1, jdbc.queryForObject("SELECT version FROM project_flow_context WHERE id=? AND deleted_at IS NOT NULL",
+                Integer.class, a.path("id").asText()));
     }
 }

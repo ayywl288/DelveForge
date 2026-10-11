@@ -20,8 +20,9 @@ Task F 的多个项目可以复用画像、仓库与分析快照，但原 INV-D0
   SUPERSEDED 转换在一个 SQLite 事务中提交。状态 CAS、唯一索引和归属检查共同生效。
 - Plan 从它的 Direction 继承 flowId。规划、激活、Step 确认与检查点提交仍验证绑定、
   授权与 revision，并要求 Plan / Direction 同属一个已知作用域。
-- 旧无项目参数的 API 保留在独立 `standalone` 作用域；它不会取代项目作用域中的方向。
-  Web 正常操作发送明确的上下文及其版本。未归属历史记录不自动并入 standalone。
+- 无项目参数的方向发现把新候选保存到兼容的 `standalone` 作用域。旧选择接口仍按目标
+  Direction 的实际归属限定替代范围，Planning 仍继承该归属；不是全局选择，也不是新的
+  多用户访问控制。Web 正常操作发送上下文及其版本。未归属历史不自动并入 standalone。
 - 一个导航上下文仍最多绑定一份不可替换的 Plan。重新规划创建同 flowId 的后续上下文，
   保存 previousContextId；原上下文、Plan、WorkingCopy 和检查结果保留。创建轮次不调用 AI。
 

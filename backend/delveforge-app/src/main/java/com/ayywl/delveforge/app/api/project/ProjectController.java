@@ -4,6 +4,7 @@ import com.ayywl.delveforge.application.port.persistence.ProjectHistoryIndex;
 import com.ayywl.delveforge.application.project.ProjectFlowContext;
 import com.ayywl.delveforge.application.project.ProjectWorkspace;
 import com.ayywl.delveforge.application.project.ProjectWorkspaceService;
+import com.ayywl.delveforge.application.project.ProjectVisibility;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.direction.ProductDirectionStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
@@ -14,6 +15,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -41,8 +43,18 @@ public class ProjectController {
 
     @GetMapping
     public List<ProjectSummary> list(@RequestParam(defaultValue = "0") int offset,
-            @RequestParam(defaultValue = "50") int limit) {
-        return service.list(offset, limit).stream().map(ProjectController::summary).toList();
+            @RequestParam(defaultValue = "50") int limit, @RequestParam(defaultValue = "false") boolean deleted) {
+        return service.list(offset, limit, deleted).stream().map(ProjectController::summary).toList();
+    }
+
+    @DeleteMapping("/{key}")
+    public ProjectVisibility delete(@PathVariable String key, @RequestBody VersionRequest request) {
+        return service.changeVisibility(key, request.expectedVersion(), true);
+    }
+
+    @PostMapping("/{key}/restore")
+    public ProjectVisibility restore(@PathVariable String key, @RequestBody VersionRequest request) {
+        return service.changeVisibility(key, request.expectedVersion(), false);
     }
 
     @GetMapping("/{key}")
@@ -142,7 +154,8 @@ public class ProjectController {
                 workspace.plan() == null ? null : workspace.plan().status().name(),
                 workspace.workingCopy() == null ? null : workspace.workingCopy().id().value(),
                 workspace.workingCopy() == null ? null : workspace.workingCopy().currentRevision(),
-                workspace.workingCopy() == null ? null : workspace.workingCopy().lastVerifiedRevision(), workspace.issues());
+                workspace.workingCopy() == null ? null : workspace.workingCopy().lastVerifiedRevision(), workspace.issues(),
+                workspace.visibility().version(), workspace.visibility().deletedAt());
     }
 
     private static String excerpt(String value) {
@@ -171,5 +184,5 @@ public class ProjectController {
     public record ProjectSummary(String key, String name, boolean legacy, String stage, String direction,
             List<RepositoryLabel> repositories, Instant lastActivity, int totalSteps, long succeededSteps,
             Map<String, Long> stepCounts, String planId, String planStatus, String workingCopyId, String currentRevision,
-            String lastVerifiedRevision, List<String> issues) { }
+            String lastVerifiedRevision, List<String> issues, long version, Instant deletedAt) { }
 }

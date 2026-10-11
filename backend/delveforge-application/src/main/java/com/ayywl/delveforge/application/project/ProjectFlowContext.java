@@ -6,13 +6,20 @@ import java.util.List;
 /** Application 的导航身份记录；不承载领域状态、执行权限或可信 revision。 */
 public record ProjectFlowContext(String id, String name, String userProfileId, List<String> assetIds,
         List<String> repositoryProfileIds, List<String> directionIds, String planId,
-        Instant createdAt, Instant updatedAt, long version, String flowId, String previousContextId) {
+        Instant createdAt, Instant updatedAt, long version, String flowId, String previousContextId, Instant deletedAt) {
+
+    public ProjectFlowContext(String id, String name, String userProfileId, List<String> assetIds,
+            List<String> repositoryProfileIds, List<String> directionIds, String planId,
+            Instant createdAt, Instant updatedAt, long version, String flowId, String previousContextId) {
+        this(id, name, userProfileId, assetIds, repositoryProfileIds, directionIds, planId,
+                createdAt, updatedAt, version, flowId, previousContextId, null);
+    }
 
     public ProjectFlowContext(String id, String name, String userProfileId, List<String> assetIds,
             List<String> repositoryProfileIds, List<String> directionIds, String planId,
             Instant createdAt, Instant updatedAt, long version) {
         this(id, name, userProfileId, assetIds, repositoryProfileIds, directionIds, planId,
-                createdAt, updatedAt, version, id, null);
+                createdAt, updatedAt, version, id, null, null);
     }
 
     public ProjectFlowContext {

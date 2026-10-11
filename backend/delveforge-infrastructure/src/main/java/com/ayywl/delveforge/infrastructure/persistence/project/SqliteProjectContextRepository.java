@@ -4,6 +4,9 @@ import com.ayywl.delveforge.application.port.persistence.ProjectContextRepositor
 import com.ayywl.delveforge.application.port.persistence.ProjectHistoryIndex;
 import com.ayywl.delveforge.application.project.ProjectContextConflictException;
 import com.ayywl.delveforge.application.project.ProjectFlowContext;
+import com.ayywl.delveforge.application.project.ProjectDeletionBlockedException;
+import com.ayywl.delveforge.application.project.ProjectNotFoundException;
+import com.ayywl.delveforge.application.project.ProjectVisibility;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -52,7 +55,7 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
         // INSERT 首先取得写锁；唯一 Plan 引用解决并发认领，不靠进程内缓存。
         mapper.insert(row(candidate), null);
         ProjectContextRow saved = mapper.findPlan(candidate.planId());
-        if (saved == null) {
+        if (saved == null || saved.deletedAt() != null) {
             throw new ProjectContextConflictException();
         }
         return context(saved);
@@ -76,7 +79,70 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
 
     @Override
     public List<String> historyKeys(int offset, int limit) {
-        return mapper.history(offset, limit);
+        return historyKeys(offset, limit, false);
+    }
+
+    @Override
+    public List<String> historyKeys(int offset, int limit, boolean deleted) {
+        return mapper.history(offset, limit, deleted);
+    }
+
+    @Override
+    public ProjectVisibility visibility(String key) {
+        if (key.startsWith("project:")) {
+            ProjectContextRow row = mapper.find(key.substring(8));
+            if (row == null) {
+                throw new ProjectNotFoundException();
+            }
+            return new ProjectVisibility(key, row.version(), instant(row.deletedAt()));
+        }
+        String id = key.substring(5);
+        if (mapper.planExists(id) != 1) {
+            throw new ProjectNotFoundException();
+        }
+        LegacyVisibilityRow row = mapper.legacyVisibility(id);
+        return new ProjectVisibility(key, row == null ? 0 : row.version(), row == null ? null : instant(row.deletedAt()));
+    }
+
+    @Override
+    @Transactional
+    public ProjectVisibility changeVisibility(String key, long expectedVersion, boolean deleted, Instant now) {
+        boolean legacy = key.startsWith("plan:");
+        String id = key.substring(legacy ? 5 : 8);
+        String planId;
+        String flowId;
+        // 首先取得 SQLite 写锁，再读取和检查 Step；并发删除、确认和检查点不能穿过检查窗口。
+        if (legacy) {
+            mapper.ensureLegacyVisibility(id);
+            if (mapper.lockLegacyVisibility(id, expectedVersion) != 1) {
+                if (mapper.planExists(id) != 1) {
+                    throw new ProjectNotFoundException();
+                }
+                throw new ProjectContextConflictException();
+            }
+            planId = id;
+            flowId = null;
+        } else {
+            if (mapper.lockVisibility(id, expectedVersion) != 1) {
+                if (mapper.find(id) == null) {
+                    throw new ProjectNotFoundException();
+                }
+                throw new ProjectContextConflictException();
+            }
+            ProjectContextRow row = mapper.find(id);
+            planId = row.planId();
+            flowId = row.flowId();
+        }
+        if (deleted && mapper.unsafeExecutionCount(planId, flowId) != 0) {
+            throw new ProjectDeletionBlockedException();
+        }
+        String deletedAt = deleted ? now.toString() : null;
+        int changed = legacy ? mapper.legacyVisibilityUpdate(id, expectedVersion, deleted, deletedAt)
+                : mapper.visibility(id, expectedVersion, deleted, deletedAt, now.toString());
+        if (changed != 1) {
+            throw new ProjectContextConflictException();
+        }
+        return new ProjectVisibility(key, Math.addExact(expectedVersion, 1), deleted ? now : null);
     }
 
     @Override
@@ -87,13 +153,19 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
     private ProjectContextRow row(ProjectFlowContext context) {
         return new ProjectContextRow(context.id(), context.name(), context.userProfileId(), encode(context.assetIds()),
                 encode(context.repositoryProfileIds()), encode(context.directionIds()), context.planId(),
-                context.createdAt().toString(), context.updatedAt().toString(), context.version(), context.flowId(), context.previousContextId());
+                context.createdAt().toString(), context.updatedAt().toString(), context.version(),
+                context.flowId(), context.previousContextId(), context.deletedAt() == null ? null : context.deletedAt().toString());
     }
 
     private ProjectFlowContext context(ProjectContextRow row) {
         return new ProjectFlowContext(row.id(), row.name(), row.userProfileId(), decode(row.assetIds()),
                 decode(row.repositoryProfileIds()), decode(row.directionIds()), row.planId(),
-                Instant.parse(row.createdAt()), Instant.parse(row.updatedAt()), row.version(), row.flowId(), row.previousContextId());
+                Instant.parse(row.createdAt()), Instant.parse(row.updatedAt()), row.version(),
+                row.flowId(), row.previousContextId(), instant(row.deletedAt()));
+    }
+
+    private static Instant instant(String value) {
+        return value == null ? null : Instant.parse(value);
     }
 
     private String encode(List<String> ids) {

@@ -194,9 +194,14 @@ Web 的「项目工作台」可新建流程，或一键读回历史 Plan、Worki
 项目身份，点击继续时才建立导航记录。聊天、原始模型响应和未保存的 CodingProposal
 不能恢复；当前画像与历史绑定版本分开显示。
 
-历史项目可分别保存，但当前仍全局最多一个 SELECTED Direction。选择新方向会按原
-Domain 规则使旧方向及其 Plan 失效，不能把项目切换当作并行演化授权。迁移与手动验收
-见 [Task F 验证记录](docs/validation/task-f-project-workspace-history-recovery.md)。
+每个稳定演化流程最多一个 SELECTED Direction；不同项目即使共享画像或仓库，也不互相
+废弃方向。同流程换方向仍会使旧 Plan 失效，可明确建立关联的新规划轮次，保留旧副本
+与验证结果。已 SUPERSEDED 的历史 Plan 不能直接继续。迁移与验收见
+[F-Fix 验证记录](docs/validation/task-f-fix-project-scope-replanning.md)。
+
+卡片的「删除项目」只从正常工作台移除该导航记录，业务数据和磁盘代码保留，可从
+「已删除项目」恢复。READY 或未决执行期间禁止删除，删除不取消执行；恢复也不恢复
+失效 Plan。[删除与恢复说明](docs/validation/task-f-fix-project-deletion-recovery.md) 包含接口和限制。
 
 | 步骤 | 操作 | API |
 | --- | --- | --- |

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App.vue";
 import PlanView from "../src/views/PlanView.vue";
 import EvolutionView from "../src/views/EvolutionView.vue";
+import ProjectsView from "../src/views/ProjectsView.vue";
 import { api, ApiError } from "../src/api/client";
 import type { ProjectContext, ProjectSummary, ProjectWorkspace } from "../src/api/types";
 import { createSession, executionKey, projectKey, type Session } from "../src/state/session";
@@ -31,7 +32,7 @@ function workspace(id: string, withPlan = false): ProjectWorkspace {
   const context: ProjectContext = { id, name: "项目 " + id, userProfileId: user.id, assetIds: [a.id],
     repositoryProfileIds: [repo.id], directionIds: withPlan ? [d.id] : [], planId: withPlan ? p.id : null,
     createdAt: "2026-10-11T00:00:00Z", updatedAt: "2026-10-11T00:00:00Z", version: 0,
-    flowId: id, previousContextId: null };
+    flowId: id, previousContextId: null, deletedAt: null };
   return { key: "project:" + id, context, legacy: false, userProfile: user, assets: [a], repositoryProfiles: [repo],
     directions: withPlan ? [d] : [], plan: withPlan ? p : null, workingCopy: withPlan ? wc : null,
     stage: withPlan ? "EVOLUTION" : "DIRECTION", boundUserProfileRevision: withPlan ? 2 : null, issues: [] };
@@ -48,6 +49,87 @@ function stubReads(...values: ProjectWorkspace[]) {
 async function settle() {
   for (let i = 0; i < 35; i++) { await Promise.resolve(); await nextTick(); }
 }
+
+function summary(saved: ProjectWorkspace): ProjectSummary {
+  return { key: saved.key, name: saved.context?.name ?? "旧项目", legacy: saved.legacy, stage: saved.stage,
+    direction: null, repositories: [], lastActivity: null, totalSteps: saved.plan ? 4 : 0, succeededSteps: 1,
+    stepCounts: { SUCCEEDED: 1, PENDING_CONFIRMATION: 3 }, planId: saved.plan?.id ?? null,
+    planStatus: saved.plan?.status ?? null, workingCopyId: saved.workingCopy?.id ?? null,
+    currentRevision: "c822cc3", lastVerifiedRevision: "c822cc3", issues: [], version: 0, deletedAt: null };
+}
+
+describe("工作台软删除与恢复", () => {
+  it("删除当前导航记录只清理 ID，保留另一项目的未决 execute 标记", async () => {
+    const saved = workspace("deleted", true); stubReads(saved);
+    const marker = { planId: "plan-other", stepId: "other-step", startedAt: new Date().toISOString() };
+    localStorage.setItem(executionKey, JSON.stringify(marker));
+    vi.spyOn(api, "projects").mockResolvedValue([]);
+    const remove = vi.spyOn(api, "deleteProject").mockResolvedValue({ key: saved.key, version: 1, deletedAt: new Date().toISOString() });
+    const execute = vi.spyOn(api, "execute"); const generate = vi.spyOn(api, "generatePlan");
+    const s = make(); await s.openProject(saved.key);
+    expect(await s.deleteProject(summary(saved))).toBe(true);
+    expect(remove).toHaveBeenCalledWith(saved.key, 0); expect(s.projectContext.value).toBeNull();
+    expect(s.ids.planId).toBe(""); expect(localStorage.getItem(projectKey)).toBeNull();
+    expect(JSON.parse(localStorage.getItem(executionKey)!)).toEqual(marker);
+    expect(execute).not.toHaveBeenCalled(); expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("结果未知或 READY 不允许删除，过期版本错误保留当前项目", async () => {
+    const saved = workspace("pending", true); stubReads(saved);
+    localStorage.setItem(executionKey, JSON.stringify({ planId: saved.plan!.id, stepId: "pending-step", startedAt: "now" }));
+    const remove = vi.spyOn(api, "deleteProject"); const s = make(); await s.openProject(saved.key);
+    expect(await s.deleteProject(summary(saved))).toBe(false); expect(remove).not.toHaveBeenCalled();
+    localStorage.removeItem(executionKey); s.receipt.value = null;
+    expect(await s.deleteProject({ ...summary(saved), stepCounts: { READY: 1 } })).toBe(false);
+    remove.mockRejectedValue(new ApiError(409, "PROJECT_CONTEXT_CONFLICT"));
+    expect(await s.deleteProject(summary(saved))).toBe(false);
+    expect(s.projectContext.value?.id).toBe("pending"); expect(s.error.value).toContain("版本已变化");
+  });
+
+  it("删除确认和恢复都有明确操作，不会调用 AI、准备副本或执行", async () => {
+    const saved = workspace("visible"); const item = summary(saved);
+    vi.spyOn(api, "projects").mockImplementation(async (_offset, deleted) => deleted
+      ? [{ ...item, version: 1, deletedAt: "2026-10-11T00:00:00Z" }] : [item]);
+    vi.spyOn(api, "resources").mockResolvedValue([]);
+    const remove = vi.spyOn(api, "deleteProject").mockResolvedValue({ key: item.key, version: 1, deletedAt: "2026-10-11T00:00:00Z" });
+    const restore = vi.spyOn(api, "restoreProject").mockResolvedValue({ key: item.key, version: 2, deletedAt: null });
+    const execute = vi.spyOn(api, "execute"); const prepare = vi.spyOn(api, "prepare");
+    const s = reactive(make());
+    const root = document.createElement("div"); document.body.append(root);
+    const app = createApp(ProjectsView, { s }); app.mount(root); cleanups.push(() => { app.unmount(); root.remove(); });
+    await settle();
+    const button = [...root.querySelectorAll("button")].find(item => item.textContent === "删除项目")!;
+    (button as HTMLButtonElement).click(); await settle();
+    expect(root.querySelector("dialog[open]")?.textContent).toContain("不会删除"); expect(remove).not.toHaveBeenCalled();
+    ([...root.querySelectorAll("dialog button")].find(item => item.textContent === "确认删除项目") as HTMLButtonElement).click();
+    await settle(); expect(remove).toHaveBeenCalledOnce();
+    ([...root.querySelectorAll("button")].find(item => item.textContent === "已删除项目") as HTMLButtonElement).click();
+    await settle();
+    ([...root.querySelectorAll("button")].find(item => item.textContent === "恢复到工作台") as HTMLButtonElement).click();
+    await settle(); expect(restore).toHaveBeenCalledWith(item.key, 1);
+    expect(execute).not.toHaveBeenCalled(); expect(prepare).not.toHaveBeenCalled();
+  });
+
+  it("刷新读回已删除上下文时返回工作台，不能静默写画像或重新认领", async () => {
+    const saved = workspace("deleted-refresh", true);
+    saved.context!.deletedAt = "2026-10-11T00:00:00Z"; saved.issues = ["PROJECT_DELETED"];
+    stubReads(saved); localStorage.setItem(projectKey, saved.context!.id);
+    const s = make(); const create = vi.spyOn(api, "createProfile"); const adopt = vi.spyOn(api, "adoptPlan");
+    await s.openProject(saved.key, false); await s.createProfile(); expect(create).not.toHaveBeenCalled();
+    expect(await s.initialize()).toBeNull(); expect(s.projectContext.value).toBeNull();
+    expect(s.plan.value).toBeNull(); expect(adopt).not.toHaveBeenCalled();
+  });
+
+  it("切换已删除列表后丢弃延迟的正常列表，不把另一个列表覆盖回来", async () => {
+    const saved = workspace("filter"); let finish!: (value: ProjectSummary[]) => void;
+    vi.spyOn(api, "projects").mockImplementation((_offset, deleted) => deleted
+      ? Promise.resolve([{ ...summary(saved), deletedAt: "2026-10-11T00:00:00Z" }])
+      : new Promise(resolve => { finish = resolve; }));
+    const s = make(); const pending = s.loadProjects(false, false); await s.loadProjects(false, true);
+    finish([summary(saved)]); await pending;
+    expect(s.showingDeletedProjects.value).toBe(true); expect(s.projects.value[0]?.deletedAt).toBeTruthy();
+  });
+});
 
 describe("项目上下文恢复与隔离", () => {
   it("历史归属不明时保留读取但禁止业务写入和自动认领", async () => {
@@ -304,7 +386,8 @@ it("项目工作台用卡片显示真实计数，明确创建与恢复，UUID �
     direction: "REST", repositories: [{ assetId: "asset-saved", location: "C:/trusted/rest" }],
     lastActivity: "2026-10-11T00:00:00Z", totalSteps: 4, succeededSteps: 1,
     stepCounts: { SUCCEEDED: 1, PENDING_CONFIRMATION: 3 }, planId: "plan-saved", planStatus: "ACTIVE",
-    workingCopyId: "copy-saved", currentRevision: "c822cc3", lastVerifiedRevision: "c822cc3", issues: [] };
+    workingCopyId: "copy-saved", currentRevision: "c822cc3", lastVerifiedRevision: "c822cc3", issues: [],
+    version: 0, deletedAt: null };
   vi.spyOn(api, "connectivity").mockResolvedValue({ service: "backend", status: "UP", timestamp: "" });
   vi.spyOn(api, "projects").mockResolvedValue([summary]); vi.spyOn(api, "resources").mockResolvedValue([]);
   stubReads(saved); const execute = vi.spyOn(api, "execute");

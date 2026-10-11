@@ -1730,6 +1730,11 @@ Task F-Fix 引入稳定的演化作用域身份 `flowId`，不引入新的 Aggre
 恢复上下文不产生选择、授权、执行或成功事实。一个上下文的 planId 仍不可替换；
 重新规划建立关联的后续上下文，旧 Plan、Step、WorkingCopy 和结果继续可读。
 详见 [ADR-0008](decisions/0008-stable-evolution-flow-scope-and-planning-rounds.md)。
+
+工作台软删除仅改变 Application 导航可见性；不是 Direction / Plan / Step 的领域转换。
+所有生命周期、授权、共享资源和 revision 仍保留。已删除记录必须先显式恢复才能更新
+导航关联；恢复不能将 SUPERSEDED 方向或 Plan 重新置为 SELECTED / ACTIVE。
+未决执行不能通过隐藏项目取消或清除，详见 ADR-0009。
 项目页展示当前 Profile 与方向原始 `userProfileRevision` 的区别，不覆盖历史绑定。
 是否可继续 Step 仍由当前 Plan / Direction、WorkingCopy 与原有 Domain Policies 判断。
 

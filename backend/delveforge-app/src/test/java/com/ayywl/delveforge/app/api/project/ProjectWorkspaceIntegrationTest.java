@@ -51,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -238,6 +239,126 @@ class ProjectWorkspaceIntegrationTest {
                 .andExpect(jsonPath("$.plan.steps[0].verificationResult.checks[1].summary").value("10 tests PASS"))
                 .andExpect(jsonPath("$.issues").isArray());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM project_flow_context", Integer.class));
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void softDeleteAndRestoreRetainSharedResourcesAndRequireFreshContextVersion() throws Exception {
+        JsonNode one = create("可删除项目", "shared-user");
+        JsonNode two = create("另一项目", "shared-user");
+        String key = "project:" + one.path("id").asText();
+        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(1))
+                .andExpect(jsonPath("$.deletedAt").isString());
+        mvc.perform(get("/api/projects")).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].key").value("project:" + two.path("id").asText()));
+        mvc.perform(get("/api/projects?deleted=true")).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].key").value(key)).andExpect(jsonPath("$[0].version").value(1));
+        mvc.perform(put("/api/projects/{id}/context", one.path("id").asText())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(context(1, "shared-user", "asset-one", "repo-one", null, null)))
+                .andExpect(status().isConflict());
+        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_CONTEXT_CONFLICT"));
+        mvc.perform(post("/api/projects/{key}/restore", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":1}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(2))
+                .andExpect(jsonPath("$.deletedAt").doesNotExist());
+        mvc.perform(post("/api/projects/{key}/restore", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":2}"))
+                .andExpect(status().isConflict());
+        mvc.perform(get("/api/projects")).andExpect(jsonPath("$.length()").value(2));
+        assertEquals(2, users.findById(new UserProfileId("shared-user")).orElseThrow().revision());
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM software_asset", Integer.class));
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void legacyDeletionDoesNotReappearOrAlterVerifiedFactsAndCannotBeAdoptedUntilRestored() throws Exception {
+        seedHistoricalPlan("deleted-gs", "one", true);
+        String verification = jdbc.queryForObject("SELECT verification_result FROM evolution_step WHERE id=?",
+                String.class, "deleted-gs-step-1");
+        String key = "plan:deleted-gs";
+        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/projects")).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get("/api/projects")).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get("/api/projects?deleted=true")).andExpect(jsonPath("$[0].key").value(key))
+                .andExpect(jsonPath("$[0].succeededSteps").value(1)).andExpect(jsonPath("$[0].totalSteps").value(4))
+                .andExpect(jsonPath("$[0].lastVerifiedRevision").value("c822cc3"));
+        mvc.perform(post("/api/projects/legacy-plans/{id}/resume", "deleted-gs"))
+                .andExpect(status().isConflict());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM project_flow_context", Integer.class));
+        mvc.perform(post("/api/projects/{key}/restore", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":1}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/projects/{key}", key)).andExpect(jsonPath("$.plan.steps[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.workingCopy.lastVerifiedRevision").value("c822cc3"));
+        assertEquals(verification, jdbc.queryForObject("SELECT verification_result FROM evolution_step WHERE id=?",
+                String.class, "deleted-gs-step-1"));
+        assertEquals("ACTIVE", jdbc.queryForObject("SELECT status FROM evolution_plan WHERE id=?",
+                String.class, "deleted-gs"));
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void authorizedExecutingVerifyingAndUnverifiedCandidateBlockDeletionWithoutChangingFacts() throws Exception {
+        seedHistoricalPlan("unresolved", "one", false);
+        for (String stepStatus : List.of("READY", "EXECUTING", "VERIFYING", "RECOVERY_REQUIRED", "VERIFICATION_FAILED")) {
+            jdbc.update("UPDATE evolution_step SET status=? WHERE id='unresolved-step-1'", stepStatus);
+            mvc.perform(delete("/api/projects/{key}", "plan:unresolved").contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"expectedVersion\":0}"))
+                    .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
+            assertEquals(stepStatus, jdbc.queryForObject("SELECT status FROM evolution_step WHERE id='unresolved-step-1'",
+                    String.class));
+            // 本类外层测试事务尚未结束；实际独立事务的无残留断言在 Persistence 回归覆盖。
+            assertEquals(0, jdbc.queryForObject(
+                    "SELECT count(*) FROM project_legacy_visibility WHERE deleted_at IS NOT NULL", Integer.class));
+        }
+        jdbc.update("UPDATE evolution_step SET status='PENDING_CONFIRMATION' WHERE id='unresolved-step-1'");
+        jdbc.update("UPDATE working_copy SET current_revision='unverified' WHERE id='copy-unresolved'");
+        mvc.perform(delete("/api/projects/{key}", "plan:unresolved").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
+        assertEquals("e38e4a1", jdbc.queryForObject("SELECT last_verified_revision FROM working_copy WHERE id='copy-unresolved'",
+                String.class));
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void deletedKnownProjectRemainsHiddenDespitePlanProjectionAndRetainsSupersededTerminalState() throws Exception {
+        seedHistoricalPlan("known-gs", "one", true);
+        JsonNode adopted = json.readTree(mvc.perform(post("/api/projects/legacy-plans/known-gs/resume"))
+                .andReturn().getResponse().getContentAsString());
+        jdbc.update("UPDATE evolution_plan SET status='SUPERSEDED' WHERE id='known-gs'");
+        String key = "project:" + adopted.path("id").asText();
+        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/projects")).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get("/api/projects?deleted=true")).andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].planStatus").value("SUPERSEDED"));
+        mvc.perform(post("/api/projects/legacy-plans/known-gs/resume")).andExpect(status().isConflict());
+        mvc.perform(post("/api/projects/{key}/restore", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":1}"))
+                .andExpect(status().isOk());
+        assertEquals("SUPERSEDED", jdbc.queryForObject("SELECT status FROM evolution_plan WHERE id='known-gs'", String.class));
+        assertEquals("SUCCEEDED", jdbc.queryForObject("SELECT status FROM evolution_step WHERE id='known-gs-step-1'", String.class));
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void unreadablePersistedExecutionResultCannotBeHiddenAsACompletedProject() throws Exception {
+        seedHistoricalPlan("corrupt-result", "one", true);
+        jdbc.update("UPDATE evolution_step SET execution_result='{}' WHERE id='corrupt-result-step-1'");
+        mvc.perform(delete("/api/projects/{key}", "plan:corrupt-result").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM project_legacy_visibility WHERE plan_id='corrupt-result'",
+                Integer.class));
         verifyNoInteractions(ai);
     }
 

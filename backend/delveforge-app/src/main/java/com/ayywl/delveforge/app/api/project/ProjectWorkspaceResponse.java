@@ -9,6 +9,7 @@ import com.ayywl.delveforge.app.api.softwareasset.SoftwareAssetResponse;
 import com.ayywl.delveforge.app.api.userprofile.UserProfileResponse;
 import com.ayywl.delveforge.application.project.ProjectFlowContext;
 import com.ayywl.delveforge.application.project.ProjectWorkspace;
+import com.ayywl.delveforge.application.project.ProjectVisibility;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.user.UserProfile;
 
@@ -19,7 +20,7 @@ public record ProjectWorkspaceResponse(String key, ProjectFlowContext context, b
         UserProfileResponse userProfile, List<SoftwareAssetResponse> assets,
         List<RepositoryProfileResponse> repositoryProfiles, List<ProductDirectionResponse> directions,
         EvolutionPlanResponse plan, WorkingCopyResponse workingCopy, String stage,
-        Integer boundUserProfileRevision, List<String> issues) {
+        Integer boundUserProfileRevision, List<String> issues, ProjectVisibility visibility) {
     public static ProjectWorkspaceResponse from(ProjectWorkspace workspace) {
         var copy = workspace.workingCopy();
         return new ProjectWorkspaceResponse(workspace.key(), workspace.context(), workspace.legacy(),
@@ -29,7 +30,8 @@ public record ProjectWorkspaceResponse(String key, ProjectFlowContext context, b
                 workspace.plan() == null ? null : EvolutionPlanResponse.from(workspace.plan()),
                 copy == null ? null : new WorkingCopyResponse(copy.id().value(), copy.sourceAssetId().value(),
                         copy.sourceRevision(), copy.location(), copy.currentRevision(), copy.lastVerifiedRevision(),
-                        copy.status()), workspace.stage(), workspace.boundUserProfileRevision(), workspace.issues());
+                        copy.status()), workspace.stage(), workspace.boundUserProfileRevision(), workspace.issues(),
+                workspace.visibility());
     }
 
     private static UserProfileResponse user(UserProfile profile) {

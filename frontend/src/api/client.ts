@@ -15,11 +15,13 @@ import type {
   ProjectContext,
   ProjectSummary,
   ProjectWorkspace,
+  ProjectVisibility,
   ResourceKind,
   ResourceSummary,
 } from "./types";
 
 const messages: Record<string, string> = {
+  PROJECT_DELETION_BLOCKED: "项目有已授权、执行中或尚未核对的结果，不能删除。READY 也可能正在准备提案；请查询真实状态。",
   EVOLUTION_FLOW_SCOPE_CONFLICT: "流程归属缺失、矛盾或不允许此操作。历史结果仍可查看；不能按路径或画像猜测归属，也不能自动恢复旧计划。",
   PROJECT_CONTEXT_CONFLICT: "项目关联或版本已变化；没有覆盖原项目。请重新打开项目核对，不要重做 AI 调用。",
   INVALID_REQUEST: "请求字段无效，请检查输入。",
@@ -96,7 +98,12 @@ const id = encodeURIComponent;
 const profile = (value: string) => `/user-profiles/${id(value)}`;
 const plan = (value: string) => `/evolution-plans/${id(value)}`;
 export const api = {
-  projects: (offset = 0) => request<ProjectSummary[]>(`/projects?offset=${offset}&limit=50`),
+  projects: (offset = 0, deleted = false) =>
+    request<ProjectSummary[]>(`/projects?offset=${offset}&limit=50&deleted=${deleted}`),
+  deleteProject: (key: string, expectedVersion: number) =>
+    request<ProjectVisibility>(`/projects/${id(key)}`, "DELETE", { expectedVersion }),
+  restoreProject: (key: string, expectedVersion: number) =>
+    request<ProjectVisibility>(`/projects/${id(key)}/restore`, "POST", { expectedVersion }),
   project: (key: string) => request<ProjectWorkspace>(`/projects/${id(key)}`),
   createProject: (name: string, confirmedUserProfileId: string | null) =>
     request<ProjectContext>("/projects", "POST", { name, confirmedUserProfileId }),
