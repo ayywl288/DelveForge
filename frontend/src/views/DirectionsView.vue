@@ -1,14 +1,30 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import type { WorkspaceSession } from "../state/session";
 import type { ProductDirection } from "../api/types";
 import StatusBadge from "../components/StatusBadge.vue";
 import ContentList from "../components/ContentList.vue";
 import EvidenceList from "../components/EvidenceList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import DirectionListEntry from "../components/DirectionListEntry.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
 const emit = defineEmits<{ next: [] }>();
 const repositoryIds = ref<string[]>([]);
+const viewedId = ref("");
+const currentDirections = computed(() => props.s.directions.filter(item =>
+  item.status === "CANDIDATE" || item.status === "SELECTED"));
+const historicalDirections = computed(() => props.s.directions.filter(item =>
+  item.status === "REJECTED" || item.status === "SUPERSEDED"));
+const viewed = computed(() => props.s.directions.find(item => item.id === viewedId.value)
+  ?? currentDirections.value.find(item => item.status === "SELECTED")
+  ?? currentDirections.value[0] ?? historicalDirections.value[0]);
+async function viewDirection(id: string) {
+  viewedId.value = id;
+  await nextTick();
+  if (window.innerWidth <= 960) {
+    document.getElementById("direction-detail")?.focus();
+  }
+}
 const decision = ref<{
   direction: ProductDirection;
   action: "select" | "reject";
@@ -31,10 +47,9 @@ function decide() {
 }
 </script>
 <template>
-  <section class="panel direction-input">
+  <details class="panel direction-input" :open="!s.directions.length">
+    <summary>生成候选方向 <span class="meta">选择已保存的仓库分析</span></summary>
     <div>
-      <span class="eyebrow">HUMAN CHOOSES DIRECTION</span>
-      <h2>选择值得做的下一步</h2>
       <p class="muted">
         AI 提出候选，你决定方向。生成会调用 Provider，选择不会自动生成计划。
       </p>
@@ -65,95 +80,97 @@ function decide() {
       :disabled="!!s.busy || !eligible || !!s.receipt"
       @click="s.discover(repositoryIds)"
     >
-      生成真实候选方向
+      生成候选方向（调用 AI）
     </button>
-  </section>
+  </details>
   <div v-if="!s.directions.length" class="empty panel">
     尚无候选。选定分析快照后，开始发现。
   </div>
-  <div class="direction-grid">
-    <article
-      v-for="(direction, index) in s.directions"
-      :key="direction.id"
-      class="panel direction-card"
-      :class="{ selected: direction.status === 'SELECTED' }"
-    >
+  <div v-if="viewed" class="direction-workspace">
+    <aside id="direction-list" class="panel direction-list" aria-label="方向列表">
+      <h2>候选与已选方向 <span class="meta">{{ currentDirections.length }}</span></h2>
+      <p class="meta">点击查看详情，选择需单独确认。</p>
+      <DirectionListEntry v-for="direction in currentDirections" :key="direction.id"
+        :direction="direction" :active="viewed.id === direction.id" @view="viewDirection(direction.id)" />
+      <p v-if="!currentDirections.length" class="empty">当前只有历史方向。</p>
+      <details v-if="historicalDirections.length" class="direction-history"
+        :open="viewed.status === 'REJECTED' || viewed.status === 'SUPERSEDED'">
+        <summary>历史方向 · {{ historicalDirections.length }}</summary>
+        <DirectionListEntry v-for="direction in historicalDirections" :key="direction.id"
+          :direction="direction" :active="viewed.id === direction.id" @view="viewDirection(direction.id)" />
+      </details>
+    </aside>
+    <article id="direction-detail" :key="viewed.id" class="panel direction-detail" aria-label="当前查看的方向" tabindex="-1">
+      <a href="#direction-list" class="mobile-return">返回方向列表 ↑</a>
       <div class="panel-header">
-        <span class="eyebrow"
-          >DIRECTION {{ String(index + 1).padStart(2, "0") }}</span
-        ><StatusBadge :status="direction.status" />
+        <h2>{{ viewed.title }}</h2><StatusBadge :status="viewed.status" />
       </div>
-      <h2>{{ direction.title }}</h2>
-      <p class="direction-problem">{{ direction.problem }}</p>
-      <dl class="business-fields">
-        <dt>目标产品</dt>
-        <dd>{{ direction.targetProduct }}</dd>
-        <dt>为什么适合你</dt>
-        <dd>{{ direction.userFit }}</dd>
-      </dl>
-      <details class="direction-details">
-        <summary>展开技术价值、差异与依据</summary>
-        <dl class="business-fields">
-          <dt>技术价值</dt>
-          <dd>{{ direction.technicalValue }}</dd>
-          <dt>差异</dt>
-          <dd>{{ direction.differentiation }}</dd>
-          <dt>复杂度</dt>
-          <dd>{{ direction.estimatedComplexity }}</dd>
-        </dl>
-        <ContentList title="风险" :items="direction.risks" /><EvidenceList
-          :bases="direction.evidenceSupport.userNeed"
+      <section class="reading-section"><h3>要解决的问题</h3><p>{{ viewed.problem }}</p></section>
+      <section class="reading-section"><h3>目标产品</h3><p>{{ viewed.targetProduct }}</p></section>
+      <details class="reading-disclosure" open><summary>为什么适合你</summary><p>{{ viewed.userFit }}</p></details>
+      <details class="reading-disclosure"><summary>差异化</summary><p>{{ viewed.differentiation }}</p></details>
+      <details class="reading-disclosure"><summary>技术价值与复杂度</summary>
+        <p>{{ viewed.technicalValue }}</p><h3>预估复杂度</h3><p>{{ viewed.estimatedComplexity }}</p>
+      </details>
+      <details class="reading-disclosure"><summary>风险 · {{ viewed.risks.length }}</summary>
+        <ContentList title="已提出的风险" :items="viewed.risks" />
+      </details>
+      <details class="reading-disclosure direction-evidence"><summary>方向依据</summary><EvidenceList
+          :bases="viewed.evidenceSupport.userNeed"
           title="用户需求依据"
         /><EvidenceList
-          :bases="direction.evidenceSupport.userFit"
+          :bases="viewed.evidenceSupport.userFit"
           title="用户匹配依据"
         /><EvidenceList
-          :bases="direction.evidenceSupport.reusableCapability"
+          :bases="viewed.evidenceSupport.reusableCapability"
           title="复用能力依据"
         />
-        <p class="meta">画像 revision {{ direction.userProfileRevision }}</p>
+      </details>
+        <p class="meta">依据画像版本 {{ viewed.userProfileRevision }}</p>
         <details class="object-id">
           <summary>历史绑定</summary>
           <p>
-            方向 <code>{{ direction.id }}</code>
+            方向 <code>{{ viewed.id }}</code>
           </p>
           <p>
-            画像 <code>{{ direction.userProfileId }}</code>
+            画像 <code>{{ viewed.userProfileId }}</code>
           </p>
           <p>
             RepositoryProfiles
-            <code>{{ direction.repositoryProfileIds.join(", ") }}</code>
+            <code>{{ viewed.repositoryProfileIds.join(", ") }}</code>
           </p>
           <p>
-            候选资产 <code>{{ direction.candidateAssetIds.join(", ") }}</code>
+            候选资产 <code>{{ viewed.candidateAssetIds.join(", ") }}</code>
           </p>
         </details>
-      </details>
-      <p v-if="stale(direction)" class="inline-note">
+      <p v-if="stale(viewed)" class="inline-note">
         当前画像与此候选的依据版本不同。历史内容保留，不能用作本页的新规划输入。
       </p>
-      <div v-if="direction.status === 'CANDIDATE'" class="actions">
+      <div v-if="viewed.status === 'CANDIDATE'" class="actions detail-actions">
         <button
-          :disabled="!!s.busy || stale(direction) || !!s.receipt"
-          @click="decision = { direction, action: 'select' }"
+          :disabled="!!s.busy || stale(viewed) || !!s.receipt"
+          @click="decision = { direction: viewed, action: 'select' }"
         >
           选择此方向</button
         ><button
           class="secondary"
           :disabled="!!s.busy"
-          @click="decision = { direction, action: 'reject' }"
+          @click="decision = { direction: viewed, action: 'reject' }"
         >
           拒绝
         </button>
       </div>
       <button
-        v-if="direction.status === 'SELECTED'"
+        v-if="viewed.status === 'SELECTED'"
         class="secondary"
-        :disabled="stale(direction)"
+        :disabled="stale(viewed)"
         @click="emit('next')"
       >
         审阅演化规划 →
       </button>
+      <p v-if="viewed.status === 'REJECTED' || viewed.status === 'SUPERSEDED'" class="context-note">
+        历史方向仅供查看，不能从此处恢复为已选择状态。
+      </p>
     </article>
   </div>
   <ConfirmDialog

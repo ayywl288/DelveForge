@@ -14,7 +14,7 @@ const props = defineProps<{
 defineEmits<{ edit: [section: ProfileSection] }>();
 </script>
 <template>
-  <section class="profile-review" aria-labelledby="review-heading">
+  <section class="profile-review" aria-labelledby="review-heading" tabindex="0">
     <h3 id="review-heading">审阅你的画像 · 画像版本 {{ profile.revision }}</h3>
     <p>逐项核对系统整理的内容与下方原始输入依据。发现误解可以纠正，也可以返回探索；确认只针对当前版本。</p>
     <p v-if="sufficiency">
@@ -22,8 +22,9 @@ defineEmits<{ edit: [section: ProfileSection] }>();
         ? "本次评估认为已有足够信息供你审阅，这不表示每项提取结论已核实。"
         : "本次评估仍有缺失信息，请结合下方条目检查。" }}
     </p>
-    <p v-else class="muted">已保存状态为审阅中；本页未保存当时的充分性结论，不会重构评估结果。</p>
-    <section v-for="section in profileSections" :key="section.key" class="profile-section">
+    <p v-else-if="profile.status === 'REVIEWING'" class="muted">已保存状态为审阅中；本页未保存当时的充分性结论，不会重构评估结果。</p>
+    <p v-else class="muted">本页没有当前版本的充分性结果。进入画像审阅后，达到条件才能显式确认。</p>
+    <section v-for="section in profileSections" :key="section.key" :id="`review-${section.key}`" class="profile-section">
       <div class="section-row">
         <h4>{{ section.label }}</h4>
         <button class="text-button" :disabled="busy"

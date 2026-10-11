@@ -40,11 +40,11 @@ pnpm dev
 | 阶段 | 用户操作 | 实际接口与决定 |
 |---|---|---|
 | 需求探索 | 创建画像，连续多轮回答实际问题；逐维纠正六维画像；自主进入审阅 | discovery-turn 充分仍保持探索；点击进入审阅调用 sufficiency-assessment，充分才 REVIEWING，勾选审阅并 confirm 当前画像版本 |
-| 理解仓库 | 输入绝对路径，明确读取权限、许可证、复用授权；注册后单独分析 | software-assets / analysis；展示分析结构、Evidence、analyzedRevision |
+| 理解仓库 | 无分析时登记并授权；有分析时在 Explorer 分区阅读，可切换保存快照 | software-assets / analysis；完整 Evidence、analyzedRevision 与授权记录仍可查看 |
 | 补充已有仓库授权 | 在原资产卡片展开「完善许可证与授权」，核对条款后明确保存；不再分析或生成方向 | PUT software-assets/{id}/authorization；按授权版本拒绝并发覆盖 |
-| 产品方向 | 选择分析快照、生成候选、展开各业务字段与三类依据 | discovery；Select / Reject 独立确认，没有默认选择 |
-| 演化规划 | 选择授权基础快照，查看 Current / Target / Reuse / Changes / Risks 和有序 Step | planning；审阅后 prepare 激活 Plan 并创建 WorkingCopy；没有 Plan confirm API；Step 需各自 confirm |
-| 验证演化 | 查看 revision 与范围，确认费用及宿主风险后执行一个 READY Step | execute；GET plan / working-copy 观察实际检查点、ExecutionResult / VerificationResult，不自动执行下一步 |
+| 产品方向 | 在候选列表查看方向，在详情区展开原文与三类依据；历史方向另行展开 | 浏览列表不调用 Select；Select / Reject 仍各自显式确认 |
+| 演化规划 | 阅读紧凑 Current / Target 概览，逐个内联展开有序 Step；核对完整内容与历史 | planning；审阅后 prepare 激活 Plan 并创建 WorkingCopy；没有 Plan confirm API；Step 需各自 confirm |
+| 验证演化 | 用 Step Navigator 查看目标与授权、执行状态、验证结果；核对副本完整 revision | execute；GET plan / working-copy 观察实际检查点、ExecutionResult / VerificationResult，不自动执行下一步 |
 
 AI 操作会调用付费 Provider，只在实际获得授权后验收。本次联通检查仅创建空白画像、纠正无敏感测试条目、注册受限权限资产并 GET；多轮 AI 与代码演化交互只使用自动化合成响应，没有新付费 Smoke。
 
@@ -93,7 +93,16 @@ tests/                  自动化合成夹具，非真实 Provider 证据
 
 G1 共享视觉采用石墨灰导航、浅色画布和靛蓝操作色，业务成功、等待、执行及错误状态保留
 独立颜色与文字。App 区分工作空间导航和当前项目的五阶段导航；窄屏阶段导航可横向浏览。
-G1 不调整五阶段页面内部的信息结构，页面专属布局留到 G2。
+G2 在此基础上调整五阶段的信息结构：探索时以对话和可收起的六维 Inspector 为主；审阅时
+左侧展示独立审阅内容，右侧只保留目录和确认，避免整份画像重复；已确认时优先显示确认信息
+和下一阶段入口。六维条目、Evidence 与技术绑定通过折叠区保留完整内容。
+
+仓库 Explorer 的局部导航限制在主内容区；登记、已有资源复用和授权均可单独展开。产品方向
+采用列表与详情，列表预览截取原始文本的显示行数，不生成额外摘要。历史方向保留原状态。
+规划路线每次只内联展开一个 Step，完整规划内容、历史轮次与 baseline 可查。
+Step DTO 没有独立的规划前提字段，页面只展示原有顺序、Plan / WorkingCopy 状态与 revision
+守卫，不补造前提。执行页缩小副本元数据，突出当前可用操作或禁用原因；Candidate、验证结果
+与最近验证 revision 分区展示。窄屏查看方向或步骤后焦点定位到详情，可返回列表。
 
 现有 API 提供项目历史、完整 Plan / Step 结果、资源目录和本版审阅就绪记录。没有完整聊天、
 模型问题、已接受 CodingProposal 或 Git diff 的历史查询；没有 Plan 的旧孤立 Direction
@@ -107,6 +116,7 @@ C1：首次真实充分结果显示一次选择弹窗；已有问题的继续探
 审阅 POST 携带 revision，同版服务端充分结果直接复用；无记录才评估，不插入新探索问题。
 刷新只读 review-readiness 恢复提示，不恢复聊天或自动提问。
 
-下一阶段的 UI 实施入口、素材与不可改变的业务边界见
+Task G 的实施入口、素材与不可改变的业务边界见
 [Task G 技术交接](../docs/UI_TASK_G_HANDOFF.md)。新旧数据库与浏览器 ID 的安全切换见
 [本地数据环境](../docs/LOCAL_DATA_ENVIRONMENTS.md)。业务基线保持冻结，不从 UI 整理启动付费 Smoke。
+G2 的改动、合成测试与桌面 / 窄屏检查见 [G2 前端验收记录](G2_VALIDATION.md)。

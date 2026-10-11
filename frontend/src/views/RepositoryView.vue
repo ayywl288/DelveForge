@@ -29,12 +29,88 @@ const absolute = computed(
     /^[a-zA-Z]:[\\/]/.test(location.value.trim()) ||
     (location.value.trim().startsWith("/") && !location.value.trim().startsWith("//")),
 );
+const repositoryId = ref("");
+const sectionId = ref("overview");
+const repository = computed(() => props.s.repositories.find(item => item.id === repositoryId.value)
+  ?? props.s.repositories[0]);
+const repositoryAsset = computed(() => props.s.assets.find(item => item.id === repository.value?.assetId));
+const sections = [
+  { id: "overview", label: "概览" },
+  { id: "structure", label: "结构与技术" },
+  { id: "capabilities", label: "已有能力" },
+  { id: "reuse", label: "可复用资产" },
+  { id: "risks", label: "限制与风险" },
+  { id: "evidence", label: "分析依据" },
+];
+function viewRepository(id: string) {
+  repositoryId.value = id;
+  sectionId.value = "overview";
+  document.getElementById("repository-explorer")?.scrollIntoView?.({ block: "start" });
+}
 </script>
 <template>
+  <section v-if="repository" id="repository-explorer" class="panel repository-explorer">
+    <div class="panel-header explorer-heading">
+      <div>
+        <h2>{{ repository.purpose }}</h2>
+        <p class="path">{{ repositoryAsset?.location ?? '未读取到关联资产路径' }}</p>
+      </div>
+      <span class="tag">只读分析快照</span>
+    </div>
+    <div class="snapshot-context">
+      <label v-if="s.repositories.length > 1" for="repository-snapshot">查看分析快照</label>
+      <select v-if="s.repositories.length > 1" id="repository-snapshot" :value="repository.id"
+        @change="viewRepository(($event.target as HTMLSelectElement).value)">
+        <option v-for="item in s.repositories" :key="item.id" :value="item.id">
+          {{ item.purpose }} · {{ item.analyzedRevision.slice(0, 12) }} · {{ item.id }}
+        </option>
+      </select>
+      <RevisionText label="分析版本 · analyzedRevision" :value="repository.analyzedRevision" />
+      <p class="meta">保存的分析不代表仓库当前代码；完整授权信息位于下方「仓库登记与授权」。</p>
+    </div>
+    <div class="explorer-layout">
+      <nav class="local-navigation" aria-label="仓库分析分区">
+        <button v-for="section in sections" :key="section.id" class="local-nav-button"
+          :aria-pressed="sectionId === section.id" :aria-controls="`repository-section-${section.id}`"
+          @click="sectionId = section.id">{{ section.label }}</button>
+      </nav>
+      <div class="explorer-reading" :id="`repository-${repository.id}`">
+        <section id="repository-section-overview" v-show="sectionId === 'overview'">
+          <h3>仓库用途</h3><p class="reading-text">{{ repository.purpose }}</p>
+          <ContentList title="已有能力" :items="repository.capabilities" />
+          <details class="object-id">
+            <summary>快照与资产绑定</summary>
+            <p>RepositoryProfile <code>{{ repository.id }}</code></p>
+            <p>SoftwareAsset <code>{{ repository.assetId }}</code></p>
+          </details>
+        </section>
+        <section id="repository-section-structure" v-show="sectionId === 'structure'">
+          <ContentList title="技术栈" :items="repository.techStack" />
+          <ContentList title="模块" :items="repository.modules" />
+        </section>
+        <section id="repository-section-capabilities" v-show="sectionId === 'capabilities'">
+          <ContentList title="已有能力" :items="repository.capabilities" />
+        </section>
+        <section id="repository-section-reuse" v-show="sectionId === 'reuse'">
+          <ContentList title="可复用资产" :items="repository.reusableAssets" />
+        </section>
+        <section id="repository-section-risks" v-show="sectionId === 'risks'">
+          <ContentList title="限制" :items="repository.limitations" />
+          <ContentList title="风险" :items="repository.risks" />
+        </section>
+        <section id="repository-section-evidence" v-show="sectionId === 'evidence'">
+          <h3>原始分析依据</h3>
+          <p class="meta">保存结果没有逐条结论与依据的关联字段；以下按原文完整展示。</p>
+          <EvidenceList :items="repository.evidence" title="源码与分析依据" expanded />
+        </section>
+      </div>
+    </div>
+  </section>
   <ProjectResourcePicker :s="s" />
+  <details class="panel repository-setup" :open="!s.repositories.length || !!authorizationTargetId">
+    <summary>{{ s.repositories.length ? '仓库登记与授权' : '连接仓库并明确授权' }} <span class="meta">{{ s.assets.length }} 个已登记资产</span></summary>
   <div class="two-column">
-    <section class="panel">
-      <span class="eyebrow">LOCAL & AUTHORIZED</span>
+    <section>
       <h2>连接已有代码</h2>
       <p class="muted">
         后端在本机读取路径，浏览器不访问目录。分析只读；执行阶段会创建独立
@@ -95,10 +171,10 @@ const absolute = computed(
           {{ registered ? "已注册" : "注册此仓库" }}
         </button>
         <p class="meta">许可证可以暂时留空以注册、分析；演化规划前必须在已有记录上补齐明确的许可证及适用范围。系统不会判断法律兼容性或自动授予权限。</p>
-        <p v-if="registered" class="inline-note">此路径已注册，请复用右侧已有卡片，不必再次分析。若缺少许可证，请展开「完善许可证与授权」。</p>
+        <p v-if="registered" class="inline-note">此路径已注册，请复用已有资产，不必再次分析。若缺少许可证，请展开「完善许可证与授权」。</p>
       </form>
     </section>
-    <section class="panel">
+    <section>
       <h2>已登记仓库</h2>
       <p v-if="!s.assets.length" class="empty">
         尚未注册。填写路径和授权后，单独启动分析。
@@ -119,7 +195,7 @@ const absolute = computed(
           当前已选方向引用此资产；补充授权后可沿用原方向。
         </p>
         <p v-for="snapshot in s.repositories.filter(item => item.assetId === asset.id)" :key="snapshot.id">
-          <a :href="`#repository-${snapshot.id}`">复用已有分析 · {{ snapshot.analyzedRevision.slice(0, 12) }}</a>
+          <button class="text-button" @click="viewRepository(snapshot.id)">查看已有分析 · {{ snapshot.analyzedRevision.slice(0, 12) }}</button>
         </p>
         <button
           class="secondary"
@@ -146,49 +222,7 @@ const absolute = computed(
       </div>
     </section>
   </div>
-  <section
-    v-for="repository in s.repositories"
-    :key="repository.id"
-    :id="`repository-${repository.id}`"
-    class="panel repository-result"
-  >
-    <div class="panel-header">
-      <div>
-        <span class="eyebrow">REPOSITORY PROFILE</span>
-        <h2>{{ repository.purpose }}</h2>
-      </div>
-      <span class="tag">只读分析</span>
-    </div>
-    <RevisionText
-      label="analyzedRevision"
-      :value="repository.analyzedRevision"
-    />
-    <div class="result-grid">
-      <ContentList title="技术栈" :items="repository.techStack" /><ContentList
-        title="模块"
-        :items="repository.modules"
-      /><ContentList
-        title="已有能力"
-        :items="repository.capabilities"
-      /><ContentList
-        title="可复用资产"
-        :items="repository.reusableAssets"
-      /><ContentList title="限制" :items="repository.limitations" /><ContentList
-        title="风险"
-        :items="repository.risks"
-      />
-    </div>
-    <EvidenceList :items="repository.evidence" title="源码与分析依据" />
-    <details class="object-id">
-      <summary>快照与资产绑定</summary>
-      <p>
-        RepositoryProfile <code>{{ repository.id }}</code>
-      </p>
-      <p>
-        SoftwareAsset <code>{{ repository.assetId }}</code>
-      </p>
-    </details>
-  </section>
+  </details>
   <div v-if="s.repositories.length" class="stage-footer">
     <p>用已确认画像与这些分析快照，探索候选产品方向。</p>
     <button :disabled="s.profile?.status !== 'CONFIRMED'" @click="emit('next')">

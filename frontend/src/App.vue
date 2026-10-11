@@ -228,7 +228,7 @@ onUnmounted(s.dispose);
         @authorize="openAuthorization"
           @next="stage = 4"
           @directions="stage = 2"
-      /><EvolutionView v-else :s="s" /></KeepAlive>
+      /><EvolutionView v-else :s="s" @planning="stage = 3" /></KeepAlive>
     </main>
   </div>
   <ConfirmDialog

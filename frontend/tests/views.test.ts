@@ -275,13 +275,13 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     const root = mount(PlanView, s);
     expect(root.textContent).toContain("新增调度配置");
     expect(root.textContent).toContain("调度测试通过");
-    expect(button(root, "Prepare WorkingCopy").disabled).toBe(true);
+    expect(button(root, "准备隔离副本").disabled).toBe(true);
     expect(button(root, "审阅并授权此 Step").disabled).toBe(true);
     const review = root.querySelector(".prepare-box input") as HTMLInputElement;
     review.checked = true;
     review.dispatchEvent(new Event("change", { bubbles: true }));
     await nextTick();
-    button(root, "Prepare WorkingCopy").click();
+    button(root, "准备隔离副本").click();
     await nextTick();
     button(root, "准备 WorkingCopy").click();
     await settle();
@@ -296,6 +296,8 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     await settle();
     expect(confirm).toHaveBeenCalledWith("step-1");
     s.plan.steps.push({ ...s.plan.steps[0]!, id: "step-2" });
+    await nextTick();
+    (root.querySelectorAll<HTMLButtonElement>(".roadmap-toggle")[1]!).click();
     await nextTick();
     expect(
       [...root.querySelectorAll("button")]
@@ -353,6 +355,6 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     expect(root.querySelector(".success-note")?.textContent).toContain("b".repeat(40));
     expect(root.querySelector("img")).toBeNull();
     expect(execute).not.toHaveBeenCalled();
-    expect(button(root, "审阅风险并执行此 Step").disabled).toBe(true);
+    expect(button(root, "审阅风险并执行此 Step")).toBeUndefined();
   });
 });

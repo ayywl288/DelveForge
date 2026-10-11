@@ -7,6 +7,8 @@ import ContentList from "../components/ContentList.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import EvidenceList from "../components/EvidenceList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import RevisionText from "../components/RevisionText.vue";
+import StepPrerequisites from "../components/StepPrerequisites.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
 const workspaceConfiguration = ref<WorkspaceConfiguration | null>(null);
 const workspaceConfigurationError = ref("");
@@ -31,12 +33,16 @@ const base = ref("");
 const reviewed = ref(false);
 const prepareOpen = ref(false);
 const stepToConfirm = ref<EvolutionStep | null>(null);
+const expandedStepId = ref(props.s.plan?.steps.find(step => step.status !== "SUCCEEDED")?.id
+  ?? props.s.plan?.steps[0]?.id ?? "");
 watch(() => [props.s.contextEpoch, props.s.selected?.id], () => {
   // 分析快照是本轮用户选择，不能由上一项目或旧方向的表单残留代替。
   base.value = "";
   reviewed.value = false;
 });
 watch(() => props.s.plan?.id, () => {
+  expandedStepId.value = props.s.plan?.steps.find(step => step.status !== "SUCCEEDED")?.id
+    ?? props.s.plan?.steps[0]?.id ?? "";
   reviewed.value = false;
   prepareOpen.value = false;
   stepToConfirm.value = null;
@@ -60,20 +66,6 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
   asset.value.usageAuthorization === "ALLOWED" && !!asset.value.licenseInfo?.trim());
 </script>
 <template>
-  <section v-if="s.projectContext" class="panel">
-    <div class="panel-header"><h2>本项目的规划轮次</h2>
-      <button class="text-button" :disabled="!!s.busy" @click="s.loadPlanningRounds">刷新轮次</button></div>
-    <p class="meta">每轮保留自己的计划、步骤与验证结果。查看历史不会生成计划或执行代码。</p>
-    <p v-if="s.roundsError" role="alert">{{ s.roundsError }}</p>
-    <div class="actions">
-      <button v-for="round in s.planningRounds" :key="round.key" class="secondary"
-        :disabled="!!s.busy || !!round.deletedAt || round.key === 'project:' + s.projectContext.id" @click="s.openProject(round.key, false)">
-        {{ round.planStatus ? `计划 ${round.planId?.slice(0, 8)} · ${round.planStatus}` : '尚未生成计划的轮次' }}
-        · {{ round.succeededSteps }}/{{ round.totalSteps }} 已验证
-        <span v-if="round.deletedAt"> · 已删除，可从工作台恢复</span>
-      </button>
-    </div>
-  </section>
   <section v-if="s.plan?.status === 'SUPERSEDED'" class="panel inline-note">
     <h2>这份计划已失效，保留为历史记录</h2>
     <p>它的方向已被替代，或历史迁移已标记失效，不能继续授权或执行。原步骤、WorkingCopy 和验证结果保留。</p>
@@ -86,7 +78,6 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
     <p class="meta">这一步只建立关联轮次，不调用 AI。随后需重新选择合法基础仓库快照，显式生成计划。不会用旧副本 B 代替源仓库分析。</p>
   </section>
   <section v-if="!s.plan" class="panel plan-input">
-    <span class="eyebrow">EVOLUTION BEFORE REWRITE</span>
     <h2>把方向拆成可验证的步骤</h2>
     <template v-if="s.selected"
       ><h3>{{ s.selected.title }}</h3>
@@ -128,15 +119,17 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
     <section class="panel">
       <div class="panel-header">
         <div>
-          <span class="eyebrow">EVOLUTION PLAN</span>
           <h2>{{ s.plan.targetState.targetProduct }}</h2>
         </div>
         <StatusBadge :status="s.plan.status" />
       </div>
+      <p class="meta">以下是保存的规划输入与目标。实现和验证结果请在「验证演化」查看。</p>
       <div class="state-comparison">
         <section>
-          <span class="eyebrow">CURRENT STATE</span>
+          <span class="summary-label">规划时的现状</span>
           <h3>{{ s.plan.currentState.summary }}</h3>
+          <details class="reading-disclosure"><summary>查看完整现状</summary>
+          <p>{{ s.plan.currentState.summary }}</p>
           <ContentList
             title="能力"
             :items="s.plan.currentState.capabilities"
@@ -147,18 +140,23 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
             title="限制"
             :items="s.plan.currentState.limitations"
           />
+          </details>
         </section>
         <section>
-          <span class="eyebrow">TARGET STATE</span>
-          <h3>{{ s.plan.targetState.problem }}</h3>
-          <p>{{ s.plan.targetState.targetProduct }}</p>
-          <p>{{ s.plan.targetState.differentiation }}</p>
+          <span class="summary-label">计划目标</span>
+          <h3>{{ s.plan.targetState.targetProduct }}</h3>
+          <details class="reading-disclosure"><summary>查看完整目标与复用能力</summary>
+          <h3>要解决的问题</h3><p>{{ s.plan.targetState.problem }}</p>
+          <h3>目标产品</h3><p>{{ s.plan.targetState.targetProduct }}</p>
+          <h3>差异化</h3><p>{{ s.plan.targetState.differentiation }}</p>
           <ContentList
             title="可复用能力"
             :items="s.plan.reusableCapabilities"
           />
+          </details>
         </section>
       </div>
+      <details class="reading-disclosure plan-more"><summary>规划改动、风险、依据与基础绑定</summary>
       <div class="two-column">
         <ContentList title="计划改变什么" :items="s.plan.changes" /><ContentList
           title="风险"
@@ -181,25 +179,30 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
           RepositoryProfile <code>{{ s.plan.baseRepositoryProfileId }}</code>
         </p>
       </details>
+      </details>
     </section>
+    <section class="panel roadmap" aria-labelledby="roadmap-heading">
+    <div class="panel-header"><h2 id="roadmap-heading">演化路线</h2><span class="meta">{{ s.plan.steps.length }} 个步骤 · 按顺序验证</span></div>
+    <p v-if="!s.plan.steps.length" class="empty">此计划未提供步骤。</p>
     <ol class="step-list">
       <li
         v-for="(step, index) in s.plan.steps"
         :key="step.id"
-        class="panel step-card"
+        class="roadmap-step" :class="{ expanded: expandedStepId === step.id }"
       >
-        <div class="step-number" aria-hidden="true">
-          {{ String(index + 1).padStart(2, "0") }}
-        </div>
-        <div class="step-content">
-          <div class="panel-header">
-            <h2>{{ step.goal }}</h2>
-            <StatusBadge :status="step.status" />
-          </div>
+        <button class="roadmap-toggle" :aria-expanded="expandedStepId === step.id" :aria-controls="`plan-step-${step.id}`"
+          @click="expandedStepId = expandedStepId === step.id ? '' : step.id">
+          <span class="step-number" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span>
+          <strong>{{ step.goal }}</strong><StatusBadge :status="step.status" :show-code="false" />
+          <span aria-hidden="true" class="disclosure-chevron">{{ expandedStepId === step.id ? '−' : '+' }}</span>
+        </button>
+        <div v-if="expandedStepId === step.id" :id="`plan-step-${step.id}`" class="step-content">
+          <h3>步骤目标</h3><p>{{ step.goal }}</p>
           <h3>允许范围</h3>
           <p class="scope">{{ step.scope }}</p>
-          <ContentList title="Planned Changes" :items="step.plannedChanges" />
-          <h3>Verification Criteria</h3>
+          <ContentList title="计划改动" :items="step.plannedChanges" />
+          <StepPrerequisites :plan="s.plan" :step="step" :copy="s.copy" />
+          <h3>验收标准</h3>
           <ol class="criteria">
             <li
               v-for="(criterion, criterionIndex) in step.verificationCriteria"
@@ -212,6 +215,10 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
           <p class="meta">
             顺序 {{ index + 1 }} · Step <code>{{ step.id }}</code>
           </p>
+          <details class="object-id"><summary>基线与原始状态</summary>
+            <p>Step 状态：{{ step.status }}</p>
+            <RevisionText label="baselineRevision · 执行基线" :value="step.baselineRevision" />
+          </details>
           <button
             v-if="step.status === 'PENDING_CONFIRMATION'"
             class="secondary"
@@ -234,19 +241,21 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
         </div>
       </li>
     </ol>
+    </section>
     <section v-if="s.plan.status === 'PROPOSED'" class="panel prepare-box">
       <h2>审阅计划，然后准备隔离环境</h2>
       <div class="workspace-configuration inline-note">
         <p>新 WorkingCopy 存储根目录：<code>{{ workspaceConfiguration?.root ?? '尚未读取' }}</code></p>
         <p v-if="workspaceConfigurationError" role="alert">{{ workspaceConfigurationError }}</p>
+        <details><summary>存储配置与准备边界</summary>
         <p>如需换盘，在启动后端的终端设置 <code>DELVEFORGE_WORKSPACE_ROOT</code> 并重启后端，再回到本页核对。此处不接受任意目录输入；准备时仍会校验实际路径与权限。</p>
         <p v-if="workspaceConfiguration?.existingRoots.length">仅接纳旧副本的根目录：{{ workspaceConfiguration.existingRoots.join('；') }}</p>
         <p>已创建的副本不会移动；实际位置以准备成功后的 WorkingCopy 为准。</p>
         <button class="secondary" type="button" @click="loadConfiguration">重新读取存储配置</button>
+        </details>
       </div>
       <p>
-        没有独立的 Plan confirm API。下列审阅确认仅是页面交互；Prepare
-        通过后端规则激活 Plan 并创建 WorkingCopy。各 Step 仍需独立授权。
+        勾选表示你已在本页审阅计划。准备操作通过后端校验后激活计划、创建隔离副本；各 Step 仍需独立授权。
       </p>
       <label class="check"
         ><input
@@ -258,7 +267,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
         :disabled="!!s.busy || !reviewed || !!s.receipt"
         @click="prepareOpen = true"
       >
-        Prepare WorkingCopy
+        准备隔离副本
       </button>
     </section>
     <div v-else-if="s.plan.status === 'ACTIVE'" class="stage-footer">
@@ -269,6 +278,22 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
       <button @click="emit('next')">进入演化执行 →</button>
     </div>
   </template>
+  <details v-if="s.projectContext" class="panel planning-history">
+    <summary>规划轮次与历史 <span class="meta">{{ s.planningRounds.length }} 轮已读取</span></summary>
+    <div class="panel-header"><h2>本项目的规划轮次</h2>
+      <button class="text-button" :disabled="!!s.busy" @click="s.loadPlanningRounds">刷新轮次</button></div>
+    <p class="meta">每轮保留自己的计划、步骤与验证结果。查看历史不会生成计划或执行代码。</p>
+    <p v-if="s.roundsError" role="alert">{{ s.roundsError }}</p>
+    <div class="actions">
+      <button v-for="round in s.planningRounds" :key="round.key" class="secondary"
+        :disabled="!!s.busy || !!round.deletedAt || round.key === 'project:' + s.projectContext.id" @click="s.openProject(round.key, false)">
+        {{ round.planStatus ? `计划 ${round.planId?.slice(0, 8)}` : '尚未生成计划的轮次' }}
+        <StatusBadge v-if="round.planStatus" :status="round.planStatus" :show-code="false" />
+        · {{ round.succeededSteps }}/{{ round.totalSteps }} 已验证
+        <span v-if="round.deletedAt"> · 已删除，可从工作台恢复</span>
+      </button>
+    </div>
+  </details>
   <ConfirmDialog
     :open="prepareOpen"
     title="准备独立 WorkingCopy？"
