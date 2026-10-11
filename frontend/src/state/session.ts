@@ -120,6 +120,8 @@ export function createSession() {
   const projectIssues = ref<string[]>([]);
   const boundProfileRevision = ref<number | null>(null);
   const projects = ref<ProjectSummary[]>([]);
+  const planningRounds = ref<ProjectSummary[]>([]);
+  const roundsError = ref("");
   const historyLoading = ref(false);
   const historyError = ref("");
   const historyMore = ref(false);
@@ -250,7 +252,8 @@ export function createSession() {
       return;
     }
     if (saveContext && projectIssues.value.some(issue => !issue.startsWith("WORKSPACE_") &&
-      (issue.endsWith("_MISSING") || issue.endsWith("_UNREADABLE") || issue === "ASSOCIATION_MISMATCH"))) {
+      (issue.endsWith("_MISSING") || issue.endsWith("_UNREADABLE") || issue === "ASSOCIATION_MISMATCH" ||
+        issue === "FLOW_OWNERSHIP_UNKNOWN"))) {
       error.value = "项目关联资源缺失或不一致，不能继续修改。请核对数据或建立新流程；历史对象没有被删除。";
       return;
     }
@@ -477,6 +480,8 @@ export function createSession() {
     clearTimeout(timer);
     if (switching) contextEpoch.value++;
     projectContext.value = workspace.context;
+    planningRounds.value = [];
+    roundsError.value = "";
     projectIssues.value = workspace.issues;
     boundProfileRevision.value = workspace.boundUserProfileRevision;
     projectSyncError.value = false;
@@ -489,9 +494,9 @@ export function createSession() {
     const context = workspace.context;
     Object.assign(ids, {
       profileId: context?.userProfileId ?? workspace.userProfile?.id ?? "",
-      assetIds: context?.assetIds ?? workspace.assets.map(item => item.id),
-      repositoryIds: context?.repositoryProfileIds ?? workspace.repositoryProfiles.map(item => item.id),
-      directionIds: context?.directionIds ?? workspace.directions.map(item => item.id),
+      assetIds: [...new Set([...(context?.assetIds ?? []), ...workspace.assets.map(item => item.id)])],
+      repositoryIds: [...new Set([...(context?.repositoryProfileIds ?? []), ...workspace.repositoryProfiles.map(item => item.id)])],
+      directionIds: [...new Set([...(context?.directionIds ?? []), ...workspace.directions.map(item => item.id)])],
       planId: context?.planId ?? workspace.plan?.id ?? "",
     });
     if (switching) messages.value = [];
@@ -517,7 +522,8 @@ export function createSession() {
       if (workspace.legacy && adopt) {
         const planId = workspace.plan?.id;
         const invalid = workspace.issues.some(issue => !issue.startsWith("WORKSPACE_") &&
-          (issue.endsWith("_MISSING") || issue.endsWith("_UNREADABLE") || issue === "ASSOCIATION_MISMATCH"));
+          (issue.endsWith("_MISSING") || issue.endsWith("_UNREADABLE") || issue === "ASSOCIATION_MISMATCH" ||
+            issue === "FLOW_OWNERSHIP_UNKNOWN"));
         if (!planId || invalid) {
           notice.value = "历史项目仅部分可读，未建立新关联。请先核对列出的问题；没有重做任何业务调用。";
         } else {
@@ -541,7 +547,26 @@ export function createSession() {
         }
       }
     }, false);
+    const restoredContext = projectContext.value?.id;
+    if (stage) await loadPlanningRounds();
+    if (disposed || projectContext.value?.id !== restoredContext) return null;
     return stage;
+  }
+  async function loadPlanningRounds() {
+    const context = projectContext.value;
+    if (!context) return;
+    const epoch = contextEpoch.value;
+    try {
+      const result = await api.planningRounds(context.id);
+      if (disposed || projectContext.value?.id !== context.id || contextEpoch.value !== epoch) return;
+      if (!Array.isArray(result)) throw new ApiError(0, "RESPONSE_UNREADABLE");
+      planningRounds.value = result;
+      roundsError.value = "";
+    } catch {
+      if (!disposed && projectContext.value?.id === context.id && contextEpoch.value === epoch) {
+        roundsError.value = "规划轮次暂时无法读取。没有生成新计划，请稍后重新查询。";
+      }
+    }
   }
   return {
     ids,
@@ -571,6 +596,9 @@ export function createSession() {
     projectIssues,
     boundProfileRevision,
     projects,
+    planningRounds,
+    roundsError,
+    loadPlanningRounds,
     historyLoading,
     historyError,
     historyMore,
@@ -818,6 +846,7 @@ export function createSession() {
             profile.value!.id,
             profile.value!.revision,
             repositoryIds,
+            projectContext.value,
           );
           directions.value.push(...result.directions);
           ids.directionIds.push(...result.directions.map((item) => item.id));
@@ -826,13 +855,14 @@ export function createSession() {
     },
     async decide(value: string, decision: "select" | "reject") {
       await run("保存方向决定", async () => {
-        const result = await api.decideDirection(value, decision);
+        const result = await api.decideDirection(value, decision, projectContext.value);
         directions.value = directions.value.map((item) =>
           item.id === result.id ? result : item,
         );
         directions.value = await Promise.all(
           ids.directionIds.map(api.direction),
         );
+        if (plan.value) await refreshPlan();
       });
     },
     async generatePlan(repositoryId: string) {
@@ -847,7 +877,14 @@ export function createSession() {
               selected.value!.id,
               repository.assetId,
               repository.id,
+              projectContext.value,
             ));
+            if (projectContext.value) {
+              // 规划与 planId 关联由后端原子保存；回读版本后再保存导航集合。
+              const workspace = await api.project("project:" + projectContext.value.id);
+              if (disposed) return;
+              projectContext.value = workspace.context;
+            }
           } catch (failure) {
             if (failure instanceof ApiError && ["ASSET_READ_PERMISSION_REQUIRED",
               "ASSET_USAGE_AUTHORIZATION_REQUIRED", "ASSET_LICENSE_INFORMATION_REQUIRED",
@@ -858,6 +895,21 @@ export function createSession() {
           }
           copy.value = null;
         });
+    },
+    async beginReplanning() {
+      const context = projectContext.value;
+      if (!context || receipt.value) return false;
+      let opened = false;
+      await run("建立下一轮规划（不调用 AI）", async () => {
+        const successor = await api.beginPlanningRound(context);
+        const workspace = await api.project("project:" + successor.id);
+        if (disposed) return;
+        applyWorkspace(workspace);
+        opened = true;
+        notice.value = "新规划轮次已建立。请选择基础资产与分析快照；点击生成才会调用 AI。旧计划和副本仍保留。";
+      }, false);
+      if (opened) await loadPlanningRounds();
+      return opened;
     },
     async prepare() {
       if (plan.value)

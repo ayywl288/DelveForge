@@ -70,6 +70,26 @@ public class ProjectController {
         return service.adopt(id);
     }
 
+    @GetMapping("/{id}/rounds")
+    public List<ProjectSummary> rounds(@PathVariable String id) {
+        return service.rounds(id).stream().map(ProjectController::summary).toList();
+    }
+
+    @PostMapping("/{id}/planning-rounds")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ProjectFlowContext beginRound(@PathVariable String id, @RequestBody VersionRequest request) {
+        return service.beginPlanningRound(id, request.expectedVersion());
+    }
+
+    public record VersionRequest(
+            @JsonDeserialize(using = ProjectContextVersionDeserializer.class) Long expectedVersion) {
+        public VersionRequest {
+            if (expectedVersion == null) {
+                throw new IllegalArgumentException("Project version is required");
+            }
+        }
+    }
+
     @GetMapping("/resources")
     public List<ResourceSummary> resources(@RequestParam ProjectHistoryIndex.ResourceKind kind,
             @RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "50") int limit) {

@@ -14,6 +14,22 @@ public interface ProjectContextMapper {
     @Select("SELECT * FROM project_flow_context WHERE plan_id = #{planId}")
     ProjectContextRow findPlan(String planId);
 
+    @Select("SELECT * FROM project_flow_context WHERE flow_id = #{flowId} ORDER BY created_at, id LIMIT 100")
+    List<ProjectContextRow> findFlow(String flowId);
+
+    @Update("""
+            UPDATE project_flow_context SET version = version + 1, updated_at = #{updatedAt}
+            WHERE id = #{basis.id} AND version = #{basis.version} AND flow_id = #{basis.flowId}
+                AND plan_id = #{basis.planId}
+                AND EXISTS (SELECT 1 FROM evolution_plan p WHERE p.id = plan_id
+                    AND p.flow_id = #{basis.flowId} AND p.status = 'SUPERSEDED'
+                    AND NOT EXISTS (SELECT 1 FROM evolution_step s WHERE s.plan_id = p.id
+                        AND s.status IN ('EXECUTING','VERIFYING','RECOVERY_REQUIRED','VERIFICATION_FAILED','ROLLING_BACK')))
+                AND NOT EXISTS (SELECT 1 FROM project_flow_context c WHERE c.previous_context_id = #{basis.id})
+            """)
+    int lockSuccessor(@Param("basis") com.ayywl.delveforge.application.project.ProjectFlowContext basis,
+            @Param("updatedAt") String updatedAt);
+
     @Insert("""
             INSERT INTO project_flow_context
                 (id, name, user_profile_id, asset_ids, repository_profile_ids, direction_ids,

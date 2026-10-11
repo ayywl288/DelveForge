@@ -59,6 +59,22 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
     }
 
     @Override
+    public List<ProjectFlowContext> findByFlow(String flowId) {
+        return mapper.findFlow(flowId).stream().map(this::context).toList();
+    }
+
+    @Override
+    @Transactional
+    public void createSuccessor(ProjectFlowContext predecessor, ProjectFlowContext candidate) {
+        if (!predecessor.id().equals(candidate.previousContextId())
+                || !predecessor.flowId().equals(candidate.flowId()) || candidate.planId() != null
+                || mapper.lockSuccessor(predecessor, candidate.updatedAt().toString()) != 1) {
+            throw new ProjectContextConflictException();
+        }
+        create(candidate, null);
+    }
+
+    @Override
     public List<String> historyKeys(int offset, int limit) {
         return mapper.history(offset, limit);
     }

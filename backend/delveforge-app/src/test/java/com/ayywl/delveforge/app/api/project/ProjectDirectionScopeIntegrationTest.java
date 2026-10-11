@@ -234,4 +234,53 @@ class ProjectDirectionScopeIntegrationTest {
         }
         verifyNoInteractions(ai);
     }
+
+    @Test
+    void explicitNewRoundRetainsOldPlanAndCreatesNewPlanInSameFlowWithoutReusingCopy() throws Exception {
+        JsonNode a = project(one);
+        String oldDirection = candidate(a, one);
+        String newDirection = candidate(a, one);
+        assertEquals(200, select(a, oldDirection));
+        JsonNode oldPlan = plan(a, oldDirection, one);
+        JsonNode current = json.readTree(mvc.perform(get("/api/projects/{key}", "project:" + a.path("id").asText()))
+                .andReturn().getResponse().getContentAsString()).path("context");
+        assertEquals(200, select(current, newDirection));
+        String body = json.createObjectNode().put("expectedVersion", current.path("version").asLong()).toString();
+        JsonNode next = json.readTree(mvc.perform(post("/api/projects/{id}/planning-rounds", a.path("id").asText())
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.previousContextId").value(a.path("id").asText()))
+                .andExpect(jsonPath("$.planId").doesNotExist()).andReturn().getResponse().getContentAsString());
+        assertEquals(a.path("flowId"), next.path("flowId"));
+        JsonNode newPlan = plan(next, newDirection, one);
+        assertTrue(!newPlan.path("id").equals(oldPlan.path("id")));
+        assertTrue(newPlan.path("workingCopyId").isNull());
+        assertEquals(oldPlan.path("id").asText(), jdbc.queryForObject(
+                "SELECT plan_id FROM project_flow_context WHERE id=?", String.class, a.path("id").asText()));
+        mvc.perform(get("/api/projects/{id}/rounds", next.path("id").asText()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+        assertEquals("SUPERSEDED", jdbc.queryForObject("SELECT status FROM evolution_plan WHERE id=?",
+                String.class, oldPlan.path("id").asText()));
+        mvc.perform(post("/api/projects/{id}/planning-rounds", a.path("id").asText())
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
+    }
+
+    @Test
+    void stalePlanningContextDuringAiRollsBackBothPlanAndContextBinding() throws Exception {
+        JsonNode a = project(one);
+        String selected = candidate(a, one);
+        assertEquals(200, select(a, selected));
+        when(ai.generate(any())).thenAnswer(invocation -> {
+            jdbc.update("UPDATE project_flow_context SET version=version+1 WHERE id=?", a.path("id").asText());
+            return PROPOSAL;
+        });
+        var request = json.createObjectNode().put("productDirectionId", selected).put("baseAssetId", one)
+                .put("baseRepositoryProfileId", one);
+        request.set("project", json.readTree(scope(a)));
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(request.toString()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_CONTEXT_CONFLICT"));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM evolution_plan WHERE product_direction_id=?",
+                Integer.class, selected));
+        assertEquals(null, jdbc.queryForObject("SELECT plan_id FROM project_flow_context WHERE id=?",
+                String.class, a.path("id").asText()));
+    }
 }

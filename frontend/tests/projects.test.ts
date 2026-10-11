@@ -30,12 +30,14 @@ function workspace(id: string, withPlan = false): ProjectWorkspace {
   const wc = { ...copy(), id: "copy-" + id, sourceAssetId: a.id };
   const context: ProjectContext = { id, name: "项目 " + id, userProfileId: user.id, assetIds: [a.id],
     repositoryProfileIds: [repo.id], directionIds: withPlan ? [d.id] : [], planId: withPlan ? p.id : null,
-    createdAt: "2026-10-11T00:00:00Z", updatedAt: "2026-10-11T00:00:00Z", version: 0 };
+    createdAt: "2026-10-11T00:00:00Z", updatedAt: "2026-10-11T00:00:00Z", version: 0,
+    flowId: id, previousContextId: null };
   return { key: "project:" + id, context, legacy: false, userProfile: user, assets: [a], repositoryProfiles: [repo],
     directions: withPlan ? [d] : [], plan: withPlan ? p : null, workingCopy: withPlan ? wc : null,
     stage: withPlan ? "EVOLUTION" : "DIRECTION", boundUserProfileRevision: withPlan ? 2 : null, issues: [] };
 }
 function stubReads(...values: ProjectWorkspace[]) {
+  vi.spyOn(api, "planningRounds").mockResolvedValue([]);
   vi.spyOn(api, "project").mockImplementation(async key => {
     const value = values.find(item => item.key === key);
     if (!value) throw new ApiError(404, "NOT_FOUND");
@@ -48,6 +50,70 @@ async function settle() {
 }
 
 describe("项目上下文恢复与隔离", () => {
+  it("历史归属不明时保留读取但禁止业务写入和自动认领", async () => {
+    const saved = workspace("ambiguous", true); saved.legacy = true; saved.context = null;
+    saved.key = "plan:plan-ambiguous"; saved.issues = ["FLOW_OWNERSHIP_UNKNOWN"];
+    stubReads(saved);
+    const adopt = vi.spyOn(api, "adoptPlan"); const discover = vi.spyOn(api, "discover");
+    const s = make(); await s.openProject(saved.key); await s.discover(["repo-ambiguous"]);
+    expect(s.plan.value?.id).toBe("plan-ambiguous");
+    expect(adopt).not.toHaveBeenCalled(); expect(discover).not.toHaveBeenCalled();
+  });
+  it("方向选择发送当前项目版本并回读旧计划失效，不影响另一个项目", async () => {
+    const a = workspace("a", true); const b = workspace("b", true);
+    const next = { ...a.directions[0]!, id: "direction-next", status: "CANDIDATE" as const };
+    a.directions.push(next); a.context!.directionIds.push(next.id);
+    stubReads(a, b);
+    const decide = vi.spyOn(api, "decideDirection").mockResolvedValue({ ...next, status: "SELECTED" });
+    vi.spyOn(api, "direction").mockImplementation(async id => id === next.id ? { ...next, status: "SELECTED" }
+      : { ...a.directions[0]!, status: "SUPERSEDED" });
+    vi.spyOn(api, "plan").mockResolvedValue({ ...a.plan!, status: "SUPERSEDED" });
+    vi.spyOn(api, "workingCopy").mockResolvedValue(a.workingCopy!);
+    vi.spyOn(api, "updateProject").mockImplementation(async context => ({ ...context, version: context.version + 1 }));
+    const s = make(); await s.openProject(a.key); await s.decide(next.id, "select");
+    expect(decide).toHaveBeenCalledWith(next.id, "select", a.context);
+    expect(s.plan.value?.status).toBe("SUPERSEDED"); expect(s.selected.value?.id).toBe(next.id);
+    await s.openProject(b.key); expect(s.plan.value?.status).toBe("ACTIVE"); expect(s.selected.value?.id).toBe("direction-b");
+  });
+
+  it("失效计划明确进入关联新轮次，仍须点击正常规划，旧计划与副本保持历史", async () => {
+    const old = workspace("old", true); old.plan!.status = "SUPERSEDED";
+    old.directions[0]!.status = "SUPERSEDED";
+    const selected = { ...old.directions[0]!, id: "current", status: "SELECTED" as const };
+    old.directions.push(selected); old.context!.directionIds.push(selected.id);
+    const next = structuredClone(old); next.key = "project:next";
+    next.context = { ...old.context!, id: "next", previousContextId: "old", planId: null };
+    next.plan = null; next.workingCopy = null; next.stage = "PLANNING";
+    stubReads(old, next);
+    const begin = vi.spyOn(api, "beginPlanningRound").mockResolvedValue(next.context!);
+    vi.spyOn(api, "workspaceConfiguration").mockResolvedValue({ root: "E:/trusted/workspaces", existingRoots: [] });
+    const generate = vi.spyOn(api, "generatePlan"); const execute = vi.spyOn(api, "execute");
+    const s = reactive(make()); await s.openProject(old.key);
+    const root = document.createElement("div"); document.body.append(root);
+    const app = createApp(PlanView, { s }); app.mount(root); cleanups.push(() => { app.unmount(); root.remove(); });
+    await settle();
+    expect(root.textContent).toContain("这份计划已失效"); expect(root.textContent).toContain("当前选中方向");
+    const action = [...root.querySelectorAll("button")].find(button => button.textContent?.includes("基于当前方向重新规划"))!;
+    action.click(); await settle();
+    expect(begin).toHaveBeenCalledOnce(); expect(s.projectContext?.id).toBe("next");
+    expect(s.ids.planId).toBe(""); expect(s.copy).toBeNull();
+    expect(root.querySelector("#plan-base")).not.toBeNull();
+    expect(old.plan?.id).toBe("plan-old"); expect(old.workingCopy?.id).toBe("copy-old");
+    expect(generate).not.toHaveBeenCalled(); expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("旧轮次查询迟到不能写入新项目，打开与刷新不自动规划或执行", async () => {
+    const a = workspace("a", true); const b = workspace("b", true); stubReads(a, b);
+    let finish!: (value: ProjectSummary[]) => void;
+    vi.mocked(api.planningRounds).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    const generate = vi.spyOn(api, "generatePlan"); const execute = vi.spyOn(api, "execute");
+    const s = make(); const first = s.openProject(a.key); await settle();
+    await s.openProject(b.key); finish([{ key: a.key } as ProjectSummary]);
+    expect(await first).toBeNull(); expect(s.planningRounds.value).toEqual([]);
+    expect(s.projectContext.value?.id).toBe("b");
+    expect(generate).not.toHaveBeenCalled(); expect(execute).not.toHaveBeenCalled();
+  });
+
   it("同一画像的两个仓库流程切换精确关联，并清除上一流程聊天与草稿身份", async () => {
     const one = workspace("one"); const two = workspace("two"); stubReads(one, two);
     const s = make(); await s.openProject(one.key);

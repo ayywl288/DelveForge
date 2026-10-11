@@ -162,6 +162,39 @@ public final class ProjectWorkspaceService {
                 now, now, 0, directions.flowId(workspace.plan().productDirectionId()), null));
     }
 
+    public List<ProjectWorkspace> rounds(String contextId) {
+        ProjectFlowContext basis = contexts.findById(contextId).orElseThrow(ProjectNotFoundException::new);
+        return contexts.findByFlow(basis.flowId()).stream()
+                .map(context -> load("project:" + context.id(), context, false)).toList();
+    }
+
+    /** 用户主动开始新轮次，原 planId 不变；不读取旧副本源码、不调用 AI 或执行。 */
+    public ProjectFlowContext beginPlanningRound(String contextId, long expectedVersion) {
+        ProjectFlowContext basis = contexts.findById(contextId).orElseThrow(ProjectNotFoundException::new);
+        if (basis.version() != expectedVersion || basis.planId() == null) {
+            throw new ProjectContextConflictException();
+        }
+        ProjectWorkspace workspace = load("project:" + contextId, basis, false);
+        if (workspace.issues().stream().anyMatch(ProjectWorkspaceService::invalidAssociation)
+                || workspace.issues().contains("FLOW_OWNERSHIP_UNKNOWN")
+                || workspace.plan().status() != com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus.SUPERSEDED) {
+            throw new EvolutionFlowScopeException();
+        }
+        Optional<ProjectFlowContext> existing = contexts.findByFlow(basis.flowId()).stream()
+                .filter(context -> contextId.equals(context.previousContextId())).findFirst();
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+        Instant now = clock.instant();
+        ProjectFlowContext candidate = new ProjectFlowContext(UUID.randomUUID().toString(), basis.name(),
+                basis.userProfileId(), workspace.assets().stream().map(asset -> asset.id().value()).toList(),
+                workspace.repositoryProfiles().stream().map(profile -> profile.id().value()).toList(),
+                workspace.directions().stream().map(direction -> direction.id().value()).toList(), null,
+                now, now, 0, basis.flowId(), basis.id());
+        contexts.createSuccessor(basis, candidate);
+        return candidate;
+    }
+
     private ProjectFlowContext legacyBasis(EvolutionPlan plan) {
         List<String> derivationIssues = new ArrayList<>();
         ProductDirection direction = read(() -> directions.findById(plan.productDirectionId()),
@@ -189,21 +222,30 @@ public final class ProjectWorkspaceService {
 
     private ProjectWorkspace load(String key, ProjectFlowContext basis, boolean legacy) {
         List<String> issues = new ArrayList<>();
+        LinkedHashSet<String> assetIds = new LinkedHashSet<>(basis.assetIds());
+        LinkedHashSet<String> repositoryIds = new LinkedHashSet<>(basis.repositoryProfileIds());
+        if (!legacy) {
+            // 后续轮次新增的分析仍按明确的同 flowId 上下文引用读取，不按路径拼装。
+            contexts.findByFlow(basis.flowId()).forEach(context -> {
+                assetIds.addAll(context.assetIds());
+                repositoryIds.addAll(context.repositoryProfileIds());
+            });
+        }
         UserProfile user = basis.userProfileId() == null ? null
                 : read(() -> users.findById(new UserProfileId(basis.userProfileId())), "USER_PROFILE", issues);
         List<SoftwareAsset> loadedAssets = new ArrayList<>();
-        for (String id : basis.assetIds()) {
+        for (String id : assetIds) {
             SoftwareAsset asset = read(() -> assets.findById(new SoftwareAssetId(id)), "ASSET", issues);
             if (asset != null) {
                 loadedAssets.add(asset);
             }
         }
         List<RepositoryProfile> loadedRepos = new ArrayList<>();
-        for (String id : basis.repositoryProfileIds()) {
+        for (String id : repositoryIds) {
             RepositoryProfile repo = read(() -> repositories.findById(new RepositoryProfileId(id)), "REPOSITORY", issues);
             if (repo != null) {
                 loadedRepos.add(repo);
-                if (!basis.assetIds().contains(repo.assetId().value())) {
+                if (!assetIds.contains(repo.assetId().value())) {
                     issues.add("ASSOCIATION_MISMATCH");
                 }
             }
@@ -225,8 +267,8 @@ public final class ProjectWorkspaceService {
                 }
                 if (!direction.userProfileId().value().equals(basis.userProfileId())
                         || direction.repositoryProfileIds().stream().anyMatch(ref ->
-                                !basis.repositoryProfileIds().contains(ref.value()))
-                        || direction.candidateAssetIds().stream().anyMatch(ref -> !basis.assetIds().contains(ref.value()))) {
+                                !repositoryIds.contains(ref.value()))
+                        || direction.candidateAssetIds().stream().anyMatch(ref -> !assetIds.contains(ref.value()))) {
                     issues.add("ASSOCIATION_MISMATCH");
                 }
             }
@@ -237,7 +279,7 @@ public final class ProjectWorkspaceService {
         Integer boundRevision = null;
         if (plan != null) {
             if (!flowDirections.contains(plan.productDirectionId().value())
-                    || !basis.assetIds().contains(plan.baseAssetId().value())
+                    || !assetIds.contains(plan.baseAssetId().value())
                     || loadedRepos.stream().noneMatch(repo -> repo.id().equals(plan.baseRepositoryProfileId())
                             && repo.assetId().equals(plan.baseAssetId()))) {
                 issues.add("ASSOCIATION_MISMATCH");

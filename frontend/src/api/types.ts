@@ -199,6 +199,8 @@ export interface ProjectContext {
   createdAt: string;
   updatedAt: string;
   version: number;
+  flowId: string;
+  previousContextId: string | null;
 }
 export interface ProjectSummary {
   key: string;

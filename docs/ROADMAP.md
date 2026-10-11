@@ -2019,6 +2019,14 @@ Git Adapter 仅调整存储范围及错误检查，Candidate、Mutation 和 Veri
 Proxy 回读通过，没有新的 Provider / 演化 / Maven 验证请求。用户原库尚未迁移；首次启动
 新版本才应用 V15，升级及手动验收见 [Task F 验证](validation/task-f-project-workspace-history-recovery.md)。
 
-当前画像与历史绑定版本分开显示；未持久化聊天与 CodingProposal 不能恢复。全局单
-SELECTED Direction、授权、revision、WorkingCopy 与 Verification 守卫继续有效。
+当前画像与历史绑定版本分开显示；未持久化聊天与 CodingProposal 不能恢复。
+Task F 当时保留的全局单 SELECTED 规则已由下述 F-Fix 显式演进；授权、revision、
+WorkingCopy 与 Verification 守卫继续有效。
+
+### Task F-Fix — 项目方向隔离与重新规划
+
+稳定 flowId 将 Direction 选择和 Plan 废弃限定在同一演化流程。V16 仅从明确引用建立
+旧记录归属，未知归属只读；不恢复任何 SUPERSEDED 终态。新规划轮次保存
+previousContextId，不替换原 planId。查看历史、切换项目和建立轮次不会调用 AI，
+只有用户明确点击规划才使用当前选定的资产和分析快照。决策见 ADR-0008。
 **M0–M4 继续 FROZEN，M5 继续 DEFERRED；本任务结束后等待用户手动验收，不扩展功能。**

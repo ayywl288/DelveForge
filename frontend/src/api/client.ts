@@ -20,6 +20,7 @@ import type {
 } from "./types";
 
 const messages: Record<string, string> = {
+  EVOLUTION_FLOW_SCOPE_CONFLICT: "流程归属缺失、矛盾或不允许此操作。历史结果仍可查看；不能按路径或画像猜测归属，也不能自动恢复旧计划。",
   PROJECT_CONTEXT_CONFLICT: "项目关联或版本已变化；没有覆盖原项目。请重新打开项目核对，不要重做 AI 调用。",
   INVALID_REQUEST: "请求字段无效，请检查输入。",
   WORKSPACE_STORAGE_UNAVAILABLE: "WorkingCopy 存储不可用。请核对后端配置的目录、权限、链接及已有目标；系统没有回退到其他磁盘。",
@@ -100,6 +101,9 @@ export const api = {
   createProject: (name: string, confirmedUserProfileId: string | null) =>
     request<ProjectContext>("/projects", "POST", { name, confirmedUserProfileId }),
   adoptPlan: (value: string) => request<ProjectContext>(`/projects/legacy-plans/${id(value)}/resume`, "POST"),
+  planningRounds: (value: string) => request<ProjectSummary[]>(`/projects/${id(value)}/rounds`),
+  beginPlanningRound: (context: ProjectContext) =>
+    request<ProjectContext>(`/projects/${id(context.id)}/planning-rounds`, "POST", { expectedVersion: context.version }),
   updateProject: (context: ProjectContext, ids: {
     profileId: string; assetIds: string[]; repositoryIds: string[]; directionIds: string[]; planId: string;
   }) => request<ProjectContext>(`/projects/${id(context.id)}/context`, "PUT", {
@@ -162,28 +166,33 @@ export const api = {
     userProfileId: string,
     expectedRevision: number,
     repositoryProfileIds: string[],
+    context?: ProjectContext | null,
   ) =>
     request<{ directions: ProductDirection[] }>(
       "/product-directions/discovery",
       "POST",
-      { userProfileId, expectedRevision, repositoryProfileIds },
+      { userProfileId, expectedRevision, repositoryProfileIds,
+        ...(context ? { project: { contextId: context.id, expectedVersion: context.version } } : {}) },
     ),
   direction: (value: string) =>
     request<ProductDirection>(`/product-directions/${id(value)}`),
-  decideDirection: (value: string, decision: "select" | "reject") =>
+  decideDirection: (value: string, decision: "select" | "reject", context?: ProjectContext | null) =>
     request<ProductDirection>(
       `/product-directions/${id(value)}/${decision}`,
       "POST",
+      decision === "select" && context ? { contextId: context.id, expectedVersion: context.version } : undefined,
     ),
   generatePlan: (
     productDirectionId: string,
     baseAssetId: string,
     baseRepositoryProfileId: string,
+    context?: ProjectContext | null,
   ) =>
     request<EvolutionPlan>("/evolution-plans/planning", "POST", {
       productDirectionId,
       baseAssetId,
       baseRepositoryProfileId,
+      ...(context ? { project: { contextId: context.id, expectedVersion: context.version } } : {}),
     }),
   plan: (value: string) => request<EvolutionPlan>(plan(value)),
   prepare: (value: string) =>

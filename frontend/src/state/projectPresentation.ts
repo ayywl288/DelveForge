@@ -7,6 +7,7 @@ export function stageIndex(stage: string | null): number {
   return ["DISCOVERY", "REPOSITORY", "DIRECTION", "PLANNING", "EVOLUTION"].indexOf(stage ?? "");
 }
 const issues: Record<string, string> = {
+  FLOW_OWNERSHIP_UNKNOWN: "旧对象没有可证明的唯一流程归属，只能查看历史。不能通过相同画像或路径认领；请建立明确的新流程。",
   ASSOCIATION_MISMATCH: "保存的对象关联不一致，不能视为完整恢复。请核对数据，不能继续执行。",
   PROFILE_BASIS_CHANGED: "当前画像的版本或确认状态已变化；历史方向和 Plan 仍绑定原来的画像版本。",
   DIRECTION_NOT_SELECTED: "此 Plan 的方向当前不是已选择状态。历史结果可查看，继续操作仍受原领域规则限制。",

@@ -222,7 +222,8 @@ onUnmounted(s.dispose);
         v-else-if="stage === 3"
         :s="s"
         @authorize="openAuthorization"
-        @next="stage = 4"
+          @next="stage = 4"
+          @directions="stage = 2"
       /><EvolutionView v-else :s="s" /></KeepAlive>
       <footer class="app-footer">
         <span>AI 提出建议 · 你选择方向 · 后端决定状态</span

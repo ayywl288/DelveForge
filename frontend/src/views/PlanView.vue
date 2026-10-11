@@ -26,7 +26,7 @@ async function loadConfiguration() {
 }
 onMounted(loadConfiguration);
 onActivated(loadConfiguration);
-const emit = defineEmits<{ next: []; authorize: [assetId: string] }>();
+const emit = defineEmits<{ next: []; directions: []; authorize: [assetId: string] }>();
 const base = ref("");
 const reviewed = ref(false);
 const prepareOpen = ref(false);
@@ -55,6 +55,30 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
   asset.value.usageAuthorization === "ALLOWED" && !!asset.value.licenseInfo?.trim());
 </script>
 <template>
+  <section v-if="s.projectContext" class="panel">
+    <div class="panel-header"><h2>本项目的规划轮次</h2>
+      <button class="text-button" :disabled="!!s.busy" @click="s.loadPlanningRounds">刷新轮次</button></div>
+    <p class="meta">每轮保留自己的计划、步骤与验证结果。查看历史不会生成计划或执行代码。</p>
+    <p v-if="s.roundsError" role="alert">{{ s.roundsError }}</p>
+    <div class="actions">
+      <button v-for="round in s.planningRounds" :key="round.key" class="secondary"
+        :disabled="!!s.busy || round.key === 'project:' + s.projectContext.id" @click="s.openProject(round.key, false)">
+        {{ round.planStatus ? `计划 ${round.planId?.slice(0, 8)} · ${round.planStatus}` : '尚未生成计划的轮次' }}
+        · {{ round.succeededSteps }}/{{ round.totalSteps }} 已验证
+      </button>
+    </div>
+  </section>
+  <section v-if="s.plan?.status === 'SUPERSEDED'" class="panel inline-note">
+    <h2>这份计划已失效，保留为历史记录</h2>
+    <p>它的方向已被替代，或历史迁移已标记失效，不能继续授权或执行。原步骤、WorkingCopy 和验证结果保留。</p>
+    <template v-if="s.selected">
+      <h3>当前选中方向：{{ s.selected.title }}</h3><p>{{ s.selected.targetProduct }}</p>
+    </template>
+    <p v-else>当前流程没有 SELECTED 方向。旧 SUPERSEDED 方向不会自动恢复；可在新轮次中明确选择候选，或主动生成新方向。</p>
+    <button :disabled="!!s.busy || !!s.receipt || !s.projectContext || s.projectIssues.includes('FLOW_OWNERSHIP_UNKNOWN')"
+      @click="s.beginReplanning">{{ s.selected ? '基于当前方向重新规划' : '建立新规划轮次' }}</button>
+    <p class="meta">这一步只建立关联轮次，不调用 AI。随后需重新选择合法基础仓库快照，显式生成计划。不会用旧副本 B 代替源仓库分析。</p>
+  </section>
   <section v-if="!s.plan" class="panel plan-input">
     <span class="eyebrow">EVOLUTION BEFORE REWRITE</span>
     <h2>把方向拆成可验证的步骤</h2>
@@ -91,7 +115,8 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
         </button>
       </form>
     </template>
-    <p v-else class="empty">请先明确选择一个产品方向。</p>
+    <div v-else class="empty"><p>请先明确选择一个产品方向。</p>
+      <button class="secondary" @click="emit('directions')">前往产品方向</button></div>
   </section>
   <template v-else>
     <section class="panel">
@@ -230,7 +255,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
         Prepare WorkingCopy
       </button>
     </section>
-    <div v-else class="stage-footer">
+    <div v-else-if="s.plan.status === 'ACTIVE'" class="stage-footer">
       <p>
         准备与授权是不同的决定。查看实际 WorkingCopy，再手动执行一个 READY
         Step。
