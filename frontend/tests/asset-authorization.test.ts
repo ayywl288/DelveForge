@@ -66,13 +66,15 @@ describe("资产授权和展示", () => {
 
   it("授权编辑必须显式核对后提交完整字段和当前版本", async () => {
     const s = session(); s.assets = [{ ...asset(), licenseInfo: null, usageAuthorization: "UNCLEAR", authorizationRevision: 3 }];
-    const save = vi.spyOn(s, "updateAssetAuthorization").mockResolvedValue();
+    const save = vi.spyOn(s, "updateAssetAuthorization").mockResolvedValue(true);
     const root = mount(RepositoryView, { s });
     const form = root.querySelector(".authorization-editor form")!;
     const button = form.querySelector("button")!;
     expect(button.disabled).toBe(true);
+    const license = form.querySelector(".license-declaration select") as HTMLSelectElement;
+    license.value = "custom"; license.dispatchEvent(new Event("change", { bubbles: true })); await nextTick();
     await input(form.querySelector("textarea")!, "Code Apache-2.0; prose BY-ND-3.0");
-    const select = form.querySelector("select")!;
+    const select = form.querySelector("#asset-usage-asset-1") as HTMLSelectElement;
     select.value = "ALLOWED"; select.dispatchEvent(new Event("change", { bubbles: true }));
     const check = form.querySelectorAll("input[type=checkbox]")[1] as HTMLInputElement;
     check.checked = true; check.dispatchEvent(new Event("change", { bubbles: true })); await nextTick();
@@ -88,10 +90,11 @@ describe("资产授权和展示", () => {
     const root = mount(PlanView, { s });
     const select = root.querySelector("select")!;
     select.value = "repo-1"; select.dispatchEvent(new Event("change", { bubbles: true })); await nextTick();
-    expect(root.querySelector("button")?.disabled).toBe(true);
+    const generateButton = () => [...root.querySelectorAll("button")].find(item => item.textContent?.includes("生成演化计划"))!;
+    expect(generateButton().disabled).toBe(true);
     expect(root.textContent).toContain("无需重新分析或重新生成方向");
     s.assets = [{ ...asset(), authorizationRevision: 1 }]; await nextTick();
-    expect(root.querySelector("button")?.disabled).toBe(false);
+    expect(generateButton().disabled).toBe(false);
     expect(generate).not.toHaveBeenCalled();
   });
 

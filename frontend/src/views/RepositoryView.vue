@@ -1,17 +1,25 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import type { WorkspaceSession } from "../state/session";
-import type { UsageAuthorization } from "../api/types";
+import type { AssetAuthorizationInput, UsageAuthorization } from "../api/types";
 import ContentList from "../components/ContentList.vue";
 import EvidenceList from "../components/EvidenceList.vue";
 import RevisionText from "../components/RevisionText.vue";
 import AssetAuthorizationForm from "../components/AssetAuthorizationForm.vue";
+import LicenseDeclarationField from "../components/LicenseDeclarationField.vue";
+import { validLicenseDeclaration } from "../state/licenseDeclaration";
 import { repositoryLocationKey } from "../state/repositoryLocation";
-const props = defineProps<{ s: WorkspaceSession }>();
-const emit = defineEmits<{ next: [] }>();
+const props = defineProps<{ s: WorkspaceSession; authorizationTargetId?: string }>();
+const emit = defineEmits<{ next: []; returnPlanning: [] }>();
+const savedAuthorizationId = ref("");
+watch(() => props.authorizationTargetId, () => { savedAuthorizationId.value = ""; });
+async function saveAuthorization(id: string, input: AssetAuthorizationInput) {
+  savedAuthorizationId.value = "";
+  if (await props.s.updateAssetAuthorization(id, input)) savedAuthorizationId.value = id;
+}
 const location = ref("");
 const permission = ref("");
-const license = ref("");
+const license = ref<string | null>(null);
 const authorization = ref<UsageAuthorization | "">("");
 const registered = computed(() => props.s.assets.some(asset =>
   repositoryLocationKey(asset.location) === repositoryLocationKey(location.value)));
@@ -36,7 +44,7 @@ const absolute = computed(
           s.register({
             location: location.trim(),
             readPermissionAllowed: permission === 'true',
-            licenseInfo: license.trim() || null,
+            licenseInfo: license?.trim() ?? null,
             usageAuthorization: authorization as UsageAuthorization,
           })
         "
@@ -66,13 +74,7 @@ const absolute = computed(
           <option value="true">我允许系统读取和分析此仓库</option>
           <option value="false">不允许读取</option>
         </select>
-        <label for="license">已知许可证</label
-        ><input
-          id="license" name="license" autocomplete="off"
-          v-model="license"
-          placeholder="许可证名称或使用条款；未知可留空"
-          :disabled="!!s.busy"
-        />
+        <LicenseDeclarationField id="license" v-model="license" :disabled="!!s.busy" />
         <label for="usage-auth">复用 / 二次开发授权</label
         ><select
           id="usage-auth" name="usage-auth" autocomplete="off"
@@ -86,7 +88,7 @@ const absolute = computed(
           <option value="UNCLEAR">尚未确认 · UNCLEAR</option>
         </select>
         <button
-          :disabled="!!s.busy || registered || !absolute || !permission || !authorization"
+          :disabled="!!s.busy || registered || !absolute || !permission || !authorization || !validLicenseDeclaration(license)"
         >
           {{ registered ? "已注册" : "注册此仓库" }}
         </button>
@@ -99,7 +101,8 @@ const absolute = computed(
       <p v-if="!s.assets.length" class="empty">
         尚未注册。填写路径和授权后，单独启动分析。
       </p>
-      <article v-for="asset in s.assets" :key="asset.id" class="asset-card">
+      <article v-for="asset in s.assets" :key="asset.id" class="asset-card"
+        :id="`asset-${asset.id}`" :class="{ 'authorization-target': authorizationTargetId === asset.id }">
         <h3>{{ asset.location }}</h3>
         <p>
           读取：{{ asset.readPermissionAllowed ? "允许" : "不允许" }} · 使用：{{
@@ -127,8 +130,13 @@ const absolute = computed(
           <summary>资产 ID</summary>
           <code>{{ asset.id }}</code>
         </details>
-        <AssetAuthorizationForm :asset="asset" :busy="!!s.busy"
-          @submit="s.updateAssetAuthorization(asset.id, $event)" />
+        <p v-if="authorizationTargetId === asset.id" class="inline-note">
+          演化规划指定的资产：<code>{{ asset.id }}</code>。本页按 ID 定位，不替换相同路径的其他记录。
+        </p>
+        <AssetAuthorizationForm :asset="asset" :busy="!!s.busy" :expanded="authorizationTargetId === asset.id"
+          @submit="saveAuthorization(asset.id, $event)" />
+        <button v-if="authorizationTargetId === asset.id && savedAuthorizationId === asset.id"
+          class="secondary" :disabled="!!s.busy" @click="emit('returnPlanning')">返回演化规划 →</button>
       </article>
       <div class="inline-note">
         分析结果不代表任意仓库可安全执行。M4 验证只支持既有 Java / Maven

@@ -118,6 +118,79 @@ class WorkingCopyProvisioningIntegrationTest {
     }
 
     @Test
+    void customRootCreatesOnlyNewCopiesAndExplicitOldRootPreservesExistingCopy() throws Exception {
+        Path source = repositories.createCommitted("source", Map.of("report.txt", "one"));
+        WorkspaceRef ref = new WorkspaceRef(source.toString());
+        String revision = GitTestRepositories.headRevision(source);
+        Path oldRoot = repositories.directory("old-managed");
+        GitWorkspaceAdapter oldAdapter = new GitWorkspaceAdapter(oldRoot);
+        PreparedWorkspace oldCopy = oldAdapter.provision(ref, revision, "old-copy");
+        Map<String, String> before = GitTestRepositories.snapshot(Path.of(oldCopy.workspace().value()));
+        Path newRoot = repositories.directory("new-storage/workspaces");
+        GitWorkspaceAdapter changed = new GitWorkspaceAdapter(new WorkspaceProperties(newRoot, java.util.List.of(oldRoot)));
+        PreparedWorkspace newCopy = changed.provision(ref, revision, "new-copy");
+        assertEquals(newRoot.resolve("new-copy"), Path.of(newCopy.workspace().value()));
+        changed.requireTrustedState(oldCopy.workspace(), ref, revision);
+        assertEquals(before, GitTestRepositories.snapshot(Path.of(oldCopy.workspace().value())));
+        assertThrows(WorkingCopyBasisChangedException.class,
+                () -> new GitWorkspaceAdapter(newRoot).requireTrustedState(oldCopy.workspace(), ref, revision));
+        assertTrue(Files.exists(Path.of(oldCopy.workspace().value())));
+        changed.discard(newCopy);
+        changed.discard(oldCopy);
+    }
+
+    @Test
+    void unavailableOrRelativeRootNeverFallsBackOrOverwritesAFile() throws Exception {
+        Path source = repositories.createCommitted("source", Map.of("report.txt", "one"));
+        WorkspaceRef ref = new WorkspaceRef(source.toString());
+        String revision = GitTestRepositories.headRevision(source);
+        Path file = repositories.directory("not-a-directory");
+        Files.writeString(file, "keep");
+        Map<String, String> before = GitTestRepositories.snapshot(source);
+        for (Path root : new Path[] {file, file.resolve("workspaces"), Path.of("relative-workspaces")}) {
+            assertThrows(WorkspaceStorageUnavailableException.class,
+                    () -> new GitWorkspaceAdapter(root).provision(ref, revision, "copy"));
+        }
+        assertEquals("keep", Files.readString(file));
+        assertEquals(before, GitTestRepositories.snapshot(source));
+        if (System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win")) {
+            java.util.List<Path> mounted = java.util.Arrays.stream(java.io.File.listRoots())
+                    .map(java.io.File::toPath).toList();
+            Path absentDrive = java.util.stream.IntStream.rangeClosed('A', 'Z')
+                    .mapToObj(letter -> Path.of((char) letter + ":\\"))
+                    .filter(path -> !mounted.contains(path)).findFirst().orElseThrow();
+            assertThrows(WorkspaceStorageUnavailableException.class,
+                    () -> new GitWorkspaceAdapter(absentDrive.resolve("workspaces"))
+                            .provision(ref, revision, "copy"));
+            assertEquals(before, GitTestRepositories.snapshot(source));
+        }
+    }
+
+    @Test
+    void rejectsConfiguredRootThroughSymlinkOrWindowsJunction() throws Exception {
+        Path source = repositories.createCommitted("source", Map.of("report.txt", "one"));
+        Path destination = repositories.directory("other-directory");
+        Files.createDirectory(destination);
+        Path link = repositories.directory("linked-root");
+        if (System.getProperty("os.name").toLowerCase(java.util.Locale.ROOT).contains("win")) {
+            Process process = new ProcessBuilder("cmd", "/c", "mklink", "/J", link.toString(), destination.toString())
+                    .redirectErrorStream(true).start();
+            String output = new String(process.getInputStream().readAllBytes());
+            assertEquals(0, process.waitFor(), output);
+        } else {
+            Files.createSymbolicLink(link, destination);
+        }
+        try {
+            assertThrows(WorkspaceStorageUnavailableException.class, () -> new GitWorkspaceAdapter(link.resolve("copies"))
+                    .provision(new WorkspaceRef(source.toString()), GitTestRepositories.headRevision(source), "copy"));
+            assertFalse(Files.exists(destination.resolve("copies")));
+        } finally {
+            // 仅删除本测试建立的链接自身，不能递归进入其目标。
+            Files.delete(link);
+        }
+    }
+
+    @Test
     void realCloneFailureRemovesOnlyItsAllocatedCandidateAndLeavesSourceUntouched() throws Exception {
         var source = repositories.createCommitted("source", Map.of("report.txt", "one"));
         var revision = GitTestRepositories.headRevision(source);

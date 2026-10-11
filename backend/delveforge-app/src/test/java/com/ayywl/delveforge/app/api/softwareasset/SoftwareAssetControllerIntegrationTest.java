@@ -303,6 +303,53 @@ class SoftwareAssetControllerIntegrationTest {
                 .andExpect(status().isBadRequest());
     }
 
+    @Test
+    void rejectsMeaninglessNewDeclarationsAndPreservesAuthorizationVersion() throws Exception {
+        for (String declaration : List.of("123", "１２３", "---", "  ")) {
+            mockMvc.perform(post("/api/software-assets").contentType(MediaType.APPLICATION_JSON)
+                            .content(registrationBody("E:/task-e-invalid", true, declaration, "ALLOWED")))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+        assertEquals(0, softwareAssetMapper.selectCount(null));
+        String id = register("E:/task-e-update", false, null, "UNCLEAR");
+        for (String declaration : List.of("123", "---", "  ")) {
+            String input = objectMapper.createObjectNode().put("expectedAuthorizationRevision", 0)
+                    .put("readPermissionAllowed", true).put("licenseInfo", declaration)
+                    .put("usageAuthorization", "ALLOWED").toString();
+            mockMvc.perform(put("/api/software-assets/{id}/authorization", id)
+                            .contentType(MediaType.APPLICATION_JSON).content(input))
+                    .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+        mockMvc.perform(get("/api/software-assets/{id}", id)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.authorizationRevision").value(0))
+                .andExpect(jsonPath("$.readPermissionAllowed").value(false))
+                .andExpect(jsonPath("$.usageAuthorization").value("UNCLEAR"));
+    }
+
+    @Test
+    void acceptsMixedDeclarationAndReadsLegacyValueWithoutRewritingIt() throws Exception {
+        String declaration = "Code Apache-2.0; documentation separate terms; source LICENSE; scope complete";
+        String id = register("E:/task-e-legacy", true, declaration, "ALLOWED");
+        var legacy = softwareAssetMapper.selectById(id);
+        legacy.setLicenseInfo("123");
+        softwareAssetMapper.updateById(legacy);
+        mockMvc.perform(get("/api/software-assets/{id}", id)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.licenseInfo").value("123"))
+                .andExpect(jsonPath("$.authorizationRevision").value(0));
+        String input = objectMapper.createObjectNode().put("expectedAuthorizationRevision", 0)
+                .put("readPermissionAllowed", true).put("licenseInfo", declaration)
+                .put("usageAuthorization", "ALLOWED").toString();
+        mockMvc.perform(put("/api/software-assets/{id}/authorization", id)
+                        .contentType(MediaType.APPLICATION_JSON).content(input))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(id))
+                .andExpect(jsonPath("$.licenseInfo").value(declaration))
+                .andExpect(jsonPath("$.authorizationRevision").value(1));
+        mockMvc.perform(put("/api/software-assets/{id}/authorization", id)
+                        .contentType(MediaType.APPLICATION_JSON).content(input))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ASSET_AUTHORIZATION_CONFLICT"));
+    }
+
     private String register(String location, boolean readPermission, String license, String usage)
             throws Exception {
         String body = mockMvc.perform(post("/api/software-assets")

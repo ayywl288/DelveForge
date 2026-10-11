@@ -1995,3 +1995,14 @@ Bundle 均还原到新目录，HEAD/工作树与 manifest 一致，离线 Maven 
 M0–M4 继续 FROZEN，M5 继续 DEFERRED；本任务不调用真实 Provider 或修改 Git / Verification。
 根因、API 契约、确定性回归和现有 GS REST 恢复步骤见
 [Task D 验证记录](validation/task-d-planning-authorization-ux.md)。
+
+### Task E — Final E2E UX Polish 与 WorkingCopy 换盘（用户授权修复）
+
+**DONE（2026-10-11）。** 后端最终 `mvnw.cmd verify` 1436 项通过，前端 56 项、
+类型检查及构建通过。新增许可证声明的最小输入检查与 SPDX/混合声明控件、按精确资产 ID
+补充授权并返回原规划、客户端等待计时及 GET 状态展示。
+保留已有 Workspace Root 环境变量，并提供显式旧副本根目录允许列表与只读配置展示；
+不移动旧副本，不改写历史授权、Plan、Step 或已验证 revision。
+Git Adapter 仅调整存储范围及错误检查，Candidate、Mutation 和 Verification 领域语义不变。
+没有付费 Provider、真实 Smoke 或新演化；M0–M4 继续 FROZEN，M5 继续 DEFERRED。
+实现边界、测试与手动验收见 [Task E 验证记录](validation/task-e-final-e2e-ux-polish.md)。

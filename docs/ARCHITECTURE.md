@@ -996,6 +996,14 @@ Git Adapter 在 `delveforge.workspace.root` 下创建独立 Local Clone，使用
 根目录必须为绝对路径，可由 `DELVEFORGE_WORKSPACE_ROOT` 覆盖；默认位置见 app 的 application.yml。
 Adapter 拒绝源仓库与托管根目录重叠、已有目标目录和不安全的目录名称。
 
+Task E 保留配置入口；`delveforge.workspace.existing-roots`（环境变量
+`DELVEFORGE_WORKSPACE_EXISTING_ROOTS`）仅允许继续检查和操作这些后端显式配置根目录中的
+已有副本，新建仍只使用 `root`。不移动旧副本、不改持久化绑定、不从客户端路径推导授权。
+Root 规范化后必须是绝对目录，已有祖先不能通过符号链接或 Windows junction 重定向；
+实际创建、目录可写性、直接子目录、源隔离、准备凭据与目标冲突检查仍适用。
+存储不可用返回 `WORKSPACE_STORAGE_UNAVAILABLE`，不选择其他磁盘。
+`GET /api/system/workspace-configuration` 只显示后端配置，不探测目录或允许前端修改。
+
 外部候选成功后，Application 在隔离的领域候选上依次创建 READY WorkingCopy、绑定、由 Policy
 判定并由 Plan.activate 转换状态。EvolutionLifecycleCommitPort 一次提交 READY 元数据与 ACTIVE
 Plan；SQLite 条件更新再次核对 PROPOSED / 未绑定 / SELECTED、Profile revision 与当前资产授权依据。

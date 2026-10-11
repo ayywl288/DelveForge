@@ -166,6 +166,10 @@ export interface EvolutionPlan {
   steps: EvolutionStep[];
   status: "PROPOSED" | "ACTIVE" | "COMPLETED" | "ABANDONED" | "SUPERSEDED";
 }
+export interface WorkspaceConfiguration {
+  root: string | null;
+  existingRoots: string[];
+}
 export interface WorkingCopy {
   id: string;
   sourceAssetId: string;

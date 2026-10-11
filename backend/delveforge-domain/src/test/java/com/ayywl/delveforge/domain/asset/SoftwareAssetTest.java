@@ -261,6 +261,49 @@ class SoftwareAssetTest {
                         LOCATION, true, null, null));
     }
 
+    @Test
+    void rejectsMeaninglessNewLicenseDeclarationsWithoutChangingAuthorization() {
+        SoftwareAsset original = asset(false, null, UsageAuthorization.UNCLEAR);
+        for (String declaration : new String[] {"123", "１２３", "---", " \n "}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> asset(true, declaration, UsageAuthorization.ALLOWED));
+            assertThrows(IllegalArgumentException.class,
+                    () -> original.updateAuthorization(0, true, declaration, UsageAuthorization.ALLOWED));
+        }
+        assertEquals(0, original.authorizationRevision());
+        assertFalse(original.readPermissionAllowed());
+        assertTrue(original.licenseInfo().isEmpty());
+        assertEquals(UsageAuthorization.UNCLEAR, original.usageAuthorization());
+    }
+
+    @Test
+    void acceptsStandardCustomAndMixedLicenseDeclarationsWithoutGrantingPermission() {
+        for (String declaration : new String[] {"MIT", "Apache-2.0", "BSD-3-Clause", "GPL-3.0-only",
+                "代码：Apache-2.0；文档：另见教程许可；来源：LICENSE；范围：complete 工程"}) {
+            SoftwareAsset asset = asset(false, declaration, UsageAuthorization.DENIED);
+            assertEquals(declaration, asset.licenseInfo().orElseThrow());
+            assertFalse(asset.readPermissionAllowed());
+            assertEquals(UsageAuthorization.DENIED, asset.usageAuthorization());
+        }
+    }
+
+    @Test
+    void restoresLegacyLicenseExactlyAndRequiresExplicitCorrectionOnNewSubmission() {
+        SoftwareAsset legacy = SoftwareAsset.reconstitute(ASSET_ID, SoftwareAssetType.GIT_REPOSITORY,
+                SoftwareAssetSource.USER_SPECIFIED, LOCATION, true, "123", UsageAuthorization.ALLOWED, 7);
+        assertEquals("123", legacy.licenseInfo().orElseThrow());
+        assertEquals(7, legacy.authorizationRevision());
+        assertDoesNotThrow(legacy::requireAnalysisAllowed);
+        assertThrows(AssetAuthorizationConflictException.class,
+                () -> legacy.updateAuthorization(6, true, "MIT", UsageAuthorization.ALLOWED));
+        assertThrows(IllegalArgumentException.class,
+                () -> legacy.updateAuthorization(7, true, "123", UsageAuthorization.ALLOWED));
+        SoftwareAsset corrected = legacy.updateAuthorization(7, true, "MIT", UsageAuthorization.ALLOWED);
+        assertEquals(8, corrected.authorizationRevision());
+        assertEquals(legacy.id(), corrected.id());
+        assertEquals("123", legacy.licenseInfo().orElseThrow());
+    }
+
     private static SoftwareAsset asset(
             boolean readPermissionAllowed,
             String licenseInfo,

@@ -9,6 +9,19 @@ import EvolutionView from "./views/EvolutionView.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 const s = reactive(createSession());
 const stage = ref(0);
+const authorizationTargetId = ref("");
+async function openAuthorization(assetId: string) {
+  // 先按精确身份读取当前授权；找不到时保留原页和明确错误，不改选同路径记录。
+  authorizationTargetId.value = "";
+  if (await s.loadAsset(assetId)) {
+    authorizationTargetId.value = assetId;
+    stage.value = 1;
+  }
+}
+function returnPlanning() {
+  authorizationTargetId.value = "";
+  stage.value = 3;
+}
 const stages = [
   {
     title: "需求探索",
@@ -172,6 +185,8 @@ onUnmounted(s.dispose);
       /><RepositoryView
         v-else-if="stage === 1"
         :s="s"
+        :authorization-target-id="authorizationTargetId"
+        @return-planning="returnPlanning"
         @next="stage = 2"
       /><DirectionsView
         v-else-if="stage === 2"
@@ -180,6 +195,7 @@ onUnmounted(s.dispose);
       /><PlanView
         v-else-if="stage === 3"
         :s="s"
+        @authorize="openAuthorization"
         @next="stage = 4"
       /><EvolutionView v-else :s="s" /></KeepAlive>
       <footer class="app-footer">

@@ -123,6 +123,20 @@ $env:DELVEFORGE_LOG_DIR = Join-Path $localRunRoot 'logs'
 设置后再启动 JAR。若要体验全新环境，选择新的运行目录，不要删除原业务数据库。
 重复启动同一路径会保留此前画像，且只能有一个应用实例使用该 DB / Workspace。
 
+WorkingCopy 可存到其他磁盘。在启动后端的同一终端设置后重启，例如：
+
+```powershell
+$env:DELVEFORGE_WORKSPACE_ROOT = 'E:\DelveForge\workspaces' # 示例；选择自己授权的独立目录
+# 如果还要继续使用旧副本，显式保留它们所在的旧根目录（多个根目录用逗号分隔）
+$env:DELVEFORGE_WORKSPACE_EXISTING_ROOTS = Join-Path $env:USERPROFILE '.delveforge\m4-local\workspaces'
+```
+
+新副本只创建在新的 Root；旧副本、数据库绑定和验证结果不会被移动或修改。只读接口
+`GET /api/system/workspace-configuration` 及 Web 的 Prepare 页面显示当前配置；成功后
+以 WorkingCopy 的 `location` 查看实际目录。目录不可用或含链接/junction 时拒绝，不回退到 C 盘。
+旧根目录未列入允许范围时，原记录仍可查看，但安全检查会拒绝继续操作其中的副本。
+完整说明见 [WorkingCopy 换盘配置](docs/M4_LOCAL_USAGE.md#workingcopy-存储位置)。
+
 上述本地 profile 运行于 `http://127.0.0.1:8080`，SQLite 默认位于 `./data/m4-local/delveforge.db`，
 Workspace 和日志位置可覆盖。不指定 profile 时数据库默认仍为 `./data/delveforge.db`。
 未设置 Key 时仍可启动服务，但需要模型的请求会失败。真实凭据不要提交到仓库。

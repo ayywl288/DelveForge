@@ -479,6 +479,16 @@ summary {
   background: #edf5eb;
   padding: 15px;
 }
+.waiting-duration {
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.authorization-target {
+  outline: 2px solid #9fac82;
+  outline-offset: 8px;
+  scroll-margin-block: 24px;
+}
 .global-request {
   display: flex;
   align-items: center;

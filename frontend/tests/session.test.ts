@@ -246,6 +246,7 @@ describe("长同步 execute", () => {
     vi.useFakeTimers();
     const s = make();
     ready(s);
+    s.observeExecution(true);
     let resolve!: (value: ReturnType<typeof plan>) => void;
     const execute = vi.spyOn(api, "execute").mockImplementation(() => {
       expect(localStorage.getItem(executionKey)).toContain("step-1");

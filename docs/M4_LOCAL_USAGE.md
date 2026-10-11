@@ -73,6 +73,39 @@ Invoke-RestMethod http://127.0.0.1:8080/api/system/connectivity
 
 ## 4. 用正常 API 完成 M1–M4
 
+### WorkingCopy 存储位置
+
+无需改变 Prepare 请求体。默认 `m4-local` Root 为用户目录下
+`.delveforge/m4-local/workspaces`；不启用该 profile 时为 `.delveforge/workspaces`。
+两者都接受 `DELVEFORGE_WORKSPACE_ROOT`，或命令行
+`--delveforge.workspace.root=<绝对目录>`。选择有写入权限、与所有源仓库分离的专用目录：
+
+```powershell
+$env:DELVEFORGE_WORKSPACE_ROOT = 'E:\DelveForge\workspaces' # 可替换为其他授权磁盘目录
+$env:DELVEFORGE_WORKSPACE_EXISTING_ROOTS = Join-Path $env:USERPROFILE '.delveforge\m4-local\workspaces'
+java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar --spring.profiles.active=m4-local
+Invoke-RestMethod http://127.0.0.1:8080/api/system/workspace-configuration
+```
+
+环境变量必须在启动进程前设置，更改后重启后端；停止时先确认没有执行中的长请求。
+`existing-roots` 是显式允许继续使用的旧根目录，不是新建目标；可用逗号分隔多个旧根目录，
+或在 YAML 中使用列表（路径本身含逗号时用列表）。不需要旧副本时可不设置。
+Web 的 Prepare 区域显示配置，可重新读取；未新增浏览器任意选目录或目录浏览权限。
+
+准备时规范化 Root，拒绝相对路径、与原仓库重叠、链接/junction 重定向的祖先、非目录或
+不可写目录；不存在的正常目录通过检查后才创建。副本名只允许安全的单段名称；已有目标
+不被接管或覆盖。存储不可用返回 `WORKSPACE_STORAGE_UNAVAILABLE`，不自动选择其他位置。
+配置接口只展示值，不证明磁盘当时可用。
+
+配置不搬迁、删除或重建旧副本，不更新 Plan、Step、Git revision 或 VerificationResult。
+继续操作旧副本时，旧 Root 必须显式保留在 `existing-roots`（或重新设为主 Root）；
+否则原记录仍可查看，但托管目录检查拒绝操作。已有副本仍须通过原准备凭据、隔离、
+净化与 revision 检查，列入目录不是执行授权。
+新副本实际位置从 Prepare 返回的 `workingCopyId` 查询
+`GET /api/working-copies/{id}` 的 `location`，Web 验证演化页也展示它。
+
+### 正常业务请求
+
 所有 ID、revision、状态都从本次 API 返回读取。以下占位符不是历史 UUID，也不能向数据库直接填入。各请求保存必要的结构化结果，敏感原件放在受控目录；不要将完整画像、源码或模型正文提交到 Git。
 
 | 阶段 | 正常 API 与实际输入 | 下一阶段得到什么 / 用户决策 |
@@ -111,7 +144,12 @@ Invoke-RestMethod http://127.0.0.1:8080/api/system/connectivity
 `expectedAuthorizationRevision`、`readPermissionAllowed`、`licenseInfo`、`usageAuthorization`。
 返回保持原 ID 的资源；原分析和方向引用不变。过期版本拒绝，不自动重试。
 `licenseInfo: null` 表示仍未知；非空记录不表示系统作出了法律兼容性或商用许可判断。
-Web 中展开已有资产卡片的「完善许可证与授权」，成功后回到 Planning 使用原快照。
+新提交的非 null 声明至少要包含许可证名称或条款文字；纯数字、符号与空白被拒绝。
+旧记录读取保留原文及原版本，不自动改写历史授权。Web 可选择常见 SPDX 名称，或选择
+「其他 / 自定义 / 混合许可证」按代码、文档分别记录实际条款、来源和范围。
+读取和使用授权仍需用户明确提交；系统没有独立核实真实性、权属或法律兼容性。
+Planning 的「前往补充许可证与授权」按基础快照的精确 Asset ID 定位原记录；成功保存后
+点击「返回演化规划」沿用原选择，失败不会替换其他相同路径资产或自动重新请求 AI。
 实际 GS REST 恢复步骤及许可分区见 [Task D 验证记录](validation/task-d-planning-authorization-ux.md)。
 
 Direction Discovery 请求：

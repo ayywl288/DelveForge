@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from "vue";
 import type { WorkspaceSession } from "../state/session";
 import type { EvolutionStep } from "../api/types";
 import StatusBadge from "../components/StatusBadge.vue";
@@ -7,6 +7,42 @@ import ContentList from "../components/ContentList.vue";
 import RevisionText from "../components/RevisionText.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
+const now = ref(Date.now());
+const pollingPaused = ref(false);
+let active = false;
+let clock: ReturnType<typeof setInterval> | undefined;
+const request = computed(() => props.s.executionPending ? props.s.executionRequest : props.s.receipt);
+const requestedStep = computed(() => props.s.plan && props.s.plan.id === request.value?.planId
+  ? props.s.plan.steps.find(step => step.id === request.value?.stepId) : undefined);
+const elapsed = computed(() => {
+  const seconds = Math.max(0, Math.floor((now.value - Date.parse(request.value?.startedAt ?? "")) / 1_000));
+  if (!Number.isFinite(seconds)) return "未知";
+  return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+});
+function updateClock() {
+  clearInterval(clock);
+  now.value = Date.now();
+  if (active && props.s.executionPending) clock = setInterval(() => { now.value = Date.now(); }, 1_000);
+}
+function activate() {
+  active = true;
+  updateClock();
+  props.s.observeExecution(!pollingPaused.value);
+}
+function deactivate() {
+  active = false;
+  clearInterval(clock);
+  props.s.observeExecution(false);
+}
+function togglePolling() {
+  pollingPaused.value = !pollingPaused.value;
+  props.s.observeExecution(active && !pollingPaused.value);
+}
+onMounted(activate);
+onActivated(activate);
+onDeactivated(deactivate);
+onUnmounted(deactivate);
+watch(() => props.s.executionPending, updateClock);
 const selectedId = ref("");
 const chosen = computed(
   () =>
@@ -55,7 +91,13 @@ function execute() {
 </script>
 <template>
   <div v-if="!s.plan" class="panel empty">
-    先生成计划、Prepare WorkingCopy，并明确授权 Step。
+    <template v-if="s.receipt">
+      <h2>执行状态尚未读取</h2>
+      <p>此浏览器保留了执行请求标记，结果未知。只查询真实状态，不重复提交 execute。</p>
+      <button class="secondary" @click="s.refreshPlan().catch(() => { s.pollError = '无法读取执行状态，请检查连接。'; })">查询当前状态</button>
+      <p v-if="s.pollError" role="alert" class="field-error">{{ s.pollError }}</p>
+    </template>
+    <template v-else>先生成计划、Prepare WorkingCopy，并明确授权 Step。</template>
   </div>
   <template v-else>
     <section class="panel">
@@ -83,18 +125,26 @@ function execute() {
       <div
         v-if="s.receipt || s.executionPending"
         class="execution-notice"
-        role="status"
       >
-        <strong>{{
-          s.executionPending ? "本页正在等待执行响应" : "执行结果待核对"
+        <strong role="status">{{
+          s.executionPending ? "执行请求已提交，正在等待后端结果" : "执行结果待核对，仅查询状态"
         }}</strong>
+        <p v-if="s.executionPending" class="waiting-duration" role="timer" aria-live="off">前端已等待 {{ elapsed }}。这不是后台执行进度。</p>
         <p>
-          系统每 3 秒查询持久化状态，查询不会重复发送 execute。READY
-          不能证明后台准备已结束。
+          {{ pollingPaused ? "自动刷新已暂停，可手动查询。" : "本页约每 3 秒只读查询持久化状态。" }}
+          请求可能持续数分钟，请勿重复提交。READY 不能证明后台准备已结束。
         </p>
-        <p v-if="s.receipt" class="meta">
-          请求开始：{{ new Date(s.receipt.startedAt).toLocaleString("zh-CN") }}
+        <p v-if="request" class="meta">
+          请求开始：{{ new Date(request.startedAt).toLocaleString("zh-CN") }} · Step <code>{{ request.stepId }}</code>
         </p>
+        <div class="observed-execution">
+          <p>后端最近确认：<StatusBadge v-if="requestedStep" :status="requestedStep.status" /><span v-else>尚未读取到请求对应的 Step</span></p>
+          <RevisionText v-if="requestedStep?.executionResult" label="已保存的 Candidate" :value="requestedStep.executionResult.candidateRevision" />
+          <p v-for="(check, index) in requestedStep?.verificationResult?.checks ?? []" :key="index">
+            {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ check.passed ? 'PASS' : 'FAIL' }}
+          </p>
+        </div>
+        <button class="secondary" type="button" @click="togglePolling">{{ pollingPaused ? '恢复只读刷新' : '暂停状态刷新' }}</button>
         <p v-if="!s.executionPending">
           此浏览器保留等待标记，再次执行已禁用。若状态一直不变化，需在宿主核对原请求是否结束；当前
           API 没有请求任务查询或恢复入口。
@@ -261,7 +311,7 @@ function execute() {
         <p v-else class="empty">
           尚无 VerificationResult。Candidate 出现不等于验证成功。
         </p>
-        <p
+        <div
           v-if="
             chosen.status === 'SUCCEEDED' &&
             s.copy?.lastVerifiedRevision ===
@@ -269,9 +319,13 @@ function execute() {
           "
           class="success-note"
         >
-          后端已将此 Step 标记为 SUCCEEDED，lastVerifiedRevision 与该 Candidate
-          一致。
-        </p>
+          <strong>SUCCEEDED · 此 Step 验证通过</strong>
+          <RevisionText label="lastVerifiedRevision" :value="s.copy?.lastVerifiedRevision" />
+          <p v-for="(check, index) in chosen.verificationResult?.checks ?? []" :key="index">
+            {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ check.passed ? 'PASS' : 'FAIL' }}
+          </p>
+          <p class="meta">状态、revision 与检查结果均来自后端；不会自动执行下一 Step。</p>
+        </div>
         <p
           v-if="
             ![

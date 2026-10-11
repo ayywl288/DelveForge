@@ -1,6 +1,8 @@
 delveforge:
   workspace:
     root: ${DELVEFORGE_WORKSPACE_ROOT:${user.home}/.delveforge/workspaces}
+    # 切换 root 后仍需使用的旧副本根目录；只接纳已有副本，不在这些目录中新建。
+    existing-roots: ${DELVEFORGE_WORKSPACE_EXISTING_ROOTS:}
   # Repository Analysis 的运行时上限。
   #
   # 这些是**操作调参值**，不是领域规则：它们决定一次分析能读到多少内容，改变它们

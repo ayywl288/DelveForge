@@ -11,10 +11,12 @@ import type {
   SoftwareAsset,
   UserProfile,
   WorkingCopy,
+  WorkspaceConfiguration,
 } from "./types";
 
 const messages: Record<string, string> = {
   INVALID_REQUEST: "请求字段无效，请检查输入。",
+  WORKSPACE_STORAGE_UNAVAILABLE: "WorkingCopy 存储不可用。请核对后端配置的目录、权限、链接及已有目标；系统没有回退到其他磁盘。",
   NOT_FOUND: "对象不存在，请检查恢复 ID 和后端数据库。",
   CONFLICT: "当前版本或状态不允许此操作，请先刷新并审阅。",
   ASSET_TYPE_UNSUPPORTED: "此资产类型不能用于演化规划。",
@@ -87,6 +89,7 @@ const id = encodeURIComponent;
 const profile = (value: string) => `/user-profiles/${id(value)}`;
 const plan = (value: string) => `/evolution-plans/${id(value)}`;
 export const api = {
+  workspaceConfiguration: () => request<WorkspaceConfiguration>("/system/workspace-configuration"),
   assetsAtLocation: (location: string) =>
     request<SoftwareAsset[]>(`/software-assets?location=${encodeURIComponent(location)}`),
   updateAssetAuthorization: (value: string, input: AssetAuthorizationInput) =>

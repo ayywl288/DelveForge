@@ -72,6 +72,7 @@ public class SoftwareAsset {
             String licenseInfo,
             UsageAuthorization usageAuthorization) {
 
+        requireMeaningfulLicenseDeclaration(licenseInfo);
         return new SoftwareAsset(
                 id, type, source, location, readPermissionAllowed, licenseInfo, usageAuthorization);
     }
@@ -192,8 +193,16 @@ public class SoftwareAsset {
         if (expectedRevision != authorizationRevision) {
             throw new AssetAuthorizationConflictException();
         }
+        requireMeaningfulLicenseDeclaration(licenseInfo);
         return reconstitute(id, type, source, location, readPermissionAllowed, licenseInfo, usageAuthorization,
                 Math.addExact(authorizationRevision, 1));
+    }
+
+    private static void requireMeaningfulLicenseDeclaration(String declaration) {
+        // 仅拒绝新提交的无文字声明；不是许可鉴定，也不追溯改变历史授权。
+        if (declaration != null && declaration.codePoints().noneMatch(Character::isLetter)) {
+            throw new IllegalArgumentException("许可证声明需包含许可证名称或适用条款文字");
+        }
     }
 
     public long authorizationRevision() {

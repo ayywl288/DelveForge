@@ -14,6 +14,9 @@ public enum ApiErrorCode {
     /** 请求本身不合法，调用方可以修正后重试。 */
     INVALID_REQUEST,
 
+    /** 配置的 WorkingCopy 存储目录不可用或目标已存在。 */
+    WORKSPACE_STORAGE_UNAVAILABLE,
+
     /** 请求指向的领域对象不存在。 */
     NOT_FOUND,
 

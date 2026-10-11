@@ -212,7 +212,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     const root = mount(RepositoryView, s);
     expect(button(root, "注册此仓库").disabled).toBe(true);
     expect(
-      [...root.querySelectorAll("select")].every(
+      [...root.querySelectorAll<HTMLSelectElement>("#read-permission, #usage-auth")].every(
         (select) => select.value === "",
       ),
     ).toBe(true);
@@ -348,8 +348,9 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     expect(root.textContent).toContain("TEST");
     expect(root.textContent).toContain("src/ReportService.java");
     expect(root.textContent).toContain(
-      "lastVerifiedRevision 与该 Candidate 一致",
+      "SUCCEEDED · 此 Step 验证通过",
     );
+    expect(root.querySelector(".success-note")?.textContent).toContain("b".repeat(40));
     expect(root.querySelector("img")).toBeNull();
     expect(execute).not.toHaveBeenCalled();
     expect(button(root, "审阅风险并执行此 Step").disabled).toBe(true);

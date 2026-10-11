@@ -106,10 +106,14 @@ export function createSession() {
   const notice = ref("");
   const connected = ref(false);
   const executionPending = ref(false);
+  const executionRequest = ref<ExecutionReceipt | null>(null);
+  const planningAuthorizationIssue = ref<{ assetId: string; code: string } | null>(null);
   const receipt = ref(readReceipt());
   const lastChecked = ref("");
   const pollError = ref("");
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let observingExecution = false;
+  let polling = false;
   let disposed = false;
   let planVersion = 0;
   const selected = computed(
@@ -288,24 +292,26 @@ export function createSession() {
   }
   function schedulePoll() {
     clearTimeout(timer);
-    if (disposed) return;
+    if (disposed || !observingExecution || polling) return;
+    if (!receipt.value && !executionPending.value && !plan.value?.steps.some(step =>
+      ["EXECUTING", "VERIFYING"].includes(step.status))) return;
     timer = setTimeout(async () => {
-      if (
-        receipt.value ||
-        executionPending.value ||
-        plan.value?.steps.some((step) =>
-          ["EXECUTING", "VERIFYING"].includes(step.status),
-        )
-      ) {
-        try {
-          await refreshPlan();
-        } catch {
-          pollError.value =
-            "状态查询失败，稍后继续只读查询；不会重复 execute。";
-        }
+      if (disposed || !observingExecution) return;
+      polling = true;
+      try {
+        await refreshPlan();
+      } catch {
+        pollError.value = "状态查询失败，稍后继续只读查询；不会重复 execute。";
+      } finally {
+        polling = false;
+        schedulePoll();
       }
-      schedulePoll();
     }, 3_000);
+  }
+  function observeExecution(active: boolean) {
+    observingExecution = active;
+    if (active) schedulePoll();
+    else clearTimeout(timer);
   }
   function storageChanged(event: StorageEvent) {
     if (event.key === executionKey || event.key === null) {
@@ -352,6 +358,7 @@ export function createSession() {
           // 写入失败时停止发送；刷新后只恢复 ID 与等待标记，不重放任何命令。
           localStorage.setItem(executionKey, JSON.stringify(marker));
           receipt.value = marker;
+          executionRequest.value = marker;
           executionPending.value = true;
           schedulePoll();
           try {
@@ -395,6 +402,8 @@ export function createSession() {
             throw failure;
           } finally {
             executionPending.value = false;
+            executionRequest.value = null;
+            schedulePoll();
           }
         },
       );
@@ -419,12 +428,15 @@ export function createSession() {
     connected,
     selected,
     executionPending,
+    executionRequest,
+    planningAuthorizationIssue,
     receipt,
     lastChecked,
     pollError,
     run,
     restore,
     refreshPlan,
+    observeExecution,
     execute,
     dispose() {
       disposed = true;
@@ -584,9 +596,12 @@ export function createSession() {
       });
     },
     async updateAssetAuthorization(value: string, input: AssetAuthorizationInput) {
+      let saved = false;
       await run("保存显式仓库授权", async () => {
         try {
           acceptAsset(await api.updateAssetAuthorization(value, input));
+          saved = true;
+          if (planningAuthorizationIssue.value?.assetId === value) planningAuthorizationIssue.value = null;
           notice.value = "授权信息已保存；原资产、仓库分析和已选择方向保留，可以继续规划。";
         } catch (failure) {
           if (failure instanceof ApiError && failure.code === "ASSET_AUTHORIZATION_CONFLICT") {
@@ -595,6 +610,15 @@ export function createSession() {
           throw failure;
         }
       });
+      return saved;
+    },
+    async loadAsset(value: string) {
+      let loaded = false;
+      await run("读取规划所引用的仓库授权", async () => {
+        acceptAsset(await api.asset(value));
+        loaded = true;
+      });
+      return loaded;
     },
     async analyze(value: string) {
       await run("分析仓库（调用 AI）", async () => {
@@ -634,13 +658,21 @@ export function createSession() {
       );
       if (selected.value && repository)
         await run("规划演化（调用 AI）", async () => {
-          setPlan(
-            await api.generatePlan(
+          planningAuthorizationIssue.value = null;
+          try {
+            setPlan(await api.generatePlan(
               selected.value!.id,
               repository.assetId,
               repository.id,
-            ),
-          );
+            ));
+          } catch (failure) {
+            if (failure instanceof ApiError && ["ASSET_READ_PERMISSION_REQUIRED",
+              "ASSET_USAGE_AUTHORIZATION_REQUIRED", "ASSET_LICENSE_INFORMATION_REQUIRED",
+              "ASSET_AUTHORIZATION_CONFLICT"].includes(failure.code)) {
+              planningAuthorizationIssue.value = { assetId: repository.assetId, code: failure.code };
+            }
+            throw failure;
+          }
           copy.value = null;
         });
     },

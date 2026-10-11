@@ -1,13 +1,32 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onActivated, onMounted, ref, watch } from "vue";
 import type { WorkspaceSession } from "../state/session";
-import type { EvolutionStep } from "../api/types";
+import type { EvolutionStep, WorkspaceConfiguration } from "../api/types";
+import { api } from "../api/client";
 import ContentList from "../components/ContentList.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import EvidenceList from "../components/EvidenceList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
-const emit = defineEmits<{ next: [] }>();
+const workspaceConfiguration = ref<WorkspaceConfiguration | null>(null);
+const workspaceConfigurationError = ref("");
+let loadingConfiguration = false;
+async function loadConfiguration() {
+  if (loadingConfiguration) return;
+  loadingConfiguration = true;
+  workspaceConfiguration.value = null;
+  workspaceConfigurationError.value = "";
+  try {
+    workspaceConfiguration.value = await api.workspaceConfiguration();
+  } catch {
+    workspaceConfigurationError.value = "未能读取存储配置。请核对后端连接；准备操作仍由后端校验。";
+  } finally {
+    loadingConfiguration = false;
+  }
+}
+onMounted(loadConfiguration);
+onActivated(loadConfiguration);
+const emit = defineEmits<{ next: []; authorize: [assetId: string] }>();
 const base = ref("");
 const reviewed = ref(false);
 const prepareOpen = ref(false);
@@ -30,8 +49,8 @@ const currentBasis = computed(
     props.s.selected?.userProfileRevision === props.s.profile.revision &&
     props.s.selected.userProfileId === props.s.profile.id,
 );
-const asset = computed(() => props.s.assets.find(item =>
-  item.id === bases.value.find(repository => repository.id === base.value)?.assetId));
+const baseAssetId = computed(() => bases.value.find(repository => repository.id === base.value)?.assetId);
+const asset = computed(() => props.s.assets.find(item => item.id === baseAssetId.value));
 const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &&
   asset.value.usageAuthorization === "ALLOWED" && !!asset.value.licenseInfo?.trim());
 </script>
@@ -62,9 +81,11 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
         <p v-if="!currentBasis" class="inline-note">
           需要确认与选中方向对应的当前画像版本。
         </p>
-        <p v-if="base && !authorizationReady" class="inline-note">
-          演化基础需允许读取、明确允许使用，并记录许可证信息。请返回左侧「仓库理解」，在此资产的「完善许可证与授权」中显式保存；无需重新分析或重新生成方向。
-        </p>
+        <div v-if="base && (!authorizationReady || s.planningAuthorizationIssue?.assetId === baseAssetId)" class="inline-note">
+          <p>演化基础需允许读取、明确允许使用，并记录许可证信息。补充当前资产的授权后，无需重新分析或重新生成方向。</p>
+          <button type="button" class="secondary" :disabled="!!s.busy || !baseAssetId"
+            @click="baseAssetId && emit('authorize', baseAssetId)">前往补充许可证与授权</button>
+        </div>
         <button :disabled="!!s.busy || !base || !authorizationReady || !currentBasis || !!s.receipt">
           生成演化计划（调用 AI）
         </button>
@@ -184,6 +205,14 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
     </ol>
     <section v-if="s.plan.status === 'PROPOSED'" class="panel prepare-box">
       <h2>审阅计划，然后准备隔离环境</h2>
+      <div class="workspace-configuration inline-note">
+        <p>新 WorkingCopy 存储根目录：<code>{{ workspaceConfiguration?.root ?? '尚未读取' }}</code></p>
+        <p v-if="workspaceConfigurationError" role="alert">{{ workspaceConfigurationError }}</p>
+        <p>如需换盘，在启动后端的终端设置 <code>DELVEFORGE_WORKSPACE_ROOT</code> 并重启后端，再回到本页核对。此处不接受任意目录输入；准备时仍会校验实际路径与权限。</p>
+        <p v-if="workspaceConfiguration?.existingRoots.length">仅接纳旧副本的根目录：{{ workspaceConfiguration.existingRoots.join('；') }}</p>
+        <p>已创建的副本不会移动；实际位置以准备成功后的 WorkingCopy 为准。</p>
+        <button class="secondary" type="button" @click="loadConfiguration">重新读取存储配置</button>
+      </div>
       <p>
         没有独立的 Plan confirm API。下列审阅确认仅是页面交互；Prepare
         通过后端规则激活 Plan 并创建 WorkingCopy。各 Step 仍需独立授权。

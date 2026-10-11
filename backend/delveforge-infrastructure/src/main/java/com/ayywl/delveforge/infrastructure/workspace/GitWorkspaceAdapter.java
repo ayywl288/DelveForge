@@ -13,6 +13,7 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceStorageUnavailableException;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -98,21 +99,25 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     private static final Logger log = LoggerFactory.getLogger(GitWorkspaceAdapter.class);
 
     private final Path managedRoot;
+    private final List<Path> existingRoots;
 
     /**
      * 无配置构造仅供独立只读使用；环境准备必须显式配置托管位置。
      */
     public GitWorkspaceAdapter() {
         this.managedRoot = null;
+        this.existingRoots = List.of();
     }
 
     @Autowired
     public GitWorkspaceAdapter(WorkspaceProperties properties) {
         this.managedRoot = properties.root();
+        this.existingRoots = properties.existingRoots();
     }
 
     public GitWorkspaceAdapter(Path managedRoot) {
         this.managedRoot = managedRoot;
+        this.existingRoots = List.of();
     }
 
     /** 只核对物理 revision、隔离与干净状态；Candidate 通过此检查不等于已获得领域信任。 */
@@ -126,7 +131,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             throw new WorkspaceException("Cannot inspect original asset isolation", failure);
         }
         if (target.startsWith(original) || original.startsWith(target)
-                || canonicalProspectiveRootUnchecked().startsWith(original)) {
+                || target.getParent().startsWith(original) || original.startsWith(target.getParent())) {
             throw new WorkingCopyBasisChangedException("Working Copy overlaps the original asset");
         }
         if (!expectedRevision.equals(headRevision(copy))) {
@@ -227,14 +232,6 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             }
         } catch (IOException failure) {
             throw new WorkspaceException("Cannot inspect proposed paths", failure);
-        }
-    }
-
-    private Path canonicalProspectiveRootUnchecked() {
-        try {
-            return canonicalProspectiveRoot();
-        } catch (IOException failure) {
-            throw new WorkspaceException("Cannot inspect managed root", failure);
         }
     }
 
@@ -339,7 +336,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     private Path requireManagedCopy(WorkspaceRef copy) {
         try {
             Path target = resolveLocation(copy).normalize();
-            Path root = canonicalProspectiveRoot();
+            Path root = allowedCopyRoot(target);
             Path metadata = target.resolve(".git");
             Path marker = metadata.resolve("delveforge-preparation");
             if (!root.equals(target.getParent()) || !target.toRealPath().equals(target)
@@ -366,10 +363,19 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         Path target = null;
         boolean allocated = false;
         try {
-            Path root = provisioningRoot(repository);
+            Path root;
+            try {
+                root = provisioningRoot(repository);
+            } catch (IOException failure) {
+                throw new WorkspaceStorageUnavailableException("Cannot access configured workspace root", failure);
+            }
             requireDirectoryName(directoryName);
             target = root.resolve(directoryName);
-            Files.createDirectory(target); // 不能覆盖或接管已有目录。
+            try {
+                Files.createDirectory(target); // 不能覆盖或接管已有目录。
+            } catch (IOException failure) {
+                throw new WorkspaceStorageUnavailableException("Managed target is unavailable or already exists", failure);
+            }
             allocated = true;
 
             GitCommandResult clone = execute(root, "clone", "--no-local", "--no-checkout",
@@ -423,7 +429,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     public void discard(PreparedWorkspace candidate) {
         try {
             Path target = resolveLocation(candidate.workspace());
-            Path root = canonicalProspectiveRoot();
+            Path root = allowedCopyRoot(target);
             if (!target.getParent().equals(root) || !target.toRealPath().equals(target)) {
                 throw new WorkspaceException("Refusing cleanup outside managed direct-child directory");
             }
@@ -435,7 +441,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             }
 
             deleteOwnedDirectory(target);
-        } catch (IOException failure) {
+        } catch (IOException | WorkingCopyBasisChangedException failure) {
             throw new WorkspaceException("Working Copy cleanup failed", failure);
         }
     }
@@ -453,24 +459,56 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             throw new WorkspaceException("Managed workspace root must be separate from source repository");
         }
 
-        Files.createDirectories(root);
+        try {
+            Files.createDirectories(root);
+        } catch (IOException failure) {
+            throw new WorkspaceStorageUnavailableException("Cannot create configured workspace root", failure);
+        }
         if (!root.toRealPath().equals(root)) {
-            throw new WorkspaceException("Managed workspace root changed");
+            throw new WorkspaceStorageUnavailableException("Managed workspace root changed");
+        }
+        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS) || !Files.isWritable(root)) {
+            throw new WorkspaceStorageUnavailableException("Configured workspace root is not a writable directory");
         }
         return root;
     }
 
     private Path canonicalProspectiveRoot() throws IOException {
-        if (managedRoot == null || !managedRoot.isAbsolute()) {
-            throw new WorkspaceException("Provisioning requires an absolute configured workspace root");
+        return canonicalProspectiveRoot(managedRoot);
+    }
+
+    private Path canonicalProspectiveRoot(Path configuredRoot) throws IOException {
+        if (configuredRoot == null || !configuredRoot.isAbsolute()) {
+            throw new WorkspaceStorageUnavailableException("Provisioning requires an absolute configured workspace root");
         }
 
-        Path root = managedRoot.normalize();
+        Path root = configuredRoot.normalize();
         Path ancestor = root;
-        while (!Files.exists(ancestor, LinkOption.NOFOLLOW_LINKS)) {
+        while (ancestor != null && !Files.exists(ancestor, LinkOption.NOFOLLOW_LINKS)) {
             ancestor = ancestor.getParent();
         }
-        return ancestor.toRealPath().resolve(ancestor.relativize(root)).normalize();
+        if (ancestor == null) {
+            throw new WorkspaceStorageUnavailableException("Configured workspace storage volume is unavailable");
+        }
+        Path realAncestor = ancestor.toRealPath();
+        if (!realAncestor.equals(ancestor) || !Files.isDirectory(realAncestor, LinkOption.NOFOLLOW_LINKS)) {
+            throw new WorkspaceStorageUnavailableException("Configured workspace root traverses a link or a file");
+        }
+        return realAncestor.resolve(ancestor.relativize(root)).normalize();
+    }
+
+    private Path allowedCopyRoot(Path target) throws IOException {
+        // 旧副本只能继续留在运维显式配置的根目录，不从浏览器或准备凭据推导存储授权。
+        List<Path> allowed = new ArrayList<>(existingRoots);
+        if (managedRoot != null) {
+            allowed.add(managedRoot);
+        }
+        for (Path root : allowed) {
+            if (root.isAbsolute() && root.normalize().equals(target.getParent())) {
+                return canonicalProspectiveRoot(root);
+            }
+        }
+        throw new WorkingCopyBasisChangedException("Working Copy is outside configured managed roots");
     }
 
     private static void requireDirectoryName(String name) {
@@ -481,7 +519,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     }
 
     private void deleteOwnedDirectory(Path target) throws IOException {
-        Path root = canonicalProspectiveRoot();
+        Path root = allowedCopyRoot(target);
         if (!target.getParent().equals(root) || !target.toRealPath().equals(target)) {
             throw new WorkspaceException("Refusing cleanup outside managed direct-child directory");
         }

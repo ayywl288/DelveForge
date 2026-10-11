@@ -16,6 +16,7 @@ import com.ayywl.delveforge.application.port.persistence.SoftwareAssetAlreadyReg
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceStorageUnavailableException;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryNotAnalyzableException;
@@ -92,17 +93,26 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static final String DIRECTION_DISCOVERY_REJECTED_MESSAGE =
             "AI 返回的候选方向不满足领域要求，详细信息见服务端日志";
     private static final String WORKSPACE_FAILURE_MESSAGE = "本地能力调用失败，详细信息见服务端日志";
+    private static final String WORKSPACE_STORAGE_FAILURE_MESSAGE =
+            "WorkingCopy 存储不可用。请检查配置目录、权限、链接及已有目标；系统没有切换存储位置。";
     private static final String INTERNAL_ERROR_MESSAGE = "服务内部错误，详细信息见服务端日志";
 
     /** 未匹配到任何路由时，日志中使用的固定路径标识。 */
     private static final String UNMATCHED_ROUTE = "<unmatched>";
 
-    /**
-     * 请求参数或请求体不满足 Application / Domain 的输入约束。
-     *
-     * <p>{@link IllegalArgumentException} 也可能来自 JDK 或第三方库，
-     * 其 message 不作为调用方可见文案。
-     */
+    /** 托管存储配置不可用，固定错误文案不包含路径或异常正文。 */
+    @ExceptionHandler(WorkspaceStorageUnavailableException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public ApiErrorResponse handleWorkspaceStorageFailure(WorkspaceStorageUnavailableException exception,
+            HttpServletRequest request) {
+        log.error("operation=interface.request path={} result=WORKSPACE_STORAGE_UNAVAILABLE exception={}",
+                loggedRoute(request), describe(exception));
+        return new ApiErrorResponse(ApiErrorCode.WORKSPACE_STORAGE_UNAVAILABLE,
+                WORKSPACE_STORAGE_FAILURE_MESSAGE,
+                request.getRequestURI(), Instant.now());
+    }
+
+    /** 请求字段不合法；JDK 或第三方异常正文不作为调用方可见文案。 */
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiErrorResponse handleInvalidRequest(IllegalArgumentException exception,
@@ -440,6 +450,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     private static String messageFor(ApiErrorCode code) {
         return switch (code) {
             case INVALID_REQUEST -> INVALID_REQUEST_MESSAGE;
+            case WORKSPACE_STORAGE_UNAVAILABLE -> WORKSPACE_STORAGE_FAILURE_MESSAGE;
             case NOT_FOUND -> NOT_FOUND_MESSAGE;
             case CONFLICT -> CONFLICT_MESSAGE;
             case EXTERNAL_CAPABILITY_UNAVAILABLE -> AI_GATEWAY_FAILURE_MESSAGE;
