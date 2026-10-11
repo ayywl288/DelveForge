@@ -221,6 +221,26 @@ class EvolutionPlanningServiceTest {
     }
 
     @Test
+    void rejectedCurrentStateIdentifiesSectionWithoutAcceptingParaphrasedFacts() {
+        PlanningProposal original = proposal();
+        List<CurrentState> invalid = List.of(
+                new CurrentState("Exports", List.of("Export, reworded"), List.of(), List.of()),
+                new CurrentState("Exports", List.of(), List.of("Invented module"), List.of()),
+                new CurrentState("Exports", List.of(), List.of(), List.of("Invented limitation")));
+        List<EvolutionPlanningRejectedException.Reason> reasons = List.of(
+                EvolutionPlanningRejectedException.Reason.CURRENT_CAPABILITIES_NOT_FROM_BASE_PROFILE,
+                EvolutionPlanningRejectedException.Reason.CURRENT_MODULES_NOT_FROM_BASE_PROFILE,
+                EvolutionPlanningRejectedException.Reason.CURRENT_LIMITATIONS_NOT_FROM_BASE_PROFILE);
+        for (int index = 0; index < invalid.size(); index++) {
+            PlanningProposal candidate = new PlanningProposal(invalid.get(index), original.targetState(),
+                    original.reusableCapabilities(), original.changes(), original.steps(), original.risks(), original.evidence());
+            EvolutionPlanningRejectedException failure = assertThrows(EvolutionPlanningRejectedException.class,
+                    () -> service().plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), candidate));
+            assertEquals(reasons.get(index), failure.reason());
+        }
+    }
+
+    @Test
     void rejectsChangedIntentFabricatedFactsAndForeignEvidence() {
         PlanningProposal p = proposal();
         SoftwareAsset allowed = asset(true, "MIT", UsageAuthorization.ALLOWED);

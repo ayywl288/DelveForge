@@ -170,17 +170,23 @@ class EvolutionPlanningApiIntegrationTest {
 
     @Test
     void mapsMalformedAndDomainRejectedAiProposalsTo502AndLeavesNoState() throws Exception {
-        for (String invalid : List.of("not json", JSON.replace("R-E1", "invented"),
-                JSON.replace("Scheduled reports", "Weakened target"), JSON.replace("\"capabilities\":[\"Export\"]", "\"capabilities\":[\"Invented\"]"))) {
-            when(ai.generate(any())).thenReturn(invalid);
+        java.util.Map<String, String> invalids = java.util.Map.of(
+                "not json", "PLANNING_PROPOSAL_INVALID",
+                JSON.replace("R-E1", "invented"), "PLANNING_EVIDENCE_INVALID",
+                JSON.replace("Scheduled reports", "Weakened target"), "PLANNING_REJECTED",
+                JSON.replace("\"capabilities\":[\"Export\"]", "\"capabilities\":[\"Invented\"]"),
+                "PLANNING_CURRENT_STATE_INVALID");
+        for (var invalid : invalids.entrySet()) {
+            when(ai.generate(any())).thenReturn(invalid.getKey());
             mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(REQUEST))
                     .andExpect(status().isBadGateway())
-                    .andExpect(jsonPath("$.code").value("EXTERNAL_CAPABILITY_UNAVAILABLE"));
+                    .andExpect(jsonPath("$.code").value(invalid.getValue()));
             assertNoPlans();
         }
         when(ai.generate(any())).thenThrow(new AiGatewayException("sensitive provider data"));
         mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(REQUEST))
                 .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("PLANNING_AI_FAILED"))
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("sensitive provider data"))));
         assertNoPlans();
         assertEquals(ProductDirectionStatus.SELECTED, directions.findById(new ProductDirectionId("direction")).orElseThrow().status());

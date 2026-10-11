@@ -479,9 +479,11 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
     public void requirePlanningScope(ProductDirectionId id,
             ProjectScopeBasis project,
             RepositoryProfileId repositoryId) {
+        if (project != null && directionMapper.currentPlanningContext(project) != 1) {
+            throw new ProjectContextConflictException();
+        }
         requireDirectionScope(id, project);
-        if (project != null && (directionMapper.unplannedContext(project.contextId()) != 1
-                || directionMapper.containsRepository(project.contextId(), repositoryId.value()) != 1)) {
+        if (project != null && directionMapper.containsRepository(project.contextId(), repositoryId.value()) != 1) {
             throw new ProjectContextConflictException();
         }
     }

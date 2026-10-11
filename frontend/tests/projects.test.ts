@@ -58,6 +58,94 @@ function summary(saved: ProjectWorkspace): ProjectSummary {
     currentRevision: "c822cc3", lastVerifiedRevision: "c822cc3", issues: [], version: 0, deletedAt: null };
 }
 
+function planningWorkspace(id: string) {
+  const saved = workspace(id, true);
+  saved.plan = null;
+  saved.workingCopy = null;
+  saved.context!.planId = null;
+  saved.stage = "PLANNING";
+  return saved;
+}
+
+describe("规划拒绝、重读与请求生命周期", () => {
+  it("同一合法对象直接重提与重新加载使用相同 DTO，领域拒绝不自动付费重试", async () => {
+    const saved = planningWorkspace("retry"); stubReads(saved);
+    const generated = { ...plan(), id: "plan-retry", productDirectionId: "direction-retry",
+      baseAssetId: "asset-retry", baseRepositoryProfileId: "repo-retry", workingCopyId: null };
+    const generate = vi.spyOn(api, "generatePlan").mockRejectedValue(new ApiError(502, "PLANNING_CURRENT_STATE_INVALID"));
+    vi.spyOn(api, "updateProject").mockImplementation(async context => context);
+    const s = make(); await s.openProject(saved.key);
+    await s.generatePlan("repo-retry");
+    expect(s.error.value).toContain("现状条目"); expect(s.error.value).not.toContain("未收到对象");
+    expect(s.plan.value).toBeNull(); expect(s.projectSyncError.value).toBe(false);
+    await settle(); expect(generate).toHaveBeenCalledTimes(1);
+    await s.generatePlan("repo-retry");
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate.mock.calls[0]).toEqual(generate.mock.calls[1]);
+    await s.restore();
+    generate.mockResolvedValue(generated);
+    vi.mocked(api.project).mockResolvedValue({ ...saved, plan: generated,
+      context: { ...saved.context!, planId: generated.id, version: 1 } });
+    await s.generatePlan("repo-retry");
+    expect(generate.mock.calls[0]).toEqual(generate.mock.calls[2]);
+    expect(s.plan.value?.id).toBe(generated.id);
+    expect(s.projectContext.value?.planId).toBe(generated.id);
+    expect(generate).toHaveBeenCalledTimes(3);
+  });
+
+  it("已保存计划的关联回读失败保留计划 ID 并阻止重复生成，断线须先核对", async () => {
+    const saved = planningWorkspace("uncertain"); stubReads(saved);
+    const generate = vi.spyOn(api, "generatePlan").mockResolvedValue({ ...plan(), id: "persisted-plan",
+      productDirectionId: "direction-uncertain", baseAssetId: "asset-uncertain", baseRepositoryProfileId: "repo-uncertain" });
+    const s = make(); await s.openProject(saved.key);
+    vi.mocked(api.project).mockRejectedValue(new ApiError(0, "CONNECTION_LOST"));
+    await s.generatePlan("repo-uncertain");
+    expect(s.ids.planId).toBe("persisted-plan"); expect(s.projectSyncError.value).toBe(true);
+    expect(s.notice.value).toContain("计划已经保存");
+    await s.generatePlan("repo-uncertain"); expect(generate).toHaveBeenCalledTimes(1);
+
+    const disconnected = planningWorkspace("disconnect");
+    stubReads(disconnected); await s.openProject(disconnected.key);
+    generate.mockRejectedValue(new ApiError(0, "CONNECTION_LOST"));
+    await s.generatePlan("repo-disconnect");
+    expect(s.projectSyncError.value).toBe(true); expect(s.notice.value).toContain("结果尚未确定");
+    await s.generatePlan("repo-disconnect"); expect(generate).toHaveBeenCalledTimes(2);
+  });
+
+  it("延迟规划期间阻止上下文切换；页面销毁后迟到结果不覆盖新会话 ID", async () => {
+    const a = planningWorkspace("a"); const b = planningWorkspace("b"); stubReads(a, b);
+    let finish!: (value: ReturnType<typeof plan>) => void;
+    const generate = vi.spyOn(api, "generatePlan").mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const s = make(); await s.openProject(a.key);
+    const pending = s.generatePlan("repo-a"); await settle();
+    await s.openProject(b.key); expect(s.projectContext.value?.id).toBe("a");
+    s.dispose(); const next = make(); await next.openProject(b.key);
+    finish({ ...plan(), id: "late-plan", productDirectionId: "direction-a", baseAssetId: "asset-a", baseRepositoryProfileId: "repo-a" });
+    await pending;
+    expect(next.projectContext.value?.id).toBe("b"); expect(next.ids.planId).toBe("");
+    expect(localStorage.getItem(projectKey)).toBe("b"); expect(s.ids.planId).toBe("");
+    expect(generate).toHaveBeenCalledOnce();
+  });
+
+  it("共享分析快照切换项目也要求重新明确选择，不保留上一方向的基础表单", async () => {
+    const a = planningWorkspace("a"); const b = planningWorkspace("b");
+    b.assets = a.assets; b.repositoryProfiles = a.repositoryProfiles;
+    b.context!.assetIds = a.context!.assetIds; b.context!.repositoryProfileIds = a.context!.repositoryProfileIds;
+    b.directions[0]!.candidateAssetIds = a.context!.assetIds; stubReads(a, b);
+    vi.spyOn(api, "workspaceConfiguration").mockResolvedValue({ root: "E:/trusted/workspaces", existingRoots: [] });
+    const generate = vi.spyOn(api, "generatePlan"); const s = reactive(make()); await s.openProject(a.key);
+    const root = document.createElement("div"); document.body.append(root);
+    const app = createApp(PlanView, { s }); app.mount(root); cleanups.push(() => { app.unmount(); root.remove(); });
+    await settle();
+    const select = root.querySelector("#plan-base") as HTMLSelectElement;
+    select.value = "repo-a"; select.dispatchEvent(new Event("change", { bubbles: true })); await nextTick();
+    expect(select.value).toBe("repo-a");
+    await s.openProject(b.key); await settle();
+    expect((root.querySelector("#plan-base") as HTMLSelectElement).value).toBe("");
+    expect(generate).not.toHaveBeenCalled();
+  });
+});
+
 describe("工作台软删除与恢复", () => {
   it("删除当前导航记录只清理 ID，保留另一项目的未决 execute 标记", async () => {
     const saved = workspace("deleted", true); stubReads(saved);

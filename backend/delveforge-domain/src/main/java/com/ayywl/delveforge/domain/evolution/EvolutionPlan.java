@@ -38,7 +38,8 @@ public final class EvolutionPlan {
             throw new IllegalArgumentException("Plan identity and planning basis are required");
         }
         if (steps.isEmpty() || evidence.isEmpty()) {
-            throw new EvolutionPlanningRejectedException("Plan requires steps and traceable evidence");
+            throw new EvolutionPlanningRejectedException(
+                    EvolutionPlanningRejectedException.Reason.STEPS_OR_EVIDENCE_MISSING);
         }
         if (steps.stream().anyMatch(step -> step == null)
                 || new HashSet<>(steps.stream().map(EvolutionStep::id).toList()).size() != steps.size()) {

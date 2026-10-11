@@ -6124,6 +6124,8 @@ EvolutionPlanningService 不负责：
   两者不长期持有 Proposal。持久化读取直接还原正式领域值，不重新构造提案或检查当前规划资格。
 - `CurrentState` 保存规划摘要，以及从 Base Repository Profile 的 capabilities / modules /
   limitations 中逐项选择的事实；这些事实保留原文并校验成员关系，不复制整个 Profile。
+  拒绝时返回固定的失败分类；诊断区分三个事实区，不回传或记录不匹配的条目。
+  分类增强不接受同义改写、新增事实或基于模型自述的真实性证明。
 - `TargetState` 保留 Selected Product Direction 的 problem / targetProduct /
   differentiation 原文，拒绝规划提案替换或弱化这些输入。
 - Gap 只作为规划推理，以 reusableCapabilities 与 changes 表达，不独立持久化。

@@ -26,6 +26,12 @@ public enum ApiErrorCode {
     /** DelveForge 依赖的外部能力当前不可用。 */
     EXTERNAL_CAPABILITY_UNAVAILABLE,
 
+    PLANNING_AI_FAILED,
+    PLANNING_PROPOSAL_INVALID,
+    PLANNING_EVIDENCE_INVALID,
+    PLANNING_CURRENT_STATE_INVALID,
+    PLANNING_REJECTED,
+
     /** 服务内部错误，具体原因只记录在服务端日志中。 */
     INTERNAL_ERROR,
 

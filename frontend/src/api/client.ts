@@ -36,6 +36,11 @@ const messages: Record<string, string> = {
   ASSET_ALREADY_REGISTERED: "此仓库已登记，请复用已有记录；许可证或授权应在原记录上显式修改。",
   EXTERNAL_CAPABILITY_UNAVAILABLE:
     "AI 调用未获得可用结果。请查询当前状态后再决定下一步。",
+  PLANNING_AI_FAILED: "规划的 AI 调用或 Provider 响应处理失败，本次未保存计划。可明确重新生成，可能再次计费；不会自动重试。",
+  PLANNING_PROPOSAL_INVALID: "AI 规划内容不符合结构要求，本次未保存计划。可明确重新生成，可能再次计费；不会自动重试。",
+  PLANNING_EVIDENCE_INVALID: "AI 规划引用了输入中不存在的依据，本次未保存计划。可明确重新生成，可能再次计费；不会自动重试。",
+  PLANNING_CURRENT_STATE_INVALID: "AI 规划改写或新增了所选仓库画像中不存在的现状条目，校验已拒绝，本次未保存计划。可明确重新生成，可能再次计费；刷新不能保证模型下次合规。",
+  PLANNING_REJECTED: "AI 规划未通过产品意图、复用能力或依据等领域校验，本次未保存计划。可明确重新生成，可能再次计费；不会自动重试。",
   INTERNAL_ERROR: "后端操作失败，请核对状态并查看后端的安全诊断日志。",
 };
 export class ApiError extends Error {

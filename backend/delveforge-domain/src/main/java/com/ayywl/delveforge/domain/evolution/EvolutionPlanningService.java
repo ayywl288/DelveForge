@@ -49,25 +49,33 @@ public final class EvolutionPlanningService {
                               RepositoryProfile profile, PlanningProposal proposal) {
         requirePlanningBasis(direction, asset, profile);
         if (proposal == null) {
-            throw new EvolutionPlanningRejectedException("Planning proposal is missing");
+            throw new EvolutionPlanningRejectedException(EvolutionPlanningRejectedException.Reason.PROPOSAL_MISSING);
         }
 
         TargetState intended = new TargetState(direction.problem(), direction.targetProduct(), direction.differentiation());
         if (!intended.equals(proposal.targetState())) {
-            throw new EvolutionPlanningRejectedException("Target State must retain selected product intent");
+            throw new EvolutionPlanningRejectedException(EvolutionPlanningRejectedException.Reason.TARGET_INTENT_MISMATCH);
         }
 
         CurrentState current = proposal.currentState();
-        if (!profile.capabilities().containsAll(current.capabilities())
-                || !profile.modules().containsAll(current.modules())
-                || !profile.limitations().containsAll(current.limitations())) {
-            throw new EvolutionPlanningRejectedException("Current State facts must come from the Base Profile");
+        if (!profile.capabilities().containsAll(current.capabilities())) {
+            throw new EvolutionPlanningRejectedException(
+                    EvolutionPlanningRejectedException.Reason.CURRENT_CAPABILITIES_NOT_FROM_BASE_PROFILE);
+        }
+        if (!profile.modules().containsAll(current.modules())) {
+            throw new EvolutionPlanningRejectedException(
+                    EvolutionPlanningRejectedException.Reason.CURRENT_MODULES_NOT_FROM_BASE_PROFILE);
+        }
+        if (!profile.limitations().containsAll(current.limitations())) {
+            throw new EvolutionPlanningRejectedException(
+                    EvolutionPlanningRejectedException.Reason.CURRENT_LIMITATIONS_NOT_FROM_BASE_PROFILE);
         }
 
         List<String> reusable = new ArrayList<>(profile.capabilities());
         reusable.addAll(profile.reusableAssets());
         if (!reusable.containsAll(proposal.reusableCapabilities())) {
-            throw new EvolutionPlanningRejectedException("Reusable capabilities must come from the Base Profile");
+            throw new EvolutionPlanningRejectedException(
+                    EvolutionPlanningRejectedException.Reason.REUSABLE_CAPABILITIES_NOT_FROM_BASE_PROFILE);
         }
 
         List<EvidenceBasis> available = new ArrayList<>(direction.evidenceSupport().allBases());
@@ -75,11 +83,12 @@ public final class EvolutionPlanningService {
             available.add(new EvidenceBasis(evidence, new RepositoryProfileEvidenceOrigin(profile.id())));
         }
         if (!available.containsAll(proposal.evidence())) {
-            throw new EvolutionPlanningRejectedException("Planning evidence must belong to the planning inputs");
+            throw new EvolutionPlanningRejectedException(EvolutionPlanningRejectedException.Reason.EVIDENCE_NOT_FROM_INPUTS);
         }
         if (proposal.evidence().stream().noneMatch(basis ->
                 basis.origin().equals(new RepositoryProfileEvidenceOrigin(profile.id())))) {
-            throw new EvolutionPlanningRejectedException("Current State needs evidence from the Base Profile");
+            throw new EvolutionPlanningRejectedException(
+                    EvolutionPlanningRejectedException.Reason.BASE_PROFILE_EVIDENCE_MISSING);
         }
 
         // 这里只校验内容存在和事实来源；自然语言的范围与工程质量仍需用户审阅。

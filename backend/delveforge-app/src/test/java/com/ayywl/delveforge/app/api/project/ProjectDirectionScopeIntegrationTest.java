@@ -156,6 +156,81 @@ class ProjectDirectionScopeIntegrationTest {
     }
 
     @Test
+    void rejectedCurrentStateLeavesRoundUnboundAndExplicitResubmissionUsesSameInputs() throws Exception {
+        JsonNode context = project(one);
+        String direction = candidate(context, one);
+        assertEquals(200, select(context, direction));
+        ObjectNode body = json.createObjectNode().put("productDirectionId", direction).put("baseAssetId", one)
+                .put("baseRepositoryProfileId", one);
+        body.set("project", json.readTree(scope(context)));
+        when(ai.generate(any())).thenReturn(PROPOSAL.replace("[\"GET\"]", "[\"Invented capability\"]"));
+        int before = jdbc.queryForObject("SELECT count(*) FROM evolution_plan", Integer.class);
+
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON)
+                .content(body.toString())).andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("PLANNING_CURRENT_STATE_INVALID"));
+        assertEquals(before, jdbc.queryForObject("SELECT count(*) FROM evolution_plan", Integer.class));
+        JsonNode loaded = json.readTree(mvc.perform(get("/api/projects/{key}", "project:" + context.path("id").asText()))
+                .andReturn().getResponse().getContentAsString()).path("context");
+        assertTrue(loaded.path("planId").isNull());
+        assertEquals(context.path("version"), loaded.path("version"));
+
+        JsonNode accepted = plan(loaded, direction, one);
+        assertEquals(direction, accepted.path("productDirectionId").asText());
+        assertEquals(before + 1, jdbc.queryForObject("SELECT count(*) FROM evolution_plan", Integer.class));
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON)
+                .content(body.toString())).andExpect(status().isConflict());
+        org.mockito.Mockito.verify(ai, org.mockito.Mockito.times(2)).generate(any());
+        var requests = org.mockito.ArgumentCaptor.forClass(com.ayywl.delveforge.application.port.ai.AiRequest.class);
+        org.mockito.Mockito.verify(ai, org.mockito.Mockito.times(2)).generate(requests.capture());
+        assertEquals(requests.getAllValues().get(0), requests.getAllValues().get(1));
+    }
+
+    @Test
+    void staleRoundSupersededDirectionAndWrongBaseRejectBeforeProvider() throws Exception {
+        JsonNode context = project(one);
+        String direction = candidate(context, one);
+        String nextDirection = candidate(context, one);
+        assertEquals(200, select(context, direction));
+        ObjectNode body = json.createObjectNode().put("productDirectionId", direction).put("baseAssetId", one)
+                .put("baseRepositoryProfileId", one);
+        ObjectNode staleScope = (ObjectNode) json.readTree(scope(context));
+        staleScope.put("expectedVersion", 0);
+        body.set("project", staleScope);
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON)
+                .content(body.toString())).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("PROJECT_CONTEXT_CONFLICT"));
+
+        body.set("project", json.readTree(scope(context)));
+        body.put("baseAssetId", two);
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON)
+                .content(body.toString())).andExpect(status().isConflict());
+        assertEquals(200, select(context, nextDirection));
+        body.put("baseAssetId", one);
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON)
+                .content(body.toString())).andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void twoProjectsCanGeneratePlansWithoutChangingEachOthersBinding() throws Exception {
+        JsonNode a = project(one);
+        JsonNode b = project(two);
+        String da = candidate(a, one);
+        String db = candidate(b, two);
+        assertEquals(200, select(a, da));
+        assertEquals(200, select(b, db));
+        JsonNode pa = plan(a, da, one);
+        JsonNode pb = plan(b, db, two);
+        assertEquals(da, pa.path("productDirectionId").asText());
+        assertEquals(db, pb.path("productDirectionId").asText());
+        assertEquals(pa.path("id").asText(), jdbc.queryForObject(
+                "SELECT plan_id FROM project_flow_context WHERE id=?", String.class, a.path("id").asText()));
+        assertEquals(pb.path("id").asText(), jdbc.queryForObject(
+                "SELECT plan_id FROM project_flow_context WHERE id=?", String.class, b.path("id").asText()));
+    }
+
+    @Test
     void independentProjectsSharingProfileAndOptionallyRepositoryKeepSelectedDirections() throws Exception {
         for (String repo : List.of(one, two)) {
             JsonNode a = project(one);
@@ -267,7 +342,7 @@ class ProjectDirectionScopeIntegrationTest {
     }
 
     @Test
-    void stalePlanningContextDuringAiRollsBackBothPlanAndContextBinding() throws Exception {
+    void stalePlanningContextDuringAiRejectsBeforePlanAndContextCommit() throws Exception {
         JsonNode a = project(one);
         String selected = candidate(a, one);
         assertEquals(200, select(a, selected));

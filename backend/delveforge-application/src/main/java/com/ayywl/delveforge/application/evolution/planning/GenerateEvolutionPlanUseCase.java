@@ -58,6 +58,7 @@ public final class GenerateEvolutionPlanUseCase {
         PlanningProposal proposal = extraction.extract(direction, profile);
 
         // 外部调用后重新核对可变资格，同时保留本次规划使用的原始语义输入。
+        directions.requirePlanningScope(direction.id(), request.project(), profile.id());
         ProductDirection currentDirection = directions.findById(direction.id())
                 .orElseThrow(() -> new ProductDirectionNotFoundException(direction.id()));
         SoftwareAsset currentAsset = assets.findById(asset.id())

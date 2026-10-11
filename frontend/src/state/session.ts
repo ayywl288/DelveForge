@@ -259,11 +259,12 @@ export function createSession() {
       return;
     }
     busy.value = label;
+    const epoch = contextEpoch.value;
     error.value = "";
     notice.value = "";
     try {
       await operation();
-      if (disposed) return;
+      if (disposed || saveContext && contextEpoch.value !== epoch) return;
       if (saveContext && projectContext.value) {
         try {
           projectContext.value = await api.updateProject(projectContext.value, { ...ids });
@@ -274,6 +275,7 @@ export function createSession() {
         }
       }
     } catch (failure) {
+      if (disposed || saveContext && contextEpoch.value !== epoch) return;
       error.value =
         failure instanceof ApiError
           ? failure.message
@@ -949,23 +951,47 @@ export function createSession() {
       const repository = repositories.value.find(
         (item) => item.id === repositoryId,
       );
-      if (selected.value && repository)
+      const direction = selected.value;
+      const context = projectContext.value ? { ...projectContext.value } : null;
+      const epoch = contextEpoch.value;
+      const current = () => !disposed && contextEpoch.value === epoch &&
+        projectContext.value?.id === context?.id;
+      if (direction && repository && direction.candidateAssetIds.includes(repository.assetId))
         await run("规划演化（调用 AI）", async () => {
           planningAuthorizationIssue.value = null;
+          let accepted = false;
           try {
-            setPlan(await api.generatePlan(
-              selected.value!.id,
+            const result = await api.generatePlan(
+              direction.id,
               repository.assetId,
               repository.id,
-              projectContext.value,
-            ));
-            if (projectContext.value) {
+              context,
+            );
+            if (!current()) return;
+            if (result.productDirectionId !== direction.id || result.baseAssetId !== repository.assetId ||
+              result.baseRepositoryProfileId !== repository.id) throw new ApiError(0, "RESPONSE_UNREADABLE");
+            setPlan(result);
+            accepted = true;
+            if (context) {
               // 规划与 planId 关联由后端原子保存；回读版本后再保存导航集合。
-              const workspace = await api.project("project:" + projectContext.value.id);
-              if (disposed) return;
+              const workspace = await api.project("project:" + context.id);
+              if (!current()) return;
+              if (workspace.context?.id !== context.id || workspace.context.planId !== result.id)
+                throw new ApiError(409, "PROJECT_CONTEXT_CONFLICT");
               projectContext.value = workspace.context;
             }
           } catch (failure) {
+            if (!current()) return;
+            const rejectedWithoutPlan = failure instanceof ApiError && ["PLANNING_AI_FAILED",
+              "PLANNING_PROPOSAL_INVALID", "PLANNING_EVIDENCE_INVALID", "PLANNING_CURRENT_STATE_INVALID",
+              "PLANNING_REJECTED"].includes(failure.code);
+            if (context && (accepted || !(failure instanceof ApiError) || failure.status === 0 ||
+              failure.status >= 500 && !rejectedWithoutPlan)) {
+              projectSyncError.value = true;
+              notice.value = accepted
+                ? "计划已经保存，但项目关联回读失败。请重新打开当前项目核对，不要再次生成。"
+                : "规划请求结果尚未确定。请先重新打开当前项目查询，系统不会自动重试付费请求。";
+            }
             if (failure instanceof ApiError && ["ASSET_READ_PERMISSION_REQUIRED",
               "ASSET_USAGE_AUTHORIZATION_REQUIRED", "ASSET_LICENSE_INFORMATION_REQUIRED",
               "ASSET_AUTHORIZATION_CONFLICT"].includes(failure.code)) {

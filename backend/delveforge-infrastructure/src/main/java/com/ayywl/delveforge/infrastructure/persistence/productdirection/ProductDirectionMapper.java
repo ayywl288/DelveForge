@@ -56,7 +56,9 @@ public interface ProductDirectionMapper extends BaseMapper<ProductDirectionDO> {
             @Param("revision") int revision);
 
     @Select("""
-            SELECT COUNT(*) FROM project_flow_context WHERE id = #{contextId} AND plan_id IS NULL AND deleted_at IS NULL
+            SELECT COUNT(*) FROM project_flow_context WHERE id = #{project.contextId}
+                AND version = #{project.expectedVersion} AND flow_id IS NOT NULL AND deleted_at IS NULL
+                AND plan_id IS NULL
             """)
-    int unplannedContext(String contextId);
+    int currentPlanningContext(@Param("project") ProjectScopeBasis project);
 }

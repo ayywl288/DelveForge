@@ -31,6 +31,11 @@ const base = ref("");
 const reviewed = ref(false);
 const prepareOpen = ref(false);
 const stepToConfirm = ref<EvolutionStep | null>(null);
+watch(() => [props.s.contextEpoch, props.s.selected?.id], () => {
+  // 分析快照是本轮用户选择，不能由上一项目或旧方向的表单残留代替。
+  base.value = "";
+  reviewed.value = false;
+});
 watch(() => props.s.plan?.id, () => {
   reviewed.value = false;
   prepareOpen.value = false;

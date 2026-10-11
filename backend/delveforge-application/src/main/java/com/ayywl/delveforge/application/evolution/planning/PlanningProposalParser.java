@@ -24,8 +24,8 @@ public final class PlanningProposalParser {
     public AiPlanningProposal parse(String raw) {
         try {
             return parseContent(raw);
-        } catch (IllegalArgumentException exception) {
-            throw new AiGatewayException("AI planning content is incomplete", exception);
+        } catch (AiGatewayException | IllegalArgumentException exception) {
+            throw new PlanningExtractionException(PlanningExtractionException.Phase.PROPOSAL_PARSE, exception);
         }
     }
 

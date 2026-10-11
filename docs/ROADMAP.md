@@ -2039,3 +2039,12 @@ F-Fix 首次完整 verify 1457 项 PASS；追加最终 verify 1468 项 PASS，�
 [软删除与恢复记录](validation/task-f-fix-project-deletion-recovery.md)。没有操作用户数据库，
 没有付费 Provider / 真实 Step 请求，也没有推送远端。
 **M0–M4 继续 FROZEN，M5 继续 DEFERRED；本任务结束后等待用户手动验收，不扩展功能。**
+
+### Final Fix — 偶发规划拒绝（用户授权修复）
+
+**DONE（2026-10-11）。** 保存的历史失败定位到 Provider 返回后的 CurrentState 原文成员校验；
+具体被改写条目与刷新后成功原因无法从旧日志恢复。严格事实与 Evidence 规则保持不变，
+仅增加固定失败阶段/原因、Context 版本预检和规划请求/回读边界，没有自动付费重试。
+最终 Maven verify 1474 项、前端 85 项、类型检查和构建 PASS。
+见 [定位与验证记录](validation/final-planning-rejection-fix.md)。没有数据库迁移或真实 Provider /
+Evolution Step 调用。结束业务扩展，数据库归档及 Task G 尚未执行，等待后续手动验收。

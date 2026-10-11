@@ -98,17 +98,24 @@ public final class EvolutionPlanningExtraction {
                 "reference", entry.getKey(), "sourceType", entry.getValue().evidence().sourceType().name(),
                 "sourceRef", entry.getValue().evidence().sourceRef(), "claim", entry.getValue().evidence().claim())).toList());
 
+        AiRequest request;
         try {
-            AiRequest request = new AiRequest(List.of(new AiMessage(AiRole.SYSTEM, INSTRUCTION),
+            request = new AiRequest(List.of(new AiMessage(AiRole.SYSTEM, INSTRUCTION),
                     new AiMessage(AiRole.USER, mapper.writeValueAsString(payload))), AiResponseFormat.JSON);
-            AiPlanningProposal proposal = parser.parse(gateway.generate(request));
-
-            // 临时引用止于 Application；还原既有事实后，候选仍须通过领域校验。
-            return resolver.resolve(proposal, catalog);
         } catch (JsonProcessingException exception) {
-            throw new AiGatewayException("Could not serialize planning inputs", exception);
-        } catch (IllegalArgumentException exception) {
-            throw new AiGatewayException("AI planning proposal failed structural validation", exception);
+            throw new PlanningExtractionException(PlanningExtractionException.Phase.INPUT_SERIALIZATION, exception);
         }
+
+        String response;
+        try {
+            response = gateway.generate(request);
+        } catch (AiGatewayException exception) {
+            // Gateway 同时负责传输和 Provider envelope 校验，不猜测具体的网络根因。
+            throw new PlanningExtractionException(PlanningExtractionException.Phase.PROVIDER_CALL, exception);
+        }
+        AiPlanningProposal proposal = parser.parse(response);
+
+        // 临时引用止于 Application；还原既有事实后，候选仍须通过领域校验。
+        return resolver.resolve(proposal, catalog);
     }
 }

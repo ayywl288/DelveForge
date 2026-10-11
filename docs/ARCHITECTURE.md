@@ -353,6 +353,10 @@ IllegalArgumentException                 400        INVALID_REQUEST
 UserProfileNotFoundException             404        NOT_FOUND
 UserProfileStateException                409        CONFLICT
 AiGatewayException                       502        EXTERNAL_CAPABILITY_UNAVAILABLE
+PlanningExtractionException              502        PLANNING_AI_FAILED / PLANNING_PROPOSAL_INVALID /
+                                                    PLANNING_EVIDENCE_INVALID
+  （INPUT_SERIALIZATION 是本地组装失败）    500        INTERNAL_ERROR
+EvolutionPlanningRejectedException       502        PLANNING_CURRENT_STATE_INVALID / PLANNING_REJECTED
 WorkspaceException                       500        INTERNAL_ERROR
 WorkingCopyNotFoundException              404        NOT_FOUND
 EvolutionPlanStateException               409        CONFLICT
@@ -379,6 +383,15 @@ Profile 再次执行状态转移、修改 CONFIRMED 的 Profile）。**不要映
 
 响应体不携带异常 message、堆栈、原因链或框架生成的细节文本——
 这些内容可能包含请求内容、用户数据或第三方 SDK 的原始返回。
+
+规划失败按 Application 的 PROVIDER_CALL / PROPOSAL_PARSE / EVIDENCE_RESOLVE 及 Domain 的
+DOMAIN_ACCEPTANCE 分类。PROVIDER_CALL 包括 Gateway 的传输与 Provider envelope 处理，不据此
+猜测网络根因；更细的 HTTP 诊断仍由 Adapter 提供。领域拒绝以固定 reason 枚举区分现状的
+capabilities / modules / limitations、目标意图、复用能力和依据，不记录任何拒绝条目的原文。
+这些明确拒绝发生在 Plan 保存前；可由用户再次发起计费规划，没有自动重试。连接断开、
+未预期服务端错误或成功后的关联回读失败则先恢复已保存项目，不能视为“未生成”而重提。
+上下文版本冲突仍为 PROJECT_CONTEXT_CONFLICT，归属冲突为 EVOLUTION_FLOW_SCOPE_CONFLICT；
+规划前及 AI 返回后核查，提交事务仍以版本/归属和授权条件保证 Plan 与关联原子保存。
 
 **Logging**
 

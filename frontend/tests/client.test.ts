@@ -2,6 +2,24 @@ import { describe, expect, it, vi } from "vitest";
 import { api, ApiError, request } from "../src/api/client";
 
 describe("真实 DTO 请求契约", () => {
+  it("规划阶段错误使用固定提示，拒绝与结果未知分开且不重试", async () => {
+    const messages: Record<string, string> = {
+      PLANNING_AI_FAILED: "Provider 响应处理失败",
+      PLANNING_PROPOSAL_INVALID: "结构要求",
+      PLANNING_EVIDENCE_INVALID: "输入中不存在的依据",
+      PLANNING_CURRENT_STATE_INVALID: "现状条目",
+      PLANNING_REJECTED: "领域校验",
+    };
+    const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
+    for (const [code, text] of Object.entries(messages)) {
+      fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ code, message: "PRIVATE_PROVIDER_RESPONSE" }), { status: 502 }));
+      await expect(api.generatePlan("d", "a", "r")).rejects.toThrow(text);
+    }
+    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(new ApiError(0, "CONNECTION_LOST").message).toContain("结果尚不确定");
+    expect(new ApiError(502, "PLANNING_CURRENT_STATE_INVALID").message).not.toContain("PRIVATE_PROVIDER_RESPONSE");
+  });
+
   it("使用 Controller 字段名、无体决策和相对代理 URL", async () => {
     const fetcher = vi
       .fn()

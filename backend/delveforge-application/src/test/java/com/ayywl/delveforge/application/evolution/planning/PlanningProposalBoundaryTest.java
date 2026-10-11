@@ -42,7 +42,9 @@ class PlanningProposalBoundaryTest {
     @Test
     void parserRejectsMalformedJsonTrailingExplanationAndSecondValue() {
         for (String malformed : List.of("not json", "[]", JSON + " explanation", JSON + " {}")) {
-            assertThrows(AiGatewayException.class, () -> parser.parse(malformed));
+            PlanningExtractionException failure = assertThrows(PlanningExtractionException.class,
+                    () -> parser.parse(malformed));
+            assertEquals(PlanningExtractionException.Phase.PROPOSAL_PARSE, failure.phase());
         }
     }
 
@@ -84,7 +86,9 @@ class PlanningProposalBoundaryTest {
         AiPlanningProposal candidate = parser.parse(JSON.replace("R-E1", "unknown"));
 
         assertEquals(List.of("unknown"), candidate.evidenceReferences());
-        assertThrows(AiGatewayException.class, () -> resolver.resolve(candidate, Map.of("R-E1", basis)));
+        PlanningExtractionException failure = assertThrows(PlanningExtractionException.class,
+                () -> resolver.resolve(candidate, Map.of("R-E1", basis)));
+        assertEquals(PlanningExtractionException.Phase.EVIDENCE_RESOLVE, failure.phase());
     }
 
     @Test void parserKeepsStructuredTechnicalWhatWithoutSelectingConcreteM4Targets() {

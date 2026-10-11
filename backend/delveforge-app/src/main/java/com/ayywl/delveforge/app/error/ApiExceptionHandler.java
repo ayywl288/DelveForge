@@ -2,6 +2,7 @@ package com.ayywl.delveforge.app.error;
 
 import com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException;
 import com.ayywl.delveforge.application.evolution.planning.EvolutionPlanNotFoundException;
+import com.ayywl.delveforge.application.evolution.planning.PlanningExtractionException;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationBudgetExceededException;
 import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDirectionNotFoundException;
@@ -368,9 +369,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
-     * AI 调用、提案解析或规划领域接受失败：本次无法获得可用的 AI 结果。
+     * 其它业务的 AI Gateway 失败；规划的阶段和领域拒绝由独立分支分类。
      */
-    @ExceptionHandler({AiGatewayException.class, EvolutionPlanningRejectedException.class})
+    @ExceptionHandler(AiGatewayException.class)
     @ResponseStatus(HttpStatus.BAD_GATEWAY)
     public ApiErrorResponse handleAiGatewayFailure(RuntimeException exception,
                                                    HttpServletRequest request) {
@@ -382,6 +383,37 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 AI_GATEWAY_FAILURE_MESSAGE,
                 request.getRequestURI(),
                 Instant.now());
+    }
+
+    @ExceptionHandler(PlanningExtractionException.class)
+    public ResponseEntity<ApiErrorResponse> handlePlanningExtractionFailure(
+            PlanningExtractionException exception, HttpServletRequest request) {
+        ApiErrorCode code = switch (exception.phase()) {
+            case INPUT_SERIALIZATION -> ApiErrorCode.INTERNAL_ERROR;
+            case PROVIDER_CALL -> ApiErrorCode.PLANNING_AI_FAILED;
+            case PROPOSAL_PARSE -> ApiErrorCode.PLANNING_PROPOSAL_INVALID;
+            case EVIDENCE_RESOLVE -> ApiErrorCode.PLANNING_EVIDENCE_INVALID;
+        };
+        log.error("operation=evolution.planning path={} phase={} code={} exception={}",
+                loggedRoute(request), exception.phase(), code, describe(exception));
+        HttpStatus status = exception.phase() == PlanningExtractionException.Phase.INPUT_SERIALIZATION
+                ? HttpStatus.INTERNAL_SERVER_ERROR : HttpStatus.BAD_GATEWAY;
+        return ResponseEntity.status(status).body(
+                new ApiErrorResponse(code, messageFor(code), request.getRequestURI(), Instant.now()));
+    }
+
+    @ExceptionHandler(EvolutionPlanningRejectedException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ApiErrorResponse handlePlanningRejected(
+            EvolutionPlanningRejectedException exception, HttpServletRequest request) {
+        ApiErrorCode code = switch (exception.reason()) {
+            case CURRENT_CAPABILITIES_NOT_FROM_BASE_PROFILE, CURRENT_MODULES_NOT_FROM_BASE_PROFILE,
+                    CURRENT_LIMITATIONS_NOT_FROM_BASE_PROFILE -> ApiErrorCode.PLANNING_CURRENT_STATE_INVALID;
+            default -> ApiErrorCode.PLANNING_REJECTED;
+        };
+        log.error("operation=evolution.planning path={} phase=DOMAIN_ACCEPTANCE code={} reason={} exception={}",
+                loggedRoute(request), code, exception.reason(), describe(exception));
+        return new ApiErrorResponse(code, messageFor(code), request.getRequestURI(), Instant.now());
     }
 
     /**
@@ -486,6 +518,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             case NOT_FOUND -> NOT_FOUND_MESSAGE;
             case CONFLICT -> CONFLICT_MESSAGE;
             case EXTERNAL_CAPABILITY_UNAVAILABLE -> AI_GATEWAY_FAILURE_MESSAGE;
+            case PLANNING_AI_FAILED -> "规划的 AI 调用或 Provider 响应处理失败，本次未保存计划；可核对后明确重新请求，可能再次计费";
+            case PLANNING_PROPOSAL_INVALID -> "AI 规划内容未满足结构契约，本次未保存计划；可明确重新请求，可能再次计费";
+            case PLANNING_EVIDENCE_INVALID -> "AI 规划引用了输入中不存在的依据，本次未保存计划；可明确重新请求，可能再次计费";
+            case PLANNING_CURRENT_STATE_INVALID -> "AI 规划的现状条目不属于所选仓库画像原文，已拒绝且未保存计划；可明确重新请求，可能再次计费";
+            case PLANNING_REJECTED -> "AI 规划未通过产品意图、复用能力或依据等领域校验，已拒绝且未保存计划；可明确重新请求，可能再次计费";
             case INTERNAL_ERROR -> INTERNAL_ERROR_MESSAGE;
             case ASSET_TYPE_UNSUPPORTED -> "当前资产类型不能作为演化基础";
             case ASSET_READ_PERMISSION_REQUIRED -> "请在已有仓库的授权信息中明确提交读取许可";

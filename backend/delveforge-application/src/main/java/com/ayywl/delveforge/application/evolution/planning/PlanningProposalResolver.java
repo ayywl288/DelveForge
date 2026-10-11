@@ -22,7 +22,8 @@ public final class PlanningProposalResolver {
         for (String reference : proposal.evidenceReferences()) {
             EvidenceBasis basis = catalog.get(reference);
             if (basis == null) {
-                throw new AiGatewayException("Unknown planning Evidence reference");
+                throw new PlanningExtractionException(PlanningExtractionException.Phase.EVIDENCE_RESOLVE,
+                        new AiGatewayException("Unknown planning Evidence reference"));
             }
             evidence.add(basis);
         }
