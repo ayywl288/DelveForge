@@ -266,6 +266,12 @@ Domain / Application 不得出现这些技术类型的依赖。
 具体业务表随 M1 及之后的对应领域对象以新增迁移的方式引入。
 `delveforge-domain` / `delveforge-application` 不提供通用 Repository 抽象。
 
+Task F 增加 Application `ProjectFlowContext` 与专属 Persistence 端口，保存导航身份及
+显式关联 ID；V15 仅新建表与索引。历史服务读取原聚合，旧 Plan 按保存引用形成投影，
+不提供另一套 Domain 状态或授权依据。目录预检通过只读 `WorkingCopyStorageInspection`
+端口执行，不持有 Git、Mutation、构建或验证能力。业务命令和导航上下文保存分别提交，
+CAS 失败不能被解释为业务回滚或自动重试许可。决策及取舍见 [ADR-0007](decisions/0007-application-project-context-and-read-only-history.md)。
+
 Maven Module 控制主要 Architecture Layer Boundary。
 
 每个 Module 内部继续按照 Feature / Domain Concept 组织代码。
@@ -518,6 +524,17 @@ Frontend 采用 Vitest + jsdom 验证五阶段交互和长请求，夹具不依�
 | `POST`  | `/api/product-directions/{id}/reject` | 用户明确拒绝该方向（`CANDIDATE → REJECTED`）              | 200 | 404 / 409 |
 | `POST`  | `/api/evolution-plans/planning` | 从 Selected Direction、Base Asset 和 Base Profile 生成并保存 PROPOSED Plan | 201 | 400 / 404 / 409 / 502 |
 | `GET`   | `/api/evolution-plans/{id}` | 读取完整的规划结果、按顺序的步骤及依据出处 | 200 | 404 |
+| `GET` | `/api/projects?offset=0&limit=50` | 持久上下文及未认领旧 Plan 的真实历史摘要 | 200 | 400 |
+| `GET` | `/api/projects/{key}` | `project:{id}` 或 `plan:{id}`，按明确引用恢复业务对象与问题提示 | 200 | 400 / 404 |
+| `POST` | `/api/projects` | 保存空流程或复用当前 CONFIRMED Profile 的导航上下文 | 201 | 400 / 404 / 409 |
+| `PUT` | `/api/projects/{id}/context` | 按 expectedVersion 保存明确 ID，不重绑 Profile / Plan、不移除旧关联 | 200 | 400 / 404 / 409 |
+| `POST` | `/api/projects/legacy-plans/{id}/resume` | 用户明确继续旧 Plan，幂等建立上下文，不执行业务阶段 | 200 | 400 / 404 / 409 |
+| `GET` | `/api/projects/resources?kind=USER_PROFILE` | 分页列出可选择资源；另支持 SOFTWARE_ASSET / REPOSITORY_PROFILE | 200 | 400 / 404 |
+
+项目查询与恢复无 AI / Workspace mutation 调用。关联并发冲突返回独立
+`PROJECT_CONTEXT_CONFLICT`，不混同授权或 Step 生命周期冲突；缺失业务关联通过投影
+`issues` 呈现。列表默认 50、最大 100；旧记录缺失创建时间时返回未知，最近活动仅来自
+上下文保存或实际 Execution / Verification 时间。历史对象不因恢复写入或合并。
 
 **explore 语义**
 
@@ -1394,6 +1411,7 @@ M4 实现成功路径与 fail-closed 安全，M5 实现完整失败 / 恢复流�
 | [0004](decisions/0004-two-stage-repository-understanding-with-validated-file-references.md) | Repository Analysis 演进为两阶段：Repository Map → LLM Scout → 校验引用 → 定向读取 | Accepted |
 | [0005](decisions/0005-hierarchical-repository-scout-for-oversized-source-catalogs.md) | flat File Catalog 超限时改用分层 Scout：Region 导航 → 各终态分支的 File Scout | Accepted |
 | [0006](decisions/0006-repository-source-secret-boundary.md) | 仓库源码在离开进程前过凭据边界：读取前按路径排除 + 交给模型前内容净化 | Accepted |
+| [0007](decisions/0007-application-project-context-and-read-only-history.md) | Application 导航上下文、明确身份关联与只读历史恢复 | Accepted |
 
 以下事项经过评审后**决定不建立 ADR**，结论保留在本文件或 `docs/ROADMAP.md` 中：
 

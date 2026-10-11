@@ -17,6 +17,8 @@ import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedEx
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceStorageUnavailableException;
+import com.ayywl.delveforge.application.project.ProjectContextConflictException;
+import com.ayywl.delveforge.application.project.ProjectNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryNotAnalyzableException;
@@ -80,6 +82,23 @@ import java.time.Instant;
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    @ExceptionHandler(ProjectNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ApiErrorResponse handleProjectNotFound(ProjectNotFoundException exception, HttpServletRequest request) {
+        log.warn("operation=interface.request path={} result=NOT_FOUND exception={}",
+                loggedRoute(request), describe(exception));
+        return new ApiErrorResponse(ApiErrorCode.NOT_FOUND, NOT_FOUND_MESSAGE, request.getRequestURI(), Instant.now());
+    }
+
+    @ExceptionHandler(ProjectContextConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiErrorResponse handleProjectConflict(ProjectContextConflictException exception, HttpServletRequest request) {
+        log.warn("operation=interface.request path={} result=PROJECT_CONTEXT_CONFLICT exception={}",
+                loggedRoute(request), describe(exception));
+        return new ApiErrorResponse(ApiErrorCode.PROJECT_CONTEXT_CONFLICT,
+                messageFor(ApiErrorCode.PROJECT_CONTEXT_CONFLICT), request.getRequestURI(), Instant.now());
+    }
 
     /** 原因链深度上限，避免异常链被异常构造时日志失控。 */
     private static final int MAX_CAUSE_DEPTH = 10;
@@ -461,6 +480,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             case ASSET_LICENSE_INFORMATION_REQUIRED -> "分析允许许可证未知；演化规划前请补齐已有仓库的许可证及适用范围";
             case ASSET_AUTHORIZATION_CONFLICT -> "仓库授权版本已变化，请重新读取并核对；本次操作未提交";
             case ASSET_ALREADY_REGISTERED -> "此仓库已登记，请选择已有资产；补充许可证应修改原记录";
+            case PROJECT_CONTEXT_CONFLICT -> "项目关联或版本已变化，请重新打开项目核对；本次上下文未保存";
         };
     }
 

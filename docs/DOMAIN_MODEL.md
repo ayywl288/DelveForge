@@ -1724,6 +1724,12 @@ Invariant 描述的是系统无论采用何种 Controller、数据库、LLM Prov
 | `INV-D09` | 当前 MVP 仅支持一个活动演化流程，因此系统全局最多只能存在一个当前 `SELECTED` Product Direction。用户明确选择新的 `CANDIDATE` Product Direction 时，若当前已存在 `SELECTED` Product Direction，则原方向必须在同一次选择操作中进入 `SUPERSEDED`。并行演化流程及显式 `EvolutionFlow` 身份不属于当前 MVP 范围；若后续需求得到验证，再引入相应流程身份，并将该约束收窄为“每个 EvolutionFlow 最多一个当前 `SELECTED` Product Direction”。 |
 | `INV-D10` | 每个 Product Direction 至少必须标识一个 Candidate Software Asset；其 `candidateAssetIds` 必须来自该 Product Direction 所引用 Repository Profiles 对应的 Software Assets。 |
 
+Task F 的 `ProjectFlowContext` 是 Application 导航记录，不是 Domain `EvolutionFlow`、
+新的 Aggregate 或状态机。多个历史项目可分别引用同一 UserProfile 或 SoftwareAsset；
+恢复上下文不产生选择、授权、执行或成功事实，也不改变 `INV-D09` 的全局约束。
+项目页展示当前 Profile 与方向原始 `userProfileRevision` 的区别，不覆盖历史绑定。
+是否可继续 Step 仍由当前 Plan / Direction、WorkingCopy 与原有 Domain Policies 判断。
+
 ### 7.2 Planning Invariants
 
 | ID        | Invariant                                                    |
