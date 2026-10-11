@@ -2,6 +2,7 @@ package com.ayywl.delveforge.app.api.softwareasset;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -123,6 +124,85 @@ class SoftwareAssetControllerIntegrationTest {
         mockMvc.perform(get("/api/software-assets/{id}", "unknown-asset"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    void duplicateRegistrationCannotReplaceDeniedAuthorizationAndCanFindOriginal() throws Exception {
+        String id = register("E:/task-d-demo", false, null, "DENIED");
+        mockMvc.perform(post("/api/software-assets").contentType(MediaType.APPLICATION_JSON)
+                        .content(registrationBody("e:/TASK-D-DEMO/./", true, "MIT", "ALLOWED")))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ASSET_ALREADY_REGISTERED"));
+        mockMvc.perform(get("/api/software-assets").param("location", "E:\\task-d-demo"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(id))
+                .andExpect(jsonPath("$[0].usageAuthorization").value("DENIED"));
+        assertEquals(1, softwareAssetMapper.selectCount(null));
+    }
+
+    @Test
+    void authorizationUpdateRequiresExplicitFieldsAndRejectsStaleVersion() throws Exception {
+        String id = register("E:/task-d-update", false, null, "UNCLEAR");
+        mockMvc.perform(put(
+                        "/api/software-assets/{id}/authorization", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedAuthorizationRevision\":0,\"licenseInfo\":\"MIT\"}"))
+                .andExpect(status().isBadRequest());
+        String input = """
+                {"expectedAuthorizationRevision":0,"readPermissionAllowed":true,"licenseInfo":"MIT",
+                 "usageAuthorization":"ALLOWED"}
+                """;
+        mockMvc.perform(put(
+                        "/api/software-assets/{id}/authorization", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedAuthorizationRevision\":0,\"readPermissionAllowed\":true,\"usageAuthorization\":\"ALLOWED\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/software-assets/{id}", id)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.authorizationRevision").value(0))
+                .andExpect(jsonPath("$.usageAuthorization").value("UNCLEAR"));
+        mockMvc.perform(put(
+                        "/api/software-assets/{id}/authorization", id).contentType(MediaType.APPLICATION_JSON).content(input))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.authorizationRevision").value(1));
+        mockMvc.perform(put(
+                        "/api/software-assets/{id}/authorization", id).contentType(MediaType.APPLICATION_JSON).content(input))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ASSET_AUTHORIZATION_CONFLICT"));
+        mockMvc.perform(get("/api/software-assets/{id}", id)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.licenseInfo").value("MIT"))
+                .andExpect(jsonPath("$.usageAuthorization").value("ALLOWED"));
+    }
+
+    @Test
+    void newRelativeLocationIsRejected() throws Exception {
+        mockMvc.perform(post("/api/software-assets").contentType(MediaType.APPLICATION_JSON)
+                        .content(registrationBody("relative/demo", true, null, "UNCLEAR")))
+                .andExpect(status().isBadRequest());
+        assertEquals(0, softwareAssetMapper.selectCount(null));
+    }
+
+    @Test
+    void authorizationRevisionRejectsLossyOrImplicitJsonConversions() throws Exception {
+        String id = register("E:/task-d-strict-version", false, null, "UNCLEAR");
+        for (String revision : List.of("0.5", "0.0", "1e2", "\"0\"", "true", "9223372036854775808")) {
+            String input = """
+                    {"expectedAuthorizationRevision":%s,"readPermissionAllowed":true,"licenseInfo":"MIT",
+                     "usageAuthorization":"ALLOWED"}
+                    """.formatted(revision);
+            mockMvc.perform(put(
+                            "/api/software-assets/{id}/authorization", id)
+                            .contentType(MediaType.APPLICATION_JSON).content(input))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+        mockMvc.perform(get("/api/software-assets/{id}", id)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.authorizationRevision").value(0))
+                .andExpect(jsonPath("$.readPermissionAllowed").value(false))
+                .andExpect(jsonPath("$.licenseInfo").doesNotExist())
+                .andExpect(jsonPath("$.usageAuthorization").value("UNCLEAR"));
+    }
+
+    @Test
+    void newLocationStoresTheSameTrimmedPathUsedForIdentityComparison() throws Exception {
+        mockMvc.perform(post("/api/software-assets").contentType(MediaType.APPLICATION_JSON)
+                        .content(registrationBody("  E:/task-d-trimmed  ", true, null, "UNCLEAR")))
+                .andExpect(status().isCreated()).andExpect(jsonPath("$.location").value("E:/task-d-trimmed"));
+        mockMvc.perform(get("/api/software-assets").param("location", "E:/task-d-trimmed"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].location").value("E:/task-d-trimmed"));
     }
 
     /**

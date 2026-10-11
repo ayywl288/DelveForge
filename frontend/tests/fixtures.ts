@@ -21,6 +21,7 @@ export const profile = (): UserProfile => ({
 });
 export const asset = (): SoftwareAsset => ({
   id: "asset-1",
+  authorizationRevision: 0,
   type: "GIT_REPOSITORY",
   source: "USER_SPECIFIED",
   location: "C:\\projects\\sample",

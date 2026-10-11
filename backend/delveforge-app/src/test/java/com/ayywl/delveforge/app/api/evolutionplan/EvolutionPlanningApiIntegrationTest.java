@@ -193,4 +193,63 @@ class EvolutionPlanningApiIntegrationTest {
             assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class), table);
         }
     }
+
+    @Test
+    void explicitLicenseSupplementReusesExistingAssetProfileAndSelectedDirection() throws Exception {
+        assets.save(asset(true, null, UsageAuthorization.ALLOWED));
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(REQUEST))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ASSET_LICENSE_INFORMATION_REQUIRED"));
+        verifyNoInteractions(ai);
+        mvc.perform(put("/api/software-assets/asset/authorization").contentType(MediaType.APPLICATION_JSON).content("""
+                {"expectedAuthorizationRevision":0,"readPermissionAllowed":true,
+                 "licenseInfo":"Code: Apache-2.0; tutorial writing: CC BY-ND 3.0 (separate scope)",
+                 "usageAuthorization":"ALLOWED"}
+                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("asset"))
+                .andExpect(jsonPath("$.authorizationRevision").value(1));
+        assertEquals(PROFILE, profiles.findById(PROFILE).orElseThrow().id());
+        assertEquals(ProductDirectionStatus.SELECTED, directions.findById(new ProductDirectionId("direction"))
+                .orElseThrow().status());
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(REQUEST))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.baseAssetId").value("asset"))
+                .andExpect(jsonPath("$.baseRepositoryProfileId").value("profile"));
+        verify(ai, times(1)).generate(any());
+        verifyNoInteractions(reads, mutations);
+    }
+
+    @Test
+    void authorizationReasonsAndLifecycleConflictAreDistinctAndNeverCallAi() throws Exception {
+        assets.save(asset(false, "MIT", UsageAuthorization.ALLOWED));
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(REQUEST))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ASSET_READ_PERMISSION_REQUIRED"));
+        for (UsageAuthorization authorization : List.of(UsageAuthorization.DENIED, UsageAuthorization.UNCLEAR)) {
+            assets.save(asset(true, "MIT", authorization));
+            mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(REQUEST))
+                    .andExpect(status().isConflict())
+                    .andExpect(jsonPath("$.code").value("ASSET_USAGE_AUTHORIZATION_REQUIRED"));
+        }
+        assets.save(asset(true, "MIT", UsageAuthorization.ALLOWED));
+        jdbc.update("UPDATE product_direction SET status='REJECTED' WHERE id='direction'");
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(REQUEST))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("CONFLICT"));
+        verifyNoInteractions(ai);
+        assertNoPlans();
+    }
+
+    @Test
+    void planningCannotCommitAuthorizationChangedAfterAi() throws Exception {
+        when(ai.generate(any())).thenAnswer(invocation -> {
+            SoftwareAsset original = assets.findById(ASSET).orElseThrow();
+            assets.updateAuthorization(original.updateAuthorization(0, true, "Changed scope", UsageAuthorization.ALLOWED), 0);
+            return JSON;
+        });
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(REQUEST))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("ASSET_AUTHORIZATION_CONFLICT"));
+        assertNoPlans();
+        assertEquals(1, assets.findById(ASSET).orElseThrow().authorizationRevision());
+    }
+
 }

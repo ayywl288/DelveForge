@@ -45,7 +45,8 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
     @EnableAutoConfiguration
     @Import({SqliteDataSourceConfiguration.class, SqliteEvolutionPlanRepository.class, SqliteProductDirectionRepository.class,
         SqliteEvolutionLifecycleCommitAdapter.class, SqliteWorkingCopyRepository.class,
-        SqliteSoftwareAssetRepository.class, SqliteRepositoryProfileRepository.class})
+        SqliteSoftwareAssetRepository.class,
+        com.ayywl.delveforge.infrastructure.workspace.LocalRepositoryIdentityAdapter.class, SqliteRepositoryProfileRepository.class})
     @MapperScan({"com.ayywl.delveforge.infrastructure.persistence.evolutionplan",
                  "com.ayywl.delveforge.infrastructure.persistence.productdirection",
                  "com.ayywl.delveforge.infrastructure.persistence.workingcopy",
@@ -82,6 +83,21 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
             direction.select();
         }
         return direction;
+    }
+
+    @Test
+    void planningCommitRejectsChangedAuthorizationAndPersistsNothing() {
+        SoftwareAsset initial = assets.findById(ASSET).orElseThrow();
+        EvolutionPlan plan = new EvolutionPlanningService(new AssetUsagePolicy(),
+                () -> new EvolutionPlanId("authorization-plan"), () -> new EvolutionStepId(UUID.randomUUID().toString()))
+                .plan(direction(true), initial, profile(), proposal());
+        assets.updateAuthorization(initial.updateAuthorization(0, true, "Changed license scope",
+                UsageAuthorization.ALLOWED), 0);
+        assertThrows(AssetAuthorizationConflictException.class, () -> plans.saveAtAssetAuthorization(plan, initial));
+        assertTrue(plans.findById(plan.id()).isEmpty());
+        for (String table : TABLES) {
+            assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM " + table, Integer.class));
+        }
     }
 
     private static PlanningProposal proposal() {

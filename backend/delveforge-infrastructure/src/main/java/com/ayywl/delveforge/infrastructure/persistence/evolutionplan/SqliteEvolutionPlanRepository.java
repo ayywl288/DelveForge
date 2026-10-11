@@ -2,20 +2,43 @@ package com.ayywl.delveforge.infrastructure.persistence.evolutionplan;
 
 import com.ayywl.delveforge.application.port.persistence.EvolutionPlanAlreadyExistsException;
 import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
+import com.ayywl.delveforge.domain.asset.AssetAuthorizationConflictException;
+import com.ayywl.delveforge.domain.asset.AssetUsagePolicy;
+import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
-import com.ayywl.delveforge.domain.evidence.*;
-import com.ayywl.delveforge.domain.evolution.*;
+import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
+import com.ayywl.delveforge.domain.evidence.EvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
+import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.UserProfileEvidenceOrigin;
+import com.ayywl.delveforge.domain.evolution.CurrentState;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStateException;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanningPreconditionException;
+import com.ayywl.delveforge.domain.evolution.EvolutionStep;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
+import com.ayywl.delveforge.domain.evolution.ExecutionResult;
+import com.ayywl.delveforge.domain.evolution.TargetState;
+import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
+import com.ayywl.delveforge.domain.evolution.VerificationResult;
+import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 将一次规划结果作为整体持久化，根、内容、Step 与 Evidence 共用事务。
@@ -37,6 +60,19 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         this.stepMapper = steps;
         this.stepSectionMapper = stepSections;
         this.evidenceMapper = evidence;
+    }
+
+    @Override
+    @Transactional
+    public void saveAtAssetAuthorization(EvolutionPlan plan, SoftwareAsset expectedAsset) {
+        new AssetUsagePolicy().requireEvolutionBaseAllowed(expectedAsset);
+        if (!plan.baseAssetId().equals(expectedAsset.id())) {
+            throw new IllegalArgumentException("Plan and authorization asset must match");
+        }
+        if (planMapper.lockPlanningAuthorization(expectedAsset, expectedAsset.licenseInfo().orElseThrow()) != 1) {
+            throw new AssetAuthorizationConflictException();
+        }
+        save(plan);
     }
 
     @Override

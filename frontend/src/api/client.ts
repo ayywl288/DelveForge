@@ -1,6 +1,7 @@
 import type {
   Assessment,
   AssetInput,
+  AssetAuthorizationInput,
   DiscoveryTurn,
   DiscoveryQuestion,
   EvolutionPlan,
@@ -15,7 +16,13 @@ import type {
 const messages: Record<string, string> = {
   INVALID_REQUEST: "请求字段无效，请检查输入。",
   NOT_FOUND: "对象不存在，请检查恢复 ID 和后端数据库。",
-  CONFLICT: "当前版本、授权或状态不允许此操作，请先刷新并审阅。",
+  CONFLICT: "当前版本或状态不允许此操作，请先刷新并审阅。",
+  ASSET_TYPE_UNSUPPORTED: "此资产类型不能用于演化规划。",
+  ASSET_READ_PERMISSION_REQUIRED: "请在「仓库理解」的已有仓库中明确提交读取与分析许可。",
+  ASSET_USAGE_AUTHORIZATION_REQUIRED: "此仓库的使用授权尚未允许演化。请核对条款，在已有仓库中明确提交授权。",
+  ASSET_LICENSE_INFORMATION_REQUIRED: "分析允许许可证未知；演化规划前，请在已有仓库中补齐许可证信息及适用范围。",
+  ASSET_AUTHORIZATION_CONFLICT: "仓库授权版本已变化。本次未提交，请重新读取并核对授权信息。",
+  ASSET_ALREADY_REGISTERED: "此仓库已登记，请复用已有记录；许可证或授权应在原记录上显式修改。",
   EXTERNAL_CAPABILITY_UNAVAILABLE:
     "AI 调用未获得可用结果。请查询当前状态后再决定下一步。",
   INTERNAL_ERROR: "后端操作失败，请核对状态并查看后端的安全诊断日志。",
@@ -80,6 +87,10 @@ const id = encodeURIComponent;
 const profile = (value: string) => `/user-profiles/${id(value)}`;
 const plan = (value: string) => `/evolution-plans/${id(value)}`;
 export const api = {
+  assetsAtLocation: (location: string) =>
+    request<SoftwareAsset[]>(`/software-assets?location=${encodeURIComponent(location)}`),
+  updateAssetAuthorization: (value: string, input: AssetAuthorizationInput) =>
+    request<SoftwareAsset>(`/software-assets/${id(value)}/authorization`, "PUT", input),
   connectivity: () =>
     request<{ service: string; status: string; timestamp: string }>(
       "/system/connectivity",

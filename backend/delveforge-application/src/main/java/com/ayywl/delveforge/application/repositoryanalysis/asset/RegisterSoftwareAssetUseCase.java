@@ -5,32 +5,13 @@ import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetSource;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetType;
+
 import java.util.UUID;
 
 /**
- * 登记一个 Software Asset。
- *
- * <p>对应 DOMAIN_MODEL.md §14.7 中「SoftwareAsset 由用户指定」这一步：
- * 用户给出一个本地 Git Repository，系统为它建立稳定的资产身份，并保存其元数据。
- *
- * <h2>只登记元数据</h2>
- *
- * <p>本 Use Case 不访问文件系统，也不执行任何 Git 操作（RULE-ARCH-009）：
- * 它不判断 location 是否真实存在，也不判断它是否真的是一个 Git Repository。
- * 因此登记不需要 Workspace 能力，也不会因为路径不可访问而失败——
- * 只读访问 Repository 属于后续的 Analysis 流程。
- *
- * <p>这带来一个当前实现选择：不存在「这个位置其实不是 Git Repository」的领域错误，
- * 因为领域模型没有要求登记阶段做这种判断（§8.3 把「必须是可访问的本地 Git Repository」
- * 列为 Analyze Repository 的前置条件，而不是登记的前置条件）。
- *
- * <h2>不做的判断</h2>
- *
- * <pre>
- * 不检查 location 是否重复    参见 SoftwareAssetRepository 的说明
- * 不规范化 location 格式      领域模型把 location 的表现形式交给资产类型决定（§3.2）
- * 不校验用户是否真的拥有该目录  读取权限由输入显式给出，不由本 Use Case 推断
- * </pre>
+ * 登记用户显式指定的本地 Git 仓库，不读取源码或使用 AI。
+ * Repository 通过只读 LocalRepositoryIdentity 比较位置，并发拒绝重复登记。
+ * 不扫描许可证，不覆盖既有授权，也不要求当前位置已经是 Git 仓库。
  */
 public class RegisterSoftwareAssetUseCase {
 
@@ -63,12 +44,12 @@ public class RegisterSoftwareAssetUseCase {
                 generateAssetId(),
                 SoftwareAssetType.GIT_REPOSITORY,
                 SoftwareAssetSource.USER_SPECIFIED,
-                request.location(),
+                request.location() == null ? null : request.location().trim(),
                 request.readPermissionAllowed(),
                 request.licenseInfo(),
                 request.usageAuthorization());
 
-        softwareAssetRepository.save(asset);
+        softwareAssetRepository.registerUnique(asset);
         return asset;
     }
 

@@ -1,15 +1,20 @@
 package com.ayywl.delveforge.application.evolution.planning;
 
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDirectionNotFoundException;
-import com.ayywl.delveforge.application.port.persistence.*;
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
+import com.ayywl.delveforge.application.port.persistence.RepositoryProfileRepository;
+import com.ayywl.delveforge.application.port.persistence.SoftwareAssetRepository;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
+import com.ayywl.delveforge.domain.asset.AssetAuthorizationConflictException;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanningService;
 import com.ayywl.delveforge.domain.evolution.PlanningProposal;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
+
 import java.util.Objects;
 
 /**
@@ -57,10 +62,13 @@ public final class GenerateEvolutionPlanUseCase {
         SoftwareAsset currentAsset = assets.findById(asset.id())
                 .orElseThrow(() -> new SoftwareAssetNotFoundException(asset.id()));
         planning.requirePlanningBasis(currentDirection, currentAsset, profile);
+        if (currentAsset.authorizationRevision() != asset.authorizationRevision()) {
+            throw new AssetAuthorizationConflictException();
+        }
 
         EvolutionPlan plan = planning.plan(direction, asset, profile, proposal);
 
-        plans.save(plan);
+        plans.saveAtAssetAuthorization(plan, asset);
         return plan;
     }
 }

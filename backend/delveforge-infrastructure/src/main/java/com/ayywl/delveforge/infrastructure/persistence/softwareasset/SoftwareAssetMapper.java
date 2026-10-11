@@ -1,14 +1,19 @@
 package com.ayywl.delveforge.infrastructure.persistence.softwareasset;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
-/**
- * {@code software_asset} 表的 Mapper。
- *
- * <p>单表、单主键，MyBatis-Plus 的 {@code BaseMapper} 已覆盖本 Adapter 需要的
- * 全部操作，因此不额外声明 SQL。
- *
- * <p>只被 {@link SqliteSoftwareAssetRepository} 使用；Domain / Application 不得引用。
- */
+/** 资产授权 CAS 与登记写锁；技术 SQL 不进入 Domain / Application。 */
 public interface SoftwareAssetMapper extends BaseMapper<SoftwareAssetDO> {
+    @Update("UPDATE software_asset_registration_guard SET guard_value = guard_value WHERE id = 1")
+    int lockRegistration();
+
+    @Update("""
+            UPDATE software_asset SET read_permission = #{row.readPermission}, license_info = #{row.licenseInfo},
+                usage_authorization = #{row.usageAuthorization}, authorization_revision = #{row.authorizationRevision}
+            WHERE id = #{row.id} AND authorization_revision = #{expectedRevision}
+                AND type = #{row.type} AND source = #{row.source} AND location = #{row.location}
+            """)
+    int updateAuthorization(@Param("row") SoftwareAssetDO row, @Param("expectedRevision") long expectedRevision);
 }

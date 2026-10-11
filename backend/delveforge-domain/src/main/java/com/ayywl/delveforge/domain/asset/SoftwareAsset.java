@@ -20,27 +20,14 @@ import java.util.Optional;
  * <p>不包含：Repository Profile，以及任何代码读取或代码修改。Repository Profile 是引用
  * {@code assetId} 的独立 Aggregate，§11.4 明确 Software Asset 不拥有 Repository Profile。
  *
- * <h2>当前实现选择</h2>
- *
- * <p>以下都是本 Task 的实现选择，不是 DOMAIN_MODEL.md 的规定：
- *
- * <pre>
- * 不可变
- *     本 Task 不提供修改 location / readPermission / usageAuthorization 的领域操作
- *     ——§8 没有定义这类 Domain Operation，本 Task 不发明它们——因此字段全部不可变。
- *     这不排除将来出现「授权状态变化」的领域操作：那时本类需要相应改变。
- *
- * readPermission 用一个 boolean 表达
- *     §3.2 把它描述为「当前是否允许系统读取和分析该资产」，§12.6 的 Analysis 判定
- *     也只有 allowed / denied 两种结果。领域模型没有定义 readPermission = unclear
- *     的含义，因此这里不引入第三种状态。
- * </pre>
+ * <p>资产保持不可变；用户通过 updateAuthorization 提交隔离候选，授权版本递增。
+ * 身份、来源与位置不通过此操作修改。授权 CAS 由 Persistence 负责，许可证文本仅记录声明。
  *
  * <p>usageAuthorization 则必须区分三种状态（见 {@link UsageAuthorization}）：
  * 「已明确不允许」与「尚未确认」是两种不同的领域状态，压成同一个取值会丢失领域信息。
  *
  * <p>本类不判断该资产是否允许被复用或作为 Evolution Base。那属于 AssetUsagePolicy
- * （§12.6、INV-A02～INV-A04），不在本 Task 范围内：§12.6 明确
+ * （§12.6、INV-A02～INV-A04）：§12.6 明确
  * 「Readable ≠ Reusable」「Analyzable ≠ Authorized Evolution Base」。
  */
 public class SoftwareAsset {
@@ -52,6 +39,9 @@ public class SoftwareAsset {
     private final boolean readPermissionAllowed;
     private final String licenseInfo;
     private final UsageAuthorization usageAuthorization;
+
+    // 授权并发版本，不是 UserProfile 或 Git revision。
+    private final long authorizationRevision;
 
     /**
      * 登记一个 Software Asset。
@@ -93,13 +83,7 @@ public class SoftwareAsset {
      * 「恢复已保存的资产」，而不是「登记一个新的资产」——后者请使用
      * {@link #create}。
      *
-     * <p>Software Asset 当前没有创建之后才可能出现的领域状态（没有 status，也没有
-     * revision），因此本方法接受的取值与 {@link #create} 完全一致，校验也完全一致。
-     * 它不构成绕过 Aggregate 规则的任意 mutation API：重建出的对象没有任何
-     * 可以由外部改写的字段。
-     *
-     * <p>与 {@code UserProfile.reconstitute} 的区别来自领域本身：
-     * User Profile 有 status 与 revision 需要在重建时一并恢复，Software Asset 没有。
+     * <p>此兼容入口恢复授权版本 0；持久化读取必须使用带 authorizationRevision 的重载。
      *
      * @throws IllegalArgumentException 任一必填参数缺失或取值不合法
      */
@@ -124,6 +108,15 @@ public class SoftwareAsset {
             boolean readPermissionAllowed,
             String licenseInfo,
             UsageAuthorization usageAuthorization) {
+        this(id, type, source, location, readPermissionAllowed, licenseInfo, usageAuthorization, 0);
+    }
+
+    private SoftwareAsset(SoftwareAssetId id, SoftwareAssetType type, SoftwareAssetSource source,
+            String location, boolean readPermissionAllowed, String licenseInfo, UsageAuthorization usageAuthorization,
+            long authorizationRevision) {
+        if (authorizationRevision < 0) {
+            throw new IllegalArgumentException("Authorization revision must be nonnegative");
+        }
 
         if (id == null) {
             throw new IllegalArgumentException("Software Asset 必须指定 id");
@@ -153,6 +146,7 @@ public class SoftwareAsset {
         this.readPermissionAllowed = readPermissionAllowed;
         this.licenseInfo = licenseInfo;
         this.usageAuthorization = usageAuthorization;
+        this.authorizationRevision = authorizationRevision;
     }
 
     /**
@@ -183,6 +177,27 @@ public class SoftwareAsset {
             throw new SoftwareAssetNotReadableException(
                     "Software Asset 当前不允许读取，不能进入 Repository Analysis: " + id.value());
         }
+    }
+
+    public static SoftwareAsset reconstitute(SoftwareAssetId id, SoftwareAssetType type, SoftwareAssetSource source,
+            String location, boolean readPermissionAllowed, String licenseInfo, UsageAuthorization usageAuthorization,
+            long authorizationRevision) {
+        return new SoftwareAsset(id, type, source, location, readPermissionAllowed, licenseInfo,
+                usageAuthorization, authorizationRevision);
+    }
+
+    /** 返回隔离候选；CAS 失败不会修改已加载的资产，身份与位置保持不变。 */
+    public SoftwareAsset updateAuthorization(long expectedRevision, boolean readPermissionAllowed,
+            String licenseInfo, UsageAuthorization usageAuthorization) {
+        if (expectedRevision != authorizationRevision) {
+            throw new AssetAuthorizationConflictException();
+        }
+        return reconstitute(id, type, source, location, readPermissionAllowed, licenseInfo, usageAuthorization,
+                Math.addExact(authorizationRevision, 1));
+    }
+
+    public long authorizationRevision() {
+        return authorizationRevision;
     }
 
     public SoftwareAssetId id() {

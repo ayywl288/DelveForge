@@ -6,6 +6,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
+import com.ayywl.delveforge.application.port.persistence.SoftwareAssetRepository;
+import com.ayywl.delveforge.domain.asset.SoftwareAsset;
+import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
+import com.ayywl.delveforge.domain.asset.SoftwareAssetSource;
+import com.ayywl.delveforge.domain.asset.SoftwareAssetType;
+import com.ayywl.delveforge.domain.asset.UsageAuthorization;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
 import java.util.UUID;
@@ -28,8 +34,8 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>本类只替换 AI（它是真正的外部能力），Workspace 用真实的 {@code GitWorkspaceAdapter}。
  * 这些场景不需要真实 Git 仓库——它们验证的正是「位置本身不可用」时 HTTP 的语义。
  *
- * <p>关键在于资产是**先登记成功、后来才发现位置不可用**的：登记只登记元数据，
- * 调用方发起的分析请求本身没有任何参数错误，因此失败必须是 409 而不是 400。
+ * <p>分析已有资产的请求没有位置参数，位置不可用仍为 409。新登记已拒绝相对路径，
+ * 但历史相对位置不能被删除或默认变得可分析；以旧记录夹具保留这条真实 Workspace 回归。
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -62,12 +68,17 @@ class RepositoryAnalysisRealWorkspaceHttpIntegrationTest {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private SoftwareAssetRepository assets;
+
     /**
-     * 相对路径：登记时不判断（只登记元数据），分析时它不是一个可用的位置。
+     * 旧相对路径记录仍会在分析时被真实 Workspace 拒绝，不调用 AI。
      */
     @Test
-    void reportsRelativeLocationAsNotAnalyzable() throws Exception {
-        String assetId = registerAsset("relative/repo");
+    void reportsLegacyRelativeLocationAsNotAnalyzable() throws Exception {
+        String assetId = "legacy-relative";
+        assets.save(SoftwareAsset.create(new SoftwareAssetId(assetId), SoftwareAssetType.GIT_REPOSITORY,
+                SoftwareAssetSource.USER_SPECIFIED, "relative/repo", true, null, UsageAuthorization.UNCLEAR));
 
         mockMvc.perform(post("/api/software-assets/{id}/analysis", assetId))
                 .andExpect(status().isConflict())

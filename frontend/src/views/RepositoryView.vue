@@ -5,17 +5,20 @@ import type { UsageAuthorization } from "../api/types";
 import ContentList from "../components/ContentList.vue";
 import EvidenceList from "../components/EvidenceList.vue";
 import RevisionText from "../components/RevisionText.vue";
-defineProps<{ s: WorkspaceSession }>();
+import AssetAuthorizationForm from "../components/AssetAuthorizationForm.vue";
+import { repositoryLocationKey } from "../state/repositoryLocation";
+const props = defineProps<{ s: WorkspaceSession }>();
 const emit = defineEmits<{ next: [] }>();
 const location = ref("");
 const permission = ref("");
 const license = ref("");
 const authorization = ref<UsageAuthorization | "">("");
+const registered = computed(() => props.s.assets.some(asset =>
+  repositoryLocationKey(asset.location) === repositoryLocationKey(location.value)));
 const absolute = computed(
   () =>
     /^[a-zA-Z]:[\\/]/.test(location.value.trim()) ||
-    location.value.trim().startsWith("/") ||
-    location.value.trim().startsWith("\\\\"),
+    (location.value.trim().startsWith("/") && !location.value.trim().startsWith("//")),
 );
 </script>
 <template>
@@ -48,8 +51,8 @@ const absolute = computed(
           aria-describedby="path-help"
         />
         <p id="path-help" class="meta">
-          注册只保存授权信息；分析时才检查实际 Git 仓库。请输入受信任的小型 Java
-          / Maven 项目。
+          注册会只读规范化路径以防重复；分析时才检查 Git 和源码。请输入受信任的小型 Java
+          / Maven 项目；本版登记不接收 UNC 共享或设备路径。
         </p>
         <p v-if="location && !absolute" class="field-error">请输入绝对路径。</p>
         <label for="read-permission">读取与分析权限</label
@@ -83,10 +86,12 @@ const absolute = computed(
           <option value="UNCLEAR">尚未确认 · UNCLEAR</option>
         </select>
         <button
-          :disabled="!!s.busy || !absolute || !permission || !authorization"
+          :disabled="!!s.busy || registered || !absolute || !permission || !authorization"
         >
-          注册此仓库
+          {{ registered ? "已注册" : "注册此仓库" }}
         </button>
+        <p class="meta">许可证可以暂时留空以注册、分析；演化规划前必须在已有记录上补齐明确的许可证及适用范围。系统不会判断法律兼容性或自动授予权限。</p>
+        <p v-if="registered" class="inline-note">此路径已注册，请复用右侧已有卡片，不必再次分析。若缺少许可证，请展开「完善许可证与授权」。</p>
       </form>
     </section>
     <section class="panel">
@@ -105,6 +110,12 @@ const absolute = computed(
           许可证：{{ asset.licenseInfo || "未知" }} · {{ asset.type }} /
           {{ asset.source }}
         </p>
+        <p v-if="s.selected?.candidateAssetIds.includes(asset.id)" class="inline-note">
+          当前已选方向引用此资产；补充授权后可沿用原方向。
+        </p>
+        <p v-for="snapshot in s.repositories.filter(item => item.assetId === asset.id)" :key="snapshot.id">
+          <a :href="`#repository-${snapshot.id}`">复用已有分析 · {{ snapshot.analyzedRevision.slice(0, 12) }}</a>
+        </p>
         <button
           class="secondary"
           :disabled="!!s.busy || !asset.readPermissionAllowed"
@@ -116,6 +127,8 @@ const absolute = computed(
           <summary>资产 ID</summary>
           <code>{{ asset.id }}</code>
         </details>
+        <AssetAuthorizationForm :asset="asset" :busy="!!s.busy"
+          @submit="s.updateAssetAuthorization(asset.id, $event)" />
       </article>
       <div class="inline-note">
         分析结果不代表任意仓库可安全执行。M4 验证只支持既有 Java / Maven
@@ -126,6 +139,7 @@ const absolute = computed(
   <section
     v-for="repository in s.repositories"
     :key="repository.id"
+    :id="`repository-${repository.id}`"
     class="panel repository-result"
   >
     <div class="panel-header">

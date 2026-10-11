@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-10-07
+**Last Updated:** 2026-10-11
 
 ---
 
@@ -1985,3 +1985,13 @@ Bundle 均还原到新目录，HEAD/工作树与 manifest 一致，离线 Maven 
 见 [C1](validation/task-c1-user-discovery-consistency.md)、
 [C2](validation/task-c2-demo-build-readiness.md)、[C3](validation/task-c3-demo-bundle-delivery.md)
 与 [Demo Catalog](demos/README.md)。本任务后等待手动验收，不继续扩展功能或开始 M5。
+
+### Task D — 规划授权阻塞与资产交互（用户授权修复）
+
+**DONE（2026-10-11）。** 完整后端 1423 项及前端 44 项测试通过，类型检查和构建通过。
+保留 Evolution Base 的读取、使用授权与许可证门槛；仅补齐原 SoftwareAsset 的显式授权
+更新、同路径并发登记保护和 Evidence 展示。资产授权有独立并发版本，旧分析与已选方向
+引用保持不变；Planning 提交原子核对授权依据，不自动升级权限或重新消费 M1–M2。
+M0–M4 继续 FROZEN，M5 继续 DEFERRED；本任务不调用真实 Provider 或修改 Git / Verification。
+根因、API 契约、确定性回归和现有 GS REST 恢复步骤见
+[Task D 验证记录](validation/task-d-planning-authorization-ux.md)。

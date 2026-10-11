@@ -28,5 +28,6 @@ public record SoftwareAssetResponse(
         String location,
         boolean readPermissionAllowed,
         String licenseInfo,
-        UsageAuthorization usageAuthorization) {
+        UsageAuthorization usageAuthorization,
+        long authorizationRevision) {
 }

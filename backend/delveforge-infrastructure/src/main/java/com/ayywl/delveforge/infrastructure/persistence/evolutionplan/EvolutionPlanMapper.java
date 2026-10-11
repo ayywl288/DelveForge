@@ -4,6 +4,7 @@ import com.ayywl.delveforge.application.port.persistence.EvolutionPlanTransition
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
+
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -14,6 +15,15 @@ import org.apache.ibatis.annotations.Update;
  * 写入时再次核对可变的 Direction 选择状态，防止 AI 调用期间切换方向后提交旧规划。
  */
 public interface EvolutionPlanMapper extends BaseMapper<EvolutionPlanDO> {
+    /** SQLite 写锁与授权条件核对共用 Plan 插入事务；不更改授权内容。 */
+    @Update("""
+            UPDATE software_asset SET authorization_revision = authorization_revision
+            WHERE id = #{asset.id.value} AND authorization_revision = #{asset.authorizationRevision}
+                AND type = #{asset.type} AND source = #{asset.source} AND location = #{asset.location}
+                AND read_permission = 1 AND usage_authorization = 'ALLOWED' AND license_info = #{license}
+            """)
+    int lockPlanningAuthorization(@Param("asset") SoftwareAsset asset, @Param("license") String license);
+
     @Insert("""
         INSERT INTO evolution_plan
           (id, product_direction_id, base_asset_id, base_repository_profile_id,

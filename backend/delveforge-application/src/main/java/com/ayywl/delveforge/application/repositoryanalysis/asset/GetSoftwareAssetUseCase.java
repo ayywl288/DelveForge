@@ -36,4 +36,8 @@ public class GetSoftwareAssetUseCase {
         return softwareAssetRepository.findById(softwareAssetId)
                 .orElseThrow(() -> new SoftwareAssetNotFoundException(softwareAssetId));
     }
+
+    public java.util.List<SoftwareAsset> findByLocation(String location) {
+        return softwareAssetRepository.findByLocation(location);
+    }
 }

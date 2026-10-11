@@ -50,7 +50,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     s.sufficiency = { sufficient: true, missingAreas: [], nextQuestion: null };
     const root = mount(DiscoveryView, s);
     const review = root.querySelector(".profile-review")!;
-    for (const text of ["画像版本 7", "战绩趋势", "每周战队练习", "手工统计耗时", "完成过Java接口", "六周完成可展示作品", "每周五小时", "可投入五小时", "每周五小时做Java作品", "提取结论待核对"]) {
+    for (const text of ["画像版本 7", "战绩趋势", "每周战队练习", "手工统计耗时", "完成过Java接口", "六周完成可展示作品", "每周五小时", "可投入五小时", "每周五小时做Java作品", "整体画像确认与单条依据核对不同"]) {
       expect(review.textContent).toContain(text);
     }
     expect(review.querySelector(".evidence")?.hasAttribute("open")).toBe(false);

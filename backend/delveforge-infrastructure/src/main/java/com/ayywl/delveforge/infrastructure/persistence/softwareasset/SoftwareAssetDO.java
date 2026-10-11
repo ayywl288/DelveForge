@@ -11,8 +11,8 @@ import com.baomidou.mybatisplus.annotation.TableName;
  *
  * <p>只表示一个 Software Asset 的元数据，不表示它的源代码。
  *
- * <p>一个资产对应一行：本 Task 采用覆盖保存，因此没有「当前状态 + 历史快照」的划分。
- * 这是实现选择而不是领域模型的规定，见 {@code SoftwareAssetRepository#save}。
+ * <p>一个资产对应一行：授权字段按 authorizationRevision 条件更新，没有完整授权历史。
+ * 这是当前实现选择；低层 save 只保留历史兼容能力，业务授权更新不使用它。
  *
  * <p>本类型属于 Infrastructure Persistence 的实现细节，不是领域对象，
  * 不得出现在 Domain / Application 中。
@@ -48,6 +48,16 @@ public class SoftwareAssetDO {
     private String licenseInfo;
 
     private String usageAuthorization;
+
+    private Long authorizationRevision;
+
+    public Long getAuthorizationRevision() {
+        return authorizationRevision;
+    }
+
+    public void setAuthorizationRevision(Long authorizationRevision) {
+        this.authorizationRevision = authorizationRevision;
+    }
 
     public String getId() {
         return id;

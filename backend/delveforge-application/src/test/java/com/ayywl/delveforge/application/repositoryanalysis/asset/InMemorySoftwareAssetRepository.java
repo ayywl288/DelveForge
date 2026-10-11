@@ -24,6 +24,22 @@ public final class InMemorySoftwareAssetRepository implements SoftwareAssetRepos
     private int saveCount;
 
     @Override
+    public synchronized void registerUnique(SoftwareAsset asset) {
+        if (assets.values().stream().anyMatch(value -> value.location().equals(asset.location()))) {
+            throw new com.ayywl.delveforge.application.port.persistence.SoftwareAssetAlreadyRegisteredException();
+        }
+        save(asset);
+    }
+
+    @Override
+    public synchronized void updateAuthorization(SoftwareAsset candidate, long expectedRevision) {
+        if (assets.get(candidate.id()).authorizationRevision() != expectedRevision) {
+            throw new com.ayywl.delveforge.domain.asset.AssetAuthorizationConflictException();
+        }
+        save(candidate);
+    }
+
+    @Override
     public void save(SoftwareAsset asset) {
         assets.put(asset.id(), asset);
         saveCount++;

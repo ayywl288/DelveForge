@@ -4,17 +4,23 @@ import com.ayywl.delveforge.app.api.repositoryprofile.RepositoryProfileResponse;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.GetSoftwareAssetUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.RegisterSoftwareAssetRequest;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.RegisterSoftwareAssetUseCase;
+import com.ayywl.delveforge.application.repositoryanalysis.asset.UpdateSoftwareAssetAuthorizationUseCase;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.AnalyzeRepositoryUseCase;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * Software Asset 业务端点。
@@ -41,20 +47,23 @@ public class SoftwareAssetController {
     private final RegisterSoftwareAssetUseCase registerSoftwareAssetUseCase;
     private final GetSoftwareAssetUseCase getSoftwareAssetUseCase;
     private final AnalyzeRepositoryUseCase analyzeRepositoryUseCase;
+    private final UpdateSoftwareAssetAuthorizationUseCase updateAuthorization;
 
     public SoftwareAssetController(
             RegisterSoftwareAssetUseCase registerSoftwareAssetUseCase,
             GetSoftwareAssetUseCase getSoftwareAssetUseCase,
-            AnalyzeRepositoryUseCase analyzeRepositoryUseCase) {
+            AnalyzeRepositoryUseCase analyzeRepositoryUseCase,
+            UpdateSoftwareAssetAuthorizationUseCase updateAuthorization) {
         this.registerSoftwareAssetUseCase = registerSoftwareAssetUseCase;
         this.getSoftwareAssetUseCase = getSoftwareAssetUseCase;
         this.analyzeRepositoryUseCase = analyzeRepositoryUseCase;
+        this.updateAuthorization = updateAuthorization;
     }
 
     /**
      * 登记一个 Software Asset。
      *
-     * <p>只登记元数据：本端点不判断 location 是否存在、是否是 Git Repository。
+     * <p>只登记元数据：只读解析位置身份以防重复，不要求叶目录存在，也不检查 Git 或源码。
      *
      * <p>读取权限必须显式给出。缺省它会被当成「不允许读取」保存下来——那是一个
      * 由缺失输入制造出来的授权事实，而不是用户表达过的意思，因此这里直接拒绝，
@@ -79,6 +88,23 @@ public class SoftwareAssetController {
         return toResponse(getSoftwareAssetUseCase.get(new SoftwareAssetId(id)));
     }
 
+    @GetMapping
+    public List<SoftwareAssetResponse> findByLocation(@RequestParam String location) {
+        return getSoftwareAssetUseCase.findByLocation(location).stream()
+                .map(SoftwareAssetController::toResponse).toList();
+    }
+
+    @PutMapping("/{id}/authorization")
+    public SoftwareAssetResponse updateAuthorization(@PathVariable String id,
+            @RequestBody SoftwareAssetAuthorizationRequest request) {
+        if (request.expectedAuthorizationRevision() == null || request.expectedAuthorizationRevision() < 0
+                || request.readPermissionAllowed() == null || request.usageAuthorization() == null) {
+            throw new IllegalArgumentException("Expected revision and explicit authorization fields are required");
+        }
+        return toResponse(updateAuthorization.update(new SoftwareAssetId(id), request.expectedAuthorizationRevision(),
+                request.readPermissionAllowed(), request.licenseInfo(), request.usageAuthorization()));
+    }
+
     /**
      * 分析该资产的 Repository，返回形成的 Repository Profile。
      *
@@ -100,6 +126,6 @@ public class SoftwareAssetController {
                 asset.location(),
                 asset.readPermissionAllowed(),
                 asset.licenseInfo().orElse(null),
-                asset.usageAuthorization());
+                asset.usageAuthorization(), asset.authorizationRevision());
     }
 }

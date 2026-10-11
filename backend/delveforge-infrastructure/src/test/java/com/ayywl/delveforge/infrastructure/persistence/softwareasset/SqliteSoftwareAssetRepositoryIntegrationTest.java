@@ -59,7 +59,8 @@ class SqliteSoftwareAssetRepositoryIntegrationTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    @Import({SqliteDataSourceConfiguration.class, SqliteSoftwareAssetRepository.class})
+    @Import({SqliteDataSourceConfiguration.class, SqliteSoftwareAssetRepository.class,
+        com.ayywl.delveforge.infrastructure.workspace.LocalRepositoryIdentityAdapter.class})
     @MapperScan("com.ayywl.delveforge.infrastructure.persistence.softwareasset")
     static class TestApplication {
     }
@@ -218,13 +219,94 @@ class SqliteSoftwareAssetRepositoryIntegrationTest {
             boolean readPermissionAllowed,
             String licenseInfo,
             UsageAuthorization usageAuthorization) {
-        return SoftwareAsset.create(
-                id,
-                SoftwareAssetType.GIT_REPOSITORY,
-                SoftwareAssetSource.USER_SPECIFIED,
-                location,
-                readPermissionAllowed,
-                licenseInfo,
-                usageAuthorization);
+        return SoftwareAsset.create(id, SoftwareAssetType.GIT_REPOSITORY, SoftwareAssetSource.USER_SPECIFIED,
+                location, readPermissionAllowed, licenseInfo, usageAuthorization);
     }
+
+    @Test
+    void explicitAuthorizationCasPreservesIdentityAndRejectsOldVersion() {
+        SoftwareAsset original = asset(ASSET_ID, LOCATION, true, null, UsageAuthorization.UNCLEAR);
+        repository.save(original);
+        SoftwareAsset updated = original.updateAuthorization(0, true, "Code MIT; prose separate", UsageAuthorization.ALLOWED);
+        repository.updateAuthorization(updated, 0);
+        assertEquals(1, repository.findById(ASSET_ID).orElseThrow().authorizationRevision());
+        assertEquals(LOCATION, repository.findById(ASSET_ID).orElseThrow().location());
+        org.junit.jupiter.api.Assertions.assertThrows(
+                com.ayywl.delveforge.domain.asset.AssetAuthorizationConflictException.class,
+                () -> repository.updateAuthorization(original.updateAuthorization(0, false, null,
+                        UsageAuthorization.DENIED), 0));
+        assertEquals("Code MIT; prose separate", repository.findById(ASSET_ID).orElseThrow().licenseInfo().orElseThrow());
+    }
+
+    @Test
+    void legacyDuplicatesRemainSeparateAndBlockNewIdentityEvenWithDifferentAuthorization() {
+        repository.save(asset(ASSET_ID, LOCATION, false, null, UsageAuthorization.DENIED));
+        repository.save(asset(new SoftwareAssetId("legacy-other"), "e:/PROJECTS/./legacy-tool/", true,
+                "MIT", UsageAuthorization.ALLOWED));
+        assertEquals(2, repository.findByLocation("E:\\projects\\legacy-tool").size());
+        org.junit.jupiter.api.Assertions.assertThrows(
+                com.ayywl.delveforge.application.port.persistence.SoftwareAssetAlreadyRegisteredException.class,
+                () -> repository.registerUnique(asset(new SoftwareAssetId("new"), LOCATION, true,
+                        "MIT", UsageAuthorization.ALLOWED)));
+        assertEquals(2, repository.findByLocation(LOCATION).size());
+        assertEquals(UsageAuthorization.DENIED, repository.findById(ASSET_ID).orElseThrow().usageAuthorization());
+    }
+
+    @Test
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    void simultaneousAuthorizationUpdatesHaveExactlyOneWinner() throws Exception {
+        String location = "E:/task-d-auth-concurrent/" + UUID.randomUUID();
+        SoftwareAsset original = asset(new SoftwareAssetId(UUID.randomUUID().toString()), location,
+                true, null, UsageAuthorization.UNCLEAR);
+        repository.registerUnique(original);
+        java.util.concurrent.CyclicBarrier barrier = new java.util.concurrent.CyclicBarrier(2);
+        try (java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<Boolean> update = () -> {
+                barrier.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                try {
+                    repository.updateAuthorization(original.updateAuthorization(0, false, null,
+                            UsageAuthorization.DENIED), 0);
+                    return true;
+                } catch (com.ayywl.delveforge.domain.asset.AssetAuthorizationConflictException conflict) {
+                    return false;
+                }
+            };
+            java.util.concurrent.Future<Boolean> first = pool.submit(update);
+            java.util.concurrent.Future<Boolean> second = pool.submit(update);
+            assertEquals(1, (first.get(15, java.util.concurrent.TimeUnit.SECONDS) ? 1 : 0)
+                    + (second.get(15, java.util.concurrent.TimeUnit.SECONDS) ? 1 : 0));
+        }
+        SoftwareAsset winner = repository.findById(original.id()).orElseThrow();
+        assertEquals(1, winner.authorizationRevision());
+        assertFalse(winner.readPermissionAllowed());
+        assertEquals(UsageAuthorization.DENIED, winner.usageAuthorization());
+        softwareAssetMapper.deleteById(winner.id().value());
+    }
+
+    @Test
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    void simultaneousRegistrationsHaveExactlyOneWinner() throws Exception {
+        String location = "E:/task-d-concurrent/" + UUID.randomUUID();
+        java.util.concurrent.CyclicBarrier barrier = new java.util.concurrent.CyclicBarrier(2);
+        try (java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
+            java.util.concurrent.Callable<Boolean> register = () -> {
+                barrier.await(10, java.util.concurrent.TimeUnit.SECONDS);
+                try {
+                    repository.registerUnique(asset(new SoftwareAssetId(UUID.randomUUID().toString()), location,
+                            false, null, UsageAuthorization.DENIED));
+                    return true;
+                } catch (com.ayywl.delveforge.application.port.persistence.SoftwareAssetAlreadyRegisteredException duplicate) {
+                    return false;
+                }
+            };
+            java.util.concurrent.Future<Boolean> first = pool.submit(register);
+            java.util.concurrent.Future<Boolean> second = pool.submit(register);
+            assertEquals(1, (first.get(15, java.util.concurrent.TimeUnit.SECONDS) ? 1 : 0)
+                    + (second.get(15, java.util.concurrent.TimeUnit.SECONDS) ? 1 : 0));
+        }
+        assertEquals(1, repository.findByLocation(location).size());
+        SoftwareAsset winner = repository.findByLocation(location).getFirst();
+        softwareAssetMapper.deleteById(winner.id().value());
+    }
+
 }

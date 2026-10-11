@@ -312,6 +312,24 @@ describe("长同步 execute", () => {
     await s.execute("step-1");
     expect(s.receipt.value).not.toBeNull();
   });
+  it("具体授权拒绝沿用原有状态核对，不自动重试 execute", async () => {
+    const s = make(); ready(s);
+    const execute = vi.spyOn(api, "execute").mockRejectedValue(new ApiError(409, "ASSET_USAGE_AUTHORIZATION_REQUIRED"));
+    await s.execute("step-1");
+    expect(execute).toHaveBeenCalledOnce();
+    expect(s.receipt.value).toBeNull();
+    expect(s.error.value).toContain("使用授权");
+  });
+  it("即使错误已知，查询出现 Candidate 时仍保留等待标记", async () => {
+    const s = make(); ready(s);
+    vi.spyOn(api, "execute").mockImplementation(async () => {
+      vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), currentRevision: "b".repeat(40) });
+      throw new ApiError(409, "ASSET_AUTHORIZATION_CONFLICT");
+    });
+    await s.execute("step-1");
+    expect(s.receipt.value).not.toBeNull();
+    expect(s.copy.value?.lastVerifiedRevision).toBe("a".repeat(40));
+  });
   it("跨标签页锁、已存在等待标记、不可用存储均阻止发送", async () => {
     const s = make();
     ready(s);

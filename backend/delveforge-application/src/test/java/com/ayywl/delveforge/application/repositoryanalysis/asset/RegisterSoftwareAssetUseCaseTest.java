@@ -60,24 +60,21 @@ class RegisterSoftwareAssetUseCaseTest {
     }
 
     /**
-     * 同一个 location 登记两次是两个独立的 Software Asset：
-     * 领域模型没有定义 location 唯一性，登记也不做去重。
+     * 同一位置的新登记拒绝；用户不得通过新身份覆盖旧授权。
      */
     @Test
-    void allowsRegisteringTwoAssetsForTheSameLocation() {
+    void rejectsDuplicateRegistrationWithoutChangingOriginalAuthorization() {
         SoftwareAsset first = useCase.register(request(LOCATION, true, null,
                 UsageAuthorization.UNCLEAR));
-        SoftwareAsset second = useCase.register(request(LOCATION, true, null,
-                UsageAuthorization.UNCLEAR));
-
-        assertNotEquals(first.id(), second.id());
-        assertEquals(LOCATION, second.location());
-        assertEquals(2, repository.saveCount());
+        assertThrows(com.ayywl.delveforge.application.port.persistence.SoftwareAssetAlreadyRegisteredException.class,
+                () -> useCase.register(request(LOCATION, true, "MIT", UsageAuthorization.ALLOWED)));
+        assertEquals(UsageAuthorization.UNCLEAR, repository.findById(first.id()).orElseThrow().usageAuthorization());
+        assertEquals(1, repository.saveCount());
     }
 
     /**
      * 登记只记录资产元数据：不判断 location 是否真实存在，也不判断它是否是 Git Repository，
-     * 因此一个并不存在的路径同样可以登记成功（RULE-ARCH-009：登记不访问文件系统）。
+     * 因此一个并不存在的绝对路径仍可登记；只读身份比较不检查 Git 或源码。
      */
     @Test
     void registersWithoutCheckingThatLocationExists() {
@@ -104,7 +101,7 @@ class RegisterSoftwareAssetUseCaseTest {
     void keepsUsageAuthorizationExactlyAsGiven() {
         SoftwareAsset unclear = useCase.register(request(LOCATION, true, LICENSE_INFO,
                 UsageAuthorization.UNCLEAR));
-        SoftwareAsset denied = useCase.register(request(LOCATION, true, LICENSE_INFO,
+        SoftwareAsset denied = useCase.register(request(LOCATION + "-denied", true, LICENSE_INFO,
                 UsageAuthorization.DENIED));
 
         assertEquals(UsageAuthorization.UNCLEAR, unclear.usageAuthorization());

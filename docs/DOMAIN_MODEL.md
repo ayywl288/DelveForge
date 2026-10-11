@@ -166,6 +166,17 @@ MVP 中目前仅支持本地 Git Repository 作为 Software Asset 的具体形�
 | `readPermission`     | 当前是否允许系统读取和分析该资产                 |
 | `licenseInfo`        | 已知的软件许可证信息                             |
 | `usageAuthorization` | 当前是否确认允许复用或二次开发                   |
+| `authorizationRevision` | 当前授权元数据的并发版本；不等于画像版本或 Git revision |
+
+**Task D 的显式授权补充契约（当前实现）：** 用户可以按预期 `authorizationRevision`
+提交读取许可、许可证记录（明确为 `null` 表示未知）与使用授权。更新保留 `id`、`type`、
+`source`、`location`，每次成功提交授权版本加一；旧版本拒绝且不留下部分修改。
+这不是新的 SoftwareAsset 状态机，也不自动获得权限或解释许可证。已有 RepositoryProfile
+快照、ProductDirection 与 EvolutionPlan 的引用不被覆盖；后续操作仍核对当前授权。
+版本只保存当前计数，本任务没有引入完整授权历史系统。
+
+新登记避免同一可解析本地位置产生新的资产身份；历史重复资产继续保持各自的身份和授权，
+不自动合并或删除。路径不是 SoftwareAssetId，读取许可也不是修改原始仓库的授权。
 
 #### Repository
 
@@ -6212,6 +6223,11 @@ readPermission 允许、usageAuthorization 明确为 ALLOWED，并已记录 lice
 系统不从自由文本许可证内容推断法律许可，也不自动评估许可证兼容性或授权范围。
 若已知限制尚未解决，应保持 DENIED / UNCLEAR；这两种状态均不允许规划 Evolution Base。
 更细粒度的许可限制仍属于 §14.6 的开放模型问题。
+
+Task D 不改变以上门槛。规划先校验当前资格再调用 AI，外部调用后再核对授权版本；
+实际提交必须原子核对本次授权版本与授权字段，避免基于已过期授权保存 Plan。
+即使新旧版本都为 ALLOWED，授权范围变化仍要求重新开始一次用户选择的规划请求。
+缺少许可证与使用授权拒绝分别返回可操作的业务原因；它们不同于版本 / 生命周期冲突。
 
 ### 12.7 Plan Activation Policy
 

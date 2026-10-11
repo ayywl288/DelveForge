@@ -506,8 +506,10 @@ Frontend 采用 Vitest + jsdom 验证五阶段交互和长请求，夹具不依�
 | `POST`  | `/api/user-profiles/{id}/reopen-discovery` | 用户重新开启探索（`CONFIRMED → EXPLORING`） | 200 | 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/discovery-turn` | 一轮 User Discovery：提取 → 更新 → 评估最低审阅条件，保持探索 | 200 | 400 / 404 / 409 / 502 |
 | `POST`  | `/api/user-profiles/{id}/discovery-question` | 用户按需只读评估并取得下一问，不提取、不保存、不转移状态 | 200 | 400 / 404 / 409 / 502 |
-| `POST`  | `/api/software-assets`           | 登记一个 Software Asset（只登记元数据，不访问文件系统）     | 201  | 400  |
+| `POST`  | `/api/software-assets`           | 登记元数据；只读规范化位置，并发拒绝重复登记                 | 201  | 400 / 409 |
 | `GET`   | `/api/software-assets/{id}`      | 读取已登记的资产元数据                                     | 200  | 404  |
+| `GET`   | `/api/software-assets?location=...` | 按绝对位置查找既有身份；可能含历史重复，不合并             | 200  | 400 |
+| `PUT`   | `/api/software-assets/{id}/authorization` | 显式提交当前版本的完整授权元数据，保持业务绑定      | 200  | 400 / 404 / 409 |
 | `POST`  | `/api/software-assets/{id}/analysis` | 分析该资产的 Repository，形成一份新的 Repository Profile | 201 | 404 / 409 / 502 |
 | `GET`   | `/api/repository-profiles/{id}`  | 读取一份已保存的分析快照                                   | 200  | 404  |
 | `POST`  | `/api/product-directions/discovery` | 执行一次 Product Direction Discovery，保存并返回 3–5 个候选方向 | 201 | 400 / 404 / 409 / 502 |
@@ -732,6 +734,43 @@ POST /api/software-assets
   `spring.jackson.deserialization.fail-on-numbers-for-enums` 关闭了这种强转。
 - 资产的标识、类型与来源都由服务端决定：请求体里给出这些字段不会生效。
 
+**Task D：已有资产授权补充与重复登记**
+
+```json
+{
+  "expectedAuthorizationRevision": 0,
+  "readPermissionAllowed": true,
+  "licenseInfo": "实际文件许可及各自适用范围",
+  "usageAuthorization": "ALLOWED"
+}
+```
+
+这是 `PUT /api/software-assets/{id}/authorization` 的完整请求：四个字段必须显式提交；
+`licenseInfo` 可明确为 `null`，表示仍未知。返回原资产资源及递增的 `authorizationRevision`。
+`expectedAuthorizationRevision` 只接受非负、64 位范围内的 JSON 整数；小数、指数和字符串
+不会被转换成另一个可更新版本，字段形态错误在进入 Use Case 前返回 400。
+没有扫描 LICENSE、自动提升权限或重新分析的副作用。授权版本不同返回
+`ASSET_AUTHORIZATION_CONFLICT`，不是一般的 `CONFLICT`；身份、来源、位置均不能由此修改。
+
+SQLite V14 为现有行补授权版本 0，保留旧身份、重复位置及授权字段。更新按版本条件写入。
+新登记事务先取得专用 guard 行的写锁，再比较已有位置并插入；并发同路径只允许一条新记录。
+没有对历史位置建唯一索引，也不覆盖同位置但不同授权的旧记录。普通业务不调用低层 `save`
+覆盖授权；它保留历史数据兼容能力，新登记 / 授权更新分别使用条件写入 Port。
+
+`LocalRepositoryIdentity` 是 Application 拥有的只读 Workspace Port，Infrastructure 读取
+路径元数据并解析真实目录（包括 junction / symlink）；不读取源码、许可证、Git 或执行构建。
+新登记要求绝对本地路径，拒绝相对、drive-relative、UNC 共享和设备路径。
+Windows 大小写、分隔符、`.` / `..` 与末尾分隔符作保守比较；未创建的子目录使用最近存在的
+真实祖先，避免通过父目录链接产生另一身份。无法可靠解析的路径失败关闭。历史相对位置
+仅按服务进程工作目录比较，不改写保存的位置；历史 UNC 只作词法比较，不连接共享。
+这些检查不提供 OS 沙箱，也不追踪登记后发生的目录迁移或链接替换。
+
+Planning 的 409 进一步区分 `ASSET_LICENSE_INFORMATION_REQUIRED`、
+`ASSET_USAGE_AUTHORIZATION_REQUIRED`、`ASSET_READ_PERMISSION_REQUIRED` 与
+`ASSET_TYPE_UNSUPPORTED`；只返回固定文案，不输出许可证、异常 message 或 Provider 内容。
+前端共用 EvidenceList 默认说明依据来源，原始 `confirmed` 与出处在技术详情中保留；
+没有逐条确认入口，也不会把它解释为整个 Profile / Direction 的状态。
+
 **Repository Analysis 语义**
 
 ```text
@@ -749,8 +788,8 @@ Evidence           来自真实读到的文件，sourceRef 是材料中的相对
 
 - **请求体不参与分析。** 客户端即使发送 `analyzedRevision`、`evidence` 或材料字段也不会
   被读取：它们不是这个端点的输入，服务端不会把客户端提供的值当作分析结果。
-- **登记不校验位置。** `location` 只要求非空，任何取值都能登记成功；位置是否真的可用
-  在分析时才见分晓，那时返回 409 而不是 400——登记请求与分析请求本身都没有写错。
+- **登记不验证 Git。** 新登记要求绝对本地位置并只读规范化身份以防重复；不要求叶目录
+  已存在，也不检查源码或构建。真正的 Git 可分析性仍在 Analysis 中检查。
 - **每次调用产生一份新的快照**，不覆盖已有快照（`DOMAIN_MODEL.md` §10.4）。
   需要重新分析时再调用一次该端点，旧快照仍然可用。
 - **失败不留下快照**：资产校验、仓库可读性、revision 解析、材料读取、AI 提取、
@@ -919,8 +958,9 @@ GET /api/evolution-plans/{id}
   返回保留临时引用的 AiPlanningProposal；PlanningProposalResolver 再将本次调用的 Evidence 引用
   换成既有 EvidenceBasis。得到的 PlanningProposal 仍是候选，由 Domain Service 决定是否接受。
   接受后的 Plan / Step 直接拥有正式领域内容，不保留 Proposal；SQLite 读取也直接重建正式值。
-- 外部调用及解析完成后重新检查可变的方向状态与资产使用许可。SQLite 的实际插入语句
-  再核对方向仍为 SELECTED，避免方向在 AI 调用期间切换后提交旧规划。
+- 外部调用及解析完成后重新检查方向状态、资产使用许可和授权版本。SQLite 提交事务先以
+  条件写锁核对本次资产授权版本、身份与授权字段，再核对方向仍为 SELECTED 后插入整个 Plan；
+  防止 AI 调用期间及最终写入间隙的授权变化。AI 调用不在数据库写锁内进行。
 - AI 调用、结构解析、未知 Evidence 引用或提案领域校验失败时返回 502，且不留下 Plan。
   持久化的身份、内容、步骤与 Evidence 在同一事务中写入；任一失败整体回滚。
   第二次规划产生新的 Plan，不覆盖旧规划。

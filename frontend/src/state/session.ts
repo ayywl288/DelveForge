@@ -1,7 +1,9 @@
 import { computed, reactive, ref, type UnwrapNestedRefs } from "vue";
 import { api, ApiError } from "../api/client";
+import { repositoryLocationKey } from "./repositoryLocation";
 import type {
   AssetInput,
+  AssetAuthorizationInput,
   EvolutionPlan,
   ProductDirection,
   ProfilePatch,
@@ -123,6 +125,13 @@ export function createSession() {
         "浏览器无法保存对象 ID；刷新后请使用恢复入口。执行操作需要可用的本地存储。";
     }
   };
+  function acceptAsset(asset: SoftwareAsset) {
+    const index = assets.value.findIndex(item => item.id === asset.id);
+    if (index >= 0) assets.value[index] = asset;
+    else assets.value.push(asset);
+    if (!ids.assetIds.includes(asset.id)) ids.assetIds.push(asset.id);
+    remember();
+  }
   function appendQuestion(question: string | null) {
     activeQuestion.value = null;
     const text = question?.trim();
@@ -369,6 +378,11 @@ export function createSession() {
                   CONFLICT: 1,
                   EXTERNAL_CAPABILITY_UNAVAILABLE: 1,
                   INTERNAL_ERROR: 1,
+                  ASSET_TYPE_UNSUPPORTED: 1,
+                  ASSET_READ_PERMISSION_REQUIRED: 1,
+                  ASSET_USAGE_AUTHORIZATION_REQUIRED: 1,
+                  ASSET_LICENSE_INFORMATION_REQUIRED: 1,
+                  ASSET_AUTHORIZATION_CONFLICT: 1,
                 } &&
               plan.value?.steps.find((step) => step.id === stepId)?.status ===
                 "READY" &&
@@ -547,10 +561,39 @@ export function createSession() {
     },
     async register(input: AssetInput) {
       await run("注册仓库授权", async () => {
-        const result = await api.registerAsset(input);
-        assets.value.push(result);
-        ids.assetIds.push(result.id);
-        remember();
+        const known = assets.value.filter(asset =>
+          repositoryLocationKey(asset.location) === repositoryLocationKey(input.location));
+        if (known.length) {
+          notice.value = "此仓库已注册，请复用已登记卡片；补充许可证或授权请在原记录上明确保存。";
+          return;
+        }
+        const existing = await api.assetsAtLocation(input.location);
+        if (existing.length) {
+          existing.forEach(acceptAsset);
+          notice.value = "找到已注册仓库，已显示原记录。未改变授权；有多个历史身份时请核对分析绑定。";
+          return;
+        }
+        try {
+          acceptAsset(await api.registerAsset(input));
+        } catch (failure) {
+          if (failure instanceof ApiError && failure.code === "ASSET_ALREADY_REGISTERED") {
+            (await api.assetsAtLocation(input.location)).forEach(acceptAsset);
+          }
+          throw failure;
+        }
+      });
+    },
+    async updateAssetAuthorization(value: string, input: AssetAuthorizationInput) {
+      await run("保存显式仓库授权", async () => {
+        try {
+          acceptAsset(await api.updateAssetAuthorization(value, input));
+          notice.value = "授权信息已保存；原资产、仓库分析和已选择方向保留，可以继续规划。";
+        } catch (failure) {
+          if (failure instanceof ApiError && failure.code === "ASSET_AUTHORIZATION_CONFLICT") {
+            try { acceptAsset(await api.asset(value)); } catch { /* 保留已知状态，不自动重试修改。 */ }
+          }
+          throw failure;
+        }
       });
     },
     async analyze(value: string) {

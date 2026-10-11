@@ -1,8 +1,10 @@
 package com.ayywl.delveforge.application.port.persistence;
 
+import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -12,6 +14,12 @@ import java.util.Optional;
  */
 public interface EvolutionPlanRepository {
     void save(EvolutionPlan plan);
+
+    /** 与本次输入相同的资产授权仍有效时原子提交；不能退化为无条件 save。 */
+    default void saveAtAssetAuthorization(EvolutionPlan plan, SoftwareAsset expectedAsset) {
+        throw new UnsupportedOperationException("Atomic authorization check is required");
+    }
+
     Optional<EvolutionPlan> findById(EvolutionPlanId id);
     List<EvolutionPlan> findByProductDirectionId(ProductDirectionId id);
 }

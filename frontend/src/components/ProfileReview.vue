@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import {
   profileSections,
   type ProfileSection,
@@ -13,9 +12,6 @@ const props = defineProps<{
   busy: boolean;
 }>();
 defineEmits<{ edit: [section: ProfileSection] }>();
-const pending = computed(
-  () => props.profile.evidence.filter(item => !item.confirmed).length,
-);
 </script>
 <template>
   <section class="profile-review" aria-labelledby="review-heading">
@@ -39,8 +35,8 @@ const pending = computed(
       </ul>
       <p v-else class="muted">尚未记录；空白不代表不存在，痛点也不是每个人的必填条件。</p>
     </section>
-    <h4>待核实内容 · {{ pending }} 条依据</h4>
-    <p>下方标为“提取结论待核对”的内容尚未单独确认。确认画像并不表示每条依据已经单独核实。</p>
+    <h4>画像依据</h4>
+    <p>请结合原始描述核对内容。整体画像确认与单条依据核对不同；依据原始字段位于技术详情。</p>
     <p class="meta">当前数据没有逐条画像内容与依据的关联字段；这里完整展示本版依据，不能推断每条内容对应哪一条依据。纠正画像不会删除旧依据。</p>
     <EvidenceList :items="profile.evidence" title="本版画像与原始输入依据" friendly />
   </section>

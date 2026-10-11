@@ -20,21 +20,20 @@ watch(() => props.s.plan?.id, () => {
 const bases = computed(() =>
   props.s.repositories.filter(
     (repository) =>
-      props.s.selected?.candidateAssetIds.includes(repository.assetId) &&
-      props.s.assets.some(
-        (asset) =>
-          asset.id === repository.assetId &&
-          asset.readPermissionAllowed &&
-          asset.usageAuthorization === "ALLOWED",
-      ),
+      props.s.selected?.candidateAssetIds.includes(repository.assetId),
   ),
 );
 const currentBasis = computed(
+  // 画像确认仍由原契约校验，资产授权另行提示且最终以后端判断为准。
   () =>
     props.s.profile?.status === "CONFIRMED" &&
     props.s.selected?.userProfileRevision === props.s.profile.revision &&
     props.s.selected.userProfileId === props.s.profile.id,
 );
+const asset = computed(() => props.s.assets.find(item =>
+  item.id === bases.value.find(repository => repository.id === base.value)?.assetId));
+const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &&
+  asset.value.usageAuthorization === "ALLOWED" && !!asset.value.licenseInfo?.trim());
 </script>
 <template>
   <section v-if="!s.plan" class="panel plan-input">
@@ -57,13 +56,16 @@ const currentBasis = computed(
           </option>
         </select>
         <p class="meta">
-          仅列出该方向候选资产中已授权复用的仓库。计划生成不创建
+          列出该方向候选资产的已有分析；授权仍需满足下方要求。计划生成不创建
           WorkingCopy，也不授权 Step。
         </p>
         <p v-if="!currentBasis" class="inline-note">
           需要确认与选中方向对应的当前画像版本。
         </p>
-        <button :disabled="!!s.busy || !base || !currentBasis || !!s.receipt">
+        <p v-if="base && !authorizationReady" class="inline-note">
+          演化基础需允许读取、明确允许使用，并记录许可证信息。请返回左侧「仓库理解」，在此资产的「完善许可证与授权」中显式保存；无需重新分析或重新生成方向。
+        </p>
+        <button :disabled="!!s.busy || !base || !authorizationReady || !currentBasis || !!s.receipt">
           生成演化计划（调用 AI）
         </button>
       </form>

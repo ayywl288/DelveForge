@@ -1,34 +1,37 @@
 package com.ayywl.delveforge.app.error;
 
+import com.ayywl.delveforge.application.evolution.planning.EvolutionPlanNotFoundException;
+import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationBudgetExceededException;
+import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDirectionNotFoundException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.StaleUserProfileRevisionException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.UserProfileNotConfirmedException;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
-import com.ayywl.delveforge.application.evolution.planning.EvolutionPlanNotFoundException;
-import com.ayywl.delveforge.application.port.persistence.EvolutionPlanAlreadyExistsException;
-import com.ayywl.delveforge.domain.asset.AssetEvolutionNotAllowedException;
-import com.ayywl.delveforge.domain.evolution.EvolutionPlanningPreconditionException;
-import com.ayywl.delveforge.domain.evolution.EvolutionPlanningRejectedException;
-import com.ayywl.delveforge.domain.evolution.EvolutionPlanStateException;
-import com.ayywl.delveforge.domain.evolution.EvolutionStepNotFoundException;
-import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationBudgetExceededException;
 import com.ayywl.delveforge.application.port.persistence.EvolutionLifecycleConflictException;
-import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
-import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
-import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanAlreadyExistsException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionIntegrityConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
+import com.ayywl.delveforge.application.port.persistence.SoftwareAssetAlreadyRegisteredException;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryProfileNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.workflow.RepositoryNotAnalyzableException;
+import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoundException;
+import com.ayywl.delveforge.domain.asset.AssetAuthorizationConflictException;
+import com.ayywl.delveforge.domain.asset.AssetEvolutionNotAllowedException;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetNotReadableException;
 import com.ayywl.delveforge.domain.direction.ProductDirectionDiscoveryException;
 import com.ayywl.delveforge.domain.direction.ProductDirectionStateException;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStateException;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanningPreconditionException;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanningRejectedException;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepNotFoundException;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
+
 import jakarta.servlet.http.HttpServletRequest;
-import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -42,7 +45,8 @@ import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
-import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoundException;
+
+import java.time.Instant;
 
 /**
  * 统一错误映射。
@@ -224,8 +228,8 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      * <pre>
      * StaleUserProfileRevisionException   调用方依据的那一版已经不是当前版本
      * UserProfileNotConfirmedException    用于发现的 Profile 尚未 CONFIRMED
-     * EvolutionPlanningPreconditionException / AssetEvolutionNotAllowedException
-     *                                    规划基线或资产许可不满足要求
+     * EvolutionPlanningPreconditionException 规划基线不满足要求
+     * 资产许可拒绝由 handleAssetAuthorizationConflict 按具体原因单独映射。
      * EvolutionPlanAlreadyExistsException  不得覆盖已保存的规划
      * </pre>
      *
@@ -235,7 +239,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
      */
     @ExceptionHandler({StaleUserProfileRevisionException.class,
             UserProfileNotConfirmedException.class, EvolutionPlanningPreconditionException.class,
-            AssetEvolutionNotAllowedException.class, EvolutionPlanAlreadyExistsException.class,
+            EvolutionPlanAlreadyExistsException.class,
             EvolutionPlanStateException.class, EvolutionLifecycleConflictException.class, WorkingCopyBasisChangedException.class,
             com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException.class,
             ExecutionPreparationBudgetExceededException.class, WorkingCopyTextNotExactException.class})
@@ -440,7 +444,36 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             case CONFLICT -> CONFLICT_MESSAGE;
             case EXTERNAL_CAPABILITY_UNAVAILABLE -> AI_GATEWAY_FAILURE_MESSAGE;
             case INTERNAL_ERROR -> INTERNAL_ERROR_MESSAGE;
+            case ASSET_TYPE_UNSUPPORTED -> "当前资产类型不能作为演化基础";
+            case ASSET_READ_PERMISSION_REQUIRED -> "请在已有仓库的授权信息中明确提交读取许可";
+            case ASSET_USAGE_AUTHORIZATION_REQUIRED -> "请核对使用条款，并在已有仓库中明确提交使用授权";
+            case ASSET_LICENSE_INFORMATION_REQUIRED -> "分析允许许可证未知；演化规划前请补齐已有仓库的许可证及适用范围";
+            case ASSET_AUTHORIZATION_CONFLICT -> "仓库授权版本已变化，请重新读取并核对；本次操作未提交";
+            case ASSET_ALREADY_REGISTERED -> "此仓库已登记，请选择已有资产；补充许可证应修改原记录";
         };
+    }
+
+    @ExceptionHandler({AssetEvolutionNotAllowedException.class, AssetAuthorizationConflictException.class,
+            SoftwareAssetAlreadyRegisteredException.class})
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiErrorResponse handleAssetAuthorizationConflict(RuntimeException exception,
+            HttpServletRequest request) {
+        ApiErrorCode code;
+        if (exception instanceof AssetEvolutionNotAllowedException denied) {
+            code = switch (denied.reason()) {
+                case ASSET_TYPE_UNSUPPORTED -> ApiErrorCode.ASSET_TYPE_UNSUPPORTED;
+                case READ_PERMISSION_REQUIRED -> ApiErrorCode.ASSET_READ_PERMISSION_REQUIRED;
+                case USAGE_AUTHORIZATION_REQUIRED -> ApiErrorCode.ASSET_USAGE_AUTHORIZATION_REQUIRED;
+                case LICENSE_INFORMATION_REQUIRED -> ApiErrorCode.ASSET_LICENSE_INFORMATION_REQUIRED;
+            };
+        } else if (exception instanceof AssetAuthorizationConflictException) {
+            code = ApiErrorCode.ASSET_AUTHORIZATION_CONFLICT;
+        } else {
+            code = ApiErrorCode.ASSET_ALREADY_REGISTERED;
+        }
+        log.warn("operation=interface.request path={} result={} exception={}",
+                loggedRoute(request), code, describe(exception));
+        return new ApiErrorResponse(code, messageFor(code), request.getRequestURI(), Instant.now());
     }
 
     /**

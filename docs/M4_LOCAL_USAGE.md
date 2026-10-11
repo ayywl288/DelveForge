@@ -101,7 +101,18 @@ Invoke-RestMethod http://127.0.0.1:8080/api/system/connectivity
 }
 ```
 
-不能因示例写了 `true` / `ALLOWED` 就替他人制造授权；未知或受限授权不能用于演化。注册接口不替你检测目录是否存在，实际 Git 资格检查在后续流程中完成。
+不能因示例写了 `true` / `ALLOWED` 就替他人制造授权；未知或受限授权不能用于演化。
+登记会只读规范化绝对本地位置并拒绝重复；不验证 Git 或源码，也不扫描 LICENSE 产生授权。
+本版不接收相对、UNC 共享或设备路径。未知许可证允许分析，但不能进入演化规划。
+
+已有分析及选中方向时，优先更新原资产，不重新登记或再次消费 AI：
+`GET /api/software-assets/{assetId}` 取得 `authorizationRevision`，用户核对实际条款后
+`PUT /api/software-assets/{assetId}/authorization` 显式提交
+`expectedAuthorizationRevision`、`readPermissionAllowed`、`licenseInfo`、`usageAuthorization`。
+返回保持原 ID 的资源；原分析和方向引用不变。过期版本拒绝，不自动重试。
+`licenseInfo: null` 表示仍未知；非空记录不表示系统作出了法律兼容性或商用许可判断。
+Web 中展开已有资产卡片的「完善许可证与授权」，成功后回到 Planning 使用原快照。
+实际 GS REST 恢复步骤及许可分区见 [Task D 验证记录](validation/task-d-planning-authorization-ux.md)。
 
 Direction Discovery 请求：
 

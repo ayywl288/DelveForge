@@ -56,10 +56,14 @@ export interface AssetInput {
   usageAuthorization: UsageAuthorization;
 }
 export interface SoftwareAsset extends AssetInput {
+  authorizationRevision: number;
   id: string;
   type: string;
   source: string;
 }
+export type AssetAuthorizationInput = Omit<AssetInput, "location"> & {
+  expectedAuthorizationRevision: number;
+};
 export interface RepositoryProfile {
   id: string;
   assetId: string;

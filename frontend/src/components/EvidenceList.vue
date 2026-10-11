@@ -8,8 +8,8 @@ defineProps<{
   expanded?: boolean;
 }>();
 const sources: Record<string, string> = {
-  USER_INPUT: "来自你的输入",
-  REPOSITORY: "来自仓库事实",
+  USER_INPUT: "来自用户描述",
+  REPOSITORY: "来自仓库文件",
 };
 </script>
 <template>
@@ -27,23 +27,18 @@ const sources: Record<string, string> = {
     >
       <p>{{ item.evidence.claim }}</p>
       <div class="meta">
-        {{ friendly
-          ? (sources[item.evidence.sourceType] ?? item.evidence.sourceType)
-          : item.evidence.sourceType }} ·
-        {{ friendly
-          ? (item.evidence.confirmed ? "依据已核对" : "提取结论待核对")
-          : (item.evidence.confirmed ? "已确认" : "未确认") }}
+        {{ sources[item.evidence.sourceType] ?? "其他来源" }}
         <span v-if="item.evidence.confidence != null">
           · {{ friendly ? "推断可信程度" : "confidence" }}
           {{ item.evidence.confidence }}</span
         >
       </div>
       <code>{{ item.evidence.sourceRef }}</code>
-      <details v-if="friendly">
-        <summary>原始字段</summary>
+      <details>
+        <summary>技术详情</summary>
+        <p class="meta">confirmed 表示单条依据是否核对，与整体画像确认及方向选择不同；本界面不提供逐条确认操作。</p>
         <code>sourceType={{ item.evidence.sourceType }} ·
           confirmed={{ item.evidence.confirmed }}</code>
-      </details>
       <p v-if="item.origin" class="meta">
         {{ item.origin.kind }} ·
         {{ item.origin.userProfileId ?? item.origin.repositoryProfileId
@@ -51,6 +46,7 @@ const sources: Record<string, string> = {
           · revision {{ item.origin.userProfileRevision }}</span
         >
       </p>
+      </details>
     </article>
   </details>
 </template>

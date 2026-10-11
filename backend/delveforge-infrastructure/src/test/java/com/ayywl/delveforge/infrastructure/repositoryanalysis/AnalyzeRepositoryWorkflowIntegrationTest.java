@@ -132,6 +132,7 @@ class AnalyzeRepositoryWorkflowIntegrationTest {
     @SpringBootConfiguration
     @EnableAutoConfiguration
     @Import({SqliteDataSourceConfiguration.class, SqliteSoftwareAssetRepository.class,
+        com.ayywl.delveforge.infrastructure.workspace.LocalRepositoryIdentityAdapter.class,
             SqliteRepositoryProfileRepository.class, GitWorkspaceAdapter.class})
     @MapperScan("com.ayywl.delveforge.infrastructure.persistence")
     static class TestApplication {

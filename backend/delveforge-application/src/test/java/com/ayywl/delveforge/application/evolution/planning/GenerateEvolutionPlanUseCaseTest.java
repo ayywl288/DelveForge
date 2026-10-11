@@ -414,7 +414,41 @@ class GenerateEvolutionPlanUseCaseTest {
         assertThrows(AiGatewayException.class, () -> parser.parse(JSON.replace("\"summary\":\"Existing exports\"", "\"summary\":4")));
     }
 
+    @Test
+    void unknownLicenseRejectsBeforeAiAndExplicitSupplementRetainsExistingBasis() {
+        seed();
+        assets.value = asset(true, null, UsageAuthorization.ALLOWED);
+        assertThrows(AssetEvolutionNotAllowedException.class, () -> useCase().generate(request()));
+        assertEquals(0, calls.get());
+        ProductDirection selected = directions.values.get(new ProductDirectionId("direction"));
+        RepositoryProfile existingProfile = profiles.value;
+        assets.value = assets.value.updateAuthorization(0, true, "Code Apache-2.0; prose BY-ND-3.0",
+                UsageAuthorization.ALLOWED);
+        EvolutionPlan plan = useCase().generate(request());
+        assertEquals(ASSET, plan.baseAssetId());
+        assertEquals(PROFILE, plan.baseRepositoryProfileId());
+        assertSame(selected, directions.values.get(selected.id()));
+        assertSame(existingProfile, profiles.value);
+        assertEquals(1, calls.get());
+    }
+
+    @Test
+    void allowedAuthorizationChangeDuringAiStillRejectsOldPlanningInput() {
+        seed();
+        duringAi = () -> assets.value = assets.value.updateAuthorization(0, true, "New scope", UsageAuthorization.ALLOWED);
+        assertThrows(com.ayywl.delveforge.domain.asset.AssetAuthorizationConflictException.class,
+                () -> useCase().generate(request()));
+        assertEquals(1, calls.get());
+        assertTrue(plans.values.isEmpty());
+    }
+
     private class Plans implements EvolutionPlanRepository {
+        public void saveAtAssetAuthorization(EvolutionPlan plan, SoftwareAsset expectedAsset) {
+            if (assets.value.authorizationRevision() != expectedAsset.authorizationRevision()) {
+                throw new com.ayywl.delveforge.domain.asset.AssetAuthorizationConflictException();
+            }
+            save(plan);
+        }
         public List<EvolutionPlan> findByProductDirectionId(ProductDirectionId id) {
             return values.values().stream().filter(plan -> plan.productDirectionId().equals(id)).toList();
         }
