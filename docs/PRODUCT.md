@@ -3,7 +3,7 @@
 > 本文档回答：为什么做这个产品、给谁使用、解决什么问题，以及第一版到底做到哪里。
 
 **Status:** Exploring
-**Last Updated:** 2026-09-14
+**Last Updated:** 2026-10-11
 
 ## 1. Product Vision
 

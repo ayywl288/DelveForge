@@ -3,7 +3,7 @@
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-10-07
+**Last Updated:** 2026-10-11
 
 ## 1. Architecture Goals
 
@@ -533,15 +533,20 @@ Frontend 采用 Vitest + jsdom 验证五阶段交互和长请求，夹具不依�
 | `GET`   | `/api/repository-profiles/{id}`  | 读取一份已保存的分析快照                                   | 200  | 404  |
 | `POST`  | `/api/product-directions/discovery` | 执行一次 Product Direction Discovery，保存并返回 3–5 个候选方向 | 201 | 400 / 404 / 409 / 502 |
 | `GET`   | `/api/product-directions/{id}`   | 读取一条已保存的 Product Direction（含其依据与出处）        | 200  | 404  |
-| `POST`  | `/api/product-directions/{id}/select` | 用户明确选择该方向（`CANDIDATE → SELECTED`），已有 `SELECTED` 时原方向同批进入 `SUPERSEDED` | 200 | 404 / 409 |
+| `POST`  | `/api/product-directions/{id}/select` | 用户明确选择该方向（`CANDIDATE → SELECTED`），仅同一持久化 flowId 的原方向及关联可失效 Plan 原子进入 `SUPERSEDED` | 200 | 404 / 409 |
 | `POST`  | `/api/product-directions/{id}/reject` | 用户明确拒绝该方向（`CANDIDATE → REJECTED`）              | 200 | 404 / 409 |
 | `POST`  | `/api/evolution-plans/planning` | 从 Selected Direction、Base Asset 和 Base Profile 生成并保存 PROPOSED Plan | 201 | 400 / 404 / 409 / 502 |
 | `GET`   | `/api/evolution-plans/{id}` | 读取完整的规划结果、按顺序的步骤及依据出处 | 200 | 404 |
 | `GET` | `/api/projects?offset=0&limit=50` | 持久上下文及未认领旧 Plan 的真实历史摘要 | 200 | 400 |
+| `GET` | `/api/projects?deleted=true&offset=0&limit=50` | 只查询已软删除的导航记录，不包括普通可见项目 | 200 | 400 |
 | `GET` | `/api/projects/{key}` | `project:{id}` 或 `plan:{id}`，按明确引用恢复业务对象与问题提示 | 200 | 400 / 404 |
 | `POST` | `/api/projects` | 保存空流程或复用当前 CONFIRMED Profile 的导航上下文 | 201 | 400 / 404 / 409 |
 | `PUT` | `/api/projects/{id}/context` | 按 expectedVersion 保存明确 ID，不重绑 Profile / Plan、不移除旧关联 | 200 | 400 / 404 / 409 |
 | `POST` | `/api/projects/legacy-plans/{id}/resume` | 用户明确继续旧 Plan，幂等建立上下文，不执行业务阶段 | 200 | 400 / 404 / 409 |
+| `GET` | `/api/projects/{id}/rounds` | 查询同流程明确关联的新旧规划轮次 | 200 | 400 / 404 / 409 |
+| `POST` | `/api/projects/{id}/planning-rounds` | expectedVersion 核对后建立后续上下文，不调用 AI、不替换旧 planId | 201 | 400 / 404 / 409 |
+| `DELETE` | `/api/projects/{key}` | expectedVersion 核对及执行安全检查后软删除导航，不删除业务或代码 | 200 | 400 / 404 / 409 |
+| `POST` | `/api/projects/{key}/restore` | expectedVersion 核对后恢复导航可见性，不恢复领域终态 | 200 | 400 / 404 / 409 |
 | `GET` | `/api/projects/resources?kind=USER_PROFILE` | 分页列出可选择资源；另支持 SOFTWARE_ASSET / REPOSITORY_PROFILE | 200 | 400 / 404 |
 
 项目查询与恢复无 AI / Workspace mutation 调用。关联并发冲突返回独立
@@ -1425,6 +1430,8 @@ M4 实现成功路径与 fail-closed 安全，M5 实现完整失败 / 恢复流�
 | [0005](decisions/0005-hierarchical-repository-scout-for-oversized-source-catalogs.md) | flat File Catalog 超限时改用分层 Scout：Region 导航 → 各终态分支的 File Scout | Accepted |
 | [0006](decisions/0006-repository-source-secret-boundary.md) | 仓库源码在离开进程前过凭据边界：读取前按路径排除 + 交给模型前内容净化 | Accepted |
 | [0007](decisions/0007-application-project-context-and-read-only-history.md) | Application 导航上下文、明确身份关联与只读历史恢复 | Accepted |
+| [0008](decisions/0008-stable-evolution-flow-scope-and-planning-rounds.md) | 稳定演化作用域、项目级方向隔离与显式规划轮次；替代 0007 的全局选择部分 | Accepted |
+| [0009](decisions/0009-project-navigation-soft-deletion.md) | 项目导航软删除与恢复，保留业务对象与未决执行边界 | Accepted |
 
 以下事项经过评审后**决定不建立 ADR**，结论保留在本文件或 `docs/ROADMAP.md` 中：
 

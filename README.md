@@ -305,6 +305,9 @@ Frontend ──HTTP──▶ App
 - [ROADMAP](docs/ROADMAP.md) — 开发计划与验收标准
 - [M4 本地使用](docs/M4_LOCAL_USAGE.md) — 配置、API 顺序、确认与失败边界
 - [M4 交付冻结](docs/validation/m4-delivery-closeout.md) — 合并、最终验证与证据归档
+- [Pre-UI Closeout](docs/validation/pre-ui-final-closeout.md) — D–F 修复整合、两次历史演化与最新回归边界
+- [本地数据环境](docs/LOCAL_DATA_ENVIRONMENTS.md) — 一致归档、新旧数据库切换与浏览器 ID 隔离
+- [Task G 技术交接](docs/UI_TASK_G_HANDOFF.md) — 六个界面、状态/API 结构与 UI 修改边界
 - [Minimal Web 验证](docs/validation/minimal-web-experience.md) — UI 契约、离线联通与交互边界
 - [Demo Catalog](docs/demos/README.md) — 三套 BUILD_READY 基线、待发布附件及还原步骤
 - [User Discovery 一致性修复](docs/validation/task-c1-user-discovery-consistency.md) — 同版本审阅、提示与会话保留

@@ -11,7 +11,14 @@
 
 当前最重要目标：
 
-> 完成 DelveForge 的 MVP 核心闭环，使用户能够从自身兴趣、行为、痛点和技术目标出发，结合至少一个本地 Git Repository，发现并选择 Product Direction，生成 Evolution Plan，并在隔离的 Working Copy 中完成至少一个经过用户确认且成功验证的 Evolution Step。
+> M0–M4 核心闭环与 Task D–F 后续 correctness 修复已完成。当前转入 Task G UI / UX Polish，只改善现有界面的视觉、布局与交互呈现；后端业务开发停止，M5 暂缓。
+
+阶段关闭、两次历史 Verified Evolution、最新 1474 / 85 项确定性回归及尚未重跑的付费 E2E
+见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。
+Task G 的技术结构与冻结边界见 [UI 交接](UI_TASK_G_HANDOFF.md)；
+干净数据库切换由用户按 [本地数据环境说明](LOCAL_DATA_ENVIRONMENTS.md) 决定，不自动清理旧库或副本。
+
+以下保留第一阶段的原始闭环目标和验收流程，不代表继续扩展后端功能：
 
 当前阶段不追求：
 
@@ -826,7 +833,9 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
 M4 — First Verified Evolution Step：DONE / FROZEN（2026-10-10）
 M5 — Failure Safety & Recovery：DEFERRED
-后端功能开发暂停；不追加 M4 优化或开始 M5。
+Task D–F / F-Fix / 软删除 / Final Planning Fix：DONE
+Task G — UI / UX Polish：下一阶段，尚未实施
+后端业务开发停止；不追加 M4 优化或开始 M5。
 ```
 
 M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
@@ -2047,4 +2056,6 @@ F-Fix 首次完整 verify 1457 项 PASS；追加最终 verify 1468 项 PASS，�
 仅增加固定失败阶段/原因、Context 版本预检和规划请求/回读边界，没有自动付费重试。
 最终 Maven verify 1474 项、前端 85 项、类型检查和构建 PASS。
 见 [定位与验证记录](validation/final-planning-rejection-fix.md)。没有数据库迁移或真实 Provider /
-Evolution Step 调用。结束业务扩展，数据库归档及 Task G 尚未执行，等待后续手动验收。
+Evolution Step 调用。结束业务扩展；数据库归档由用户决定，Task G 尚未实施。
+代码已在 Pre-UI Closeout 快进整合至 main，仅增加文档与交接；
+见 [关闭记录](validation/pre-ui-final-closeout.md) 和 [UI 技术交接](UI_TASK_G_HANDOFF.md)。

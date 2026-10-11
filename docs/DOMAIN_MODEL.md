@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 内部有哪些核心业务概念，这些概念分别代表什么，以及它们之间如何协作。
 
 **Status:** Stable
-**Last Updated:** 2026-10-07
+**Last Updated:** 2026-10-11
 
 ## 1. Domain Overview
 
