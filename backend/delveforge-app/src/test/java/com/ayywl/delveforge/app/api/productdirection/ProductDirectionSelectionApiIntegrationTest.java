@@ -227,7 +227,7 @@ class ProductDirectionSelectionApiIntegrationTest {
     @Test
     void returnsConflictWhenAnotherSelectionWinsTheRace() throws Exception {
         productDirectionRepository.save(selectedDirection(FIRST_ID));
-        doReturn(Optional.empty()).when(spiedRepository).findCurrentSelected();
+        doReturn(Optional.empty()).when(spiedRepository).findCurrentSelectedFor(SECOND_ID);
         productDirectionRepository.save(direction(SECOND_ID));
 
         String body = mockMvc.perform(post("/api/product-directions/{id}/select", SECOND_ID.value()))
@@ -254,7 +254,7 @@ class ProductDirectionSelectionApiIntegrationTest {
      */
     @Test
     void returnsConflictWhenTheStoredCurrentSelectionIsCorrupted() throws Exception {
-        jdbcTemplate.execute("DROP INDEX ux_product_direction_current_selected");
+        jdbcTemplate.execute("DROP INDEX ux_direction_selected_per_flow");
         insertSelectedRow("direction-corrupted-1");
         insertSelectedRow("direction-corrupted-2");
         productDirectionRepository.save(direction(FIRST_ID));
@@ -275,8 +275,8 @@ class ProductDirectionSelectionApiIntegrationTest {
                         INSERT INTO product_direction
                             (id, user_profile_id, user_profile_revision, title, problem,
                              target_product, user_fit, differentiation, technical_value,
-                             estimated_complexity, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SELECTED')
+                             estimated_complexity, status, flow_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SELECTED', 'standalone')
                         """,
                 directionId, USER_PROFILE_ID.value(), USER_PROFILE_REVISION,
                 "方向", "问题", "目标", "匹配", "差异", "价值", "复杂度");

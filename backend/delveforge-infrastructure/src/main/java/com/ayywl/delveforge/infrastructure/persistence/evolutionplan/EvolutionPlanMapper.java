@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.persistence.evolutionplan;
 
 import com.ayywl.delveforge.application.port.persistence.EvolutionPlanTransition;
+import com.ayywl.delveforge.application.project.ProjectScopeBasis;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
@@ -27,11 +28,12 @@ public interface EvolutionPlanMapper extends BaseMapper<EvolutionPlanDO> {
     @Insert("""
         INSERT INTO evolution_plan
           (id, product_direction_id, base_asset_id, base_repository_profile_id,
-           working_copy_id, current_summary, target_problem, target_product, target_differentiation, status)
+           working_copy_id, current_summary, target_problem, target_product, target_differentiation, status, flow_id)
         SELECT #{id}, #{productDirectionId}, #{baseAssetId}, #{baseRepositoryProfileId},
-               #{workingCopyId}, #{currentSummary}, #{targetProblem}, #{targetProduct}, #{targetDifferentiation}, #{status}
+               #{workingCopyId}, #{currentSummary}, #{targetProblem}, #{targetProduct}, #{targetDifferentiation}, #{status},
+               (SELECT flow_id FROM product_direction WHERE id = #{productDirectionId})
         WHERE EXISTS (SELECT 1 FROM product_direction
-                      WHERE id = #{productDirectionId} AND status = 'SELECTED')
+                      WHERE id = #{productDirectionId} AND status = 'SELECTED' AND flow_id IS NOT NULL)
         """)
     int insertForSelectedDirection(EvolutionPlanDO plan);
 
@@ -45,7 +47,8 @@ public interface EvolutionPlanMapper extends BaseMapper<EvolutionPlanDO> {
           AND base_asset_id = #{plan.baseAssetId.value}
           AND base_repository_profile_id = #{plan.baseRepositoryProfileId.value}
           AND EXISTS (SELECT 1 FROM product_direction
-                      WHERE id = #{plan.productDirectionId.value} AND status = 'SELECTED')
+                      WHERE id = #{plan.productDirectionId.value} AND status = 'SELECTED'
+                        AND flow_id = evolution_plan.flow_id)
           AND EXISTS (SELECT 1 FROM repository_profile
                       WHERE id = #{plan.baseRepositoryProfileId.value}
                         AND asset_id = #{copy.sourceAssetId.value} AND analyzed_revision = #{copy.sourceRevision})
@@ -62,6 +65,8 @@ public interface EvolutionPlanMapper extends BaseMapper<EvolutionPlanDO> {
         WHERE id = #{transition.plan.id.value} AND status = #{transition.expectedStatus}
           AND working_copy_id IS #{transition.expectedWorkingCopyId}
           AND product_direction_id = #{transition.plan.productDirectionId.value}
+          AND flow_id IS NOT NULL AND flow_id = (SELECT flow_id FROM product_direction
+              WHERE id = #{transition.plan.productDirectionId.value})
         """)
     int transitionAtBasis(@Param("transition") EvolutionPlanTransition transition);
 
@@ -70,4 +75,22 @@ public interface EvolutionPlanMapper extends BaseMapper<EvolutionPlanDO> {
         WHERE product_direction_id = #{directionId} AND status IN ('PROPOSED', 'ACTIVE')
         """)
     long countContinuingPlans(String directionId);
+    @Update("""
+            UPDATE project_flow_context SET plan_id = #{plan.id.value}, version = version + 1,
+                updated_at = #{updatedAt}
+            WHERE id = #{project.contextId} AND version = #{project.expectedVersion} AND plan_id IS NULL
+                AND flow_id = (SELECT flow_id FROM product_direction WHERE id = #{plan.productDirectionId.value})
+                AND user_profile_id = (SELECT user_profile_id FROM product_direction WHERE id = #{plan.productDirectionId.value})
+                AND EXISTS (SELECT 1 FROM json_each(repository_profile_ids) WHERE value = #{plan.baseRepositoryProfileId.value})
+                AND EXISTS (SELECT 1 FROM json_each(asset_ids) WHERE value = #{plan.baseAssetId.value})
+            """)
+    int bindProjectPlan(@Param("plan") EvolutionPlan plan,
+            @Param("project") ProjectScopeBasis project,
+            @Param("updatedAt") String updatedAt);
+
+    @Select("""
+            SELECT COUNT(*) FROM evolution_plan p JOIN product_direction d ON d.id = p.product_direction_id
+            WHERE p.id = #{id} AND p.flow_id IS NOT NULL AND p.flow_id = d.flow_id
+            """)
+    int coherentFlow(String id);
 }

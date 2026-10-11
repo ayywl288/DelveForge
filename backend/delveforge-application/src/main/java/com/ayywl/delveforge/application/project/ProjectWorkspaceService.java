@@ -108,7 +108,8 @@ public final class ProjectWorkspaceService {
             throw new ProjectContextConflictException();
         }
         ProjectFlowContext candidate = new ProjectFlowContext(id, current.name(), profileId, assetIds, repositoryIds,
-                directionIds, planId, current.createdAt(), clock.instant(), Math.addExact(expectedVersion, 1));
+                directionIds, planId, current.createdAt(), clock.instant(), Math.addExact(expectedVersion, 1),
+                current.flowId(), current.previousContextId());
         ProjectWorkspace workspace = load("project:" + id, candidate, false);
         if (workspace.issues().stream().anyMatch(ProjectWorkspaceService::invalidAssociation)) {
             throw new ProjectContextConflictException();
@@ -150,11 +151,15 @@ public final class ProjectWorkspaceService {
         if (workspace.issues().stream().anyMatch(ProjectWorkspaceService::invalidAssociation)) {
             throw new ProjectContextConflictException();
         }
+        String flow = directions.flowId(workspace.plan().productDirectionId());
+        if (flow == null) {
+            throw new EvolutionFlowScopeException();
+        }
         ProjectFlowContext basis = legacyBasis(workspace.plan());
         Instant now = clock.instant();
         return contexts.adoptPlan(new ProjectFlowContext(UUID.randomUUID().toString(), basis.name(),
                 basis.userProfileId(), basis.assetIds(), basis.repositoryProfileIds(), basis.directionIds(), planId,
-                now, now, 0));
+                now, now, 0, directions.flowId(workspace.plan().productDirectionId()), null));
     }
 
     private ProjectFlowContext legacyBasis(EvolutionPlan plan) {
@@ -204,10 +209,20 @@ public final class ProjectWorkspaceService {
             }
         }
         List<ProductDirection> loadedDirections = new ArrayList<>();
-        for (String id : basis.directionIds()) {
+        LinkedHashSet<String> flowDirections = new LinkedHashSet<>(basis.directionIds());
+        if (!legacy) {
+            directions.findByFlow(basis.flowId()).forEach(d -> flowDirections.add(d.id().value()));
+        }
+        for (String id : flowDirections) {
             ProductDirection direction = read(() -> directions.findById(new ProductDirectionId(id)), "DIRECTION", issues);
             if (direction != null) {
                 loadedDirections.add(direction);
+                String owner = directions.flowId(direction.id());
+                if (owner == null) {
+                    issues.add("FLOW_OWNERSHIP_UNKNOWN");
+                } else if (!legacy && !owner.equals(basis.flowId())) {
+                    issues.add("ASSOCIATION_MISMATCH");
+                }
                 if (!direction.userProfileId().value().equals(basis.userProfileId())
                         || direction.repositoryProfileIds().stream().anyMatch(ref ->
                                 !basis.repositoryProfileIds().contains(ref.value()))
@@ -221,7 +236,7 @@ public final class ProjectWorkspaceService {
         WorkingCopy copy = null;
         Integer boundRevision = null;
         if (plan != null) {
-            if (!basis.directionIds().contains(plan.productDirectionId().value())
+            if (!flowDirections.contains(plan.productDirectionId().value())
                     || !basis.assetIds().contains(plan.baseAssetId().value())
                     || loadedRepos.stream().noneMatch(repo -> repo.id().equals(plan.baseRepositoryProfileId())
                             && repo.assetId().equals(plan.baseAssetId()))) {

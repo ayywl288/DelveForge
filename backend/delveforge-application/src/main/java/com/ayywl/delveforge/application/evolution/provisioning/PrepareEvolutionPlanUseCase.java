@@ -48,6 +48,7 @@ public final class PrepareEvolutionPlanUseCase {
         Objects.requireNonNull(id);
 
         EvolutionPlan plan = plans.findById(id).orElseThrow(() -> new EvolutionPlanNotFoundException(id));
+        plans.requireFlowBinding(plan);
         ProductDirection direction = directions.findById(plan.productDirectionId())
                 .orElseThrow(() -> new ProductDirectionNotFoundException(plan.productDirectionId()));
         SoftwareAsset asset = assets.findById(plan.baseAssetId())

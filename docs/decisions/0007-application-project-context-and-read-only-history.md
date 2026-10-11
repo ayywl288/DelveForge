@@ -1,6 +1,6 @@
 # ADR-0007：Application 项目上下文与只读历史恢复
 
-Status: Accepted
+Status: Accepted（选择作用域部分已由 ADR-0008 替代）
 
 Date: 2026-10-11
 
@@ -51,3 +51,5 @@ Application 项目服务与端口、Infrastructure SQLite 与只读目录预检�
 工作台与上下文隔离。无新依赖、无 Maven 模块变化、无 Domain 状态转换或 M5 实现。
 
 接口与边界见 [ARCHITECTURE](../ARCHITECTURE.md)。
+
+Task F-Fix 的作用域与后续规划轮次见 [ADR-0008](0008-stable-evolution-flow-scope-and-planning-rounds.md)。

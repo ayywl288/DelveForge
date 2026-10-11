@@ -1,7 +1,9 @@
 package com.ayywl.delveforge.application.opportunitydiscovery.direction;
 
+import com.ayywl.delveforge.application.project.ProjectScopeBasis;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+
 import java.util.List;
 
 /**
@@ -35,7 +37,11 @@ import java.util.List;
 public record DiscoverProductDirectionsRequest(
         UserProfileId userProfileId,
         int expectedRevision,
-        List<RepositoryProfileId> repositoryProfileIds) {
+        List<RepositoryProfileId> repositoryProfileIds, ProjectScopeBasis project) {
+    public DiscoverProductDirectionsRequest(UserProfileId userProfileId, int expectedRevision, List<RepositoryProfileId> repositoryProfileIds) {
+        this(userProfileId, expectedRevision, repositoryProfileIds, null);
+    }
+
 
     public DiscoverProductDirectionsRequest {
         if (userProfileId == null) {

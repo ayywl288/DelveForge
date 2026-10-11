@@ -1424,3 +1424,18 @@ Frontend / Backend 连接方式  开发期实现细节，见 6.3
 ```
 
 已延后、尚未形成决策的事项见 `docs/ROADMAP.md` §8.7。
+
+### Task F-Fix：项目作用域与重新规划
+
+稳定 flowId 属于持久化业务归属，ProjectFlowContext 的 ID 列表只用于导航。
+V16 增加 Direction / Plan / Context 的 flow_id 和 Context.previous_context_id；不可变触发器
+禁止重绑，部分唯一索引约束每个已知作用域一个 SELECTED。方向发现的 project 参数包含
+contextId / expectedVersion，保存时原子核对上下文、画像版本及分析成员；假项目身份失败。
+Select 依据目标方向持久化归属查询旧 SELECTED；同一事务提交旧方向和旧 Plan 失效，
+不影响别的作用域。Plan 插入继承 Direction 归属，激活、Step 确认、执行检查点 SQL 继续
+要求同作用域、合法状态、授权、隔离及 revision。原无 project 参数 API 使用 standalone 作用域。
+
+历史迁移只沿明确 Context ID / Plan -> Direction 引用归属；歧义或缺失保持只读。
+SUPERSEDED 不自动恢复。重新规划创建同 flowId、previousContextId 相连的新上下文，
+保留旧 planId；新 Plan 仍使用用户明确选定的 Asset 和 RepositoryProfile，不从旧 B 推断分析基线。
+决策及回滚限制见 [ADR-0008](decisions/0008-stable-evolution-flow-scope-and-planning-rounds.md)。

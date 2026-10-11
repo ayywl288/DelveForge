@@ -1721,12 +1721,15 @@ Invariant 描述的是系统无论采用何种 Controller、数据库、LLM Prov
 | `INV-D06` | Product Direction 中关于用户需求、匹配关系和可复用软件能力的关键判断必须具有可追溯 Evidence；不能仅依赖无法定位来源的模型描述。 |
 | `INV-D07` | Product Direction 只能由用户明确选择后进入 `SELECTED`；系统不得自行替用户完成最终方向选择。 |
 | `INV-D08` | 用于生成 Product Direction 的 User Profile 必须处于 `CONFIRMED` 状态，并明确使用其确定 revision。 |
-| `INV-D09` | 当前 MVP 仅支持一个活动演化流程，因此系统全局最多只能存在一个当前 `SELECTED` Product Direction。用户明确选择新的 `CANDIDATE` Product Direction 时，若当前已存在 `SELECTED` Product Direction，则原方向必须在同一次选择操作中进入 `SUPERSEDED`。并行演化流程及显式 `EvolutionFlow` 身份不属于当前 MVP 范围；若后续需求得到验证，再引入相应流程身份，并将该约束收窄为“每个 EvolutionFlow 最多一个当前 `SELECTED` Product Direction”。 |
+| `INV-D09` | 每个明确持久化的演化作用域（flowId）最多一个当前 SELECTED ProductDirection。同作用域内用户显式选择新的 CANDIDATE 时，旧 SELECTED 必须原子进入 SUPERSEDED；不同作用域互不替代。归属不能由路径、共用画像、时间或客户端列表推断。未知归属失败关闭。 |
 | `INV-D10` | 每个 Product Direction 至少必须标识一个 Candidate Software Asset；其 `candidateAssetIds` 必须来自该 Product Direction 所引用 Repository Profiles 对应的 Software Assets。 |
 
-Task F 的 `ProjectFlowContext` 是 Application 导航记录，不是 Domain `EvolutionFlow`、
-新的 Aggregate 或状态机。多个历史项目可分别引用同一 UserProfile 或 SoftwareAsset；
-恢复上下文不产生选择、授权、执行或成功事实，也不改变 `INV-D09` 的全局约束。
+Task F-Fix 引入稳定的演化作用域身份 `flowId`，不引入新的 Aggregate 或状态机。
+`ProjectFlowContext` 仍是导航记录，归属由服务端写定并不可修改；多个规划轮次可属于同一作用域。
+多个项目可复用 UserProfile、Asset 与分析，但不因此共享 Direction 归属。
+恢复上下文不产生选择、授权、执行或成功事实。一个上下文的 planId 仍不可替换；
+重新规划建立关联的后续上下文，旧 Plan、Step、WorkingCopy 和结果继续可读。
+详见 [ADR-0008](decisions/0008-stable-evolution-flow-scope-and-planning-rounds.md)。
 项目页展示当前 Profile 与方向原始 `userProfileRevision` 的区别，不覆盖历史绑定。
 是否可继续 Step 仍由当前 Plan / Direction、WorkingCopy 与原有 Domain Policies 判断。
 
@@ -1741,7 +1744,7 @@ Task F 的 `ProjectFlowContext` 是 Application 导航记录，不是 Domain `Ev
 | `INV-P05` | Current State 必须以 Base Repository Profile 为主要软件事实依据，Target State 必须来源于 Selected Product Direction。 |
 | `INV-P06` | 每个 Evolution Step 必须属于且只能属于一个 Evolution Plan。  |
 | `INV-P07` | Evolution Step 必须具有明确 Goal、Scope、Planned Changes 与 Verification Criteria，不能以无限范围的“一次性完成整个项目改造”作为合法 Step。 |
-| `INV-P08` | 如果 Evolution Plan 所对应的 Product Direction 已进入 `SUPERSEDED`，该 Plan 不得开始新的 Evolution Step；仍处于 `PROPOSED` 或 `ACTIVE` 的历史 Plan 必须先进入 `SUPERSEDED` 或 `ABANDONED`。 |
+| `INV-P08` | Plan 与 Direction 必须绑定同一个已知演化作用域。仅该作用域内方向切换会使旧方向关联的 PROPOSED / ACTIVE Plan 原子进入 SUPERSEDED；失效 Plan 不得开始新 Step。历史 Step / VerificationResult / WorkingCopy revision 保留，不自动恢复终态。 |
 | `INV-E09` | 当前 MVP 中 Evolution Step 按 Evolution Plan 定义的顺序执行；一个 Step 只有在其所有前序 Required Evolution Step 均处于 `SUCCEEDED` 时才能开始 Execution。 |
 
 ### 7.3 Working Copy Invariants

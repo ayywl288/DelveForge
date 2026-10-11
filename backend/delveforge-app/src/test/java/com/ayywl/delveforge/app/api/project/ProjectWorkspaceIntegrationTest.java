@@ -190,8 +190,8 @@ class ProjectWorkspaceIntegrationTest {
                 "测试", "小型", List.of(), new DirectionEvidenceSupport(List.of(basis), List.of(basis), List.of(basis)));
         directions.save(direction);
         jdbc.update("INSERT INTO evolution_plan(id, product_direction_id, base_asset_id, base_repository_profile_id, "
-                + "working_copy_id, current_summary, target_problem, target_product, target_differentiation, status) "
-                + "VALUES(?, ?, ?, ?, ?, 'GET', '请求', 'REST', '本地', 'ACTIVE')", id, direction.id().value(),
+                + "working_copy_id, current_summary, target_problem, target_product, target_differentiation, status, flow_id) "
+                + "VALUES(?, ?, ?, ?, ?, 'GET', '请求', 'REST', '本地', 'ACTIVE', 'standalone')", id, direction.id().value(),
                 assetId.value(), repoId.value(), "copy-" + id);
         jdbc.update("INSERT INTO evolution_plan_section_item(plan_id, section, position, value) "
                 + "VALUES(?, 'changes', 0, '新增 REST 行为')", id);

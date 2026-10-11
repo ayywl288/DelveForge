@@ -2,6 +2,8 @@ package com.ayywl.delveforge.infrastructure.persistence.evolutionplan;
 
 import com.ayywl.delveforge.application.port.persistence.EvolutionPlanAlreadyExistsException;
 import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
+import com.ayywl.delveforge.application.project.ProjectContextConflictException;
+import com.ayywl.delveforge.application.project.ProjectScopeBasis;
 import com.ayywl.delveforge.domain.asset.AssetAuthorizationConflictException;
 import com.ayywl.delveforge.domain.asset.AssetUsagePolicy;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
@@ -77,6 +79,16 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
 
     @Override
     @Transactional
+    public void saveInProject(EvolutionPlan plan, SoftwareAsset asset,
+            ProjectScopeBasis project) {
+        if (project != null && planMapper.bindProjectPlan(plan, project, java.time.Instant.now().toString()) != 1) {
+            throw new ProjectContextConflictException();
+        }
+        saveAtAssetAuthorization(plan, asset);
+    }
+
+    @Override
+    @Transactional
     public void save(EvolutionPlan plan) {
         if (plan.status() != EvolutionPlanStatus.PROPOSED || plan.workingCopyId() != null) {
             throw new EvolutionPlanStateException("New planning results must be unbound PROPOSED Plans");
@@ -111,6 +123,13 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         }
         for (int position = 0; position < plan.evidence().size(); position++) {
             insertEvidence(id, position, plan.evidence().get(position));
+        }
+    }
+
+    @Override
+    public void requireFlowBinding(EvolutionPlan plan) {
+        if (planMapper.coherentFlow(plan.id().value()) != 1) {
+            throw new com.ayywl.delveforge.application.project.EvolutionFlowScopeException();
         }
     }
 

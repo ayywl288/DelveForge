@@ -25,6 +25,12 @@ public class ProductDirectionDO {
     @TableId(type = IdType.INPUT)
     private String id;
 
+    private String flowId;
+
+    public String getFlowId() { return flowId; }
+
+    public void setFlowId(String flowId) { this.flowId = flowId; }
+
     /** 生成该方向所依据的 User Profile，跨 Aggregate 引用，只保留身份。 */
     private String userProfileId;
 

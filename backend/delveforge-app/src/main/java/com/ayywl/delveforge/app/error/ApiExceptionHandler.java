@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.app.error;
 
+import com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException;
 import com.ayywl.delveforge.application.evolution.planning.EvolutionPlanNotFoundException;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationBudgetExceededException;
 import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
@@ -17,6 +18,7 @@ import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedEx
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceStorageUnavailableException;
+import com.ayywl.delveforge.application.project.EvolutionFlowScopeException;
 import com.ayywl.delveforge.application.project.ProjectContextConflictException;
 import com.ayywl.delveforge.application.project.ProjectNotFoundException;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
@@ -270,7 +272,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             UserProfileNotConfirmedException.class, EvolutionPlanningPreconditionException.class,
             EvolutionPlanAlreadyExistsException.class,
             EvolutionPlanStateException.class, EvolutionLifecycleConflictException.class, WorkingCopyBasisChangedException.class,
-            com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException.class,
+            EvolutionExecutionException.class,
             ExecutionPreparationBudgetExceededException.class, WorkingCopyTextNotExactException.class})
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiErrorResponse handleDiscoveryPreconditionConflict(
@@ -481,6 +483,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             case ASSET_AUTHORIZATION_CONFLICT -> "仓库授权版本已变化，请重新读取并核对；本次操作未提交";
             case ASSET_ALREADY_REGISTERED -> "此仓库已登记，请选择已有资产；补充许可证应修改原记录";
             case PROJECT_CONTEXT_CONFLICT -> "项目关联或版本已变化，请重新打开项目核对；本次上下文未保存";
+            case EVOLUTION_FLOW_SCOPE_CONFLICT -> "流程归属缺失或不一致，请只读查看历史";
         };
     }
 
@@ -542,5 +545,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             return servletWebRequest.getRequest().getRequestURI();
         }
         return UNMATCHED_ROUTE;
+    }
+    @ExceptionHandler(EvolutionFlowScopeException.class)
+    public ResponseEntity<ApiErrorResponse> flowScopeConflict(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ApiErrorResponse(ApiErrorCode.EVOLUTION_FLOW_SCOPE_CONFLICT,
+                        "流程归属缺失或不一致，请只读查看历史。", request.getRequestURI(), Instant.now()));
     }
 }

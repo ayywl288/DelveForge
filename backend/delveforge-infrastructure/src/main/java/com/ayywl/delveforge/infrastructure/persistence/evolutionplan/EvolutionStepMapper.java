@@ -19,6 +19,7 @@ public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
           AND execution_result IS #{oldExecution} AND verification_result IS #{oldVerification}
           AND EXISTS (SELECT 1 FROM evolution_plan p JOIN product_direction d ON d.id = p.product_direction_id
                       WHERE p.id = #{plan.id.value} AND p.status = 'ACTIVE' AND d.status = 'SELECTED'
+                        AND p.flow_id IS NOT NULL AND p.flow_id = d.flow_id
                         AND p.working_copy_id = #{copy.id.value} AND p.base_asset_id = #{asset.id.value})
           AND EXISTS (SELECT 1 FROM working_copy WHERE id = #{copy.id.value}
                       AND source_asset_id = #{asset.id.value} AND location = #{copy.location}
@@ -46,6 +47,7 @@ public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
           AND status = 'PENDING_CONFIRMATION' AND baseline_revision IS NULL
           AND EXISTS (SELECT 1 FROM evolution_plan p JOIN product_direction d ON d.id = p.product_direction_id
                       WHERE p.id = #{plan.id.value} AND p.status = 'ACTIVE' AND d.status = 'SELECTED'
+                        AND p.flow_id IS NOT NULL AND p.flow_id = d.flow_id
                         AND p.working_copy_id = #{copy.id.value} AND p.base_asset_id = #{asset.id.value})
           AND EXISTS (SELECT 1 FROM working_copy WHERE id = #{copy.id.value}
                       AND source_asset_id = #{asset.id.value} AND location = #{copy.location}

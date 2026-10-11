@@ -1,7 +1,10 @@
 package com.ayywl.delveforge.app.api.productdirection;
 
+import com.ayywl.delveforge.app.api.project.ProjectScopeRequest;
 import com.ayywl.delveforge.app.api.userprofile.UserProfileRevisionDeserializer;
+
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+
 import java.util.List;
 
 /**
@@ -61,7 +64,11 @@ import java.util.List;
 public record ProductDirectionDiscoveryRequest(
         String userProfileId,
         @JsonDeserialize(using = UserProfileRevisionDeserializer.class) Integer expectedRevision,
-        List<String> repositoryProfileIds) {
+        List<String> repositoryProfileIds, ProjectScopeRequest project) {
+    public ProductDirectionDiscoveryRequest(String userProfileId, Integer expectedRevision, List<String> repositoryProfileIds) {
+        this(userProfileId, expectedRevision, repositoryProfileIds, null);
+    }
+
 
     public ProductDirectionDiscoveryRequest {
         if (userProfileId == null || userProfileId.isBlank()) {

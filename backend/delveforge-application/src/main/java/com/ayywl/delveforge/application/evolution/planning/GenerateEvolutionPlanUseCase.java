@@ -52,6 +52,7 @@ public final class GenerateEvolutionPlanUseCase {
         RepositoryProfile profile = profiles.findById(request.baseRepositoryProfileId())
                 .orElseThrow(() -> new RepositoryProfileNotFoundException(request.baseRepositoryProfileId()));
 
+        directions.requirePlanningScope(direction.id(), request.project(), profile.id());
         planning.requirePlanningBasis(direction, asset, profile);
 
         PlanningProposal proposal = extraction.extract(direction, profile);
@@ -68,7 +69,11 @@ public final class GenerateEvolutionPlanUseCase {
 
         EvolutionPlan plan = planning.plan(direction, asset, profile, proposal);
 
-        plans.saveAtAssetAuthorization(plan, asset);
+        if (request.project() == null) {
+            plans.saveAtAssetAuthorization(plan, asset);
+        } else {
+            plans.saveInProject(plan, asset, request.project());
+        }
         return plan;
     }
 }

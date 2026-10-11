@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.app.api.productdirection;
 
+import com.ayywl.delveforge.app.api.project.ProjectScopeRequest;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.DiscoverProductDirectionsRequest;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.DiscoverProductDirectionsUseCase;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.GetProductDirectionUseCase;
@@ -8,6 +9,7 @@ import com.ayywl.delveforge.application.opportunitydiscovery.direction.SelectPro
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -101,17 +103,18 @@ public class ProductDirectionController {
      *
      * <p>它是「用户做了决定」这件事的入口，而不是一个系统建议：本端点不会被发现流程、
      * AI 输出或启动过程调用。当前已经存在另一个 {@code SELECTED} 方向时，原方向在同一次
-     * 操作中进入 {@code SUPERSEDED}（INV-D09）。
+     * 操作中进入 {@code SUPERSEDED}（INV-D09），范围仅限目标方向已保存的 flowId。
      *
-     * <p>不接收请求体：选择这个动作没有需要客户端提供的参数——方向标识在路径里，
+     * <p>可选请求体声明 contextId / expectedVersion；服务端检查归属，不能由客户端指定 flowId。
      * 状态与内容都不由调用方决定。
      *
      * <p>返回 200 而不是 201：本次调用没有产生新的资源，它改变的是已有方向的状态。
      */
     @PostMapping("/{id}/select")
-    public ProductDirectionResponse select(@PathVariable String id) {
+    public ProductDirectionResponse select(@PathVariable String id,
+            @RequestBody(required = false) ProjectScopeRequest project) {
         return ProductDirectionResponse.from(
-                selectProductDirectionUseCase.select(new ProductDirectionId(id)));
+                selectProductDirectionUseCase.select(new ProductDirectionId(id), project == null ? null : project.basis()));
     }
 
     /**
@@ -120,7 +123,7 @@ public class ProductDirectionController {
      * <p>只有 {@code CANDIDATE} 可以被拒绝。「不想继续用当前选中的方向」属于切换，
      * 由 {@code select} 表达，不是本端点。
      *
-     * <p>不接收请求体，理由与 {@code select} 相同。
+     * <p>不接收客户端状态或内容；拒绝仅作用于路径指定的候选方向。
      */
     @PostMapping("/{id}/reject")
     public ProductDirectionResponse reject(@PathVariable String id) {
@@ -139,6 +142,7 @@ public class ProductDirectionController {
         return new DiscoverProductDirectionsRequest(
                 new UserProfileId(request.userProfileId()),
                 request.expectedRevision(),
-                request.repositoryProfileIds().stream().map(RepositoryProfileId::new).toList());
+                request.repositoryProfileIds().stream().map(RepositoryProfileId::new).toList(),
+                request.project() == null ? null : request.project().basis());
     }
 }

@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.application.port.persistence;
 
+import com.ayywl.delveforge.application.project.ProjectScopeBasis;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
@@ -20,6 +21,19 @@ public interface EvolutionPlanRepository {
         throw new UnsupportedOperationException("Atomic authorization check is required");
     }
 
+    default void saveInProject(EvolutionPlan plan, SoftwareAsset expectedAsset,
+            ProjectScopeBasis project) {
+        if (project != null) {
+            throw new UnsupportedOperationException("Atomic project planning is required");
+        }
+        saveAtAssetAuthorization(plan, expectedAsset);
+    }
+
     Optional<EvolutionPlan> findById(EvolutionPlanId id);
     List<EvolutionPlan> findByProductDirectionId(ProductDirectionId id);
+
+    /** 具有持久化归属的实现必须在外部操作之前核对 Plan / Direction 绑定。 */
+    default void requireFlowBinding(EvolutionPlan plan) {
+        // 无独立持久化归属的内存实现使用单一作用域。
+    }
 }

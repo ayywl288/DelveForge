@@ -6,10 +6,19 @@ import java.util.List;
 /** Application 的导航身份记录；不承载领域状态、执行权限或可信 revision。 */
 public record ProjectFlowContext(String id, String name, String userProfileId, List<String> assetIds,
         List<String> repositoryProfileIds, List<String> directionIds, String planId,
-        Instant createdAt, Instant updatedAt, long version) {
+        Instant createdAt, Instant updatedAt, long version, String flowId, String previousContextId) {
+
+    public ProjectFlowContext(String id, String name, String userProfileId, List<String> assetIds,
+            List<String> repositoryProfileIds, List<String> directionIds, String planId,
+            Instant createdAt, Instant updatedAt, long version) {
+        this(id, name, userProfileId, assetIds, repositoryProfileIds, directionIds, planId,
+                createdAt, updatedAt, version, id, null);
+    }
 
     public ProjectFlowContext {
         requireId(id);
+        requireId(flowId);
+        requireOptionalId(previousContextId);
         if (name == null || name.isBlank() || name.length() > 120 || version < 0) {
             throw new IllegalArgumentException("Project name and version are required");
         }

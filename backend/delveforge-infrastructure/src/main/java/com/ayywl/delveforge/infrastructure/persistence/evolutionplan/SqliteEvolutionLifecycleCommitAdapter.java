@@ -1,19 +1,23 @@
 package com.ayywl.delveforge.infrastructure.persistence.evolutionplan;
 
 import com.ayywl.delveforge.application.port.persistence.*;
+import com.ayywl.delveforge.application.project.EvolutionFlowScopeException;
+import com.ayywl.delveforge.application.project.ProjectScopeBasis;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.direction.ProductDirectionStatus;
 import com.ayywl.delveforge.domain.evolution.*;
 import com.ayywl.delveforge.infrastructure.persistence.workingcopy.*;
-import java.sql.SQLException;
-import java.util.List;
-import java.util.function.Consumer;
+
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import java.sql.SQLException;
+import java.util.List;
+import java.util.function.Consumer;
 
 /**
  * 每次生命周期提交使用一个 SQL 事务，同时核对读取依据是否过期。
@@ -63,7 +67,25 @@ public class SqliteEvolutionLifecycleCommitAdapter implements EvolutionLifecycle
     @Override
     public void commitDirectionSelection(List<ProductDirectionTransition> transitions,
             List<EvolutionPlanTransition> planTransitions) {
+        commitDirectionSelection(transitions, planTransitions, null);
+    }
+
+    @Override
+    public void commitDirectionSelection(List<ProductDirectionTransition> transitions,
+            List<EvolutionPlanTransition> planTransitions,
+            ProjectScopeBasis project) {
         commit(status -> {
+            if (transitions.isEmpty()) {
+                return;
+            }
+            // 首条语句取得写锁，避免不同流程的 DEFERRED 读事务互相阻挡锁升级。
+            directions.lockDirectionScope(transitions.getLast().direction().id(), project);
+            String flow = directions.flowId(transitions.getLast().direction().id());
+            for (ProductDirectionTransition transition : transitions) {
+                if (!flow.equals(directions.flowId(transition.direction().id()))) {
+                    throw new EvolutionFlowScopeException();
+                }
+            }
             for (EvolutionPlanTransition transition : planTransitions) {
                 if (plans.transitionAtBasis(transition) != 1) {
                     throw new EvolutionLifecycleConflictException("Historical Plan lifecycle changed before direction switch");

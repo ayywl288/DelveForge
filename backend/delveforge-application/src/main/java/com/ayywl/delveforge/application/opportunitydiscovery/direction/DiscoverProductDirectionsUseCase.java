@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.application.opportunitydiscovery.direction;
 
+import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.application.port.persistence.RepositoryProfileRepository;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
@@ -7,11 +8,13 @@ import com.ayywl.delveforge.application.repositoryanalysis.profile.RepositoryPro
 import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoundException;
 import com.ayywl.delveforge.domain.direction.DirectionProposal;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
+import com.ayywl.delveforge.domain.direction.ProductDirectionDiscoveryException;
 import com.ayywl.delveforge.domain.direction.ProductDirectionDiscoveryService;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileStatus;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -110,9 +113,9 @@ public class DiscoverProductDirectionsUseCase {
      * @throws StaleUserProfileRevisionException   它已经不是调用方依据的那一版
      * @throws UserProfileNotConfirmedException    它尚未 {@code CONFIRMED}
      * @throws RepositoryProfileNotFoundException  指定的 Repository Profile 不存在
-     * @throws com.ayywl.delveforge.application.port.ai.AiGatewayException
+     * @throws AiGatewayException
      *                                             AI 调用失败，或返回内容不满足约定
-     * @throws com.ayywl.delveforge.domain.direction.ProductDirectionDiscoveryException
+     * @throws ProductDirectionDiscoveryException
      *                                             Discovery 结果不满足领域要求
      */
     public List<ProductDirection> discover(DiscoverProductDirectionsRequest request) {
@@ -130,6 +133,9 @@ public class DiscoverProductDirectionsUseCase {
 
         List<RepositoryProfile> repositoryProfiles = loadAll(request.repositoryProfileIds());
 
+        productDirectionRepository.requireDiscoveryScope(request.project(), request.userProfileId(),
+                request.repositoryProfileIds());
+
         // 同一份 inputs 同时用于 Prompt、引用目录与资产白名单：三者必须来自同一个时点，
         // 否则模型看到的输入与它被允许引用的东西会对不上。
         DirectionDiscoveryInputs inputs =
@@ -140,7 +146,11 @@ public class DiscoverProductDirectionsUseCase {
                 discoveryService.discover(userProfile, repositoryProfiles, proposals);
 
         // 整条链路的唯一一次写入，且是整批的。
-        productDirectionRepository.saveAll(directions);
+        if (request.project() == null) {
+            productDirectionRepository.saveAll(directions);
+        } else {
+            productDirectionRepository.saveAllInProject(directions, request.project());
+        }
 
         return directions;
     }

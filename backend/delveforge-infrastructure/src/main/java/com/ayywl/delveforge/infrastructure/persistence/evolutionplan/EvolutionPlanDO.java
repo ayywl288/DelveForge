@@ -6,6 +6,12 @@ import com.baomidou.mybatisplus.annotation.*;
 public class EvolutionPlanDO {
     @TableId(type = IdType.INPUT)
     private String id;
+
+    private String flowId;
+
+    public String getFlowId() { return flowId; }
+
+    public void setFlowId(String flowId) { this.flowId = flowId; }
     private String productDirectionId;
     private String baseAssetId;
     private String baseRepositoryProfileId;

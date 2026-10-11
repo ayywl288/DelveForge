@@ -1,8 +1,10 @@
 package com.ayywl.delveforge.application.port.persistence;
 
+import com.ayywl.delveforge.application.project.ProjectScopeBasis;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
+
 import java.util.List;
 
 /**
@@ -13,4 +15,12 @@ import java.util.List;
 public interface EvolutionLifecycleCommitPort {
     void commitActivation(EvolutionPlan activePlan, WorkingCopy readyCopy, SoftwareAsset authorizationBasis);
     void commitDirectionSelection(List<ProductDirectionTransition> directions, List<EvolutionPlanTransition> plans);
+    default void commitDirectionSelection(List<ProductDirectionTransition> directions,
+            List<EvolutionPlanTransition> plans,
+            ProjectScopeBasis project) {
+        if (project != null) {
+            throw new UnsupportedOperationException("Atomic project selection is required");
+        }
+        commitDirectionSelection(directions, plans);
+    }
 }

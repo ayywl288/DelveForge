@@ -1,8 +1,10 @@
 package com.ayywl.delveforge.application.opportunitydiscovery.direction;
 
 import com.ayywl.delveforge.application.port.persistence.*;
+import com.ayywl.delveforge.application.project.ProjectScopeBasis;
 import com.ayywl.delveforge.domain.direction.*;
 import com.ayywl.delveforge.domain.evolution.*;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -27,16 +29,22 @@ public final class SelectProductDirectionUseCase {
     }
 
     public ProductDirection select(ProductDirectionId id) {
+        return select(id, null);
+    }
+
+    public ProductDirection select(ProductDirectionId id,
+            ProjectScopeBasis project) {
         if (id == null) {
             throw new IllegalArgumentException("Direction identity is required");
         }
 
         ProductDirection loadedTarget = directions.findById(id).orElseThrow(() -> new ProductDirectionNotFoundException(id));
+        directions.requireDirectionScope(id, project);
         ProductDirection target = loadedTarget.copy();
         ProductDirectionStatus targetBasis = target.status();
         target.select();
 
-        Optional<ProductDirection> current = directions.findCurrentSelected();
+        Optional<ProductDirection> current = directions.findCurrentSelectedFor(id);
         List<ProductDirectionTransition> directionTransitions = new ArrayList<>();
         List<EvolutionPlanTransition> planTransitions = new ArrayList<>();
         if (current.isPresent()) {
@@ -54,7 +62,12 @@ public final class SelectProductDirectionUseCase {
         }
         directionTransitions.add(new ProductDirectionTransition(target, targetBasis));
 
-        commits.commitDirectionSelection(List.copyOf(directionTransitions), List.copyOf(planTransitions));
+        directions.requireDirectionScope(id, project);
+        if (project == null) {
+            commits.commitDirectionSelection(List.copyOf(directionTransitions), List.copyOf(planTransitions));
+        } else {
+            commits.commitDirectionSelection(List.copyOf(directionTransitions), List.copyOf(planTransitions), project);
+        }
         return target;
     }
 }

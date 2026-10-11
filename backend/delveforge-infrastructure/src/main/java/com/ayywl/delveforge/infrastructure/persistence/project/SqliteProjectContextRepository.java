@@ -71,13 +71,13 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
     private ProjectContextRow row(ProjectFlowContext context) {
         return new ProjectContextRow(context.id(), context.name(), context.userProfileId(), encode(context.assetIds()),
                 encode(context.repositoryProfileIds()), encode(context.directionIds()), context.planId(),
-                context.createdAt().toString(), context.updatedAt().toString(), context.version());
+                context.createdAt().toString(), context.updatedAt().toString(), context.version(), context.flowId(), context.previousContextId());
     }
 
     private ProjectFlowContext context(ProjectContextRow row) {
         return new ProjectFlowContext(row.id(), row.name(), row.userProfileId(), decode(row.assetIds()),
                 decode(row.repositoryProfileIds()), decode(row.directionIds()), row.planId(),
-                Instant.parse(row.createdAt()), Instant.parse(row.updatedAt()), row.version());
+                Instant.parse(row.createdAt()), Instant.parse(row.updatedAt()), row.version(), row.flowId(), row.previousContextId());
     }
 
     private String encode(List<String> ids) {

@@ -49,6 +49,7 @@ public final class ExecutionPreparationState {
     /** confirmation 区分待确认与已 READY 的资格；这里只核对，不改变生命周期。 */
     public Loaded load(EvolutionPlanId id, EvolutionStepId stepId, boolean confirmation) {
         EvolutionPlan plan = plans.findById(id).orElseThrow(() -> new EvolutionPlanNotFoundException(id));
+        plans.requireFlowBinding(plan);
         plan.step(stepId);
         if (plan.workingCopyId() == null) {
             throw new EvolutionPlanStateException("Plan has no Working Copy");
@@ -92,6 +93,7 @@ public final class ExecutionPreparationState {
     public Loaded requireCheckpoint(Loaded expected, EvolutionStepId stepId, String physicalRevision) {
         EvolutionPlan plan = plans.findById(expected.plan().id())
                 .orElseThrow(() -> new EvolutionPlanNotFoundException(expected.plan().id()));
+        plans.requireFlowBinding(plan);
         WorkingCopy copy = copies.findById(expected.copy().id())
                 .orElseThrow(() -> new WorkingCopyNotFoundException(expected.copy().id()));
         SoftwareAsset asset = assets.findById(plan.baseAssetId())

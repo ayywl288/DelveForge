@@ -6,28 +6,25 @@ import com.ayywl.delveforge.application.port.persistence.ProductDirectionReposit
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelectionConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionTransition;
+import com.ayywl.delveforge.application.project.EvolutionFlowScopeException;
+import com.ayywl.delveforge.application.project.ProjectContextConflictException;
+import com.ayywl.delveforge.application.project.ProjectScopeBasis;
 import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
+import com.ayywl.delveforge.domain.direction.DirectionEvidenceSupport;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
-import com.ayywl.delveforge.domain.direction.DirectionEvidenceSupport;
 import com.ayywl.delveforge.domain.direction.ProductDirectionStatus;
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
 import com.ayywl.delveforge.domain.evidence.EvidenceOrigin;
+import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
 import com.ayywl.delveforge.domain.evidence.UserProfileEvidenceOrigin;
-import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
 import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -35,6 +32,14 @@ import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.TransactionSystemException;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 
 /**
  * {@link ProductDirectionRepository} 的 SQLite / MyBatis-Plus 实现。
@@ -218,6 +223,7 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
 
     private void applyTransition(ProductDirectionTransition transition) {
         ProductDirection direction = transition.direction();
+        requireDirectionScope(direction.id(), null);
 
         try {
             int updated = directionMapper.update(null,
@@ -241,19 +247,26 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
      * <p>存储层异常在这里翻译成 Port 能表达的语义，见 {@link #translateStoredConflict}。
      */
     private void write(ProductDirection productDirection) {
+        String savedFlow = directionMapper.flow(productDirection.id().value());
+        write(productDirection, savedFlow == null ? "standalone" : savedFlow);
+    }
+
+    private void write(ProductDirection productDirection, String flow) {
         try {
-            writeDirection(productDirection);
+            writeDirection(productDirection, flow);
         } catch (DataAccessException exception) {
             throw translateStoredConflict(productDirection, exception);
         }
     }
 
-    private void writeDirection(ProductDirection productDirection) {
+    private void writeDirection(ProductDirection productDirection, String flow) {
         String directionId = productDirection.id().value();
         ProductDirectionDO stored = directionMapper.selectById(directionId);
 
         if (stored == null) {
-            directionMapper.insert(toRow(productDirection));
+            ProductDirectionDO row = toRow(productDirection);
+            row.setFlowId(flow);
+            directionMapper.insert(row);
             insertRepositoryProfiles(directionId, productDirection);
             insertCandidateAssets(directionId, productDirection);
             insertRisks(directionId, productDirection);
@@ -272,13 +285,16 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
             throw new ProductDirectionStatusConflictException(productDirection.id());
         }
 
-        directionMapper.updateById(toRow(productDirection));
+        // 内容相等且状态未变时无需重写身份行，保留不可变的作用域。
+        if (flow != null && !flow.equals(stored.getFlowId())) {
+            throw new EvolutionFlowScopeException();
+        }
     }
 
     /**
      * 把存储层报告的约束冲突翻译成这个 Port 能表达的语义。
      *
-     * <p>V7 的部分唯一索引只允许一行 {@code status = 'SELECTED'}（INV-D09）。写入一条
+     * <p>V16 的部分唯一索引在每个作用域只允许一行 {@code status = 'SELECTED'}（INV-D09）。写入一条
      * {@code SELECTED} 方向时撞上唯一约束，说明库里已经存在另一个当前方向——
      * 正常切换路径不会走到这里（它在同一个批次里先把原方向写成 {@code SUPERSEDED}），
      * 因此这通常意味着并发：两个选择请求都读到「当前没有 SELECTED 方向」，
@@ -372,24 +388,15 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
         return Optional.of(toDomain(row));
     }
 
-    /**
-     * 查询全局当前 {@code SELECTED} 的方向（INV-D09）。
-     *
-     * <p>不按 User Profile、revision、Repository Profile 或候选资产收窄：领域模型没有为
-     * 「同一条演化流程」定义任何持久化身份，按这些维度收窄等于替它发明一个。
-     *
-     * <p>正常写入路径下最多只会有一行——V7 的部分唯一索引只允许一行
-     * {@code status = 'SELECTED'}。读到多于一行说明存储与领域模型不一致（更早的数据、
-     * 被绕过的写入、迁移中的中间态），此时抛错而不是挑一行返回：静默挑一条会让调用方
-     * 以为系统里只有一个当前方向，而它刚刚取代的那个可能才是有依据的那个。
-     */
+    /** 兼容无项目参数 API 的 standalone 查询；跨项目选择使用 findCurrentSelectedFor。 */
     @Override
     @Transactional(readOnly = true)
     public Optional<ProductDirection> findCurrentSelected() {
         List<ProductDirectionDO> rows = directionMapper.selectList(
                 new LambdaQueryWrapper<ProductDirectionDO>()
                         .eq(ProductDirectionDO::getStatus,
-                                ProductDirectionStatus.SELECTED.name()));
+                                ProductDirectionStatus.SELECTED.name())
+                        .eq(ProductDirectionDO::getFlowId, "standalone"));
 
         if (rows.isEmpty()) {
             return Optional.empty();
@@ -410,6 +417,96 @@ public class SqliteProductDirectionRepository implements ProductDirectionReposit
      *
      * <p>依据走 {@link #sameSupport} 而不是 record equality，见那里的说明。
      */
+    @Override
+    public String flowId(ProductDirectionId id) {
+        return directionMapper.flow(id.value());
+    }
+
+    @Override
+    public void requireDirectionScope(ProductDirectionId id,
+            ProjectScopeBasis project) {
+        if (flowId(id) == null || project != null && directionMapper.containsDirection(project, id.value()) != 1) {
+            throw new EvolutionFlowScopeException();
+        }
+    }
+
+    @Override
+    public Optional<ProductDirection> findCurrentSelectedFor(ProductDirectionId targetId) {
+        requireDirectionScope(targetId, null);
+        List<ProductDirectionDO> rows = directionMapper.selectList(new LambdaQueryWrapper<ProductDirectionDO>()
+                .eq(ProductDirectionDO::getFlowId, flowId(targetId))
+                .eq(ProductDirectionDO::getStatus, ProductDirectionStatus.SELECTED.name()));
+        if (rows.size() > 1) {
+            throw new ProductDirectionIntegrityConflictException("Multiple SELECTED directions in one flow");
+        }
+        return rows.isEmpty() ? Optional.empty() : Optional.of(toDomain(rows.getFirst()));
+    }
+
+    @Override
+    public List<ProductDirection> findByFlow(String flowId) {
+        return directionMapper.selectList(new LambdaQueryWrapper<ProductDirectionDO>()
+                .eq(ProductDirectionDO::getFlowId, flowId).orderByAsc(ProductDirectionDO::getId))
+                .stream().map(this::toDomain).toList();
+    }
+
+    @Override
+    public void requireDiscoveryScope(ProjectScopeBasis project,
+            UserProfileId userId,
+            List<RepositoryProfileId> repositoryIds) {
+        if (project == null) {
+            return;
+        }
+        if (directionMapper.discoveryFlow(project, userId.value()) == null) {
+            throw new ProjectContextConflictException();
+        }
+        for (var id : repositoryIds) {
+            if (directionMapper.containsRepository(project.contextId(), id.value()) != 1) {
+                throw new EvolutionFlowScopeException();
+            }
+        }
+    }
+
+    @Override
+    public void lockDirectionScope(ProductDirectionId id,
+            ProjectScopeBasis project) {
+        if (project != null && directionMapper.lockProject(project) != 1) {
+            throw new ProjectContextConflictException();
+        }
+        requireDirectionScope(id, project);
+    }
+
+    @Override
+    public void requirePlanningScope(ProductDirectionId id,
+            ProjectScopeBasis project,
+            RepositoryProfileId repositoryId) {
+        requireDirectionScope(id, project);
+        if (project != null && (directionMapper.unplannedContext(project.contextId()) != 1
+                || directionMapper.containsRepository(project.contextId(), repositoryId.value()) != 1)) {
+            throw new ProjectContextConflictException();
+        }
+    }
+
+    @Override
+    public void saveAllInProject(List<ProductDirection> values,
+            ProjectScopeBasis project) {
+        if (project == null) {
+            saveAll(values);
+            return;
+        }
+        inWriteTransaction(() -> {
+            if (directionMapper.lockProject(project) != 1) {
+                throw new ProjectContextConflictException();
+            }
+            for (ProductDirection direction : values) {
+                requireDiscoveryScope(project, direction.userProfileId(), direction.repositoryProfileIds());
+                if (directionMapper.currentConfirmed(direction.userProfileId().value(), direction.userProfileRevision()) != 1) {
+                    throw new ProjectContextConflictException();
+                }
+                write(direction, directionMapper.discoveryFlow(project, direction.userProfileId().value()));
+            }
+        });
+    }
+
     private static boolean sameRecommendation(ProductDirection stored, ProductDirection incoming) {
         return stored.userProfileId().equals(incoming.userProfileId())
                 && stored.userProfileRevision() == incoming.userProfileRevision()

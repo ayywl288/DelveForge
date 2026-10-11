@@ -17,9 +17,10 @@ public interface ProjectContextMapper {
     @Insert("""
             INSERT INTO project_flow_context
                 (id, name, user_profile_id, asset_ids, repository_profile_ids, direction_ids,
-                 plan_id, created_at, updated_at, version)
+                 plan_id, created_at, updated_at, version, flow_id, previous_context_id)
             SELECT #{row.id}, #{row.name}, #{row.userProfileId}, #{row.assetIds}, #{row.repositoryProfileIds},
-                #{row.directionIds}, #{row.planId}, #{row.createdAt}, #{row.updatedAt}, #{row.version}
+                #{row.directionIds}, #{row.planId}, #{row.createdAt}, #{row.updatedAt}, #{row.version},
+                #{row.flowId}, #{row.previousContextId}
             WHERE #{revision} IS NULL OR EXISTS (SELECT 1 FROM user_profile
                 WHERE id = #{row.userProfileId} AND status = 'CONFIRMED' AND revision = #{revision})
             ON CONFLICT(plan_id) DO NOTHING
@@ -30,7 +31,12 @@ public interface ProjectContextMapper {
             UPDATE project_flow_context SET user_profile_id = #{row.userProfileId}, asset_ids = #{row.assetIds},
                 repository_profile_ids = #{row.repositoryProfileIds}, direction_ids = #{row.directionIds},
                 plan_id = #{row.planId}, updated_at = #{row.updatedAt}, version = #{row.version}
-            WHERE id = #{row.id} AND version = #{expected}
+            WHERE id = #{row.id} AND version = #{expected} AND flow_id = #{row.flowId}
+                AND NOT EXISTS (SELECT 1 FROM json_each(#{row.directionIds}) j
+                    LEFT JOIN product_direction d ON d.id = j.value
+                    WHERE d.id IS NULL OR d.flow_id IS NOT #{row.flowId})
+                AND (#{row.planId} IS NULL OR EXISTS (SELECT 1 FROM evolution_plan p
+                    WHERE p.id = #{row.planId} AND p.flow_id = #{row.flowId}))
                 AND (user_profile_id IS NULL OR user_profile_id = #{row.userProfileId})
                 AND (plan_id IS NULL OR plan_id = #{row.planId})
                 AND (#{row.planId} IS NULL OR NOT EXISTS (SELECT 1 FROM project_flow_context

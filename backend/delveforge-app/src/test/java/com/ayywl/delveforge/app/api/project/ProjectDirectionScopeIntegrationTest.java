@@ -1,0 +1,237 @@
+package com.ayywl.delveforge.app.api.project;
+
+import com.ayywl.delveforge.application.port.ai.AiGateway;
+import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
+import com.ayywl.delveforge.application.port.persistence.RepositoryProfileRepository;
+import com.ayywl.delveforge.application.port.persistence.SoftwareAssetRepository;
+import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.project.ProjectScopeBasis;
+import com.ayywl.delveforge.domain.asset.SoftwareAsset;
+import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
+import com.ayywl.delveforge.domain.asset.SoftwareAssetSource;
+import com.ayywl.delveforge.domain.asset.SoftwareAssetType;
+import com.ayywl.delveforge.domain.asset.UsageAuthorization;
+import com.ayywl.delveforge.domain.direction.DirectionEvidenceSupport;
+import com.ayywl.delveforge.domain.direction.ProductDirection;
+import com.ayywl.delveforge.domain.direction.ProductDirectionId;
+import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
+import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
+import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
+import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
+import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
+import com.ayywl.delveforge.domain.user.UserProfile;
+import com.ayywl.delveforge.domain.user.UserProfileId;
+import com.ayywl.delveforge.domain.user.UserProfileStatus;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.nio.file.Path;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+/** 独立临时数据库与确定性提案；并发用不同事务，不执行真实演化。 */
+@SpringBootTest
+@AutoConfigureMockMvc
+class ProjectDirectionScopeIntegrationTest {
+    private static final Path DB = Path.of("target", "test-databases", UUID.randomUUID().toString(), "scopes.db");
+    private static final String PROPOSAL = """
+            {"currentState":{"summary":"REST","capabilities":["GET"],"modules":["rest"],"limitations":[]},
+            "targetState":{"problem":"业务请求","targetProduct":"扩展 REST","differentiation":"本地"},
+            "reusableCapabilities":["controller"],"changes":["新增 REST 行为"],
+            "steps":[{"goal":"新增 REST 行为","scope":"src","plannedChanges":["新增端点"],
+            "verificationCriteria":[{"kind":"UNSUPPORTED","description":"检查业务行为"}]}],
+            "risks":[],"evidence":["R-E1","D-E1"]}
+            """;
+
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        registry.add("delveforge.persistence.database-file", DB::toString);
+    }
+
+    @Autowired private MockMvc mvc;
+    @Autowired private ObjectMapper json;
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private UserProfileRepository users;
+    @Autowired private SoftwareAssetRepository assets;
+    @Autowired private RepositoryProfileRepository repositories;
+    @Autowired private ProductDirectionRepository directions;
+    @MockitoBean private AiGateway ai;
+    private String userId;
+    private String one;
+    private String two;
+
+    @BeforeEach
+    void seed() {
+        userId = UUID.randomUUID().toString();
+        users.save(UserProfile.reconstitute(new UserProfileId(userId), UserProfileStatus.CONFIRMED, 2,
+                List.of("Java"), List.of("学习"), List.of(), List.of("Java"), List.of("实习项目"), List.of(), List.of()));
+        one = repository();
+        two = repository();
+    }
+
+    private String repository() {
+        String id = UUID.randomUUID().toString();
+        var asset = new SoftwareAssetId(id);
+        assets.save(SoftwareAsset.create(asset, SoftwareAssetType.GIT_REPOSITORY, SoftwareAssetSource.USER_SPECIFIED,
+                DB.getParent().resolve(id).toAbsolutePath().toString(), true, "MIT", UsageAuthorization.ALLOWED));
+        repositories.save(RepositoryProfile.create(new RepositoryProfileId(id), asset, "A", "REST", List.of("Java"),
+                List.of("rest"), List.of("GET"), List.of("controller"), List.of(), List.of(), List.of(fact())));
+        return id;
+    }
+
+    private static Evidence fact() {
+        return new Evidence(EvidenceSourceType.REPOSITORY, "src/Main.java", "GET", null, false);
+    }
+
+    private JsonNode project(String repo) throws Exception {
+        String created = mvc.perform(post("/api/projects").contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(java.util.Map.of("name", "项目", "confirmedUserProfileId", userId))))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String id = json.readTree(created).path("id").asText();
+        var body = json.createObjectNode().put("expectedVersion", 0).put("userProfileId", userId).putNull("planId");
+        body.putArray("assetIds").add(repo);
+        body.putArray("repositoryProfileIds").add(repo);
+        body.putArray("directionIds");
+        return json.readTree(mvc.perform(put("/api/projects/{id}/context", id).contentType(MediaType.APPLICATION_JSON)
+                .content(body.toString())).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+    }
+
+    private String candidate(JsonNode project, String repo) {
+        String id = UUID.randomUUID().toString();
+        var basis = new EvidenceBasis(fact(), new RepositoryProfileEvidenceOrigin(new RepositoryProfileId(repo)));
+        ProductDirection direction = ProductDirection.create(new ProductDirectionId(id), new UserProfileId(userId), 2,
+                List.of(new RepositoryProfileId(repo)), "REST", "业务请求", "扩展 REST", "学习", List.of(new SoftwareAssetId(repo)),
+                "本地", "测试", "小型", List.of(), new DirectionEvidenceSupport(List.of(basis), List.of(basis), List.of(basis)));
+        directions.saveAllInProject(List.of(direction), new ProjectScopeBasis(project.path("id").asText(),
+                project.path("version").asLong()));
+        return id;
+    }
+
+    private String scope(JsonNode project) {
+        return json.createObjectNode().put("contextId", project.path("id").asText())
+                .put("expectedVersion", project.path("version").asLong()).toString();
+    }
+
+    private int select(JsonNode project, String direction) throws Exception {
+        return mvc.perform(post("/api/product-directions/{id}/select", direction).contentType(MediaType.APPLICATION_JSON)
+                .content(scope(project))).andReturn().getResponse().getStatus();
+    }
+
+    private JsonNode plan(JsonNode project, String direction, String repo) throws Exception {
+        when(ai.generate(any())).thenReturn(PROPOSAL);
+        var body = json.createObjectNode().put("productDirectionId", direction).put("baseAssetId", repo)
+                .put("baseRepositoryProfileId", repo);
+        body.set("project", json.readTree(scope(project)));
+        return json.readTree(mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON)
+                .content(body.toString())).andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+    }
+
+    @Test
+    void independentProjectsSharingProfileAndOptionallyRepositoryKeepSelectedDirections() throws Exception {
+        for (String repo : List.of(one, two)) {
+            JsonNode a = project(one);
+            JsonNode b = project(repo);
+            String da = candidate(a, one);
+            String db = candidate(b, repo);
+            assertEquals(200, select(a, da));
+            assertEquals(200, select(b, db));
+            assertEquals("SELECTED", directions.findById(new ProductDirectionId(da)).orElseThrow().status().name());
+            assertEquals("SELECTED", directions.findById(new ProductDirectionId(db)).orElseThrow().status().name());
+        }
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void switchingWithinBLeavesAPlanAndSavedVerificationUntouched() throws Exception {
+        JsonNode a = project(one);
+        JsonNode b = project(two);
+        String da = candidate(a, one);
+        String db = candidate(b, two);
+        String nextB = candidate(b, two);
+        assertEquals(200, select(a, da));
+        String planA = plan(a, da, one).path("id").asText();
+        // 合成已持久化检查点只存在测试库；测试方向切换不能改变它。
+        jdbc.update("UPDATE evolution_plan SET status='ACTIVE', working_copy_id='fixture-copy' WHERE id=?", planA);
+        jdbc.update("UPDATE evolution_step SET status='SUCCEEDED' WHERE plan_id=?", planA);
+        assertEquals(200, select(b, db));
+        String planB = plan(b, db, two).path("id").asText();
+        JsonNode refreshedB = json.readTree(mvc.perform(get("/api/projects/{key}", "project:" + b.path("id").asText()))
+                .andReturn().getResponse().getContentAsString()).path("context");
+        assertEquals(200, select(refreshedB, nextB));
+        assertEquals("ACTIVE", jdbc.queryForObject("SELECT status FROM evolution_plan WHERE id=?", String.class, planA));
+        assertEquals("SUCCEEDED", jdbc.queryForObject("SELECT status FROM evolution_step WHERE plan_id=?", String.class, planA));
+        assertEquals("SUPERSEDED", jdbc.queryForObject("SELECT status FROM evolution_plan WHERE id=?", String.class, planB));
+        assertEquals("SELECTED", directions.findById(new ProductDirectionId(da)).orElseThrow().status().name());
+    }
+
+    @Test
+    void falseProjectAndStaleVersionCannotSelectOrCallPlanningAi() throws Exception {
+        JsonNode a = project(one);
+        JsonNode b = project(one);
+        String da = candidate(a, one);
+        assertEquals(409, select(b, da));
+        var stale = a.deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) stale).put("version", 0);
+        assertEquals(409, select(stale, da));
+        var request = json.createObjectNode().put("productDirectionId", da).put("baseAssetId", one)
+                .put("baseRepositoryProfileId", one);
+        request.set("project", json.readTree(scope(b)));
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(request.toString()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("EVOLUTION_FLOW_SCOPE_CONFLICT"));
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void simultaneousSelectionIsIsolatedAcrossFlowsAndUniqueWithinOneFlow() throws Exception {
+        for (boolean sameFlow : List.of(false, true)) {
+            JsonNode a = project(one);
+            JsonNode b = sameFlow ? a : project(one);
+            String da = candidate(a, one);
+            String db = candidate(b, one);
+            CountDownLatch start = new CountDownLatch(1);
+            try (var pool = Executors.newFixedThreadPool(2)) {
+                var first = pool.submit(() -> { start.await(); return select(a, da); });
+                var second = pool.submit(() -> { start.await(); return select(b, db); });
+                start.countDown();
+                int r1 = first.get(20, TimeUnit.SECONDS);
+                int r2 = second.get(20, TimeUnit.SECONDS);
+                assertTrue(r1 == 200 || r1 == 409);
+                assertTrue(r2 == 200 || r2 == 409);
+                if (!sameFlow) {
+                    assertEquals(200, r1);
+                    assertEquals(200, r2);
+                }
+            }
+            assertEquals(sameFlow ? 1 : 2, jdbc.queryForObject(
+                    "SELECT count(*) FROM product_direction WHERE id IN (?,?) AND status='SELECTED'", Integer.class, da, db));
+        }
+        verifyNoInteractions(ai);
+    }
+}

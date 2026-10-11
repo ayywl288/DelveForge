@@ -8,6 +8,7 @@ import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 import com.ayywl.delveforge.domain.direction.ProductDirectionId;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,7 +33,8 @@ public class EvolutionPlanController {
     public EvolutionPlanResponse plan(@RequestBody EvolutionPlanningRequest request) {
         return EvolutionPlanResponse.from(generate.generate(new GenerateEvolutionPlanRequest(
                 new ProductDirectionId(request.productDirectionId()), new SoftwareAssetId(request.baseAssetId()),
-                new RepositoryProfileId(request.baseRepositoryProfileId()))));
+                new RepositoryProfileId(request.baseRepositoryProfileId()),
+                request.project() == null ? null : request.project().basis())));
     }
     @GetMapping("/{id}")
     public EvolutionPlanResponse get(@PathVariable String id) {

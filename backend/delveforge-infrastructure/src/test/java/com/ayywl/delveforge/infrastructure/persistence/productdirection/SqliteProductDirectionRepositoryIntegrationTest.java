@@ -635,7 +635,7 @@ class SqliteProductDirectionRepositoryIntegrationTest {
      */
     @Test
     void refusesToPickOneWhenSeveralSelectedRowsExist() {
-        jdbcTemplate.execute("DROP INDEX ux_product_direction_current_selected");
+        jdbcTemplate.execute("DROP INDEX ux_direction_selected_per_flow");
         insertSelectedRow("direction-a");
         insertSelectedRow("direction-b");
 
@@ -763,8 +763,8 @@ class SqliteProductDirectionRepositoryIntegrationTest {
                         INSERT INTO product_direction
                             (id, user_profile_id, user_profile_revision, title, problem,
                              target_product, user_fit, differentiation, technical_value,
-                             estimated_complexity, status)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SELECTED')
+                             estimated_complexity, status, flow_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'SELECTED', 'standalone')
                         """,
                 directionId, USER_PROFILE_ID.value(), USER_PROFILE_REVISION,
                 TITLE, "现有记账工具缺少可导出的报表", "单用户桌面记账工具 + 报表导出",
