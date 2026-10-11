@@ -1,0 +1,262 @@
+import { createApp, nextTick, reactive } from "vue";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import App from "../src/App.vue";
+import PlanView from "../src/views/PlanView.vue";
+import EvolutionView from "../src/views/EvolutionView.vue";
+import { api, ApiError } from "../src/api/client";
+import type { ProjectContext, ProjectSummary, ProjectWorkspace } from "../src/api/types";
+import { createSession, executionKey, projectKey, type Session } from "../src/state/session";
+import { asset, copy, direction, plan, profile, repository, successfulPlan } from "./fixtures";
+
+const sessions: Session[] = [];
+const cleanups: (() => void)[] = [];
+afterEach(() => {
+  cleanups.splice(0).forEach(fn => fn());
+  sessions.splice(0).forEach(s => s.dispose());
+  vi.restoreAllMocks();
+});
+function make() {
+  const session = createSession(); sessions.push(session); return session;
+}
+function workspace(id: string, withPlan = false): ProjectWorkspace {
+  const user = { ...profile(), id: "shared-user", status: "CONFIRMED" as const, revision: 2 };
+  const a = { ...asset(), id: "asset-" + id, location: "C:/trusted/" + id };
+  const repo = { ...repository(), id: "repo-" + id, assetId: a.id };
+  const d = { ...direction(), id: "direction-" + id, userProfileId: user.id, repositoryProfileIds: [repo.id],
+    candidateAssetIds: [a.id], status: "SELECTED" as const };
+  const p = { ...plan(), id: "plan-" + id, productDirectionId: d.id, baseAssetId: a.id,
+    baseRepositoryProfileId: repo.id, workingCopyId: "copy-" + id };
+  p.steps = p.steps.map(step => ({ ...step, planId: p.id, id: id + "-step" }));
+  const wc = { ...copy(), id: "copy-" + id, sourceAssetId: a.id };
+  const context: ProjectContext = { id, name: "项目 " + id, userProfileId: user.id, assetIds: [a.id],
+    repositoryProfileIds: [repo.id], directionIds: withPlan ? [d.id] : [], planId: withPlan ? p.id : null,
+    createdAt: "2026-10-11T00:00:00Z", updatedAt: "2026-10-11T00:00:00Z", version: 0 };
+  return { key: "project:" + id, context, legacy: false, userProfile: user, assets: [a], repositoryProfiles: [repo],
+    directions: withPlan ? [d] : [], plan: withPlan ? p : null, workingCopy: withPlan ? wc : null,
+    stage: withPlan ? "EVOLUTION" : "DIRECTION", boundUserProfileRevision: withPlan ? 2 : null, issues: [] };
+}
+function stubReads(...values: ProjectWorkspace[]) {
+  vi.spyOn(api, "project").mockImplementation(async key => {
+    const value = values.find(item => item.key === key);
+    if (!value) throw new ApiError(404, "NOT_FOUND");
+    return structuredClone(value);
+  });
+  vi.spyOn(api, "reviewReadiness").mockResolvedValue({ profileId: "shared-user", revision: 2, sufficient: true });
+}
+async function settle() {
+  for (let i = 0; i < 35; i++) { await Promise.resolve(); await nextTick(); }
+}
+
+describe("项目上下文恢复与隔离", () => {
+  it("同一画像的两个仓库流程切换精确关联，并清除上一流程聊天与草稿身份", async () => {
+    const one = workspace("one"); const two = workspace("two"); stubReads(one, two);
+    const s = make(); await s.openProject(one.key);
+    s.messages.value.push({ role: "user", text: "本页私有草稿" });
+    await s.openProject(two.key);
+    expect(s.profile.value?.id).toBe("shared-user");
+    expect(s.ids.repositoryIds).toEqual(["repo-two"]);
+    expect(s.assets.value.map(item => item.id)).toEqual(["asset-two"]);
+    expect(s.messages.value).toEqual([]);
+    expect(localStorage.getItem(projectKey)).toBe("two");
+    expect(localStorage.getItem(projectKey)).not.toContain("项目");
+    expect(api.project).toHaveBeenCalledTimes(2);
+  });
+
+  it("同一仓库不同 Plan 不按路径或最新时间合并，恢复准确步骤与 Verified B", async () => {
+    const one = workspace("one", true); const two = workspace("two", true);
+    two.assets = one.assets; two.repositoryProfiles = one.repositoryProfiles;
+    two.context!.assetIds = one.context!.assetIds; two.context!.repositoryProfileIds = one.context!.repositoryProfileIds;
+    two.directions[0]!.candidateAssetIds = one.context!.assetIds;
+    two.directions[0]!.repositoryProfileIds = one.context!.repositoryProfileIds;
+    const saved = successfulPlan().steps[0]!;
+    one.plan!.steps = [{ ...saved, id: "one-step", planId: "plan-one" }, ...[2, 3, 4].map(n => ({
+      ...plan().steps[0]!, id: "one-step-" + n, planId: "plan-one", status: "PENDING_CONFIRMATION" as const,
+    }))];
+    one.workingCopy!.currentRevision = "b".repeat(40); one.workingCopy!.lastVerifiedRevision = "b".repeat(40);
+    stubReads(one, two); const s = make(); await s.openProject(two.key); await s.openProject(one.key);
+    expect(s.plan.value?.id).toBe("plan-one"); expect(s.plan.value?.steps).toHaveLength(4);
+    expect(s.plan.value?.steps.filter(step => step.status === "SUCCEEDED")).toHaveLength(1);
+    expect(s.copy.value?.lastVerifiedRevision).toBe("b".repeat(40));
+    expect(s.directions.value[0]?.id).toBe("direction-one");
+  });
+
+  it("浏览器重建会话只按保存项目 ID GET，不生成历史对话或重新调用业务 POST", async () => {
+    const saved = workspace("saved", true); stubReads(saved);
+    localStorage.setItem(projectKey, "saved");
+    const execute = vi.spyOn(api, "execute"); const discover = vi.spyOn(api, "discover");
+    const prepare = vi.spyOn(api, "prepare"); const analyze = vi.spyOn(api, "analyze");
+    const question = vi.spyOn(api, "discoveryQuestion"); const update = vi.spyOn(api, "updateProject");
+    const s = make(); expect(await s.initialize()).toBe("EVOLUTION");
+    expect(s.messages.value).toEqual([]); expect(s.nextQuestion.value).toBeNull();
+    for (const spy of [execute, discover, prepare, analyze, question, update]) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("旧 Plan 明确打开时只认领上下文，后续刷新不重复认领或执行", async () => {
+    const saved = workspace("adopted", true); const legacy = { ...saved, key: "plan:plan-adopted", legacy: true, context: null };
+    stubReads(saved, legacy);
+    const adopt = vi.spyOn(api, "adoptPlan").mockResolvedValue(saved.context!);
+    const execute = vi.spyOn(api, "execute"); const s = make();
+    await s.openProject(legacy.key); await s.restore();
+    expect(adopt).toHaveBeenCalledOnce(); expect(adopt).toHaveBeenCalledWith("plan-adopted");
+    expect(s.ids.planId).toBe("plan-adopted"); expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("新建空流程与复用确认画像都不自动调用 Provider 或修改旧画像", async () => {
+    const blank = workspace("blank"); blank.context!.userProfileId = null;
+    blank.context!.assetIds = []; blank.context!.repositoryProfileIds = [];
+    blank.userProfile = null; blank.assets = []; blank.repositoryProfiles = []; blank.stage = "DISCOVERY";
+    const reused = workspace("reuse"); reused.assets = []; reused.repositoryProfiles = [];
+    reused.context!.assetIds = []; reused.context!.repositoryProfileIds = []; reused.stage = "REPOSITORY";
+    stubReads(blank, reused);
+    vi.spyOn(api, "createProject").mockResolvedValueOnce(blank.context!).mockResolvedValueOnce(reused.context!);
+    const profileCreate = vi.spyOn(api, "createProfile"); const patch = vi.spyOn(api, "patchProfile");
+    const turn = vi.spyOn(api, "discoveryTurn"); const s = make();
+    expect(await s.newProject("空流程", null)).toBe("DISCOVERY"); expect(s.profile.value).toBeNull();
+    expect(await s.newProject("复用流程", "shared-user")).toBe("REPOSITORY");
+    expect(s.profile.value?.status).toBe("CONFIRMED");
+    for (const spy of [profileCreate, patch, turn]) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("明确选择已有分析按保存的 assetId 读取和保存，不重新分析", async () => {
+    const saved = workspace("new"); saved.context!.assetIds = []; saved.context!.repositoryProfileIds = [];
+    saved.assets = []; saved.repositoryProfiles = []; stubReads(saved);
+    vi.spyOn(api, "repository").mockResolvedValue(repository()); vi.spyOn(api, "asset").mockResolvedValue(asset());
+    const update = vi.spyOn(api, "updateProject").mockImplementation(async (context, ids) => ({ ...context,
+      version: context.version + 1, assetIds: ids.assetIds, repositoryProfileIds: ids.repositoryIds }));
+    const analyze = vi.spyOn(api, "analyze"); const s = make(); await s.openProject(saved.key);
+    await s.selectResource("REPOSITORY_PROFILE", "repo-1");
+    expect(api.asset).toHaveBeenCalledWith("asset-1"); expect(analyze).not.toHaveBeenCalled();
+    expect(update.mock.calls[0]?.[0].id).toBe("new"); expect(s.ids.repositoryIds).toEqual(["repo-1"]);
+  });
+
+  it("上一项目的慢轮询响应不能覆盖已切换项目", async () => {
+    const one = workspace("one", true); const two = workspace("two", true); stubReads(one, two);
+    let complete!: (value: ReturnType<typeof plan>) => void;
+    vi.spyOn(api, "plan").mockReturnValue(new Promise(resolve => { complete = resolve; }));
+    vi.spyOn(api, "workingCopy").mockResolvedValue(one.workingCopy!);
+    const s = make(); await s.openProject(one.key); const pending = s.refreshPlan();
+    await s.openProject(two.key); complete(one.plan!); await pending;
+    expect(s.plan.value?.id).toBe("plan-two"); expect(s.copy.value?.id).toBe("copy-two");
+    expect(s.ids.planId).toBe("plan-two"); expect(s.projectContext.value?.id).toBe("two");
+  });
+
+  it("正在提交业务时不能切换到另一流程；不会把切换误作取消执行", async () => {
+    const one = workspace("one", true); const two = workspace("two", true); stubReads(one, two);
+    const s = make(); await s.openProject(one.key); s.busy.value = "执行当前 Step";
+    s.executionPending.value = true;
+    expect(await s.openProject(two.key)).toBeNull();
+    expect(await s.newProject("不要并发创建", null)).toBeNull();
+    expect(s.projectContext.value?.id).toBe("one"); expect(s.executionPending.value).toBe(true);
+    expect(api.project).toHaveBeenCalledOnce();
+  });
+
+  it("断线标记跨项目保留，新流程只查询自己的 Plan，禁止自动或重复 execute", async () => {
+    const marker = { planId: "old-plan", stepId: "old-step", startedAt: "2026-10-11T00:00:00Z" };
+    localStorage.setItem(executionKey, JSON.stringify(marker));
+    const other = workspace("other", true); stubReads(other);
+    vi.spyOn(api, "plan").mockResolvedValue(other.plan!); vi.spyOn(api, "workingCopy").mockResolvedValue(other.workingCopy!);
+    const execute = vi.spyOn(api, "execute"); const s = make(); await s.openProject(other.key);
+    await s.refreshPlan(); await s.execute("other-step");
+    expect(api.plan).toHaveBeenCalledWith("plan-other"); expect(execute).not.toHaveBeenCalled();
+    expect(s.receipt.value).toEqual(marker); expect(localStorage.getItem(executionKey)).not.toBeNull();
+  });
+
+  it("业务成功但上下文 CAS 失败时报告两种事实，不自动重放 AI 或覆盖其它项目", async () => {
+    const saved = workspace("one"); stubReads(saved);
+    vi.spyOn(api, "asset").mockResolvedValue(asset());
+    const update = vi.spyOn(api, "updateProject").mockRejectedValue(new ApiError(409, "PROJECT_CONTEXT_CONFLICT"));
+    const s = make(); await s.openProject(saved.key); await s.selectResource("SOFTWARE_ASSET", "asset-1");
+    expect(s.error.value).toContain("版本已变化"); expect(s.notice.value).toContain("业务请求已返回");
+    expect(s.projectSyncError.value).toBe(true); await s.selectResource("SOFTWARE_ASSET", "asset-1");
+    expect(update).toHaveBeenCalledOnce();
+    await s.openProject(saved.key); expect(s.projectSyncError.value).toBe(false);
+  });
+
+  it("历史目录未允许与资源不一致真实展示，不能悄悄生成新 WorkingCopy", async () => {
+    const saved = workspace("old", true); saved.issues = ["WORKSPACE_ROOT_NOT_ALLOWED", "ASSOCIATION_MISMATCH"];
+    stubReads(saved); const prepare = vi.spyOn(api, "prepare"); const execute = vi.spyOn(api, "execute");
+    const s = make(); await s.openProject(saved.key); await s.prepare(); await s.execute("old-step");
+    expect(s.projectIssues.value).toEqual(saved.issues); expect(prepare).not.toHaveBeenCalled(); expect(execute).not.toHaveBeenCalled();
+    expect(s.plan.value?.id).toBe("plan-old");
+  });
+
+  it("会话卸载后的慢业务响应不再提交上下文，也不覆写浏览器中另一会话的 ID", async () => {
+    const saved = workspace("old"); stubReads(saved);
+    let complete!: (value: ReturnType<typeof asset>) => void;
+    vi.spyOn(api, "asset").mockReturnValue(new Promise(resolve => { complete = resolve; }));
+    const update = vi.spyOn(api, "updateProject");
+    const s = make(); await s.openProject(saved.key);
+    const pending = s.selectResource("SOFTWARE_ASSET", "asset-1");
+    s.dispose(); localStorage.setItem(projectKey, "another");
+    complete(asset()); await pending;
+    expect(update).not.toHaveBeenCalled(); expect(localStorage.getItem(projectKey)).toBe("another");
+  });
+
+  it("Verified B 恢复后的下一步授权与执行按钮可用，但渲染和查看不会自动提交", async () => {
+    const saved = workspace("continued", true);
+    const first = { ...successfulPlan().steps[0]!, id: "first", planId: "plan-continued" };
+    const second = { ...plan().steps[0]!, id: "second", planId: "plan-continued",
+      status: "PENDING_CONFIRMATION" as const };
+    saved.plan!.steps = [first, second]; saved.workingCopy!.status = "EVOLVING";
+    saved.workingCopy!.currentRevision = "b".repeat(40); saved.workingCopy!.lastVerifiedRevision = "b".repeat(40);
+    stubReads(saved);
+    vi.spyOn(api, "workspaceConfiguration").mockResolvedValue({ root: "E:/trusted/workspaces", existingRoots: [] });
+    const confirm = vi.spyOn(api, "confirmStep"); const execute = vi.spyOn(api, "execute");
+    const s = reactive(make()); await s.openProject(saved.key);
+    const root = document.createElement("div"); document.body.append(root);
+    const app = createApp(PlanView, { s }); app.mount(root);
+    const authorize = [...root.querySelectorAll("button")].find(item => item.textContent?.includes("审阅并授权此 Step"));
+    expect(authorize?.disabled).toBe(false); expect(confirm).not.toHaveBeenCalled();
+    app.unmount(); s.plan!.steps[1]!.status = "READY";
+    const evolution = createApp(EvolutionView, { s }); evolution.mount(root);
+    cleanups.push(() => { evolution.unmount(); root.remove(); });
+    const run = [...root.querySelectorAll("button")].find(item => item.textContent?.includes("审阅风险并执行此 Step"));
+    expect(run?.disabled).toBe(false); expect(execute).not.toHaveBeenCalled();
+    s.copy!.currentRevision = "c".repeat(40); await nextTick(); expect(run?.disabled).toBe(true);
+  });
+
+  it("恢复 Verified B 的 EVOLVING 副本后，允许用户明确执行已授权下一步，仍拒绝未验证 Candidate", async () => {
+    const saved = workspace("continued", true);
+    const first = { ...successfulPlan().steps[0]!, id: "first", planId: "plan-continued" };
+    const second = { ...plan().steps[0]!, id: "second", planId: "plan-continued" };
+    saved.plan!.steps = [first, second]; saved.workingCopy!.status = "EVOLVING";
+    saved.workingCopy!.currentRevision = "b".repeat(40); saved.workingCopy!.lastVerifiedRevision = "b".repeat(40);
+    stubReads(saved);
+    vi.spyOn(api, "plan").mockResolvedValue(saved.plan!); vi.spyOn(api, "workingCopy").mockResolvedValue(saved.workingCopy!);
+    const execute = vi.spyOn(api, "execute").mockRejectedValue(new ApiError(502, "EXTERNAL_CAPABILITY_UNAVAILABLE"));
+    const s = make(); await s.openProject(saved.key); await s.execute("second");
+    expect(execute).toHaveBeenCalledOnce(); expect(execute).toHaveBeenCalledWith("plan-continued", "second");
+    expect(s.receipt.value).toBeNull();
+    vi.mocked(api.workingCopy).mockResolvedValue({ ...saved.workingCopy!, currentRevision: "c".repeat(40) });
+    await s.execute("second"); expect(execute).toHaveBeenCalledOnce();
+  });
+});
+
+it("项目工作台用卡片显示真实计数，明确创建与恢复，UUID 恢复仅在高级区", async () => {
+  const saved = workspace("saved", true);
+  const summary: ProjectSummary = { key: saved.key, name: "已保存 REST 项目", legacy: false, stage: "EVOLUTION",
+    direction: "REST", repositories: [{ assetId: "asset-saved", location: "C:/trusted/rest" }],
+    lastActivity: "2026-10-11T00:00:00Z", totalSteps: 4, succeededSteps: 1,
+    stepCounts: { SUCCEEDED: 1, PENDING_CONFIRMATION: 3 }, planId: "plan-saved", planStatus: "ACTIVE",
+    workingCopyId: "copy-saved", currentRevision: "c822cc3", lastVerifiedRevision: "c822cc3", issues: [] };
+  vi.spyOn(api, "connectivity").mockResolvedValue({ service: "backend", status: "UP", timestamp: "" });
+  vi.spyOn(api, "projects").mockResolvedValue([summary]); vi.spyOn(api, "resources").mockResolvedValue([]);
+  stubReads(saved); const execute = vi.spyOn(api, "execute");
+  const root = document.createElement("div"); document.body.append(root);
+  const app = createApp(App); app.mount(root); cleanups.push(() => app.unmount()); await settle();
+  expect(root.querySelector("h1")?.textContent).toContain("项目工作台");
+  expect(root.querySelector(".project-card")?.textContent).toContain("1/4");
+  expect(root.querySelector(".project-card")?.textContent).toContain("c822cc3");
+  expect(root.querySelector(".advanced-recovery")?.textContent).toContain("恢复已知对象");
+  (root.querySelector(".project-card button") as HTMLButtonElement).click(); await settle();
+  expect(root.querySelector("h1")?.textContent).toContain("验证演化"); expect(execute).not.toHaveBeenCalled();
+  (root.querySelector(".project-entry") as HTMLButtonElement).click(); await settle();
+  const input = root.querySelector("#project-name") as HTMLInputElement;
+  input.value = "全新项目"; input.dispatchEvent(new Event("input", { bubbles: true })); await nextTick();
+  const blank = workspace("blank"); blank.userProfile = null; blank.stage = "DISCOVERY";
+  blank.context!.userProfileId = null; blank.context!.assetIds = []; blank.context!.repositoryProfileIds = [];
+  blank.assets = []; blank.repositoryProfiles = [];
+  vi.mocked(api.project).mockResolvedValue(blank); vi.spyOn(api, "createProject").mockResolvedValue(blank.context!);
+  const form = root.querySelector(".new-project form")!; form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); await settle();
+  expect(root.querySelector("h1")?.textContent).toContain("需求探索"); expect(root.textContent).toContain("开始需求探索");
+});

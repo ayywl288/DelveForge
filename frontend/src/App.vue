@@ -7,8 +7,10 @@ import DirectionsView from "./views/DirectionsView.vue";
 import PlanView from "./views/PlanView.vue";
 import EvolutionView from "./views/EvolutionView.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
+import ProjectsView from "./views/ProjectsView.vue";
+import { stageIndex, projectIssueText } from "./state/projectPresentation";
 const s = reactive(createSession());
-const stage = ref(0);
+const stage = ref(-1);
 const authorizationTargetId = ref("");
 async function openAuthorization(assetId: string) {
   // 先按精确身份读取当前授权；找不到时保留原页和明确错误，不改选同路径记录。
@@ -21,6 +23,15 @@ async function openAuthorization(assetId: string) {
 function returnPlanning() {
   authorizationTargetId.value = "";
   stage.value = 3;
+}
+function projectOpened(value: number) {
+  authorizationTargetId.value = "";
+  stage.value = value;
+}
+async function inspectPendingProject() {
+  if (!s.receipt) return;
+  const result = await s.openProject("plan:" + s.receipt.planId);
+  if (result) projectOpened(stageIndex(result));
 }
 const stages = [
   {
@@ -89,11 +100,13 @@ function restoreIds() {
   });
 }
 onMounted(async () => {
-  await s.restore();
-  if (s.plan || s.receipt) stage.value = 4;
+  const restored = await s.initialize();
+  if (restored) stage.value = stageIndex(restored);
+  else if (s.plan || s.receipt) stage.value = 4;
   else if (s.selected) stage.value = 3;
   else if (s.directions.length) stage.value = 2;
   else if (s.profile?.status === "CONFIRMED") stage.value = 1;
+  else if (s.profile) stage.value = 0;
 });
 onUnmounted(s.dispose);
 </script>
@@ -105,11 +118,14 @@ onUnmounted(s.dispose);
         class="brand"
         href="#"
         aria-label="DelveForge 首页"
-        @click.prevent="stage = 0"
+        @click.prevent="stage = -1"
         ><span class="brand-mark" aria-hidden="true">d<span>f</span></span
         ><span>DelveForge<small>PERSONAL SOFTWARE EVOLUTION</small></span></a
       >
       <div class="nav-label">从想法，到下一次提交</div>
+      <button class="sidebar-button project-entry" :aria-current="stage === -1 ? 'page' : undefined"
+        @click="stage = -1">项目工作台</button>
+      <p v-if="s.projectContext" class="sidebar-project">{{ s.projectContext.name }}</p>
       <nav aria-label="演化阶段">
         <button
           v-for="(item, index) in stages"
@@ -137,13 +153,13 @@ onUnmounted(s.dispose);
             aria-hidden="true"
           />{{ s.connected ? "后端连接已确认" : "后端尚未连接" }}
         </p>
-        <button
+        <details class="advanced-recovery"><summary>高级调试</summary><button
           class="sidebar-button"
           :disabled="!!s.busy || !!s.receipt"
           @click="openRestore"
         >
           恢复已知对象
-        </button>
+        </button></details>
         <p class="meta">M0–M4 · 本地受控运行<br />M5 暂缓</p>
       </div>
     </aside>
@@ -151,15 +167,15 @@ onUnmounted(s.dispose);
       <header class="page-header">
         <div>
           <div class="eyebrow">
-            DELVEFORGE / {{ stages[stage]?.en.toUpperCase() }}
+            DELVEFORGE / {{ stage === -1 ? 'PROJECTS' : stages[stage]?.en.toUpperCase() }}
           </div>
-          <h1>{{ stages[stage]?.title }}<span class="heading-dot">.</span></h1>
-          <p>{{ stages[stage]?.description }}</p>
+          <h1>{{ stage === -1 ? '项目工作台' : stages[stage]?.title }}<span class="heading-dot">.</span></h1>
+          <p>{{ stage === -1 ? '找回已保存的进度，或开始一个新的演化流程。' : stages[stage]?.description }}</p>
         </div>
         <button
           class="secondary refresh"
           :disabled="!!s.busy"
-          @click="s.restore"
+          @click="stage === -1 ? s.loadProjects(false) : s.restore()"
         >
           刷新已知对象
         </button>
@@ -178,7 +194,17 @@ onUnmounted(s.dispose);
         <span class="request-dot" aria-hidden="true" />{{ s.busy }} ·
         等待实际响应，未自动重试
       </div>
-      <KeepAlive><DiscoveryView
+      <div v-if="s.receipt && s.receipt.planId !== s.plan?.id" class="inline-note" role="status">
+        另一个 Plan 的执行结果仍待核对。切换项目没有取消后端执行，新的 execute 暂停提交。
+        <button class="text-button" :disabled="!!s.busy" @click="inspectPendingProject">查询上次执行项目</button>
+      </div>
+      <details v-if="stage !== -1 && s.projectIssues.length" class="panel project-issues" open>
+        <summary>恢复到已保存结果，还有以下问题需要核对</summary>
+        <p v-for="issue in s.projectIssues" :key="issue">{{ projectIssueText(issue) }}</p>
+        <p v-if="s.boundProfileRevision !== null" class="meta">历史 Plan 绑定画像版本 {{ s.boundProfileRevision }}；当前画像版本 {{ s.profile?.revision ?? '不可读' }}。没有重写历史绑定。</p>
+      </details>
+      <ProjectsView v-if="stage === -1" :s="s" @open="projectOpened" />
+      <KeepAlive v-else :key="s.contextEpoch"><DiscoveryView
         v-if="stage === 0"
         :s="s"
         @next="stage = 1"

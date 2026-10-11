@@ -186,3 +186,59 @@ export interface WorkingCopy {
     | "CLOSED"
     | "UNRECOVERABLE";
 }
+
+export type ProjectStage = "DISCOVERY" | "REPOSITORY" | "DIRECTION" | "PLANNING" | "EVOLUTION";
+export interface ProjectContext {
+  id: string;
+  name: string;
+  userProfileId: string | null;
+  assetIds: string[];
+  repositoryProfileIds: string[];
+  directionIds: string[];
+  planId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+}
+export interface ProjectSummary {
+  key: string;
+  name: string;
+  legacy: boolean;
+  stage: ProjectStage;
+  direction: string | null;
+  repositories: { assetId: string; location: string }[];
+  lastActivity: string | null;
+  totalSteps: number;
+  succeededSteps: number;
+  stepCounts: Record<string, number>;
+  planId: string | null;
+  planStatus: string | null;
+  workingCopyId: string | null;
+  currentRevision: string | null;
+  lastVerifiedRevision: string | null;
+  issues: string[];
+}
+export interface ProjectWorkspace {
+  key: string;
+  context: ProjectContext | null;
+  legacy: boolean;
+  userProfile: UserProfile | null;
+  assets: SoftwareAsset[];
+  repositoryProfiles: RepositoryProfile[];
+  directions: ProductDirection[];
+  plan: EvolutionPlan | null;
+  workingCopy: WorkingCopy | null;
+  stage: ProjectStage;
+  boundUserProfileRevision: number | null;
+  issues: string[];
+}
+export type ResourceKind = "USER_PROFILE" | "SOFTWARE_ASSET" | "REPOSITORY_PROFILE";
+export interface ResourceSummary {
+  id: string;
+  summary: string;
+  status: string | null;
+  revision: number | null;
+  assetId: string | null;
+  location: string | null;
+  analyzedRevision: string | null;
+}

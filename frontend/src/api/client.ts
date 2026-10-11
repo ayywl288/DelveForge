@@ -12,9 +12,15 @@ import type {
   UserProfile,
   WorkingCopy,
   WorkspaceConfiguration,
+  ProjectContext,
+  ProjectSummary,
+  ProjectWorkspace,
+  ResourceKind,
+  ResourceSummary,
 } from "./types";
 
 const messages: Record<string, string> = {
+  PROJECT_CONTEXT_CONFLICT: "项目关联或版本已变化；没有覆盖原项目。请重新打开项目核对，不要重做 AI 调用。",
   INVALID_REQUEST: "请求字段无效，请检查输入。",
   WORKSPACE_STORAGE_UNAVAILABLE: "WorkingCopy 存储不可用。请核对后端配置的目录、权限、链接及已有目标；系统没有回退到其他磁盘。",
   NOT_FOUND: "对象不存在，请检查恢复 ID 和后端数据库。",
@@ -89,6 +95,23 @@ const id = encodeURIComponent;
 const profile = (value: string) => `/user-profiles/${id(value)}`;
 const plan = (value: string) => `/evolution-plans/${id(value)}`;
 export const api = {
+  projects: (offset = 0) => request<ProjectSummary[]>(`/projects?offset=${offset}&limit=50`),
+  project: (key: string) => request<ProjectWorkspace>(`/projects/${id(key)}`),
+  createProject: (name: string, confirmedUserProfileId: string | null) =>
+    request<ProjectContext>("/projects", "POST", { name, confirmedUserProfileId }),
+  adoptPlan: (value: string) => request<ProjectContext>(`/projects/legacy-plans/${id(value)}/resume`, "POST"),
+  updateProject: (context: ProjectContext, ids: {
+    profileId: string; assetIds: string[]; repositoryIds: string[]; directionIds: string[]; planId: string;
+  }) => request<ProjectContext>(`/projects/${id(context.id)}/context`, "PUT", {
+    expectedVersion: context.version,
+    userProfileId: ids.profileId || null,
+    assetIds: ids.assetIds,
+    repositoryProfileIds: ids.repositoryIds,
+    directionIds: ids.directionIds,
+    planId: ids.planId || null,
+  }),
+  resources: (kind: ResourceKind, offset = 0) =>
+    request<ResourceSummary[]>(`/projects/resources?kind=${kind}&offset=${offset}&limit=50`),
   workspaceConfiguration: () => request<WorkspaceConfiguration>("/system/workspace-configuration"),
   assetsAtLocation: (location: string) =>
     request<SoftwareAsset[]>(`/software-assets?location=${encodeURIComponent(location)}`),

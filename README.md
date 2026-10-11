@@ -126,7 +126,7 @@ $env:DELVEFORGE_LOG_DIR = Join-Path $localRunRoot 'logs'
 WorkingCopy 可存到其他磁盘。在启动后端的同一终端设置后重启，例如：
 
 ```powershell
-$env:DELVEFORGE_WORKSPACE_ROOT = 'E:\DelveForge\workspaces' # 示例；选择自己授权的独立目录
+$env:DELVEFORGE_WORKSPACE_ROOT = 'E:\df-workspaces' # 示例；选择与原仓库分开的授权目录
 # 如果还要继续使用旧副本，显式保留它们所在的旧根目录（多个根目录用逗号分隔）
 $env:DELVEFORGE_WORKSPACE_EXISTING_ROOTS = Join-Path $env:USERPROFILE '.delveforge\m4-local\workspaces'
 ```
@@ -187,6 +187,16 @@ pnpm dev
 
 启动服务后，优先通过 Web 页面按阶段体验；下列 API 顺序也适用于 HTTP 客户端。
 表中的 `{id}` 分别使用前一步返回的画像、资产或方向 ID。
+
+Web 的「项目工作台」可新建流程，或一键读回历史 Plan、WorkingCopy 和步骤结果，不需要
+手动复制 UUID。新流程可以重新探索，也可以复用已确认画像和已有仓库分析。恢复不会
+重做 AI 阶段或执行代码；未完成 Step 仍需用户明确授权、执行。旧 Plan 无需预先登记
+项目身份，点击继续时才建立导航记录。聊天、原始模型响应和未保存的 CodingProposal
+不能恢复；当前画像与历史绑定版本分开显示。
+
+历史项目可分别保存，但当前仍全局最多一个 SELECTED Direction。选择新方向会按原
+Domain 规则使旧方向及其 Plan 失效，不能把项目切换当作并行演化授权。迁移与手动验收
+见 [Task F 验证记录](docs/validation/task-f-project-workspace-history-recovery.md)。
 
 | 步骤 | 操作 | API |
 | --- | --- | --- |
@@ -293,6 +303,7 @@ Frontend ──HTTP──▶ App
 - [Minimal Web 验证](docs/validation/minimal-web-experience.md) — UI 契约、离线联通与交互边界
 - [Demo Catalog](docs/demos/README.md) — 三套 BUILD_READY 基线、待发布附件及还原步骤
 - [User Discovery 一致性修复](docs/validation/task-c1-user-discovery-consistency.md) — 同版本审阅、提示与会话保留
+- [项目工作台与历史恢复](docs/validation/task-f-project-workspace-history-recovery.md) — 新流程、准确恢复、迁移与操作边界
 - [ADRs](docs/decisions/) — 关键设计决策与取舍
 - Engineering notes — [开发复盘](docs/retrospectives/) / [验证记录](docs/validation/)
 

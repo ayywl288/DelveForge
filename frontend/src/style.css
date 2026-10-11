@@ -11,6 +11,22 @@
   --line: #dde4dd;
   --nav: #1b3229;
 }
+.project-entry { margin: 12px 0; width: 100%; text-align: left; }
+.sidebar-project { padding: 0 12px; color: #cedbd0; overflow-wrap: anywhere; }
+.advanced-recovery { margin-top: 12px; }
+.advanced-recovery summary { cursor: pointer; font-size: 13px; }
+.new-project { max-width: 850px; margin-bottom: 32px; }
+.new-project fieldset { display: grid; gap: 12px; border: 1px solid var(--line); padding: 16px; }
+.new-project input[type="radio"] { width: auto; margin-right: 8px; }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 20px; }
+.project-card { display: flex; flex-direction: column; gap: 8px; }
+.project-card h3 { margin: 4px 0; }
+.project-card > button { align-self: flex-start; margin-top: auto; }
+.project-path { overflow-wrap: anywhere; }
+.project-progress strong { font-size: 24px; color: var(--accent); }
+.history-step-counts { display: flex; flex-wrap: wrap; gap: 12px; }
+.resource-picker, .project-issues { margin-bottom: 24px; }
+.resource-picker summary, .project-issues summary { cursor: pointer; font-weight: 600; }
 * {
   box-sizing: border-box;
 }

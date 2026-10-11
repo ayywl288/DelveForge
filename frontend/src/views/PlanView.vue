@@ -188,7 +188,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
               !!s.busy ||
               !!s.receipt ||
               s.plan.status !== 'ACTIVE' ||
-              s.copy?.status !== 'READY' ||
+              !s.copy || !['READY', 'EVOLVING'].includes(s.copy.status) ||
               s.plan.steps
                 .slice(0, index)
                 .some((item) => item.status !== 'SUCCEEDED')

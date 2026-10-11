@@ -11,7 +11,8 @@ const now = ref(Date.now());
 const pollingPaused = ref(false);
 let active = false;
 let clock: ReturnType<typeof setInterval> | undefined;
-const request = computed(() => props.s.executionPending ? props.s.executionRequest : props.s.receipt);
+const request = computed(() => props.s.executionPending ? props.s.executionRequest
+  : props.s.receipt?.planId === props.s.plan?.id ? props.s.receipt : null);
 const requestedStep = computed(() => props.s.plan && props.s.plan.id === request.value?.planId
   ? props.s.plan.steps.find(step => step.id === request.value?.stepId) : undefined);
 const elapsed = computed(() => {
@@ -69,7 +70,7 @@ const canExecute = computed(() => {
     !!copy &&
     plan.status === "ACTIVE" &&
     step.status === "READY" &&
-    copy.status === "READY" &&
+    ["READY", "EVOLVING"].includes(copy.status) &&
     copy.currentRevision === copy.lastVerifiedRevision &&
     !props.s.busy &&
     !props.s.receipt &&

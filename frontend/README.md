@@ -18,6 +18,20 @@ pnpm dev
 
 代理 `timeout` / `proxyTimeout` 为 0；所有 AI POST 与 execute 都没有客户端短期限或自动重试，GET 最多等待 15 秒。`pnpm build` 产出 `dist/`，`pnpm preview` 只预览静态文件，**没有 /api 开发代理**。正式静态托管与同源反向代理尚未交付。
 
+## 项目工作台
+
+打开页面后可在「项目工作台」查看历史摘要和真实 Step 计数。点击「打开并继续」按保存
+的对象 ID 读回业务上下文；旧 Plan 第一次继续时只新增导航记录，不执行 AI、Git 或 Maven。
+新建流程时填写名称，选择重新探索或复用当前已确认画像。重新探索的新画像仍需主动创建；
+复用保持原身份，不复制、不重新确认。进入仓库页可选择已有资产、已有分析，或登记新仓库。
+
+阶段由后端数据推导，页面访问不会标记完成。单击恢复后，已成功步骤保持原结果，其余
+步骤仍需逐步审阅授权和明确执行。全局仍最多一个 SELECTED Direction；选择新方向会
+按原规则使旧方向及其 Plan 失效，切换项目不会自动重新选择。
+
+旧的 UUID 输入恢复保留在「高级调试」中。关联缺失、历史 Root 未允许、目录缺失或画像
+版本已变化会显示具体问题。只读目录预检不检查 Git HEAD，执行仍由完整后端守卫判断。
+
 ## 五阶段手动验收
 
 | 阶段 | 用户操作 | 实际接口与决定 |
@@ -35,13 +49,15 @@ AI 操作会调用付费 Provider，只在实际获得授权后验收。本次�
 
 ## 刷新、断线与长请求
 
-- 页面内切换阶段保留未发送草稿；刷新会丢失草稿和聊天。已知业务对象用 GET 恢复，不重放命令。
-- `delveforge.session.v1` 只保存对象 ID。「恢复已知对象」支持输入 Profile / Asset / RepositoryProfile / Direction / Plan ID；切换数据库或前端 origin 后需要重新恢复。
+- 同一项目内切换阶段保留未发送草稿；切换项目清除上一项目视图和聊天，刷新会丢失草稿和聊天。已知业务对象用 GET 恢复，不重放命令。
+- `delveforge.project.v1` 只保存活动项目 ID。`delveforge.session.v1` 仍只保存对象 ID，供高级恢复兼容；数据库与浏览器 origin 必须对应。新 origin 也可从后端工作台直接选择历史。
 - `delveforge.execution.v1` 只保存 planId、stepId、startedAt。发送前必须成功写入并取得 Web Locks；不支持锁或存储的浏览器不发送 execute。锁仅协调同 origin 标签页。
 - 等待期间每 3 秒串行查询 Plan / WorkingCopy。准备 CodingProposal 时可能仍为真实 READY，旁边显示本页的请求等待信息；不创建 PREPARING 或百分比进度。
-- 明确后端错误且 GET 确认没有 Candidate、仍为 READY 且 current 等于 lastVerified 时，可再次手动决定。这不是客户端 Git cleanliness 检查。断线、未知代理错误、无法读取响应或刷新后，保留待核对标记。READY 不证明原请求已结束，不能据此自动解锁或重发。
+- 明确后端错误且 GET 确认该 Step 没有 Candidate、仍为 READY，副本为 READY / EVOLVING 且 current 等于 lastVerified 时，可再次手动决定。这不是客户端 Git cleanliness 检查。断线、未知代理错误、无法读取响应或刷新后，保留待核对标记。READY 不证明原请求已结束，不能据此自动解锁或重发。
 - 终态检查点可以解除等待标记；FAILED / VERIFICATION_FAILED / RECOVERY_REQUIRED 等没有 M4 恢复操作。长期 READY 需要在宿主核对原请求；不能通过清除浏览器存储推断后端取消或合法恢复。
 - 其它浏览器、清除站点数据、直接 API 客户端不受此锁协调。避免同时操作同一 Plan，最终授权、revision 与 Git 检查仍由后端执行。
+- 业务提交期间禁用项目切换；慢轮询响应按当前上下文版本丢弃。未知 execute 标记跨项目保留，先打开其所属 Plan 查询，不能切换后绕过防重复提交。
+- 正常业务返回后单独 CAS 保存项目关联。冲突或断线会提示「业务可能已完成，关联尚未确认」并阻止继续写入；重新打开项目核对，不自动重放付费请求。未关联的 Profile / Asset / RepositoryProfile 可显式选择；保存的 Plan 可独立恢复。
 
 画像纠正 API 没有 expectedRevision 参数，应避免多处同时编辑；确认画像则使用明确 revision。Profile、聊天、Evidence、源码和响应正文不写入浏览器存储或控制台；没有 `v-html`、外部追踪或第三方字体。错误页面仅使用稳定错误码，不回显原始错误正文。
 
@@ -50,7 +66,7 @@ AI 操作会调用付费 Provider，只在实际获得授权后验收。本次�
 成功后调用一次只读提问；失败保留真实探索状态，不伪造用户消息、不自动重试。
 进入审阅后主体展示本版六维内容、全部 Evidence 与待核实状态，可纠正、返回探索或确认当前版本。
 Evidence 没有逐条画像关联字段，界面不推断不存在的关联。Confirm 与页面刷新不调用 AI 提问。
-刷新后可主动请 Agent 提出新问题，不能恢复未保存的历史对话或充分性结论。
+刷新只读 review-readiness 恢复本版已通过提示；可主动请 Agent 提出新问题，不能恢复未保存的历史对话或模型问题。
 
 ## 工程与测试
 
@@ -63,15 +79,20 @@ pnpm build
 Vitest + jsdom 是开发测试依赖，用于 DTO、Vue 表单决策、版本冲突、刷新、超过 702 秒的等待、断线、锁和存储失败验证。没有增加路由、状态管理或大型 UI 库。
 
 ```text
-src/App.vue             导航、状态与 ID 恢复
-src/views/              五阶段结构化视图
+src/App.vue             项目导航、状态与高级 ID 恢复
+src/views/              项目工作台与五阶段结构化视图
 src/components/         原生确认对话框、Evidence、revision 与状态
 src/api/                Controller DTO 与 HTTP 调用
-src/state/session.ts    内存数据、ID 恢复、等待与只读轮询
+src/state/session.ts    上下文隔离、ID 恢复、等待与只读轮询
 tests/                  自动化合成夹具，非真实 Provider 证据
 ```
 
-现有 API 无历史列表、聊天、充分性评估、已接受 CodingProposal 或 Git diff 的历史查询。`execution-preparation` 会调用 AI，execute 仍重新准备，因此本页未增加额外付费预览。详情见 [Task B 验证](../docs/validation/minimal-web-experience.md)。M5、正式部署和其它前后端新功能不在本任务范围。
+现有 API 提供项目历史、完整 Plan / Step 结果、资源目录和本版审阅就绪记录。没有完整聊天、
+模型问题、已接受 CodingProposal 或 Git diff 的历史查询；没有 Plan 的旧孤立 Direction
+不自动拼装为项目，可使用高级 ID 入口查看。返回的是当前 UserProfile，旧 Plan 的画像
+绑定版本另行标明，不能把当前六区当作旧快照。`execution-preparation` 会调用 AI，execute
+仍重新准备，因此本页未增加额外付费预览。Task F 的迁移、测试与恢复边界见
+[项目工作台验证](../docs/validation/task-f-project-workspace-history-recovery.md)。M5 和正式部署未实现。
 
 C1：首次真实充分结果显示一次选择弹窗；已有问题的继续探索不追加 AI 调用。
 “本次对话 / 画像审阅”可切换；审阅视图不重复右侧大段画像，依据可折叠。

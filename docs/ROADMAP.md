@@ -2006,3 +2006,19 @@ M0–M4 继续 FROZEN，M5 继续 DEFERRED；本任务不调用真实 Provider �
 Git Adapter 仅调整存储范围及错误检查，Candidate、Mutation 和 Verification 领域语义不变。
 没有付费 Provider、真实 Smoke 或新演化；M0–M4 继续 FROZEN，M5 继续 DEFERRED。
 实现边界、测试与手动验收见 [Task E 验证记录](validation/task-e-final-e2e-ux-polish.md)。
+
+### Task F — Project Workspace & History Recovery（用户授权闭环）
+
+**DONE（2026-10-11）。** Application 导航上下文、只读历史投影、资源目录与 Vue 项目
+工作台已交付。V15 仅新增表与索引；旧 Plan 可沿保存引用直接查询，首次继续才认领项目。
+复用确认画像不复制或修改；项目切换不重新调用 AI，不创建副本或执行步骤。关联更新有
+独立 CAS 版本，慢轮询不会覆写另一个项目，未决执行标记跨项目保留。
+
+最终 Wrapper verify 1450 项通过，前端 71 项、类型检查与构建通过。现有 GS REST 原库
+只读核对 1/4 成功及 Verified B c822cc3；一致副本上的 API、导航认领、后端重启及 Vite
+Proxy 回读通过，没有新的 Provider / 演化 / Maven 验证请求。用户原库尚未迁移；首次启动
+新版本才应用 V15，升级及手动验收见 [Task F 验证](validation/task-f-project-workspace-history-recovery.md)。
+
+当前画像与历史绑定版本分开显示；未持久化聊天与 CodingProposal 不能恢复。全局单
+SELECTED Direction、授权、revision、WorkingCopy 与 Verification 守卫继续有效。
+**M0–M4 继续 FROZEN，M5 继续 DEFERRED；本任务结束后等待用户手动验收，不扩展功能。**

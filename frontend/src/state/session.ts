@@ -12,10 +12,15 @@ import type {
   Sufficiency,
   UserProfile,
   WorkingCopy,
+  ProjectContext,
+  ProjectSummary,
+  ProjectWorkspace,
+  ResourceKind,
 } from "../api/types";
 
 export const sessionKey = "delveforge.session.v1";
 export const executionKey = "delveforge.execution.v1";
+export const projectKey = "delveforge.project.v1";
 export interface SessionIds {
   profileId: string;
   assetIds: string[];
@@ -111,6 +116,16 @@ export function createSession() {
   const receipt = ref(readReceipt());
   const lastChecked = ref("");
   const pollError = ref("");
+  const projectContext = ref<ProjectContext | null>(null);
+  const projectIssues = ref<string[]>([]);
+  const boundProfileRevision = ref<number | null>(null);
+  const projects = ref<ProjectSummary[]>([]);
+  const historyLoading = ref(false);
+  const historyError = ref("");
+  const historyMore = ref(false);
+  const projectSyncError = ref(false);
+  const contextEpoch = ref(0);
+  let historyRequest = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let observingExecution = false;
   let polling = false;
@@ -122,6 +137,7 @@ export function createSession() {
       null,
   );
   const remember = () => {
+    if (disposed) return;
     try {
       localStorage.setItem(sessionKey, JSON.stringify(ids));
     } catch {
@@ -130,6 +146,7 @@ export function createSession() {
     }
   };
   function acceptAsset(asset: SoftwareAsset) {
+    if (disposed) return;
     const index = assets.value.findIndex(item => item.id === asset.id);
     if (index >= 0) assets.value[index] = asset;
     else assets.value.push(asset);
@@ -179,13 +196,14 @@ export function createSession() {
     }
   }
   function setPlan(value: EvolutionPlan) {
+    if (disposed) return;
     planVersion++;
     plan.value = value;
     ids.planId = value.id;
     remember();
   }
   async function refreshPlan() {
-    const value = receipt.value?.planId || ids.planId;
+    const value = ids.planId || (!projectContext.value ? receipt.value?.planId : "");
     if (!value) return;
     const version = ++planVersion;
     const result = await api.plan(value);
@@ -225,13 +243,32 @@ export function createSession() {
       notice.value = "无法清除本浏览器的等待标记，请检查浏览器存储设置。";
     }
   }
-  async function run(label: string, operation: () => Promise<void>) {
+  async function run(label: string, operation: () => Promise<void>, saveContext = true) {
     if (busy.value) return;
+    if (saveContext && projectSyncError.value) {
+      error.value = "上次业务对象已保存，但项目关联尚未确认。请重新打开项目核对，不要重复 AI 或执行请求。";
+      return;
+    }
+    if (saveContext && projectIssues.value.some(issue => !issue.startsWith("WORKSPACE_") &&
+      (issue.endsWith("_MISSING") || issue.endsWith("_UNREADABLE") || issue === "ASSOCIATION_MISMATCH"))) {
+      error.value = "项目关联资源缺失或不一致，不能继续修改。请核对数据或建立新流程；历史对象没有被删除。";
+      return;
+    }
     busy.value = label;
     error.value = "";
     notice.value = "";
     try {
       await operation();
+      if (disposed) return;
+      if (saveContext && projectContext.value) {
+        try {
+          projectContext.value = await api.updateProject(projectContext.value, { ...ids });
+        } catch (failure) {
+          projectSyncError.value = true;
+          notice.value = "业务请求已返回；项目关联保存失败或结果未知。后端业务对象未删除，请重新打开项目核对。";
+          throw failure;
+        }
+      }
     } catch (failure) {
       error.value =
         failure instanceof ApiError
@@ -242,6 +279,10 @@ export function createSession() {
     }
   }
   async function restore() {
+    if (projectContext.value) {
+      await openProject("project:" + projectContext.value.id, false);
+      return;
+    }
     await run("读取已保存对象", async () => {
       connected.value = false;
       await api.connectivity();
@@ -287,13 +328,14 @@ export function createSession() {
       ]);
       if (failures.length)
         error.value = `无法恢复：${failures.join("、")}。请核对对象 ID、后端数据库及连接，已保存 ID 保留。`;
-    });
+    }, false);
     schedulePoll();
   }
   function schedulePoll() {
     clearTimeout(timer);
     if (disposed || !observingExecution || polling) return;
-    if (!receipt.value && !executionPending.value && !plan.value?.steps.some(step =>
+    const observingReceipt = receipt.value && (!projectContext.value || receipt.value.planId === ids.planId);
+    if (!observingReceipt && !executionPending.value && !plan.value?.steps.some(step =>
       ["EXECUTING", "VERIFYING"].includes(step.status))) return;
     timer = setTimeout(async () => {
       if (disposed || !observingExecution) return;
@@ -345,7 +387,7 @@ export function createSession() {
               .slice(0, index)
               .some((step) => step.status !== "SUCCEEDED") ||
             !copy.value ||
-            copy.value.status !== "READY" ||
+            !["READY", "EVOLVING"].includes(copy.value.status) ||
             copy.value.currentRevision !== copy.value.lastVerifiedRevision
           ) {
             throw new ApiError(409, "CONFLICT");
@@ -395,7 +437,7 @@ export function createSession() {
                 "READY" &&
               !plan.value.steps.find((step) => step.id === stepId)
                 ?.executionResult &&
-              copy.value?.status === "READY" &&
+              copy.value && ["READY", "EVOLVING"].includes(copy.value.status) &&
               copy.value.currentRevision === copy.value.lastVerifiedRevision
             )
               clearReceipt();
@@ -408,6 +450,98 @@ export function createSession() {
         },
       );
     });
+  }
+  async function loadProjects(more = false) {
+    if (historyLoading.value) return;
+    const version = ++historyRequest;
+    historyLoading.value = true;
+    historyError.value = "";
+    try {
+      const loaded = await api.projects(more ? projects.value.length : 0);
+      if (disposed || version !== historyRequest) return;
+      if (!Array.isArray(loaded)) throw new ApiError(0, "RESPONSE_UNREADABLE");
+      projects.value = more ? [...projects.value, ...loaded] : loaded;
+      historyMore.value = loaded.length === 50;
+    } catch (failure) {
+      historyError.value = failure instanceof ApiError ? failure.message : "历史项目读取失败，请核对连接。";
+    } finally {
+      if (version === historyRequest) historyLoading.value = false;
+    }
+  }
+  function applyWorkspace(workspace: ProjectWorkspace) {
+    if (disposed) return;
+    const previousKey = projectContext.value ? "project:" + projectContext.value.id
+      : ids.planId ? "plan:" + ids.planId : "";
+    const switching = previousKey !== workspace.key;
+    planVersion++;
+    clearTimeout(timer);
+    if (switching) contextEpoch.value++;
+    projectContext.value = workspace.context;
+    projectIssues.value = workspace.issues;
+    boundProfileRevision.value = workspace.boundUserProfileRevision;
+    projectSyncError.value = false;
+    profile.value = workspace.userProfile;
+    assets.value = workspace.assets;
+    repositories.value = workspace.repositoryProfiles;
+    directions.value = workspace.directions;
+    plan.value = workspace.plan;
+    copy.value = workspace.workingCopy;
+    const context = workspace.context;
+    Object.assign(ids, {
+      profileId: context?.userProfileId ?? workspace.userProfile?.id ?? "",
+      assetIds: context?.assetIds ?? workspace.assets.map(item => item.id),
+      repositoryIds: context?.repositoryProfileIds ?? workspace.repositoryProfiles.map(item => item.id),
+      directionIds: context?.directionIds ?? workspace.directions.map(item => item.id),
+      planId: context?.planId ?? workspace.plan?.id ?? "",
+    });
+    if (switching) messages.value = [];
+    sufficiency.value = null;
+    activeQuestion.value = null;
+    reviewChoicePending.value = false;
+    planningAuthorizationIssue.value = null;
+    lastChecked.value = new Date().toLocaleTimeString("zh-CN");
+    pollError.value = "";
+    remember();
+    try {
+      if (context) localStorage.setItem(projectKey, context.id);
+      else localStorage.removeItem(projectKey);
+    } catch {
+      notice.value = "浏览器无法保存项目 ID；刷新后请从项目工作台重新打开。";
+    }
+    schedulePoll();
+  }
+  async function openProject(key: string, adopt = true) {
+    let stage: string | null = null;
+    await run("读取已保存项目", async () => {
+      let workspace = await api.project(key);
+      if (workspace.legacy && adopt) {
+        const planId = workspace.plan?.id;
+        const invalid = workspace.issues.some(issue => !issue.startsWith("WORKSPACE_") &&
+          (issue.endsWith("_MISSING") || issue.endsWith("_UNREADABLE") || issue === "ASSOCIATION_MISMATCH"));
+        if (!planId || invalid) {
+          notice.value = "历史项目仅部分可读，未建立新关联。请先核对列出的问题；没有重做任何业务调用。";
+        } else {
+          const context = await api.adoptPlan(planId);
+          workspace = await api.project("project:" + context.id);
+        }
+      }
+      applyWorkspace(workspace);
+      connected.value = true;
+      stage = workspace.stage;
+      if (workspace.userProfile) {
+        // 恢复只读充分记录，不重构历史问答，也不自动发起追问。
+        try {
+          const readiness = await api.reviewReadiness(workspace.userProfile.id);
+          if (readiness.revision === workspace.userProfile.revision && readiness.sufficient === true) {
+            reviewChoiceShown.add(workspace.userProfile.id);
+            sufficiency.value = { sufficient: true, missingAreas: [], nextQuestion: null };
+          }
+        } catch {
+          notice.value = "项目已读回，画像充分性记录暂时无法读取；没有重新调用 AI。";
+        }
+      }
+    }, false);
+    return stage;
   }
   return {
     ids,
@@ -433,6 +567,48 @@ export function createSession() {
     receipt,
     lastChecked,
     pollError,
+    projectContext,
+    projectIssues,
+    boundProfileRevision,
+    projects,
+    historyLoading,
+    historyError,
+    historyMore,
+    projectSyncError,
+    contextEpoch,
+    loadProjects,
+    openProject,
+    async initialize() {
+      let saved: string | null = null;
+      try { saved = localStorage.getItem(projectKey); } catch { /* ID 无法读取时显示工作台。 */ }
+      if (saved && validId(saved)) return openProject("project:" + saved, false);
+      await restore();
+      return null;
+    },
+    async newProject(name: string, confirmedProfileId: string | null) {
+      let stage: string | null = null;
+      await run("新建项目上下文", async () => {
+        const created = await api.createProject(name, confirmedProfileId);
+        const workspace = await api.project("project:" + created.id);
+        applyWorkspace(workspace);
+        stage = workspace.stage;
+      }, false);
+      return stage;
+    },
+    async selectResource(kind: Exclude<ResourceKind, "USER_PROFILE">, id: string) {
+      await run("复用已有仓库资源", async () => {
+        if (kind === "SOFTWARE_ASSET") {
+          acceptAsset(await api.asset(id));
+        } else {
+          const repo = await api.repository(id);
+          const asset = await api.asset(repo.assetId);
+          acceptAsset(asset);
+          if (!repositories.value.some(item => item.id === repo.id)) repositories.value.push(repo);
+          if (!ids.repositoryIds.includes(repo.id)) ids.repositoryIds.push(repo.id);
+          remember();
+        }
+      });
+    },
     run,
     restore,
     refreshPlan,
@@ -457,6 +633,13 @@ export function createSession() {
         return;
       }
       Object.assign(ids, value);
+      projectContext.value = null;
+      projectIssues.value = [];
+      boundProfileRevision.value = null;
+      projectSyncError.value = false;
+      contextEpoch.value++;
+      planVersion++;
+      localStorage.removeItem(projectKey);
       profile.value = null;
       assets.value = [];
       repositories.value = [];
@@ -617,7 +800,7 @@ export function createSession() {
       await run("读取规划所引用的仓库授权", async () => {
         acceptAsset(await api.asset(value));
         loaded = true;
-      });
+      }, false);
       return loaded;
     },
     async analyze(value: string) {

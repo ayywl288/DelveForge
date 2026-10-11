@@ -7,6 +7,7 @@ import EvidenceList from "../components/EvidenceList.vue";
 import RevisionText from "../components/RevisionText.vue";
 import AssetAuthorizationForm from "../components/AssetAuthorizationForm.vue";
 import LicenseDeclarationField from "../components/LicenseDeclarationField.vue";
+import ProjectResourcePicker from "../components/ProjectResourcePicker.vue";
 import { validLicenseDeclaration } from "../state/licenseDeclaration";
 import { repositoryLocationKey } from "../state/repositoryLocation";
 const props = defineProps<{ s: WorkspaceSession; authorizationTargetId?: string }>();
@@ -30,6 +31,7 @@ const absolute = computed(
 );
 </script>
 <template>
+  <ProjectResourcePicker :s="s" />
   <div class="two-column">
     <section class="panel">
       <span class="eyebrow">LOCAL & AUTHORIZED</span>

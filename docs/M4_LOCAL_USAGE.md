@@ -81,7 +81,7 @@ Invoke-RestMethod http://127.0.0.1:8080/api/system/connectivity
 `--delveforge.workspace.root=<绝对目录>`。选择有写入权限、与所有源仓库分离的专用目录：
 
 ```powershell
-$env:DELVEFORGE_WORKSPACE_ROOT = 'E:\DelveForge\workspaces' # 可替换为其他授权磁盘目录
+$env:DELVEFORGE_WORKSPACE_ROOT = 'E:\df-workspaces' # 独立存储目录，不能与原仓库重叠
 $env:DELVEFORGE_WORKSPACE_EXISTING_ROOTS = Join-Path $env:USERPROFILE '.delveforge\m4-local\workspaces'
 java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar --spring.profiles.active=m4-local
 Invoke-RestMethod http://127.0.0.1:8080/api/system/workspace-configuration
@@ -105,6 +105,23 @@ Web 的 Prepare 区域显示配置，可重新读取；未新增浏览器任意�
 `GET /api/working-copies/{id}` 的 `location`，Web 验证演化页也展示它。
 
 ### 正常业务请求
+
+Web 用户可以先打开「项目工作台」。新建流程时选择重新探索或复用当前 CONFIRMED
+画像，再选择已登记仓库、已有分析，或正常登记新仓库。历史项目点击「打开并继续」
+按明确保存的引用恢复，不重新分析、规划、创建 WorkingCopy 或执行 Step。
+旧 GS REST Plan 可直接查询到原成功步骤；若副本仍在旧 Root，必须通过上方
+`DELVEFORGE_WORKSPACE_EXISTING_ROOTS` 显式允许原目录，才能按原守卫继续操作。
+
+新版本首次启动由 Flyway V15 新增 `project_flow_context` 表与索引，不重写原聚合或
+自动回填项目。升级前停止所有拥有该数据库的后端进程，确认没有执行中的长请求，按既有
+SQLite 安全备份方式保存一致快照；不要只复制活动数据库主文件。启动仍指向原数据库
+即可保留历史，**不要为了新建流程清空数据库**。项目数据位于后端，浏览器只保存 ID。
+本任务的开发验证未启动或迁移用户现有数据库；迁移将在用户启动新版本时发生。
+
+恢复会显示实际授权、状态或目录问题。当前 UserProfile 已变化时，旧 Direction 的绑定
+版本保持不变；选择新方向仍会按全局单 SELECTED 规则影响旧 Plan。现有失败检查点的
+恢复限制不因工作台改变。完整手动验收与无法恢复的内容见
+[Task F 验证记录](validation/task-f-project-workspace-history-recovery.md)。
 
 所有 ID、revision、状态都从本次 API 返回读取。以下占位符不是历史 UUID，也不能向数据库直接填入。各请求保存必要的结构化结果，敏感原件放在受控目录；不要将完整画像、源码或模型正文提交到 Git。
 
