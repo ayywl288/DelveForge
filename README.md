@@ -250,8 +250,6 @@ DelveForge 准备了三个 Java / Maven 演示仓库，帮助体验项目探索�
 - `todolist-api.bundle`
 - `expense-tracker.bundle`
 
-**注：Release 附件尚待公开发布。**
-
 下载 Bundle 后，在文件所在目录打开 PowerShell。以 GS REST 为例：
 
 ```powershell
