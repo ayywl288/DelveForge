@@ -181,7 +181,7 @@ onUnmounted(s.dispose);
           :disabled="!!s.busy"
           @click="s.restore()"
         >
-          刷新已知对象
+          <NavigationIcon name="refresh" />刷新已知对象
         </button>
       </header>
       <div v-if="s.error" class="alert" role="alert">

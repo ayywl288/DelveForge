@@ -114,11 +114,13 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
           <div class="project-stage"><span class="meta">当前阶段</span><span>{{ stageLabels[project.stage] }}</span></div>
           <div class="project-activity">
             <p v-if="project.planId && project.totalSteps" class="project-progress"><strong>{{ project.succeededSteps }}/{{ project.totalSteps }}</strong> 个 Step 已验证通过</p>
+            <progress v-if="project.planId && project.totalSteps" :max="project.totalSteps" :value="project.succeededSteps"
+              :aria-label="`${project.name}：${project.succeededSteps}/${project.totalSteps} 个 Step 已验证通过`" />
             <p v-else class="meta">{{ project.planId ? '计划尚无步骤' : '尚未生成计划' }}</p>
             <p class="meta">{{ project.lastActivity ? '最近保存 ' : '未保存活动时间' }}<time v-if="project.lastActivity" :datetime="project.lastActivity">{{ new Date(project.lastActivity).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' }) }}</time></p>
           </div>
           <div class="project-actions">
-            <button v-if="!project.deletedAt" class="secondary" :disabled="!!s.busy" @click="open(project.key)">打开并继续</button>
+            <button v-if="!project.deletedAt" class="project-open" :disabled="!!s.busy" @click="open(project.key)">打开并继续<NavigationIcon name="arrow" /></button>
             <button v-else class="secondary" :disabled="!!s.busy" @click="s.restoreProject(project)">恢复到工作台</button>
           </div>
         </div>

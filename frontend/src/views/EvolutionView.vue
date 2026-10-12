@@ -7,6 +7,7 @@ import ContentList from "../components/ContentList.vue";
 import RevisionText from "../components/RevisionText.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import StepPrerequisites from "../components/StepPrerequisites.vue";
+import NavigationIcon from "../components/NavigationIcon.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
 const emit = defineEmits<{ planning: [] }>();
 const now = ref(Date.now());
@@ -185,9 +186,11 @@ function execute() {
       </p>
       <div v-if="s.copy" class="working-copy">
         <div class="panel-header">
-          <h3>WorkingCopy <span class="meta">{{ s.copy.id }}</span></h3>
+          <h3 class="section-heading"><NavigationIcon name="repository" />WorkingCopy <span class="meta">隔离副本</span></h3>
           <StatusBadge :status="s.copy.status" />
         </div>
+        <p class="copy-summary meta"><NavigationIcon name="git" />当前 {{ s.copy.currentRevision.slice(0, 12) }}
+          <span>最近验证 {{ s.copy.lastVerifiedRevision.slice(0, 12) }}</span></p>
         <details class="copy-details"><summary>路径、完整 revision 与资产绑定</summary>
         <p class="path">{{ s.copy.location }}</p>
         <div class="revision-grid">
@@ -231,9 +234,9 @@ function execute() {
               :aria-pressed="chosen?.id === step.id"
               @click="viewStep(step.id)"
             >
-              <span class="meta">步骤 {{ index + 1 }}</span
-              ><strong>{{ step.goal }}</strong
-              ><StatusBadge :status="step.status" :show-code="false" />
+              <span class="navigator-heading"><span class="step-number" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span>
+                <span><span class="meta">步骤 {{ index + 1 }}</span><strong>{{ step.goal }}</strong></span></span>
+              <StatusBadge :status="step.status" :show-code="false" />
             </button>
           </li>
         </ol>
@@ -245,19 +248,19 @@ function execute() {
           <StatusBadge :status="chosen.status" />
         </div>
         <nav class="section-links" aria-label="当前步骤分区">
-          <a href="#execution-goal">目标与授权</a><a href="#execution-result">执行状态</a><a href="#verification-result">验证结果</a>
+          <a href="#execution-goal"><NavigationIcon name="lock" />目标与授权</a><a href="#execution-result"><NavigationIcon name="code" />执行状态</a><a href="#verification-result"><NavigationIcon name="evolution" />验证结果</a>
         </nav>
         <section id="execution-goal" class="execution-section">
-          <h3>目标与授权</h3>
-          <div class="execution-action" :class="{ 'inline-note': recoveryBlocked }">
+          <h3 class="section-heading"><NavigationIcon name="lock" />目标与授权</h3>
+          <div class="execution-action" :class="{ 'inline-note': recoveryBlocked }" :data-status="chosen.status">
             <p role="status">{{ actionReason }}</p>
-            <button v-if="chosen.status === 'PENDING_CONFIRMATION' || !s.copy" class="secondary" @click="emit('planning')">前往规划页核对与授权</button>
-            <button v-if="chosen.status === 'READY'" :disabled="!canExecute" @click="openExecute">审阅风险并执行此 Step</button>
+            <button v-if="chosen.status === 'PENDING_CONFIRMATION' || !s.copy" @click="emit('planning')"><NavigationIcon name="lock" />前往规划页核对与授权</button>
+            <button v-if="chosen.status === 'READY'" :disabled="!canExecute" @click="openExecute"><NavigationIcon name="play" />审阅风险并执行此 Step</button>
           </div>
           <details :key="chosen.id" class="reading-disclosure" :open="!chosen.executionResult && !chosen.baselineRevision">
             <summary>目标、范围与操作前提</summary>
             <h4>允许范围</h4><p class="scope">{{ chosen.scope }}</p>
-            <ContentList title="计划改动" :items="chosen.plannedChanges" />
+            <ContentList title="计划改动" :items="chosen.plannedChanges" icon="code" />
             <StepPrerequisites :plan="s.plan" :step="chosen" :copy="s.copy" execution />
             <h3>验收标准</h3><ol class="criteria"><li v-for="(criterion, index) in chosen.verificationCriteria" :key="index">
               <p>{{ criterion.description }}</p><code>{{ criterion.kind }}</code>
@@ -266,7 +269,7 @@ function execute() {
           <p v-if="chosen.status === 'READY'" class="meta">READY 表示已授权的就绪状态；准备提案期间也可能保持 READY，不能据此判断请求已结束。</p>
         </section>
         <section id="execution-result" class="execution-section">
-        <div class="section-row"><h3>执行状态与 Candidate</h3><StatusBadge :status="chosen.status" /></div>
+        <div class="section-row"><h3 class="section-heading"><NavigationIcon name="code" />执行状态与 Candidate</h3><StatusBadge :status="chosen.status" /></div>
         <RevisionText v-if="chosen.baselineRevision" label="baselineRevision · 执行基线" :value="chosen.baselineRevision" />
         <template v-if="chosen.executionResult"
           ><div class="result-heading">
@@ -285,6 +288,7 @@ function execute() {
             :items="chosen.executionResult.changes"
           /><ContentList
             title="受影响文件"
+            variant="modules" icon="file"
             :items="chosen.executionResult.affectedPaths"
           /><ContentList
             v-if="chosen.executionResult.warnings.length"
@@ -306,7 +310,7 @@ function execute() {
         <p v-if="chosen.executionResult" class="meta">Candidate 是执行产生的代码版本；出现 Candidate 不表示验证通过。</p>
         </section>
         <section id="verification-result" class="execution-section">
-        <h3>验证结果与可信版本</h3>
+        <h3 class="section-heading"><NavigationIcon name="evolution" />验证结果与可信版本</h3>
         <template v-if="chosen.verificationResult"
           ><div class="result-heading">
             <h4>保存的验证结果 <span class="meta">VerificationResult</span></h4>
@@ -324,14 +328,14 @@ function execute() {
           <article
             v-for="(check, index) in chosen.verificationResult.checks"
             :key="index"
-            class="check-result"
+            class="check-result" :data-passed="check.passed"
           >
             <div class="section-row">
               <h4>
                 {{ check.action
                 }}<span v-if="check.target"> · {{ check.target }}</span>
               </h4>
-              <strong>{{ check.passed ? "PASS" : "FAIL" }}</strong>
+              <strong class="check-outcome"><NavigationIcon :name="check.passed ? 'check' : 'warning'" />{{ check.passed ? "PASS" : "FAIL" }}</strong>
             </div>
             <p>{{ check.summary }}</p>
             <p class="meta">
@@ -366,7 +370,7 @@ function execute() {
           "
           class="success-note"
         >
-          <strong>SUCCEEDED · 此 Step 验证通过</strong>
+          <strong class="section-heading"><NavigationIcon name="evolution" />SUCCEEDED · 此 Step 验证通过</strong>
           <RevisionText label="lastVerifiedRevision" :value="s.copy?.lastVerifiedRevision" />
           <p v-for="(check, index) in chosen.verificationResult?.checks ?? []" :key="index">
             {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ check.passed ? 'PASS' : 'FAIL' }}

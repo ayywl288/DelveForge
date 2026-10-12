@@ -9,6 +9,7 @@ import EvidenceList from "../components/EvidenceList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import RevisionText from "../components/RevisionText.vue";
 import StepPrerequisites from "../components/StepPrerequisites.vue";
+import NavigationIcon from "../components/NavigationIcon.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
 const workspaceConfiguration = ref<WorkspaceConfiguration | null>(null);
 const workspaceConfigurationError = ref("");
@@ -119,14 +120,14 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
     <section class="panel">
       <div class="panel-header">
         <div>
-          <h2>{{ s.plan.targetState.targetProduct }}</h2>
+          <h2 class="section-heading"><NavigationIcon name="planning" />演化计划</h2>
         </div>
         <StatusBadge :status="s.plan.status" />
       </div>
       <p class="meta">以下是保存的规划输入与目标。实现和验证结果请在「验证演化」查看。</p>
       <div class="state-comparison">
         <section>
-          <span class="summary-label">规划时的现状</span>
+          <span class="summary-label"><NavigationIcon name="layers" />规划时的现状</span>
           <h3>{{ s.plan.currentState.summary }}</h3>
           <details class="reading-disclosure"><summary>查看完整现状</summary>
           <p>{{ s.plan.currentState.summary }}</p>
@@ -143,7 +144,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
           </details>
         </section>
         <section>
-          <span class="summary-label">计划目标</span>
+          <span class="summary-label"><NavigationIcon name="target" />计划目标</span>
           <h3>{{ s.plan.targetState.targetProduct }}</h3>
           <details class="reading-disclosure"><summary>查看完整目标与复用能力</summary>
           <h3>要解决的问题</h3><p>{{ s.plan.targetState.problem }}</p>
@@ -182,13 +183,13 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
       </details>
     </section>
     <section class="panel roadmap" aria-labelledby="roadmap-heading">
-    <div class="panel-header"><h2 id="roadmap-heading">演化路线</h2><span class="meta">{{ s.plan.steps.length }} 个步骤 · 按顺序验证</span></div>
+    <div class="panel-header"><h2 id="roadmap-heading" class="section-heading"><NavigationIcon name="planning" />演化路线</h2><span class="meta">{{ s.plan.steps.length }} 个步骤 · 按顺序验证</span></div>
     <p v-if="!s.plan.steps.length" class="empty">此计划未提供步骤。</p>
     <ol class="step-list">
       <li
         v-for="(step, index) in s.plan.steps"
         :key="step.id"
-        class="roadmap-step" :class="{ expanded: expandedStepId === step.id }"
+        class="roadmap-step" :class="{ expanded: expandedStepId === step.id }" :data-status="step.status"
       >
         <button class="roadmap-toggle" :aria-expanded="expandedStepId === step.id" :aria-controls="`plan-step-${step.id}`"
           @click="expandedStepId = expandedStepId === step.id ? '' : step.id">
@@ -197,12 +198,12 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
           <span aria-hidden="true" class="disclosure-chevron">{{ expandedStepId === step.id ? '−' : '+' }}</span>
         </button>
         <div v-if="expandedStepId === step.id" :id="`plan-step-${step.id}`" class="step-content">
-          <h3>步骤目标</h3><p>{{ step.goal }}</p>
-          <h3>允许范围</h3>
+          <h3 class="section-heading"><NavigationIcon name="target" />步骤目标</h3><p>{{ step.goal }}</p>
+          <h3 class="section-heading"><NavigationIcon name="git" />允许范围</h3>
           <p class="scope">{{ step.scope }}</p>
-          <ContentList title="计划改动" :items="step.plannedChanges" />
+          <ContentList title="计划改动" :items="step.plannedChanges" icon="code" />
           <StepPrerequisites :plan="s.plan" :step="step" :copy="s.copy" />
-          <h3>验收标准</h3>
+          <h3 class="section-heading"><NavigationIcon name="evolution" />验收标准</h3>
           <ol class="criteria">
             <li
               v-for="(criterion, criterionIndex) in step.verificationCriteria"
@@ -221,7 +222,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
           </details>
           <button
             v-if="step.status === 'PENDING_CONFIRMATION'"
-            class="secondary"
+            class="step-authorize"
             :disabled="
               !!s.busy ||
               !!s.receipt ||
@@ -233,7 +234,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
             "
             @click="stepToConfirm = step"
           >
-            审阅并授权此 Step
+            <NavigationIcon name="lock" />审阅并授权此 Step
           </button>
           <p v-if="step.status === 'READY'" class="inline-note">
             此 Step 已授权；执行仍需在下一阶段单独点击确认。

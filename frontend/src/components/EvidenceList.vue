@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Evidence, EvidenceBasis } from "../api/types";
+import NavigationIcon from "./NavigationIcon.vue";
 defineProps<{
   items?: Evidence[];
   bases?: EvidenceBasis[];
@@ -15,7 +16,8 @@ const sources: Record<string, string> = {
 <template>
   <details class="evidence" :open="expanded">
     <summary>
-      {{ title ?? "查看依据" }} · {{ bases?.length ?? items?.length ?? 0 }}
+      <NavigationIcon name="evidence" />{{ title ?? "查看依据" }}
+      <span class="count-pill">{{ bases?.length ?? items?.length ?? 0 }}</span>
     </summary>
     <p v-if="!(bases?.length || items?.length)" class="muted">
       此项没有可追溯的依据。
@@ -25,15 +27,15 @@ const sources: Record<string, string> = {
       (items ?? []).map((evidence) => ({ evidence, origin: null }))"
       :key="index"
     >
-      <p>{{ item.evidence.claim }}</p>
-      <div class="meta">
+      <div class="evidence-source meta"><NavigationIcon :name="item.evidence.sourceType === 'REPOSITORY' ? 'file' : 'discovery'" />
         {{ sources[item.evidence.sourceType] ?? "其他来源" }}
         <span v-if="item.evidence.confidence != null">
           · {{ friendly ? "推断可信程度" : "confidence" }}
           {{ item.evidence.confidence }}</span
         >
       </div>
-      <code>{{ item.evidence.sourceRef }}</code>
+      <p class="evidence-claim">{{ item.evidence.claim }}</p>
+      <code class="source-reference">{{ item.evidence.sourceRef }}</code>
       <details>
         <summary>技术详情</summary>
         <p class="meta">confirmed 表示单条依据是否核对，与整体画像确认及方向选择不同；本界面不提供逐条确认操作。</p>

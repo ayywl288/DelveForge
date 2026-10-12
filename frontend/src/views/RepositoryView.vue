@@ -10,6 +10,7 @@ import LicenseDeclarationField from "../components/LicenseDeclarationField.vue";
 import ProjectResourcePicker from "../components/ProjectResourcePicker.vue";
 import { validLicenseDeclaration } from "../state/licenseDeclaration";
 import { repositoryLocationKey } from "../state/repositoryLocation";
+import NavigationIcon, { type NavigationIconName } from "../components/NavigationIcon.vue";
 const props = defineProps<{ s: WorkspaceSession; authorizationTargetId?: string }>();
 const emit = defineEmits<{ next: []; returnPlanning: [] }>();
 const savedAuthorizationId = ref("");
@@ -35,13 +36,13 @@ const repository = computed(() => props.s.repositories.find(item => item.id === 
   ?? props.s.repositories[0]);
 const repositoryAsset = computed(() => props.s.assets.find(item => item.id === repository.value?.assetId));
 const sections = [
-  { id: "overview", label: "概览" },
-  { id: "structure", label: "结构与技术" },
-  { id: "capabilities", label: "已有能力" },
-  { id: "reuse", label: "可复用资产" },
-  { id: "risks", label: "限制与风险" },
-  { id: "evidence", label: "分析依据" },
-];
+  { id: "overview", label: "概览", icon: "file" },
+  { id: "structure", label: "结构与技术", icon: "code" },
+  { id: "capabilities", label: "已有能力", icon: "layers" },
+  { id: "reuse", label: "可复用资产", icon: "reuse" },
+  { id: "risks", label: "限制与风险", icon: "warning" },
+  { id: "evidence", label: "分析依据", icon: "evidence" },
+] satisfies { id: string; label: string; icon: NavigationIconName }[];
 function viewRepository(id: string) {
   repositoryId.value = id;
   sectionId.value = "overview";
@@ -51,10 +52,10 @@ function viewRepository(id: string) {
 <template>
   <section v-if="repository" id="repository-explorer" class="panel repository-explorer">
     <div class="panel-header explorer-heading">
-      <div>
+      <div class="repository-identity"><span class="feature-symbol"><NavigationIcon name="repository" /></span><div>
         <h2>{{ repository.purpose }}</h2>
         <p class="path">{{ repositoryAsset?.location ?? '未读取到关联资产路径' }}</p>
-      </div>
+      </div></div>
       <span class="tag">只读分析快照</span>
     </div>
     <div class="snapshot-context">
@@ -72,12 +73,13 @@ function viewRepository(id: string) {
       <nav class="local-navigation" aria-label="仓库分析分区">
         <button v-for="section in sections" :key="section.id" class="local-nav-button"
           :aria-pressed="sectionId === section.id" :aria-controls="`repository-section-${section.id}`"
-          @click="sectionId = section.id">{{ section.label }}</button>
+          @click="sectionId = section.id"><NavigationIcon :name="section.icon" />{{ section.label }}</button>
       </nav>
       <div class="explorer-reading" :id="`repository-${repository.id}`">
         <section id="repository-section-overview" v-show="sectionId === 'overview'">
-          <h3>仓库用途</h3><p class="reading-text">{{ repository.purpose }}</p>
-          <ContentList title="已有能力" :items="repository.capabilities" />
+          <h3 class="section-heading"><NavigationIcon name="file" />仓库用途</h3><p class="reading-text">{{ repository.purpose }}</p>
+          <ContentList title="技术栈" :items="repository.techStack" variant="tags" icon="code" />
+          <ContentList title="已有能力" :items="repository.capabilities" icon="layers" />
           <details class="object-id">
             <summary>快照与资产绑定</summary>
             <p>RepositoryProfile <code>{{ repository.id }}</code></p>
@@ -85,18 +87,18 @@ function viewRepository(id: string) {
           </details>
         </section>
         <section id="repository-section-structure" v-show="sectionId === 'structure'">
-          <ContentList title="技术栈" :items="repository.techStack" />
-          <ContentList title="模块" :items="repository.modules" />
+          <ContentList title="技术栈" :items="repository.techStack" variant="tags" icon="code" />
+          <ContentList title="模块" :items="repository.modules" variant="modules" icon="repository" />
         </section>
         <section id="repository-section-capabilities" v-show="sectionId === 'capabilities'">
-          <ContentList title="已有能力" :items="repository.capabilities" />
+          <ContentList title="已有能力" :items="repository.capabilities" icon="layers" />
         </section>
         <section id="repository-section-reuse" v-show="sectionId === 'reuse'">
-          <ContentList title="可复用资产" :items="repository.reusableAssets" />
+          <ContentList title="可复用资产" :items="repository.reusableAssets" icon="reuse" />
         </section>
         <section id="repository-section-risks" v-show="sectionId === 'risks'">
-          <ContentList title="限制" :items="repository.limitations" />
-          <ContentList title="风险" :items="repository.risks" />
+          <ContentList title="限制" :items="repository.limitations" icon="lock" />
+          <ContentList title="风险" :items="repository.risks" variant="risks" icon="warning" />
         </section>
         <section id="repository-section-evidence" v-show="sectionId === 'evidence'">
           <h3>原始分析依据</h3>

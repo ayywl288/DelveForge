@@ -2,12 +2,13 @@
 import { computed } from "vue";
 import type { EvolutionPlan, EvolutionStep, WorkingCopy } from "../api/types";
 import StatusBadge from "./StatusBadge.vue";
+import NavigationIcon from "./NavigationIcon.vue";
 const props = defineProps<{ plan: EvolutionPlan; step: EvolutionStep; copy: WorkingCopy | null; execution?: boolean }>();
 const previous = computed(() => props.plan.steps.slice(0, props.plan.steps.indexOf(props.step)));
 </script>
 <template>
   <section class="step-prerequisites">
-    <h3>操作前提</h3>
+    <h3 class="section-heading"><NavigationIcon name="lock" />操作前提</h3>
     <p class="meta">按当前记录核对顺序与副本状态，最终以后端校验为准。</p>
     <ul>
       <li>计划需处于进行中：<StatusBadge :status="plan.status" :show-code="false" /></li>

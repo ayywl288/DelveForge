@@ -483,6 +483,10 @@ it("项目工作台用紧凑列表显示真实计数，明确创建与恢复，U
   const app = createApp(App); app.mount(root); cleanups.push(() => app.unmount()); await settle();
   expect(root.querySelector("h1")?.textContent).toContain("项目工作台");
   expect(root.querySelector(".project-row")?.textContent).toContain("1/4");
+  const progress = root.querySelector(".project-row progress") as HTMLProgressElement;
+  expect(progress.value).toBe(1);
+  expect(progress.max).toBe(4);
+  expect(progress.getAttribute("aria-label")).toContain("1/4 个 Step 已验证通过");
   expect(root.querySelector(".project-details")?.textContent).toContain("c822cc3");
   expect(root.querySelector(".advanced-recovery")?.textContent).toContain("恢复已知对象");
   (root.querySelector(".project-actions button") as HTMLButtonElement).click(); await settle();
@@ -523,6 +527,7 @@ it("列表保留完整技术信息与需要核对的问题，没有 Plan 时不�
   expect(rows[0]!.querySelector(".project-metadata")?.textContent).toContain("E:/trusted/rest-service");
   expect(rows[0]!.querySelector(".project-row-issues summary")?.textContent).toContain("1 项需要核对");
   expect(rows[1]!.querySelector(".project-progress")).toBeNull();
+  expect(rows[1]!.querySelector("progress")).toBeNull();
   expect(rows[1]!.querySelector(".badge")).toBeNull();
   expect(rows[1]!.textContent).toContain("尚未生成计划");
   expect(rows[1]!.textContent).toContain("未保存活动时间");

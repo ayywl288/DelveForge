@@ -6,6 +6,7 @@ import {
   type UserProfile,
 } from "../api/types";
 import EvidenceList from "./EvidenceList.vue";
+import NavigationIcon from "./NavigationIcon.vue";
 const props = defineProps<{
   profile: UserProfile;
   sufficiency: Sufficiency | null;
@@ -15,7 +16,7 @@ defineEmits<{ edit: [section: ProfileSection] }>();
 </script>
 <template>
   <section class="profile-review" aria-labelledby="review-heading" tabindex="0">
-    <h3 id="review-heading">审阅你的画像 · 画像版本 {{ profile.revision }}</h3>
+    <h3 id="review-heading" class="section-heading"><NavigationIcon name="evidence" />审阅你的画像 · 画像版本 {{ profile.revision }}</h3>
     <p>逐项核对系统整理的内容与下方原始输入依据。发现误解可以纠正，也可以返回探索；确认只针对当前版本。</p>
     <p v-if="sufficiency">
       {{ sufficiency.sufficient

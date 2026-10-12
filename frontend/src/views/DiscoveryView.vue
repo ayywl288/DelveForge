@@ -5,6 +5,7 @@ import type { WorkspaceSession } from "../state/session";
 import StatusBadge from "../components/StatusBadge.vue";
 import EvidenceList from "../components/EvidenceList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
+import NavigationIcon, { type NavigationIconName } from "../components/NavigationIcon.vue";
 import ProfileReview from "../components/ProfileReview.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
 const emit = defineEmits<{ next: [] }>();
@@ -15,6 +16,10 @@ const editValue = ref("");
 const reopen = ref(false);
 const chat = ref<HTMLElement>();
 const inspectorOpen = ref(true);
+const dimensionIcons: Record<ProfileSection, NavigationIconName> = {
+  interests: "heart", behaviors: "activity", painPoints: "warning", technicalCapabilities: "code",
+  projectGoals: "target", constraints: "lock",
+};
 const activeTab = ref<"chat" | "review" | "confirmed">(
   props.s.profile?.status === "CONFIRMED" ? "confirmed"
     : props.s.profile?.status === "REVIEWING" ? "review" : "chat",
@@ -101,10 +106,17 @@ async function save() {
         <button v-else class="secondary" :aria-pressed="activeTab === 'confirmed'" @click="activeTab = 'confirmed'">确认信息</button>
       </div>
       <div v-if="activeTab === 'confirmed'" class="confirmed-profile">
-        <span class="tag">画像版本 {{ s.profile.revision }}</span>
+        <div class="confirmed-heading"><span class="feature-symbol success"><NavigationIcon name="evolution" /></span>
+          <span class="tag">画像版本 {{ s.profile.revision }}</span></div>
         <h3>画像已确认，可以继续理解仓库</h3>
         <p>这份画像将作为后续方向的输入。六维内容和原始依据可在右侧逐项展开查看。</p>
-        <button @click="emit('next')">理解我的仓库 →</button>
+        <div v-if="s.profile.projectGoals.length || s.profile.painPoints.length" class="confirmed-highlights">
+          <section v-if="s.profile.projectGoals.length"><h4 class="section-heading"><NavigationIcon name="target" />已确认的项目目标</h4>
+            <p>{{ s.profile.projectGoals[0] }}</p></section>
+          <section v-if="s.profile.painPoints.length"><h4 class="section-heading"><NavigationIcon name="discovery" />希望改善的问题</h4>
+            <p>{{ s.profile.painPoints[0] }}</p></section>
+        </div>
+        <button @click="emit('next')"><NavigationIcon name="repository" />理解我的仓库 <NavigationIcon name="arrow" /></button>
         <p class="meta">当前显示的是保存的画像；刷新不会恢复历史对话。</p>
       </div>
       <div v-if="s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient" class="readiness-banner" role="status">
@@ -124,6 +136,7 @@ async function save() {
         aria-live="polite"
       >
         <div v-if="!s.messages.length" class="chat-intro">
+          <span class="feature-symbol"><NavigationIcon name="discovery" /></span>
           <h3>从一个想改善的事情说起</h3>
           <p>
             本次会话没有聊天记录。可以直接描述一个想改善的事情，或主动请 Agent 提问。
@@ -203,7 +216,10 @@ async function save() {
         :key="section.key"
         class="profile-section"
       >
-        <summary>{{ section.label }} <span class="dimension-count">{{ s.profile[section.key].length }} 项</span></summary>
+        <summary><NavigationIcon :name="dimensionIcons[section.key]" />
+          <span class="dimension-name">{{ section.label }} <span class="dimension-count">{{ s.profile[section.key].length }} 项</span></span>
+          <span class="dimension-preview">{{ s.profile[section.key][0] ?? '尚未记录' }}</span>
+        </summary>
         <div class="section-row">
           <span class="meta">{{ section.hint }}</span>
           <button
