@@ -62,6 +62,7 @@ AI 操作会调用付费 Provider，只在实际获得授权后验收。本次�
 - `delveforge.execution.v1` 只保存 planId、stepId、startedAt。发送前必须成功写入并取得 Web Locks；不支持锁或存储的浏览器不发送 execute。锁仅协调同 origin 标签页。
 - 等待期间每 3 秒串行查询 Plan / WorkingCopy。准备 CodingProposal 时可能仍为真实 READY，旁边显示本页的请求等待信息；不创建 PREPARING 或百分比进度。
 - 明确后端错误且 GET 确认该 Step 没有 Candidate、仍为 READY，副本为 READY / EVOLVING 且 current 等于 lastVerified 时，可再次手动决定。这不是客户端 Git cleanliness 检查。断线、未知代理错误、无法读取响应或刷新后，保留待核对标记。READY 不证明原请求已结束，不能据此自动解锁或重发。
+- 执行准备区分 `EXECUTION_CRITERIA_UNSUPPORTED`（无法自动验证，本次未调用 AI）、`EXECUTION_AI_FAILED`（Provider 通信 / 响应失败）和 `CODING_PROPOSAL_INVALID`（已返回内容但提案解析 / 契约不合格）。不支持的标准不能靠重复点击解决；其它失败再次调用也不保证成功且可能计费。这三个错误仍须按上述 GET 条件核对，不能绕过未知结果保护。
 - 终态检查点可以解除等待标记；FAILED / VERIFICATION_FAILED / RECOVERY_REQUIRED 等没有 M4 恢复操作。长期 READY 需要在宿主核对原请求；不能通过清除浏览器存储推断后端取消或合法恢复。
 - 其它浏览器、清除站点数据、直接 API 客户端不受此锁协调。避免同时操作同一 Plan，最终授权、revision 与 Git 检查仍由后端执行。
 - 业务提交期间禁用项目切换；慢轮询响应按当前上下文版本丢弃。未知 execute 标记跨项目保留，先打开其所属 Plan 查询，不能切换后绕过防重复提交。

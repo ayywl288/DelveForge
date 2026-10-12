@@ -225,10 +225,16 @@ public final class StepRepositoryUnderstanding {
                 throw new ExecutionPreparationBudgetExceededException("AI request budget exhausted");
             }
             revalidate.run();
-            String output = ai.generate(request);
+            String output;
+            try {
+                output = ai.generate(request);
+            } catch (AiGatewayException failure) {
+                throw new ExecutionPreparationException(ExecutionPreparationException.Phase.PROVIDER_CALL, failure);
+            }
             revalidate.run();
             if (output == null || output.getBytes(StandardCharsets.UTF_8).length > limits.maxProposalBytes()) {
-                throw new AiGatewayException("AI response is absent or exceeds the configured budget");
+                throw new ExecutionPreparationException(ExecutionPreparationException.Phase.PROVIDER_CALL,
+                        new AiGatewayException("AI response is absent or exceeds the configured budget"));
             }
             return output;
         }

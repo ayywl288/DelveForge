@@ -73,8 +73,10 @@ class EvolutionStepExecutionApiIntegrationTest {
     private String revision;
     private Path source;
     private Path copy;
+    private String codingOutput;
 
     @BeforeEach void setup(TestInfo test) throws Exception {
+        codingOutput = null;
         source = BASE.resolve("source-" + UUID.randomUUID());
         Files.createDirectories(source);
         git(source, "init", "-q");
@@ -140,11 +142,22 @@ class EvolutionStepExecutionApiIntegrationTest {
         var criterion = (com.fasterxml.jackson.databind.node.ObjectNode) stepNode.path("verificationCriteria").get(0);
         criterion.put("kind", kind.name());
         criterion.put("description", kind == VerificationCriterion.Kind.UNSUPPORTED ? "Reports run on schedule" : kind.description());
+        if (method.equals("unsupportedCriteriaRejectBeforeAnyProviderAndPreservePersistedCheckpoint")) {
+            var criteria = stepNode.putArray("verificationCriteria");
+            for (VerificationCriterion.Kind technical : List.of(VerificationCriterion.Kind.BUILD_SUCCEEDS,
+                    VerificationCriterion.Kind.SELECTED_TESTS_PASS, VerificationCriterion.Kind.DIFF_CHECK_PASSES)) {
+                criteria.addObject().put("kind", technical.name()).put("description", technical.description());
+            }
+            criteria.addObject().put("kind", "UNSUPPORTED").put("description", "Reports run on schedule");
+            kind = VerificationCriterion.Kind.BUILD_SUCCEEDS;
+        }
         when(ai.generate(any())).thenAnswer(invocation -> {
             AiRequest request = invocation.getArgument(0);
             String instruction = request.messages().getFirst().content();
             assertTrue(instruction.contains("BUILD_SUCCEEDS"));
             assertTrue(instruction.contains("不得提供如何执行的命令或测试类名"));
+            assertTrue(instruction.contains("优先规划可由上述技术标准验证的小步骤"));
+            assertTrue(instruction.contains("不得为了声称计划可执行而删除、伪造或转换用户验收要求"));
             assertFalse(instruction.contains("ReportTest"));
             assertFalse(planningNode.toString().contains("ReportTest"));
             return mapper.writeValueAsString(planningNode);
@@ -198,6 +211,9 @@ class EvolutionStepExecutionApiIntegrationTest {
             JsonNode payload = mapper.readTree(request.messages().stream().filter(message -> message.role() == AiRole.USER)
                     .findFirst().orElseThrow().content());
             if (payload.has("sourceFiles")) {
+                if (codingOutput != null) {
+                    return codingOutput;
+                }
                 VerificationCriterion criterion = plans.findById(new EvolutionPlanId(planId)).orElseThrow()
                         .step(new EvolutionStepId(stepId)).verificationCriteria().getFirst();
                 JsonNode suppliedCriterion = payload.path("step").path("verificationCriteria").get(0);
@@ -386,14 +402,16 @@ class EvolutionStepExecutionApiIntegrationTest {
     @Test void wrongEvidenceTypeFailsBeforeMutation() throws Exception {
         confirm();
         coding(PATCH, "DIFF_CHECK");
-        mvc.perform(post(route("execute"))).andExpect(status().isBadGateway());
+        mvc.perform(post(route("execute"))).andExpect(status().is(422))
+                .andExpect(jsonPath("$.code").value("CODING_PROPOSAL_INVALID"));
         readyAndUnchanged();
     }
 
     @Test void focusedTestCannotProveTheFullSuiteCriterion() throws Exception {
         confirm();
         coding(PATCH, "FOCUSED_TEST");
-        mvc.perform(post(route("execute"))).andExpect(status().isBadGateway());
+        mvc.perform(post(route("execute"))).andExpect(status().is(422))
+                .andExpect(jsonPath("$.code").value("CODING_PROPOSAL_INVALID"));
         readyAndUnchanged();
     }
 
@@ -405,12 +423,69 @@ class EvolutionStepExecutionApiIntegrationTest {
                 + " org.junit.jupiter.api.Assertions.assertEquals(1, 1); } }\n";
         coding(patch, action);
         Map<String, String> original = snapshot(source);
-        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        mvc.perform(post(route("execute"))).andExpect(status().is(422))
+                .andExpect(jsonPath("$.code").value("EXECUTION_CRITERIA_UNSUPPORTED"));
+        verifyNoInteractions(ai);
         readyAndUnchanged();
         assertFalse(Files.exists(copy.resolve("src/test/java/ReportTest.java")));
         assertEquals(original, snapshot(source));
         assertNull(plans.findById(new EvolutionPlanId(planId)).orElseThrow()
                 .step(new EvolutionStepId(stepId)).verificationResult());
+    }
+
+    @Test void unsupportedCriteriaRejectBeforeAnyProviderAndPreservePersistedCheckpoint() throws Exception {
+        confirm();
+        EvolutionPlan beforePlan = plans.findById(new EvolutionPlanId(planId)).orElseThrow();
+        List<VerificationCriterion> criteria = beforePlan.step(new EvolutionStepId(stepId)).verificationCriteria();
+        Map<String, String> beforeSource = snapshot(source);
+        Map<String, String> beforeCopy = snapshot(copy);
+        String beforePlanRow = jdbc.queryForMap("SELECT * FROM evolution_plan WHERE id = ?", planId).toString();
+        String beforeStepRow = jdbc.queryForMap("SELECT * FROM evolution_step WHERE id = ?", stepId).toString();
+        String beforeCopyRow = jdbc.queryForMap("SELECT * FROM working_copy WHERE id = ?", beforePlan.workingCopyId()).toString();
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mvc.perform(post(route("execute"))).andExpect(status().is(422))
+                    .andExpect(jsonPath("$.code").value("EXECUTION_CRITERIA_UNSUPPORTED"));
+            verifyNoInteractions(ai);
+            readyAndUnchanged();
+        }
+
+        EvolutionPlan afterPlan = plans.findById(new EvolutionPlanId(planId)).orElseThrow();
+        EvolutionStep afterStep = afterPlan.step(new EvolutionStepId(stepId));
+        assertEquals(EvolutionPlanStatus.ACTIVE, afterPlan.status());
+        assertEquals(criteria, afterStep.verificationCriteria());
+        assertNull(afterStep.executionResult());
+        assertNull(afterStep.verificationResult());
+        assertEquals(beforePlanRow, jdbc.queryForMap("SELECT * FROM evolution_plan WHERE id = ?", planId).toString());
+        assertEquals(beforeStepRow, jdbc.queryForMap("SELECT * FROM evolution_step WHERE id = ?", stepId).toString());
+        assertEquals(beforeCopyRow, jdbc.queryForMap("SELECT * FROM working_copy WHERE id = ?", beforePlan.workingCopyId()).toString());
+        assertEquals(beforeSource, snapshot(source));
+        assertEquals(beforeCopy, snapshot(copy));
+        assertEquals(revision, git(source, "rev-parse", "HEAD").trim());
+        assertEquals("", git(copy, "status", "--porcelain"));
+    }
+
+    @Test void providerFailureIsClassifiedBeforeMutation() throws Exception {
+        confirm();
+        when(ai.generate(any())).thenThrow(new AiGatewayException("PRIVATE_PROVIDER_CREDENTIAL"));
+        mvc.perform(post(route("execute"))).andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("EXECUTION_AI_FAILED"));
+        verify(ai, times(1)).generate(any());
+        readyAndUnchanged();
+        assertNull(plans.findById(new EvolutionPlanId(planId)).orElseThrow()
+                .step(new EvolutionStepId(stepId)).executionResult());
+    }
+
+    @Test void returnedCodingContentIsClassifiedAsLocalProposalFailure() throws Exception {
+        confirm();
+        coding(PATCH, "DIFF_CHECK");
+        codingOutput = "PRIVATE_INVALID_CODING_RESPONSE";
+        mvc.perform(post(route("execute"))).andExpect(status().is(422))
+                .andExpect(jsonPath("$.code").value("CODING_PROPOSAL_INVALID"));
+        verify(ai, times(2)).generate(any());
+        readyAndUnchanged();
+        assertNull(plans.findById(new EvolutionPlanId(planId)).orElseThrow()
+                .step(new EvolutionStepId(stepId)).executionResult());
     }
 
     @Test void failedDiffCheckRemainsVerifyingAndBlocksFurtherExecution() throws Exception {

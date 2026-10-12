@@ -2,6 +2,25 @@ import { describe, expect, it, vi } from "vitest";
 import { api, ApiError, request } from "../src/api/client";
 
 describe("真实 DTO 请求契约", () => {
+  it("区分执行预检、Provider 与代码提案错误，不展示原始响应且不自动重试", async () => {
+    const cases = [
+      [422, "EXECUTION_CRITERIA_UNSUPPORTED", "重复点击执行不会解决"],
+      [502, "EXECUTION_AI_FAILED", "Provider 响应处理失败"],
+      [422, "CODING_PROPOSAL_INVALID", "未通过解析或契约校验"],
+    ] as const;
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    for (const [status, code, text] of cases) {
+      fetcher.mockResolvedValueOnce(new Response(
+        JSON.stringify({ code, message: "PRIVATE_PROMPT_PROVIDER_CREDENTIAL" }), { status },
+      ));
+      await expect(api.execute("plan", "step")).rejects.toThrow(text);
+      expect(new ApiError(status, code).message).not.toContain("PRIVATE_PROMPT_PROVIDER_CREDENTIAL");
+      expect(new ApiError(status, code).message).not.toContain("重试即可");
+    }
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
   it("规划阶段错误使用固定提示，拒绝与结果未知分开且不重试", async () => {
     const messages: Record<string, string> = {
       PLANNING_AI_FAILED: "Provider 响应处理失败",

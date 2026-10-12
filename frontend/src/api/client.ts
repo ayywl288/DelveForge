@@ -36,6 +36,9 @@ const messages: Record<string, string> = {
   ASSET_ALREADY_REGISTERED: "此仓库已登记，请复用已有记录；许可证或授权应在原记录上显式修改。",
   EXTERNAL_CAPABILITY_UNAVAILABLE:
     "AI 调用未获得可用结果。请查询当前状态后再决定下一步。",
+  EXECUTION_CRITERIA_UNSUPPORTED: "当前 Step 含执行器不支持的验收标准，无法自动验证。本次未调用 AI 或修改代码；重复点击执行不会解决，请审阅计划的验证标准。",
+  EXECUTION_AI_FAILED: "执行准备的 AI 调用或 Provider 响应处理失败，尚未开始代码变更。请查询当前状态；不会自动重试，再次调用可能计费。",
+  CODING_PROPOSAL_INVALID: "Provider 已返回内容，但代码提案未通过解析或契约校验，尚未开始代码变更。请查询当前状态；重复执行不保证解决，再次调用可能计费。",
   PLANNING_AI_FAILED: "规划的 AI 调用或 Provider 响应处理失败，本次未保存计划。可明确重新生成，可能再次计费；不会自动重试。",
   PLANNING_PROPOSAL_INVALID: "AI 规划内容不符合结构要求，本次未保存计划。可明确重新生成，可能再次计费；不会自动重试。",
   PLANNING_EVIDENCE_INVALID: "AI 规划引用了输入中不存在的依据，本次未保存计划。可明确重新生成，可能再次计费；不会自动重试。",

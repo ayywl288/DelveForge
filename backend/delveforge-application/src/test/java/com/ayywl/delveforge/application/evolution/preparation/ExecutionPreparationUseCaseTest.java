@@ -31,13 +31,17 @@ class ExecutionPreparationUseCaseTest {
             2, 24, 48, 65536, 524288, 786432, 262144, 16, 16);
 
     private static EvolutionPlan plan() {
+        return plan(List.of(VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES)));
+    }
+
+    private static EvolutionPlan plan(List<VerificationCriterion> criteria) {
         EvidenceBasis basis = new EvidenceBasis(new Evidence(EvidenceSourceType.REPOSITORY,
                 "src/A.java", "existing", 0.8, true), new RepositoryProfileEvidenceOrigin(PROFILE));
         return EvolutionPlan.reconstitute(PLAN, new ProductDirectionId("direction"), ASSET, PROFILE,
                 new CurrentState("current", List.of(), List.of(), List.of()),
                 new TargetState("problem", "target", "difference"), List.of(), List.of("change"),
                 List.of(EvolutionStep.reconstitute(STEP, PLAN, "Schedule reports", "Reports only",
-                        List.of("Add scheduling"), List.of(VerificationCriterion.unsupported("Reports run on schedule")))),
+                        List.of("Add scheduling"), criteria)),
                 List.of(), List.of(basis), COPY, EvolutionPlanStatus.ACTIVE);
     }
 
@@ -119,10 +123,14 @@ class ExecutionPreparationUseCaseTest {
         private final Deque<String> coding = new ArrayDeque<>();
         private Consumer<AiRequest> afterCall = request -> {};
         private boolean unknownScoutRef;
+        private AiGatewayException failure;
         private int fileCalls;
         private int regionCalls;
         public String generate(AiRequest request) {
             requests.add(request);
+            if (failure != null) {
+                throw failure;
+            }
             JsonNode payload = json(request.messages().stream().filter(message -> message.role() == AiRole.USER)
                     .findFirst().orElseThrow().content());
             String result;
@@ -209,8 +217,12 @@ class ExecutionPreparationUseCaseTest {
         }
 
         private void assertReady() {
+            assertEquals(EvolutionPlanStatus.ACTIVE, store.plan.status());
             assertEquals(EvolutionStepStatus.READY, store.plan.step(STEP).status());
             assertNull(store.plan.step(STEP).baselineRevision());
+            assertNull(store.plan.step(STEP).executionResult());
+            assertNull(store.plan.step(STEP).verificationResult());
+            assertEquals(WorkingCopyStatus.EVOLVING, store.copy.status());
             assertEquals("trusted", store.copy.currentRevision());
             assertEquals("trusted", store.copy.lastVerifiedRevision());
             assertEquals("old\n", workspace.files.get("src/A.java"));
@@ -282,12 +294,69 @@ class ExecutionPreparationUseCaseTest {
         f.assertReady();
     }
 
-    @Test void AIAndParsingFailuresLeaveReadyStateAndSourceIntact() {
+    @Test void unsupportedCriterionRejectsBeforeScoutCodingAndSourceReads() {
+        Fixture f = new Fixture();
+        List<VerificationCriterion> criteria = List.of(
+                VerificationCriterion.technical(VerificationCriterion.Kind.BUILD_SUCCEEDS),
+                VerificationCriterion.technical(VerificationCriterion.Kind.SELECTED_TESTS_PASS),
+                VerificationCriterion.technical(VerificationCriterion.Kind.DIFF_CHECK_PASSES),
+                VerificationCriterion.unsupported("Reports run on schedule"));
+        f.store.plan = plan(criteria);
+        f.confirm();
+        EvolutionPlan beforePlan = f.store.plan;
+        WorkingCopy beforeCopy = f.store.copy;
+        Map<String, String> beforeFiles = Map.copyOf(f.workspace.files);
+
+        UnsupportedVerificationCriteriaException failure = assertThrows(UnsupportedVerificationCriteriaException.class,
+                () -> f.useCase().prepare(PLAN, STEP));
+
+        assertEquals(List.of(4), failure.criterionIndexes());
+        assertEquals(0, f.gateway.requests.size());
+        assertEquals(0, f.workspace.reads.size());
+        assertSame(beforePlan, f.store.plan);
+        assertSame(beforeCopy, f.store.copy);
+        assertEquals(criteria, f.store.plan.step(STEP).verificationCriteria());
+        assertEquals(beforeFiles, f.workspace.files);
+        assertEquals("trusted", f.workspace.head);
+        f.assertReady();
+    }
+
+    @Test void providerFailureHasSeparatePhaseAndDoesNotRetryOrMutate() {
+        Fixture f = new Fixture();
+        f.confirm();
+        f.gateway.failure = new AiGatewayException("PRIVATE_PROVIDER_RESPONSE");
+        ExecutionPreparationException failure = assertThrows(ExecutionPreparationException.class,
+                () -> f.useCase().prepare(PLAN, STEP));
+        assertEquals(ExecutionPreparationException.Phase.PROVIDER_CALL, failure.phase());
+        assertEquals(1, f.gateway.requests.size());
+        assertEquals(0, f.workspace.reads.size());
+        assertEquals("trusted", f.workspace.head);
+        f.assertReady();
+    }
+
+    @Test void proposalMissingCriterionCoverageStillFailsStrictValidation() {
+        Fixture f = new Fixture();
+        f.store.plan = plan(List.of(
+                VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES),
+                VerificationCriterion.technical(VerificationCriterion.Kind.DIFF_CHECK_PASSES)));
+        f.confirm();
+        f.gateway.coding.add(proposal(PATCH, List.of("src/A.java")));
+        ExecutionPreparationException failure = assertThrows(ExecutionPreparationException.class,
+                () -> f.useCase().prepare(PLAN, STEP));
+        assertEquals(ExecutionPreparationException.Phase.PROPOSAL_VALIDATION, failure.phase());
+        assertEquals("Verification strategy must address every existing criterion", failure.getCause().getMessage());
+        assertEquals(2, f.gateway.requests.size());
+        f.assertReady();
+    }
+
+    @Test void parsingFailuresLeaveReadyStateAndSourceIntact() {
         for (String bad : List.of("not json", "{}", "{\"type\":\"CHANGE_PROPOSAL\"}")) {
             Fixture f = new Fixture();
             f.confirm();
             f.gateway.coding.add(bad);
-            assertThrows(AiGatewayException.class, () -> f.useCase().prepare(PLAN, STEP));
+            ExecutionPreparationException failure = assertThrows(ExecutionPreparationException.class,
+                    () -> f.useCase().prepare(PLAN, STEP));
+            assertEquals(ExecutionPreparationException.Phase.PROPOSAL_PARSE, failure.phase());
             f.assertReady();
         }
     }

@@ -4,6 +4,8 @@ import com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionEx
 import com.ayywl.delveforge.application.evolution.planning.EvolutionPlanNotFoundException;
 import com.ayywl.delveforge.application.evolution.planning.PlanningExtractionException;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationBudgetExceededException;
+import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationException;
+import com.ayywl.delveforge.application.evolution.preparation.UnsupportedVerificationCriteriaException;
 import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDirectionNotFoundException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.StaleUserProfileRevisionException;
@@ -368,9 +370,29 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 Instant.now());
     }
 
-    /**
-     * 其它业务的 AI Gateway 失败；规划的阶段和领域拒绝由独立分支分类。
-     */
+    @ExceptionHandler(UnsupportedVerificationCriteriaException.class)
+    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
+    public ApiErrorResponse handleUnsupportedExecutionCriteria(
+            UnsupportedVerificationCriteriaException exception, HttpServletRequest request) {
+        ApiErrorCode code = ApiErrorCode.EXECUTION_CRITERIA_UNSUPPORTED;
+        log.warn("operation=evolution.execution path={} phase=PREFLIGHT code={} criterionIndexes={} exception={}",
+                loggedRoute(request), code, exception.criterionIndexes(), describe(exception));
+        return new ApiErrorResponse(code, messageFor(code), request.getRequestURI(), Instant.now());
+    }
+
+    @ExceptionHandler(ExecutionPreparationException.class)
+    public ResponseEntity<ApiErrorResponse> handleExecutionPreparationFailure(
+            ExecutionPreparationException exception, HttpServletRequest request) {
+        boolean providerFailure = exception.phase() == ExecutionPreparationException.Phase.PROVIDER_CALL;
+        ApiErrorCode code = providerFailure ? ApiErrorCode.EXECUTION_AI_FAILED : ApiErrorCode.CODING_PROPOSAL_INVALID;
+        HttpStatus status = providerFailure ? HttpStatus.BAD_GATEWAY : HttpStatus.UNPROCESSABLE_ENTITY;
+        log.error("operation=evolution.execution path={} phase={} code={} exception={}",
+                loggedRoute(request), exception.phase(), code, describe(exception));
+        return ResponseEntity.status(status).body(
+                new ApiErrorResponse(code, messageFor(code), request.getRequestURI(), Instant.now()));
+    }
+
+    /** 其它业务的 AI Gateway 失败；规划与执行准备的阶段由独立分支分类。 */
     @ExceptionHandler(AiGatewayException.class)
     @ResponseStatus(HttpStatus.BAD_GATEWAY)
     public ApiErrorResponse handleAiGatewayFailure(RuntimeException exception,
@@ -518,6 +540,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             case NOT_FOUND -> NOT_FOUND_MESSAGE;
             case CONFLICT -> CONFLICT_MESSAGE;
             case EXTERNAL_CAPABILITY_UNAVAILABLE -> AI_GATEWAY_FAILURE_MESSAGE;
+            case EXECUTION_CRITERIA_UNSUPPORTED ->
+                    "当前 Step 包含执行器不支持的验收标准，无法自动验证；重复执行不会解决，请审阅计划的验证标准";
+            case EXECUTION_AI_FAILED ->
+                    "执行准备的 AI 调用或 Provider 响应处理失败，尚未开始代码变更；请查询当前状态，不会自动重试";
+            case CODING_PROPOSAL_INVALID ->
+                    "Provider 已返回内容，但代码提案未通过解析或契约校验，尚未开始代码变更；请查询当前状态，重复执行不保证解决";
             case PLANNING_AI_FAILED -> "规划的 AI 调用或 Provider 响应处理失败，本次未保存计划；可核对后明确重新请求，可能再次计费";
             case PLANNING_PROPOSAL_INVALID -> "AI 规划内容未满足结构契约，本次未保存计划；可明确重新请求，可能再次计费";
             case PLANNING_EVIDENCE_INVALID -> "AI 规划引用了输入中不存在的依据，本次未保存计划；可明确重新请求，可能再次计费";

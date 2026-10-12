@@ -3,7 +3,7 @@
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-10-11
+**Last Updated:** 2026-10-12
 
 ## 1. Architecture Goals
 
@@ -1136,7 +1136,9 @@ Maven 测试还要求本次产生非空、无失败的 Surefire 报告；旧报�
 kind 是 WHAT，有限 action 是 HOW，具体测试 target 只由 M4 在本次源码理解后选择。
 技术说明按 DOMAIN_MODEL §8.11 的当前受控含义验证，业务或历史未分类文本保留为 UNSUPPORTED。
 索引映射由 AI 提议，领域按 kind 的证据适配独立核对
-动作 / target；无法适配的业务标准在 mutation 前拒绝。定向测试还须从本次报告确认实际类 / 方法。
+动作 / target；执行准备先复用 Criterion 的能力规则，在任何 Scout / Coding AI 调用及状态变更前拒绝
+无法适配的标准（`EXECUTION_CRITERIA_UNSUPPORTED`）。提案与 Workspace 的完整证据检查仍在 mutation 前保留。
+定向测试还须从本次报告确认实际类 / 方法。
 BUILD、DIFF_CHECK 或无关 TEST 的成功不能证明任意业务标准。
 定向方法证据仅规范化支持的 Surefire Java 参数签名和数字调用后缀，保持准确的类 / 方法身份。
 名义 TEST 不能单凭成功退出与非空报告证明全套语义。当前 Workspace 对 `.mvn/maven.config`

@@ -16,6 +16,8 @@
 业务阶段关闭、两次历史 Verified Evolution、Pre-UI 时点 1474 / 85 项确定性回归及尚未重跑的付费 E2E
 见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。
 Task G 当前发行版 UI 的最终结果与 123 项前端回归见 [最终关闭记录](validation/task-g-final-frontend-closeout.md)。
+2026-10-12 用户单独授权的 M4 执行前能力预检与安全错误分类修复见
+[correctness 修复记录](validation/m4-execution-preflight-correctness-fix.md)；冻结边界与 M5 暂缓不变。
 UI 接受不代表最新代码的完整付费 E2E、部署或发布验收；M6 仍为 TODO，不自动开始后续工作。
 实施前的技术结构与冻结边界保留在 [历史 UI 交接](UI_TASK_G_HANDOFF.md)；
 干净数据库切换由用户按 [本地数据环境说明](LOCAL_DATA_ENVIRONMENTS.md) 决定，不自动清理旧库或副本。

@@ -223,6 +223,18 @@ Direction Discovery 请求：
 
 当前只自动验证 DOMAIN_MODEL §8.11 的技术标准：`BUILD_SUCCEEDS`、`FULL_TEST_SUITE_PASSES`、`SELECTED_TESTS_PASS`、`DIFF_CHECK_PASSES`。保留其它业务标准为 `UNSUPPORTED`；不能改成“构建通过”以制造成功。
 
+执行入口在任何 Scout / Coding AI 请求及执行状态变更前进行标准能力预检。含 `UNSUPPORTED` 的 Step
+返回 HTTP 422 / `EXECUTION_CRITERIA_UNSUPPORTED`：本次没有 Provider 调用、代码修改或新增执行结果，
+仍保留原标准与检查点。反复执行不能解决；请审阅计划，不能手工改库删除历史标准。
+规划提示优先建议技术可验证的小步骤，但必须保留用户要求的非自动化验收，并在风险中标明不能自动执行。
+这不是保证模型能生成可执行计划。
+
+执行准备的 Provider 通信或响应失败返回 HTTP 502 / `EXECUTION_AI_FAILED`；已返回内容但
+CodingProposal 解析或契约校验失败返回 HTTP 422 / `CODING_PROPOSAL_INVALID`。
+这些提示不回显 Prompt、响应正文或异常自由文本，日志只记录阶段、错误码、类型与堆栈位置。
+既有授权 / revision 冲突、预算拒绝和进入执行后的失败仍按原有错误与检查点处理；先回读实际状态，
+没有自动重试，也不保证再次付费调用会成功。
+
 - BUILD：根 Wrapper 离线 `-DskipTests package`。
 - TEST：根 Wrapper 离线、显式不跳测试；同会话 effective POM 与 Surefire 配置审查，解析真实 XML，要求实际有测试且没有失败。完整套件不能用被选择器缩小的测试代替。
 - FOCUSED_TEST：仅支持受校验的 Java 测试目标与对应报告，不是任意命令。

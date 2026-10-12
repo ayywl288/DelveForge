@@ -44,8 +44,8 @@ class EvolutionStepPreparationApiIntegrationTest {
         {"currentState":{"summary":"Existing exports","capabilities":["Export"],"modules":["reports"],"limitations":[]},
          "targetState":{"problem":"Manual","targetProduct":"Scheduled","differentiation":"Personal"},
          "reusableCapabilities":["Export"],"changes":["Add scheduling"],
-         "steps":[{"goal":"Schedule reports","scope":"reports","plannedChanges":["Add scheduling"],
-         "verificationCriteria":[{"kind":"UNSUPPORTED","description":"Reports run on schedule"}]}],
+         "steps":[{"goal":"增量调整报表工程基础代码","scope":"reports","plannedChanges":["调整报表工程代码"],
+         "verificationCriteria":[{"kind":"FULL_TEST_SUITE_PASSES","description":"项目完整自动化测试套件通过"}]}],
          "risks":[],"evidence":["R-E1","D-E1"]}
         """;
 
@@ -258,7 +258,8 @@ class EvolutionStepPreparationApiIntegrationTest {
                 {"label":"behavior","fileRefs":["RF-1"]},{"label":"test","fileRefs":["RF-1"]}]}
                 """;
         when(ai.generate(any())).thenReturn(scout, coding);
-        mvc.perform(post(route("execution-preparation"))).andExpect(status().isBadGateway());
+        mvc.perform(post(route("execution-preparation"))).andExpect(status().is(422))
+                .andExpect(jsonPath("$.code").value("CODING_PROPOSAL_INVALID"));
         readyAndUnchanged();
         assertEquals(beforeSource, snapshot(source));
         assertEquals(beforeCopy, snapshot(copy));
@@ -290,7 +291,8 @@ class EvolutionStepPreparationApiIntegrationTest {
                 {"label":"behavior","fileRefs":["RF-1"]},{"label":"test","fileRefs":["RF-1"]}]}
                 """;
         when(ai.generate(any())).thenReturn(scout, coding);
-        mvc.perform(post(route("execution-preparation"))).andExpect(status().isBadGateway());
+        mvc.perform(post(route("execution-preparation"))).andExpect(status().is(422))
+                .andExpect(jsonPath("$.code").value("CODING_PROPOSAL_INVALID"));
         readyAndUnchanged();
         assertEquals(beforeSource, snapshot(source));
         assertEquals(beforeCopy, snapshot(copy));
@@ -310,7 +312,8 @@ class EvolutionStepPreparationApiIntegrationTest {
                 {"focusAreas":[{"label":"code","fileRefs":["RF-1"]},
                 {"label":"behavior","fileRefs":["RF-1"]},{"label":"test","fileRefs":["RF-1"]}]}
                 """, "{}");
-        mvc.perform(post(route("execution-preparation"))).andExpect(status().isBadGateway());
+        mvc.perform(post(route("execution-preparation"))).andExpect(status().is(422))
+                .andExpect(jsonPath("$.code").value("CODING_PROPOSAL_INVALID"));
         readyAndUnchanged();
     }
 

@@ -313,6 +313,50 @@ describe("长同步 execute", () => {
     await s.execute("step-1");
     expect(s.receipt.value).not.toBeNull();
   });
+  it.each([
+    [422, "EXECUTION_CRITERIA_UNSUPPORTED", "无法自动验证"],
+    [502, "EXECUTION_AI_FAILED", "Provider 响应处理失败"],
+    [422, "CODING_PROPOSAL_INVALID", "未通过解析或契约校验"],
+  ])("执行分类 %s/%s 仍须回读 READY，显示具体原因且不自动重试", async (status, code, text) => {
+    const s = make();
+    ready(s);
+    const execute = vi.spyOn(api, "execute").mockRejectedValue(new ApiError(Number(status), String(code)));
+    await s.execute("step-1");
+    expect(execute).toHaveBeenCalledOnce();
+    expect(api.plan).toHaveBeenCalledTimes(2);
+    expect(api.workingCopy).toHaveBeenCalledTimes(2);
+    expect(s.receipt.value).toBeNull();
+    expect(s.error.value).toContain(String(text));
+    expect(s.error.value).not.toContain("重试即可");
+  });
+  it.each(["EXECUTION_CRITERIA_UNSUPPORTED", "EXECUTION_AI_FAILED", "CODING_PROPOSAL_INVALID"])(
+    "%s 在拒绝后的状态查询失败时仍保留等待标记", async (code) => {
+      const s = make();
+      ready(s);
+      const execute = vi.spyOn(api, "execute").mockImplementation(async () => {
+        vi.mocked(api.plan).mockRejectedValue(new ApiError(0, "CONNECTION_LOST"));
+        throw new ApiError(code === "EXECUTION_AI_FAILED" ? 502 : 422, code);
+      });
+      await s.execute("step-1");
+      await s.execute("step-1");
+      expect(execute).toHaveBeenCalledOnce();
+      expect(s.receipt.value).not.toBeNull();
+    },
+  );
+  it.each(["EXECUTION_CRITERIA_UNSUPPORTED", "EXECUTION_AI_FAILED", "CODING_PROPOSAL_INVALID"])(
+    "%s 在查询发现 Candidate 时仍保留等待标记", async (code) => {
+      const s = make();
+      ready(s);
+      const execute = vi.spyOn(api, "execute").mockImplementation(async () => {
+        vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), currentRevision: "b".repeat(40) });
+        throw new ApiError(code === "EXECUTION_AI_FAILED" ? 502 : 422, code);
+      });
+      await s.execute("step-1");
+      await s.execute("step-1");
+      expect(execute).toHaveBeenCalledOnce();
+      expect(s.receipt.value).not.toBeNull();
+    },
+  );
   it("具体授权拒绝沿用原有状态核对，不自动重试 execute", async () => {
     const s = make(); ready(s);
     const execute = vi.spyOn(api, "execute").mockRejectedValue(new ApiError(409, "ASSET_USAGE_AUTHORIZATION_REQUIRED"));

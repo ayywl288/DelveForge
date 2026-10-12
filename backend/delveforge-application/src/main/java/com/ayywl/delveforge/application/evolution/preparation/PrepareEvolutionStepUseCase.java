@@ -10,6 +10,7 @@ import com.ayywl.delveforge.application.repositoryanalysis.extraction.Repository
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
+import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -93,6 +94,7 @@ public final class PrepareEvolutionStepUseCase {
         // 这里只读受信 revision（A），保持 READY；baseline 到真正开始执行时才冻结。
         ExecutionPreparationState.Loaded loaded = state.load(planId, stepId, false);
         EvolutionStep step = loaded.plan().step(stepId);
+        requireSupportedCriteria(step);
 
         Map<String, Object> query = new LinkedHashMap<>();
         query.put("goal", step.goal());
@@ -135,24 +137,37 @@ public final class PrepareEvolutionStepUseCase {
                     session.visibleOriginals().keySet().stream().filter(session::sanitized).toList());
             payload.put("remainingExpansionRounds", limits.maxExpansionRounds() - round);
 
-            CodingResponse response = parser.parse(session.call(new AiRequest(List.of(
+            String output = session.call(new AiRequest(List.of(
                     new AiMessage(AiRole.SYSTEM, INSTRUCTION), new AiMessage(AiRole.USER, json(payload))),
-                    AiResponseFormat.JSON)));
+                    AiResponseFormat.JSON));
+            CodingResponse response;
+            try {
+                response = parser.parse(output);
+            } catch (AiGatewayException failure) {
+                throw new ExecutionPreparationException(ExecutionPreparationException.Phase.PROPOSAL_PARSE, failure);
+            }
 
             if (response instanceof CodingResponse.Change change) {
                 // AI 输出仍是未受信提案；净化文件只可作上下文，不能依据占位符回写源码。
                 Set<String> sanitized = new HashSet<>();
                 session.visibleOriginals().keySet().stream().filter(session::sanitized).forEach(sanitized::add);
-                ValidatedExecutionProposal validated = validator.validate(change.proposal(), loaded.basis(stepId),
-                        step, new WorkspaceRef(loaded.copy().location()), session.visibleOriginals(),
-                        sanitized, session.existingPaths());
+                ValidatedExecutionProposal validated;
+                try {
+                    validated = validator.validate(change.proposal(), loaded.basis(stepId),
+                            step, new WorkspaceRef(loaded.copy().location()), session.visibleOriginals(),
+                            sanitized, session.existingPaths());
+                } catch (AiGatewayException failure) {
+                    throw new ExecutionPreparationException(
+                            ExecutionPreparationException.Phase.PROPOSAL_VALIDATION, failure);
+                }
                 state.revalidate(loaded, stepId, false);
                 return validated;
             }
 
             CodingResponse.NeedMore need = (CodingResponse.NeedMore) response;
             if (!need.expectedRevision().equals(loaded.copy().lastVerifiedRevision())) {
-                throw new AiGatewayException("Context request uses a different revision");
+                throw new ExecutionPreparationException(ExecutionPreparationException.Phase.PROPOSAL_VALIDATION,
+                        new AiGatewayException("Context request uses a different revision"));
             }
             if (round == limits.maxExpansionRounds()) {
                 throw new ExecutionPreparationBudgetExceededException("Context expansion rounds exhausted");
@@ -161,6 +176,29 @@ public final class PrepareEvolutionStepUseCase {
         }
 
         throw new IllegalStateException("Bounded preparation loop did not terminate");
+    }
+
+    /** 在 Scout / Coding 调用前复用标准的证据能力规则；不改写标准或生成验证事实。 */
+    private static void requireSupportedCriteria(EvolutionStep step) {
+        List<Integer> unsupported = new ArrayList<>();
+        for (int index = 0; index < step.verificationCriteria().size(); index++) {
+            VerificationCriterion criterion = step.verificationCriteria().get(index);
+            boolean supported = false;
+            for (CodingProposal.Action action : CodingProposal.Action.values()) {
+                // 仅探测定向测试动作的能力；此占位名称不是实际测试目标，也不会执行。
+                String target = action == CodingProposal.Action.FOCUSED_TEST ? "PreflightTest" : "";
+                if (criterion.supportedBy(action.name(), target)) {
+                    supported = true;
+                    break;
+                }
+            }
+            if (!supported) {
+                unsupported.add(index + 1);
+            }
+        }
+        if (!unsupported.isEmpty()) {
+            throw new UnsupportedVerificationCriteriaException(unsupported);
+        }
     }
 
     /** 仅为 Coding 输入提供可逆行号；不改变 Session 原文、提案内容或源 blob 校验。 */
