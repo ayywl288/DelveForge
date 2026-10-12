@@ -91,6 +91,7 @@ function decide() {
     <aside id="direction-list" class="panel direction-list" aria-label="方向列表">
       <h2 class="section-heading"><NavigationIcon name="direction" />候选与已选方向 <span class="count-pill">{{ currentDirections.length }}</span></h2>
       <p class="meta">点击查看详情，选择需单独确认。</p>
+      <div class="direction-list-scroll" tabindex="0" role="region" aria-label="候选与历史方向列表">
       <DirectionListEntry v-for="(direction, index) in currentDirections" :key="direction.id"
         :direction="direction" :index="index" :active="viewed.id === direction.id" @view="viewDirection(direction.id)" />
       <p v-if="!currentDirections.length" class="empty">当前只有历史方向。</p>
@@ -100,8 +101,10 @@ function decide() {
         <DirectionListEntry v-for="(direction, index) in historicalDirections" :key="direction.id"
           :direction="direction" :index="index" :active="viewed.id === direction.id" @view="viewDirection(direction.id)" />
       </details>
+      </div>
     </aside>
     <article id="direction-detail" :key="viewed.id" class="panel direction-detail" aria-label="当前查看的方向" tabindex="-1">
+      <div class="direction-detail-controls">
       <a href="#direction-list" class="mobile-return">返回方向列表 ↑</a>
       <div class="panel-header">
         <h2>{{ viewed.title }}</h2><StatusBadge :status="viewed.status" />
@@ -134,6 +137,8 @@ function decide() {
           <NavigationIcon name="planning" />审阅演化规划 <NavigationIcon name="arrow" />
         </button>
       </div>
+      </div>
+      <div class="direction-detail-body" tabindex="0" role="region" aria-label="方向原文与依据">
       <section class="reading-section problem-section"><h3 class="section-heading"><NavigationIcon name="discovery" />要解决的问题</h3><p>{{ viewed.problem }}</p></section>
       <section class="reading-section target-section"><h3 class="section-heading"><NavigationIcon name="target" />目标产品</h3><p>{{ viewed.targetProduct }}</p></section>
       <details class="reading-disclosure" open><summary><NavigationIcon name="user" />为什么适合你</summary><p>{{ viewed.userFit }}</p></details>
@@ -175,6 +180,7 @@ function decide() {
       <p v-if="viewed.status === 'REJECTED' || viewed.status === 'SUPERSEDED'" class="context-note">
         历史方向仅供查看，不能从此处恢复为已选择状态。
       </p>
+      </div>
     </article>
   </div>
   <ConfirmDialog

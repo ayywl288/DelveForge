@@ -128,17 +128,29 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
           <details class="project-details">
             <summary>项目详情</summary>
             <div class="project-metadata">
-              <p v-for="repo in project.repositories" :key="repo.assetId" class="meta project-path">仓库 <code>{{ repo.location }}</code></p>
               <template v-if="project.planId">
                 <div class="history-step-counts"><span v-for="(count, status) in project.stepCounts" :key="status"><StatusBadge :status="String(status)" :show-code="false" /> {{ count }}</span></div>
-                <p class="meta">Plan <code>{{ project.planId }}</code></p>
-                <p v-if="project.workingCopyId" class="meta">WorkingCopy ID <code>{{ project.workingCopyId }}</code></p>
-                <p v-if="project.lastVerifiedRevision" class="meta">最后验证版本 <code>{{ project.lastVerifiedRevision }}</code></p>
-                <p v-if="project.currentRevision" class="meta">当前版本 <code>{{ project.currentRevision }}</code></p>
+                <dl class="project-meta-grid">
+                  <dt>Plan</dt><dd><code>{{ project.planId }}</code></dd>
+                  <template v-if="project.workingCopyId"><dt>WorkingCopy ID</dt><dd><code>{{ project.workingCopyId }}</code></dd></template>
+                  <template v-if="project.lastVerifiedRevision"><dt>最后验证版本</dt><dd><code>{{ project.lastVerifiedRevision }}</code></dd></template>
+                  <template v-if="project.currentRevision"><dt>当前版本</dt><dd><code>{{ project.currentRevision }}</code></dd></template>
+                </dl>
               </template>
+              <details v-if="project.repositories.length" class="project-repositories" :open="project.repositories.length <= 2">
+                <summary>仓库与资产绑定 · {{ project.repositories.length }}</summary>
+                <div class="project-repository-list" :class="{ 'long-repository-list': project.repositories.length > 2 }"
+                  tabindex="0" role="region" :aria-label="`${project.name}的仓库路径与资产 ID`">
+                  <div v-for="repo in project.repositories" :key="repo.assetId" class="project-path">
+                    <code>{{ repo.location }}</code><p class="meta">资产 <code>{{ repo.assetId }}</code></p>
+                  </div>
+                </div>
+              </details>
               <p v-if="project.deletedAt" class="meta">删除时间：{{ new Date(project.deletedAt).toLocaleString('zh-CN') }}</p>
+            </div>
+            <div v-if="!project.deletedAt" class="project-management">
               <button v-if="!project.deletedAt" class="text-button" :disabled="!!s.busy || s.deletionBlocked(project)" @click="deleting = project">删除项目</button>
-              <p v-if="!project.deletedAt && s.deletionBlocked(project)" class="meta">已授权或未决执行期间不能删除；请查询真实状态，不要重复 execute。</p>
+              <p v-if="s.deletionBlocked(project)" class="meta deletion-blocked">已授权或未决执行期间不能删除；请查询真实状态，不要重复 execute。</p>
             </div>
           </details>
           <details v-if="project.issues.length" class="project-row-issues">

@@ -193,7 +193,7 @@ function viewRepository(id: string) {
           许可证：{{ asset.licenseInfo || "未知" }} · {{ asset.type }} /
           {{ asset.source }}
         </p>
-        <p v-if="s.selected?.candidateAssetIds.includes(asset.id)" class="inline-note">
+        <p v-if="s.selected?.candidateAssetIds.includes(asset.id)" class="repository-info meta">
           当前已选方向引用此资产；补充授权后可沿用原方向。
         </p>
         <p v-for="snapshot in s.repositories.filter(item => item.assetId === asset.id)" :key="snapshot.id">
