@@ -1,5 +1,9 @@
 # Task G — UI / UX Polish 技术交接
 
+> 历史交接（实施前快照）。2026-10-12 Task G 当前发行版 UI 已完成、用户接受并冻结；
+> 当前实现与最终验证见 [Task G 最终关闭](validation/task-g-final-frontend-closeout.md)。
+> 下文的样式、计数与待实施描述保留交接时点事实，不代表当前状态；UI 接受不等于真实 E2E / 部署接受。
+
 2026-10-11。业务基线为 `a2b722f2aa86da605a75485f00a8a2c64a10e301`，已 fast-forward
 整合至 main；之后的 Closeout 提交仅改文档。M0–M4 结束业务开发，M5 暂缓。
 最新确定性回归后端 1474 / 前端 85 PASS，typecheck / build PASS；最新修复未重跑完整付费 E2E。

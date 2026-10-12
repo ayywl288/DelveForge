@@ -1,6 +1,11 @@
 # DelveForge Minimal Web Experience
 
-Vue 3 + TypeScript + Vite + pnpm。五阶段界面调用当前后端 REST API，没有模拟运行结果或浏览器内 Provider 客户端。
+Vue 3 + TypeScript + Vite + pnpm。项目工作台与五阶段界面调用当前后端 REST API，没有模拟运行结果或浏览器内 Provider 客户端。
+
+**Task G：DONE / ACCEPTED / FROZEN（2026-10-12，当前发行版 UI）。** 用户已接受 Graphite + Indigo
+和六页交互结构，少量视觉不足有意延后。最终实现 `dd3d24e` 已本地整合至 main，前端 123 项测试、
+typecheck / build PASS；[最终关闭与复盘](../docs/validation/task-g-final-frontend-closeout.md) 区分
+合成 UI 验证、真实业务 E2E 和部署验收。后两者未由本次 UI 接受确立，不自动发起新 UI 任务。
 
 ## 本地启动
 
@@ -123,7 +128,7 @@ G2 的改动、合成测试与桌面 / 窄屏检查见 [G2 前端验收记录](G
 后续视觉修正统一正文、标题、状态与技术信息的字号，扩展原有 SVG 图标，调整内容列表、
 画像维度、方向条目、路线步骤与验证结果。工作台进度仅使用后端保存的已通过 / 总步骤计数；
 桌面执行页的步骤列表随滚动保持可见。未增加 UI 依赖或改变业务确认条件。
-六页截图与修正验证见 [G2 视觉修正记录](G2_VISUAL_CORRECTION.md)，最终视觉接受由用户决定。
+此前六页截图与修正验证见 [G2 视觉修正记录](G2_VISUAL_CORRECTION.md)，保留该轮历史验证事实；当前接受状态以上方最终关闭记录为准。
 最终长内容细化为 Evidence 集合提供每页 6 条的本地分页和逐条原文查看；桌面方向页的列表、
 原文阅读区有独立滚动，主操作保持可见，窄屏继续使用列表 / 详情导航。
 依据不排序、合并或推断新关联。该轮长夹具与分页验证见 [G2 最终 UX 验证](G2_FINAL_UX_VALIDATION.md)。

@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-10-11
+**Last Updated:** 2026-10-12
 
 ---
 
@@ -11,11 +11,13 @@
 
 当前最重要目标：
 
-> M0–M4 核心闭环与 Task D–F 后续 correctness 修复已完成。当前转入 Task G UI / UX Polish，只改善现有界面的视觉、布局与交互呈现；后端业务开发停止，M5 暂缓。
+> M0–M4 核心闭环与 Task D–F 后续 correctness 修复已完成。Task G UI / UX Polish 已完成、由用户接受并冻结；本地 main 已整合 G1/G2。后端业务开发继续停止，M5 暂缓。
 
-阶段关闭、两次历史 Verified Evolution、最新 1474 / 85 项确定性回归及尚未重跑的付费 E2E
+业务阶段关闭、两次历史 Verified Evolution、Pre-UI 时点 1474 / 85 项确定性回归及尚未重跑的付费 E2E
 见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。
-Task G 的技术结构与冻结边界见 [UI 交接](UI_TASK_G_HANDOFF.md)；
+Task G 当前发行版 UI 的最终结果与 123 项前端回归见 [最终关闭记录](validation/task-g-final-frontend-closeout.md)。
+UI 接受不代表最新代码的完整付费 E2E、部署或发布验收；M6 仍为 TODO，不自动开始后续工作。
+实施前的技术结构与冻结边界保留在 [历史 UI 交接](UI_TASK_G_HANDOFF.md)；
 干净数据库切换由用户按 [本地数据环境说明](LOCAL_DATA_ENVIRONMENTS.md) 决定，不自动清理旧库或副本。
 
 以下保留第一阶段的原始闭环目标和验收流程，不代表继续扩展后端功能：
@@ -834,13 +836,19 @@ M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
 M4 — First Verified Evolution Step：DONE / FROZEN（2026-10-10）
 M5 — Failure Safety & Recovery：DEFERRED
 Task D–F / F-Fix / 软删除 / Final Planning Fix：DONE
-Task G — UI / UX Polish：下一阶段，尚未实施
+Task G — UI / UX Polish：DONE / ACCEPTED / FROZEN（2026-10-12，当前发行版 UI）
 后端业务开发停止；不追加 M4 优化或开始 M5。
+真实 Provider E2E、部署与发布接受尚未完成；不自动启动。
 ```
 
 M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
 
 ### Current
+
+**Task G 已关闭并冻结（2026-10-12）。** Graphite + Indigo、项目工作台和五工作流页面已由用户接受，
+少量视觉不足有意延后。本地 main 快进整合 G1/G2；最终前端 123 项测试、typecheck / build PASS。
+见 [Task G 最终关闭](validation/task-g-final-frontend-closeout.md)。该接受仅针对 UI，不改变 M1–M4 业务边界，
+不启动新 UI 任务、M5、付费 E2E 或部署。
 
 **M3 已完成并冻结（2026-10-05）。** Task 1 / Task 2、里程碑审查、聚焦修正与真实 Memos
 smoke 均已完成：Selected Direction + Base Asset + Base Profile → PROPOSED Plan →
@@ -2056,6 +2064,19 @@ F-Fix 首次完整 verify 1457 项 PASS；追加最终 verify 1468 项 PASS，�
 仅增加固定失败阶段/原因、Context 版本预检和规划请求/回读边界，没有自动付费重试。
 最终 Maven verify 1474 项、前端 85 项、类型检查和构建 PASS。
 见 [定位与验证记录](validation/final-planning-rejection-fix.md)。没有数据库迁移或真实 Provider /
-Evolution Step 调用。结束业务扩展；数据库归档由用户决定，Task G 尚未实施。
+Evolution Step 调用。结束业务扩展；数据库归档由用户决定，当时 Task G 尚未实施。
 代码已在 Pre-UI Closeout 快进整合至 main，仅增加文档与交接；
 见 [关闭记录](validation/pre-ui-final-closeout.md) 和 [UI 技术交接](UI_TASK_G_HANDOFF.md)。
+
+### Task G — UI / UX Polish
+
+**DONE / ACCEPTED / FROZEN（2026-10-12，当前发行版 UI）。** G1 设计基础和项目工作台、
+G2 五工作流页面及后续视觉 / 长内容细化已交付；最终实现为 `dd3d24e`。
+G2 包含 G1 `508859e`，本地 main 已从 Pre-UI `40538b6` 快进整合全部五个实现提交。
+最终前端 10 文件 / 123 项测试、typecheck、build 与 diff 检查 PASS；关闭工作仅补录文档。
+
+用户接受当前 Graphite + Indigo 与六页结构，少量视觉不足延后。合成响应和历史截图提供 UI
+交互 / 响应式证据，不代替真实后端 / Provider E2E 或部署接受。六张参考 PNG 保持未跟踪。
+M1–M4 业务边界不变，M5 继续 DEFERRED，M6 继续 TODO；不自动发起下一轮 UI、E2E 或发布。
+实现、组件、证据范围、限制与复盘见 [Task G 最终关闭记录](validation/task-g-final-frontend-closeout.md)；
+之前的 G1/G2 提交与报告保留历史意义。本地整合未 push。
