@@ -48,6 +48,11 @@ function viewRepository(id: string) {
   sectionId.value = "overview";
   document.getElementById("repository-explorer")?.scrollIntoView?.({ block: "start" });
 }
+function viewSection(id: string) {
+  sectionId.value = id;
+  // 深读后切换分区回到局部内容起点，导航仍保留焦点，不影响全局侧栏。
+  document.getElementById("repository-reading-start")?.scrollIntoView?.({ block: "start" });
+}
 </script>
 <template>
   <section v-if="repository" id="repository-explorer" class="panel repository-explorer">
@@ -70,12 +75,13 @@ function viewRepository(id: string) {
       <p class="meta">保存的分析不代表仓库当前代码；完整授权信息位于下方「仓库登记与授权」。</p>
     </div>
     <div class="explorer-layout">
-      <nav class="local-navigation" aria-label="仓库分析分区">
+      <div class="local-navigation-rail"><nav class="local-navigation" aria-label="仓库分析分区">
         <button v-for="section in sections" :key="section.id" class="local-nav-button"
           :aria-pressed="sectionId === section.id" :aria-controls="`repository-section-${section.id}`"
-          @click="sectionId = section.id"><NavigationIcon :name="section.icon" />{{ section.label }}</button>
-      </nav>
+          @click="viewSection(section.id)"><NavigationIcon :name="section.icon" />{{ section.label }}</button>
+      </nav></div>
       <div class="explorer-reading" :id="`repository-${repository.id}`">
+        <div id="repository-reading-start" class="reading-start" aria-hidden="true"></div>
         <section id="repository-section-overview" v-show="sectionId === 'overview'">
           <h3 class="section-heading"><NavigationIcon name="file" />仓库用途</h3><p class="reading-text">{{ repository.purpose }}</p>
           <ContentList title="技术栈" :items="repository.techStack" variant="tags" icon="code" />

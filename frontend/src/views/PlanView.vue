@@ -10,6 +10,7 @@ import ConfirmDialog from "../components/ConfirmDialog.vue";
 import RevisionText from "../components/RevisionText.vue";
 import StepPrerequisites from "../components/StepPrerequisites.vue";
 import NavigationIcon from "../components/NavigationIcon.vue";
+import DetailPanel from "../components/DetailPanel.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
 const workspaceConfiguration = ref<WorkspaceConfiguration | null>(null);
 const workspaceConfigurationError = ref("");
@@ -34,6 +35,7 @@ const base = ref("");
 const reviewed = ref(false);
 const prepareOpen = ref(false);
 const stepToConfirm = ref<EvolutionStep | null>(null);
+const detail = ref<"current" | "target" | "basis" | null>(null);
 const expandedStepId = ref(props.s.plan?.steps.find(step => step.status !== "SUCCEEDED")?.id
   ?? props.s.plan?.steps[0]?.id ?? "");
 watch(() => [props.s.contextEpoch, props.s.selected?.id], () => {
@@ -47,6 +49,7 @@ watch(() => props.s.plan?.id, () => {
   reviewed.value = false;
   prepareOpen.value = false;
   stepToConfirm.value = null;
+  detail.value = null;
 });
 const bases = computed(() =>
   props.s.repositories.filter(
@@ -129,58 +132,15 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
         <section>
           <span class="summary-label"><NavigationIcon name="layers" />规划时的现状</span>
           <h3>{{ s.plan.currentState.summary }}</h3>
-          <details class="reading-disclosure"><summary>查看完整现状</summary>
-          <p>{{ s.plan.currentState.summary }}</p>
-          <ContentList
-            title="能力"
-            :items="s.plan.currentState.capabilities"
-          /><ContentList
-            title="模块"
-            :items="s.plan.currentState.modules"
-          /><ContentList
-            title="限制"
-            :items="s.plan.currentState.limitations"
-          />
-          </details>
+          <button class="text-button state-detail-trigger" @click="detail = 'current'">查看完整现状 <NavigationIcon name="arrow" /></button>
         </section>
         <section>
           <span class="summary-label"><NavigationIcon name="target" />计划目标</span>
           <h3>{{ s.plan.targetState.targetProduct }}</h3>
-          <details class="reading-disclosure"><summary>查看完整目标与复用能力</summary>
-          <h3>要解决的问题</h3><p>{{ s.plan.targetState.problem }}</p>
-          <h3>目标产品</h3><p>{{ s.plan.targetState.targetProduct }}</p>
-          <h3>差异化</h3><p>{{ s.plan.targetState.differentiation }}</p>
-          <ContentList
-            title="可复用能力"
-            :items="s.plan.reusableCapabilities"
-          />
-          </details>
+          <button class="text-button state-detail-trigger" @click="detail = 'target'">查看完整目标与复用能力 <NavigationIcon name="arrow" /></button>
         </section>
       </div>
-      <details class="reading-disclosure plan-more"><summary>规划改动、风险、依据与基础绑定</summary>
-      <div class="two-column">
-        <ContentList title="计划改变什么" :items="s.plan.changes" /><ContentList
-          title="风险"
-          :items="s.plan.risks"
-        />
-      </div>
-      <EvidenceList :bases="s.plan.evidence" title="规划依据" />
-      <details class="object-id">
-        <summary>计划与基础绑定</summary>
-        <p>
-          Plan <code>{{ s.plan.id }}</code>
-        </p>
-        <p>
-          Direction <code>{{ s.plan.productDirectionId }}</code>
-        </p>
-        <p>
-          Asset <code>{{ s.plan.baseAssetId }}</code>
-        </p>
-        <p>
-          RepositoryProfile <code>{{ s.plan.baseRepositoryProfileId }}</code>
-        </p>
-      </details>
-      </details>
+      <button class="text-button plan-more" @click="detail = 'basis'">规划改动、风险、依据与基础绑定 <NavigationIcon name="arrow" /></button>
     </section>
     <section class="panel roadmap" aria-labelledby="roadmap-heading">
     <div class="panel-header"><h2 id="roadmap-heading" class="section-heading"><NavigationIcon name="planning" />演化路线</h2><span class="meta">{{ s.plan.steps.length }} 个步骤 · 按顺序验证</span></div>
@@ -295,6 +255,37 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
       </button>
     </div>
   </details>
+  <DetailPanel :open="!!detail && !!s.plan"
+    :title="detail === 'current' ? '规划时的完整现状' : detail === 'target' ? '完整目标与复用能力' : '规划改动、风险与依据'"
+    description="保存的规划原文，仅供阅读。关闭后继续审阅路线与授权要求；查看详情不会表示已审阅或授权。"
+    @close="detail = null">
+    <template v-if="s.plan">
+      <template v-if="detail === 'current'">
+        <h3>现状描述</h3><p class="reading-text">{{ s.plan.currentState.summary }}</p>
+        <ContentList title="能力" :items="s.plan.currentState.capabilities" />
+        <ContentList title="模块" :items="s.plan.currentState.modules" />
+        <ContentList title="限制" :items="s.plan.currentState.limitations" />
+      </template>
+      <template v-else-if="detail === 'target'">
+        <h3>要解决的问题</h3><p class="reading-text">{{ s.plan.targetState.problem }}</p>
+        <h3>目标产品</h3><p class="reading-text">{{ s.plan.targetState.targetProduct }}</p>
+        <h3>差异化</h3><p class="reading-text">{{ s.plan.targetState.differentiation }}</p>
+        <ContentList title="可复用能力" :items="s.plan.reusableCapabilities" />
+      </template>
+      <template v-else-if="detail === 'basis'">
+        <ContentList title="计划改变什么" :items="s.plan.changes" />
+        <ContentList title="风险" :items="s.plan.risks" variant="risks" />
+        <EvidenceList :bases="s.plan.evidence" title="规划依据" expanded />
+        <h3>计划与基础绑定</h3>
+        <dl class="project-meta-grid">
+          <dt>Plan</dt><dd><code>{{ s.plan.id }}</code></dd>
+          <dt>Direction</dt><dd><code>{{ s.plan.productDirectionId }}</code></dd>
+          <dt>Asset</dt><dd><code>{{ s.plan.baseAssetId }}</code></dd>
+          <dt>RepositoryProfile</dt><dd><code>{{ s.plan.baseRepositoryProfileId }}</code></dd>
+        </dl>
+      </template>
+    </template>
+  </DetailPanel>
   <ConfirmDialog
     :open="prepareOpen"
     title="准备独立 WorkingCopy？"

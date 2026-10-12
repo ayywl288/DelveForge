@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import type { WorkspaceSession } from "../state/session";
 import type { ResourceSummary, ProjectSummary } from "../api/types";
 import { api, ApiError } from "../api/client";
@@ -7,6 +7,7 @@ import { stageIndex, stageLabels, projectIssueText } from "../state/projectPrese
 import StatusBadge from "../components/StatusBadge.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import NavigationIcon from "../components/NavigationIcon.vue";
+import DetailPanel from "../components/DetailPanel.vue";
 
 const props = defineProps<{ s: WorkspaceSession }>();
 const emit = defineEmits<{ open: [stage: number] }>();
@@ -20,6 +21,17 @@ const loadingProfiles = ref(false);
 const resourceError = ref("");
 const confirmedProfiles = computed(() => profiles.value.filter(item => item.status === "CONFIRMED"));
 const deleting = ref<ProjectSummary | null>(null);
+const historyHeading = ref<HTMLElement | null>(null);
+const inspectedKey = ref<string | null>(null);
+const inspected = computed(() => props.s.projects.find(project => project.key === inspectedKey.value) ?? null);
+watch(inspected, project => { if (!project) inspectedKey.value = null; });
+async function requestDelete(project: ProjectSummary) {
+  if (props.s.busy || props.s.deletionBlocked(project)) return;
+  // 先关闭阅读面板，再打开原有确认框，避免堆叠对话框遮挡确认内容。
+  inspectedKey.value = null;
+  await nextTick();
+  deleting.value = project;
+}
 async function deleteConfirmed() {
   const project = deleting.value;
   if (!project) return;
@@ -82,7 +94,7 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
   </details>
   <section class="history-section" aria-labelledby="history-heading">
     <div class="panel-header">
-      <h2 id="history-heading">{{ s.showingDeletedProjects ? '已删除项目' : '我的项目' }}</h2>
+      <h2 id="history-heading" ref="historyHeading" tabindex="-1">{{ s.showingDeletedProjects ? '已删除项目' : '我的项目' }}</h2>
       <div class="history-controls">
         <div class="project-filters" role="group" aria-label="项目可见性">
           <button class="secondary" :aria-pressed="!s.showingDeletedProjects" @click="s.loadProjects(false, false)">正常项目</button>
@@ -101,13 +113,19 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
       <p class="muted">{{ s.showingDeletedProjects ? '删除的导航记录会显示在这里，已有业务结果和代码保留。' : '展开「开始新流程」填写名称。已有画像和仓库可以在流程中明确选择。' }}</p>
     </div>
     <div v-if="s.projects.length" class="project-list" :aria-busy="s.historyLoading">
-      <article v-for="project in s.projects" :key="project.key" class="project-row" :aria-label="project.name">
+      <article v-for="project in s.projects" :key="project.key" class="project-row" :aria-label="project.name"
+        :data-plan-status="project.planStatus" :data-deleted="!!project.deletedAt">
         <div class="project-row-main">
           <div class="project-identity">
             <span class="project-symbol"><NavigationIcon name="projects" /></span>
             <div>
-              <div class="project-title"><h3>{{ project.name }}</h3><StatusBadge v-if="project.planStatus" :status="project.planStatus" :show-code="false" /></div>
+              <div class="project-title"><h3>{{ project.name }}</h3></div>
               <p v-if="project.direction && project.direction !== project.name" class="project-description muted">{{ project.direction }}</p>
+              <div class="project-lifecycle"><span class="meta">计划状态</span>
+                <StatusBadge v-if="project.planStatus" :status="project.planStatus" :show-code="false" />
+                <span v-else class="meta">尚无计划</span>
+                <span v-if="project.deletedAt" class="tag">工作台已删除</span>
+              </div>
               <p v-if="project.legacy" class="meta">旧 Plan 历史投影 · 继续后建立导航身份</p>
             </div>
           </div>
@@ -122,45 +140,70 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
           <div class="project-actions">
             <button v-if="!project.deletedAt" class="project-open" :disabled="!!s.busy" @click="open(project.key)">打开并继续<NavigationIcon name="arrow" /></button>
             <button v-else class="secondary" :disabled="!!s.busy" @click="s.restoreProject(project)">恢复到工作台</button>
+            <button class="secondary project-inspect" :aria-label="`查看${project.name}的项目详情`"
+              @click="inspectedKey = project.key">项目详情</button>
           </div>
         </div>
         <div class="project-row-secondary">
-          <details class="project-details">
-            <summary>项目详情</summary>
-            <div class="project-metadata">
-              <template v-if="project.planId">
-                <div class="history-step-counts"><span v-for="(count, status) in project.stepCounts" :key="status"><StatusBadge :status="String(status)" :show-code="false" /> {{ count }}</span></div>
-                <dl class="project-meta-grid">
-                  <dt>Plan</dt><dd><code>{{ project.planId }}</code></dd>
-                  <template v-if="project.workingCopyId"><dt>WorkingCopy ID</dt><dd><code>{{ project.workingCopyId }}</code></dd></template>
-                  <template v-if="project.lastVerifiedRevision"><dt>最后验证版本</dt><dd><code>{{ project.lastVerifiedRevision }}</code></dd></template>
-                  <template v-if="project.currentRevision"><dt>当前版本</dt><dd><code>{{ project.currentRevision }}</code></dd></template>
-                </dl>
-              </template>
-              <details v-if="project.repositories.length" class="project-repositories" :open="project.repositories.length <= 2">
-                <summary>仓库与资产绑定 · {{ project.repositories.length }}</summary>
-                <div class="project-repository-list" :class="{ 'long-repository-list': project.repositories.length > 2 }"
-                  tabindex="0" role="region" :aria-label="`${project.name}的仓库路径与资产 ID`">
-                  <div v-for="repo in project.repositories" :key="repo.assetId" class="project-path">
-                    <code>{{ repo.location }}</code><p class="meta">资产 <code>{{ repo.assetId }}</code></p>
-                  </div>
-                </div>
-              </details>
-              <p v-if="project.deletedAt" class="meta">删除时间：{{ new Date(project.deletedAt).toLocaleString('zh-CN') }}</p>
-            </div>
-            <div v-if="!project.deletedAt" class="project-management">
-              <button v-if="!project.deletedAt" class="text-button" :disabled="!!s.busy || s.deletionBlocked(project)" @click="deleting = project">删除项目</button>
-              <p v-if="s.deletionBlocked(project)" class="meta deletion-blocked">已授权或未决执行期间不能删除；请查询真实状态，不要重复 execute。</p>
-            </div>
-          </details>
-          <details v-if="project.issues.length" class="project-row-issues">
-            <summary>有 {{ project.issues.length }} 项需要核对</summary><p v-for="issue in project.issues" :key="issue">{{ projectIssueText(issue) }}</p>
-          </details>
+          <button v-if="project.issues.length" class="text-button project-row-issues" @click="inspectedKey = project.key"
+            :aria-label="`查看${project.name}的 ${project.issues.length} 项需核对问题`">
+            <NavigationIcon name="warning" />{{ project.issues.length }} 项需要核对
+          </button>
+          <p v-if="!project.deletedAt && s.deletionBlocked(project)" class="meta deletion-blocked">
+            已授权或未决执行期间不能删除；请查询真实状态，不要重复 execute。
+          </p>
         </div>
       </article>
     </div>
     <button v-if="s.historyMore" class="secondary" :disabled="s.historyLoading" @click="s.loadProjects(true)">更多历史项目</button>
   </section>
+  <DetailPanel :open="!!inspected" :title="inspected?.name ?? '项目详情'"
+    description="已保存的项目元数据。查看不会调用 AI、选择方向或执行 Step。"
+    :fallback-focus="historyHeading" @close="inspectedKey = null">
+    <template v-if="inspected">
+      <section v-if="inspected.issues.length" class="inspector-warnings" aria-label="项目需核对的问题">
+        <h3 class="section-heading"><NavigationIcon name="warning" />需要核对</h3>
+        <div v-for="issue in inspected.issues" :key="issue"><p>{{ projectIssueText(issue) }}</p><code>{{ issue }}</code></div>
+      </section>
+      <div class="project-metadata">
+        <h3>项目与计划</h3>
+        <dl class="project-meta-grid">
+          <dt>工作台身份</dt><dd><code>{{ inspected.key }}</code></dd>
+          <dt>导航记录版本</dt><dd><code>{{ inspected.version }}</code></dd>
+          <dt>记录来源</dt><dd>{{ inspected.legacy ? '旧 Plan 历史投影' : '已保存项目' }}</dd>
+          <dt>当前阶段</dt><dd>{{ stageLabels[inspected.stage] }} · <code>{{ inspected.stage }}</code></dd>
+          <dt>产品方向</dt><dd>{{ inspected.direction ?? '未记录' }}</dd>
+          <dt>最近保存</dt><dd>{{ inspected.lastActivity ?? '未记录' }}</dd>
+          <dt>计划状态</dt><dd><StatusBadge v-if="inspected.planStatus" :status="inspected.planStatus" /><span v-else>尚无计划</span></dd>
+          <dt>已验证 Step</dt><dd>{{ inspected.succeededSteps }} / {{ inspected.totalSteps }}</dd>
+          <dt>Plan ID</dt><dd><code>{{ inspected.planId ?? '未绑定' }}</code></dd>
+          <dt>WorkingCopy ID</dt><dd><code>{{ inspected.workingCopyId ?? '未绑定' }}</code></dd>
+          <dt>最后验证版本</dt><dd><code>{{ inspected.lastVerifiedRevision ?? '未记录' }}</code></dd>
+          <dt>当前版本</dt><dd><code>{{ inspected.currentRevision ?? '未记录' }}</code></dd>
+          <template v-if="inspected.deletedAt"><dt>删除时间</dt><dd>{{ inspected.deletedAt }}</dd></template>
+        </dl>
+        <div class="history-step-counts"><span v-for="(count, status) in inspected.stepCounts" :key="status"><StatusBadge :status="String(status)" /> {{ count }}</span></div>
+        <section class="project-repositories">
+          <h3>仓库与资产绑定 <span class="meta">{{ inspected.repositories.length }}</span></h3>
+          <div class="project-repository-list">
+            <div v-for="repo in inspected.repositories" :key="repo.assetId" class="project-path">
+              <code>{{ repo.location }}</code><p class="meta">资产 <code>{{ repo.assetId }}</code></p>
+            </div>
+            <p v-if="!inspected.repositories.length" class="meta">尚无仓库绑定</p>
+          </div>
+        </section>
+      </div>
+      <section class="project-management">
+        <h3>工作台管理</h3>
+        <p class="meta">仅管理导航记录；业务结果、本地代码与验证版本保留。</p>
+        <template v-if="!inspected.deletedAt">
+          <p v-if="s.deletionBlocked(inspected)" class="deletion-blocked">已授权或未决执行期间不能删除；请查询真实状态，不要重复 execute。</p>
+          <button class="secondary project-delete" :disabled="!!s.busy || s.deletionBlocked(inspected)" @click="requestDelete(inspected)">删除项目</button>
+        </template>
+        <button v-else class="secondary" :disabled="!!s.busy" @click="s.restoreProject(inspected)">恢复到工作台</button>
+      </section>
+    </template>
+  </DetailPanel>
   <ConfirmDialog :open="!!deleting" title="从工作台删除项目？" confirm-label="确认删除项目"
     cancel-label="保留项目" :disabled="!!s.busy || !!deleting && s.deletionBlocked(deleting)"
     @close="deleting = null" @confirm="deleteConfirmed">

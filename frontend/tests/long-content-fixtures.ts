@@ -1,6 +1,6 @@
 // 仅供离线测试与视觉验收使用；不是用户历史、真实 AI 分析或执行结果。
-import type { Evidence, ProductDirection, ProjectSummary, UserProfile, RepositoryProfile } from "../src/api/types";
-import { direction, profile, repository } from "./fixtures.ts";
+import type { Evidence, ProductDirection, ProjectSummary, UserProfile, RepositoryProfile, EvolutionPlan } from "../src/api/types";
+import { direction, plan, profile, repository } from "./fixtures.ts";
 
 export function userEvidence(count = 23): Evidence[] {
     const claims = [
@@ -88,4 +88,28 @@ export function longProjectSummary(): ProjectSummary {
         planStatus: "ACTIVE", workingCopyId: "copy-long-12345678-1234-5678-1234-123456789abc",
         currentRevision: "b".repeat(40), lastVerifiedRevision: "b".repeat(40),
         issues: ["PROFILE_BASIS_CHANGED"], version: 1, deletedAt: null };
+}
+
+export function fitFinishPlan(): EvolutionPlan {
+    const current = plan();
+    return { ...current, status: "PROPOSED", workingCopyId: null,
+        currentState: {
+            summary: "现有工具按日期范围生成业务报表，并通过独立接口导出文件。\n\n"
+                    + "当前实现保留参数检查、缺失字段提示和固定输入测试。调度尚未纳入已有能力，需要先明确增量范围，再核对兼容性。\n\n".repeat(8),
+            capabilities: Array.from({ length: 24 }, (_, i) => `现状能力 ${i + 1}：复用 ReportService、日期范围检查和现有导出格式，保留输入校验与定位错误的能力。`),
+            modules: ["reports — 业务汇总与报告生成", "configuration — 参数与日期边界检查", "export — 文件格式转换与导出"],
+            limitations: ["目前需要用户手动启动导出", "原有代码没有已实现的任务重试与调度状态"],
+        },
+        targetState: {
+            problem: "每周按相同条件导出报表占用时间，参数和日期范围容易重复填写。\n\n".repeat(12),
+            targetProduct: "在现有报表工具中增加可配置的周期调度。\n\n"
+                    + "新增能力复用已有导出接口、配置检查与测试夹具，继续支持原格式。每一步限制变化范围，通过固定输入检查与既有行为测试确认结果。\n\n".repeat(14),
+            differentiation: "以已有能力为基础，保留使用者熟悉的文件格式和可检查的参数；完整规划原文与验证要求一直可读。\n\n".repeat(6),
+        },
+        reusableCapabilities: Array.from({ length: 15 }, (_, i) => `复用能力 ${i + 1}：现有接口、参数检查及固定输入测试夹具`),
+        changes: ["为已有导出入口增加周期配置", "补充日期边界与兼容性测试"],
+        evidence: repositoryEvidence().map(evidence => ({ evidence,
+            origin: { kind: "REPOSITORY_PROFILE", userProfileId: null, userProfileRevision: null, repositoryProfileId: "repo-1" } })),
+        steps: current.steps.map(step => ({ ...step, status: "PENDING_CONFIRMATION" })),
+    };
 }

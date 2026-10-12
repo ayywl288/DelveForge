@@ -160,14 +160,13 @@ it("窄屏长方向列表查看末项后仍聚焦详情，选择需要单独确�
     expect(decide).not.toHaveBeenCalled();
 });
 
-it("长项目元数据完整保留，仓库单独展开，受控删除与技术信息分开", async () => {
+it("长项目元数据完整保留在 Inspector，受控删除与技术信息分开", async () => {
     const saved = longProjectSummary(); saved.stepCounts = { SUCCEEDED: 1, READY: 1, PENDING_CONFIRMATION: 1 };
     vi.spyOn(api, "projects").mockResolvedValue([saved]); vi.spyOn(api, "resources").mockResolvedValue([]);
     const s = session(), remove = vi.spyOn(s, "deleteProject"), root = mount(ProjectsView, { s }); await settle();
-    const repositories = root.querySelector<HTMLDetailsElement>(".project-repositories")!;
-    expect(repositories.open).toBe(false);
-    (repositories.querySelector("summary") as HTMLElement).click(); await settle();
-    expect(repositories.open).toBe(true);
+    expect(root.querySelector(".project-row .project-metadata")).toBeNull();
+    button(root, "项目详情").click(); await settle();
+    expect(root.querySelector<HTMLDialogElement>(".detail-panel")?.open).toBe(true);
     expect(root.querySelectorAll(".project-repository-list .project-path")).toHaveLength(9);
     for (const repo of saved.repositories) {
         expect(root.querySelector(".project-metadata")?.textContent).toContain(repo.location);

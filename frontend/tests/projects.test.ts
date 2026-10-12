@@ -186,6 +186,7 @@ describe("工作台软删除与恢复", () => {
     const root = document.createElement("div"); document.body.append(root);
     const app = createApp(ProjectsView, { s }); app.mount(root); cleanups.push(() => { app.unmount(); root.remove(); });
     await settle();
+    (root.querySelector(".project-inspect") as HTMLButtonElement).click(); await settle();
     const button = [...root.querySelectorAll("button")].find(item => item.textContent === "删除项目")!;
     (button as HTMLButtonElement).click(); await settle();
     expect(root.querySelector("dialog[open]")?.textContent).toContain("不会删除"); expect(remove).not.toHaveBeenCalled();
@@ -487,7 +488,9 @@ it("项目工作台用紧凑列表显示真实计数，明确创建与恢复，U
   expect(progress.value).toBe(1);
   expect(progress.max).toBe(4);
   expect(progress.getAttribute("aria-label")).toContain("1/4 个 Step 已验证通过");
-  expect(root.querySelector(".project-details")?.textContent).toContain("c822cc3");
+  (root.querySelector(".project-inspect") as HTMLButtonElement).click(); await settle();
+  expect(root.querySelector(".detail-panel[open] .project-metadata")?.textContent).toContain("c822cc3");
+  (root.querySelector(".detail-panel-close") as HTMLButtonElement).click(); await settle();
   expect(root.querySelector(".advanced-recovery")?.textContent).toContain("恢复已知对象");
   (root.querySelector(".project-actions button") as HTMLButtonElement).click(); await settle();
   expect(root.querySelector("h1")?.textContent).toContain("验证演化"); expect(execute).not.toHaveBeenCalled();
@@ -520,12 +523,12 @@ it("列表保留完整技术信息与需要核对的问题，没有 Plan 时不�
   cleanups.push(() => { app.unmount(); root.remove(); }); await settle();
   const rows = root.querySelectorAll(".project-row");
   expect(rows).toHaveLength(2);
-  expect(rows[0]!.querySelector(".project-details")?.hasAttribute("open")).toBe(false);
-  (rows[0]!.querySelector(".project-details summary") as HTMLElement).click(); await nextTick();
-  expect(rows[0]!.querySelector(".project-details")?.hasAttribute("open")).toBe(true);
-  expect(rows[0]!.querySelector(".project-metadata")?.textContent).toContain(revision);
-  expect(rows[0]!.querySelector(".project-metadata")?.textContent).toContain("E:/trusted/rest-service");
-  expect(rows[0]!.querySelector(".project-row-issues summary")?.textContent).toContain("1 项需要核对");
+  expect(root.querySelector<HTMLDialogElement>(".detail-panel")?.open).toBe(false);
+  (rows[0]!.querySelector(".project-inspect") as HTMLElement).click(); await nextTick();
+  expect(root.querySelector<HTMLDialogElement>(".detail-panel")?.open).toBe(true);
+  expect(root.querySelector(".project-metadata")?.textContent).toContain(revision);
+  expect(root.querySelector(".project-metadata")?.textContent).toContain("E:/trusted/rest-service");
+  expect(rows[0]!.querySelector(".project-row-issues")?.textContent).toContain("1 项需要核对");
   expect(rows[1]!.querySelector(".project-progress")).toBeNull();
   expect(rows[1]!.querySelector("progress")).toBeNull();
   expect(rows[1]!.querySelector(".badge")).toBeNull();
