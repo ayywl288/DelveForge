@@ -261,6 +261,15 @@ Git / Maven 命令由 Infrastructure 基于仓库事实解析，不接收任意 
 业务状态与 Git 不组成跨技术事务，三个条件提交检查点保护半权威状态边界；M4 异常暂留
 最后完整检查点并 fail closed，M5 再实现 canonical 失败 / 恢复流程。
 
+## M5-B refinement — 2026-10-13
+
+Repair 继续使用 Option E 的同一窄 mutation capability。`fromRepair` 只接受当前 EXECUTING
+检查点、本次持久化授权身份与调用内校验提案；修改起点是失败 Candidate B，可信 baseline 仍为 A。
+资产授权、绑定、隔离、实际 Git revision、提案范围及检查点 CAS 仍须独立核对。
+用户的首次 Step Confirmation 不能构造 Repair 授权。重复 / 并发 Repair 先由原子授权检查点拒绝，
+不重新调用 Provider；重启仅恢复事实，没有恢复或重放入口。Verification 重跑原 A..C 与全部标准。
+Port 划分、模块依赖、WorkingCopy 策略不变；未增加通用命令、Attempt 或后台任务框架。
+
 ## References
 
 ```text

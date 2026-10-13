@@ -268,4 +268,26 @@ describe("G2 路线与执行分区", () => {
             if (status === "CANCELLED") expect(root.querySelector(".execution-action")?.textContent).toContain("已取消");
         },
     );
+
+    it("修复单独展示失败 Candidate 与费用确认，旧 Step 授权不会直接触发 Repair", async () => {
+        const s = session(); s.plan = successfulPlan(); s.copy = copy(); s.copy.status = "EVOLVING";
+        s.plan.status = "ACTIVE";
+        s.copy.currentRevision = "b".repeat(40);
+        const step = s.plan.steps[0]!; step.status = "VERIFICATION_FAILED"; step.verificationResult!.passed = false;
+        const repair = vi.spyOn(s, "repair").mockResolvedValue(undefined);
+        const root = mount(EvolutionView, s);
+        expect(repair).not.toHaveBeenCalled();
+        button(root, "审阅并授权本次修复").click(); await nextTick();
+        const confirm = button(root, "授权并开始本次修复");
+        expect(confirm.disabled).toBe(true);
+        expect(root.textContent).toContain("我单独授权本次修复");
+        expect(root.textContent).toContain("原 baseline 和失败记录保留");
+        const checkbox = root.querySelector<HTMLInputElement>('dialog[open] input[type="checkbox"]')!;
+        checkbox.click(); await nextTick();
+        s.copy.currentRevision = "c".repeat(40); await nextTick();
+        expect(confirm.disabled).toBe(true); expect(repair).not.toHaveBeenCalled();
+        s.copy.currentRevision = "b".repeat(40); await nextTick();
+        confirm.click(); await nextTick();
+        expect(repair).toHaveBeenCalledExactlyOnceWith(step.id, "b".repeat(40));
+    });
 });

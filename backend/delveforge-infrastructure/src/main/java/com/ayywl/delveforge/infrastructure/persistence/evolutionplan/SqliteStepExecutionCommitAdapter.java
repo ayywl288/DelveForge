@@ -9,6 +9,7 @@ import com.ayywl.delveforge.domain.evolution.EvolutionPlanStateException;
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
+import com.ayywl.delveforge.domain.evolution.RepairAuthorization;
 import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
 import com.ayywl.delveforge.infrastructure.persistence.workingcopy.WorkingCopyMapper;
@@ -43,6 +44,11 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
         EvolutionStep next = updated.step(id);
         if (old.status() == EvolutionStepStatus.READY && next.status() == EvolutionStepStatus.EXECUTING) {
             checked.startStep(id, checkedCopy, new StepExecutionPolicy());
+        } else if (old.status() == EvolutionStepStatus.VERIFICATION_FAILED
+                && next.status() == EvolutionStepStatus.EXECUTING && !next.repairAuthorizations().isEmpty()) {
+            RepairAuthorization authorization = next.repairAuthorizations().getLast();
+            checked.authorizeStepRepair(id, checkedCopy, new StepExecutionPolicy(), authorization.id(),
+                    authorization.candidateRevision(), authorization.authorizedAt());
         } else if (old.status() == EvolutionStepStatus.EXECUTING && next.status() == EvolutionStepStatus.VERIFYING) {
             checked.recordExecution(id, checkedCopy, next.executionResult());
         } else if (old.status() == EvolutionStepStatus.VERIFYING && next.status() == EvolutionStepStatus.SUCCEEDED) {
@@ -63,6 +69,10 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
                 || check.status() != next.status() || !Objects.equals(check.baselineRevision(), next.baselineRevision())
                 || !Objects.equals(check.executionResult(), next.executionResult())
                 || !Objects.equals(check.verificationResult(), next.verificationResult())
+                || !check.repairAuthorizations().equals(next.repairAuthorizations())
+                || !check.goal().equals(next.goal()) || !check.scope().equals(next.scope())
+                || !check.plannedChanges().equals(next.plannedChanges())
+                || !check.verificationCriteria().equals(next.verificationCriteria())
                 || checkedCopy.status() != after.status()
                 || !checkedCopy.currentRevision().equals(after.currentRevision())
                 || !checkedCopy.lastVerifiedRevision().equals(after.lastVerifiedRevision())) {
@@ -72,7 +82,8 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
         // 两项写入共同受事务保护，任一旧依据不匹配都不能暴露半个检查点。
         if (steps.advanceCheckpoint(expected, id, before, asset, asset.licenseInfo().orElse(null), old, next,
                 StepResultJson.write(old.executionResult()), StepResultJson.write(old.verificationResult()),
-                StepResultJson.write(next.executionResult()), StepResultJson.write(next.verificationResult())) != 1
+                StepResultJson.write(next.executionResult()), StepResultJson.write(next.verificationResult()),
+                StepResultJson.write(old.repairAuthorizations()), StepResultJson.write(next.repairAuthorizations())) != 1
                 || copies.advanceCheckpoint(before, after) != 1) {
             throw new EvolutionLifecycleConflictException("Execution checkpoint basis changed before commit");
         }

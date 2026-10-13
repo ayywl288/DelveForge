@@ -223,4 +223,69 @@ class StepExecutionLifecycleTest {
                 List.of("change"), plan().step(first).verificationCriteria(), EvolutionStepStatus.VERIFICATION_FAILED,
                 "A", execution("B"), null));
     }
+
+    @Test
+    void repairsAppendIndependentAuthorizationsAndFailuresWithoutResettingBaseline() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        assertThrows(EvolutionPlanStateException.class,
+                () -> plan.authorizeStepRepair(first, copy, policy, "repair-1", "A", Instant.now()));
+        plan.startStep(first, copy, policy);
+        plan.recordExecution(first, copy, execution("B"));
+        plan.failStepVerification(first, copy, confirmedFailure("B"));
+        EvolutionPlan before = plan.copy();
+        plan.authorizeStepRepair(first, copy, policy, "repair-1", "B", Instant.now());
+        assertEquals("A", plan.step(first).baselineRevision());
+        assertEquals("B", plan.step(first).executionStartRevision());
+        assertEquals("B", copy.currentRevision());
+        assertEquals("A", copy.lastVerifiedRevision());
+        assertNull(plan.step(first).executionResult());
+        assertNull(plan.step(first).verificationResult());
+        assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, before.step(first).status());
+        assertTrue(before.step(first).repairAuthorizations().isEmpty());
+        assertEquals(before.step(first).verificationResult(), plan.step(first).repairAuthorizations().getFirst().previousVerification());
+        assertEquals(plan.step(first).repairAuthorizations(), plan.copy().step(first).repairAuthorizations());
+        assertThrows(UnsupportedOperationException.class, () -> plan.step(first).repairAuthorizations().clear());
+        assertThrows(EvolutionPlanStateException.class, () -> plan.recordExecution(first, copy, execution("B")));
+        plan.recordExecution(first, copy, execution("C"));
+        plan.failStepVerification(first, copy, confirmedFailure("C"));
+        assertThrows(EvolutionPlanStateException.class,
+                () -> plan.authorizeStepRepair(first, copy, policy, "repair-1", "C", Instant.now()));
+        assertThrows(EvolutionPlanStateException.class,
+                () -> plan.authorizeStepRepair(first, copy, policy, "repair-2", "B", Instant.now()));
+        assertEquals(1, plan.step(first).repairAuthorizations().size());
+        plan.authorizeStepRepair(first, copy, policy, "repair-2", "C", Instant.now());
+        plan.recordExecution(first, copy, execution("D"));
+        plan.succeedStep(first, copy, verification("D", true, List.of(1, 2)));
+        assertEquals(List.of("B", "C"), plan.step(first).repairAuthorizations().stream()
+                .map(RepairAuthorization::candidateRevision).toList());
+        assertEquals("A", plan.step(first).baselineRevision());
+        assertEquals("D", copy.lastVerifiedRevision());
+        assertEquals(EvolutionStepStatus.SUCCEEDED, plan.step(first).status());
+        assertEquals(plan.step(first).repairAuthorizations(), plan.copy().step(first).repairAuthorizations());
+        assertEquals(2, plan.steps().size());
+        assertNull(plan.step(second).baselineRevision());
+    }
+
+    @Test
+    void repairRejectsWrongWorkingCopyOrUntrustedBaselineWithoutChangingHistory() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        plan.recordExecution(first, copy, execution("B"));
+        plan.failStepVerification(first, copy, confirmedFailure("B"));
+        for (WorkingCopy invalid : List.of(
+                WorkingCopy.reconstitute(new WorkingCopyId("other"), asset, "A", "other", "B", "A", WorkingCopyStatus.EVOLVING),
+                WorkingCopy.reconstitute(copy.id(), asset, "A", "managed", "C", "A", WorkingCopyStatus.EVOLVING),
+                WorkingCopy.reconstitute(copy.id(), asset, "A", "managed", "B", "B", WorkingCopyStatus.EVOLVING),
+                WorkingCopy.reconstitute(copy.id(), asset, "A", "managed", "B", "A", WorkingCopyStatus.RECOVERY_REQUIRED))) {
+            assertThrows(EvolutionPlanStateException.class,
+                    () -> plan.authorizeStepRepair(first, invalid, policy, "repair", "B", Instant.now()));
+        }
+        assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, plan.step(first).status());
+        assertTrue(plan.step(first).repairAuthorizations().isEmpty());
+        assertEquals("A", copy.lastVerifiedRevision());
+    }
 }

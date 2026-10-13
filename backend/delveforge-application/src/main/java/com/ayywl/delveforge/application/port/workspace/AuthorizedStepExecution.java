@@ -28,7 +28,8 @@ public final class AuthorizedStepExecution {
             WorkspaceRef original, ValidatedExecutionProposal validated) {
         EvolutionStep step = plan.step(stepId);
         ExecutionPreparationBasis basis = validated.basis();
-        if (plan.status() != EvolutionPlanStatus.ACTIVE || step.status() != EvolutionStepStatus.EXECUTING
+        if (basis.repairAuthorizationId() != null || !step.repairAuthorizations().isEmpty()
+                || plan.status() != EvolutionPlanStatus.ACTIVE || step.status() != EvolutionStepStatus.EXECUTING
                 || !basis.planId().equals(plan.id()) || !basis.stepId().equals(stepId)
                 || !basis.workingCopyId().equals(copy.id()) || !copy.id().value().equals(plan.workingCopyId())
                 || copy.status() != WorkingCopyStatus.EVOLVING
@@ -36,6 +37,25 @@ public final class AuthorizedStepExecution {
                 || !basis.expectedRevision().equals(copy.currentRevision())
                 || !basis.expectedRevision().equals(copy.lastVerifiedRevision())) {
             throw new EvolutionPlanStateException("Mutation requires its authorized execution checkpoint");
+        }
+        return new AuthorizedStepExecution(new WorkspaceRef(copy.location()), original, validated);
+    }
+
+    /** Repair 的修改起点是授权的 Candidate；软件信任仍绑定首次 baseline，不因此升级 Candidate。 */
+    public static AuthorizedStepExecution fromRepair(EvolutionPlan plan, EvolutionStepId stepId, WorkingCopy copy,
+            WorkspaceRef original, ValidatedExecutionProposal validated) {
+        EvolutionStep step = plan.step(stepId);
+        ExecutionPreparationBasis basis = validated.basis();
+        if (plan.status() != EvolutionPlanStatus.ACTIVE || step.status() != EvolutionStepStatus.EXECUTING
+                || step.repairAuthorizations().isEmpty() || step.executionResult() != null || step.verificationResult() != null
+                || !step.repairAuthorizations().getLast().id().equals(basis.repairAuthorizationId())
+                || !basis.planId().equals(plan.id()) || !basis.stepId().equals(stepId)
+                || !basis.workingCopyId().equals(copy.id()) || !copy.id().value().equals(plan.workingCopyId())
+                || !copy.sourceAssetId().equals(plan.baseAssetId()) || copy.status() != WorkingCopyStatus.EVOLVING
+                || !basis.expectedRevision().equals(step.executionStartRevision())
+                || !basis.expectedRevision().equals(copy.currentRevision())
+                || !step.baselineRevision().equals(copy.lastVerifiedRevision())) {
+            throw new EvolutionPlanStateException("Mutation requires the matching one-time Repair checkpoint");
         }
         return new AuthorizedStepExecution(new WorkspaceRef(copy.location()), original, validated);
     }

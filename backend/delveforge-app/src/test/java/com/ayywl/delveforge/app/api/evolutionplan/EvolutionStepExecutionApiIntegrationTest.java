@@ -25,6 +25,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
@@ -66,7 +67,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     @MockitoBean AiGateway ai;
     @Autowired com.ayywl.delveforge.application.evolution.preparation.PrepareEvolutionStepUseCase preparation;
     @Autowired com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase execute;
-    @Autowired WorkspaceVerificationPort verification;
+    @MockitoSpyBean WorkspaceVerificationPort verification;
 
 
     private String planId;
@@ -75,9 +76,11 @@ class EvolutionStepExecutionApiIntegrationTest {
     private Path source;
     private Path copy;
     private String codingOutput;
+    private Runnable providerHook;
 
     @BeforeEach void setup(TestInfo test) throws Exception {
         codingOutput = null;
+        providerHook = null;
         source = BASE.resolve("source-" + UUID.randomUUID());
         Files.createDirectories(source);
         git(source, "init", "-q");
@@ -129,7 +132,8 @@ class EvolutionStepExecutionApiIntegrationTest {
         VerificationCriterion.Kind kind = switch (method) {
             case "businessCriterionCannotBeProvenByUnrelatedTechnicalActions" -> VerificationCriterion.Kind.UNSUPPORTED;
             case "executesNewTestInSamePatchWithRealMavenBeforeTrustedPromotion",
-                    "focusedTestInCustomSourceDirectoryStillProvesSelectedTests" -> VerificationCriterion.Kind.SELECTED_TESTS_PASS;
+                    "focusedTestInCustomSourceDirectoryStillProvesSelectedTests",
+                    "repairCannotNarrowPreviouslySelectedTests" -> VerificationCriterion.Kind.SELECTED_TESTS_PASS;
             case "normalM3TechnicalStepBuildsAndPromotesTheActualCandidate", "wrongEvidenceTypeFailsBeforeMutation",
                     "completedCompilationFailureIsSaved" -> VerificationCriterion.Kind.BUILD_SUCCEEDS;
             case "focusedTestCannotProveTheFullSuiteCriterion", "fullSuiteCannotBeNarrowedByCandidateConfiguration",
@@ -212,7 +216,10 @@ class EvolutionStepExecutionApiIntegrationTest {
 
 
     private void coding(String patch, String action) throws Exception {
-        when(ai.generate(any())).thenAnswer(invocation -> {
+        doAnswer(invocation -> {
+            if (providerHook != null) {
+                providerHook.run();
+            }
             AiRequest request = invocation.getArgument(0);
             assertFalse(request.messages().toString().contains("CANARY-DB-PASSWORD-0001"));
             JsonNode payload = mapper.readTree(request.messages().stream().filter(message -> message.role() == AiRole.USER)
@@ -229,7 +236,7 @@ class EvolutionStepExecutionApiIntegrationTest {
                 assertFalse(suppliedCriterion.toString().contains("ReportTest"));
                 List<String> paths = java.util.regex.Pattern.compile("(?m)^\\+\\+\\+ b/(.+)$").matcher(patch)
                         .results().map(match -> match.group(1)).toList();
-                return mapper.writeValueAsString(Map.of("type", "CHANGE_PROPOSAL", "expectedRevision", revision, "summary", "change",
+                return mapper.writeValueAsString(Map.of("type", "CHANGE_PROPOSAL", "expectedRevision", payload.path("expectedRevision").asText(), "summary", "change",
                         "declaredAffectedPaths", paths, "unifiedDiff", patch, "verificationStrategy",
                         List.of(Map.of("action", action, "target", action.equals("FOCUSED_TEST") ? "ReportTest#report" : "", "criterionIndexes", List.of(1)))));
             }
@@ -243,7 +250,7 @@ class EvolutionStepExecutionApiIntegrationTest {
             return mapper.writeValueAsString(Map.of("focusAreas", List.of(
                     Map.of("label", "code", "fileRefs", refs), Map.of("label", "behavior", "fileRefs", refs),
                     Map.of("label", "test", "fileRefs", refs))));
-        });
+        }).when(ai).generate(any());
     }
     private WorkingCopy persistedCopy() {
         EvolutionPlan plan = plans.findById(new EvolutionPlanId(planId)).orElseThrow();
@@ -521,6 +528,286 @@ class EvolutionStepExecutionApiIntegrationTest {
         }
         verifyNoInteractions(ai);
         assertEquals(original, snapshot(source));
+    }
+
+    @Test
+    void repairPassRetainsFailedHistoryAndOriginalBaseline() throws Exception {
+        confirm();
+        coding(PATCH.replace("+new\n", "+new \n"), "DIFF_CHECK");
+        mvc.perform(post(route("execute"))).andExpect(status().isOk());
+        EvolutionStep failed = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        String candidate = failed.executionResult().candidateRevision();
+        String authorization = UUID.randomUUID().toString();
+        coding("--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new \n+repaired\n", "DIFF_CHECK");
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of("expectedCandidateRevision", candidate,
+                        "authorizationId", authorization))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.steps[0].baselineRevision").value(revision))
+                .andExpect(jsonPath("$.steps[0].repairAuthorizations[0].id").value(authorization))
+                .andExpect(jsonPath("$.steps[0].repairAuthorizations[0].previousVerification.passed").value(false));
+        assertEquals(candidate, failed.executionResult().candidateRevision());
+        assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, failed.status());
+        assertEquals(revision, git(source, "rev-parse", "HEAD").trim());
+        assertEquals(git(copy, "rev-parse", "HEAD").trim(), persistedCopy().lastVerifiedRevision());
+    }
+
+    private EvolutionStep failedCandidate() throws Exception {
+        confirm();
+        coding(PATCH.replace("+new\n", "+new \n"), "DIFF_CHECK");
+        mvc.perform(post(route("execute"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("VERIFICATION_FAILED"));
+        return plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+    }
+
+    private String repairBody(String candidate, String authorization) throws Exception {
+        return mapper.writeValueAsString(Map.of("expectedCandidateRevision", candidate, "authorizationId", authorization));
+    }
+
+    @Test
+    void repairAgainFailThenPassKeepsAllFailuresAndChecksTheWholeStepDiff() throws Exception {
+        EvolutionStep first = failedCandidate();
+        String b = first.executionResult().candidateRevision();
+        Map<String, String> original = snapshot(source);
+        String authorization1 = UUID.randomUUID().toString();
+        String report = Files.readString(source.resolve("src/main/java/Report.java"));
+        coding("--- a/src/main/java/Report.java\n+++ b/src/main/java/Report.java\n@@ -1 +1 @@\n-"
+                + report + "+" + report.replace("return 0", "return 1"), "DIFF_CHECK");
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON).content(repairBody(b, authorization1)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.steps[0].status").value("VERIFICATION_FAILED"));
+        EvolutionStep again = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        String c = again.executionResult().candidateRevision();
+        assertNotEquals(b, c);
+        assertEquals(b, git(copy, "rev-parse", "HEAD^").trim());
+        // B..C 是干净的 Repair Diff；A..C 仍含此前空白错误，所以必须继续 FAIL。
+        git(copy, "diff", "--check", b, c, "--");
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(first.verificationResult(), again.repairAuthorizations().getFirst().previousVerification());
+        reset(ai);
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON).content(repairBody(c, authorization1)))
+                .andExpect(status().isConflict());
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(repairBody(b, UUID.randomUUID().toString()))).andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+        coding("--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new \n+repaired\n", "DIFF_CHECK");
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(repairBody(c, UUID.randomUUID().toString()))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("SUCCEEDED"));
+        EvolutionStep succeeded = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(List.of(b, c), succeeded.repairAuthorizations().stream().map(RepairAuthorization::candidateRevision).toList());
+        assertEquals(again.verificationResult(), succeeded.repairAuthorizations().get(1).previousVerification());
+        assertEquals(revision, succeeded.baselineRevision());
+        assertEquals(git(copy, "rev-parse", "HEAD").trim(), persistedCopy().lastVerifiedRevision());
+        assertEquals(original, snapshot(source));
+    }
+
+    @Test
+    void repairCannotNarrowPreviouslySelectedTests() throws Exception {
+        confirm();
+        String failingTest = "public class ReportTest { @org.junit.jupiter.api.Test void report() {"
+                + " org.junit.jupiter.api.Assertions.fail(\"original failure\"); } }\n";
+        coding(PATCH + newFilePatch("src/test/java/ReportTest.java", failingTest), "FOCUSED_TEST");
+        mvc.perform(post(route("execute"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("VERIFICATION_FAILED"));
+        String b = persistedCopy().currentRevision();
+        String patch = "--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new\n+repair\n"
+                + newFilePatch("src/test/java/NewTest.java", "public class NewTest { @org.junit.jupiter.api.Test void passes() {} }\n");
+        coding(patch, "FOCUSED_TEST");
+        codingOutput = mapper.writeValueAsString(Map.of("type", "CHANGE_PROPOSAL", "expectedRevision", b,
+                "summary", "change", "declaredAffectedPaths", List.of("A.java", "src/test/java/NewTest.java"),
+                "unifiedDiff", patch, "verificationStrategy", List.of(Map.of("action", "FOCUSED_TEST",
+                        "target", "NewTest", "criterionIndexes", List.of(1)))));
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(repairBody(b, UUID.randomUUID().toString()))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("VERIFICATION_FAILED"))
+                .andExpect(jsonPath("$.steps[0].verificationResult.checks[0].target").value("ReportTest#report"))
+                .andExpect(jsonPath("$.steps[0].verificationResult.checks[1].outcome").value("NOT_RUN"));
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+    }
+
+    @Test
+    void repairRequiresExplicitAuthorizationAndCandidateBeforeProviderCalls() throws Exception {
+        EvolutionStep failed = failedCandidate();
+        reset(ai);
+        for (String body : List.of("{}", "{\"authorizationId\":\"wrong\"}", "{\"expectedCandidateRevision\":null}")) {
+            mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest());
+        }
+        mvc.perform(post(route("repair"))).andExpect(status().isBadRequest());
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(repairBody(revision, UUID.randomUUID().toString()))).andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+        EvolutionStep unchanged = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(failed.verificationResult(), unchanged.verificationResult());
+        assertTrue(unchanged.repairAuthorizations().isEmpty());
+    }
+
+    @Test
+    void repairProviderFailureRetainsAuthorizationAndCannotBeReplayed() throws Exception {
+        EvolutionStep failed = failedCandidate();
+        String b = failed.executionResult().candidateRevision();
+        reset(ai);
+        doThrow(new AiGatewayException("injected Provider failure")).when(ai).generate(any());
+        String body = repairBody(b, UUID.randomUUID().toString());
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isBadGateway()).andExpect(jsonPath("$.code").value("EXECUTION_AI_FAILED"));
+        EvolutionStep current = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(EvolutionStepStatus.EXECUTING, current.status());
+        assertNull(current.executionResult());
+        assertEquals(1, current.repairAuthorizations().size());
+        assertEquals(failed.verificationResult(), current.repairAuthorizations().getFirst().previousVerification());
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
+        verify(ai, times(1)).generate(any());
+        assertEquals(b, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"authorization", "candidate", "verification"})
+    void repairCheckpointFailureRollsBackDatabaseAndPreservesPreviousHistory(String phase) throws Exception {
+        EvolutionStep failed = failedCandidate();
+        String b = failed.executionResult().candidateRevision();
+        EvolutionPlan loaded = plans.findById(new EvolutionPlanId(planId)).orElseThrow();
+        WorkingCopy before = persistedCopy();
+        reset(ai);
+        coding("--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new \n+repaired\n", "DIFF_CHECK");
+        String condition = switch (phase) {
+            case "authorization" -> "NEW.current_revision = OLD.current_revision"
+                    + " AND OLD.current_revision <> OLD.last_verified_revision"
+                    + " AND EXISTS(SELECT 1 FROM evolution_step WHERE status='EXECUTING')";
+            case "candidate" -> "NEW.current_revision <> OLD.current_revision";
+            default -> "NEW.last_verified_revision <> OLD.last_verified_revision";
+        };
+        jdbc.execute("CREATE TRIGGER inject_repair_failure BEFORE UPDATE ON working_copy WHEN " + condition
+                + " BEGIN SELECT RAISE(ABORT, 'injected Repair checkpoint failure'); END");
+        try {
+            mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                    .content(repairBody(b, UUID.randomUUID().toString()))).andExpect(status().isInternalServerError());
+        } finally {
+            jdbc.execute("DROP TRIGGER inject_repair_failure");
+        }
+        EvolutionStep after = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, loaded.step(new EvolutionStepId(stepId)).status());
+        assertTrue(loaded.step(new EvolutionStepId(stepId)).repairAuthorizations().isEmpty());
+        assertEquals(b, before.currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        if (phase.equals("authorization")) {
+            assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, after.status());
+            assertEquals(failed.verificationResult(), after.verificationResult());
+            assertTrue(after.repairAuthorizations().isEmpty());
+            assertEquals(b, git(copy, "rev-parse", "HEAD").trim());
+            verifyNoInteractions(ai);
+        } else {
+            assertEquals(1, after.repairAuthorizations().size());
+            assertEquals(failed.verificationResult(), after.repairAuthorizations().getFirst().previousVerification());
+            assertEquals(phase.equals("candidate") ? EvolutionStepStatus.EXECUTING : EvolutionStepStatus.VERIFYING, after.status());
+            assertNull(after.verificationResult());
+            assertEquals(phase.equals("candidate") ? b : git(copy, "rev-parse", "HEAD").trim(), persistedCopy().currentRevision());
+        }
+    }
+
+    @Test
+    void repairConcurrentRequestCannotReuseAuthorizationOrStartAnotherProviderCall() throws Exception {
+        String b = failedCandidate().executionResult().candidateRevision();
+        reset(ai);
+        coding("--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new \n+repaired\n", "DIFF_CHECK");
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        var firstCall = new java.util.concurrent.atomic.AtomicBoolean(true);
+        providerHook = () -> {
+            if (firstCall.compareAndSet(true, false)) {
+                entered.countDown();
+                try {
+                    if (!release.await(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                        throw new AssertionError("Repair Provider test barrier timed out");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(interrupted);
+                }
+            }
+        };
+        String body = repairBody(b, UUID.randomUUID().toString());
+        try (var workers = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            var firstRequest = workers.submit(() -> mvc.perform(post(route("repair"))
+                    .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk()));
+            try {
+                assertTrue(entered.await(15, java.util.concurrent.TimeUnit.SECONDS));
+                mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON).content(body))
+                        .andExpect(status().isConflict());
+                EvolutionStep executing = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+                assertEquals(EvolutionStepStatus.EXECUTING, executing.status());
+                assertEquals(1, executing.repairAuthorizations().size());
+                verify(ai, times(1)).generate(any());
+            } finally {
+                release.countDown();
+            }
+            firstRequest.get(60, java.util.concurrent.TimeUnit.SECONDS);
+        }
+        verify(ai, times(2)).generate(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"authorization", "dirty-candidate", "superseded-plan"})
+    void repairRechecksAssetIsolationAndPlanBeforeGrantingAuthorization(String change) throws Exception {
+        EvolutionStep failed = failedCandidate();
+        String b = failed.executionResult().candidateRevision();
+        reset(ai);
+        switch (change) {
+            case "authorization" -> jdbc.update("UPDATE software_asset SET read_permission=0 WHERE id=?", ASSET.value());
+            case "dirty-candidate" -> Files.writeString(copy.resolve("A.java"), "external\n");
+            default -> jdbc.update("UPDATE evolution_plan SET status='SUPERSEDED' WHERE id=?", planId);
+        }
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(repairBody(b, UUID.randomUUID().toString()))).andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+        EvolutionStep after = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(failed.verificationResult(), after.verificationResult());
+        assertTrue(after.repairAuthorizations().isEmpty());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"timeout", "process-crash", "interrupted"})
+    void repairVerificationExceptionKeepsCandidateAndUnknownCheckpoint(String failure) throws Exception {
+        EvolutionStep failed = failedCandidate();
+        String b = failed.executionResult().candidateRevision();
+        coding("--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new \n+repaired\n", "DIFF_CHECK");
+        doThrow(new WorkspaceException("injected " + failure)).when(verification).verify(any());
+        String authorization = UUID.randomUUID().toString();
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON).content(repairBody(b, authorization)))
+                .andExpect(status().isInternalServerError());
+        EvolutionStep unknown = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(EvolutionStepStatus.VERIFYING, unknown.status());
+        assertNull(unknown.verificationResult());
+        assertEquals(git(copy, "rev-parse", "HEAD").trim(), unknown.executionResult().candidateRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(failed.verificationResult(), unknown.repairAuthorizations().getFirst().previousVerification());
+        reset(ai);
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(repairBody(unknown.executionResult().candidateRevision(), UUID.randomUUID().toString())))
+                .andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+        if (failure.equals("process-crash")) {
+            try (var restarted = new org.springframework.boot.builder.SpringApplicationBuilder(
+                    com.ayywl.delveforge.app.DelveForgeApplication.class)
+                    .web(org.springframework.boot.WebApplicationType.NONE).run(
+                            "--delveforge.persistence.database-file=" + BASE.resolve("state.db"),
+                            "--delveforge.workspace.root=" + BASE.resolve("managed"),
+                            "--delveforge.ai.deepseek.base-url=http://127.0.0.1:1",
+                            "--delveforge.ai.deepseek.api-key=", "--spring.profiles.active=m5b-restart-test")) {
+                EvolutionStep restored = restarted.getBean(EvolutionPlanRepository.class)
+                        .findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+                assertEquals(EvolutionStepStatus.VERIFYING, restored.status());
+                assertNull(restored.verificationResult());
+                assertEquals(unknown.executionResult(), restored.executionResult());
+                assertEquals(unknown.repairAuthorizations(), restored.repairAuthorizations());
+                assertEquals(revision, restarted.getBean(WorkingCopyRepository.class)
+                        .findById(persistedCopy().id()).orElseThrow().lastVerifiedRevision());
+            }
+        }
     }
 
     @Test void confirmedMavenTestFailureIsSavedWithoutTrustPromotion() throws Exception {

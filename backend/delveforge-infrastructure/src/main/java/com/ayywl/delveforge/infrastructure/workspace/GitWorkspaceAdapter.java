@@ -239,9 +239,9 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     @Override
     public CandidateMutationResult applyCandidate(AuthorizedStepExecution execution) {
         WorkspaceRef copy = execution.workingCopy();
-        String baseline = execution.validated().basis().expectedRevision();
+        String startingRevision = execution.validated().basis().expectedRevision();
         var proposal = execution.validated().proposal();
-        requireTrustedState(copy, execution.originalAsset(), baseline);
+        requireTrustedState(copy, execution.originalAsset(), startingRevision);
         requireSafePaths(copy, proposal.declaredAffectedPaths());
         Path target = requireManagedCopy(copy);
 
@@ -251,25 +251,25 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             patch = Files.createTempFile(target.resolve(".git"), "delveforge-patch-", ".diff");
             Files.writeString(patch, proposal.unifiedDiff(), StandardCharsets.UTF_8);
 
-            // 从不可变基线和已验证补丁独立生成预期 tree，不能以共享 index 的早期快照代替它。
+            // 从本次不可变修改起点（首次 A / Repair B）生成 tree，不把 Candidate 起点误当作可信基线。
             expectedIndex = Files.createTempFile(target.resolve(".git"), "delveforge-index-", ".tmp");
             Files.delete(expectedIndex);
-            mutationGit(target, expectedIndex, "read-tree", baseline);
+            mutationGit(target, expectedIndex, "read-tree", startingRevision);
             mutationGit(target, expectedIndex, "apply", "--cached", "--whitespace=nowarn", "--", patch.toString());
             String expectedTree = mutationGit(target, expectedIndex, "write-tree").trim();
 
             // 可变 index / 工作树只是执行载体，不能替代后面的不可变快照校验。
             mutationGit(target, "apply", "--check", "--index", "--whitespace=nowarn", "--", patch.toString());
-            requireTrustedState(copy, execution.originalAsset(), baseline);
+            requireTrustedState(copy, execution.originalAsset(), startingRevision);
             mutationGit(target, "apply", "--index", "--whitespace=nowarn", "--", patch.toString());
 
             List<String> indexed = Arrays.stream(mutationGit(target, "diff", "--cached", "--no-ext-diff", "--no-renames",
-                    "--name-only", "-z", baseline, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
+                    "--name-only", "-z", startingRevision, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
             if (!new HashSet<>(indexed).equals(new HashSet<>(proposal.declaredAffectedPaths()))
                     || !mutationGit(target, "diff", "--no-ext-diff", "--name-only", "-z", "--").isEmpty()
                     || !mutationGit(target, "ls-files", "--others", "--exclude-standard", "-z").isEmpty()
                     || !mutationGit(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z").isEmpty()
-                    || !baseline.equals(headRevision(copy))) {
+                    || !startingRevision.equals(headRevision(copy))) {
                 throw new EvolutionExecutionException("Actual Working Copy change differs from the authorized scope");
             }
             requireSafePaths(copy, indexed);
@@ -280,20 +280,20 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
 
             // 发布前只检查固定 tree；路径及执行摘要也必须来自这个不可变版本。
             List<String> actual = Arrays.stream(mutationGit(target, "diff", "--no-ext-diff", "--no-renames",
-                    "--name-only", "-z", baseline, tree, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
+                    "--name-only", "-z", startingRevision, tree, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
             if (!new HashSet<>(actual).equals(new HashSet<>(proposal.declaredAffectedPaths()))) {
                 throw new EvolutionExecutionException("Candidate tree exceeds the authorized scope");
             }
             requireSafePaths(copy, actual);
             List<String> changes = mutationGit(target, "diff", "--no-ext-diff", "--no-renames",
-                    "--numstat", baseline, tree, "--").lines().toList();
+                    "--numstat", startingRevision, tree, "--").lines().toList();
 
             String candidate = mutationGit(target, "-c", "user.name=DelveForge", "-c", "user.email=local@delveforge.invalid",
-                    "-c", "commit.gpgSign=false", "commit-tree", tree, "-p", baseline,
+                    "-c", "commit.gpgSign=false", "commit-tree", tree, "-p", startingRevision,
                     "-m", "DelveForge evolution step " + execution.validated().basis().stepId().value()).trim();
 
             // update-ref 的旧值核对防止并发 HEAD 漂移；commit-tree 不运行提交 hooks。
-            mutationGit(target, "update-ref", "HEAD", candidate, baseline);
+            mutationGit(target, "update-ref", "HEAD", candidate, startingRevision);
             requireTrustedState(copy, execution.originalAsset(), candidate);
             return new CandidateMutationResult(candidate, actual, changes, List.of(), Instant.now());
         } catch (IOException failure) {

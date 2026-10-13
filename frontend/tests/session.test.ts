@@ -242,6 +242,72 @@ describe("持续引导与只读下一问", () => {
   });
 });
 describe("长同步 execute", () => {
+  it("Repair 的旧 FAIL 查询不清除新授权标记；匹配授权的新结果才结束等待", async () => {
+    const s = make(); ready(s);
+    const failed = successfulPlan();
+    failed.status = "ACTIVE";
+    failed.steps[0]!.status = "VERIFICATION_FAILED";
+    failed.steps[0]!.verificationResult!.passed = false;
+    failed.steps[0]!.verificationResult!.failures = ["Old failure"];
+    failed.steps[0]!.repairAuthorizations = [];
+    const candidate = { ...copy(), status: "EVOLVING" as const, currentRevision: "b".repeat(40) };
+    vi.mocked(api.plan).mockResolvedValue(failed);
+    vi.mocked(api.workingCopy).mockResolvedValue(candidate);
+    let resolve!: (value: ReturnType<typeof plan>) => void;
+    let authorization = "";
+    const repair = vi.spyOn(api, "repair").mockImplementation((_plan, _step, revision, id) => {
+      expect(revision).toBe("b".repeat(40)); authorization = id;
+      return new Promise(r => { resolve = r; });
+    });
+    const execute = vi.spyOn(api, "execute");
+    const pending = s.repair("step-1", "b".repeat(40));
+    for (let index = 0; index < 20; index++) await Promise.resolve();
+    expect(repair).toHaveBeenCalledOnce();
+    await s.refreshPlan();
+    expect(s.receipt.value?.authorizationId).toBe(authorization);
+    await s.repair("step-1", "b".repeat(40));
+    expect(repair).toHaveBeenCalledOnce();
+    const repaired = successfulPlan();
+    repaired.status = "ACTIVE";
+    repaired.steps[0]!.executionResult!.candidateRevision = "c".repeat(40);
+    repaired.steps[0]!.verificationResult!.candidateRevision = "c".repeat(40);
+    repaired.steps[0]!.repairAuthorizations = [{ id: authorization, candidateRevision: "b".repeat(40),
+      authorizedAt: new Date().toISOString(), previousExecution: failed.steps[0]!.executionResult!,
+      previousVerification: failed.steps[0]!.verificationResult! }];
+    vi.mocked(api.plan).mockResolvedValue(repaired);
+    vi.mocked(api.workingCopy).mockResolvedValue({ ...candidate, currentRevision: "c".repeat(40), lastVerifiedRevision: "c".repeat(40) });
+    resolve(repaired); await pending;
+    expect(s.receipt.value).toBeNull();
+    expect(s.plan.value?.steps[0]?.repairAuthorizations?.[0]?.id).toBe(authorization);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("Repair 断线后刷新只 GET，EXECUTING 与授权历史不会触发 Provider 重放", async () => {
+    const s = make(); ready(s);
+    const failed = successfulPlan(); failed.steps[0]!.status = "VERIFICATION_FAILED";
+    failed.status = "ACTIVE";
+    failed.steps[0]!.verificationResult!.passed = false;
+    vi.mocked(api.plan).mockResolvedValue(failed);
+    vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: "EVOLVING", currentRevision: "b".repeat(40) });
+    const repair = vi.spyOn(api, "repair").mockImplementation(async (_plan, _step, candidate, id) => {
+      const executing = { ...failed, steps: [{ ...failed.steps[0]!, status: "EXECUTING" as const,
+        executionResult: null, verificationResult: null, repairAuthorizations: [{ id, candidateRevision: candidate,
+          authorizedAt: new Date().toISOString(), previousExecution: failed.steps[0]!.executionResult!,
+          previousVerification: failed.steps[0]!.verificationResult! }] }] };
+      vi.mocked(api.plan).mockResolvedValue(executing);
+      throw new ApiError(0, "CONNECTION_LOST");
+    });
+    await s.repair("step-1", "b".repeat(40));
+    expect(s.receipt.value?.operation).toBe("REPAIR");
+    const restored = make(); restored.ids.planId = "plan-1";
+    vi.spyOn(api, "connectivity").mockResolvedValue({ status: "UP", service: "backend", timestamp: "" });
+    await restored.restore();
+    await restored.repair("step-1", "b".repeat(40));
+    expect(repair).toHaveBeenCalledOnce();
+    expect(restored.plan.value?.steps[0]?.status).toBe("EXECUTING");
+    expect(restored.receipt.value).not.toBeNull();
+  });
+
   it("execute 返回明确 FAIL 后保留结果与 Candidate，清除等待标记且禁止重放", async () => {
     const s = make();
     ready(s);

@@ -142,6 +142,13 @@ export interface EvolutionStep {
   baselineRevision: string | null;
   executionResult: ExecutionResult | null;
   verificationResult: VerificationResult | null;
+  repairAuthorizations?: {
+    id: string;
+    candidateRevision: string;
+    authorizedAt: string;
+    previousExecution: ExecutionResult;
+    previousVerification: VerificationResult;
+  }[];
 }
 export interface EvolutionPlan {
   id: string;

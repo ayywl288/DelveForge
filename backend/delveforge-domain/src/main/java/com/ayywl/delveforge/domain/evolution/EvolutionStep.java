@@ -1,5 +1,8 @@
 package com.ayywl.delveforge.domain.evolution;
 
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -19,6 +22,8 @@ public final class EvolutionStep {
     private String baselineRevision;
     private ExecutionResult executionResult;
     private VerificationResult verificationResult;
+    // 每次 Repair 开始前追加其授权及失败快照；当前结果可继续推进，历史事实不被替换。
+    private List<RepairAuthorization> repairAuthorizations = List.of();
 
     private EvolutionStep(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
             List<String> plannedChanges, List<VerificationCriterion> verificationCriteria) {
@@ -59,25 +64,47 @@ public final class EvolutionStep {
 
     EvolutionStep copy() {
         return reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria,
-                status, baselineRevision, executionResult, verificationResult);
+                status, baselineRevision, executionResult, verificationResult, repairAuthorizations);
     }
 
     /** 恢复完整历史检查点；不以当前证据适配规则重新判定已保存的成功事实。 */
     public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
             List<String> plannedChanges, List<VerificationCriterion> verificationCriteria,
             EvolutionStepStatus status, String baseline, ExecutionResult execution, VerificationResult verification) {
+        return reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria,
+                status, baseline, execution, verification, List.of());
+    }
+
+    public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
+            List<String> plannedChanges, List<VerificationCriterion> verificationCriteria,
+            EvolutionStepStatus status, String baseline, ExecutionResult execution, VerificationResult verification,
+            List<RepairAuthorization> authorizations) {
         EvolutionStep step = reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria);
+        step.baselineRevision = baseline;
+        step.repairAuthorizations = List.copyOf(authorizations);
+        HashSet<String> ids = new HashSet<>();
+        String previousCandidate = baseline;
+        for (RepairAuthorization authorization : step.repairAuthorizations) {
+            if (!ids.add(authorization.id()) || authorization.candidateRevision().equals(baseline)
+                    || authorization.candidateRevision().equals(previousCandidate)
+                    || !authorization.previousVerification().recordsFailedCoverage(verificationCriteria.size())) {
+                throw new EvolutionPlanStateException("Incomplete or duplicated stored Repair authorization");
+            }
+            previousCandidate = authorization.candidateRevision();
+        }
         boolean prepared = status == EvolutionStepStatus.PENDING_CONFIRMATION || status == EvolutionStepStatus.READY;
         boolean executing = status == EvolutionStepStatus.EXECUTING;
         boolean verifying = status == EvolutionStepStatus.VERIFYING;
         boolean succeeded = status == EvolutionStepStatus.SUCCEEDED;
         boolean failed = status == EvolutionStepStatus.VERIFICATION_FAILED;
         if ((!prepared && !executing && !verifying && !succeeded && !failed)
-                || (prepared && (baseline != null || execution != null || verification != null))
+                || (prepared && (baseline != null || execution != null || verification != null
+                        || !step.repairAuthorizations.isEmpty()))
                 || (!prepared && (baseline == null || baseline.isBlank()))
                 || (executing && (execution != null || verification != null))
                 || ((verifying || succeeded || failed)
-                        && (execution == null || baseline.equals(execution.candidateRevision())))
+                        && (execution == null || baseline.equals(execution.candidateRevision())
+                                || step.executionStartRevision().equals(execution.candidateRevision())))
                 || (verifying && verification != null)
                 || (succeeded && (verification == null
                         || !execution.candidateRevision().equals(verification.candidateRevision())
@@ -105,11 +132,37 @@ public final class EvolutionStep {
 
     void recordExecution(ExecutionResult result) {
         if (status != EvolutionStepStatus.EXECUTING || result == null
-                || baselineRevision.equals(result.candidateRevision())) {
+                || baselineRevision.equals(result.candidateRevision())
+                || executionStartRevision().equals(result.candidateRevision())) {
             throw new EvolutionPlanStateException("Complete execution must create a new Candidate");
         }
         executionResult = result;
         status = EvolutionStepStatus.VERIFYING;
+    }
+
+    void authorizeRepair(String authorizationId, String candidate, Instant authorizedAt) {
+        if (status != EvolutionStepStatus.VERIFICATION_FAILED || !candidate.equals(executionResult.candidateRevision())
+                || repairAuthorizations.stream().anyMatch(value -> value.id().equals(authorizationId))) {
+            throw new EvolutionPlanStateException("Repair requires a new authorization for the current failed Candidate");
+        }
+        RepairAuthorization authorization = new RepairAuthorization(authorizationId, candidate, authorizedAt,
+                executionResult, verificationResult);
+        List<RepairAuthorization> history = new ArrayList<>(repairAuthorizations);
+        history.add(authorization);
+        repairAuthorizations = List.copyOf(history);
+        executionResult = null;
+        verificationResult = null;
+        status = EvolutionStepStatus.EXECUTING;
+    }
+
+    /** 当前动作的代码起点；它不替代首次执行冻结的 baselineRevision。 */
+    public String executionStartRevision() {
+        return repairAuthorizations.isEmpty() ? baselineRevision
+                : repairAuthorizations.getLast().candidateRevision();
+    }
+
+    public List<RepairAuthorization> repairAuthorizations() {
+        return repairAuthorizations;
     }
 
     void requireVerificationAccepted(VerificationResult result) {

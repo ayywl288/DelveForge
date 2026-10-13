@@ -13,10 +13,11 @@ import org.apache.ibatis.annotations.Update;
 public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
     @Update("""
         UPDATE evolution_step SET status = #{next.status}, baseline_revision = #{next.baselineRevision},
-            execution_result = #{execution}, verification_result = #{verification}
+            execution_result = #{execution}, verification_result = #{verification}, repair_authorizations = #{authorizations}
         WHERE id = #{stepId.value} AND plan_id = #{plan.id.value} AND status = #{old.status}
           AND baseline_revision IS #{old.baselineRevision}
           AND execution_result IS #{oldExecution} AND verification_result IS #{oldVerification}
+          AND repair_authorizations = #{oldAuthorizations} AND goal = #{old.goal} AND scope = #{old.scope}
           AND EXISTS (SELECT 1 FROM evolution_plan p JOIN product_direction d ON d.id = p.product_direction_id
                       WHERE p.id = #{plan.id.value} AND p.status = 'ACTIVE' AND d.status = 'SELECTED'
                         AND p.flow_id IS NOT NULL AND p.flow_id = d.flow_id
@@ -39,7 +40,8 @@ public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
             @Param("copy") WorkingCopy copy, @Param("asset") SoftwareAsset asset, @Param("license") String license,
             @Param("old") EvolutionStep old, @Param("next") EvolutionStep next,
             @Param("oldExecution") String oldExecution, @Param("oldVerification") String oldVerification,
-            @Param("execution") String execution, @Param("verification") String verification);
+            @Param("execution") String execution, @Param("verification") String verification,
+            @Param("oldAuthorizations") String oldAuthorizations, @Param("authorizations") String authorizations);
 
     @Update("""
         UPDATE evolution_step SET status = 'READY'

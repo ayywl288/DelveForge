@@ -14,6 +14,15 @@ public class EvolutionStepDO {
     private String baselineRevision;
     private String executionResult;
     private String verificationResult;
+    private String repairAuthorizations;
+
+    public String getRepairAuthorizations() {
+        return repairAuthorizations;
+    }
+
+    public void setRepairAuthorizations(String value) {
+        repairAuthorizations = value;
+    }
 
     public String getExecutionResult() { return executionResult; }
     public void setExecutionResult(String value) { executionResult = value; }

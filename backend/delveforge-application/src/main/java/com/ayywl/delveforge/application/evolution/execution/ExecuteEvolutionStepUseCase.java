@@ -23,8 +23,11 @@ import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
 import com.ayywl.delveforge.domain.evolution.VerificationResult;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 
@@ -60,6 +63,9 @@ public final class ExecuteEvolutionStepUseCase {
     public EvolutionPlan execute(ValidatedExecutionProposal validated) {
         // 准备时通过校验不代表此刻仍可执行；写入前重查受信 revision（A）与证据资格。
         ExecutionPreparationBasis basis = validated.basis();
+        if (basis.repairAuthorizationId() != null) {
+            throw new EvolutionExecutionException("Repair proposals require their newly authorized Repair call");
+        }
         EvolutionStepId id = basis.stepId();
         Loaded loaded = state.load(basis.planId(), id, false);
         if (!basis.equals(loaded.basis(id))) {
@@ -78,10 +84,37 @@ public final class ExecuteEvolutionStepUseCase {
         commits.commit(loaded.plan(), id, loaded.copy(), loaded.asset(), plan, copy);
         Loaded executing = new Loaded(plan, copy, loaded.asset());
         state.requireCheckpoint(executing, id, basis.expectedRevision());
+        return completeExecution(executing, validated);
+    }
+
+    /** 明确请求一次 Repair；先保存授权 / 历史及 EXECUTING，再调用 Provider，不重放未知状态。 */
+    public EvolutionPlan repair(EvolutionPlanId planId, EvolutionStepId stepId, String candidate, String authorizationId) {
+        Loaded failed = state.loadRepairCandidate(planId, stepId);
+        PrepareEvolutionStepUseCase.requireSupportedCriteria(failed.plan().step(stepId));
+        EvolutionPlan authorized = failed.plan().copy();
+        WorkingCopy retained = failed.copy().copy();
+        authorized.authorizeStepRepair(stepId, retained, policy, authorizationId, candidate, Instant.now());
+        commits.commit(failed.plan(), stepId, failed.copy(), failed.asset(), authorized, retained);
+        Loaded executing = new Loaded(authorized, retained, failed.asset());
+        ValidatedExecutionProposal validated = preparation.prepareRepair(executing, stepId);
+        requireCriterionEvidence(authorized.step(stepId), validated.proposal());
+        verification.requireSupported(request(executing, validated, candidate));
+        executing = state.revalidateRepair(executing, stepId);
+        return completeExecution(executing, validated);
+    }
+
+    private EvolutionPlan completeExecution(Loaded executing, ValidatedExecutionProposal validated) {
+        ExecutionPreparationBasis basis = validated.basis();
+        EvolutionStepId id = basis.stepId();
+        EvolutionPlan plan = executing.plan();
+        WorkingCopy copy = executing.copy();
 
         // Candidate B 与受影响路径必须来自实际 mutation；提案声明不能替代执行事实。
-        CandidateMutationResult candidate = mutation.applyCandidate(AuthorizedStepExecution.from(plan, id, copy,
-                new WorkspaceRef(loaded.asset().location()), validated));
+        WorkspaceRef original = new WorkspaceRef(executing.asset().location());
+        AuthorizedStepExecution capability = basis.repairAuthorizationId() == null
+                ? AuthorizedStepExecution.from(plan, id, copy, original, validated)
+                : AuthorizedStepExecution.fromRepair(plan, id, copy, original, validated);
+        CandidateMutationResult candidate = mutation.applyCandidate(capability);
         if (candidate.revision() == null || candidate.revision().equals(basis.expectedRevision())
                 || candidate.changedPaths().size() != new HashSet<>(candidate.changedPaths()).size()
                 || !new HashSet<>(candidate.changedPaths())
@@ -102,7 +135,7 @@ public final class ExecuteEvolutionStepUseCase {
 
         // 验证固定的 B；Workspace 返回实际事实，是否满足 Criteria 仍由 Domain 决定。
         VerificationFacts facts = verification.verify(request(verifying, validated, candidate.revision()));
-        VerificationResult result = result(validated.proposal(), candidate.revision(), facts);
+        VerificationResult result = result(strategy(verifying, validated), candidate.revision(), facts);
 
         // 检查点 3：明确 FAIL 保存结果并保留 B；只有 Domain 接受 PASS 才推进信任。
         verifying = state.requireCheckpoint(verifying, id, candidate.revision());
@@ -120,7 +153,35 @@ public final class ExecuteEvolutionStepUseCase {
     private CandidateVerification request(Loaded loaded, ValidatedExecutionProposal validated, String candidate) {
         return new CandidateVerification(new WorkspaceRef(loaded.copy().location()),
                 new WorkspaceRef(loaded.asset().location()),
-                validated.basis().expectedRevision(), candidate, validated.proposal().verificationStrategy());
+                loaded.plan().step(validated.basis().stepId()).baselineRevision() == null
+                        ? validated.basis().expectedRevision() : loaded.plan().step(validated.basis().stepId()).baselineRevision(),
+                candidate, strategy(loaded, validated));
+    }
+
+    /** 本 Slice 的保守选择：重跑此前的动作 / 测试身份，再追加新的验证意图，避免缩小失败证据。 */
+    private List<CodingProposal.VerificationAction> strategy(Loaded loaded, ValidatedExecutionProposal validated) {
+        if (validated.basis().repairAuthorizationId() == null) {
+            return validated.proposal().verificationStrategy();
+        }
+        List<CodingProposal.VerificationAction> combined = new ArrayList<>();
+        VerificationResult previous = loaded.plan().step(validated.basis().stepId())
+                .repairAuthorizations().getLast().previousVerification();
+        for (VerificationResult.Check check : previous.checks()) {
+            combined.add(new CodingProposal.VerificationAction(CodingProposal.Action.valueOf(check.action()),
+                    check.target(), check.criterionIndexes()));
+        }
+        combined.addAll(validated.proposal().verificationStrategy());
+        LinkedHashMap<String, CodingProposal.VerificationAction> actions = new LinkedHashMap<>();
+        for (CodingProposal.VerificationAction action : combined) {
+            String identity = action.action().name() + "\n" + action.target();
+            CodingProposal.VerificationAction existing = actions.get(identity);
+            LinkedHashSet<Integer> indexes = new LinkedHashSet<>(action.criterionIndexes());
+            if (existing != null) {
+                indexes.addAll(existing.criterionIndexes());
+            }
+            actions.put(identity, new CodingProposal.VerificationAction(action.action(), action.target(), List.copyOf(indexes)));
+        }
+        return List.copyOf(actions.values());
     }
 
     private void requireCriterionEvidence(EvolutionStep step, CodingProposal proposal) {
@@ -142,16 +203,16 @@ public final class ExecuteEvolutionStepUseCase {
     }
 
     /** 先核对实际 Candidate 与动作身份，再关联已校验的 Criteria 索引；不在这里赋予软件信任。 */
-    private VerificationResult result(CodingProposal proposal, String candidate, VerificationFacts facts) {
+    private VerificationResult result(List<CodingProposal.VerificationAction> strategy, String candidate, VerificationFacts facts) {
         if (!candidate.equals(facts.candidateRevision())
-                || facts.checks().size() != proposal.verificationStrategy().size()) {
+                || facts.checks().size() != strategy.size()) {
             throw new EvolutionExecutionException("Verification facts do not identify the requested Candidate and checks");
         }
 
         List<VerificationResult.Check> checks = new ArrayList<>();
         List<String> failures = new ArrayList<>();
         for (int index = 0; index < facts.checks().size(); index++) {
-            CodingProposal.VerificationAction intent = proposal.verificationStrategy().get(index);
+            CodingProposal.VerificationAction intent = strategy.get(index);
             VerificationFacts.Check fact = facts.checks().get(index);
             if (intent.action() != fact.action() || !Objects.equals(intent.target(), fact.target())) {
                 throw new EvolutionExecutionException("Verification facts differ from the validated strategy");

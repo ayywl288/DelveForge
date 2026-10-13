@@ -9,6 +9,9 @@ import ConfirmDialog from "../components/ConfirmDialog.vue";
 import StepPrerequisites from "../components/StepPrerequisites.vue";
 import NavigationIcon from "../components/NavigationIcon.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
+const repairOpen = ref(false);
+const repairAcknowledged = ref(false);
+const repairCandidate = ref("");
 const emit = defineEmits<{ planning: [] }>();
 const now = ref(Date.now());
 const pollingPaused = ref(false);
@@ -95,7 +98,7 @@ const actionReason = computed(() => {
   if (step?.status === "SUCCEEDED") return "此步骤已验证通过，不再执行；后续步骤仍需分别授权。";
   if (step?.status === "EXECUTING") return "后端记录正在执行。可以观察状态，不能再次执行。";
   if (step?.status === "VERIFYING") return "后端记录正在验证。Candidate 尚不能视为验证通过。";
-  if (step?.status === "VERIFICATION_FAILED") return "验证已明确失败，Candidate 保留，最近可信版本未推进。后续步骤已阻止；本版没有修复或回滚入口。";
+  if (step?.status === "VERIFICATION_FAILED") return "验证已明确失败，Candidate 保留，最近可信版本未推进。可单独授权修复此 Candidate，后续步骤继续阻止。";
   if (step?.status === "CANCELLED") return "此步骤已取消，没有执行入口。";
   if (plan?.status === "SUPERSEDED") return "此计划已替代，仅供历史查看，不能继续授权或执行。";
   if (plan?.status !== "ACTIVE") return "执行需要进行中的计划。请在规划页核对当前生命周期。";
@@ -111,6 +114,28 @@ const actionReason = computed(() => {
 const recoveryBlocked = computed(() =>
   !!chosen.value && ["FAILED", "VERIFICATION_FAILED", "RECOVERY_REQUIRED", "ROLLING_BACK"].includes(chosen.value.status)
   || !!props.s.copy && ["FAILED", "RECOVERY_REQUIRED", "UNRECOVERABLE"].includes(props.s.copy.status));
+const canRepair = computed(() => {
+  const step = chosen.value;
+  const copy = props.s.copy;
+  const plan = props.s.plan;
+  return !!step && !!copy && !!plan && plan.status === "ACTIVE" && step.status === "VERIFICATION_FAILED"
+    && copy.status === "EVOLVING" && step.executionResult?.candidateRevision === copy.currentRevision
+    && step.verificationResult?.candidateRevision === copy.currentRevision && step.verificationResult.passed === false
+    && copy.lastVerifiedRevision === step.baselineRevision && !props.s.busy && !props.s.receipt
+    && plan.steps.slice(0, plan.steps.indexOf(step)).every(item => item.status === "SUCCEEDED");
+});
+function openRepair() {
+  dialogStep.value = chosen.value ?? null;
+  repairCandidate.value = props.s.copy?.currentRevision ?? "";
+  repairAcknowledged.value = false;
+  repairOpen.value = true;
+}
+function repair() {
+  if (!dialogStep.value || !repairAcknowledged.value || !canRepair.value
+    || dialogStep.value.id !== chosen.value?.id || repairCandidate.value !== props.s.copy?.currentRevision) return;
+  repairOpen.value = false;
+  props.s.repair(dialogStep.value.id, repairCandidate.value);
+}
 function openExecute() {
   dialogStep.value = chosen.value ?? null;
   acknowledged.value = false;
@@ -262,6 +287,7 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
             <p role="status">{{ actionReason }}</p>
             <button v-if="chosen.status === 'PENDING_CONFIRMATION' || !s.copy" @click="emit('planning')"><NavigationIcon name="lock" />前往规划页核对与授权</button>
             <button v-if="chosen.status === 'READY'" :disabled="!canExecute" @click="openExecute"><NavigationIcon name="play" />审阅风险并执行此 Step</button>
+            <button v-if="chosen.status === 'VERIFICATION_FAILED'" :disabled="!canRepair" @click="openRepair"><NavigationIcon name="play" />审阅并授权本次修复</button>
           </div>
           <details :key="chosen.id" class="reading-disclosure" :open="!chosen.executionResult && !chosen.baselineRevision">
             <summary>目标、范围与操作前提</summary>
@@ -273,6 +299,20 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
             </li></ol>
           </details>
           <p v-if="chosen.status === 'READY'" class="meta">READY 表示已授权的就绪状态；准备提案期间也可能保持 READY，不能据此判断请求已结束。</p>
+        </section>
+        <section v-if="chosen.repairAuthorizations?.length" id="repair-history" class="execution-section">
+          <h3>修复授权与此前失败记录</h3>
+          <details v-for="authorization in chosen.repairAuthorizations" :key="authorization.id" class="reading-disclosure">
+            <summary>修复授权 · {{ new Date(authorization.authorizedAt).toLocaleString('zh-CN') }}</summary>
+            <p class="meta">授权 ID：{{ authorization.id }}</p>
+            <RevisionText label="本次授权的失败 Candidate" :value="authorization.candidateRevision" />
+            <ContentList title="此前执行的文件" :items="authorization.previousExecution.affectedPaths" />
+            <p>{{ authorization.previousVerification.summary }}</p>
+            <p v-for="(check, index) in authorization.previousVerification.checks" :key="index">
+              {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ checkOutcome(check) }} · {{ check.summary }}
+            </p>
+            <ContentList title="此前失败事实" :items="authorization.previousVerification.failures" />
+          </details>
         </section>
         <section id="execution-result" class="execution-section">
         <div class="section-row"><h3 class="section-heading"><NavigationIcon name="code" />执行状态与 Candidate</h3><StatusBadge :status="chosen.status" /></div>
@@ -392,12 +432,12 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
               'SUCCEEDED',
               'EXECUTING',
               'VERIFYING',
+              'VERIFICATION_FAILED',
             ].includes(chosen.status)
           "
           class="inline-note"
         >
-          当前状态没有 M4 页面恢复操作。M5
-          暂缓，请保留实际状态及证据，不能强制重试 Candidate。
+          当前状态没有恢复入口，请保留实际状态及证据，不能强制重试 Candidate。
         </p>
         <p v-if="chosen.status === 'PENDING_CONFIRMATION'" class="inline-note">
           请先在规划阶段审阅范围并确认此 Step。
@@ -430,5 +470,14 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
         type="checkbox"
       />我确认信任此仓库、授权当前 Step 的范围，接受费用与宿主执行风险</label
     >
+  </ConfirmDialog>
+  <ConfirmDialog :open="repairOpen" title="授权修复这个失败 Candidate？" confirm-label="授权并开始本次修复"
+    :disabled="!repairAcknowledged || !canRepair || repairCandidate !== s.copy?.currentRevision || dialogStep?.id !== chosen?.id"
+    @close="repairOpen = false" @confirm="repair">
+    <h3>{{ dialogStep?.goal }}</h3><p>{{ dialogStep?.scope }}</p>
+    <RevisionText label="本次修复的 Candidate" :value="repairCandidate" />
+    <p>本次授权只修复原 Step 的当前 Candidate。原 baseline 和失败记录保留，修复后重新验证全部标准。</p>
+    <p>此请求将调用 Provider、产生费用，并在受控 WorkingCopy 中运行仓库代码。只有实际验证通过后才推进可信版本。</p>
+    <label class="check"><input v-model="repairAcknowledged" type="checkbox" />我单独授权本次修复原 Step 的范围，接受 Provider 费用与宿主执行风险</label>
   </ConfirmDialog>
 </template>

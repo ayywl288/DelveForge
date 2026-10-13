@@ -89,8 +89,12 @@ public final class WorkingCopy {
 
     /** 接受完整执行产生的 Candidate，仅更新当前版本，不提升信任。 */
     void recordCandidate(String baseline, String candidate) {
-        requireCheckpoint(baseline, baseline);
-        if (baseline.equals(candidate)) {
+        recordCandidate(baseline, baseline, candidate);
+    }
+
+    void recordCandidate(String baseline, String startingRevision, String candidate) {
+        requireCheckpoint(baseline, startingRevision);
+        if (baseline.equals(candidate) || startingRevision.equals(candidate)) {
             throw new EvolutionPlanStateException("Candidate must differ from baseline");
         }
         currentRevision = candidate;

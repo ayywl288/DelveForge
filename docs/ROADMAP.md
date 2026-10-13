@@ -11,10 +11,10 @@
 
 当前最重要目标：
 
-> M0–M4 核心闭环与 Task G 保持完成 / 冻结。2026-10-13 用户授权在 feature/m5-lab 独立 Worktree 开始 M5-A Verification Failure Handling；仅处理明确完成的验证 FAIL，完整 M5 尚未完成。
+> M0–M4 核心闭环与 Task G 保持完成 / 冻结。feature/m5-lab 中 M5-A / M5-B 已完成，本地待审查；完整 M5 尚未完成。
 
 本实验不改变已发布 v0.1.0 或 main，不 Push / 合并；不用真实业务数据或付费 Provider。
-本轮完成 M5-A 后停止，不自动开始 Repair、Retry、Rollback 或 Recovery。
+本轮只完成明确授权的 Candidate Repair，结束后停止，不自动开始 M5-C、Rollback、Retry 或 Recovery。
 
 业务阶段关闭、两次历史 Verified Evolution、Pre-UI 时点 1474 / 85 项确定性回归及尚未重跑的付费 E2E
 见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。
@@ -624,12 +624,16 @@ M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整�
 
 ### M5 — Failure Safety & Recovery
 
-**Status:** IN_PROGRESS（仅 feature/m5-lab 实验分支的 M5-A；2026-10-13）。其余 Slice 暂缓。
+**Status:** IN_PROGRESS（仅 feature/m5-lab 实验分支的 M5-A / M5-B；2026-10-13）。其余 Slice 暂缓。
 
 M5-A 实现范围：同一 Candidate 的明确 Verification FAIL → 保存 VerificationResult →
 VERIFICATION_FAILED；Candidate 与 baseline 保留、lastVerifiedRevision 不推进、后续 Step 被阻止。
-异常 / 未知结果仍 fail closed；本轮没有 Repair / Retry / Rollback / Recovery 入口。
+异常 / 未知结果仍 fail closed；M5-A 时点没有 Repair / Retry / Rollback / Recovery 入口。
 实施与回归证据见 [M5-A 验证报告](validation/m5-a-verification-failure-handling.md)。
+
+M5-B 范围：新 Repair 授权 → 保留旧失败快照 → 原 Step / baseline 上从当前 Candidate 修复 →
+完整 Verification；再次 FAIL 保留最新 Candidate，异常保持检查点。实施证据见
+[M5-B 报告](validation/m5-b-candidate-repair.md)。不实现 User Rollback、FAILED Retry、Recovery 或后台任务。
 
 **Goal**
 
@@ -652,8 +656,8 @@ VERIFICATION_FAILED；Candidate 与 baseline 保留、lastVerifiedRevision 不�
 - [x] 保留 Candidate State（M5-A）。
 - [x] 不更新 lastVerifiedRevision（M5-A）。
 - [x] 阻止后续 Evolution Step 执行（M5-A）。
-- [ ] 支持用户明确选择 Repair。
-- [ ] Repair 后重新 Verification。
+- [x] 支持用户明确选择 Repair（M5-B 独立授权）。
+- [x] Repair 后重新 Verification（M5-B 全部标准及原软件状态）。
 - [ ] 支持用户明确选择 Rollback。
 - [ ] Rollback 成功后进入 `FAILED`。
 
@@ -798,7 +802,7 @@ Step SUCCEEDED
 | M2 | Product Direction Discovery | DONE |
 | M3 | Evolution Planning & Working Copy | DONE |
 | M4 | First Verified Evolution Step | DONE / FROZEN |
-| M5 | Failure Safety & Recovery | IN_PROGRESS（仅 M5-A 实验） |
+| M5 | Failure Safety & Recovery | IN_PROGRESS（仅 M5-A / M5-B 实验） |
 | M6 | MVP End-to-End Validation | TODO |
 
 统一状态：
@@ -844,16 +848,21 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 ```text
 M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
 M4 — First Verified Evolution Step：DONE / FROZEN（2026-10-10）
-M5 — Failure Safety & Recovery：IN_PROGRESS（仅 feature/m5-lab 的 M5-A）
+M5 — Failure Safety & Recovery：IN_PROGRESS（仅 feature/m5-lab 的 M5-A / M5-B）
 Task D–F / F-Fix / 软删除 / Final Planning Fix：DONE
 Task G — UI / UX Polish：DONE / ACCEPTED / FROZEN（2026-10-12，当前发行版 UI）
-本轮只实现 M5-A；其余失败恢复 Slice 不自动开始。
+本轮只实现 M5-B；其余失败恢复 Slice 不自动开始。
 真实 Provider E2E、部署与发布接受尚未完成；不自动启动。
 ```
 
 M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
 
 ### Current
+
+**M5-B Candidate Repair：DONE / 本地待审查（2026-10-13）。** 仅授权修复当前失败 Candidate，
+保留原 Step / baseline、失败快照与授权事实；未知 / in-flight 状态不重放。最终后端 1,532 项、
+前端 141 项、typecheck / build PASS；证据与未测试场景见 [M5-B 报告](validation/m5-b-candidate-repair.md)。
+M5 整体不标为 DONE，本轮结束后停止。
 
 **M5-A 独立实验：DONE / 本地待审查（2026-10-13）。** 本轮实现明确 FAIL 的保存与阻塞语义，复用既有 M4 检查点、
 授权、隔离、预检和并发控制；未知 / in-flight 结果仍保持原 fail-closed。M5 整体不得标为 DONE。

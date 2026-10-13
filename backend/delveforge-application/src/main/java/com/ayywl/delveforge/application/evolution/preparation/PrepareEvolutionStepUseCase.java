@@ -60,6 +60,8 @@ public final class PrepareEvolutionStepUseCase {
         verificationStrategy 描述 HOW；不改变现有 verificationCriteria。criterionIndexes 从 1 开始，
         必须覆盖全部标准；动作只能 BUILD、TEST、FOCUSED_TEST、DIFF_CHECK。
         verificationCriteria 每项包含 kind 和 description，表达 WHAT，而非具体测试目标。
+        step.repair 存在时，本次只修复同一 Step 的失败 Candidate；不得扩大范围或改变原标准。
+        修复后仍验证全部标准。此前验证动作及测试身份会被重新运行，不得用新测试替代旧失败测试。
         BUILD_SUCCEEDS 只能由 BUILD 支持；FULL_TEST_SUITE_PASSES 只能由 TEST 支持；
         SELECTED_TESTS_PASS 可由 FOCUSED_TEST 或 TEST 支持；DIFF_CHECK_PASSES 只能由 DIFF_CHECK 支持。
         具体定向测试类 / 方法必须根据本次真实仓库上下文选择，不能由 M3 标准预先指定。
@@ -93,6 +95,20 @@ public final class PrepareEvolutionStepUseCase {
     public ValidatedExecutionProposal prepare(EvolutionPlanId planId, EvolutionStepId stepId) {
         // 这里只读受信 revision（A），保持 READY；baseline 到真正开始执行时才冻结。
         ExecutionPreparationState.Loaded loaded = state.load(planId, stepId, false);
+        return prepare(loaded, stepId, loaded.basis(stepId), () -> state.revalidate(loaded, stepId, false));
+    }
+
+    /** 只在新 Repair 授权已提交的调用内生成提案；使用 Candidate 原文，不重新取得首次执行授权。 */
+    public ValidatedExecutionProposal prepareRepair(ExecutionPreparationState.Loaded authorized, EvolutionStepId stepId) {
+        state.revalidateRepair(authorized, stepId);
+        EvolutionStep step = authorized.plan().step(stepId);
+        ExecutionPreparationBasis basis = new ExecutionPreparationBasis(authorized.plan().id(), stepId,
+                authorized.copy().id(), step.executionStartRevision(), step.repairAuthorizations().getLast().id());
+        return prepare(authorized, stepId, basis, () -> state.revalidateRepair(authorized, stepId));
+    }
+
+    private ValidatedExecutionProposal prepare(ExecutionPreparationState.Loaded loaded, EvolutionStepId stepId,
+            ExecutionPreparationBasis basis, Runnable revalidate) {
         EvolutionStep step = loaded.plan().step(stepId);
         requireSupportedCriteria(step);
 
@@ -102,16 +118,20 @@ public final class PrepareEvolutionStepUseCase {
         query.put("plannedChanges", step.plannedChanges());
         query.put("verificationCriteria", step.verificationCriteria());
         query.put("targetState", loaded.plan().targetState());
+        if (basis.repairAuthorizationId() != null) {
+            query.put("repair", Map.of("baselineRevision", step.baselineRevision(), "candidateRevision",
+                    basis.expectedRevision(), "previousVerification", step.repairAuthorizations().getLast().previousVerification()));
+        }
 
         // Step 语义引导本次选材；源码上下文只存在于 Session，不生成持久化 RepositoryProfile。
         StepRepositoryUnderstanding.Session session = understanding.begin(new WorkspaceRef(loaded.copy().location()),
-                loaded.copy().lastVerifiedRevision(), query, () -> state.revalidate(loaded, stepId, false));
+                basis.expectedRevision(), query, revalidate);
         session.discover("", "");
 
         // 仅为具体缺失依赖补充上下文；轮次预算阻止编码请求变成无限探索。
         for (int round = 0; round <= limits.maxExpansionRounds(); round++) {
             Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("expectedRevision", loaded.copy().lastVerifiedRevision());
+            payload.put("expectedRevision", basis.expectedRevision());
             payload.put("step", query);
             // 与严格 diff 校验的 LF 切行一致；只补充定位数字，不改写模型可见原文。
             Map<String, Long> lineCounts = new LinkedHashMap<>();
@@ -153,19 +173,19 @@ public final class PrepareEvolutionStepUseCase {
                 session.visibleOriginals().keySet().stream().filter(session::sanitized).forEach(sanitized::add);
                 ValidatedExecutionProposal validated;
                 try {
-                    validated = validator.validate(change.proposal(), loaded.basis(stepId),
+                    validated = validator.validate(change.proposal(), basis,
                             step, new WorkspaceRef(loaded.copy().location()), session.visibleOriginals(),
                             sanitized, session.existingPaths());
                 } catch (AiGatewayException failure) {
                     throw new ExecutionPreparationException(
                             ExecutionPreparationException.Phase.PROPOSAL_VALIDATION, failure);
                 }
-                state.revalidate(loaded, stepId, false);
+                revalidate.run();
                 return validated;
             }
 
             CodingResponse.NeedMore need = (CodingResponse.NeedMore) response;
-            if (!need.expectedRevision().equals(loaded.copy().lastVerifiedRevision())) {
+            if (!need.expectedRevision().equals(basis.expectedRevision())) {
                 throw new ExecutionPreparationException(ExecutionPreparationException.Phase.PROPOSAL_VALIDATION,
                         new AiGatewayException("Context request uses a different revision"));
             }
@@ -179,7 +199,7 @@ public final class PrepareEvolutionStepUseCase {
     }
 
     /** 在 Scout / Coding 调用前复用标准的证据能力规则；不改写标准或生成验证事实。 */
-    private static void requireSupportedCriteria(EvolutionStep step) {
+    public static void requireSupportedCriteria(EvolutionStep step) {
         List<Integer> unsupported = new ArrayList<>();
         for (int index = 0; index < step.verificationCriteria().size(); index++) {
             VerificationCriterion criterion = step.verificationCriteria().get(index);

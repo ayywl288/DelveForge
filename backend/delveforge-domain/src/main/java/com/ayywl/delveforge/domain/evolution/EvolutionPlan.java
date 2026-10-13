@@ -136,12 +136,23 @@ public final class EvolutionPlan {
         requireExecutionOwner(copy);
         EvolutionStep step = step(id);
         if (step.status() != EvolutionStepStatus.EXECUTING || result == null
-                || step.baselineRevision().equals(result.candidateRevision())) {
+                || step.baselineRevision().equals(result.candidateRevision())
+                || step.executionStartRevision().equals(result.candidateRevision())) {
             throw new EvolutionPlanStateException("Invalid execution checkpoint");
         }
-        copy.requireCheckpoint(step.baselineRevision(), step.baselineRevision());
-        copy.recordCandidate(step.baselineRevision(), result.candidateRevision());
+        copy.requireCheckpoint(step.baselineRevision(), step.executionStartRevision());
+        copy.recordCandidate(step.baselineRevision(), step.executionStartRevision(), result.candidateRevision());
         step.recordExecution(result);
+    }
+
+    /** 明确授权只针对本次失败 Candidate；在清空当前结果前先追加完整历史快照。 */
+    public void authorizeStepRepair(EvolutionStepId id, WorkingCopy copy, StepExecutionPolicy policy,
+            String authorizationId, String candidate, java.time.Instant authorizedAt) {
+        policy.requireRepairAllowed(this, id, copy);
+        if (!copy.currentRevision().equals(candidate)) {
+            throw new EvolutionPlanStateException("Repair authorization Candidate changed");
+        }
+        step(id).authorizeRepair(authorizationId, candidate, authorizedAt);
     }
 
     /** 同一 Candidate 满足全部标准后，才同时记录 Step 成功与 WorkingCopy 信任推进。 */

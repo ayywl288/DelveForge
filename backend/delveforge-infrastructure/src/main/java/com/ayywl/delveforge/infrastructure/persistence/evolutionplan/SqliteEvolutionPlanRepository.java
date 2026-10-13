@@ -25,6 +25,7 @@ import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
 import com.ayywl.delveforge.domain.evolution.ExecutionResult;
+import com.ayywl.delveforge.domain.evolution.RepairAuthorization;
 import com.ayywl.delveforge.domain.evolution.TargetState;
 import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
 import com.ayywl.delveforge.domain.evolution.VerificationResult;
@@ -151,7 +152,8 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
                     values(stepSections, "plannedChanges"),
                     loadCriteria(step.getId()), EvolutionStepStatus.valueOf(step.getStatus()),
                     step.getBaselineRevision(), StepResultJson.read(step.getExecutionResult(), ExecutionResult.class),
-                    StepResultJson.read(step.getVerificationResult(), VerificationResult.class)));
+                    StepResultJson.read(step.getVerificationResult(), VerificationResult.class),
+                    List.of(StepResultJson.read(step.getRepairAuthorizations(), RepairAuthorization[].class))));
         }
 
         // 已保存的是被接受的领域事实；读取时直接重建正式值，不重新制造 AI 提案。
@@ -194,6 +196,7 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         row.setScope(step.scope());
         row.setStatus(step.status().name());
         row.setBaselineRevision(step.baselineRevision());
+        row.setRepairAuthorizations(StepResultJson.write(step.repairAuthorizations()));
         stepMapper.insert(row);
         insertStepSection(step.id().value(), "plannedChanges", step.plannedChanges());
         for (int index = 0; index < step.verificationCriteria().size(); index++) {

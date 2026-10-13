@@ -216,6 +216,10 @@ export const api = {
     request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/confirm`, "POST"),
   execute: (value: string, step: string) =>
     request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/execute`, "POST"),
+  repair: (value: string, step: string, expectedCandidateRevision: string, authorizationId: string) =>
+    request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/repair`, "POST", {
+      expectedCandidateRevision, authorizationId,
+    }),
   workingCopy: (value: string) =>
     request<WorkingCopy>(`/working-copies/${id(value)}`),
 };

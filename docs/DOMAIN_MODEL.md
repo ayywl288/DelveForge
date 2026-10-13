@@ -2524,6 +2524,24 @@ VERIFYING
 
 Repair 不能绕过 Verification 直接将 Step 标记为 SUCCEEDED。
 
+**M5-B 当前实现（feature/m5-lab）：** 用户通过独立 Repair 请求提交当前 Candidate revision 与本次
+授权 ID；首次 Step Confirmation 不替代该授权。Domain 在原 Step 内追加 `RepairAuthorization`
+Value Object，记录 ID、所依据的 Candidate、授权时间及此前完整 Execution / Verification 失败快照，
+然后进入 EXECUTING。当前结果槽清空，首次 baseline 不重设，WorkingCopy 的 current / lastVerified 均不推进。
+授权 ID 在同一 Step 内不得复用；旧 Candidate、其他占用流程、资产授权或隔离检查失配时拒绝。
+
+本 Slice 采用原子授权检查点先于 Provider 的顺序，避免并发或重复请求再次调用 Provider。
+授权后 Provider、提案、mutation 或验证异常保留最后完整检查点，不重放请求，也不引入
+EXECUTING → VERIFICATION_FAILED 的撤销授权转移。该状态不证明请求仍在运行或已经回滚。
+Repair 只有在明确失败并保存新 VerificationResult 后才能再次接受新的 Repair 授权。
+
+Repair 从授权的 Candidate B 应用增量补丁并形成 C；验证使用原 baseline A 到 C 的软件状态，
+全部既有 Criteria 都必须重新获得对应证据。当前保守技术策略重跑此前动作及定向测试身份，
+再追加新提案的动作，按动作 / target 合并索引并继续使用既有预算；不允许新测试掩盖旧失败。
+只有 PASS 才推进 lastVerified；明确 FAIL 保存 C，未知结果保持 fail-closed。
+每次新 Repair 授权都先归档其所依据的失败结果，既有快照不能被后续结果覆盖。
+这只保存本 Slice 必要事实，不引入独立 Execution Attempt Entity、Rollback、Retry 或 Recovery。
+
 ### 8.13 Rollback Evolution Step
 
 **Purpose**

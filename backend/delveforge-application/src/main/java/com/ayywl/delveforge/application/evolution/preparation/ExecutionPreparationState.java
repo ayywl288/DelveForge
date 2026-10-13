@@ -19,6 +19,7 @@ import com.ayywl.delveforge.domain.evolution.EvolutionPlanStateException;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
 import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
 import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
@@ -48,6 +49,18 @@ public final class ExecutionPreparationState {
 
     /** confirmation 区分待确认与已 READY 的资格；这里只核对，不改变生命周期。 */
     public Loaded load(EvolutionPlanId id, EvolutionStepId stepId, boolean confirmation) {
+        Loaded loaded = loadObjects(id, stepId);
+        if (confirmation) {
+            policy.requireConfirmationAllowed(loaded.plan(), stepId, loaded.copy());
+        } else {
+            policy.requireExecutionAllowed(loaded.plan(), stepId, loaded.copy());
+        }
+        inspection.requireTrustedState(new WorkspaceRef(loaded.copy().location()),
+                new WorkspaceRef(loaded.asset().location()), loaded.copy().lastVerifiedRevision());
+        return loaded;
+    }
+
+    private Loaded loadObjects(EvolutionPlanId id, EvolutionStepId stepId) {
         EvolutionPlan plan = plans.findById(id).orElseThrow(() -> new EvolutionPlanNotFoundException(id));
         plans.requireFlowBinding(plan);
         plan.step(stepId);
@@ -65,14 +78,25 @@ public final class ExecutionPreparationState {
         }
 
         new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
-        if (confirmation) {
-            policy.requireConfirmationAllowed(plan, stepId, copy);
-        } else {
-            policy.requireExecutionAllowed(plan, stepId, copy);
-        }
-        inspection.requireTrustedState(new WorkspaceRef(copy.location()), new WorkspaceRef(asset.location()),
-                copy.lastVerifiedRevision());
         return new Loaded(plan, copy, asset);
+    }
+
+    public Loaded loadRepairCandidate(EvolutionPlanId id, EvolutionStepId stepId) {
+        Loaded loaded = loadObjects(id, stepId);
+        policy.requireRepairAllowed(loaded.plan(), stepId, loaded.copy());
+        inspection.requireTrustedState(new WorkspaceRef(loaded.copy().location()),
+                new WorkspaceRef(loaded.asset().location()), loaded.copy().currentRevision());
+        return loaded;
+    }
+
+    /** 只供新授权调用内的准备使用；REST 不提供重启后重放此检查点的入口。 */
+    public Loaded revalidateRepair(Loaded expected, EvolutionStepId stepId) {
+        EvolutionStep step = expected.plan().step(stepId);
+        if (step.status() != EvolutionStepStatus.EXECUTING || step.repairAuthorizations().isEmpty()
+                || step.executionResult() != null || step.verificationResult() != null) {
+            throw new EvolutionPlanStateException("Repair preparation requires its uncompleted authorization checkpoint");
+        }
+        return requireCheckpoint(expected, stepId, step.executionStartRevision());
     }
 
     public Loaded revalidate(Loaded expected, EvolutionStepId stepId, boolean confirmation) {
@@ -109,6 +133,10 @@ public final class ExecutionPreparationState {
                         previous.baselineRevision())
                 || !Objects.equals(step.executionResult(), previous.executionResult())
                 || !Objects.equals(step.verificationResult(), previous.verificationResult())
+                || !step.repairAuthorizations().equals(previous.repairAuthorizations())
+                || !step.goal().equals(previous.goal()) || !step.scope().equals(previous.scope())
+                || !step.plannedChanges().equals(previous.plannedChanges())
+                || !step.verificationCriteria().equals(previous.verificationCriteria())
                 || copy.status() != expected.copy().status()
                 || !Objects.equals(copy.currentRevision(), expected.copy().currentRevision())
                 || !Objects.equals(copy.lastVerifiedRevision(), expected.copy().lastVerifiedRevision())

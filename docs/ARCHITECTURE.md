@@ -1186,6 +1186,23 @@ Git Diff 要有检查错误退出及输出；Maven 编译失败要有正常 BUIL
 SQLite 沿用现有结果 JSON 与 CAS；没有 schema 迁移，也不改写已有检查点。
 旧 JSON 缺少 outcome 时，通过项恢复为 PASSED，负值恢复为 INCONCLUSIVE，不补造明确失败。
 
+**Candidate Repair（M5-B 实验分支）：** 独立 `POST /api/evolution-plans/{planId}/steps/{stepId}/repair`
+接受 `{ expectedCandidateRevision, authorizationId }`，不接受客户端序列化提案、任意路径或命令。
+请求本身是当前一次 Repair 的明确授权；UUID 是本版协议去重身份，不是资产权限或通用授权 token。
+在 Provider 前条件提交 VERIFICATION_FAILED → EXECUTING、授权与旧失败快照，然后在当前 Candidate
+只读准备提案并重新核对资格。原 execute / execution-preparation 入口仍只接受 READY。
+
+ExecutionPreparationBasis 在 Repair 中的 expectedRevision 表示修改起点 B，repairAuthorizationId 绑定
+本次调用内提案；AuthorizedStepExecution.fromRepair 同时检查首次可信 baseline A、授权身份与实际 B。
+Git 从 B 创建单个子 Candidate C，Verification 的 baseline 始终是 A，成功后才赋予 C 软件信任。
+生命周期与 Git 仍不形成跨技术事务；没有重启后重放 Repair 的端点或后台任务。
+
+V18 只给 evolution_step 增加默认 `[]` 的 repair_authorizations JSON 列，存放 Step 内部不可覆盖的
+RepairAuthorization Value Object 列表。每项含授权事实及其所依据的失败结果，不引入独立 Attempt Aggregate。
+Step / WorkingCopy CAS 同时比较旧历史；所有提交分支重放 Domain 操作并检查完整历史一致性。
+旧状态、baseline、Execution / Verification 原文保持不变，不回填虚构授权；正常 GET 返回授权与历史。
+授权后的 Provider、解析或执行异常保持最后检查点，该 Slice 不实现补偿、Retry 或 Recovery。
+
 ## 7. Dependency Rules
 
 本节描述代码模块之间允许存在的依赖方向，而不是系统运行时的调用顺序。

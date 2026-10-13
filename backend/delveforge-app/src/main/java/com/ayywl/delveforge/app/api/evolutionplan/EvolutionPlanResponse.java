@@ -5,6 +5,7 @@ import com.ayywl.delveforge.domain.evolution.CurrentState;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
+import com.ayywl.delveforge.domain.evolution.RepairAuthorization;
 import com.ayywl.delveforge.domain.evolution.TargetState;
 import java.util.List;
 import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
@@ -23,7 +24,7 @@ public record EvolutionPlanResponse(String id, String productDirectionId, String
                 plan.reusableCapabilities(), plan.changes(), plan.steps().stream().map(step -> new StepPayload(
                         step.id().value(), step.planId().value(), step.goal(), step.scope(), step.plannedChanges(),
                         step.verificationCriteria(), step.status(), step.baselineRevision(),
-                        step.executionResult(), step.verificationResult())).toList(),
+                        step.executionResult(), step.verificationResult(), step.repairAuthorizations())).toList(),
                 plan.risks(), plan.evidence().stream().map(EvidenceBasisPayload::from).toList(), plan.status());
     }
 
@@ -32,5 +33,6 @@ public record EvolutionPlanResponse(String id, String productDirectionId, String
     public record StepPayload(String id, String planId, String goal, String scope, List<String> plannedChanges,
             List<VerificationCriterion> verificationCriteria, EvolutionStepStatus status, String baselineRevision,
             com.ayywl.delveforge.domain.evolution.ExecutionResult executionResult,
-            com.ayywl.delveforge.domain.evolution.VerificationResult verificationResult) {}
+            com.ayywl.delveforge.domain.evolution.VerificationResult verificationResult,
+            List<RepairAuthorization> repairAuthorizations) {}
 }
