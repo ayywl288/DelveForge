@@ -242,6 +242,65 @@ describe("持续引导与只读下一问", () => {
   });
 });
 describe("长同步 execute", () => {
+  it.each(["FAILED", "RECOVERY_REQUIRED"] as const)("Rollback 独立授权；旧 FAIL 不清标记，匹配 %s 结果才结束等待", async status => {
+    const s = make(); ready(s);
+    const failed = successfulPlan(); failed.status = "ACTIVE";
+    failed.steps[0]!.status = "VERIFICATION_FAILED";
+    failed.steps[0]!.verificationResult!.passed = false;
+    failed.steps[0]!.verificationResult!.failures = ["failure"];
+    vi.mocked(api.plan).mockResolvedValue(failed);
+    vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: "EVOLVING", currentRevision: "b".repeat(40) });
+    let resolve!: (result: ReturnType<typeof plan>) => void;
+    let authorization = "";
+    const rollback = vi.spyOn(api, "rollback").mockImplementation((_plan, _step, candidate, baseline, id) => {
+      expect(candidate).toBe("b".repeat(40)); expect(baseline).toBe("a".repeat(40)); authorization = id;
+      return new Promise(r => { resolve = r; });
+    });
+    const repair = vi.spyOn(api, "repair"); const execute = vi.spyOn(api, "execute");
+    const pending = s.rollback("step-1", "b".repeat(40), "a".repeat(40));
+    for (let index = 0; index < 20; index++) await Promise.resolve();
+    expect(rollback).toHaveBeenCalledOnce();
+    await s.refreshPlan();
+    expect(s.receipt.value?.operation).toBe("ROLLBACK");
+    expect(s.receipt.value?.baselineRevision).toBe("a".repeat(40));
+    await s.rollback("step-1", "b".repeat(40), "a".repeat(40));
+    expect(rollback).toHaveBeenCalledOnce();
+    const completed = structuredClone(failed);
+    const step = completed.steps[0]!; step.status = status;
+    step.rollbackAuthorization = { id: authorization, candidateRevision: "b".repeat(40),
+      baselineRevision: "a".repeat(40), authorizedAt: "2026-10-13T10:00:00Z" };
+    step.rollbackResult = { authorizationId: authorization, baselineRevision: "a".repeat(40),
+      observedRevision: status === "FAILED" ? "a".repeat(40) : null, restored: status === "FAILED",
+      diagnostic: "test fact", completedAt: "2026-10-13T10:01:00Z" };
+    vi.mocked(api.plan).mockResolvedValue(completed);
+    resolve(completed); await pending;
+    expect(s.receipt.value).toBeNull(); expect(repair).not.toHaveBeenCalled(); expect(execute).not.toHaveBeenCalled();
+    expect(s.plan.value?.steps[0]?.verificationResult?.failures).toEqual(["failure"]);
+  });
+
+  it("Rollback 断线与重启读到 ROLLING_BACK 时仅查询，不改判或重放", async () => {
+    const s = make(); ready(s);
+    const failed = successfulPlan(); failed.status = "ACTIVE"; failed.steps[0]!.status = "VERIFICATION_FAILED";
+    failed.steps[0]!.verificationResult!.passed = false;
+    vi.mocked(api.plan).mockResolvedValue(failed);
+    vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: "EVOLVING", currentRevision: "b".repeat(40) });
+    const rollback = vi.spyOn(api, "rollback").mockImplementation(async (_plan, _step, candidate, baseline, id) => {
+      const rolling = structuredClone(failed); rolling.steps[0]!.status = "ROLLING_BACK";
+      rolling.steps[0]!.rollbackAuthorization = { id, candidateRevision: candidate, baselineRevision: baseline, authorizedAt: "2026-10-13T10:00:00Z" };
+      vi.mocked(api.plan).mockResolvedValue(rolling);
+      throw new ApiError(0, "REQUEST_DISCONNECTED");
+    });
+    await s.rollback("step-1", "b".repeat(40), "a".repeat(40));
+    const restored = make(); restored.ids.planId = "plan-1";
+    vi.spyOn(api, "connectivity").mockResolvedValue({ status: "UP", service: "backend", timestamp: "" });
+    await restored.restore();
+    await restored.rollback("step-1", "b".repeat(40), "a".repeat(40));
+    expect(rollback).toHaveBeenCalledOnce();
+    expect(restored.plan.value?.steps[0]?.status).toBe("ROLLING_BACK");
+    expect(restored.plan.value?.steps[0]?.rollbackResult).toBeUndefined();
+    expect(restored.receipt.value?.operation).toBe("ROLLBACK");
+  });
+
   it("Repair 的旧 FAIL 查询不清除新授权标记；匹配授权的新结果才结束等待", async () => {
     const s = make(); ready(s);
     const failed = successfulPlan();

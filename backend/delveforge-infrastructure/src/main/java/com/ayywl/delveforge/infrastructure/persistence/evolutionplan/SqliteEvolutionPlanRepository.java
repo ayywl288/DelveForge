@@ -153,7 +153,11 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
                     loadCriteria(step.getId()), EvolutionStepStatus.valueOf(step.getStatus()),
                     step.getBaselineRevision(), StepResultJson.read(step.getExecutionResult(), ExecutionResult.class),
                     StepResultJson.read(step.getVerificationResult(), VerificationResult.class),
-                    List.of(StepResultJson.read(step.getRepairAuthorizations(), RepairAuthorization[].class))));
+                    List.of(StepResultJson.read(step.getRepairAuthorizations(), RepairAuthorization[].class)),
+                    StepResultJson.read(step.getRollbackAuthorization(),
+                            com.ayywl.delveforge.domain.evolution.RollbackAuthorization.class),
+                    StepResultJson.read(step.getRollbackResult(),
+                            com.ayywl.delveforge.domain.evolution.RollbackResult.class)));
         }
 
         // 已保存的是被接受的领域事实；读取时直接重建正式值，不重新制造 AI 提案。

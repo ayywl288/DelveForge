@@ -269,6 +269,90 @@ class StepExecutionLifecycleTest {
     }
 
     @Test
+    void rollbackAfterRepairsRestoresOriginalBaselineAndPreservesEveryFailure() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        plan.recordExecution(first, copy, execution("B"));
+        plan.failStepVerification(first, copy, confirmedFailure("B"));
+        plan.authorizeStepRepair(first, copy, policy, "repair-1", "B", Instant.now());
+        plan.recordExecution(first, copy, execution("C"));
+        plan.failStepVerification(first, copy, confirmedFailure("C"));
+        plan.authorizeStepRepair(first, copy, policy, "repair-2", "C", Instant.now());
+        plan.recordExecution(first, copy, execution("D"));
+        plan.failStepVerification(first, copy, confirmedFailure("D"));
+        EvolutionPlan before = plan.copy();
+        assertThrows(EvolutionPlanStateException.class,
+                () -> plan.authorizeStepRollback(first, copy, policy, "rollback", "D", "C", Instant.now()));
+        assertThrows(EvolutionPlanStateException.class,
+                () -> plan.authorizeStepRollback(first, copy, policy, "repair-1", "D", "A", Instant.now()));
+        plan.authorizeStepRollback(first, copy, policy, "rollback", "D", "A", Instant.now());
+        assertEquals(EvolutionStepStatus.ROLLING_BACK, plan.step(first).status());
+        assertEquals("D", copy.currentRevision());
+        assertEquals(before.step(first).executionResult(), plan.step(first).executionResult());
+        assertEquals(before.step(first).verificationResult(), plan.step(first).verificationResult());
+        assertThrows(EvolutionPlanStateException.class,
+                () -> plan.authorizeStepRollback(first, copy, policy, "rollback", "D", "A", Instant.now()));
+        assertThrows(EvolutionPlanStateException.class, () -> plan.finishStepRollback(first, copy,
+                new RollbackResult("other", "A", "A", true, "confirmed", Instant.now())));
+        plan.finishStepRollback(first, copy, new RollbackResult("rollback", "A", "A", true, "confirmed", Instant.now()));
+        assertEquals(EvolutionStepStatus.FAILED, plan.step(first).status());
+        assertEquals("A", copy.currentRevision());
+        assertEquals("A", copy.lastVerifiedRevision());
+        assertEquals("A", plan.step(first).baselineRevision());
+        assertEquals(before.step(first).repairAuthorizations(), plan.copy().step(first).repairAuthorizations());
+        assertEquals(before.step(first).verificationResult(), plan.copy().step(first).verificationResult());
+        assertThrows(EvolutionPlanStateException.class, () -> plan.confirmStep(second, copy, policy));
+        assertThrows(EvolutionPlanStateException.class, () -> plan.startStep(first, copy, policy));
+    }
+
+    @Test
+    void unknownRollbackBlocksBothAggregatesEvenWhenObservedHeadEqualsBaseline() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        plan.recordExecution(first, copy, execution("B"));
+        plan.failStepVerification(first, copy, confirmedFailure("B"));
+        plan.authorizeStepRollback(first, copy, policy, "rollback", "B", "A", Instant.now());
+        plan.finishStepRollback(first, copy, new RollbackResult("rollback", "A", "A", false, "unknown", Instant.now()));
+        assertEquals(EvolutionStepStatus.RECOVERY_REQUIRED, plan.copy().step(first).status());
+        assertEquals(WorkingCopyStatus.RECOVERY_REQUIRED, copy.status());
+        assertEquals("B", copy.currentRevision());
+        assertEquals("A", copy.lastVerifiedRevision());
+        assertThrows(EvolutionPlanStateException.class,
+                () -> plan.authorizeStepRepair(first, copy, policy, "repair", "B", Instant.now()));
+        assertThrows(EvolutionPlanStateException.class,
+                () -> plan.authorizeStepRollback(first, copy, policy, "again", "B", "A", Instant.now()));
+        assertThrows(EvolutionPlanStateException.class, () -> plan.startStep(second, copy, policy));
+        assertThrows(EvolutionPlanStateException.class, () -> new RollbackResult("rollback", "A", "B", true, "wrong", Instant.now()));
+    }
+
+    @Test
+    void rollbackOfLaterStepUsesItsOwnFirstBaselineRatherThanWorkingCopySource() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        plan.recordExecution(first, copy, execution("B"));
+        plan.succeedStep(first, copy, verification("B", true, List.of(1, 2)));
+        plan.confirmStep(second, copy, policy);
+        plan.startStep(second, copy, policy);
+        plan.recordExecution(second, copy, execution("C"));
+        plan.failStepVerification(second, copy, new VerificationResult("C", List.of(new VerificationResult.Check(
+                "TEST", "", List.of(1), VerificationResult.Outcome.FAILED, "failed")), false, List.of("failed"), "failed", Instant.now()));
+        assertThrows(EvolutionPlanStateException.class,
+                () -> plan.authorizeStepRollback(second, copy, policy, "rollback", "C", "A", Instant.now()));
+        plan.authorizeStepRollback(second, copy, policy, "rollback", "C", "B", Instant.now());
+        plan.finishStepRollback(second, copy, new RollbackResult("rollback", "B", "B", true, "confirmed", Instant.now()));
+        assertEquals("A", copy.sourceRevision());
+        assertEquals("B", copy.currentRevision());
+        assertEquals("B", copy.lastVerifiedRevision());
+        assertEquals(EvolutionStepStatus.SUCCEEDED, plan.step(first).status());
+    }
+
+    @Test
     void repairRejectsWrongWorkingCopyOrUntrustedBaselineWithoutChangingHistory() {
         EvolutionPlan plan = plan();
         WorkingCopy copy = copy();

@@ -2605,6 +2605,26 @@ No Repair
 No Automatic Evolution
 ```
 
+**M5-C 实现范围（feature/m5-lab 实验）：** 仅开放 `VERIFICATION_FAILED` 的明确 User Rollback。
+授权绑定原 Step、当前失败 Candidate 和首次固定 baseline；不能复用 Repair 授权身份，也不能指定
+上一 Candidate 或 WorkingCopy.sourceRevision 作为替代目标。授权与 `ROLLING_BACK` 先原子落盘，
+然后才调用受控恢复能力。当前失败 Execution / Verification 及 Repair 历史继续保留，不清空或覆盖。
+
+本 Slice 使用 Step 内部 `RollbackAuthorization` / `RollbackResult` Value Object，不引入完整 Attempt
+或事件框架。只有实际 HEAD、index、工作树均精确符合原 baseline，且成功检查点完成后，才记录
+`FAILED` 与 currentRevision=baseline；lastVerifiedRevision 不推进。未确认的恢复结果保存诊断并令
+Step / WorkingCopy 进入 `RECOVERY_REQUIRED`；其中 currentRevision 保留最后已记录 Candidate，
+不是对未知物理现场的断言，observedRevision 也不能单独证明完整恢复。
+
+本版保守实现选择：授权前拒绝脏树、ignored / untracked 文件及隔离不确定；授权后发现这些情况
+则保存阻塞结果。不强制覆盖、不执行额外文件清理；只有 Candidate 的已跟踪 Step 改动属于放弃范围。
+不调用 Provider，不自动重试，不提供 Execution Failure 自动回滚、FAILED Retry 或 Recovery。
+
+**2026-10-13 用户裁定的本轮边界：** 重启读到残留 `ROLLING_BACK` 时保留原检查点并禁止新的
+Execution / Repair / Rollback，不重放、不推断旧调用已停止，不转换成 `FAILED` 或 `RECOVERY_REQUIRED`。
+后续 Recovery Slice 仍须裁定旧调用停止的判据、所有权与未知结果处理；本轮没有 Recovery 请求入口。
+数据库拒绝成功与阻塞检查点时也只能保留 `ROLLING_BACK`；不能伪造已持久化的失败或恢复成功。
+
 ### 8.14 Retry Evolution Step
 
 **Purpose**

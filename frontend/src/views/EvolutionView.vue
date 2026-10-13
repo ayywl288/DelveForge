@@ -12,6 +12,10 @@ const props = defineProps<{ s: WorkspaceSession }>();
 const repairOpen = ref(false);
 const repairAcknowledged = ref(false);
 const repairCandidate = ref("");
+const rollbackOpen = ref(false);
+const rollbackAcknowledged = ref(false);
+const rollbackCandidate = ref("");
+const rollbackBaseline = ref("");
 const emit = defineEmits<{ planning: [] }>();
 const now = ref(Date.now());
 const pollingPaused = ref(false);
@@ -68,6 +72,8 @@ const dialogStep = ref<EvolutionStep | null>(null);
 watch(() => props.s.plan?.id, () => {
   selectedId.value = "";
   executeOpen.value = false;
+  repairOpen.value = false;
+  rollbackOpen.value = false;
   acknowledged.value = false;
   dialogStep.value = null;
 });
@@ -98,7 +104,10 @@ const actionReason = computed(() => {
   if (step?.status === "SUCCEEDED") return "此步骤已验证通过，不再执行；后续步骤仍需分别授权。";
   if (step?.status === "EXECUTING") return "后端记录正在执行。可以观察状态，不能再次执行。";
   if (step?.status === "VERIFYING") return "后端记录正在验证。Candidate 尚不能视为验证通过。";
-  if (step?.status === "VERIFICATION_FAILED") return "验证已明确失败，Candidate 保留，最近可信版本未推进。可单独授权修复此 Candidate，后续步骤继续阻止。";
+  if (step?.status === "VERIFICATION_FAILED") return "验证已明确失败，Candidate 保留，最近可信版本未推进。可单独授权修复或回滚，后续步骤继续阻止。";
+  if (step?.status === "ROLLING_BACK") return "已有回滚检查点，尚无最终恢复结果。只能查询，不能重放或推断原请求已经停止。";
+  if (step?.status === "FAILED") return "此步骤未成功，回滚已确认恢复原始基线。本版没有 Retry 入口。";
+  if (step?.status === "RECOVERY_REQUIRED") return "回滚未能确认完整恢复，隔离副本已阻塞。本版没有 Recovery 入口。";
   if (step?.status === "CANCELLED") return "此步骤已取消，没有执行入口。";
   if (plan?.status === "SUPERSEDED") return "此计划已替代，仅供历史查看，不能继续授权或执行。";
   if (plan?.status !== "ACTIVE") return "执行需要进行中的计划。请在规划页核对当前生命周期。";
@@ -129,6 +138,20 @@ function openRepair() {
   repairCandidate.value = props.s.copy?.currentRevision ?? "";
   repairAcknowledged.value = false;
   repairOpen.value = true;
+}
+function openRollback() {
+  dialogStep.value = chosen.value ?? null;
+  rollbackCandidate.value = props.s.copy?.currentRevision ?? "";
+  rollbackBaseline.value = chosen.value?.baselineRevision ?? "";
+  rollbackAcknowledged.value = false;
+  rollbackOpen.value = true;
+}
+function rollback() {
+  if (!dialogStep.value || !rollbackAcknowledged.value || !canRepair.value
+    || dialogStep.value.id !== chosen.value?.id || rollbackCandidate.value !== props.s.copy?.currentRevision
+    || rollbackBaseline.value !== chosen.value?.baselineRevision) return;
+  rollbackOpen.value = false;
+  props.s.rollback(dialogStep.value.id, rollbackCandidate.value, rollbackBaseline.value);
 }
 function repair() {
   if (!dialogStep.value || !repairAcknowledged.value || !canRepair.value
@@ -288,6 +311,7 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
             <button v-if="chosen.status === 'PENDING_CONFIRMATION' || !s.copy" @click="emit('planning')"><NavigationIcon name="lock" />前往规划页核对与授权</button>
             <button v-if="chosen.status === 'READY'" :disabled="!canExecute" @click="openExecute"><NavigationIcon name="play" />审阅风险并执行此 Step</button>
             <button v-if="chosen.status === 'VERIFICATION_FAILED'" :disabled="!canRepair" @click="openRepair"><NavigationIcon name="play" />审阅并授权本次修复</button>
+            <button v-if="chosen.status === 'VERIFICATION_FAILED'" class="secondary" :disabled="!canRepair" @click="openRollback"><NavigationIcon name="lock" />审阅并授权回滚</button>
           </div>
           <details :key="chosen.id" class="reading-disclosure" :open="!chosen.executionResult && !chosen.baselineRevision">
             <summary>目标、范围与操作前提</summary>
@@ -299,6 +323,15 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
             </li></ol>
           </details>
           <p v-if="chosen.status === 'READY'" class="meta">READY 表示已授权的就绪状态；准备提案期间也可能保持 READY，不能据此判断请求已结束。</p>
+        </section>
+        <section v-if="chosen.rollbackAuthorization" class="execution-section">
+          <h3>回滚授权与恢复结果</h3>
+          <p class="meta">授权 ID：{{ chosen.rollbackAuthorization.id }}</p>
+          <RevisionText label="放弃的 Candidate" :value="chosen.rollbackAuthorization.candidateRevision" />
+          <RevisionText label="原始基线" :value="chosen.rollbackAuthorization.baselineRevision" />
+          <p v-if="chosen.rollbackResult">{{ chosen.rollbackResult.restored ? '已确认精确恢复原始基线' : '完整恢复未确认，禁止继续修改' }}</p>
+          <p v-if="chosen.rollbackResult" class="meta">{{ chosen.rollbackResult.diagnostic }}</p>
+          <p v-else>尚无最终结果。不会自动重放回滚。</p>
         </section>
         <section v-if="chosen.repairAuthorizations?.length" id="repair-history" class="execution-section">
           <h3>修复授权与此前失败记录</h3>
@@ -479,5 +512,16 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
     <p>本次授权只修复原 Step 的当前 Candidate。原 baseline 和失败记录保留，修复后重新验证全部标准。</p>
     <p>此请求将调用 Provider、产生费用，并在受控 WorkingCopy 中运行仓库代码。只有实际验证通过后才推进可信版本。</p>
     <label class="check"><input v-model="repairAcknowledged" type="checkbox" />我单独授权本次修复原 Step 的范围，接受 Provider 费用与宿主执行风险</label>
+  </ConfirmDialog>
+  <ConfirmDialog :open="rollbackOpen" title="授权回滚这个失败 Candidate？" confirm-label="授权并回滚到原始基线"
+    :disabled="!rollbackAcknowledged || !canRepair || rollbackCandidate !== s.copy?.currentRevision
+      || rollbackBaseline !== chosen?.baselineRevision || dialogStep?.id !== chosen?.id"
+    @close="rollbackOpen = false" @confirm="rollback">
+    <h3>{{ dialogStep?.goal }}</h3><p>{{ dialogStep?.scope }}</p>
+    <RevisionText label="放弃的 Candidate" :value="rollbackCandidate" />
+    <RevisionText label="精确恢复目标" :value="rollbackBaseline" />
+    <p>本次回滚放弃原 Step 所有 Candidate 改动，包括多次修复，恢复到该 Step 最初的基线；失败与授权历史保留。</p>
+    <p>无需调用 Provider。若发现额外文件或用户修改，会拒绝或阻塞，不强制覆盖，也不清理这些文件。</p>
+    <label class="check"><input v-model="rollbackAcknowledged" type="checkbox" />我单独授权放弃当前 Candidate 的改动，精确恢复上述原始基线</label>
   </ConfirmDialog>
 </template>

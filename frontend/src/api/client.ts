@@ -220,6 +220,11 @@ export const api = {
     request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/repair`, "POST", {
       expectedCandidateRevision, authorizationId,
     }),
+  rollback: (value: string, step: string, expectedCandidateRevision: string,
+    expectedBaselineRevision: string, authorizationId: string) =>
+    request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/rollback`, "POST", {
+      expectedCandidateRevision, expectedBaselineRevision, authorizationId,
+    }),
   workingCopy: (value: string) =>
     request<WorkingCopy>(`/working-copies/${id(value)}`),
 };

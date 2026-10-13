@@ -11,10 +11,10 @@
 
 当前最重要目标：
 
-> M0–M4 核心闭环与 Task G 保持完成 / 冻结。feature/m5-lab 中 M5-A / M5-B 已完成，本地待审查；完整 M5 尚未完成。
+> M0–M4 核心闭环与 Task G 保持完成 / 冻结。feature/m5-lab 中 M5-A / M5-B / M5-C 已完成，本地待审查；完整 M5 尚未完成。
 
 本实验不改变已发布 v0.1.0 或 main，不 Push / 合并；不用真实业务数据或付费 Provider。
-本轮只完成明确授权的 Candidate Repair，结束后停止，不自动开始 M5-C、Rollback、Retry 或 Recovery。
+本轮只完成独立授权的 User Rollback，结束后停止，不自动开始 Retry、Recovery 或下一 Slice。
 
 业务阶段关闭、两次历史 Verified Evolution、Pre-UI 时点 1474 / 85 项确定性回归及尚未重跑的付费 E2E
 见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。
@@ -624,7 +624,7 @@ M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整�
 
 ### M5 — Failure Safety & Recovery
 
-**Status:** IN_PROGRESS（仅 feature/m5-lab 实验分支的 M5-A / M5-B；2026-10-13）。其余 Slice 暂缓。
+**Status:** IN_PROGRESS（仅 feature/m5-lab 实验分支的 M5-A / M5-B / M5-C；2026-10-13）。其余 Slice 暂缓。
 
 M5-A 实现范围：同一 Candidate 的明确 Verification FAIL → 保存 VerificationResult →
 VERIFICATION_FAILED；Candidate 与 baseline 保留、lastVerifiedRevision 不推进、后续 Step 被阻止。
@@ -634,6 +634,10 @@ VERIFICATION_FAILED；Candidate 与 baseline 保留、lastVerifiedRevision 不�
 M5-B 范围：新 Repair 授权 → 保留旧失败快照 → 原 Step / baseline 上从当前 Candidate 修复 →
 完整 Verification；再次 FAIL 保留最新 Candidate，异常保持检查点。实施证据见
 [M5-B 报告](validation/m5-b-candidate-repair.md)。不实现 User Rollback、FAILED Retry、Recovery 或后台任务。
+
+M5-C 范围：独立授权当前 VERIFICATION_FAILED 的 User Rollback，精确恢复原 Step 的首次 baseline，
+保留失败及 Repair 历史；恢复未确认则阻塞，不清理额外用户文件。重启残留 ROLLING_BACK 按用户
+裁定保留检查点且不重放。见 [M5-C 报告](validation/m5-c-user-rollback.md)；不实现自动回滚、Retry 或 Recovery。
 
 **Goal**
 
@@ -658,12 +662,12 @@ M5-B 范围：新 Repair 授权 → 保留旧失败快照 → 原 Step / baselin
 - [x] 阻止后续 Evolution Step 执行（M5-A）。
 - [x] 支持用户明确选择 Repair（M5-B 独立授权）。
 - [x] Repair 后重新 Verification（M5-B 全部标准及原软件状态）。
-- [ ] 支持用户明确选择 Rollback。
-- [ ] Rollback 成功后进入 `FAILED`。
+- [x] 支持用户明确选择 Rollback（M5-C 独立授权）。
+- [x] Rollback 成功后进入 `FAILED`（M5-C 精确恢复并确认后）。
 
 #### Recovery
 
-- [ ] Rollback Failure 后进入 `RECOVERY_REQUIRED`。
+- [x] 正常调用中的 Rollback Failure / 未确认结果后进入 `RECOVERY_REQUIRED`（M5-C）；数据库不可写与重启未决边界见报告。
 - [ ] 阻止新的 Execution / Repair / Retry。
 - [ ] 支持尝试恢复 baselineRevision。
 - [ ] Recovery Success 后恢复可重试状态。
@@ -802,7 +806,7 @@ Step SUCCEEDED
 | M2 | Product Direction Discovery | DONE |
 | M3 | Evolution Planning & Working Copy | DONE |
 | M4 | First Verified Evolution Step | DONE / FROZEN |
-| M5 | Failure Safety & Recovery | IN_PROGRESS（仅 M5-A / M5-B 实验） |
+| M5 | Failure Safety & Recovery | IN_PROGRESS（仅 M5-A / M5-B / M5-C 实验） |
 | M6 | MVP End-to-End Validation | TODO |
 
 统一状态：
@@ -848,16 +852,21 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 ```text
 M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
 M4 — First Verified Evolution Step：DONE / FROZEN（2026-10-10）
-M5 — Failure Safety & Recovery：IN_PROGRESS（仅 feature/m5-lab 的 M5-A / M5-B）
+M5 — Failure Safety & Recovery：IN_PROGRESS（仅 feature/m5-lab 的 M5-A / M5-B / M5-C）
 Task D–F / F-Fix / 软删除 / Final Planning Fix：DONE
 Task G — UI / UX Polish：DONE / ACCEPTED / FROZEN（2026-10-12，当前发行版 UI）
-本轮只实现 M5-B；其余失败恢复 Slice 不自动开始。
+本轮只实现 M5-C；其余失败恢复 Slice 不自动开始。
 真实 Provider E2E、部署与发布接受尚未完成；不自动启动。
 ```
 
 M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
 
 ### Current
+
+**M5-C User Rollback：DONE / 本地待审查（2026-10-13）。** 独立授权、原始 baseline 精确恢复、
+保留证据与失败阻塞；重启未知判定留给后续 Recovery Slice。最终后端 1,563 项、前端 145 项、
+typecheck / build PASS。实施、开发期间失败与未测试场景见 [M5-C 报告](validation/m5-c-user-rollback.md)。
+本轮结束后停止，不自动开始下一 Slice。
 
 **M5-B Candidate Repair：DONE / 本地待审查（2026-10-13）。** 仅授权修复当前失败 Candidate，
 保留原 Step / baseline、失败快照与授权事实；未知 / in-flight 状态不重放。最终后端 1,532 项、

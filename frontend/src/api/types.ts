@@ -149,6 +149,13 @@ export interface EvolutionStep {
     previousExecution: ExecutionResult;
     previousVerification: VerificationResult;
   }[];
+  rollbackAuthorization?: {
+    id: string; candidateRevision: string; baselineRevision: string; authorizedAt: string;
+  } | null;
+  rollbackResult?: {
+    authorizationId: string; baselineRevision: string; observedRevision: string | null;
+    restored: boolean; diagnostic: string; completedAt: string;
+  } | null;
 }
 export interface EvolutionPlan {
   id: string;

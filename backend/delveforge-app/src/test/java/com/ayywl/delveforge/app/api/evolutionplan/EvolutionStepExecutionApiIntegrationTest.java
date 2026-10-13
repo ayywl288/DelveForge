@@ -68,6 +68,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     @Autowired com.ayywl.delveforge.application.evolution.preparation.PrepareEvolutionStepUseCase preparation;
     @Autowired com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase execute;
     @MockitoSpyBean WorkspaceVerificationPort verification;
+    @MockitoSpyBean WorkspaceRollbackPort rollback;
 
 
     private String planId;
@@ -79,6 +80,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     private Runnable providerHook;
 
     @BeforeEach void setup(TestInfo test) throws Exception {
+        reset(rollback);
         codingOutput = null;
         providerHook = null;
         source = BASE.resolve("source-" + UUID.randomUUID());
@@ -234,8 +236,8 @@ class EvolutionStepExecutionApiIntegrationTest {
                 assertEquals(criterion.kind().name(), suppliedCriterion.path("kind").asText());
                 assertEquals(criterion.description(), suppliedCriterion.path("description").asText());
                 assertFalse(suppliedCriterion.toString().contains("ReportTest"));
-                List<String> paths = java.util.regex.Pattern.compile("(?m)^\\+\\+\\+ b/(.+)$").matcher(patch)
-                        .results().map(match -> match.group(1)).toList();
+                List<String> paths = java.util.regex.Pattern.compile("(?m)^(?:\\+\\+\\+ b/|--- a/)(.+)$").matcher(patch)
+                        .results().map(match -> match.group(1)).distinct().toList();
                 return mapper.writeValueAsString(Map.of("type", "CHANGE_PROPOSAL", "expectedRevision", payload.path("expectedRevision").asText(), "summary", "change",
                         "declaredAffectedPaths", paths, "unifiedDiff", patch, "verificationStrategy",
                         List.of(Map.of("action", action, "target", action.equals("FOCUSED_TEST") ? "ReportTest#report" : "", "criterionIndexes", List.of(1)))));
@@ -563,6 +565,333 @@ class EvolutionStepExecutionApiIntegrationTest {
 
     private String repairBody(String candidate, String authorization) throws Exception {
         return mapper.writeValueAsString(Map.of("expectedCandidateRevision", candidate, "authorizationId", authorization));
+    }
+
+    private String rollbackBody(String candidate, String baseline, String authorization) throws Exception {
+        return mapper.writeValueAsString(Map.of("expectedCandidateRevision", candidate,
+                "expectedBaselineRevision", baseline, "authorizationId", authorization));
+    }
+
+    private EvolutionStep currentStep() {
+        return plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+    }
+
+    @Test
+    void rollbackAfterMultipleRepairsRestoresExactFirstBaselineAndKeepsHistory() throws Exception {
+        EvolutionStep first = failedCandidate();
+        Map<String, String> original = snapshot(source);
+        for (int index = 1; index <= 2; index++) {
+            String content = Files.readString(source.resolve("src/main/java/Report.java"));
+            coding("--- a/src/main/java/Report.java\n+++ b/src/main/java/Report.java\n@@ -1 +1 @@\n-"
+                    + content.replace("return 0", "return " + (index - 1))
+                    + "+" + content.replace("return 0", "return " + index), "DIFF_CHECK");
+            mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                    .content(repairBody(persistedCopy().currentRevision(), UUID.randomUUID().toString())))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.steps[0].status").value("VERIFICATION_FAILED"));
+        }
+        EvolutionStep latest = currentStep();
+        String candidate = latest.executionResult().candidateRevision();
+        String authorization = UUID.randomUUID().toString();
+        String body = rollbackBody(candidate, revision, authorization);
+        reset(ai);
+        mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON)
+                .content(rollbackBody(candidate, revision, latest.repairAuthorizations().getFirst().id())))
+                .andExpect(status().isConflict());
+        mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.steps[0].status").value("FAILED"))
+                .andExpect(jsonPath("$.steps[0].rollbackResult.restored").value(true));
+        assertEquals(revision, git(copy, "rev-parse", "HEAD").trim());
+        assertEquals(git(source, "rev-parse", "HEAD^{tree}").trim(), git(copy, "write-tree").trim());
+        assertTrue(git(copy, "status", "--porcelain", "--untracked-files=all", "--ignored").isBlank());
+        assertEquals(revision, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(WorkingCopyStatus.EVOLVING, persistedCopy().status());
+        assertEquals(latest.executionResult(), currentStep().executionResult());
+        assertEquals(latest.verificationResult(), currentStep().verificationResult());
+        assertEquals(latest.repairAuthorizations(), currentStep().repairAuthorizations());
+        assertEquals(first.verificationResult(), currentStep().repairAuthorizations().getFirst().previousVerification());
+        assertEquals(original, snapshot(source));
+        mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+        verify(rollback, times(1)).restoreBaseline(any());
+        assertRollbackRestart(EvolutionStepStatus.FAILED);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"candidate", "baseline", "missing-authorization", "dirty", "extra", "ignored", "permission"})
+    void rollbackRejectsStaleOrUnsafeRequestBeforeAnyWrite(String reason) throws Exception {
+        EvolutionStep failed = failedCandidate();
+        String candidate = failed.executionResult().candidateRevision();
+        String body = rollbackBody(reason.equals("candidate") ? revision : candidate,
+                reason.equals("baseline") ? candidate : revision, UUID.randomUUID().toString());
+        switch (reason) {
+            case "missing-authorization" -> body = "{\"expectedCandidateRevision\":\"" + candidate
+                    + "\",\"expectedBaselineRevision\":\"" + revision + "\"}";
+            case "dirty" -> Files.writeString(copy.resolve("A.java"), "USER CONTENT\n");
+            case "extra" -> Files.writeString(copy.resolve("user.txt"), "USER CONTENT\n");
+            case "ignored" -> {
+                Files.createDirectories(copy.resolve(".git/info"));
+                Files.writeString(copy.resolve(".git/info/exclude"), "user.txt\n");
+                Files.writeString(copy.resolve("user.txt"), "USER CONTENT\n");
+            }
+            case "permission" -> jdbc.update("UPDATE software_asset SET read_permission=0 WHERE id=?", ASSET.value());
+            default -> { }
+        }
+        Map<String, String> before = snapshot(copy);
+        reset(ai);
+        mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().is(reason.equals("missing-authorization") ? 400 : 409));
+        assertNull(currentStep().rollbackAuthorization());
+        assertEquals(failed.verificationResult(), currentStep().verificationResult());
+        assertEquals(before, snapshot(copy));
+        assertEquals(candidate, git(copy, "rev-parse", "HEAD").trim());
+        verify(rollback, never()).restoreBaseline(any());
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void rollbackRemovesOnlyCandidateTrackedAdditionAndRestoresDeletedBaselineFile() throws Exception {
+        confirm();
+        Map<String, String> original = snapshot(source);
+        Map<String, String> baselineFiles = workingTreeSnapshot(copy);
+        String baselineReport = Files.readString(copy.resolve("src/main/java/Report.java"));
+        String report = Files.readString(source.resolve("src/main/java/Report.java"));
+        coding(PATCH.replace("+new\n", "+new \n") + newFilePatch("candidate.txt", "Candidate owned file\n")
+                + "--- a/src/main/java/Report.java\n+++ /dev/null\n@@ -1 +0,0 @@\n-" + report, "DIFF_CHECK");
+        mvc.perform(post(route("execute"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("VERIFICATION_FAILED"));
+        assertFalse(Files.exists(copy.resolve("src/main/java/Report.java")));
+        assertTrue(Files.exists(copy.resolve("candidate.txt")));
+        String candidate = persistedCopy().currentRevision();
+        reset(ai);
+        mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON)
+                .content(rollbackBody(candidate, revision, UUID.randomUUID().toString())))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.steps[0].status").value("FAILED"));
+        assertFalse(Files.exists(copy.resolve("candidate.txt")));
+        assertEquals(baselineReport, Files.readString(copy.resolve("src/main/java/Report.java")));
+        assertEquals(baselineFiles, workingTreeSnapshot(copy));
+        assertEquals(original, snapshot(source));
+        verifyNoInteractions(ai);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"index-lock", "head-lock", "extra-after-grant", "ignored-after-grant", "dirty-after-grant",
+            "unknown", "wrong-success", "post-restore-change", "revoke-after-restore", "replace-baseline", "graft-view"})
+    void rollbackFailureOrUnknownBlocksWithoutDeletingUserFiles(String fault) throws Exception {
+        EvolutionStep failed = failedCandidate();
+        String candidate = failed.executionResult().candidateRevision();
+        Map<String, String> original = snapshot(source);
+        doAnswer(invocation -> {
+            switch (fault) {
+                case "index-lock" -> Files.writeString(copy.resolve(".git/index.lock"), "TEST OWNED LOCK");
+                case "head-lock" -> Files.writeString(copy.resolve(".git/HEAD.lock"), "TEST OWNED LOCK");
+                case "extra-after-grant", "ignored-after-grant" -> {
+                    if (fault.equals("ignored-after-grant")) {
+                        Files.createDirectories(copy.resolve(".git/info"));
+                        Files.writeString(copy.resolve(".git/info/exclude"), "user.txt\n");
+                    }
+                    Files.writeString(copy.resolve("user.txt"), "USER CONTENT\n");
+                }
+                case "dirty-after-grant" -> Files.writeString(copy.resolve("A.java"), "USER CONTENT\n");
+                case "replace-baseline" -> {
+                    String tree = git(copy, "rev-parse", "HEAD^{tree}").trim();
+                    String replacement = git(copy, "-c", "user.name=Fixture", "-c", "user.email=fixture@invalid",
+                            "commit-tree", tree, "-m", "replacement without parents").trim();
+                    git(copy, "replace", revision, replacement);
+                }
+                case "graft-view" -> {
+                    Files.createDirectories(copy.resolve(".git/info"));
+                    Files.writeString(copy.resolve(".git/info/grafts"), revision + "\n");
+                }
+                case "unknown" -> throw new WorkspaceException("injected process outcome unknown");
+                case "wrong-success" -> {
+                    return new WorkspaceRollbackPort.RestoredBaseline(revision, java.time.Instant.now());
+                }
+                default -> { }
+            }
+            Object restored = invocation.callRealMethod();
+            if (fault.equals("post-restore-change")) {
+                Files.writeString(copy.resolve("A.java"), "USER CONTENT\n");
+            }
+            if (fault.equals("revoke-after-restore")) {
+                jdbc.update("UPDATE software_asset SET read_permission=0 WHERE id=?", ASSET.value());
+            }
+            return restored;
+        }).when(rollback).restoreBaseline(any());
+        String body = rollbackBody(candidate, revision, UUID.randomUUID().toString());
+        reset(ai);
+        mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.steps[0].status").value("RECOVERY_REQUIRED"))
+                .andExpect(jsonPath("$.steps[0].rollbackResult.restored").value(false));
+        assertEquals(WorkingCopyStatus.RECOVERY_REQUIRED, persistedCopy().status());
+        assertEquals(candidate, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(failed.executionResult(), currentStep().executionResult());
+        assertEquals(failed.verificationResult(), currentStep().verificationResult());
+        assertFalse(currentStep().rollbackResult().diagnostic().isBlank());
+        assertEquals(original, snapshot(source));
+        if (fault.contains("extra") || fault.contains("ignored")) {
+            assertEquals("USER CONTENT\n", Files.readString(copy.resolve("user.txt")));
+        }
+        if (fault.contains("dirty") || fault.equals("post-restore-change")) {
+            assertEquals("USER CONTENT\n", Files.readString(copy.resolve("A.java")));
+        }
+        if (fault.equals("replace-baseline") || fault.equals("graft-view")) {
+            assertTrue(currentStep().rollbackResult().diagnostic().contains("OBJECT_VIEW"));
+            assertEquals(candidate, git(copy, "rev-parse", "HEAD").trim());
+            assertTrue(fault.equals("replace-baseline")
+                    ? !git(copy, "for-each-ref", "--format=%(refname)", "refs/replace/").isBlank()
+                    : Files.exists(copy.resolve(".git/info/grafts")));
+        }
+        mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(repairBody(candidate, UUID.randomUUID().toString()))).andExpect(status().isConflict());
+        verify(rollback, times(1)).restoreBaseline(any());
+        verifyNoInteractions(ai);
+        if (fault.equals("unknown")) {
+            assertRollbackRestart(EvolutionStepStatus.RECOVERY_REQUIRED);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"authorization", "success", "all-final"})
+    void rollbackSqliteFailureNeverExposesPartialCheckpointOrFalseSuccess(String phase) throws Exception {
+        EvolutionStep failed = failedCandidate();
+        String candidate = failed.executionResult().candidateRevision();
+        EvolutionPlan loaded = plans.findById(new EvolutionPlanId(planId)).orElseThrow();
+        WorkingCopy loadedCopy = persistedCopy();
+        String condition = phase.equals("authorization") ? "ROLLING_BACK" : phase.equals("success") ? "FAILED" : "FAILED','RECOVERY_REQUIRED";
+        jdbc.execute("CREATE TRIGGER m5c_checkpoint_failure BEFORE UPDATE ON working_copy WHEN EXISTS"
+                + " (SELECT 1 FROM evolution_step WHERE id='" + stepId + "' AND status IN ('" + condition + "'))"
+                + " BEGIN SELECT RAISE(ABORT, 'injected M5-C checkpoint failure'); END");
+        String body = rollbackBody(candidate, revision, UUID.randomUUID().toString());
+        reset(ai);
+        try {
+            mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().is(phase.equals("success") ? 200 : 500));
+        } finally {
+            jdbc.execute("DROP TRIGGER m5c_checkpoint_failure");
+        }
+        assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, loaded.step(new EvolutionStepId(stepId)).status());
+        assertEquals(candidate, loadedCopy.currentRevision());
+        assertEquals(candidate, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(phase.equals("authorization") ? candidate : revision, git(copy, "rev-parse", "HEAD").trim());
+        assertEquals(phase.equals("authorization") ? EvolutionStepStatus.VERIFICATION_FAILED
+                : phase.equals("success") ? EvolutionStepStatus.RECOVERY_REQUIRED : EvolutionStepStatus.ROLLING_BACK,
+                currentStep().status());
+        assertEquals(failed.verificationResult(), currentStep().verificationResult());
+        assertEquals(phase.equals("success") ? WorkingCopyStatus.RECOVERY_REQUIRED : WorkingCopyStatus.EVOLVING,
+                persistedCopy().status());
+        verify(rollback, times(phase.equals("authorization") ? 0 : 1)).restoreBaseline(any());
+        verifyNoInteractions(ai);
+        if (phase.equals("all-final")) {
+            assertNull(currentStep().rollbackResult());
+            assertRollbackRestart(EvolutionStepStatus.ROLLING_BACK);
+            mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
+            mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+            verify(rollback, times(1)).restoreBaseline(any());
+        }
+    }
+
+    @Test
+    void rollbackConcurrentRequestAndRepairCannotReuseGrantedAuthorization() throws Exception {
+        String candidate = failedCandidate().executionResult().candidateRevision();
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            if (!release.await(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                throw new AssertionError("Rollback test barrier timed out");
+            }
+            return invocation.callRealMethod();
+        }).when(rollback).restoreBaseline(any());
+        String body = rollbackBody(candidate, revision, UUID.randomUUID().toString());
+        reset(ai);
+        try (var workers = java.util.concurrent.Executors.newSingleThreadExecutor()) {
+            var first = workers.submit(() -> mvc.perform(post(route("rollback"))
+                    .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isOk()));
+            try {
+                assertTrue(entered.await(15, java.util.concurrent.TimeUnit.SECONDS));
+                assertEquals(EvolutionStepStatus.ROLLING_BACK, currentStep().status());
+                mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
+                mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                        .content(repairBody(candidate, UUID.randomUUID().toString()))).andExpect(status().isConflict());
+            } finally {
+                release.countDown();
+            }
+            first.get(60, java.util.concurrent.TimeUnit.SECONDS);
+        }
+        assertEquals(EvolutionStepStatus.FAILED, currentStep().status());
+        verify(rollback, times(1)).restoreBaseline(any());
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void rollbackInterruptedOperationRecordsRecoveryBeforeRestoringInterruptFlag() throws Exception {
+        String candidate = failedCandidate().executionResult().candidateRevision();
+        doAnswer(invocation -> {
+            Thread.currentThread().interrupt();
+            throw new WorkspaceException("injected interrupted process");
+        }).when(rollback).restoreBaseline(any());
+        reset(ai);
+        boolean interrupted;
+        try {
+            mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON)
+                    .content(rollbackBody(candidate, revision, UUID.randomUUID().toString())))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.steps[0].status").value("RECOVERY_REQUIRED"));
+            interrupted = Thread.currentThread().isInterrupted();
+        } finally {
+            Thread.interrupted();
+        }
+        assertTrue(interrupted);
+        assertEquals(WorkingCopyStatus.RECOVERY_REQUIRED, persistedCopy().status());
+        verify(rollback, times(1)).restoreBaseline(any());
+        verifyNoInteractions(ai);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EXECUTING", "VERIFYING"})
+    void rollbackCannotReinterpretUnknownExecutionOrVerificationAsConfirmedFailure(String status) throws Exception {
+        String candidate = failedCandidate().executionResult().candidateRevision();
+        jdbc.update("UPDATE evolution_step SET status=?, verification_result=NULL WHERE id=?", status, stepId);
+        if (status.equals("EXECUTING")) {
+            jdbc.update("UPDATE evolution_step SET execution_result=NULL WHERE id=?", stepId);
+        }
+        reset(ai);
+        mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON)
+                .content(rollbackBody(candidate, revision, UUID.randomUUID().toString()))).andExpect(status().isConflict());
+        assertEquals(EvolutionStepStatus.valueOf(status), currentStep().status());
+        assertNull(currentStep().rollbackAuthorization());
+        assertEquals(candidate, git(copy, "rev-parse", "HEAD").trim());
+        verify(rollback, never()).restoreBaseline(any());
+        verifyNoInteractions(ai);
+    }
+
+    private void assertRollbackRestart(EvolutionStepStatus status) {
+        EvolutionStep before = currentStep();
+        WorkingCopy copyBefore = persistedCopy();
+        // 新上下文与连接回读，不宣称实际强杀了 OS 进程；启动没有补偿或 Git 重放。
+        try (var restarted = new org.springframework.boot.builder.SpringApplicationBuilder(
+                com.ayywl.delveforge.app.DelveForgeApplication.class).web(org.springframework.boot.WebApplicationType.NONE)
+                .run("--delveforge.persistence.database-file=" + BASE.resolve("state.db"),
+                        "--delveforge.workspace.root=" + BASE.resolve("managed"),
+                        "--delveforge.ai.deepseek.base-url=http://127.0.0.1:1", "--delveforge.ai.deepseek.api-key=",
+                        "--spring.profiles.active=m5c-restart-test")) {
+            EvolutionStep restored = restarted.getBean(EvolutionPlanRepository.class).findById(new EvolutionPlanId(planId))
+                    .orElseThrow().step(new EvolutionStepId(stepId));
+            assertEquals(status, restored.status());
+            assertEquals(before.rollbackAuthorization(), restored.rollbackAuthorization());
+            assertEquals(before.rollbackResult(), restored.rollbackResult());
+            assertEquals(before.repairAuthorizations(), restored.repairAuthorizations());
+            assertEquals(before.executionResult(), restored.executionResult());
+            assertEquals(before.verificationResult(), restored.verificationResult());
+            WorkingCopy restoredCopy = restarted.getBean(WorkingCopyRepository.class).findById(copyBefore.id()).orElseThrow();
+            assertEquals(copyBefore.status(), restoredCopy.status());
+            assertEquals(copyBefore.currentRevision(), restoredCopy.currentRevision());
+            assertEquals(copyBefore.lastVerifiedRevision(), restoredCopy.lastVerifiedRevision());
+        }
     }
 
     @Test
@@ -985,4 +1314,11 @@ class EvolutionStepExecutionApiIntegrationTest {
         assertEquals(0, process.waitFor(), output);
         return output;
     }
+
+    private static Map<String, String> workingTreeSnapshot(Path root) throws Exception {
+        Map<String, String> result = snapshot(root);
+        result.keySet().removeIf(path -> Path.of(path).startsWith(".git"));
+        return result;
+    }
+
 }

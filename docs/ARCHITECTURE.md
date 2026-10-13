@@ -1203,6 +1203,27 @@ Step / WorkingCopy CAS 同时比较旧历史；所有提交分支重放 Domain �
 旧状态、baseline、Execution / Verification 原文保持不变，不回填虚构授权；正常 GET 返回授权与历史。
 授权后的 Provider、解析或执行异常保持最后检查点，该 Slice 不实现补偿、Retry 或 Recovery。
 
+**User Rollback（M5-C 实验分支）：** 新增独立
+`POST /api/evolution-plans/{planId}/steps/{stepId}/rollback`，请求只携带当前完整 Candidate、
+首次 baseline 与新 UUID 授权身份。`RollbackEvolutionStepUseCase` 不依赖 AI Gateway，复用
+资产 / Flow / 生命周期检查、隔离对象副本与 Step / WorkingCopy 原子提交。
+`WorkspaceRollbackPort` 是独立且不继承其他 Port 的窄能力；`AuthorizedStepRollback` 只能从
+匹配本次授权的 `ROLLING_BACK` 检查点构造。Git Adapter 核对托管位置、隔离、真实 Candidate、
+安全路径及目标 commit，执行禁用 hooks 的非强制 detached checkout，并重新核对精确 HEAD、
+index 与工作树。它不用 reset --hard / clean，使用 `--no-overwrite-ignore`，不清理额外用户文件。
+Rollback 还拒绝 replacement refs / graft 元数据，命令显式使用 `--no-replace-objects`；不能把
+被替换的同 SHA 对象视图当作原始 baseline，不删除或改写这些用户元数据。
+
+V19 仅增加 nullable 授权 / 结果 JSON 槽，旧结果与 Repair 历史不改写。授权及成功检查点沿用
+完整资格 / CAS；失败检查点的 `blockRollback` 只允许匹配已保存授权的 `ROLLING_BACK` 同时
+转为 Step / WorkingCopy `RECOVERY_REQUIRED`，不提供 Workspace 能力。该安全事实写入不因
+资产权限撤销而被禁止，但仍比较完整旧结果、历史、绑定及 WorkingCopy revision / location。
+权限撤销仍禁止新的授权、代码操作或成功转移；这不改变 M4 / M5-A/B 的授权守卫。
+
+恢复、状态重查或成功提交异常后，只尝试保存新的阻塞结果，不重跑 Git。两种结果提交都不可用
+时保留原 `ROLLING_BACK` 检查点并返回错误。启动 / GET 仅恢复保存的事实，不做补偿、重放或自动
+状态改判；此边界已由用户明确裁定，未决调用所有权留给后续 Recovery Slice。
+
 ## 7. Dependency Rules
 
 本节描述代码模块之间允许存在的依赖方向，而不是系统运行时的调用顺序。
@@ -1230,7 +1251,7 @@ Evolution ──────────┬────────────�
 - Repository Analysis 只能依赖 Workspace 的只读能力，不得获得代码写入、删除或修改权限。
 - Opportunity Discovery 不得直接修改 Repository，也不应依赖 Workspace 的写能力。
 - Evolution Execution 是 MVP 中唯一允许请求 Workspace 写能力的业务流程。
-- Workspace 在 Application 层使用互不继承的能力 Port：WorkspaceReadPort（只读）、WorkingCopyProvisioningPort（M3 环境准备）、WorkingCopyInspectionPort（只读检查）、WorkspaceMutationPort（受控步骤修改）、WorkspaceVerificationPort（有限验证）。GitWorkspaceAdapter 实现读取、准备、检查和修改；独立验证 Adapter 实现验证。只读流程仍只获得读取能力。授权作用域与 M3 / M4 refinement 见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
+- Workspace 在 Application 层使用互不继承的能力 Port：WorkspaceReadPort（只读）、WorkingCopyProvisioningPort（M3 环境准备）、WorkingCopyInspectionPort（只读检查）、WorkspaceMutationPort（受控步骤修改）、WorkspaceVerificationPort（有限验证）、WorkspaceRollbackPort（已授权 Step 精确恢复）。GitWorkspaceAdapter 实现读取、准备、检查、修改和恢复；独立验证 Adapter 实现验证。只读流程仍只获得读取能力。授权作用域与 refinement 见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
 - Application / Agent Orchestrator 可以协调各业务模块，但业务模块不得反向依赖 Orchestrator。
 - 跨模块协作应通过公开接口和明确的数据模型完成，不得通过直接读取或修改其他模块拥有的数据库表实现。
 - 禁止循环依赖。

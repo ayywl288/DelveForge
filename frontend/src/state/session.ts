@@ -32,9 +32,10 @@ export interface ExecutionReceipt {
   planId: string;
   stepId: string;
   startedAt: string;
-  operation?: "REPAIR";
+  operation?: "REPAIR" | "ROLLBACK";
   authorizationId?: string;
   candidateRevision?: string;
+  baselineRevision?: string;
 }
 const emptyIds = (): SessionIds => ({
   profileId: "",
@@ -237,7 +238,9 @@ export function createSession() {
           "RECOVERY_REQUIRED",
           "VERIFICATION_FAILED",
         ].includes(step.status) && (!receipt.value.operation || receipt.value.operation === "REPAIR"
-          && step.repairAuthorizations?.some(item => item.id === receipt.value?.authorizationId))
+          && step.repairAuthorizations?.some(item => item.id === receipt.value?.authorizationId)
+          || receipt.value.operation === "ROLLBACK" && step.rollbackAuthorization?.id === receipt.value.authorizationId
+            && !!step.rollbackResult && ["FAILED", "RECOVERY_REQUIRED"].includes(step.status))
       )
         clearReceipt();
     }
@@ -378,14 +381,19 @@ export function createSession() {
   async function repair(stepId: string, candidateRevision: string) {
     return performStep(stepId, candidateRevision);
   }
-  async function performStep(stepId: string, repairCandidate?: string) {
-    const repairing = repairCandidate !== undefined;
+  async function rollback(stepId: string, candidateRevision: string, baselineRevision: string) {
+    return performStep(stepId, candidateRevision, baselineRevision);
+  }
+  async function performStep(stepId: string, repairCandidate?: string, rollbackBaseline?: string) {
+    const rollingBack = rollbackBaseline !== undefined;
+    const repairing = repairCandidate !== undefined && !rollingBack;
+    const handlingFailure = repairing || rollingBack;
     if (busy.value || receipt.value || !navigator.locks) {
       error.value =
         "已有执行等待核对，或浏览器不支持跨标签页执行锁。请使用本机现代浏览器并先查询状态。";
       return;
     }
-    await run(repairing ? "修复当前失败 Candidate" : "执行当前 Step", async () => {
+    await run(rollingBack ? "回滚当前失败 Candidate" : repairing ? "修复当前失败 Candidate" : "执行当前 Step", async () => {
       await navigator.locks.request(
         "delveforge.execute",
         { ifAvailable: true },
@@ -399,17 +407,18 @@ export function createSession() {
             !current ||
             index < 0 ||
             current.status !== "ACTIVE" ||
-            current.steps[index]?.status !== (repairing ? "VERIFICATION_FAILED" : "READY") ||
+            current.steps[index]?.status !== (handlingFailure ? "VERIFICATION_FAILED" : "READY") ||
             current.steps
               .slice(0, index)
               .some((step) => step.status !== "SUCCEEDED") ||
             !copy.value ||
             !["READY", "EVOLVING"].includes(copy.value.status) ||
-            (repairing ? copy.value.status !== "EVOLVING"
+            (handlingFailure ? copy.value.status !== "EVOLVING"
               || copy.value.currentRevision !== repairCandidate
               || copy.value.lastVerifiedRevision !== current.steps[index]?.baselineRevision
               || current.steps[index]?.executionResult?.candidateRevision !== repairCandidate
               || current.steps[index]?.verificationResult?.passed !== false
+              || rollingBack && current.steps[index]?.baselineRevision !== rollbackBaseline
               : copy.value.currentRevision !== copy.value.lastVerifiedRevision)
           ) {
             throw new ApiError(409, "CONFLICT");
@@ -418,8 +427,9 @@ export function createSession() {
             planId: current.id,
             stepId,
             startedAt: new Date().toISOString(),
-            ...(repairing ? { operation: "REPAIR" as const, authorizationId: crypto.randomUUID(),
-              candidateRevision: repairCandidate } : {}),
+            ...(handlingFailure ? { operation: rollingBack ? "ROLLBACK" as const : "REPAIR" as const,
+              authorizationId: crypto.randomUUID(), candidateRevision: repairCandidate,
+              ...(rollingBack ? { baselineRevision: rollbackBaseline } : {}) } : {}),
           };
           // 写入失败时停止发送；刷新后只恢复 ID 与等待标记，不重放任何命令。
           localStorage.setItem(executionKey, JSON.stringify(marker));
@@ -428,11 +438,18 @@ export function createSession() {
           executionPending.value = true;
           schedulePoll();
           try {
-            const result = repairing
+            const result = rollingBack
+              ? await api.rollback(current.id, stepId, repairCandidate!, rollbackBaseline!, marker.authorizationId!)
+              : repairing
               ? await api.repair(current.id, stepId, repairCandidate!, marker.authorizationId!)
               : await api.execute(current.id, stepId);
             if (repairing && !result.steps.find(step => step.id === stepId)?.repairAuthorizations
               ?.some(item => item.id === marker.authorizationId)) throw new ApiError(0, "RESPONSE_UNREADABLE");
+            if (rollingBack) {
+              const step = result.steps.find(item => item.id === stepId);
+              if (!step || step.rollbackAuthorization?.id !== marker.authorizationId || !step.rollbackResult
+                || !["FAILED", "RECOVERY_REQUIRED"].includes(step.status)) throw new ApiError(0, "RESPONSE_UNREADABLE");
+            }
             setPlan(result);
             await refreshPlan();
             clearReceipt();
@@ -465,18 +482,19 @@ export function createSession() {
                   ASSET_LICENSE_INFORMATION_REQUIRED: 1,
                   ASSET_AUTHORIZATION_CONFLICT: 1,
                 } &&
-              !repairing && plan.value?.steps.find((step) => step.id === stepId)?.status === "READY" &&
+              !handlingFailure && plan.value?.steps.find((step) => step.id === stepId)?.status === "READY" &&
               !plan.value.steps.find((step) => step.id === stepId)
                 ?.executionResult &&
               copy.value && ["READY", "EVOLVING"].includes(copy.value.status) &&
               copy.value.currentRevision === copy.value.lastVerifiedRevision
             )
               clearReceipt();
-            if (repairing && checked && failure instanceof ApiError && failure.status > 0
+            if (handlingFailure && checked && failure instanceof ApiError && failure.status > 0
               && ["INVALID_REQUEST", "CONFLICT", "EXECUTION_CRITERIA_UNSUPPORTED"].includes(failure.code)) {
               const step = plan.value?.steps.find(item => item.id === stepId);
               if (step?.status === "VERIFICATION_FAILED" && copy.value?.currentRevision === repairCandidate
-                && !step.repairAuthorizations?.some(item => item.id === marker.authorizationId)) clearReceipt();
+                && (rollingBack ? !step.rollbackAuthorization
+                  : !step.repairAuthorizations?.some(item => item.id === marker.authorizationId))) clearReceipt();
             }
             throw failure;
           } finally {
@@ -756,6 +774,7 @@ export function createSession() {
     observeExecution,
     execute,
     repair,
+    rollback,
     dispose() {
       disposed = true;
       clearTimeout(timer);

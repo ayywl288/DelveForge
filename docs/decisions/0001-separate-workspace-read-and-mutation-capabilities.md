@@ -270,6 +270,19 @@ Repair 继续使用 Option E 的同一窄 mutation capability。`fromRepair` 只
 不重新调用 Provider；重启仅恢复事实，没有恢复或重放入口。Verification 重跑原 A..C 与全部标准。
 Port 划分、模块依赖、WorkingCopy 策略不变；未增加通用命令、Attempt 或后台任务框架。
 
+## M5-C refinement — 2026-10-13
+
+User Rollback 使用独立 `WorkspaceRollbackPort`，不向读取或步骤补丁能力加入通用 Git 命令。
+Option E 的 `AuthorizedStepRollback` 绑定本次授权检查点、失败 Candidate 与原 Step baseline。
+操作只在托管独立克隆中执行；选择非强制 checkout、禁用 hooks、禁止覆盖 ignored 文件，
+并在恢复前后核对实际内容。额外文件及用户修改不在授权清理范围，拒绝后不自动扩大权限。
+
+SQLite / Git 仍无跨技术事务。授权先提交，精确恢复确认后提交 FAILED；异常只提交安全阻塞事实。
+这个事实写入不授予任何外部能力，仍通过旧授权 / 结果 / WorkingCopy CAS，不因资产撤权而抹去
+未知操作的诊断。成功检查点与所有既有执行流程继续使用完整资产资格守卫。
+用户已裁定重启残留 ROLLING_BACK 只读保留、阻塞、不重放；所有权及停止判据留给后续 Recovery。
+本 Slice 不增加恢复后台任务、Retry、自动 Execution Failure Rollback 或破坏性清理协议。
+
 ## References
 
 ```text

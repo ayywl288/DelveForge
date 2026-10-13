@@ -35,13 +35,16 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
     @Transactional
     public void commit(EvolutionPlan expected, EvolutionStepId id, WorkingCopy before, SoftwareAsset asset,
             EvolutionPlan updated, WorkingCopy after) {
-        new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
-
         // 重放 Domain 操作验证完整转移，不能凭调用方给出的新状态直接写入。
         EvolutionPlan checked = expected.copy();
         WorkingCopy checkedCopy = before.copy();
         EvolutionStep old = expected.step(id);
         EvolutionStep next = updated.step(id);
+        boolean blockingRollback = old.status() == EvolutionStepStatus.ROLLING_BACK
+                && next.status() == EvolutionStepStatus.RECOVERY_REQUIRED;
+        if (!blockingRollback) {
+            new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
+        }
         if (old.status() == EvolutionStepStatus.READY && next.status() == EvolutionStepStatus.EXECUTING) {
             checked.startStep(id, checkedCopy, new StepExecutionPolicy());
         } else if (old.status() == EvolutionStepStatus.VERIFICATION_FAILED
@@ -56,6 +59,14 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
         } else if (old.status() == EvolutionStepStatus.VERIFYING
                 && next.status() == EvolutionStepStatus.VERIFICATION_FAILED) {
             checked.failStepVerification(id, checkedCopy, next.verificationResult());
+        } else if (old.status() == EvolutionStepStatus.VERIFICATION_FAILED
+                && next.status() == EvolutionStepStatus.ROLLING_BACK && next.rollbackAuthorization() != null) {
+            var authorization = next.rollbackAuthorization();
+            checked.authorizeStepRollback(id, checkedCopy, new StepExecutionPolicy(), authorization.id(),
+                    authorization.candidateRevision(), authorization.baselineRevision(), authorization.authorizedAt());
+        } else if (old.status() == EvolutionStepStatus.ROLLING_BACK
+                && (next.status() == EvolutionStepStatus.FAILED || blockingRollback)) {
+            checked.finishStepRollback(id, checkedCopy, next.rollbackResult());
         } else {
             throw new EvolutionPlanStateException("Unsupported execution checkpoint transition");
         }
@@ -70,6 +81,8 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
                 || !Objects.equals(check.executionResult(), next.executionResult())
                 || !Objects.equals(check.verificationResult(), next.verificationResult())
                 || !check.repairAuthorizations().equals(next.repairAuthorizations())
+                || !Objects.equals(check.rollbackAuthorization(), next.rollbackAuthorization())
+                || !Objects.equals(check.rollbackResult(), next.rollbackResult())
                 || !check.goal().equals(next.goal()) || !check.scope().equals(next.scope())
                 || !check.plannedChanges().equals(next.plannedChanges())
                 || !check.verificationCriteria().equals(next.verificationCriteria())
@@ -80,11 +93,17 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
         }
 
         // 两项写入共同受事务保护，任一旧依据不匹配都不能暴露半个检查点。
-        if (steps.advanceCheckpoint(expected, id, before, asset, asset.licenseInfo().orElse(null), old, next,
-                StepResultJson.write(old.executionResult()), StepResultJson.write(old.verificationResult()),
-                StepResultJson.write(next.executionResult()), StepResultJson.write(next.verificationResult()),
-                StepResultJson.write(old.repairAuthorizations()), StepResultJson.write(next.repairAuthorizations())) != 1
-                || copies.advanceCheckpoint(before, after) != 1) {
+        int changed = blockingRollback
+                ? steps.blockRollback(expected, id, before, old, StepResultJson.write(old.executionResult()),
+                        StepResultJson.write(old.verificationResult()), StepResultJson.write(old.repairAuthorizations()),
+                        StepResultJson.write(old.rollbackAuthorization()), StepResultJson.write(next.rollbackResult()))
+                : steps.advanceCheckpoint(expected, id, before, asset, asset.licenseInfo().orElse(null), old, next,
+                        StepResultJson.write(old.executionResult()), StepResultJson.write(old.verificationResult()),
+                        StepResultJson.write(next.executionResult()), StepResultJson.write(next.verificationResult()),
+                        StepResultJson.write(old.repairAuthorizations()), StepResultJson.write(next.repairAuthorizations()),
+                        StepResultJson.write(old.rollbackAuthorization()), StepResultJson.write(old.rollbackResult()),
+                        StepResultJson.write(next.rollbackAuthorization()), StepResultJson.write(next.rollbackResult()));
+        if (changed != 1 || copies.advanceCheckpoint(before, after) != 1) {
             throw new EvolutionLifecycleConflictException("Execution checkpoint basis changed before commit");
         }
     }

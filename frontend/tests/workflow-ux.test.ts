@@ -290,4 +290,28 @@ describe("G2 路线与执行分区", () => {
         confirm.click(); await nextTick();
         expect(repair).toHaveBeenCalledExactlyOnceWith(step.id, "b".repeat(40));
     });
+
+    it("Rollback 独立确认当前 Candidate 与原始 baseline，漂移时拒绝且不调用 Repair", async () => {
+        const s = session(); s.plan = successfulPlan(); s.plan.status = "ACTIVE"; s.copy = copy();
+        s.copy.status = "EVOLVING"; s.copy.currentRevision = "b".repeat(40);
+        const step = s.plan.steps[0]!; step.status = "VERIFICATION_FAILED"; step.verificationResult!.passed = false;
+        const rollback = vi.spyOn(s, "rollback").mockResolvedValue(undefined);
+        const repair = vi.spyOn(s, "repair").mockResolvedValue(undefined);
+        const root = mount(EvolutionView, s);
+        expect(rollback).not.toHaveBeenCalled();
+        button(root, "审阅并授权回滚").click(); await nextTick();
+        const confirm = button(root, "授权并回滚到原始基线");
+        expect(confirm.disabled).toBe(true);
+        expect(root.querySelector("dialog[open]")?.textContent).toContain("最初的基线");
+        expect(root.querySelector("dialog[open]")?.textContent).toContain("不清理这些文件");
+        root.querySelector<HTMLInputElement>('dialog[open] input[type="checkbox"]')!.click(); await nextTick();
+        step.baselineRevision = "c".repeat(40); await nextTick();
+        expect(confirm.disabled).toBe(true); expect(rollback).not.toHaveBeenCalled();
+        step.baselineRevision = "a".repeat(40); s.copy.currentRevision = "c".repeat(40); await nextTick();
+        expect(confirm.disabled).toBe(true);
+        s.copy.currentRevision = "b".repeat(40); await nextTick();
+        confirm.click(); await nextTick();
+        expect(rollback).toHaveBeenCalledExactlyOnceWith(step.id, "b".repeat(40), "a".repeat(40));
+        expect(repair).not.toHaveBeenCalled();
+    });
 });

@@ -24,6 +24,8 @@ public final class EvolutionStep {
     private VerificationResult verificationResult;
     // 每次 Repair 开始前追加其授权及失败快照；当前结果可继续推进，历史事实不被替换。
     private List<RepairAuthorization> repairAuthorizations = List.of();
+    private RollbackAuthorization rollbackAuthorization;
+    private RollbackResult rollbackResult;
 
     private EvolutionStep(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
             List<String> plannedChanges, List<VerificationCriterion> verificationCriteria) {
@@ -64,7 +66,8 @@ public final class EvolutionStep {
 
     EvolutionStep copy() {
         return reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria,
-                status, baselineRevision, executionResult, verificationResult, repairAuthorizations);
+                status, baselineRevision, executionResult, verificationResult, repairAuthorizations,
+                rollbackAuthorization, rollbackResult);
     }
 
     /** 恢复完整历史检查点；不以当前证据适配规则重新判定已保存的成功事实。 */
@@ -79,6 +82,14 @@ public final class EvolutionStep {
             List<String> plannedChanges, List<VerificationCriterion> verificationCriteria,
             EvolutionStepStatus status, String baseline, ExecutionResult execution, VerificationResult verification,
             List<RepairAuthorization> authorizations) {
+        return reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria, status, baseline,
+                execution, verification, authorizations, null, null);
+    }
+
+    public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
+            List<String> plannedChanges, List<VerificationCriterion> verificationCriteria,
+            EvolutionStepStatus status, String baseline, ExecutionResult execution, VerificationResult verification,
+            List<RepairAuthorization> authorizations, RollbackAuthorization rollback, RollbackResult rollbackResult) {
         EvolutionStep step = reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria);
         step.baselineRevision = baseline;
         step.repairAuthorizations = List.copyOf(authorizations);
@@ -97,21 +108,34 @@ public final class EvolutionStep {
         boolean verifying = status == EvolutionStepStatus.VERIFYING;
         boolean succeeded = status == EvolutionStepStatus.SUCCEEDED;
         boolean failed = status == EvolutionStepStatus.VERIFICATION_FAILED;
-        if ((!prepared && !executing && !verifying && !succeeded && !failed)
+        boolean rolling = status == EvolutionStepStatus.ROLLING_BACK;
+        boolean rolledBack = status == EvolutionStepStatus.FAILED;
+        boolean recovery = status == EvolutionStepStatus.RECOVERY_REQUIRED;
+        boolean rollbackFlow = rolling || rolledBack || recovery;
+        if ((!prepared && !executing && !verifying && !succeeded && !failed && !rollbackFlow)
                 || (prepared && (baseline != null || execution != null || verification != null
                         || !step.repairAuthorizations.isEmpty()))
                 || (!prepared && (baseline == null || baseline.isBlank()))
                 || (executing && (execution != null || verification != null))
-                || ((verifying || succeeded || failed)
+                || ((verifying || succeeded || failed || rollbackFlow)
                         && (execution == null || baseline.equals(execution.candidateRevision())
                                 || step.executionStartRevision().equals(execution.candidateRevision())))
                 || (verifying && verification != null)
                 || (succeeded && (verification == null
                         || !execution.candidateRevision().equals(verification.candidateRevision())
                         || !verification.recordsPassedCoverage(step.verificationCriteria.size())))
-                || (failed && (verification == null
+                || ((failed || rollbackFlow) && (verification == null
                         || !execution.candidateRevision().equals(verification.candidateRevision())
-                        || !verification.recordsFailedCoverage(step.verificationCriteria.size())))) {
+                        || !verification.recordsFailedCoverage(step.verificationCriteria.size())))
+                || (!rollbackFlow && (rollback != null || rollbackResult != null))
+                || (rollbackFlow && (rollback == null || !baseline.equals(rollback.baselineRevision())
+                        || !execution.candidateRevision().equals(rollback.candidateRevision())
+                        || ids.contains(rollback.id())))
+                || (rolling && rollbackResult != null)
+                || ((rolledBack || recovery) && (rollbackResult == null
+                        || !rollback.id().equals(rollbackResult.authorizationId())
+                        || !baseline.equals(rollbackResult.baselineRevision())
+                        || rollbackResult.restored() != rolledBack))) {
             throw new EvolutionPlanStateException("Incomplete stored Step checkpoint");
         }
         // 历史完整检查点恢复记录的事实；新的成功转移仍通过 satisfies 校验现行证据资格。
@@ -119,6 +143,8 @@ public final class EvolutionStep {
         step.baselineRevision = baseline;
         step.executionResult = execution;
         step.verificationResult = verification;
+        step.rollbackAuthorization = rollback;
+        step.rollbackResult = rollbackResult;
         return step;
     }
 
@@ -163,6 +189,39 @@ public final class EvolutionStep {
 
     public List<RepairAuthorization> repairAuthorizations() {
         return repairAuthorizations;
+    }
+
+    void authorizeRollback(String authorizationId, String candidate, String baseline, Instant authorizedAt) {
+        if (status != EvolutionStepStatus.VERIFICATION_FAILED || rollbackAuthorization != null
+                || !baselineRevision.equals(baseline) || !executionResult.candidateRevision().equals(candidate)
+                || repairAuthorizations.stream().anyMatch(value -> value.id().equals(authorizationId))) {
+            throw new EvolutionPlanStateException("Rollback requires a new authorization for the current failure");
+        }
+        rollbackAuthorization = new RollbackAuthorization(authorizationId, candidate, baseline, authorizedAt);
+        // 当前失败结果与 Repair 历史继续保留，不用恢复结果替换 VerificationResult。
+        status = EvolutionStepStatus.ROLLING_BACK;
+    }
+
+    void requireRollbackResult(RollbackResult result) {
+        if (status != EvolutionStepStatus.ROLLING_BACK || result == null
+                || !rollbackAuthorization.id().equals(result.authorizationId())
+                || !baselineRevision.equals(result.baselineRevision())) {
+            throw new EvolutionPlanStateException("Rollback result does not match its authorization checkpoint");
+        }
+    }
+
+    void finishRollback(RollbackResult result) {
+        requireRollbackResult(result);
+        rollbackResult = result;
+        status = result.restored() ? EvolutionStepStatus.FAILED : EvolutionStepStatus.RECOVERY_REQUIRED;
+    }
+
+    public RollbackAuthorization rollbackAuthorization() {
+        return rollbackAuthorization;
+    }
+
+    public RollbackResult rollbackResult() {
+        return rollbackResult;
     }
 
     void requireVerificationAccepted(VerificationResult result) {

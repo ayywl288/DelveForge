@@ -155,6 +155,25 @@ public final class EvolutionPlan {
         step(id).authorizeRepair(authorizationId, candidate, authorizedAt);
     }
 
+    /** 当前失败 Candidate 的独立授权；不复用确认或 Repair 授权，不改变首次 baseline。 */
+    public void authorizeStepRollback(EvolutionStepId id, WorkingCopy copy, StepExecutionPolicy policy,
+            String authorizationId, String candidate, String baseline, java.time.Instant authorizedAt) {
+        policy.requireRollbackAllowed(this, id, copy);
+        if (!copy.currentRevision().equals(candidate)) {
+            throw new EvolutionPlanStateException("Rollback Candidate changed");
+        }
+        step(id).authorizeRollback(authorizationId, candidate, baseline, authorizedAt);
+    }
+
+    /** 只有已核对的精确恢复事实允许 FAILED；其他结果只阻塞，不提升软件信任。 */
+    public void finishStepRollback(EvolutionStepId id, WorkingCopy copy, RollbackResult result) {
+        requireExecutionOwner(copy);
+        EvolutionStep step = step(id);
+        step.requireRollbackResult(result);
+        copy.finishRollback(step.baselineRevision(), step.rollbackAuthorization().candidateRevision(), result.restored());
+        step.finishRollback(result);
+    }
+
     /** 同一 Candidate 满足全部标准后，才同时记录 Step 成功与 WorkingCopy 信任推进。 */
     public void succeedStep(EvolutionStepId id, WorkingCopy copy, VerificationResult result) {
         requireExecutionOwner(copy);

@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.app.config;
 
 import com.ayywl.delveforge.application.evolution.preparation.CodingProposalParser;
+import com.ayywl.delveforge.application.evolution.execution.RollbackEvolutionStepUseCase;
 import com.ayywl.delveforge.application.evolution.preparation.CodingProposalValidator;
 import com.ayywl.delveforge.application.evolution.preparation.ConfirmEvolutionStepUseCase;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationLimits;
@@ -17,6 +18,7 @@ import com.ayywl.delveforge.application.port.persistence.WorkingCopyRepository;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceRollbackPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceVerificationPort;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
@@ -42,6 +44,12 @@ public class ExecutionPreparationUseCaseConfiguration {
     @Bean
     public StepExecutionPolicy stepExecutionPolicy() {
         return new StepExecutionPolicy();
+    }
+
+    @Bean
+    public RollbackEvolutionStepUseCase rollbackEvolutionStepUseCase(ExecutionPreparationState state,
+            StepExecutionPolicy policy, StepExecutionCommitPort commits, WorkspaceRollbackPort rollback) {
+        return new RollbackEvolutionStepUseCase(state, policy, commits, rollback);
     }
 
     @Bean

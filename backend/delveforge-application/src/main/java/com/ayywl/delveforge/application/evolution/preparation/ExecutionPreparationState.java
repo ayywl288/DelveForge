@@ -89,6 +89,15 @@ public final class ExecutionPreparationState {
         return loaded;
     }
 
+    /** 回滚授权前只读核对已失败 Candidate，不清理或接受额外用户修改。 */
+    public Loaded loadRollbackCandidate(EvolutionPlanId planId, EvolutionStepId stepId) {
+        Loaded loaded = loadObjects(planId, stepId);
+        policy.requireRollbackAllowed(loaded.plan(), stepId, loaded.copy());
+        inspection.requireTrustedState(new WorkspaceRef(loaded.copy().location()),
+                new WorkspaceRef(loaded.asset().location()), loaded.copy().currentRevision());
+        return loaded;
+    }
+
     /** 只供新授权调用内的准备使用；REST 不提供重启后重放此检查点的入口。 */
     public Loaded revalidateRepair(Loaded expected, EvolutionStepId stepId) {
         EvolutionStep step = expected.plan().step(stepId);
@@ -134,6 +143,8 @@ public final class ExecutionPreparationState {
                 || !Objects.equals(step.executionResult(), previous.executionResult())
                 || !Objects.equals(step.verificationResult(), previous.verificationResult())
                 || !step.repairAuthorizations().equals(previous.repairAuthorizations())
+                || !Objects.equals(step.rollbackAuthorization(), previous.rollbackAuthorization())
+                || !Objects.equals(step.rollbackResult(), previous.rollbackResult())
                 || !step.goal().equals(previous.goal()) || !step.scope().equals(previous.scope())
                 || !step.plannedChanges().equals(previous.plannedChanges())
                 || !step.verificationCriteria().equals(previous.verificationCriteria())

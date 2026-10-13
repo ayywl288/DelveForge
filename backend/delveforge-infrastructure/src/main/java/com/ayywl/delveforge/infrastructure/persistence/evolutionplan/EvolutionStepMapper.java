@@ -13,11 +13,13 @@ import org.apache.ibatis.annotations.Update;
 public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
     @Update("""
         UPDATE evolution_step SET status = #{next.status}, baseline_revision = #{next.baselineRevision},
-            execution_result = #{execution}, verification_result = #{verification}, repair_authorizations = #{authorizations}
+            execution_result = #{execution}, verification_result = #{verification}, repair_authorizations = #{authorizations},
+            rollback_authorization = #{rollbackAuthorization}, rollback_result = #{rollbackResult}
         WHERE id = #{stepId.value} AND plan_id = #{plan.id.value} AND status = #{old.status}
           AND baseline_revision IS #{old.baselineRevision}
           AND execution_result IS #{oldExecution} AND verification_result IS #{oldVerification}
           AND repair_authorizations = #{oldAuthorizations} AND goal = #{old.goal} AND scope = #{old.scope}
+          AND rollback_authorization IS #{oldRollbackAuthorization} AND rollback_result IS #{oldRollbackResult}
           AND EXISTS (SELECT 1 FROM evolution_plan p JOIN product_direction d ON d.id = p.product_direction_id
                       WHERE p.id = #{plan.id.value} AND p.status = 'ACTIVE' AND d.status = 'SELECTED'
                         AND p.flow_id IS NOT NULL AND p.flow_id = d.flow_id
@@ -41,7 +43,31 @@ public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
             @Param("old") EvolutionStep old, @Param("next") EvolutionStep next,
             @Param("oldExecution") String oldExecution, @Param("oldVerification") String oldVerification,
             @Param("execution") String execution, @Param("verification") String verification,
-            @Param("oldAuthorizations") String oldAuthorizations, @Param("authorizations") String authorizations);
+            @Param("oldAuthorizations") String oldAuthorizations, @Param("authorizations") String authorizations,
+            @Param("oldRollbackAuthorization") String oldRollbackAuthorization,
+            @Param("oldRollbackResult") String oldRollbackResult,
+            @Param("rollbackAuthorization") String rollbackAuthorization, @Param("rollbackResult") String rollbackResult);
+
+    // 只记录已授权回滚的安全阻塞事实；权限撤销不应妨碍诊断落盘，此操作没有 Workspace 写能力。
+    @Update("""
+        UPDATE evolution_step SET status = 'RECOVERY_REQUIRED', rollback_result = #{result}
+        WHERE id = #{stepId.value} AND plan_id = #{plan.id.value} AND status = 'ROLLING_BACK'
+          AND baseline_revision = #{old.baselineRevision} AND execution_result IS #{execution}
+          AND verification_result IS #{verification} AND repair_authorizations = #{repairs}
+          AND rollback_authorization = #{authorization} AND rollback_result IS NULL
+          AND goal = #{old.goal} AND scope = #{old.scope}
+          AND EXISTS (SELECT 1 FROM evolution_plan p WHERE p.id = #{plan.id.value}
+                      AND p.working_copy_id = #{copy.id.value} AND p.base_asset_id = #{copy.sourceAssetId.value})
+          AND EXISTS (SELECT 1 FROM working_copy WHERE id = #{copy.id.value}
+                      AND source_asset_id = #{copy.sourceAssetId.value} AND location = #{copy.location}
+                      AND status = #{copy.status} AND current_revision = #{copy.currentRevision}
+                      AND last_verified_revision = #{copy.lastVerifiedRevision}
+                      AND source_revision = #{copy.sourceRevision})
+        """)
+    int blockRollback(@Param("plan") EvolutionPlan plan, @Param("stepId") EvolutionStepId id,
+            @Param("copy") WorkingCopy copy, @Param("old") EvolutionStep old,
+            @Param("execution") String execution, @Param("verification") String verification,
+            @Param("repairs") String repairs, @Param("authorization") String authorization, @Param("result") String result);
 
     @Update("""
         UPDATE evolution_step SET status = 'READY'

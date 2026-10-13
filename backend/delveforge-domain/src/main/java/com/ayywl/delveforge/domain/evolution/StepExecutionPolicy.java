@@ -43,6 +43,30 @@ public final class StepExecutionPolicy {
         }
     }
 
+    /** Rollback 不请求新的标准证据；只丢弃已明确失败的当前 Candidate，恢复固定可信基线。 */
+    public void requireRollbackAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy) {
+        EvolutionStep step = plan.step(id);
+        if (plan.status() != EvolutionPlanStatus.ACTIVE || step.status() != EvolutionStepStatus.VERIFICATION_FAILED
+                || copy == null || copy.status() != WorkingCopyStatus.EVOLVING
+                || !copy.id().value().equals(plan.workingCopyId()) || !copy.sourceAssetId().equals(plan.baseAssetId())
+                || !step.baselineRevision().equals(copy.lastVerifiedRevision())
+                || !step.executionResult().candidateRevision().equals(copy.currentRevision())
+                || !step.verificationResult().recordsFailedCoverage(step.verificationCriteria().size())) {
+            throw new EvolutionPlanStateException("Rollback requires the bound failure and original trusted baseline");
+        }
+        for (EvolutionStep preceding : plan.steps()) {
+            if (preceding.id().equals(id)) {
+                break;
+            }
+            if (preceding.status() != EvolutionStepStatus.SUCCEEDED) {
+                throw new EvolutionPlanStateException("Every preceding required Step must have succeeded");
+            }
+        }
+        if (plan.steps().stream().anyMatch(other -> !other.id().equals(id) && OCCUPIED.contains(other.status()))) {
+            throw new EvolutionPlanStateException("Working Copy has another unresolved Step flow");
+        }
+    }
+
     private void requireAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy,
             EvolutionStepStatus expected) {
         EvolutionStep step = plan.step(id);

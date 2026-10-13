@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.app.api.evolutionplan;
 
 import com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase;
+import com.ayywl.delveforge.application.evolution.execution.RollbackEvolutionStepUseCase;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 
@@ -17,9 +18,11 @@ import java.util.UUID;
 @RequestMapping("/api/evolution-plans/{planId}/steps/{stepId}")
 public class EvolutionStepExecutionController {
     private final ExecuteEvolutionStepUseCase execute;
+    private final RollbackEvolutionStepUseCase rollback;
 
-    public EvolutionStepExecutionController(ExecuteEvolutionStepUseCase execute) {
+    public EvolutionStepExecutionController(ExecuteEvolutionStepUseCase execute, RollbackEvolutionStepUseCase rollback) {
         this.execute = execute;
+        this.rollback = rollback;
     }
 
     @PostMapping("/execute")
@@ -40,6 +43,24 @@ public class EvolutionStepExecutionController {
                     || authorizationId == null || !authorizationId.matches(
                             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
                 throw new IllegalArgumentException("Repair requires a Candidate commit and an explicit authorization ID");
+            }
+        }
+    }
+
+    @PostMapping("/rollback")
+    public EvolutionPlanResponse rollback(@PathVariable String planId, @PathVariable String stepId,
+            @RequestBody RollbackRequest request) {
+        return EvolutionPlanResponse.from(rollback.rollback(new EvolutionPlanId(planId), new EvolutionStepId(stepId),
+                request.expectedCandidateRevision(), request.expectedBaselineRevision(),
+                UUID.fromString(request.authorizationId()).toString()));
+    }
+
+    public record RollbackRequest(String expectedCandidateRevision, String expectedBaselineRevision,
+            String authorizationId) {
+        public RollbackRequest {
+            new RepairRequest(expectedCandidateRevision, authorizationId);
+            if (expectedBaselineRevision == null || !expectedBaselineRevision.matches("[0-9a-f]{40}")) {
+                throw new IllegalArgumentException("Rollback requires its original complete baseline commit");
             }
         }
     }

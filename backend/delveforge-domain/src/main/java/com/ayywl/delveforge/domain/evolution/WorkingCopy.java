@@ -110,6 +110,16 @@ public final class WorkingCopy {
         return sourceAssetId;
     }
 
+    void finishRollback(String baseline, String candidate, boolean restored) {
+        requireCheckpoint(baseline, candidate);
+        if (restored) {
+            currentRevision = baseline;
+        } else {
+            // 未确认恢复时保留最后已记录 revision；它不宣称物理现场仍精确位于 Candidate。
+            status = WorkingCopyStatus.RECOVERY_REQUIRED;
+        }
+    }
+
     public String sourceRevision() {
         return sourceRevision;
     }

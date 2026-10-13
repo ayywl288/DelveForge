@@ -2,17 +2,20 @@ package com.ayywl.delveforge.infrastructure.workspace;
 
 import com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException;
 import com.ayywl.delveforge.application.port.workspace.AuthorizedStepExecution;
+import com.ayywl.delveforge.application.port.workspace.AuthorizedStepRollback;
 import com.ayywl.delveforge.application.port.workspace.CandidateMutationResult;
 import com.ayywl.delveforge.application.port.workspace.PreparedWorkspace;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyRollbackException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceRollbackPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceStorageUnavailableException;
 
 import org.slf4j.Logger;
@@ -94,7 +97,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 @EnableConfigurationProperties(WorkspaceProperties.class)
 public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvisioningPort,
-        WorkingCopyInspectionPort, WorkspaceMutationPort {
+        WorkingCopyInspectionPort, WorkspaceMutationPort, WorkspaceRollbackPort {
 
     private static final Logger log = LoggerFactory.getLogger(GitWorkspaceAdapter.class);
 
@@ -317,20 +320,93 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         }
     }
 
+    /** 本 Slice 的保守恢复：拒绝脏树 / 额外文件，不使用 force、reset --hard 或 clean。 */
+    @Override
+    public RestoredBaseline restoreBaseline(AuthorizedStepRollback authorized) {
+        WorkspaceRef copy = authorized.workingCopy();
+        String candidate = authorized.authorization().candidateRevision();
+        String baseline = authorized.authorization().baselineRevision();
+        String phase = "PRECHECK";
+        try {
+            Path target = requireManagedCopy(copy);
+            phase = "OBJECT_VIEW";
+            if (Files.exists(target.resolve(".git/info/grafts"), LinkOption.NOFOLLOW_LINKS)
+                    || Files.exists(target.resolve(".git/refs/replace"), LinkOption.NOFOLLOW_LINKS)
+                    || !rollbackGit(target, phase, "for-each-ref", "--format=%(refname)", "refs/replace/").isBlank()) {
+                throw new WorkspaceException("Rollback cannot confirm baseline through an alternate Git object view");
+            }
+            requireTrustedState(copy, authorized.originalAsset(), candidate);
+            if (!candidate.matches("[0-9a-f]{40}") || !baseline.matches("[0-9a-f]{40}")) {
+                throw new WorkspaceException("Rollback requires exact commit identities");
+            }
+            phase = "BASELINE_LOOKUP";
+            rollbackGit(target, phase, "cat-file", "-e", baseline + "^{commit}");
+            phase = "PATH_CHECK";
+            // 候选与目标两侧路径均检查，防止链接、嵌套仓库和 Windows 路径别名。
+            List<String> paths = Arrays.stream(rollbackGit(target, phase, "diff", "--no-ext-diff", "--no-renames",
+                    "--name-only", "-z", candidate, baseline, "--").split("\0"))
+                    .filter(path -> !path.isEmpty()).toList();
+            requireSafePaths(copy, paths);
+            requireTrustedState(copy, authorized.originalAsset(), candidate);
+            phase = "CHECKOUT";
+            // 不强制覆盖 ignored / untracked 文件，禁用 hooks，操作只在托管独立克隆中发生。
+            rollbackGit(target, phase, "checkout", "--detach", "--no-overwrite-ignore", "--no-recurse-submodules", baseline);
+            phase = "POSTCHECK";
+            requireTrustedState(copy, authorized.originalAsset(), baseline);
+            if (!rollbackGit(target, phase, "diff", "--cached", "--no-ext-diff", "--exit-code", baseline, "--").isBlank()
+                    || !rollbackGit(target, phase, "diff", "--no-ext-diff", "--exit-code", baseline, "--").isBlank()) {
+                throw new WorkspaceException("Restored index or working tree differs from the exact baseline");
+            }
+            return new RestoredBaseline(baseline, Instant.now());
+        } catch (RuntimeException failure) {
+            String observed = null;
+            if (!Thread.currentThread().isInterrupted()) {
+                try {
+                    String actual = headRevision(copy);
+                    if (actual.matches("[0-9a-f]{40}")) {
+                        observed = actual;
+                    }
+                } catch (RuntimeException inspectionFailure) {
+                    failure.addSuppressed(inspectionFailure);
+                }
+            }
+            Integer exit = failure instanceof WorkingCopyRollbackException detail ? detail.exitCode() : null;
+            log.warn("operation=workspace.rollback result=NOT_CONFIRMED phase={} exitCode={} observedRevision={} exceptionType={}",
+                    phase, exit, observed, failure.getClass().getSimpleName());
+            throw new WorkingCopyRollbackException(phase, observed, exit, failure);
+        }
+    }
+
     private String mutationGit(Path directory, String... arguments) {
         return mutationGit(directory, null, arguments);
     }
 
     private String mutationGit(Path directory, Path index, String... arguments) {
-        List<String> command = new ArrayList<>(List.of("git", "--no-optional-locks", "-c", "core.fsmonitor=false",
-                "-c", "core.hooksPath=" + directory.resolve(".git/delveforge-disabled-hooks"), "-C", directory.toString()));
-        command.addAll(List.of(arguments));
-        var result = index == null ? WorkspaceCommandRunner.run(directory, command, Duration.ofSeconds(30), 1048576)
-                : WorkspaceCommandRunner.runWithIndex(directory, command, index, Duration.ofSeconds(30), 1048576);
+        var result = mutationGitResult(directory, index, arguments);
         if (!result.succeeded()) {
             throw new EvolutionExecutionException("Controlled Git mutation did not complete (exit " + result.exitCode() + ")");
         }
         return result.output();
+    }
+
+    private String rollbackGit(Path directory, String phase, String... arguments) {
+        // 同一 SHA 的 replacement / graft 视图不能作为原始 baseline 的恢复依据。
+        List<String> exactArguments = new ArrayList<>(List.of("--no-replace-objects"));
+        exactArguments.addAll(List.of(arguments));
+        var result = mutationGitResult(directory, null, exactArguments.toArray(String[]::new));
+        if (!result.succeeded()) {
+            throw new WorkingCopyRollbackException(phase, null, result.exitCode(),
+                    new WorkspaceException("Controlled rollback Git operation did not complete"));
+        }
+        return result.output();
+    }
+
+    private WorkspaceCommandRunner.Result mutationGitResult(Path directory, Path index, String... arguments) {
+        List<String> command = new ArrayList<>(List.of("git", "--no-optional-locks", "-c", "core.fsmonitor=false",
+                "-c", "core.hooksPath=" + directory.resolve(".git/delveforge-disabled-hooks"), "-C", directory.toString()));
+        command.addAll(List.of(arguments));
+        return index == null ? WorkspaceCommandRunner.run(directory, command, Duration.ofSeconds(30), 1048576)
+                : WorkspaceCommandRunner.runWithIndex(directory, command, index, Duration.ofSeconds(30), 1048576);
     }
 
     private Path requireManagedCopy(WorkspaceRef copy) {
