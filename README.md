@@ -101,132 +101,60 @@ Git 仓库分析、功能模块与可复用资产。
 
 ## 🚀 Quick Start
 
-目前推荐在 **Windows 本地环境**中运行，使用 PowerShell 操作。
-
-### 1. Requirements
-
-- **JDK 21**
-- **Git CLI**
-- **Node.js**：`^20.19.0` 或 `>=22.12.0`
-- **pnpm 12.9.1**
-- **DeepSeek API Key**：使用 AI 功能时需要
-
-Maven Wrapper 已内置，无需全局安装 Maven。SQLite 无需单独启动数据库服务。
-
-### 2. Start Backend
-
-在 PowerShell 中执行：
+推荐在 Windows 本地环境中使用 **Windows PowerShell 5.1 或 PowerShell 7**。
+先安装 **JDK 21、Git CLI、Node.js（`^20.19.0` 或 `>=22.12.0`）和 pnpm 12.9.1**。
+Maven Wrapper 已内置，SQLite 无需单独安装服务。
 
 ```powershell
 git clone https://github.com/ayywl288/DelveForge.git
 cd DelveForge
+.\setup-delveforge.ps1
+```
 
+根据提示输入 DeepSeek API Key（必填、隐藏输入），在 `Customize configuration? [y/N]`
+处直接回车即可使用应用默认配置。脚本检查依赖、构建最新后端、按锁文件安装前端依赖，
+然后打开两个保留日志的服务终端。连通检查通过后显示访问地址：**http://127.0.0.1:5173**。
+首次安装依赖需要联网。停止时在两个服务终端分别按 `Ctrl+C`，再关闭终端。
+
+选择 `y` 可设置后端端口、DeepSeek Model / Base URL、SQLite 文件、WorkingCopy Root、
+日志目录及历史 WorkingCopy Roots；每项留空使用应用默认值。历史 Roots 使用逗号分隔的绝对路径。
+脚本会暂时忽略当前终端继承的应用配置覆盖项，结束后恢复；API Key 仅传给后端，不传给前端。
+`SERVER_PORT` 与 Vite 的 `BACKEND_DEV_URL` 自动保持一致。端口被占用时脚本拒绝启动，不停止已有进程。
+
+默认启用 `m4-local`：后端 `127.0.0.1:8080`，SQLite `./data/m4-local/delveforge.db`，
+WorkingCopy 位于用户目录的 `.delveforge/m4-local/workspaces`，日志为 `./logs/m4-local`。
+已有数据库不会被脚本覆盖；应用启动时仍会执行正常的 Flyway 迁移。
+默认模型为 `deepseek-flash`，账号不支持时请在自定义配置中指定可用模型。
+**该 Profile 使用 Streaming 和较高 Token 预算，AI 操作可能产生较多费用；启动连通检查不会调用 Provider。**
+
+### Manual Startup / Troubleshooting
+
+需要手动控制启动时，可在仓库根目录使用以下命令（API Key 安全输入示例需要 PowerShell 7）：
+
+```powershell
 .\mvnw.cmd -DskipTests package
-
-$env:DEEPSEEK_API_KEY = "YOUR_DEEPSEEK_API_KEY"
-
+$env:DEEPSEEK_API_KEY = Read-Host "DeepSeek API Key" -MaskInput
 java -jar .\backend\delveforge-app\target\delveforge-app-0.1.0-SNAPSHOT.jar --spring.profiles.active=m4-local
 ```
 
-后端默认运行在 `http://127.0.0.1:8080`。
-
-首次启动会自动初始化 SQLite 数据库，不需要手动建表。
-
-**注意：** 明文设置 API Key 可能留在 PowerShell 命令历史中。建议使用 PowerShell 7 的安全输入方式：
-
-```powershell
-$env:DEEPSEEK_API_KEY = Read-Host "DeepSeek API Key" -MaskInput
-```
-
-不要将真实密钥提交到 Git 仓库。
-
-### 3. Start Frontend
-
-在 **DelveForge 仓库根目录**打开另一个 PowerShell 终端：
+另开一个不含 API Key 的终端启动前端：
 
 ```powershell
 cd frontend
-
 pnpm install --frozen-lockfile
+# 后端改用其他端口时，在此设置对应地址，例如：
+# $env:BACKEND_DEV_URL = "http://127.0.0.1:18080"
 pnpm dev
 ```
 
-如果尚未安装 pnpm，可提前执行：
+手动启动时，`SERVER_PORT` 在后端终端中设置；前端地址以 Vite 输出为准。
+更多配置及历史 WorkingCopy 说明见 [M4 Local Usage](docs/M4_LOCAL_USAGE.md)。
 
-```powershell
-npm install -g pnpm@12.9.1
-```
-
-打开 Vite 终端显示的地址，通常为：
-
-**http://localhost:5173**
-
-开发模式下，Vite 自动将 `/api` 请求代理到本地后端。
-
-如果前端端口 `5173` 被占用，Vite 可能选择其他可用端口，实际地址以终端输出为准。
-
-### 🔌 Custom Backend Port
-
-DelveForge 后端默认使用 `8080`。如果端口被占用，可以在**启动后端前**设置：
-
-```powershell
-$env:SERVER_PORT = "18080"
-```
-
-修改后端端口后，还需要在**启动前端的终端中**设置对应的代理地址：
-
-```powershell
-$env:BACKEND_DEV_URL = "http://127.0.0.1:18080"
-
-pnpm dev
-```
-
-`18080` 仅为示例，可以替换为其他未占用的端口。
-
-`SERVER_PORT` 控制 Spring Boot 后端端口；`BACKEND_DEV_URL` 是 DelveForge 的 Vite 开发代理配置，**不用于修改前端端口**。
-
-如果使用默认的 `8080`，这两个变量都不需要配置。
-
-### ⚙️ Optional Configuration
-
-除了实际 AI 操作需要的 API Key，数据库和 Workspace 等配置都可以使用默认值。
-
-如果希望自定义存储目录，可以在启动后端前设置：
-
-```powershell
-# SQLite 数据库位置
-$env:DELVEFORGE_PERSISTENCE_DATABASE_FILE = "D:\DelveForge\data\delveforge.db"
-
-# WorkingCopy 保存目录
-$env:DELVEFORGE_WORKSPACE_ROOT = "D:\DelveForge\workspaces"
-
-# 日志目录
-$env:DELVEFORGE_LOG_DIR = "D:\DelveForge\logs"
-```
-
-以上只是示例路径，**不需要全部配置**。
-
-在 `m4-local` Profile 下，默认使用：
-
-| 配置 | 默认位置 |
-| --- | --- |
-| SQLite | `./data/m4-local/delveforge.db` |
-| WorkingCopy | 用户目录下的 `.delveforge/m4-local/workspaces` |
-| 日志 | `./logs/m4-local` |
-
-SQLite 和日志的相对路径以启动后端时的工作目录为基准。
-
-WorkingCopy 应与原始 Git 仓库分离，避免目录重叠。
-
-模型默认配置为 `deepseek-flash`。如果账号不支持该模型，可以在启动后端前指定账号实际可用的模型：
-
-```powershell
-$env:DELVEFORGE_AI_DEEPSEEK_MODEL = "YOUR_SUPPORTED_MODEL"
-```
-
-`m4-local` 使用 Streaming、较高的模型输出预算和较长的执行期限，可能产生较多 Token 费用，不代表低成本配置，也不保证每次调用成功。
-
-更多高级配置、历史 WorkingCopy 访问方式与执行注意事项见 [M4 Local Usage](docs/M4_LOCAL_USAGE.md)。
+如果脚本被执行策略拒绝，这是 PowerShell 的安全策略，而非依赖缺失。
+先确认脚本来源并审阅内容，再用 `Get-ExecutionPolicy -List` 检查策略。
+若没有组织策略限制且确需调整，可自行在**当前会话**执行
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned` 后重新运行脚本；
+这不会永久修改用户或系统策略。下载文件的来源标记或签名要求仍须按本机策略处理。
 
 ## 📦 Demo Repositories
 
