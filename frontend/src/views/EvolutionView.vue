@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from "vue";
 import type { WorkspaceSession } from "../state/session";
-import type { EvolutionStep } from "../api/types";
+import type { EvolutionStep, VerificationResult } from "../api/types";
 import StatusBadge from "../components/StatusBadge.vue";
 import ContentList from "../components/ContentList.vue";
 import RevisionText from "../components/RevisionText.vue";
@@ -95,6 +95,7 @@ const actionReason = computed(() => {
   if (step?.status === "SUCCEEDED") return "此步骤已验证通过，不再执行；后续步骤仍需分别授权。";
   if (step?.status === "EXECUTING") return "后端记录正在执行。可以观察状态，不能再次执行。";
   if (step?.status === "VERIFYING") return "后端记录正在验证。Candidate 尚不能视为验证通过。";
+  if (step?.status === "VERIFICATION_FAILED") return "验证已明确失败，Candidate 保留，最近可信版本未推进。后续步骤已阻止；本版没有修复或回滚入口。";
   if (step?.status === "CANCELLED") return "此步骤已取消，没有执行入口。";
   if (plan?.status === "SUPERSEDED") return "此计划已替代，仅供历史查看，不能继续授权或执行。";
   if (plan?.status !== "ACTIVE") return "执行需要进行中的计划。请在规划页核对当前生命周期。";
@@ -119,6 +120,11 @@ function execute() {
   if (!dialogStep.value || !acknowledged.value || !canExecute.value) return;
   executeOpen.value = false;
   props.s.execute(dialogStep.value.id);
+}
+function checkOutcome(check: VerificationResult["checks"][number]) {
+  if (check.outcome === "NOT_RUN") return "未执行";
+  if (check.outcome === "INCONCLUSIVE") return "结果未确认";
+  return check.passed ? "PASS" : "FAIL";
 }
 </script>
 <template>
@@ -169,7 +175,7 @@ function execute() {
           <p>后端最近确认：<StatusBadge v-if="requestedStep" :status="requestedStep.status" /><span v-else>尚未读取到请求对应的 Step</span></p>
           <RevisionText v-if="requestedStep?.executionResult" label="已保存的 Candidate" :value="requestedStep.executionResult.candidateRevision" />
           <p v-for="(check, index) in requestedStep?.verificationResult?.checks ?? []" :key="index">
-            {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ check.passed ? 'PASS' : 'FAIL' }}
+            {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ checkOutcome(check) }}
           </p>
         </div>
         <button class="secondary" type="button" @click="togglePolling">{{ pollingPaused ? '恢复只读刷新' : '暂停状态刷新' }}</button>
@@ -335,7 +341,7 @@ function execute() {
                 {{ check.action
                 }}<span v-if="check.target"> · {{ check.target }}</span>
               </h4>
-              <strong class="check-outcome"><NavigationIcon :name="check.passed ? 'check' : 'warning'" />{{ check.passed ? "PASS" : "FAIL" }}</strong>
+              <strong class="check-outcome"><NavigationIcon :name="check.passed ? 'check' : 'warning'" />{{ checkOutcome(check) }}</strong>
             </div>
             <p>{{ check.summary }}</p>
             <p class="meta">
@@ -373,7 +379,7 @@ function execute() {
           <strong class="section-heading"><NavigationIcon name="evolution" />SUCCEEDED · 此 Step 验证通过</strong>
           <RevisionText label="lastVerifiedRevision" :value="s.copy?.lastVerifiedRevision" />
           <p v-for="(check, index) in chosen.verificationResult?.checks ?? []" :key="index">
-            {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ check.passed ? 'PASS' : 'FAIL' }}
+            {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ checkOutcome(check) }}
           </p>
           <p class="meta">状态、revision 与检查结果均来自后端；不会自动执行下一 Step。</p>
         </div>

@@ -22,13 +22,16 @@ class StepExecutionLifecycleTest {
         return plan(List.of(VerificationCriterion.technical(VerificationCriterion.Kind.BUILD_SUCCEEDS), VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES)));
     }
     private EvolutionPlan plan(List<VerificationCriterion> criteria) {
+        return plan(criteria, EvolutionStepStatus.PENDING_CONFIRMATION);
+    }
+    private EvolutionPlan plan(List<VerificationCriterion> criteria, EvolutionStepStatus secondStatus) {
         EvidenceBasis evidence = new EvidenceBasis(new Evidence(EvidenceSourceType.REPOSITORY, "src/A", "source", 0.8, true),
                 new RepositoryProfileEvidenceOrigin(new RepositoryProfileId("profile")));
         return EvolutionPlan.reconstitute(id, new ProductDirectionId("direction"), asset, new RepositoryProfileId("profile"),
                 new CurrentState("current", List.of(), List.of(), List.of()), new TargetState("problem", "target", "difference"),
                 List.of(), List.of("change"), List.of(
                     EvolutionStep.reconstitute(first, id, "goal", "scope", List.of("change"), criteria),
-                    EvolutionStep.reconstitute(second, id, "goal2", "scope2", List.of("change2"), List.of(VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES)))),
+                    EvolutionStep.reconstitute(second, id, "goal2", "scope2", List.of("change2"), List.of(VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES)), secondStatus)),
                 List.of(), List.of(evidence), new WorkingCopyId("copy"), EvolutionPlanStatus.ACTIVE);
     }
     private WorkingCopy copy() {
@@ -154,5 +157,70 @@ class StepExecutionLifecycleTest {
                 List.of("change"), criteria, EvolutionStepStatus.SUCCEEDED, null, execution("B"), verification("B", true, List.of(1))));
         assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
                 List.of("change"), criteria, EvolutionStepStatus.SUCCEEDED, "A", null, verification("B", true, List.of(1))));
+    }
+
+    private VerificationResult confirmedFailure(String revision) {
+        return new VerificationResult(revision, List.of(
+                new VerificationResult.Check("BUILD", "", List.of(1), VerificationResult.Outcome.FAILED, "Build failed"),
+                new VerificationResult.Check("TEST", "", List.of(2), VerificationResult.Outcome.NOT_RUN, "Not run")),
+                false, List.of("Build failed"), "Candidate checks failed", Instant.now());
+    }
+
+    @Test void confirmedFailureRetainsCandidateAndBaselineAndBlocksEvenAnAlreadyReadyNextStep() {
+        EvolutionPlan plan = plan(List.of(VerificationCriterion.technical(VerificationCriterion.Kind.BUILD_SUCCEEDS),
+                VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES)), EvolutionStepStatus.READY);
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        plan.recordExecution(first, copy, execution("B"));
+        VerificationResult result = confirmedFailure("B");
+        plan.failStepVerification(first, copy, result);
+        assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, plan.step(first).status());
+        assertEquals(result, plan.copy().step(first).verificationResult());
+        assertEquals("A", plan.step(first).baselineRevision());
+        assertEquals("B", copy.currentRevision());
+        assertEquals("A", copy.lastVerifiedRevision());
+        assertEquals(WorkingCopyStatus.EVOLVING, copy.status());
+        assertEquals(EvolutionPlanStatus.ACTIVE, plan.status());
+        assertThrows(EvolutionPlanStateException.class, () -> plan.startStep(second, copy, policy));
+        assertNull(plan.step(second).baselineRevision());
+        assertThrows(EvolutionPlanStateException.class, () -> plan.confirmStep(first, copy, policy));
+        assertThrows(EvolutionPlanStateException.class, () -> plan.startStep(first, copy, policy));
+        assertThrows(EvolutionPlanStateException.class, () -> plan.succeedStep(first, copy, verification("B", true, List.of(1, 2))));
+        assertThrows(EvolutionPlanStateException.class, () -> plan.failStepVerification(first, copy, result));
+    }
+
+    @Test void invalidOrUnconfirmedFailureDoesNotMutateEitherAggregate() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        assertThrows(EvolutionPlanStateException.class, () -> plan.failStepVerification(first, copy, confirmedFailure("B")));
+        plan.recordExecution(first, copy, execution("B"));
+        for (VerificationResult result : List.of(confirmedFailure("C"), verification("B", true, List.of(1, 2)),
+                verification("B", false, List.of(1, 2)),
+                new VerificationResult("B", List.of(new VerificationResult.Check("BUILD", "", List.of(1),
+                        VerificationResult.Outcome.FAILED, "failed")), false, List.of("failed"), "failed", Instant.now()))) {
+            assertThrows(EvolutionPlanStateException.class, () -> plan.failStepVerification(first, copy, result));
+            assertEquals(EvolutionStepStatus.VERIFYING, plan.step(first).status());
+            assertNull(plan.step(first).verificationResult());
+            assertEquals("B", copy.currentRevision());
+            assertEquals("A", copy.lastVerifiedRevision());
+        }
+        WorkingCopy drifted = WorkingCopy.reconstitute(copy.id(), asset, "A", "managed", "C", "A", WorkingCopyStatus.EVOLVING);
+        assertThrows(EvolutionPlanStateException.class, () -> plan.failStepVerification(first, drifted, confirmedFailure("B")));
+        assertNull(plan.step(first).verificationResult());
+    }
+
+    @Test void restoredFailureRequiresMatchingCandidateAndConfirmedFailureCoverage() {
+        for (VerificationResult result : List.of(confirmedFailure("C"), verification("B", true, List.of(1, 2)),
+                verification("B", false, List.of(1, 2)))) {
+            assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
+                    List.of("change"), plan().step(first).verificationCriteria(), EvolutionStepStatus.VERIFICATION_FAILED,
+                    "A", execution("B"), result));
+        }
+        assertThrows(EvolutionPlanStateException.class, () -> EvolutionStep.reconstitute(first, id, "goal", "scope",
+                List.of("change"), plan().step(first).verificationCriteria(), EvolutionStepStatus.VERIFICATION_FAILED,
+                "A", execution("B"), null));
     }
 }

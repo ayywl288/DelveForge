@@ -242,6 +242,32 @@ describe("持续引导与只读下一问", () => {
   });
 });
 describe("长同步 execute", () => {
+  it("execute 返回明确 FAIL 后保留结果与 Candidate，清除等待标记且禁止重放", async () => {
+    const s = make();
+    ready(s);
+    const failed = successfulPlan();
+    failed.steps[0]!.status = "VERIFICATION_FAILED";
+    failed.steps[0]!.verificationResult!.passed = false;
+    failed.steps[0]!.verificationResult!.failures = ["Check failed"];
+    failed.steps[0]!.verificationResult!.checks[0]!.passed = false;
+    failed.steps[0]!.verificationResult!.checks[0]!.outcome = "FAILED";
+    const candidate = { ...copy(), status: "EVOLVING" as const, currentRevision: "b".repeat(40) };
+    const execute = vi.spyOn(api, "execute").mockImplementation(async () => {
+      vi.mocked(api.plan).mockResolvedValue(failed);
+      vi.mocked(api.workingCopy).mockResolvedValue(candidate);
+      return failed;
+    });
+    await s.execute("step-1");
+    expect(s.plan.value?.steps[0]?.status).toBe("VERIFICATION_FAILED");
+    expect(s.plan.value?.steps[0]?.verificationResult?.passed).toBe(false);
+    expect(s.copy.value?.currentRevision).toBe("b".repeat(40));
+    expect(s.copy.value?.lastVerifiedRevision).toBe("a".repeat(40));
+    expect(s.receipt.value).toBeNull();
+    expect(localStorage.getItem(executionKey)).toBeNull();
+    await s.execute("step-1");
+    expect(execute).toHaveBeenCalledOnce();
+  });
+
   it("702 秒仍等待且只发送一次 POST，轮询 READY 不制造 PREPARING", async () => {
     vi.useFakeTimers();
     const s = make();

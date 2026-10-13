@@ -118,6 +118,7 @@ export interface VerificationResult {
     criterionIndexes: number[];
     passed: boolean;
     summary: string;
+    outcome?: "PASSED" | "FAILED" | "NOT_RUN" | "INCONCLUSIVE";
   }[];
 }
 export interface EvolutionStep {

@@ -104,13 +104,17 @@ public final class ExecuteEvolutionStepUseCase {
         VerificationFacts facts = verification.verify(request(verifying, validated, candidate.revision()));
         VerificationResult result = result(validated.proposal(), candidate.revision(), facts);
 
-        // 检查点 3：Domain 接受后才把 lastVerified 从 A 推进到 B，并保存 SUCCEEDED。
+        // 检查点 3：明确 FAIL 保存结果并保留 B；只有 Domain 接受 PASS 才推进信任。
         verifying = state.requireCheckpoint(verifying, id, candidate.revision());
-        EvolutionPlan succeeded = verifying.plan().copy();
-        WorkingCopy trusted = verifying.copy().copy();
-        succeeded.succeedStep(id, trusted, result);
-        commits.commit(verifying.plan(), id, verifying.copy(), verifying.asset(), succeeded, trusted);
-        return succeeded;
+        EvolutionPlan completed = verifying.plan().copy();
+        WorkingCopy completedCopy = verifying.copy().copy();
+        if (result.passed()) {
+            completed.succeedStep(id, completedCopy, result);
+        } else {
+            completed.failStepVerification(id, completedCopy, result);
+        }
+        commits.commit(verifying.plan(), id, verifying.copy(), verifying.asset(), completed, completedCopy);
+        return completed;
     }
 
     private CandidateVerification request(Loaded loaded, ValidatedExecutionProposal validated, String candidate) {
@@ -152,14 +156,17 @@ public final class ExecuteEvolutionStepUseCase {
             if (intent.action() != fact.action() || !Objects.equals(intent.target(), fact.target())) {
                 throw new EvolutionExecutionException("Verification facts differ from the validated strategy");
             }
+            if (fact.outcome() == VerificationResult.Outcome.INCONCLUSIVE) {
+                throw new EvolutionExecutionException("Verification outcome is not established");
+            }
             checks.add(new VerificationResult.Check(fact.action().name(), fact.target(), intent.criterionIndexes(),
-                    fact.passed(), fact.summary()));
-            if (!fact.passed()) {
+                    fact.outcome(), fact.summary()));
+            if (fact.outcome() == VerificationResult.Outcome.FAILED) {
                 failures.add("Check " + (index + 1) + " failed: " + fact.action());
             }
         }
 
-        return new VerificationResult(candidate, checks, failures.isEmpty(), failures,
+        return new VerificationResult(candidate, checks, checks.stream().allMatch(VerificationResult.Check::passed), failures,
                 failures.isEmpty() ? "All requested checks passed" : "Candidate checks failed", facts.verifiedAt());
     }
 }

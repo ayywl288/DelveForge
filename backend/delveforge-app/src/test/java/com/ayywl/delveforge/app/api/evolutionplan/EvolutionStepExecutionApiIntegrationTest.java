@@ -62,6 +62,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     @Autowired EvolutionPlanRepository plans;
     @Autowired WorkingCopyRepository copies;
     @Autowired StepConfirmationCommitPort confirmations;
+    @Autowired StepExecutionCommitPort executionCommits;
     @MockitoBean AiGateway ai;
     @Autowired com.ayywl.delveforge.application.evolution.preparation.PrepareEvolutionStepUseCase preparation;
     @Autowired com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase execute;
@@ -129,9 +130,12 @@ class EvolutionStepExecutionApiIntegrationTest {
             case "businessCriterionCannotBeProvenByUnrelatedTechnicalActions" -> VerificationCriterion.Kind.UNSUPPORTED;
             case "executesNewTestInSamePatchWithRealMavenBeforeTrustedPromotion",
                     "focusedTestInCustomSourceDirectoryStillProvesSelectedTests" -> VerificationCriterion.Kind.SELECTED_TESTS_PASS;
-            case "normalM3TechnicalStepBuildsAndPromotesTheActualCandidate", "wrongEvidenceTypeFailsBeforeMutation" -> VerificationCriterion.Kind.BUILD_SUCCEEDS;
+            case "normalM3TechnicalStepBuildsAndPromotesTheActualCandidate", "wrongEvidenceTypeFailsBeforeMutation",
+                    "completedCompilationFailureIsSaved" -> VerificationCriterion.Kind.BUILD_SUCCEEDS;
             case "focusedTestCannotProveTheFullSuiteCriterion", "fullSuiteCannotBeNarrowedByCandidateConfiguration",
                     "normalFullSuiteProvesTheStructuredCriterion",
+                    "confirmedMavenTestFailureIsSavedWithoutTrustPromotion",
+                    "crashedTestProcessIsUnknownAndCannotBecomeConfirmedFailure",
                     "customTestSourceDirectoryCannotProveFullSuiteOrPromoteTrust" -> VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES;
             default -> VerificationCriterion.Kind.DIFF_CHECK_PASSES;
         };
@@ -142,6 +146,9 @@ class EvolutionStepExecutionApiIntegrationTest {
         var criterion = (com.fasterxml.jackson.databind.node.ObjectNode) stepNode.path("verificationCriteria").get(0);
         criterion.put("kind", kind.name());
         criterion.put("description", kind == VerificationCriterion.Kind.UNSUPPORTED ? "Reports run on schedule" : kind.description());
+        if (method.equals("failedDiffCheckRetainsCandidateAndBlocksFurtherExecution")) {
+            ((com.fasterxml.jackson.databind.node.ArrayNode) planningNode.path("steps")).add(stepNode.deepCopy());
+        }
         if (method.equals("unsupportedCriteriaRejectBeforeAnyProviderAndPreservePersistedCheckpoint")) {
             var criteria = stepNode.putArray("verificationCriteria");
             for (VerificationCriterion.Kind technical : List.of(VerificationCriterion.Kind.BUILD_SUCCEEDS,
@@ -488,32 +495,142 @@ class EvolutionStepExecutionApiIntegrationTest {
                 .step(new EvolutionStepId(stepId)).executionResult());
     }
 
-    @Test void failedDiffCheckRemainsVerifyingAndBlocksFurtherExecution() throws Exception {
+    @Test void failedDiffCheckRetainsCandidateAndBlocksFurtherExecution() throws Exception {
         confirm();
         coding(PATCH.replace("+new\n", "+new \n"), "DIFF_CHECK");
         Map<String, String> original = snapshot(source);
-        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        mvc.perform(post(route("execute"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("VERIFICATION_FAILED"))
+                .andExpect(jsonPath("$.steps[0].verificationResult.passed").value(false));
         EvolutionStep step = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
-        assertEquals(EvolutionStepStatus.VERIFYING, step.status());
+        assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, step.status());
         assertNotEquals(revision, step.executionResult().candidateRevision());
-        assertNull(step.verificationResult());
+        assertNotNull(step.verificationResult());
+        assertEquals(VerificationResult.Outcome.FAILED, step.verificationResult().checks().getFirst().outcome());
+        assertEquals(revision, step.baselineRevision());
+        assertEquals(git(copy, "rev-parse", "HEAD").trim(), step.executionResult().candidateRevision());
+        assertEquals(WorkingCopyStatus.EVOLVING, persistedCopy().status());
         assertEquals(step.executionResult().candidateRevision(), persistedCopy().currentRevision());
         assertEquals(revision, persistedCopy().lastVerifiedRevision());
         reset(ai);
         mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        String nextId = plans.findById(new EvolutionPlanId(planId)).orElseThrow().steps().get(1).id().value();
+        for (String action : List.of("confirm", "execution-preparation", "execute")) {
+            mvc.perform(post("/api/evolution-plans/{plan}/steps/{step}/{action}", planId, nextId, action))
+                    .andExpect(status().isConflict());
+        }
         verifyNoInteractions(ai);
         assertEquals(original, snapshot(source));
     }
 
-    @ParameterizedTest @ValueSource(strings = {"start", "candidate", "success"})
-    void sqliteFailureRollsBackWholeCheckpointAndRetainsPreviousState(String phase) throws Exception {
+    @Test void confirmedMavenTestFailureIsSavedWithoutTrustPromotion() throws Exception {
+        confirm();
+        coding(suitePatch(true), "TEST");
+        Map<String, String> original = snapshot(source);
+        mvc.perform(post(route("execute"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("VERIFICATION_FAILED"))
+                .andExpect(jsonPath("$.steps[0].verificationResult.checks[0].outcome").value("FAILED"));
+        EvolutionStep step = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertFalse(step.verificationResult().passed());
+        assertFalse(step.verificationResult().failures().isEmpty());
+        assertEquals(git(copy, "rev-parse", "HEAD").trim(), persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(original, snapshot(source));
+    }
+
+    @Test void legacySuccessWithoutOutcomeRemainsReadableWithoutRewrite() throws Exception {
         confirm();
         coding(PATCH, "DIFF_CHECK");
+        mvc.perform(post(route("execute"))).andExpect(status().isOk());
+        var json = mapper.readTree(jdbc.queryForObject("SELECT verification_result FROM evolution_step WHERE id=?",
+                String.class, stepId));
+        json.path("checks").forEach(check -> ((com.fasterxml.jackson.databind.node.ObjectNode) check).remove("outcome"));
+        String historical = mapper.writeValueAsString(json);
+        jdbc.update("UPDATE evolution_step SET verification_result=? WHERE id=?", historical, stepId);
+        mvc.perform(get("/api/evolution-plans/{id}", planId)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.steps[0].verificationResult.checks[0].outcome").value("PASSED"));
+        assertEquals(historical, jdbc.queryForObject("SELECT verification_result FROM evolution_step WHERE id=?",
+                String.class, stepId));
+    }
+
+    @Test void completedCompilationFailureIsSaved() throws Exception {
+        confirm();
+        coding(PATCH + newFilePatch("src/main/java/Broken.java", "public class Broken { int value = missing; }\n"), "BUILD");
+        mvc.perform(post(route("execute"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("VERIFICATION_FAILED"))
+                .andExpect(jsonPath("$.steps[0].verificationResult.checks[0].outcome").value("FAILED"));
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(git(copy, "rev-parse", "HEAD").trim(), persistedCopy().currentRevision());
+        assertEquals(revision, git(source, "rev-parse", "HEAD").trim());
+    }
+
+    @Test void crashedTestProcessIsUnknownAndCannotBecomeConfirmedFailure() throws Exception {
+        confirm();
+        coding(PATCH + newFilePatch("src/test/java/CrashTest.java", "public class CrashTest {"
+                + " @org.junit.jupiter.api.Test void crash() { Runtime.getRuntime().halt(137); } }\n"), "TEST");
+        Map<String, String> original = snapshot(source);
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        EvolutionStep step = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(EvolutionStepStatus.VERIFYING, step.status());
+        assertNull(step.verificationResult());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(git(copy, "rev-parse", "HEAD").trim(), persistedCopy().currentRevision());
+        assertEquals(original, snapshot(source));
+        reset(ai);
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"authorization", "direction", "revision", "step"})
+    void failureCheckpointRejectsChangedStoredBasis(String change) throws Exception {
+        confirm();
+        EvolutionPlan ready = plans.findById(new EvolutionPlanId(planId)).orElseThrow();
+        WorkingCopy initial = persistedCopy();
+        SoftwareAsset asset = assets.findById(ASSET).orElseThrow();
+        EvolutionStepId id = new EvolutionStepId(stepId);
+        EvolutionPlan executing = ready.copy();
+        WorkingCopy evolving = initial.copy();
+        executing.startStep(id, evolving, new StepExecutionPolicy());
+        executionCommits.commit(ready, id, initial, asset, executing, evolving);
+        EvolutionPlan verifying = executing.copy();
+        WorkingCopy candidate = evolving.copy();
+        // 只测试持久化 Port 的条件提交；合成 revision 不宣称已完成真实 Git 执行。
+        verifying.recordExecution(id, candidate, new ExecutionResult("b".repeat(40), List.of("change"),
+                List.of("A.java"), List.of(), List.of(), java.time.Instant.now()));
+        executionCommits.commit(executing, id, evolving, asset, verifying, candidate);
+        EvolutionPlan failed = verifying.copy();
+        WorkingCopy retained = candidate.copy();
+        failed.failStepVerification(id, retained, new VerificationResult("b".repeat(40), List.of(
+                new VerificationResult.Check("DIFF_CHECK", "", List.of(1), VerificationResult.Outcome.FAILED, "Failed")),
+                false, List.of("Failed"), "Failed", java.time.Instant.now()));
+        switch (change) {
+            case "authorization" -> jdbc.update("UPDATE software_asset SET read_permission=0 WHERE id=?", ASSET.value());
+            case "direction" -> jdbc.update("UPDATE product_direction SET status='SUPERSEDED' WHERE id='direction'");
+            case "revision" -> jdbc.update("UPDATE working_copy SET current_revision=? WHERE id=?", "c".repeat(40), candidate.id().value());
+            default -> jdbc.update("UPDATE evolution_step SET verification_result='{}' WHERE id=?", stepId);
+        }
+        assertThrows(EvolutionLifecycleConflictException.class,
+                () -> executionCommits.commit(verifying, id, candidate, asset, failed, retained));
+        assertEquals("VERIFYING", jdbc.queryForObject("SELECT status FROM evolution_step WHERE id=?", String.class, stepId));
+        assertEquals(revision, jdbc.queryForObject("SELECT last_verified_revision FROM working_copy WHERE id=?", String.class, candidate.id().value()));
+        assertEquals(EvolutionStepStatus.VERIFYING, verifying.step(id).status());
+        assertNull(verifying.step(id).verificationResult());
+        assertEquals("b".repeat(40), candidate.currentRevision());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"start", "candidate", "success", "verification-failure"})
+    void sqliteFailureRollsBackWholeCheckpointAndRetainsPreviousState(String phase) throws Exception {
+        confirm();
+        coding(phase.equals("verification-failure") ? PATCH.replace("+new\n", "+new \n") : PATCH, "DIFF_CHECK");
         EvolutionPlan loaded = plans.findById(new EvolutionPlanId(planId)).orElseThrow();
         WorkingCopy loadedCopy = persistedCopy();
         String condition = switch (phase) {
             case "start" -> "NEW.status = 'EVOLVING' AND OLD.status = 'READY'";
             case "candidate" -> "NEW.current_revision <> OLD.current_revision";
+            case "verification-failure" -> "OLD.current_revision <> OLD.last_verified_revision"
+                    + " AND NEW.last_verified_revision = OLD.last_verified_revision";
             default -> "NEW.last_verified_revision <> OLD.last_verified_revision";
         };
         jdbc.execute("CREATE TRIGGER inject_execution_failure BEFORE UPDATE ON working_copy WHEN " + condition

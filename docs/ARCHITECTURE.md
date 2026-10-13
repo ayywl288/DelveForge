@@ -3,7 +3,7 @@
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-10-12
+**Last Updated:** 2026-10-13
 
 ## 1. Architecture Goals
 
@@ -1168,9 +1168,23 @@ Maven 启动参数在两个平台都先放 Wrapper 启动程序，再放公共�
 
 SQLite 在三个事务检查点同时条件更新 Step 与 WorkingCopy：
 READY → EXECUTING（冻结 A、EVOLVING）；EXECUTING → VERIFYING（ExecutionResult B、current B）；
-VERIFYING → SUCCEEDED（VerificationResult B、lastVerified B）。提交前在隔离对象上完成领域转换，
+VERIFYING → SUCCEEDED（VerificationResult B、lastVerified B），或 M5-A 的
+VERIFYING → VERIFICATION_FAILED（失败 VerificationResult B、保留 current B / lastVerified A）。
+提交前在隔离对象上完成领域转换，
 事务比较当前生命周期、revision、Plan / Direction / Asset 授权依据。外部操作与数据库不形成一个事务；
-异常保留最后完整检查点，未解决流程或物理 / 持久 revision 不一致会阻止继续执行。M5 实现完整失败转换。
+异常保留最后完整检查点，未解决流程或物理 / 持久 revision 不一致会阻止继续执行。
+M5-A 不增加跨技术事务、重试或补偿；完整失败恢复留待后续 Slice。
+
+**M5-A 当前实现选择（实验分支）：** VerificationFacts / VerificationResult 的检查项增加
+`outcome`（PASSED / FAILED / NOT_RUN / INCONCLUSIVE），保留原 passed 字段。只有明确完成的负向检查
+可以保存为 VERIFICATION_FAILED；剩余动作以 NOT_RUN 记录，不伪造其失败或成功。
+Git Diff 要有检查错误退出及输出；Maven 编译失败要有正常 BUILD FAILURE 与 Compilation failure，
+测试失败还须本次有界报告记录失败，定向测试须核对失败身份。未认证的 Maven 退出、测试子进程崩溃、
+配置不足、缺少报告、超时、输出读取失败和中断继续 fail closed。
+该判定是当前有限技术适配选择；未认证的负向结果不推断为已知失败。
+原 execute 端点在成功保存明确 FAIL 后返回 200 与真实失败 Plan，HTTP 成功不表示 Step 成功。
+SQLite 沿用现有结果 JSON 与 CAS；没有 schema 迁移，也不改写已有检查点。
+旧 JSON 缺少 outcome 时，通过项恢复为 PASSED，负值恢复为 INCONCLUSIVE，不补造明确失败。
 
 ## 7. Dependency Rules
 

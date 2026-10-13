@@ -243,6 +243,8 @@ class GitEvolutionExecutionIntegrationTest {
         VerificationFacts facts = verification.verify(request(candidate.revision(), CodingProposal.Action.TEST, CodingProposal.Action.DIFF_CHECK));
         assertFalse(facts.checks().getFirst().passed());
         assertFalse(facts.checks().getLast().passed());
+        assertEquals(VerificationResult.Outcome.FAILED, facts.checks().getFirst().outcome());
+        assertEquals(VerificationResult.Outcome.NOT_RUN, facts.checks().getLast().outcome());
         assertEquals(candidate.revision(), headRevision(copy));
         assertEquals(baseline, workingCopy.lastVerifiedRevision());
     }
@@ -286,6 +288,7 @@ class GitEvolutionExecutionIntegrationTest {
         Map<String, String> original = snapshot(source);
         VerificationFacts facts = verification.verify(request(candidate.revision(), CodingProposal.Action.TEST));
         assertFalse(facts.checks().getFirst().passed(), facts.toString());
+        assertEquals(VerificationResult.Outcome.INCONCLUSIVE, facts.checks().getFirst().outcome());
         assertTrue(facts.checks().getFirst().summary().contains("effective Maven inputs"), facts.toString());
         assertEquals(baseline, workingCopy.lastVerifiedRevision());
         assertEquals(candidate.revision(), headRevision(copy));

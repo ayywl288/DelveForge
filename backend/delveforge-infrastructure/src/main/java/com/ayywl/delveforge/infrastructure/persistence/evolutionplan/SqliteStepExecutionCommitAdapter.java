@@ -47,8 +47,11 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
             checked.recordExecution(id, checkedCopy, next.executionResult());
         } else if (old.status() == EvolutionStepStatus.VERIFYING && next.status() == EvolutionStepStatus.SUCCEEDED) {
             checked.succeedStep(id, checkedCopy, next.verificationResult());
+        } else if (old.status() == EvolutionStepStatus.VERIFYING
+                && next.status() == EvolutionStepStatus.VERIFICATION_FAILED) {
+            checked.failStepVerification(id, checkedCopy, next.verificationResult());
         } else {
-            throw new EvolutionPlanStateException("Unsupported M4 checkpoint transition");
+            throw new EvolutionPlanStateException("Unsupported execution checkpoint transition");
         }
 
         EvolutionStep check = checked.step(id);

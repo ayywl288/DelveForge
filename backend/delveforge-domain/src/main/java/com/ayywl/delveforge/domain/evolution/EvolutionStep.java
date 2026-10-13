@@ -71,15 +71,20 @@ public final class EvolutionStep {
         boolean executing = status == EvolutionStepStatus.EXECUTING;
         boolean verifying = status == EvolutionStepStatus.VERIFYING;
         boolean succeeded = status == EvolutionStepStatus.SUCCEEDED;
-        if ((!prepared && !executing && !verifying && !succeeded)
+        boolean failed = status == EvolutionStepStatus.VERIFICATION_FAILED;
+        if ((!prepared && !executing && !verifying && !succeeded && !failed)
                 || (prepared && (baseline != null || execution != null || verification != null))
                 || (!prepared && (baseline == null || baseline.isBlank()))
                 || (executing && (execution != null || verification != null))
-                || ((verifying || succeeded) && (execution == null || baseline.equals(execution.candidateRevision())))
+                || ((verifying || succeeded || failed)
+                        && (execution == null || baseline.equals(execution.candidateRevision())))
                 || (verifying && verification != null)
                 || (succeeded && (verification == null
                         || !execution.candidateRevision().equals(verification.candidateRevision())
-                        || !verification.recordsPassedCoverage(step.verificationCriteria.size())))) {
+                        || !verification.recordsPassedCoverage(step.verificationCriteria.size())))
+                || (failed && (verification == null
+                        || !execution.candidateRevision().equals(verification.candidateRevision())
+                        || !verification.recordsFailedCoverage(step.verificationCriteria.size())))) {
             throw new EvolutionPlanStateException("Incomplete stored Step checkpoint");
         }
         // 历史完整检查点恢复记录的事实；新的成功转移仍通过 satisfies 校验现行证据资格。
@@ -119,6 +124,20 @@ public final class EvolutionStep {
         requireVerificationAccepted(result);
         verificationResult = result;
         status = EvolutionStepStatus.SUCCEEDED;
+    }
+
+    void requireVerificationFailed(VerificationResult result) {
+        if (status != EvolutionStepStatus.VERIFYING || result == null
+                || !executionResult.candidateRevision().equals(result.candidateRevision())
+                || !result.confirmsFailure(verificationCriteria)) {
+            throw new EvolutionPlanStateException("Candidate verification has no confirmed corresponding failure");
+        }
+    }
+
+    void failVerification(VerificationResult result) {
+        requireVerificationFailed(result);
+        verificationResult = result;
+        status = EvolutionStepStatus.VERIFICATION_FAILED;
     }
 
     void confirm() {

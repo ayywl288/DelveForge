@@ -154,6 +154,15 @@ public final class EvolutionPlan {
         step.succeed(result);
     }
 
+    /** 保存明确验证失败；保留 Candidate、首次基线及 WorkingCopy 的可信 revision。 */
+    public void failStepVerification(EvolutionStepId id, WorkingCopy copy, VerificationResult result) {
+        requireExecutionOwner(copy);
+        EvolutionStep step = step(id);
+        step.requireVerificationFailed(result);
+        copy.requireCheckpoint(step.baselineRevision(), result.candidateRevision());
+        step.failVerification(result);
+    }
+
     public void activate(PlanActivationPolicy policy, WorkingCopy copy,
             ProductDirection direction,
             SoftwareAsset asset,

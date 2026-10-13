@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-10-12
+**Last Updated:** 2026-10-13
 
 ---
 
@@ -11,7 +11,10 @@
 
 当前最重要目标：
 
-> M0–M4 核心闭环与 Task D–F 后续 correctness 修复已完成。Task G UI / UX Polish 已完成、由用户接受并冻结；本地 main 已整合 G1/G2。后端业务开发继续停止，M5 暂缓。
+> M0–M4 核心闭环与 Task G 保持完成 / 冻结。2026-10-13 用户授权在 feature/m5-lab 独立 Worktree 开始 M5-A Verification Failure Handling；仅处理明确完成的验证 FAIL，完整 M5 尚未完成。
+
+本实验不改变已发布 v0.1.0 或 main，不 Push / 合并；不用真实业务数据或付费 Provider。
+本轮完成 M5-A 后停止，不自动开始 Repair、Retry、Rollback 或 Recovery。
 
 业务阶段关闭、两次历史 Verified Evolution、Pre-UI 时点 1474 / 85 项确定性回归及尚未重跑的付费 E2E
 见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。
@@ -621,7 +624,12 @@ M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整�
 
 ### M5 — Failure Safety & Recovery
 
-**Status:** DEFERRED（2026-10-10）— 本轮后端交付结束后暂缓，不开始实现。
+**Status:** IN_PROGRESS（仅 feature/m5-lab 实验分支的 M5-A；2026-10-13）。其余 Slice 暂缓。
+
+M5-A 实现范围：同一 Candidate 的明确 Verification FAIL → 保存 VerificationResult →
+VERIFICATION_FAILED；Candidate 与 baseline 保留、lastVerifiedRevision 不推进、后续 Step 被阻止。
+异常 / 未知结果仍 fail closed；本轮没有 Repair / Retry / Rollback / Recovery 入口。
+实施与回归证据见 [M5-A 验证报告](validation/m5-a-verification-failure-handling.md)。
 
 **Goal**
 
@@ -640,10 +648,10 @@ M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整�
 
 #### Verification Failure
 
-- [ ] Verification Failure 后进入 `VERIFICATION_FAILED`。
-- [ ] 保留 Candidate State。
-- [ ] 不更新 lastVerifiedRevision。
-- [ ] 阻止后续 Evolution Step 执行。
+- [x] 明确完成的 Verification Failure 后进入 `VERIFICATION_FAILED`（M5-A）。
+- [x] 保留 Candidate State（M5-A）。
+- [x] 不更新 lastVerifiedRevision（M5-A）。
+- [x] 阻止后续 Evolution Step 执行（M5-A）。
 - [ ] 支持用户明确选择 Repair。
 - [ ] Repair 后重新 Verification。
 - [ ] 支持用户明确选择 Rollback。
@@ -790,7 +798,7 @@ Step SUCCEEDED
 | M2 | Product Direction Discovery | DONE |
 | M3 | Evolution Planning & Working Copy | DONE |
 | M4 | First Verified Evolution Step | DONE / FROZEN |
-| M5 | Failure Safety & Recovery | DEFERRED |
+| M5 | Failure Safety & Recovery | IN_PROGRESS（仅 M5-A 实验） |
 | M6 | MVP End-to-End Validation | TODO |
 
 统一状态：
@@ -836,16 +844,20 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 ```text
 M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
 M4 — First Verified Evolution Step：DONE / FROZEN（2026-10-10）
-M5 — Failure Safety & Recovery：DEFERRED
+M5 — Failure Safety & Recovery：IN_PROGRESS（仅 feature/m5-lab 的 M5-A）
 Task D–F / F-Fix / 软删除 / Final Planning Fix：DONE
 Task G — UI / UX Polish：DONE / ACCEPTED / FROZEN（2026-10-12，当前发行版 UI）
-后端业务开发停止；不追加 M4 优化或开始 M5。
+本轮只实现 M5-A；其余失败恢复 Slice 不自动开始。
 真实 Provider E2E、部署与发布接受尚未完成；不自动启动。
 ```
 
 M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
 
 ### Current
+
+**M5-A 独立实验：DONE / 本地待审查（2026-10-13）。** 本轮实现明确 FAIL 的保存与阻塞语义，复用既有 M4 检查点、
+授权、隔离、预检和并发控制；未知 / in-flight 结果仍保持原 fail-closed。M5 整体不得标为 DONE。
+以下冻结记录保留其历史时点含义，本轮单独授权不修改已发布发行版。
 
 **Task G 已关闭并冻结（2026-10-12）。** Graphite + Indigo、项目工作台和五工作流页面已由用户接受，
 少量视觉不足有意延后。本地 main 快进整合 G1/G2；最终前端 123 项测试、typecheck / build PASS。

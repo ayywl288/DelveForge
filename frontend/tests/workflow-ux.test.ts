@@ -230,6 +230,30 @@ describe("G2 路线与执行分区", () => {
         expect(execute).not.toHaveBeenCalled(); expect(s.plan.steps[1]?.status).toBe("PENDING_CONFIRMATION");
     });
 
+    it("明确 FAIL 展示保留的 Candidate、可信版本和未执行检查，禁止修复及后续执行", async () => {
+        const s = session(); s.plan = successfulPlan(); s.copy = copy();
+        const step = s.plan.steps[0]!;
+        step.status = "VERIFICATION_FAILED";
+        s.copy.status = "EVOLVING"; s.copy.currentRevision = "b".repeat(40);
+        step.verificationResult!.passed = false;
+        step.verificationResult!.failures = ["Build failed"];
+        step.verificationResult!.checks = [
+            { action: "BUILD", target: "", criterionIndexes: [1], passed: false, outcome: "FAILED", summary: "Build failed" },
+            { action: "TEST", target: "", criterionIndexes: [2], passed: false, outcome: "NOT_RUN", summary: "Earlier check failed" },
+        ];
+        const execute = vi.spyOn(s, "execute");
+        const root = mount(EvolutionView, s);
+        expect(root.querySelector("#verification-result")?.textContent).toContain("FAIL");
+        expect([...root.querySelectorAll(".check-outcome")].map(item => item.textContent)).toEqual(["FAIL", "未执行"]);
+        expect(root.querySelector(".execution-action")?.textContent).toContain("Candidate 保留");
+        expect(root.querySelector(".execution-action")?.textContent).toContain("最近可信版本未推进");
+        expect(root.textContent).toContain("a".repeat(40));
+        expect(root.textContent).toContain("b".repeat(40));
+        expect(button(root, "审阅风险并执行")).toBeUndefined();
+        expect(root.querySelector(".success-note")).toBeNull();
+        expect(execute).not.toHaveBeenCalled();
+    });
+
     it.each(["EXECUTING", "VERIFYING", "FAILED", "VERIFICATION_FAILED", "ROLLING_BACK", "RECOVERY_REQUIRED", "CANCELLED"] as EvolutionStep["status"][])(
         "后端状态 %s 保留原始代码、禁用执行且不生成成功信号", async status => {
             const s = session(); s.plan = plan(); s.copy = copy(); s.plan.steps[0]!.status = status;

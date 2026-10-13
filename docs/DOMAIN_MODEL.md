@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 内部有哪些核心业务概念，这些概念分别代表什么，以及它们之间如何协作。
 
 **Status:** Stable
-**Last Updated:** 2026-10-11
+**Last Updated:** 2026-10-13
 
 ## 1. Domain Overview
 
@@ -1361,6 +1361,11 @@ Rollback / Recovery 转换由 M5 实现。M4 在进入 `EXECUTING` 或 `VERIFYIN
 不标记 Step `SUCCEEDED`，并阻止不一致或未解决状态上的后续 Evolution。
 暂留检查点不表示 Rollback / Recovery 已发生，也不改变下述最终失败语义。
 
+M5-A 实验分支仅补齐已明确完成的 Verification FAIL：保存失败结果并进入 VERIFICATION_FAILED，
+WorkingCopy 保持 EVOLVING、currentRevision 指向 Candidate，lastVerifiedRevision 保持原可信基线。
+超时、进程崩溃、中断、结果未知或证据不足继续保留最后完整检查点；不推断已失败或已回滚。
+本 Slice 不开放 Repair / Retry / Rollback / Recovery。
+
 ```mermaid
 stateDiagram-v2
     [*] --> CREATING
@@ -1800,7 +1805,8 @@ Task F-Fix 引入稳定的演化作用域身份 `flowId`，不引入新的 Aggre
 | `INV-V11` | Evolution Step 从 `RECOVERY_REQUIRED` 恢复为 `FAILED` 的唯一前提是 Working Copy 已精确恢复到该 Step 的 `baselineRevision`；无法恢复到该 Revision 时，当前 Working Copy 必须进入 `UNRECOVERABLE`，当前 Plan 不得继续原执行路径。 |
 
 上述 Verification Failure / Repair / Rollback / Recovery 规则仍为完整 MVP 目标不变量。
-M4 对验证异常或未通过结果可暂留 `VERIFYING` 检查点，M5 再实现完整失败转换；
+M4 对验证异常或未通过结果可暂留 `VERIFYING` 检查点；M5-A 对明确 FAIL 实现
+`VERIFYING → VERIFICATION_FAILED`，验证异常和未知结果仍保留 `VERIFYING`；
 期间 `INV-V01`–`INV-V03` 的信任边界始终生效：不得标记成功、不得推进可信 revision，
 不得从该 Candidate 开始后续 Step。暂留 `VERIFYING` 不表示验证仍在运行或已经成功，
 也不表示回滚 / 恢复已完成。
@@ -2445,7 +2451,13 @@ Domain 独立核对 kind、动作与有界 target，不能任意绑定索引。
 这是 M4 当前能力限制，不是放宽 `INV-V01`，也不引入通用自然语言证明器或新的审批生命周期。
 检查保留动作、target、Criteria 索引与有界实际结果摘要；领域不接受缺项、矛盾结果或其他 revision。
 结果、SUCCEEDED 与 lastVerifiedRevision = B 一次提交成功后才生效。
-技术失败或持久化失败按 §6.4 暂留 VERIFYING，不保存成功事实或推进可信 revision。
+M5-A 对明确失败保存 VerificationResult 并进入 VERIFICATION_FAILED；证据不足、异常、结果未知
+或持久化失败按 §6.4 暂留 VERIFYING，不保存成功事实或推进可信 revision。
+
+M5-A 的 Check.outcome 区分 PASSED、FAILED、NOT_RUN 与 INCONCLUSIVE。失败转移要求同一 Candidate、
+每项标准与动作的合法对应及至少一项明确 FAILED，不接受 INCONCLUSIVE；NOT_RUN 只记录因前项失败
+而未执行的动作，不作为已完成的负向证据。结果与 Step 状态原子保存，WorkingCopy revisions 不变。
+历史成功恢复继续只检查完整记录结构；旧负值缺少明确动作结果时不得升级成确认失败。
 
 #### Verification Failed
 

@@ -10,6 +10,7 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceVerificationPort;
+import com.ayywl.delveforge.domain.evolution.VerificationResult.Outcome;
 
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -113,6 +114,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                 String evidence = "";
                 boolean passed;
                 boolean attempted = true;
+                boolean negativeTestEvidence = false;
                 if (action.action() == Action.DIFF_CHECK) {
                     // --check 检查真实 A..B 的冲突标记和空白错误，不读取 AI 摘要。
                     result = command(copy, List.of("git", "--no-optional-locks", "diff", "--no-ext-diff",
@@ -149,17 +151,27 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                                 && (action.action() != Action.FOCUSED_TEST || tests.includes(action.target()));
                         evidence = "; executed=" + tests.executed() + ", failures=" + tests.failures();
                     }
+                    if (!result.succeeded() && action.action() != Action.BUILD && fullSuiteInputs
+                            && (action.action() != Action.TEST
+                                    || MavenFullSuiteInputs.effectivePomSupported(run, budgets.maxOutputBytes()))) {
+                        TestEvidence tests = testEvidence(run, actionStarted);
+                        negativeTestEvidence = tests.executed() > 0 && tests.failures() > 0
+                                && !tests.failedTests().isEmpty()
+                                && (action.action() != Action.FOCUSED_TEST || tests.includesFailure(action.target()));
+                        evidence = "; executed=" + tests.executed() + ", failures=" + tests.failures();
+                    }
                 }
                 String outcome = result.output().contains("No tests matching pattern") ? "NO_MATCHING_TESTS"
                         : result.output().contains("No tests were executed") ? "NO_TESTS" : "COMPLETED";
-                checks.add(new VerificationFacts.Check(action.action(), action.target(), passed,
+                Outcome checkOutcome = completedOutcome(action.action(), result, passed, attempted, negativeTestEvidence);
+                checks.add(new VerificationFacts.Check(action.action(), action.target(), checkOutcome,
                         action.action() + " "
                                 + (attempted ? outcome + " with exit " + result.exitCode() : "NOT_RUN") + evidence));
                 if (!passed) {
                     // 保持每个预定动作的对应事实，剩余动作明确为未执行，不能推断成功。
                     for (int index = checks.size(); index < request.strategy().size(); index++) {
                         VerificationAction pending = request.strategy().get(index);
-                        checks.add(new VerificationFacts.Check(pending.action(), pending.target(), false,
+                        checks.add(new VerificationFacts.Check(pending.action(), pending.target(), Outcome.NOT_RUN,
                                 "Not run because an earlier check failed"));
                     }
                     break;
@@ -175,6 +187,30 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                 removeRun(copy, run);
             }
         }
+    }
+
+    /** 非零退出本身不能证明检查已完成；进程崩溃、缺少报告或能力不足继续失败关闭。 */
+    static Outcome completedOutcome(Action action, WorkspaceCommandRunner.Result result,
+            boolean passed, boolean attempted, boolean negativeTestEvidence) {
+        if (passed) {
+            return Outcome.PASSED;
+        }
+        if (!attempted) {
+            return Outcome.INCONCLUSIVE;
+        }
+        if (action == Action.DIFF_CHECK) {
+            return result.exitCode() == 2 && !result.output().isBlank() ? Outcome.FAILED : Outcome.INCONCLUSIVE;
+        }
+        boolean completedFailure = result.exitCode() == 1 && result.output().lines()
+                .anyMatch(line -> line.trim().equals("[INFO] BUILD FAILURE"));
+        boolean noTests = result.output().contains("No tests matching pattern")
+                || result.output().contains("No tests were executed");
+        boolean crashed = result.output().contains("forked VM") || result.output().contains("forked process")
+                || result.output().contains("Crashed tests:") || result.output().contains("Process Exit Code:");
+        boolean negativeEvidence = action == Action.BUILD
+                ? result.output().contains("Compilation failure")
+                : negativeTestEvidence && result.output().contains("There are test failures.");
+        return completedFailure && negativeEvidence && !noTests && !crashed ? Outcome.FAILED : Outcome.INCONCLUSIVE;
     }
 
     static List<String> mavenCommand(VerificationAction action, boolean windows) {
@@ -215,8 +251,12 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         }
     }
 
-    /** 本次报告的执行数量与成功测试身份；身份规范化仅用于受支持的定向选择器。 */
-    record TestEvidence(long executed, long failures, Set<String> passedTests) {
+    /** 本次报告的执行数量与通过 / 失败身份；不从退出码猜测定向测试结果。 */
+    record TestEvidence(long executed, long failures, Set<String> passedTests, Set<String> failedTests) {
+
+        TestEvidence(long executed, long failures, Set<String> passedTests) {
+            this(executed, failures, passedTests, Set.of());
+        }
 
         private static final String TYPE = "[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*(?:\\[\\])*";
         private static final java.util.regex.Pattern METHOD = java.util.regex.Pattern.compile(
@@ -226,8 +266,16 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
             if (executed == 0 || failures != 0) {
                 return false;
             }
+            return matches(passedTests, target);
+        }
+
+        boolean includesFailure(String target) {
+            return executed > 0 && failures > 0 && matches(failedTests, target);
+        }
+
+        private boolean matches(Set<String> tests, String target) {
             String[] selector = target.split("#", -1);
-            return passedTests.stream().anyMatch(test -> {
+            return tests.stream().anyMatch(test -> {
                 String[] identity = test.split("#", 2);
                 if (identity.length != 2) {
                     return false;
@@ -248,6 +296,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
         long bytes = 0;
         long reports = 0;
         Set<String> passedTests = new HashSet<>();
+        Set<String> failedTests = new HashSet<>();
         try (var paths = Files.walk(run)) {
             var factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
@@ -280,7 +329,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                 long failed = Long.parseLong(suite.getAttribute("failures"))
                         + Long.parseLong(suite.getAttribute("errors"));
                 if (!suite.getTagName().equals("testsuite") || tests < 0 || skipped < 0 || skipped > tests
-                        || failed < 0) {
+                        || failed < 0 || failed > tests - skipped) {
                     throw new EvolutionExecutionException("Invalid Maven test evidence");
                 }
                 executed += tests - skipped;
@@ -292,6 +341,8 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                             && test.getElementsByTagName("failure").getLength() == 0
                             && test.getElementsByTagName("error").getLength() == 0) {
                         passedTests.add(test.getAttribute("classname") + "#" + test.getAttribute("name"));
+                    } else if (test.getElementsByTagName("skipped").getLength() == 0) {
+                        failedTests.add(test.getAttribute("classname") + "#" + test.getAttribute("name"));
                     }
                 }
             }
@@ -299,7 +350,7 @@ public class GitWorkspaceVerificationAdapter implements WorkspaceVerificationPor
                 | org.xml.sax.SAXException | NumberFormatException failure) {
             throw new WorkspaceException("Cannot read bounded Maven test evidence", failure);
         }
-        return new TestEvidence(executed, failures, Set.copyOf(passedTests));
+        return new TestEvidence(executed, failures, Set.copyOf(passedTests), Set.copyOf(failedTests));
     }
 
     private WorkspaceCommandRunner.Result command(Path directory, List<String> command, long deadline) {
