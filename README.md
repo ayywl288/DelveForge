@@ -101,9 +101,21 @@ Git 仓库分析、功能模块与可复用资产。
 
 ## 🚀 Quick Start
 
-推荐在 Windows 本地环境中使用 **Windows PowerShell 5.1 或 PowerShell 7**。
-先安装 **JDK 21、Git CLI、Node.js（`^20.19.0` 或 `>=22.12.0`）和 pnpm 12.9.1**。
-Maven Wrapper 已内置，SQLite 无需单独安装服务。
+目前推荐在 **Windows 本地环境**中运行。
+
+### 1. Requirements
+
+- **JDK 21**
+- **Git CLI**
+- **Node.js**：`^20.19.0` 或 `>=22.12.0`
+- **pnpm 12.9.1**
+- **DeepSeek API Key**
+
+Maven Wrapper 已内置，SQLite 无需单独安装数据库服务。
+
+### 2. One-Command Startup
+
+在 PowerShell 中执行：
 
 ```powershell
 git clone https://github.com/ayywl288/DelveForge.git
@@ -111,50 +123,37 @@ cd DelveForge
 .\setup-delveforge.ps1
 ```
 
-根据提示输入 DeepSeek API Key（必填、隐藏输入），在 `Customize configuration? [y/N]`
-处直接回车即可使用应用默认配置。脚本检查依赖、构建最新后端、按锁文件安装前端依赖，
-然后打开两个保留日志的服务终端。连通检查通过后显示访问地址：**http://127.0.0.1:5173**。
-首次安装依赖需要联网。停止时在两个服务终端分别按 `Ctrl+C`，再关闭终端。
+根据提示输入 **DeepSeek API Key**，其余配置直接回车即可使用默认值。
 
-选择 `y` 可设置后端端口、DeepSeek Model / Base URL、SQLite 文件、WorkingCopy Root、
-日志目录及历史 WorkingCopy Roots；每项留空使用应用默认值。历史 Roots 使用逗号分隔的绝对路径。
-脚本会暂时忽略当前终端继承的应用配置覆盖项，结束后恢复；API Key 仅传给后端，不传给前端。
-`SERVER_PORT` 与 Vite 的 `BACKEND_DEV_URL` 自动保持一致。端口被占用时脚本拒绝启动，不停止已有进程。
+脚本会自动检查环境、构建后端、安装前端依赖，并启动 Spring Boot 和 Vite。首次运行需要联网下载相关依赖。
 
-默认启用 `m4-local`：后端 `127.0.0.1:8080`，SQLite `./data/m4-local/delveforge.db`，
-WorkingCopy 位于用户目录的 `.delveforge/m4-local/workspaces`，日志为 `./logs/m4-local`。
-已有数据库不会被脚本覆盖；应用启动时仍会执行正常的 Flyway 迁移。
-默认模型为 `deepseek-flash`，账号不支持时请在自定义配置中指定可用模型。
-**该 Profile 使用 Streaming 和较高 Token 预算，AI 操作可能产生较多费用；启动连通检查不会调用 Provider。**
+启动后打开终端显示的访问地址，通常为：
 
-### Manual Startup / Troubleshooting
+**http://127.0.0.1:5173**
 
-需要手动控制启动时，可在仓库根目录使用以下命令（API Key 安全输入示例需要 PowerShell 7）：
+停止应用时，在前后端终端中分别按 `Ctrl+C`。
 
-```powershell
-.\mvnw.cmd -DskipTests package
-$env:DEEPSEEK_API_KEY = Read-Host "DeepSeek API Key" -MaskInput
-java -jar .\backend\delveforge-app\target\delveforge-app-0.1.0-SNAPSHOT.jar --spring.profiles.active=m4-local
-```
+### ⚙️ Custom Configuration
 
-另开一个不含 API Key 的终端启动前端：
+启动时选择 `Customize configuration? [y/N]` 中的 `y`，即可自定义：
 
-```powershell
-cd frontend
-pnpm install --frozen-lockfile
-# 后端改用其他端口时，在此设置对应地址，例如：
-# $env:BACKEND_DEV_URL = "http://127.0.0.1:18080"
-pnpm dev
-```
+- 后端端口（默认 `8080`）
+- DeepSeek Model / Base URL
+- SQLite 数据库路径
+- WorkingCopy 存储目录
+- 日志目录及历史 WorkingCopy Roots
 
-手动启动时，`SERVER_PORT` 在后端终端中设置；前端地址以 Vite 输出为准。
-更多配置及历史 WorkingCopy 说明见 [M4 Local Usage](docs/M4_LOCAL_USAGE.md)。
+**所有可选配置留空即使用应用默认值。** 修改后端端口时，脚本会同步配置前端代理。
 
-如果脚本被执行策略拒绝，这是 PowerShell 的安全策略，而非依赖缺失。
-先确认脚本来源并审阅内容，再用 `Get-ExecutionPolicy -List` 检查策略。
-若没有组织策略限制且确需调整，可自行在**当前会话**执行
-`Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned` 后重新运行脚本；
-这不会永久修改用户或系统策略。下载文件的来源标记或签名要求仍须按本机策略处理。
+默认使用 `m4-local` Profile，模型为 `deepseek-flash`。如账号不支持该模型，请选择自定义配置。
+
+**注意：** `m4-local` 使用较高的模型预算，AI 操作可能产生较多 Token 费用。代码自动演化仍属于实验性功能。
+
+### 🔧 Troubleshooting
+
+如果 PowerShell 阻止运行脚本，请先确认脚本来源，并通过 `Get-ExecutionPolicy -List` 检查执行策略。不要直接永久放宽系统安全策略。
+
+需要手动启动前后端、调整环境变量或管理历史 WorkingCopy 时，请参考 [M4 Local Usage](docs/M4_LOCAL_USAGE.md)。
 
 ## 📦 Demo Repositories
 
@@ -172,7 +171,7 @@ DelveForge 准备了三个 Java / Maven 演示仓库，帮助体验项目探索�
 
 下载入口：[GitHub Releases](https://github.com/ayywl288/DelveForge/releases)
 
-计划提供的附件：
+可下载的 Demo：
 
 - `gs-rest-service.bundle`
 - `todolist-api.bundle`
