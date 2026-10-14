@@ -37,6 +37,11 @@ export interface ExecutionReceipt {
   candidateRevision?: string;
   baselineRevision?: string;
 }
+interface AdoptedPlanSnapshot {
+  version: number;
+  plan: EvolutionPlan;
+  copy: WorkingCopy | null;
+}
 const emptyIds = (): SessionIds => ({
   profileId: "",
   assetIds: [],
@@ -209,21 +214,25 @@ export function createSession() {
     ids.planId = value.id;
     remember();
   }
-  async function refreshPlan() {
+  // 请求完成不等于采纳；调用方只有拿到仍有效的快照，才能据此结束等待或发送明确操作。
+  async function refreshPlan(): Promise<AdoptedPlanSnapshot | null> {
     const value = ids.planId || (!projectContext.value ? receipt.value?.planId : "");
-    if (!value) return;
+    if (!value) return null;
     const version = ++planVersion;
     const result = await api.plan(value);
     const wc = result.workingCopyId
       ? await api.workingCopy(result.workingCopyId)
       : null;
-    if (version !== planVersion || disposed) return;
+    if (version !== planVersion || disposed) return null;
     plan.value = result;
     copy.value = wc;
+    const snapshot = { version, plan: plan.value, copy: copy.value };
     ids.planId = result.id;
     remember();
     lastChecked.value = new Date().toLocaleTimeString("zh-CN");
     pollError.value = "";
+    // 同步观察者也可能更新查询依据；清理前再次核对本次采纳仍有效。
+    if (!currentSnapshot(snapshot)) return null;
     // 仅完成的持久化结果能消除断线的不确定性；READY 不能证明后台准备已结束。
     if (receipt.value?.planId === result.id) {
       const step = result.steps.find(
@@ -244,6 +253,11 @@ export function createSession() {
       )
         clearReceipt();
     }
+    return snapshot;
+  }
+  function currentSnapshot(snapshot: AdoptedPlanSnapshot | null) {
+    return snapshot !== null && !disposed && snapshot.version === planVersion
+      && plan.value === snapshot.plan && copy.value === snapshot.copy;
   }
   function clearReceipt() {
     try {
@@ -337,7 +351,7 @@ export function createSession() {
             ids.directionIds.map(api.direction),
           );
         }),
-        load("演化计划", refreshPlan),
+        load("演化计划", async () => { await refreshPlan(); }),
       ]);
       if (failures.length)
         error.value = `无法恢复：${failures.join("、")}。请核对对象 ID、后端数据库及连接，已保存 ID 保留。`;
@@ -399,7 +413,8 @@ export function createSession() {
         { ifAvailable: true },
         async (lock) => {
           if (!lock || readReceipt()) throw new Error("execution locked");
-          await refreshPlan();
+          const prepared = await refreshPlan();
+          if (!currentSnapshot(prepared)) throw new ApiError(409, "CONFLICT");
           const current = plan.value;
           const index =
             current?.steps.findIndex((step) => step.id === stepId) ?? -1;
@@ -452,18 +467,16 @@ export function createSession() {
             }
             setPlan(result);
             await refreshPlan();
-            clearReceipt();
           } catch (failure) {
-            let checked = false;
+            let checked: AdoptedPlanSnapshot | null = null;
             try {
-              await refreshPlan();
-              checked = true;
+              checked = await refreshPlan();
             } catch {
               pollError.value = "执行结果及当前状态均未能读取，保留等待标记。";
             }
             // 后端明确返回业务错误且查询证实仍未产生 Candidate，才允许下一次显式操作。
             if (
-              checked &&
+              currentSnapshot(checked) &&
               failure instanceof ApiError &&
               failure.status > 0 &&
               failure.code in
@@ -489,7 +502,7 @@ export function createSession() {
               copy.value.currentRevision === copy.value.lastVerifiedRevision
             )
               clearReceipt();
-            if (handlingFailure && checked && failure instanceof ApiError && failure.status > 0
+            if (handlingFailure && currentSnapshot(checked) && failure instanceof ApiError && failure.status > 0
               && ["INVALID_REQUEST", "CONFLICT", "EXECUTION_CRITERIA_UNSUPPORTED", "ASSET_TYPE_UNSUPPORTED",
                 "ASSET_READ_PERMISSION_REQUIRED", "ASSET_USAGE_AUTHORIZATION_REQUIRED", "ASSET_LICENSE_INFORMATION_REQUIRED",
                 "ASSET_AUTHORIZATION_CONFLICT"].includes(failure.code)) {

@@ -1215,10 +1215,16 @@ Rollback 还拒绝 replacement refs / graft 元数据，命令显式使用 `--no
 被替换的同 SHA 对象视图当作原始 baseline，不删除或改写这些用户元数据。
 M5 Review Findings 修复补强共享物理检查：从固定 revision 枚举全部 tracked blob，比较 index 的
 对象 / mode / stage，并重新读取每个实际文件计算 Git blob identity，不信任 stat 缓存或普通 diff。
-属性读取固定在该 revision；允许 Git text / EOL 转换。custom filter、ident、working-tree-encoding
-缺少本版可靠物化证明时拒绝，不执行过滤器命令或改写配置。检查不写对象、不刷新真实 index，
-命令沿用有界进程入口；不支持 `--attr-source` 的 Git 失败关闭。具体复现与范围见
-[M5 Review Findings 修复报告](validation/m5-review-findings-fix.md)。
+属性读取固定在该 revision。M5-003 修复使用 `check-attr --all` 的属性存在性，拒绝显式 filter、
+ident、working-tree-encoding（含歧义值和显式禁用）；不把字符串 unset / unspecified 当作安全状态。
+真实字节仅用 `hash-object --no-filters`，LF / CRLF 等价只使用 Git 只读 EOL 描述及有界本地字节证明
+（需要转换的文件上限 1 MiB），不执行 clean / smudge / process。 EOL / config 按批次读取，
+每个实际文件仍分别证明完整 byte identity，不采用 stat 缓存。额外文件使用只读枚举，取消该证明
+路径中会调用 clean 的 status / 工作树 diff；index / mode / stage 及整树内容证据仍独立保留。
+checkout 前也检查整个原始 baseline 的属性，防止仅存在于目标版本的外部转换先执行再被拒绝。
+检查不写对象、不刷新真实 index；命令沿用有界进程入口，不支持 `--attr-source` 的 Git 失败关闭。
+原修复记录见 [M5-001/002 报告](validation/m5-review-findings-fix.md)，后续复审修复见
+[M5-003/004 报告](validation/m5-review-findings-003-004-fix.md)。
 
 V19 仅增加 nullable 授权 / 结果 JSON 槽，旧结果与 Repair 历史不改写。授权及成功检查点沿用
 完整资格 / CAS；失败检查点的 `blockRollback` 只允许匹配已保存授权的 `ROLLING_BACK` 同时
@@ -1229,6 +1235,9 @@ V19 仅增加 nullable 授权 / 结果 JSON 槽，旧结果与 Repair 历史不�
 恢复、状态重查或成功提交异常后，只尝试保存新的阻塞结果，不重跑 Git。两种结果提交都不可用
 时保留原 `ROLLING_BACK` 检查点并返回错误。启动 / GET 仅恢复保存的事实，不做补偿、重放或自动
 状态改判；此边界已由用户明确裁定，未决调用所有权留给后续 Recovery Slice。
+M5-004 的前端 GET 返回已采纳快照或 null；清理等待标记要求该快照仍对应最新查询版本与当前对象。
+被淘汰 GET、执行前资格查询未被采纳、已保存的未决授权都不允许触发新的 POST 或清理等待。
+
 
 ## 7. Dependency Rules
 

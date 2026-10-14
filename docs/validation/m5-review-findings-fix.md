@@ -7,6 +7,10 @@ Worktree：`C:\Users\28226\.codex\worktrees\m5-lab\DelveForge`。
 **Gate：自测 PASS / 待独立复审。** 最终后端 1,575 项、前端 149 项及构建通过。
 没有重构 Verification 架构或开展新 Slice；不代表生产数据、付费 Provider 或 OS 崩溃恢复已验证。
 
+**后续独立复审：FAIL。** M5-003 复现同名 unset / unspecified driver 绕过属性哨兵判断，
+M5-004 复现被淘汰 GET 仍触发等待标记清理。此前自测 PASS 不证明这两项已修复；后续证据见
+[M5-003/004 修复报告](m5-review-findings-003-004-fix.md)。
+
 ## 1. Contract / Isolation
 
 已读取当前 AGENTS、PRODUCT、DOMAIN_MODEL、ARCHITECTURE、ROADMAP、ADR-0001、M5-C 报告和实际实现。

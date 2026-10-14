@@ -33,12 +33,17 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -156,13 +161,10 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         // 整树读取真实文件并重新计算 Git blob；stat 缓存、HEAD 与 status 都不能替代内容证据。
         requireTrackedContent(copy, target, expectedRevision);
 
-        // 禁用可选 index 写入与 fsmonitor，准备阶段的检查只读取状态。
-        GitCommandResult status = execute(target, "--no-optional-locks", "-c", "core.fsmonitor=false",
-                "status", "--porcelain=v1", "--untracked-files=all", "--ignored");
-        if (!status.succeeded()) {
-            throw new WorkspaceException("Cannot inspect Working Copy status");
-        }
-        if (!status.stdoutText().isBlank()) {
+        // tracked 内容已经独立证明；status / 工作树 diff 会调用 clean filter，额外文件只用枚举能力检查。
+        if (!contentGit(target, expectedRevision, "ls-files", "--others", "--exclude-standard", "-z").isEmpty()
+                || !contentGit(target, expectedRevision, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+                        .isEmpty()) {
             throw new WorkingCopyBasisChangedException("Working Copy contains changes or untracked artifacts");
         }
     }
@@ -171,6 +173,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     private void requireTrackedContent(WorkspaceRef copy, Path target, String revision) {
         List<String> paths = new ArrayList<>();
         List<String> objects = new ArrayList<>();
+        List<String> modes = new ArrayList<>();
         List<String> indexEntries = new ArrayList<>();
         String tree = contentGit(target, revision, "ls-tree", "-r", "-z", "--full-tree", revision);
         for (String entry : tree.split("\0")) {
@@ -186,6 +189,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             String path = entry.substring(separator + 1);
             paths.add(path);
             objects.add(metadata[2]);
+            modes.add(metadata[0]);
             indexEntries.add(metadata[0] + " " + metadata[2] + " 0\t" + path);
         }
         // 比较 index 的对象 / mode / stage，读取内容时仍不依赖其文件时间或大小缓存。
@@ -195,32 +199,126 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             throw new WorkingCopyBasisChangedException("Working Copy index differs from the exact revision tree");
         }
         inspectSafePaths(copy, paths);
-        for (int start = 0; start < paths.size(); start += 32) {
-            List<String> batch = paths.subList(start, Math.min(start + 32, paths.size()));
-            List<String> attributeArguments = new ArrayList<>(List.of("check-attr", "-z", "filter", "ident", "working-tree-encoding", "--"));
-            attributeArguments.addAll(batch);
-            String[] attributes = contentGit(target, revision, attributeArguments.toArray(String[]::new)).split("\0");
-            if (attributes.length != batch.size() * 9) {
-                throw new WorkingCopyBasisChangedException("Cannot confirm tracked content conversion attributes");
-            }
-            for (int index = 0; index < batch.size(); index++) {
-                List<String> conversions = List.of("filter", "ident", "working-tree-encoding");
-                for (int conversion = 0; conversion < conversions.size(); conversion++) {
-                    int offset = index * 9 + conversion * 3;
-                    String value = attributes[offset + 2];
-                    if (!attributes[offset].equals(batch.get(index))
-                            || !attributes[offset + 1].equals(conversions.get(conversion))
-                            || (!value.equals("unspecified") && !value.equals("unset"))) {
-                        // clean / process 可丢弃内容或执行命令；ident / 编码转换缺少本版精确物化证明。
-                        throw new WorkingCopyBasisChangedException("Git conversion cannot prove exact tracked content");
+        // 替代 status 后保留 Git 启用 filemode 时的实际可执行位检查；Windows 不解释 POSIX mode。
+        if (target.getFileSystem().supportedFileAttributeViews().contains("posix")
+                && contentGit(target, revision, "config", "--type=bool", "--default=true", "--get", "core.filemode")
+                        .trim().equals("true")) {
+            try {
+                for (int index = 0; index < paths.size(); index++) {
+                    boolean executable = Files.getPosixFilePermissions(target.resolve(paths.get(index)),
+                            LinkOption.NOFOLLOW_LINKS).contains(PosixFilePermission.OWNER_EXECUTE);
+                    if (executable != modes.get(index).equals("100755")) {
+                        throw new WorkingCopyBasisChangedException("Tracked executable mode differs from the exact revision");
                     }
                 }
+            } catch (IOException failure) {
+                throw new WorkspaceException("Cannot prove tracked executable mode", failure);
             }
-            List<String> hashArguments = new ArrayList<>(List.of("hash-object", "--"));
+        }
+        for (int start = 0; start < paths.size(); start += 32) {
+            List<String> batch = paths.subList(start, Math.min(start + 32, paths.size()));
+            requireSupportedAttributes(target, revision, batch);
+            // 即使属性 / 配置在检查后变化，此命令也没有执行 filter 的能力。
+            List<String> hashArguments = new ArrayList<>(List.of("hash-object", "--no-filters", "--"));
             hashArguments.addAll(batch);
             List<String> hashes = contentGit(target, revision, hashArguments.toArray(String[]::new)).lines().toList();
-            if (!hashes.equals(objects.subList(start, start + batch.size()))) {
-                throw new WorkingCopyBasisChangedException("Working Copy tracked bytes differ from the exact revision");
+            if (hashes.size() != batch.size()) {
+                throw new WorkingCopyBasisChangedException("Cannot read all tracked byte identities");
+            }
+            List<String> converted = new ArrayList<>();
+            for (int index = 0; index < batch.size(); index++) {
+                if (!hashes.get(index).equals(objects.get(start + index))) {
+                    converted.add(batch.get(index));
+                }
+            }
+            // 元数据按批次读取，仍逐文件证明完整真实字节；不能让 CRLF 文件数线性放大进程启动成本。
+            Map<String, String> eolFacts = converted.isEmpty() ? Map.of() : trackedEolFacts(target, revision, converted);
+            String autocrlf = converted.isEmpty() ? "false"
+                    : contentGit(target, revision, "config", "--default=false", "--get", "core.autocrlf")
+                            .trim().toLowerCase(Locale.ROOT);
+            for (int index = 0; index < batch.size(); index++) {
+                String expected = objects.get(start + index);
+                String path = batch.get(index);
+                if (!hashes.get(index).equals(expected)
+                        && !lineEndingEquivalent(target, path, expected, eolFacts.get(path), autocrlf)) {
+                    throw new WorkingCopyBasisChangedException("Working Copy tracked bytes differ from the exact revision");
+                }
+            }
+        }
+    }
+
+    private Map<String, String> trackedEolFacts(Path target, String revision, List<String> paths) {
+        List<String> arguments = new ArrayList<>(List.of("--literal-pathspecs", "ls-files", "--eol", "-z", "--"));
+        arguments.addAll(paths);
+        Map<String, String> facts = new HashMap<>();
+        for (String record : contentGit(target, revision, arguments.toArray(String[]::new)).split("\0")) {
+            int separator = record.indexOf('\t');
+            String path = separator < 0 ? "" : record.substring(separator + 1);
+            if (!paths.contains(path) || facts.put(path, record.substring(0, separator)) != null) {
+                throw new WorkingCopyBasisChangedException("Cannot read exact tracked EOL descriptions");
+            }
+        }
+        if (facts.size() != paths.size()) {
+            throw new WorkingCopyBasisChangedException("Cannot read all tracked EOL descriptions");
+        }
+        return facts;
+    }
+
+    /** 仅使用 Git 的只读 EOL 描述和本地字节转换，不调用任何 Git clean / smudge / process。 */
+    private boolean lineEndingEquivalent(Path target, String path, String expected, String eol, String autocrlf) {
+        String[] facts = eol.trim().split("\\s+", 3);
+        if (facts.length != 3 || !facts[0].equals("i/lf")
+                || (!facts[1].equals("w/crlf") && !facts[1].equals("w/mixed"))) {
+            return false;
+        }
+        String attributes = facts[2].trim();
+        boolean text = List.of("attr/text", "attr/text=auto", "attr/text eol=lf", "attr/text eol=crlf",
+                "attr/text=auto eol=lf", "attr/text=auto eol=crlf").contains(attributes);
+        if (attributes.equals("attr/")) {
+            text = autocrlf.equals("true") || autocrlf.equals("input");
+        }
+        if (!text) {
+            return false;
+        }
+        try (var input = Files.newInputStream(target.resolve(path))) {
+            // 只有需要 EOL 等价证明的文件才读取有界快照；超限不截断、不改写源码。
+            byte[] actual = input.readNBytes(1048577);
+            if (actual.length > 1048576) {
+                throw new WorkspaceException("Tracked EOL proof exceeds its byte budget");
+            }
+            byte[] normalized = new byte[actual.length];
+            int length = 0;
+            for (int index = 0; index < actual.length; index++) {
+                if (actual[index] == 0) {
+                    return false;
+                }
+                if (actual[index] != '\r' || index + 1 == actual.length || actual[index + 1] != '\n') {
+                    normalized[length++] = actual[index];
+                }
+            }
+            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            digest.update(("blob " + length + "\0").getBytes(StandardCharsets.US_ASCII));
+            digest.update(normalized, 0, length);
+            return HexFormat.of().formatHex(digest.digest()).equals(expected);
+        } catch (IOException | NoSuchAlgorithmException failure) {
+            throw new WorkspaceException("Cannot prove tracked EOL bytes", failure);
+        }
+    }
+
+    /** 按存在性拒绝外部转换；同时用于当前内容证明与恢复目标的 checkout 前检查。 */
+    private void requireSupportedAttributes(Path target, String revision, List<String> paths) {
+        List<String> arguments = new ArrayList<>(List.of("check-attr", "-z", "--all", "--"));
+        arguments.addAll(paths);
+        String output = contentGit(target, revision, arguments.toArray(String[]::new));
+        String[] attributes = output.isEmpty() ? new String[0] : output.split("\0");
+        if (attributes.length % 3 != 0) {
+            throw new WorkingCopyBasisChangedException("Cannot confirm tracked content conversion attributes");
+        }
+        for (int offset = 0; offset < attributes.length; offset += 3) {
+            if (!paths.contains(attributes[offset])
+                    || List.of("filter", "ident", "working-tree-encoding").contains(attributes[offset + 1])) {
+                // --all 的属性存在性不依赖歧义值；显式 -filter 也保守拒绝，不能把同名 driver 当作安全哨兵。
+                throw new WorkingCopyBasisChangedException("Git conversion cannot prove exact tracked content");
             }
         }
     }
@@ -418,6 +516,15 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             }
             phase = "BASELINE_LOOKUP";
             rollbackGit(target, phase, "cat-file", "-e", baseline + "^{commit}");
+            phase = "BASELINE_ATTRIBUTES";
+            // 初始 baseline 可能具有 Candidate 已删除的属性；checkout 前拒绝目标转换，不能先运行 smudge 再拒绝。
+            List<String> baselinePaths = Arrays.stream(contentGit(target, baseline,
+                    "ls-tree", "-r", "--name-only", "-z", baseline).split("\0"))
+                    .filter(path -> !path.isEmpty()).toList();
+            for (int start = 0; start < baselinePaths.size(); start += 32) {
+                requireSupportedAttributes(target, baseline,
+                        baselinePaths.subList(start, Math.min(start + 32, baselinePaths.size())));
+            }
             phase = "PATH_CHECK";
             // 候选与目标两侧路径均检查，防止链接、嵌套仓库和 Windows 路径别名。
             List<String> paths = Arrays.stream(rollbackGit(target, phase, "diff", "--no-ext-diff", "--no-renames",
@@ -430,10 +537,6 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             rollbackGit(target, phase, "checkout", "--detach", "--no-overwrite-ignore", "--no-recurse-submodules", baseline);
             phase = "POSTCHECK";
             requireTrustedState(copy, authorized.originalAsset(), baseline);
-            if (!rollbackGit(target, phase, "diff", "--cached", "--no-ext-diff", "--exit-code", baseline, "--").isBlank()
-                    || !rollbackGit(target, phase, "diff", "--no-ext-diff", "--exit-code", baseline, "--").isBlank()) {
-                throw new WorkspaceException("Restored index or working tree differs from the exact baseline");
-            }
             return new RestoredBaseline(baseline, Instant.now());
         } catch (RuntimeException failure) {
             String observed = null;

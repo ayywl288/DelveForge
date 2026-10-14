@@ -572,6 +572,108 @@ describe("长同步 execute", () => {
     }
   });
 
+  it.each(["REPAIR", "ROLLBACK"] as const)("%s 被丢弃的 GET 不能用旧失败状态清除已保存授权", async (operation) => {
+    const s = make(); ready(s);
+    const failed = successfulPlan(); failed.status = "ACTIVE";
+    const step = failed.steps[0]!; step.status = "VERIFICATION_FAILED";
+    step.verificationResult!.passed = false; step.repairAuthorizations = [];
+    const candidate = { ...copy(), status: "EVOLVING" as const, currentRevision: "b".repeat(40) };
+    vi.mocked(api.plan).mockResolvedValue(failed);
+    vi.mocked(api.workingCopy).mockResolvedValue(candidate);
+    let oldGet!: (value: ReturnType<typeof plan>) => void;
+    let newGet!: (value: ReturnType<typeof plan>) => void;
+    let authorization = "";
+    const deny = async (...args: string[]) => {
+      authorization = args[args.length - 1]!;
+      vi.mocked(api.plan).mockImplementationOnce(() => new Promise(resolve => { oldGet = resolve; }))
+        .mockImplementationOnce(() => new Promise(resolve => { newGet = resolve; }));
+      throw new ApiError(409, "ASSET_AUTHORIZATION_CONFLICT");
+    };
+    const request = operation === "REPAIR" ? vi.spyOn(api, "repair").mockImplementation(deny)
+      : vi.spyOn(api, "rollback").mockImplementation(deny);
+    const pending = operation === "REPAIR" ? s.repair("step-1", "b".repeat(40))
+      : s.rollback("step-1", "b".repeat(40), "a".repeat(40));
+    for (let index = 0; index < 30; index++) await Promise.resolve();
+    expect(request).toHaveBeenCalledOnce();
+    expect(api.plan).toHaveBeenCalledTimes(2);
+    const concurrent = s.refreshPlan();
+    oldGet(failed);
+    await pending;
+    expect(s.receipt.value?.authorizationId).toBe(authorization);
+    const granted = structuredClone(failed);
+    const grantedStep = granted.steps[0]!;
+    grantedStep.status = operation === "ROLLBACK" ? "ROLLING_BACK" : "EXECUTING";
+    if (operation === "ROLLBACK") grantedStep.rollbackAuthorization = { id: authorization,
+      candidateRevision: "b".repeat(40), baselineRevision: "a".repeat(40), authorizedAt: new Date().toISOString() };
+    else grantedStep.repairAuthorizations = [{ id: authorization, candidateRevision: "b".repeat(40),
+      authorizedAt: new Date().toISOString(), previousExecution: step.executionResult!, previousVerification: step.verificationResult! }];
+    newGet(granted); await concurrent;
+    expect(s.receipt.value?.authorizationId).toBe(authorization);
+    if (operation === "REPAIR") await s.repair("step-1", "b".repeat(40));
+    else await s.rollback("step-1", "b".repeat(40), "a".repeat(40));
+    expect(request).toHaveBeenCalledOnce();
+  });
+
+  it.each(["older-first", "newer-first"])("两个 GET %s 完成时只返回被采纳的快照", async (order) => {
+    const marker = { planId: "plan-1", stepId: "step-1", startedAt: new Date().toISOString(),
+      operation: "REPAIR", authorizationId: crypto.randomUUID(), candidateRevision: "b".repeat(40) };
+    localStorage.setItem(executionKey, JSON.stringify(marker));
+    const s = make(); ready(s);
+    const failed = successfulPlan(); failed.status = "ACTIVE";
+    failed.steps[0]!.status = "VERIFICATION_FAILED"; failed.steps[0]!.verificationResult!.passed = false;
+    failed.steps[0]!.repairAuthorizations = [];
+    const granted = structuredClone(failed); granted.steps[0]!.status = "EXECUTING";
+    granted.steps[0]!.repairAuthorizations = [{ id: marker.authorizationId, candidateRevision: marker.candidateRevision,
+      authorizedAt: marker.startedAt, previousExecution: failed.steps[0]!.executionResult!, previousVerification: failed.steps[0]!.verificationResult! }];
+    let oldGet!: (value: ReturnType<typeof plan>) => void;
+    let newGet!: (value: ReturnType<typeof plan>) => void;
+    vi.mocked(api.plan).mockImplementationOnce(() => new Promise(resolve => { oldGet = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { newGet = resolve; }));
+    vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: "EVOLVING", currentRevision: marker.candidateRevision });
+    const older = s.refreshPlan(); const newer = s.refreshPlan();
+    if (order === "older-first") { oldGet(failed); expect(await older).toBeNull(); newGet(granted); }
+    else { newGet(granted); await newer; oldGet(failed); }
+    const adopted = await newer;
+    expect(await older).toBeNull();
+    expect(adopted?.plan.steps[0]?.status).toBe("EXECUTING");
+    expect(s.plan.value?.steps[0]?.status).toBe("EXECUTING");
+    expect(s.receipt.value?.authorizationId).toBe(marker.authorizationId);
+  });
+
+  it("顺序 GET 都被采纳，未决授权保持等待，匹配的新完成结果才清除", async () => {
+    vi.spyOn(api, "repair"); vi.spyOn(api, "rollback");
+    const marker = { planId: "plan-1", stepId: "step-1", startedAt: new Date().toISOString(),
+      operation: "REPAIR", authorizationId: crypto.randomUUID(), candidateRevision: "b".repeat(40) };
+    localStorage.setItem(executionKey, JSON.stringify(marker));
+    const s = make(); ready(s);
+    const completed = successfulPlan(); completed.status = "ACTIVE";
+    completed.steps[0]!.repairAuthorizations = [{ id: marker.authorizationId, candidateRevision: marker.candidateRevision,
+      authorizedAt: marker.startedAt, previousExecution: completed.steps[0]!.executionResult!, previousVerification: completed.steps[0]!.verificationResult! }];
+    const pending = structuredClone(completed); pending.steps[0]!.status = "EXECUTING";
+    vi.mocked(api.plan).mockResolvedValueOnce(pending).mockResolvedValueOnce(completed);
+    vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: "EVOLVING", currentRevision: marker.candidateRevision });
+    const first = await s.refreshPlan();
+    expect(first?.plan.steps[0]?.status).toBe("EXECUTING");
+    expect(s.receipt.value?.authorizationId).toBe(marker.authorizationId);
+    const second = await s.refreshPlan();
+    expect(second?.version).toBeGreaterThan(first!.version);
+    expect(s.receipt.value).toBeNull();
+    expect(api.repair).not.toHaveBeenCalled(); expect(api.rollback).not.toHaveBeenCalled();
+  });
+
+  it("被更新 GET 淘汰的执行前查询不能依据旧 READY 发送 POST", async () => {
+    const s = make(); ready(s);
+    let oldGet!: (value: ReturnType<typeof plan>) => void;
+    vi.mocked(api.plan).mockImplementationOnce(() => new Promise(resolve => { oldGet = resolve; }))
+      .mockResolvedValueOnce({ ...plan(), steps: [{ ...plan().steps[0]!, status: "EXECUTING" }] });
+    const execute = vi.spyOn(api, "execute");
+    const pending = s.execute("step-1");
+    for (let index = 0; index < 20; index++) await Promise.resolve();
+    await s.refreshPlan(); oldGet(plan()); await pending;
+    expect(execute).not.toHaveBeenCalled(); expect(s.receipt.value).toBeNull();
+    expect(s.plan.value?.steps[0]?.status).toBe("EXECUTING");
+  });
+
   it("具体授权拒绝沿用原有状态核对，不自动重试 execute", async () => {
     const s = make(); ready(s);
     const execute = vi.spyOn(api, "execute").mockRejectedValue(new ApiError(409, "ASSET_USAGE_AUTHORIZATION_REQUIRED"));

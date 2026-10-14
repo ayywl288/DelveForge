@@ -675,6 +675,70 @@ class EvolutionStepExecutionApiIntegrationTest {
         verifyNoInteractions(ai);
     }
 
+    private void installSentinelFilter(String driver) throws Exception {
+        Files.createDirectories(copy.resolve(".git/info"));
+        Files.writeString(copy.resolve(".git/info/attributes"), "A.java filter=" + driver + "\n");
+        git(copy, "config", "filter." + driver + ".clean", "printf 'old\\n'; printf hit >> .git/filter-ran");
+        Files.writeString(copy.resolve("A.java"), "evil\n");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"execute:unset", "execute:unspecified", "repair:unset", "repair:unspecified",
+            "rollback:unset", "rollback:unspecified"})
+    void sharedCheckerRejectsSentinelFiltersBeforeAnyNewAuthorization(String scenario) throws Exception {
+        String[] parts = scenario.split(":");
+        String action = parts[0];
+        EvolutionStep failed = action.equals("execute") ? null : failedCandidate();
+        if (failed == null) {
+            confirm();
+        }
+        String candidate = persistedCopy().currentRevision();
+        installSentinelFilter(parts[1]);
+        Map<String, String> original = snapshot(source);
+        reset(ai);
+        var request = post(route(action));
+        if (!action.equals("execute")) {
+            request.contentType(MediaType.APPLICATION_JSON).content(action.equals("repair")
+                    ? repairBody(candidate, UUID.randomUUID().toString())
+                    : rollbackBody(candidate, revision, UUID.randomUUID().toString()));
+        }
+        mvc.perform(request).andExpect(status().isConflict());
+        EvolutionStep after = currentStep();
+        assertEquals(failed == null ? EvolutionStepStatus.READY : EvolutionStepStatus.VERIFICATION_FAILED, after.status());
+        assertTrue(after.repairAuthorizations().isEmpty());
+        assertNull(after.rollbackAuthorization());
+        assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+        assertEquals("evil\n", Files.readString(copy.resolve("A.java")));
+        assertEquals(original, snapshot(source));
+        assertEquals(candidate, persistedCopy().currentRevision());
+        verifyNoInteractions(ai);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"unset", "unspecified"})
+    void repairSentinelFilterAfterGrantKeepsUnknownCheckpointWithoutSideEffects(String driver) throws Exception {
+        EvolutionStep failed = failedCandidate();
+        String candidate = failed.executionResult().candidateRevision();
+        coding("--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new \n+repaired\n", "DIFF_CHECK");
+        providerHook = () -> {
+            try {
+                installSentinelFilter(driver);
+            } catch (Exception failure) {
+                throw new AssertionError(failure);
+            }
+        };
+        String authorization = UUID.randomUUID().toString();
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(repairBody(candidate, authorization))).andExpect(status().isConflict());
+        assertEquals(EvolutionStepStatus.EXECUTING, currentStep().status());
+        assertEquals(authorization, currentStep().repairAuthorizations().getLast().id());
+        assertNull(currentStep().executionResult());
+        assertEquals(candidate, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+        assertEquals("evil\n", Files.readString(copy.resolve("A.java")));
+    }
+
     private void hideUnchangedTrackedContent() throws Exception {
         git(copy, "config", "core.trustctime", "false");
         git(copy, "config", "core.checkstat", "minimal");
@@ -713,7 +777,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     @ParameterizedTest
     @ValueSource(strings = {"index-lock", "head-lock", "extra-after-grant", "ignored-after-grant", "dirty-after-grant",
             "unknown", "wrong-success", "post-restore-change", "revoke-after-restore", "replace-baseline", "graft-view",
-            "hidden-after-grant", "hidden-post-restore-change"})
+            "hidden-after-grant", "hidden-post-restore-change", "filter-unset-after-grant", "filter-unspecified-after-grant"})
     void rollbackFailureOrUnknownBlocksWithoutDeletingUserFiles(String fault) throws Exception {
         EvolutionStep failed = failedCandidate();
         String candidate = failed.executionResult().candidateRevision();
@@ -731,6 +795,8 @@ class EvolutionStepExecutionApiIntegrationTest {
                 }
                 case "dirty-after-grant" -> Files.writeString(copy.resolve("A.java"), "USER CONTENT\n");
                 case "hidden-after-grant" -> hideUnchangedTrackedContent();
+                case "filter-unset-after-grant", "filter-unspecified-after-grant" ->
+                        installSentinelFilter(fault.contains("unspecified") ? "unspecified" : "unset");
                 case "replace-baseline" -> {
                     String tree = git(copy, "rev-parse", "HEAD^{tree}").trim();
                     String replacement = git(copy, "-c", "user.name=Fixture", "-c", "user.email=fixture@invalid",
@@ -783,6 +849,10 @@ class EvolutionStepExecutionApiIntegrationTest {
             assertTrue(fault.equals("replace-baseline")
                     ? !git(copy, "for-each-ref", "--format=%(refname)", "refs/replace/").isBlank()
                     : Files.exists(copy.resolve(".git/info/grafts")));
+        }
+        if (fault.startsWith("filter-")) {
+            assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+            assertEquals("evil\n", Files.readString(copy.resolve("A.java")));
         }
         mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
         mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
