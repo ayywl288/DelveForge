@@ -2625,6 +2625,30 @@ Execution / Repair / Rollback，不重放、不推断旧调用已停止，不转
 后续 Recovery Slice 仍须裁定旧调用停止的判据、所有权与未知结果处理；本轮没有 Recovery 请求入口。
 数据库拒绝成功与阻塞检查点时也只能保留 `ROLLING_BACK`；不能伪造已持久化的失败或恢复成功。
 
+**M5-D 实现范围（feature/m5-lab 实验）：** 受控 Execution 明确失败后，先原子保存
+`ExecutionFailureResult` 与 EXECUTING → ROLLING_BACK，再尝试系统 Rollback。此记录没有 Candidate，
+其失败身份只用于本次系统操作关联，不制造 `RollbackAuthorization`；当前版本的完整 ExecutionResult
+继续只表示合法 Candidate。失败记录绑定首次 baseline、本次起点、阶段与有限诊断。此前 Repair 的
+授权及 Execution / Verification 失败快照保留。系统恢复结果以独立 `AutomaticRollbackResult` 保存。
+
+当前有限技术判定只接受正常结束、完整读取且带 Git 拒绝标记的受控命令负向结果；不以任意异常或
+非零退出推断失败。超时、中断、信号退出、输出丢失、Provider / 提案异常或 Candidate 保存异常仍
+保持最后完整检查点，不自动回滚或重放；本 Slice 不扩展其分类。失败 Diff 证据为固定 baseline blob、
+实际 index mode / blob / stage、重新读取物理文件的 byte identity 差异及预期补丁 tree。
+它不持久化原始源码、完整 unifiedDiff 或自由命令输出；CRLF 的原始 identity 可以不同于 canonical blob。
+无法完整读取时明确保存证据不可用，不能将它作为破坏性恢复依据。
+
+系统回滚复用精确 baseline 证明。干净执行起点沿用非强制 checkout；完整但未发布的补丁只有在
+失败现场未漂移、整树 index 与真实内容匹配本次固定预期 tree、隔离 / 路径 / 属性 / 额外文件守卫
+均通过后，才恢复 baseline..tree 的已跟踪 Step 文件，再做 detached checkout 与完整基线证明。
+无法证明归属的部分写入、额外用户文件、属性转换不安全或恢复结果未知进入 RECOVERY_REQUIRED。
+不使用 reset --hard / clean，不清理其他文件，不形成假的 Candidate，不推进 lastVerifiedRevision。
+失败诊断 CAS 与已有阻塞提交一样，只追加已授权执行的安全事实，不授予 Workspace 权限；
+执行后撤权或 Plan 失效不抹去诊断。恢复能力之前仍完整重查当前资产 / Flow / Plan 资格，失效时只保存
+RECOVERY_REQUIRED，不调用 Git。诊断提交失败则不启动恢复；终态与阻塞检查点都不可保存时保留
+ROLLING_BACK 并返回错误。
+重启继续只读保存事实，不判断旧调用已停止，不重放未决 Execution 或 Rollback。
+
 ### 8.14 Retry Evolution Step
 
 **Purpose**

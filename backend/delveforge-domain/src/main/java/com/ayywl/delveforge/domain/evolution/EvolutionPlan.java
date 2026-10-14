@@ -155,6 +155,22 @@ public final class EvolutionPlan {
         step(id).authorizeRepair(authorizationId, candidate, authorizedAt);
     }
 
+    /** 保存失败证据与系统 ROLLING_BACK；不把未完成修改当作 Candidate。 */
+    public void failStepExecution(EvolutionStepId id, WorkingCopy copy, ExecutionFailureResult failure) {
+        requireExecutionOwner(copy);
+        EvolutionStep step = step(id);
+        copy.requireCheckpoint(step.baselineRevision(), step.executionStartRevision());
+        step.failExecution(failure);
+    }
+
+    public void finishAutomaticStepRollback(EvolutionStepId id, WorkingCopy copy, AutomaticRollbackResult result) {
+        requireExecutionOwner(copy);
+        EvolutionStep step = step(id);
+        step.requireAutomaticRollbackResult(result);
+        copy.finishRollback(step.baselineRevision(), step.executionStartRevision(), result.restored());
+        step.finishAutomaticRollback(result);
+    }
+
     /** 当前失败 Candidate 的独立授权；不复用确认或 Repair 授权，不改变首次 baseline。 */
     public void authorizeStepRollback(EvolutionStepId id, WorkingCopy copy, StepExecutionPolicy policy,
             String authorizationId, String candidate, String baseline, java.time.Instant authorizedAt) {

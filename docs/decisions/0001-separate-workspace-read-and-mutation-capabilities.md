@@ -293,3 +293,11 @@ WorkspaceReadPort
 WorkspaceMutationPort
 WorkspaceRef
 ```
+
+## M5-D refinement — 2026-10-14
+
+System Rollback 继续使用独立 WorkspaceRollbackPort 和 Option E 的范围绑定。能力从已保存的
+Execution Failure / ROLLING_BACK 检查点建立，不制造 User Rollback 授权；正常 User Rollback 入口仍须
+独立授权。Application 不持有 shell 或 filesystem 能力，Infrastructure 仅恢复能证明归属的 Step 修改。
+固定预期 tree 只是未发布补丁的技术证据，不成为 Candidate 或新的领域 Aggregate。
+未知执行结果、未决重启和无法证明的文件现场继续 fail closed；不引入任务引擎或自动重放。

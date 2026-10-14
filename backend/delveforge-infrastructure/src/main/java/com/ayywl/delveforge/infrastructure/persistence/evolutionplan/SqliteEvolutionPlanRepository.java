@@ -157,7 +157,11 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
                     StepResultJson.read(step.getRollbackAuthorization(),
                             com.ayywl.delveforge.domain.evolution.RollbackAuthorization.class),
                     StepResultJson.read(step.getRollbackResult(),
-                            com.ayywl.delveforge.domain.evolution.RollbackResult.class)));
+                            com.ayywl.delveforge.domain.evolution.RollbackResult.class),
+                    StepResultJson.read(step.getExecutionFailureResult(),
+                            com.ayywl.delveforge.domain.evolution.ExecutionFailureResult.class),
+                    StepResultJson.read(step.getAutomaticRollbackResult(),
+                            com.ayywl.delveforge.domain.evolution.AutomaticRollbackResult.class)));
         }
 
         // 已保存的是被接受的领域事实；读取时直接重建正式值，不重新制造 AI 提案。

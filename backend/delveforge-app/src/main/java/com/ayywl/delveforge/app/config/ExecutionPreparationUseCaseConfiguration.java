@@ -1,7 +1,7 @@
 package com.ayywl.delveforge.app.config;
 
-import com.ayywl.delveforge.application.evolution.preparation.CodingProposalParser;
 import com.ayywl.delveforge.application.evolution.execution.RollbackEvolutionStepUseCase;
+import com.ayywl.delveforge.application.evolution.preparation.CodingProposalParser;
 import com.ayywl.delveforge.application.evolution.preparation.CodingProposalValidator;
 import com.ayywl.delveforge.application.evolution.preparation.ConfirmEvolutionStepUseCase;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationLimits;
@@ -36,9 +36,10 @@ public class ExecutionPreparationUseCaseConfiguration {
     @Bean
     public com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase executeEvolutionStepUseCase(
             PrepareEvolutionStepUseCase preparation, ExecutionPreparationState state, StepExecutionPolicy policy,
-            StepExecutionCommitPort commits, WorkspaceMutationPort mutation, WorkspaceVerificationPort verification) {
+            StepExecutionCommitPort commits, WorkspaceMutationPort mutation, WorkspaceVerificationPort verification,
+            WorkspaceRollbackPort rollback) {
         return new com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase(
-                preparation, state, policy, commits, mutation, verification);
+                preparation, state, policy, commits, mutation, verification, rollback);
     }
 
     @Bean

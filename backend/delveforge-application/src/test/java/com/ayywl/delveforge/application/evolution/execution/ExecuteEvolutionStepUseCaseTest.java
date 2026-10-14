@@ -78,6 +78,7 @@ class ExecuteEvolutionStepUseCaseTest {
     private static final class Workspace implements WorkingCopyInspectionPort, WorkspaceMutationPort, WorkspaceVerificationPort {
         String head = "A";
         boolean mutationFails;
+        ExecutionFailureResult confirmedFailure;
         boolean unexpected;
         boolean verificationFails;
         boolean unsupported;
@@ -105,6 +106,7 @@ class ExecuteEvolutionStepUseCaseTest {
             assertEquals(EvolutionStepStatus.EXECUTING, store.plan.step(STEP).status());
             assertEquals("A", store.plan.step(STEP).baselineRevision());
             assertEquals("A", store.copy.lastVerifiedRevision());
+            if (confirmedFailure != null) { throw new ConfirmedExecutionFailureException(confirmedFailure); }
             head = "B";
             if (mutationFails) { throw new EvolutionExecutionException("partial mutation"); }
             return new CandidateMutationResult("B", List.of(unexpected ? ".git/config" : "src/A.java"),
@@ -157,7 +159,7 @@ class ExecuteEvolutionStepUseCaseTest {
                     new WorkspaceRef("managed"), Map.of("src/A.java", "old\n"), Set.of(), Set.of("src/A.java"));
         }
         ExecuteEvolutionStepUseCase useCase() {
-            return new ExecuteEvolutionStepUseCase(null, state, new StepExecutionPolicy(), store, workspace, workspace);
+            return new ExecuteEvolutionStepUseCase(null, state, new StepExecutionPolicy(), store, workspace, workspace, request -> { throw new AssertionError("Unexpected rollback"); });
         }
     }
 
@@ -287,5 +289,36 @@ class ExecuteEvolutionStepUseCaseTest {
         assertNull(f.store.plan.step(STEP).verificationResult());
         assertThrows(EvolutionPlanStateException.class, () -> f.useCase().execute(proposal));
         assertEquals(1, f.workspace.mutations);
+    }
+    @ParameterizedTest
+    @ValueSource(ints = {0, 2, 3})
+    void confirmedFailureSavesDiagnosticBeforeSingleRollbackAndHonorsCheckpointFailures(int failAt) {
+        Fixture f = new Fixture();
+        ExecutionFailureResult failure = new ExecutionFailureResult("failure", "A", "A", "APPLY", 128,
+                "CONFIRMED_GIT_REJECTION", "A", null, true, List.of(), Instant.now());
+        f.workspace.confirmedFailure = failure;
+        f.store.failAt = failAt;
+        int[] calls = {0};
+        ExecuteEvolutionStepUseCase useCase = new ExecuteEvolutionStepUseCase(null, f.state,
+                new StepExecutionPolicy(), f.store, f.workspace, f.workspace, request -> {
+                    calls[0]++;
+                    assertEquals(EvolutionStepStatus.ROLLING_BACK, f.store.plan.step(STEP).status());
+                    assertEquals(failure, f.store.plan.step(STEP).executionFailureResult());
+                    assertNull(request.authorization());
+                    throw new WorkspaceException("unknown rollback result");
+                });
+        if (failAt == 0) {
+            assertEquals(EvolutionStepStatus.RECOVERY_REQUIRED, useCase.execute(f.proposal("A")).step(STEP).status());
+            assertFalse(f.store.plan.step(STEP).automaticRollbackResult().restored());
+        } else {
+            assertThrows(EvolutionLifecycleConflictException.class, () -> useCase.execute(f.proposal("A")));
+            assertEquals(failAt == 2 ? EvolutionStepStatus.EXECUTING : EvolutionStepStatus.ROLLING_BACK,
+                    f.store.plan.step(STEP).status());
+        }
+        assertEquals(failAt == 2 ? 0 : 1, calls[0]);
+        assertEquals("A", f.store.copy.currentRevision());
+        assertEquals("A", f.store.copy.lastVerifiedRevision());
+        assertNull(f.store.plan.step(STEP).executionResult());
+        assertEquals(0, f.workspace.verifications);
     }
 }

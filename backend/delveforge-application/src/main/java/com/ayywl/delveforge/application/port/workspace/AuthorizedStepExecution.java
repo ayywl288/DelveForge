@@ -16,11 +16,13 @@ public final class AuthorizedStepExecution {
     private final WorkspaceRef workingCopy;
     private final WorkspaceRef originalAsset;
     private final ValidatedExecutionProposal validated;
+    private final String baselineRevision;
 
-    private AuthorizedStepExecution(WorkspaceRef copy, WorkspaceRef original, ValidatedExecutionProposal validated) {
+    private AuthorizedStepExecution(WorkspaceRef copy, WorkspaceRef original, ValidatedExecutionProposal validated, String baselineRevision) {
         this.workingCopy = copy;
         this.originalAsset = original;
         this.validated = validated;
+        this.baselineRevision = baselineRevision;
     }
 
     /** 仅从匹配提案依据的 EXECUTING 状态构造修改请求；不制造新的用户授权。 */
@@ -38,7 +40,7 @@ public final class AuthorizedStepExecution {
                 || !basis.expectedRevision().equals(copy.lastVerifiedRevision())) {
             throw new EvolutionPlanStateException("Mutation requires its authorized execution checkpoint");
         }
-        return new AuthorizedStepExecution(new WorkspaceRef(copy.location()), original, validated);
+        return new AuthorizedStepExecution(new WorkspaceRef(copy.location()), original, validated, step.baselineRevision());
     }
 
     /** Repair 的修改起点是授权的 Candidate；软件信任仍绑定首次 baseline，不因此升级 Candidate。 */
@@ -57,8 +59,10 @@ public final class AuthorizedStepExecution {
                 || !step.baselineRevision().equals(copy.lastVerifiedRevision())) {
             throw new EvolutionPlanStateException("Mutation requires the matching one-time Repair checkpoint");
         }
-        return new AuthorizedStepExecution(new WorkspaceRef(copy.location()), original, validated);
+        return new AuthorizedStepExecution(new WorkspaceRef(copy.location()), original, validated, step.baselineRevision());
     }
+
+    public String baselineRevision() { return baselineRevision; }
 
     public WorkspaceRef workingCopy() {
         return workingCopy;

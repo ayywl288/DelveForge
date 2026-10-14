@@ -8,16 +8,22 @@ import com.ayywl.delveforge.application.evolution.preparation.PrepareEvolutionSt
 import com.ayywl.delveforge.application.evolution.preparation.ValidatedExecutionProposal;
 import com.ayywl.delveforge.application.port.persistence.StepExecutionCommitPort;
 import com.ayywl.delveforge.application.port.workspace.AuthorizedStepExecution;
+import com.ayywl.delveforge.application.port.workspace.AuthorizedStepRollback;
 import com.ayywl.delveforge.application.port.workspace.CandidateMutationResult;
 import com.ayywl.delveforge.application.port.workspace.CandidateVerification;
+import com.ayywl.delveforge.application.port.workspace.ConfirmedExecutionFailureException;
 import com.ayywl.delveforge.application.port.workspace.VerificationFacts;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyRollbackException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceRollbackPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceVerificationPort;
+import com.ayywl.delveforge.domain.evolution.AutomaticRollbackResult;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
+import com.ayywl.delveforge.domain.evolution.ExecutionFailureResult;
 import com.ayywl.delveforge.domain.evolution.ExecutionResult;
 import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
 import com.ayywl.delveforge.domain.evolution.VerificationResult;
@@ -43,16 +49,18 @@ public final class ExecuteEvolutionStepUseCase {
     private final StepExecutionCommitPort commits;
     private final WorkspaceMutationPort mutation;
     private final WorkspaceVerificationPort verification;
+    private final WorkspaceRollbackPort rollback;
 
     public ExecuteEvolutionStepUseCase(PrepareEvolutionStepUseCase preparation, ExecutionPreparationState state,
             StepExecutionPolicy policy, StepExecutionCommitPort commits, WorkspaceMutationPort mutation,
-            WorkspaceVerificationPort verification) {
+            WorkspaceVerificationPort verification, WorkspaceRollbackPort rollback) {
         this.preparation = preparation;
         this.state = state;
         this.policy = policy;
         this.commits = commits;
         this.mutation = mutation;
         this.verification = verification;
+        this.rollback = rollback;
     }
 
     public EvolutionPlan execute(EvolutionPlanId planId, EvolutionStepId stepId) {
@@ -114,7 +122,12 @@ public final class ExecuteEvolutionStepUseCase {
         AuthorizedStepExecution capability = basis.repairAuthorizationId() == null
                 ? AuthorizedStepExecution.from(plan, id, copy, original, validated)
                 : AuthorizedStepExecution.fromRepair(plan, id, copy, original, validated);
-        CandidateMutationResult candidate = mutation.applyCandidate(capability);
+        CandidateMutationResult candidate;
+        try {
+            candidate = mutation.applyCandidate(capability);
+        } catch (ConfirmedExecutionFailureException failure) {
+            return handleExecutionFailure(executing, id, failure.result());
+        }
         if (candidate.revision() == null || candidate.revision().equals(basis.expectedRevision())
                 || candidate.changedPaths().size() != new HashSet<>(candidate.changedPaths()).size()
                 || !new HashSet<>(candidate.changedPaths())
@@ -148,6 +161,62 @@ public final class ExecuteEvolutionStepUseCase {
         }
         commits.commit(verifying.plan(), id, verifying.copy(), verifying.asset(), completed, completedCopy);
         return completed;
+    }
+
+    private EvolutionPlan handleExecutionFailure(Loaded executing, EvolutionStepId id, ExecutionFailureResult failure) {
+        // 失败诊断只写已保存 EXECUTING 的完整 CAS；当前权限 / 资格只在恢复能力之前重新核对。
+        EvolutionPlan failed = executing.plan().copy();
+        WorkingCopy retained = executing.copy().copy();
+        failed.failStepExecution(id, retained, failure);
+        // 诊断与 ROLLING_BACK 必须先落盘；提交失败时不启动任何恢复动作。
+        commits.commit(executing.plan(), id, executing.copy(), executing.asset(), failed, retained);
+        Loaded rolling = new Loaded(failed, retained, executing.asset());
+        String observed = null;
+        try {
+            rolling = state.requireCheckpointMetadata(rolling, id);
+            WorkspaceRollbackPort.RestoredBaseline restored = rollback.restoreBaseline(
+                    AuthorizedStepRollback.fromExecutionFailure(rolling.plan(), id, rolling.copy(),
+                            new WorkspaceRef(rolling.asset().location())));
+            observed = restored.revision();
+            if (observed != null && !observed.matches("[0-9a-f]{40}")) {
+                observed = null;
+            }
+            if (!failure.baselineRevision().equals(observed) || restored.restoredAt() == null) {
+                throw new EvolutionExecutionException("Automatic rollback did not prove the original baseline");
+            }
+            rolling = state.requireCheckpoint(rolling, id, failure.baselineRevision());
+            return finishAutomaticRollback(rolling, id, new AutomaticRollbackResult(failure.id(),
+                    failure.baselineRevision(), observed, true, "EXACT_BASELINE_CONFIRMED", restored.restoredAt()));
+        } catch (RuntimeException error) {
+            if (error instanceof WorkingCopyRollbackException detail) {
+                observed = detail.observedRevision();
+            }
+            String diagnostic = error instanceof WorkingCopyRollbackException detail
+                    ? "RESTORATION_NOT_CONFIRMED:" + detail.phase()
+                            + (detail.exitCode() == null ? "" : ":exit=" + detail.exitCode())
+                    : "ROLLBACK_NOT_COMMITTED:" + error.getClass().getSimpleName();
+            boolean interrupted = Thread.interrupted();
+            try {
+                return finishAutomaticRollback(rolling, id, new AutomaticRollbackResult(failure.id(),
+                        failure.baselineRevision(), observed, false, diagnostic, Instant.now()));
+            } catch (RuntimeException checkpointFailure) {
+                checkpointFailure.addSuppressed(error);
+                throw checkpointFailure;
+            } finally {
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+    }
+
+    private EvolutionPlan finishAutomaticRollback(Loaded rolling, EvolutionStepId id, AutomaticRollbackResult result) {
+        EvolutionPlan completed = rolling.plan().copy();
+        WorkingCopy copy = rolling.copy().copy();
+        completed.finishAutomaticStepRollback(id, copy, result);
+        commits.commit(rolling.plan(), id, rolling.copy(), rolling.asset(), completed, copy);
+        // 安全阻塞提交可能遇到已失效 Plan；返回数据库真实父状态，不用旧 ACTIVE 快照伪造资格。
+        return state.readStoredPlan(completed.id());
     }
 
     private CandidateVerification request(Loaded loaded, ValidatedExecutionProposal validated, String candidate) {

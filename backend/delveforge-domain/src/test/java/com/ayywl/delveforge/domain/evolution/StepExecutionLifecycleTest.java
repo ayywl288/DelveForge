@@ -372,4 +372,59 @@ class StepExecutionLifecycleTest {
         assertTrue(plan.step(first).repairAuthorizations().isEmpty());
         assertEquals("A", copy.lastVerifiedRevision());
     }
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void confirmedExecutionFailureRequiresExactSystemRollbackAndPreservesNoCandidate(boolean restored) {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        ExecutionFailureResult failure = new ExecutionFailureResult("failure", "A", "A", "APPLY", 128,
+                "CONFIRMED_GIT_REJECTION", "A", null, true, List.of(), Instant.now());
+        plan.failStepExecution(first, copy, failure);
+        assertEquals(EvolutionStepStatus.ROLLING_BACK, plan.copy().step(first).status());
+        assertEquals("A", copy.currentRevision());
+        assertNull(plan.step(first).executionResult());
+        assertNull(plan.step(first).verificationResult());
+        assertNull(plan.step(first).rollbackAuthorization());
+        assertThrows(EvolutionPlanStateException.class, () -> plan.confirmStep(second, copy, policy));
+        assertThrows(EvolutionPlanStateException.class, () -> plan.failStepExecution(first, copy, failure));
+        assertThrows(EvolutionPlanStateException.class, () -> plan.finishAutomaticStepRollback(first, copy,
+                new AutomaticRollbackResult("stale", "A", null, false, "UNKNOWN", Instant.now())));
+        assertThrows(EvolutionPlanStateException.class, () -> new AutomaticRollbackResult("failure", "A", "B", true,
+                "FALSE_SUCCESS", Instant.now()));
+        plan.finishAutomaticStepRollback(first, copy, new AutomaticRollbackResult("failure", "A", restored ? "A" : null,
+                restored, restored ? "EXACT_BASELINE_CONFIRMED" : "NOT_CONFIRMED", Instant.now()));
+        assertEquals(restored ? EvolutionStepStatus.FAILED : EvolutionStepStatus.RECOVERY_REQUIRED,
+                plan.copy().step(first).status());
+        assertEquals(failure, plan.copy().step(first).executionFailureResult());
+        assertEquals("A", copy.lastVerifiedRevision());
+        assertThrows(EvolutionPlanStateException.class, () -> plan.confirmStep(second, copy, policy));
+        assertThrows(EvolutionPlanStateException.class, () -> plan.startStep(first, copy, policy));
+    }
+
+    @Test
+    void repairExecutionFailureRetainsOriginalBaselineAndAllFailedVerificationHistory() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        plan.recordExecution(first, copy, execution("B"));
+        plan.failStepVerification(first, copy, new VerificationResult("B", List.of(
+                new VerificationResult.Check("BUILD", "", List.of(1), VerificationResult.Outcome.FAILED, "build failed"),
+                new VerificationResult.Check("TEST", "", List.of(2), VerificationResult.Outcome.NOT_RUN, "not run")),
+                false, List.of("build failed"), "confirmed failure", Instant.now()));
+        plan.authorizeStepRepair(first, copy, policy, "repair", "B", Instant.now());
+        var history = plan.step(first).repairAuthorizations();
+        ExecutionFailureResult failure = new ExecutionFailureResult("failure", "A", "B", "PUBLISH", 128,
+                "CONFIRMED_GIT_REJECTION", "B", "tree", true, List.of(), Instant.now());
+        plan.failStepExecution(first, copy, failure);
+        plan.finishAutomaticStepRollback(first, copy, new AutomaticRollbackResult("failure", "A", "A", true,
+                "EXACT_BASELINE_CONFIRMED", Instant.now()));
+        assertEquals("A", copy.currentRevision());
+        assertEquals("A", plan.step(first).baselineRevision());
+        assertEquals(history, plan.copy().step(first).repairAuthorizations());
+        assertEquals("B", history.getFirst().previousExecution().candidateRevision());
+        assertNull(plan.step(first).executionResult());
+    }
 }

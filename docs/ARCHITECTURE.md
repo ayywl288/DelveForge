@@ -1239,6 +1239,23 @@ M5-004 的前端 GET 返回已采纳快照或 null；清理等待标记要求该
 被淘汰 GET、执行前资格查询未被采纳、已保存的未决授权都不允许触发新的 POST 或清理等待。
 
 
+**Execution Failure（M5-D 实验分支）：** `WorkspaceMutationPort` 只通过专用确认失败类型提供
+已完成的负向执行事实；其他异常保持未知。Git 适配器保存阶段、受控拒绝类别与真实 identity Diff，
+不保存命令自由文本。Application 将失败与 ROLLING_BACK 先原子提交，再从该检查点建立系统恢复
+capability；它不需要 AI Gateway 或新的用户 Rollback 授权。User Rollback 的独立授权边界保持。
+
+`AuthorizedStepRollback.fromExecutionFailure` 是 Option E 的系统触发入口，绑定原 Step / WorkingCopy
+与已保存失败。完整未发布补丁采用只针对已证明 Step 路径的 `restore --source=baseline --staged --worktree`，
+再沿用非强制 checkout、无 filter 的整树字节 / index / mode 证明。完整预期 tree 来自固定起点和
+校验补丁的调用私有 index，不是 Candidate 或受信 Revision。其他部分写入与额外文件保守阻塞。
+
+V20 仅增加 nullable 失败 / 系统恢复结果 JSON；CAS 比较这些字段与已有授权、历史、状态及 revision。
+Persistence 重放 Domain 操作；diagnoseFailure 仅向匹配 EXECUTING 元组追加失败 / ROLLING_BACK，
+沿用 blockRollback 的安全事实模式。它不授予外部能力；恢复前仍检查当前资产与 Flow / Plan 资格。
+所有外部恢复与数据库仍分离。成功检查点不可提交时尝试保存阻塞事实，
+两种终态都不可保存则保留原未决检查点。无后台任务、自动 Retry 或启动补偿。
+现有 execute / repair 返回保存的真实 Plan；新增只读结果字段与 UI 诊断，不开放新的执行或恢复入口。
+
 ## 7. Dependency Rules
 
 本节描述代码模块之间允许存在的依赖方向，而不是系统运行时的调用顺序。

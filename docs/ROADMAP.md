@@ -624,7 +624,7 @@ M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整�
 
 ### M5 — Failure Safety & Recovery
 
-**Status:** IN_PROGRESS（仅 feature/m5-lab 实验分支的 M5-A / M5-B / M5-C；2026-10-13）。其余 Slice 暂缓。
+**Status:** IN_PROGRESS（仅 feature/m5-lab 实验分支的 M5-A / M5-B / M5-C / M5-D；2026-10-14）。其余 Slice 暂缓。
 
 M5-A 实现范围：同一 Candidate 的明确 Verification FAIL → 保存 VerificationResult →
 VERIFICATION_FAILED；Candidate 与 baseline 保留、lastVerifiedRevision 不推进、后续 Step 被阻止。
@@ -639,6 +639,11 @@ M5-C 范围：独立授权当前 VERIFICATION_FAILED 的 User Rollback，精确�
 保留失败及 Repair 历史；恢复未确认则阻塞，不清理额外用户文件。重启残留 ROLLING_BACK 按用户
 裁定保留检查点且不重放。见 [M5-C 报告](validation/m5-c-user-rollback.md)；不实现自动回滚、Retry 或 Recovery。
 
+M5-D 范围：明确的受控 Execution Failure → 保存诊断与实际 Diff identity → 系统 Rollback，
+精确恢复后 FAILED，未确认恢复则 RECOVERY_REQUIRED。未发布完整补丁需证明整树和归属；
+未知执行结果和重启未决检查点不重放。见 [M5-D 报告](validation/m5-d-execution-failure-handling.md)。
+不实现 FAILED Retry、Recovery 或 Verification 重构。
+
 **Goal**
 
 补齐 Evolution Execution 的主要异常路径，使一次失败的代码修改不会破坏后续演化的可信基础。
@@ -647,11 +652,11 @@ M5-C 范围：独立授权当前 VERIFICATION_FAILED 的 User Rollback，精确�
 
 #### Execution Failure
 
-- [ ] 保存 Execution Failure 的诊断信息。
-- [ ] 保存必要 Diff / Execution Result。
-- [ ] 自动进入 Rollback。
-- [ ] Rollback 成功后恢复 baselineRevision。
-- [ ] Step 进入 `FAILED`。
+- [x] 保存 Execution Failure 的诊断信息。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
+- [x] 保存必要 Diff / Execution Result。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
+- [x] 自动进入 Rollback。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
+- [x] Rollback 成功后恢复 baselineRevision。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
+- [x] Step 进入 `FAILED`。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
 - [ ] 支持用户明确 Retry。
 
 #### Verification Failure

@@ -324,6 +324,22 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
           </details>
           <p v-if="chosen.status === 'READY'" class="meta">READY 表示已授权的就绪状态；准备提案期间也可能保持 READY，不能据此判断请求已结束。</p>
         </section>
+        <section v-if="chosen.executionFailureResult" class="execution-section">
+          <h3>执行失败与自动回滚</h3>
+          <p>执行已确认失败，未形成合法 Candidate。</p>
+          <p class="meta">阶段：{{ chosen.executionFailureResult.phase }} · {{ chosen.executionFailureResult.diagnostic }}</p>
+          <RevisionText label="原始可信基线" :value="chosen.executionFailureResult.baselineRevision" />
+          <p v-if="chosen.automaticRollbackResult">{{ chosen.automaticRollbackResult.restored
+            ? '已确认精确恢复原始基线。此步骤未成功，等待后续明确操作。'
+            : '完整恢复未确认，禁止继续修改。' }}</p>
+          <p v-else>尚无最终恢复结果。不会自动重放执行或回滚。</p>
+          <details class="reading-disclosure">
+            <summary>失败现场的文件证据</summary>
+            <p v-if="!chosen.executionFailureResult.diffComplete">现场证据未完整读取，不能据此确认恢复范围。</p>
+            <p v-else-if="!chosen.executionFailureResult.diff.length">已核对的现场没有相对基线的字节差异。</p>
+            <p v-for="entry in chosen.executionFailureResult.diff" :key="entry.path">{{ entry.path }}</p>
+          </details>
+        </section>
         <section v-if="chosen.rollbackAuthorization" class="execution-section">
           <h3>回滚授权与恢复结果</h3>
           <p class="meta">授权 ID：{{ chosen.rollbackAuthorization.id }}</p>

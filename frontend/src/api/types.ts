@@ -149,6 +149,17 @@ export interface EvolutionStep {
     previousExecution: ExecutionResult;
     previousVerification: VerificationResult;
   }[];
+  executionFailureResult?: {
+    id: string; baselineRevision: string; startingRevision: string; phase: string;
+    exitCode: number; diagnostic: string; observedRevision: string | null; expectedTree: string | null;
+    diffComplete: boolean;
+    diff: { path: string; baselineBlob: string | null; indexEntry: string | null; workingBlob: string | null }[];
+    failedAt: string;
+  } | null;
+  automaticRollbackResult?: {
+    failureId: string; baselineRevision: string; observedRevision: string | null;
+    restored: boolean; diagnostic: string; completedAt: string;
+  } | null;
   rollbackAuthorization?: {
     id: string; candidateRevision: string; baselineRevision: string; authorizedAt: string;
   } | null;

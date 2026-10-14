@@ -752,4 +752,26 @@ describe("长同步 execute", () => {
     await s.execute("step-1");
     expect(execute).not.toHaveBeenCalled();
   });
+  it.each(["ROLLING_BACK", "FAILED", "RECOVERY_REQUIRED"] as const)(
+    "系统回滚 %s 仅采纳 GET 事实，不重发任何操作", async (status) => {
+      localStorage.setItem(executionKey, JSON.stringify({ planId: "plan-1", stepId: "step-1", startedAt: "2026-10-14T10:00:00Z" }));
+      const s = make(); ready(s);
+      const current = plan(); const step = current.steps[0]!; step.status = status; step.baselineRevision = "a".repeat(40);
+      step.executionFailureResult = { id: "failure", baselineRevision: "a".repeat(40), startingRevision: "a".repeat(40),
+        phase: "APPLY", exitCode: 128, diagnostic: "CONFIRMED_GIT_REJECTION", observedRevision: "a".repeat(40),
+        expectedTree: null, diffComplete: true, diff: [], failedAt: "2026-10-14T10:00:00Z" };
+      if (status !== "ROLLING_BACK") {
+        step.automaticRollbackResult = { failureId: "failure", baselineRevision: "a".repeat(40), observedRevision: status === "FAILED" ? "a".repeat(40) : null,
+          restored: status === "FAILED", diagnostic: "RESULT", completedAt: "2026-10-14T10:01:00Z" };
+      }
+      vi.mocked(api.plan).mockResolvedValue(current);
+      vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: status === "RECOVERY_REQUIRED" ? "RECOVERY_REQUIRED" : "EVOLVING" });
+      const execute = vi.spyOn(api, "execute"); const repair = vi.spyOn(api, "repair"); const rollback = vi.spyOn(api, "rollback");
+      await s.refreshPlan();
+      expect(!!s.receipt.value).toBe(status === "ROLLING_BACK");
+      await s.execute("step-1"); await s.repair("step-1", "a".repeat(40));
+      await s.rollback("step-1", "a".repeat(40), "a".repeat(40));
+      expect(execute).not.toHaveBeenCalled(); expect(repair).not.toHaveBeenCalled(); expect(rollback).not.toHaveBeenCalled();
+      expect(s.plan.value?.steps[0]?.status).toBe(status);
+    });
 });

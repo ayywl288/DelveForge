@@ -69,6 +69,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     @Autowired com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase execute;
     @MockitoSpyBean WorkspaceVerificationPort verification;
     @MockitoSpyBean WorkspaceRollbackPort rollback;
+    @MockitoSpyBean WorkspaceMutationPort mutation;
 
 
     private String planId;
@@ -80,7 +81,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     private Runnable providerHook;
 
     @BeforeEach void setup(TestInfo test) throws Exception {
-        reset(rollback);
+        reset(rollback, mutation);
         codingOutput = null;
         providerHook = null;
         source = BASE.resolve("source-" + UUID.randomUUID());
@@ -530,6 +531,208 @@ class EvolutionStepExecutionApiIntegrationTest {
         }
         verifyNoInteractions(ai);
         assertEquals(original, snapshot(source));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"initial", "repair", "rollback-failure", "unknown-rollback", "false-success", "asset-revoked", "plan-obsolete"})
+    void m5dRealExecutionRejectionPreservesEvidenceHistoryAndHonorsExactRollback(String scenario) throws Exception {
+        Map<String, String> original = snapshot(source);
+        EvolutionStep previous = null;
+        String starting = revision;
+        String repairId = UUID.randomUUID().toString();
+        if (scenario.equals("repair")) {
+            previous = failedCandidate();
+            starting = previous.executionResult().candidateRevision();
+            coding("--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new \n+repaired\n", "DIFF_CHECK");
+        } else {
+            confirm();
+            coding(PATCH, "DIFF_CHECK");
+        }
+        providerHook = () -> {
+            try { Files.writeString(copy.resolve(".git/index.lock"), "M5D OWNED FAULT"); }
+            catch (Exception failure) { throw new AssertionError(failure); }
+        };
+        doAnswer(invocation -> {
+            try { return invocation.callRealMethod(); }
+            catch (ConfirmedExecutionFailureException failure) {
+                Files.delete(copy.resolve(".git/index.lock"));
+                if (scenario.equals("asset-revoked")) {
+                    jdbc.update("UPDATE software_asset SET read_permission=0 WHERE id=?", ASSET.value());
+                } else if (scenario.equals("plan-obsolete")) {
+                    jdbc.update("UPDATE evolution_plan SET status='SUPERSEDED' WHERE id=?", planId);
+                }
+                throw failure;
+            }
+        }).when(mutation).applyCandidate(any());
+        if (scenario.equals("rollback-failure")) {
+            doAnswer(invocation -> {
+                Files.writeString(copy.resolve("user.txt"), "KEEP USER DATA");
+                return invocation.callRealMethod();
+            }).when(rollback).restoreBaseline(any());
+        } else if (scenario.equals("unknown-rollback")) {
+            doThrow(new WorkspaceException("result lost")).when(rollback).restoreBaseline(any());
+        } else if (scenario.equals("false-success")) {
+            doReturn(new WorkspaceRollbackPort.RestoredBaseline("f".repeat(40), java.time.Instant.now()))
+                    .when(rollback).restoreBaseline(any());
+        }
+        clearInvocations(mutation, rollback);
+        var request = scenario.equals("repair")
+                ? post(route("repair")).contentType(MediaType.APPLICATION_JSON).content(repairBody(starting, repairId))
+                : post(route("execute"));
+        mvc.perform(request).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(scenario.equals("plan-obsolete") ? "SUPERSEDED" : "ACTIVE"));
+        EvolutionStep step = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        boolean restored = scenario.equals("initial") || scenario.equals("repair");
+        assertEquals(restored ? EvolutionStepStatus.FAILED : EvolutionStepStatus.RECOVERY_REQUIRED, step.status());
+        assertNotNull(step.executionFailureResult());
+        assertEquals(starting, step.executionFailureResult().startingRevision());
+        assertEquals(revision, step.executionFailureResult().baselineRevision());
+        assertTrue(step.executionFailureResult().diffComplete());
+        assertEquals(restored, step.automaticRollbackResult().restored());
+        assertNull(step.executionResult());
+        assertNull(step.verificationResult());
+        assertNull(step.rollbackAuthorization());
+        assertEquals(revision, step.baselineRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(restored ? revision : starting, persistedCopy().currentRevision());
+        if (previous != null) {
+            assertEquals(1, step.repairAuthorizations().size());
+            assertEquals(repairId, step.repairAuthorizations().getFirst().id());
+            assertEquals(previous.verificationResult(), step.repairAuthorizations().getFirst().previousVerification());
+            assertFalse(step.executionFailureResult().diff().isEmpty());
+        }
+        if (scenario.equals("rollback-failure")) { assertEquals("KEEP USER DATA", Files.readString(copy.resolve("user.txt"))); }
+        verify(mutation, times(1)).applyCandidate(any());
+        verify(rollback, times(scenario.equals("asset-revoked") || scenario.equals("plan-obsolete") ? 0 : 1))
+                .restoreBaseline(any());
+        if (scenario.equals("asset-revoked")) {
+            jdbc.update("UPDATE software_asset SET read_permission=1 WHERE id=?", ASSET.value());
+        }
+        reset(ai);
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(repairBody(starting, UUID.randomUUID().toString()))).andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+        assertEquals(original, snapshot(source));
+        assertM5dRestartReadsExactlyTheSavedCheckpoint(step);
+    }
+
+    @Test
+    void m5dConcurrentRequestsCannotReplaySavedAutomaticRollback() throws Exception {
+        confirm(); coding(PATCH, "DIFF_CHECK");
+        providerHook = () -> {
+            try { Files.writeString(copy.resolve(".git/index.lock"), "M5D OWNED FAULT"); }
+            catch (Exception failure) { throw new AssertionError(failure); }
+        };
+        doAnswer(invocation -> {
+            try { return invocation.callRealMethod(); }
+            catch (ConfirmedExecutionFailureException failure) {
+                Files.delete(copy.resolve(".git/index.lock")); throw failure;
+            }
+        }).when(mutation).applyCandidate(any());
+        var prepared = preparation.prepare(new EvolutionPlanId(planId), new EvolutionStepId(stepId));
+        var entered = new java.util.concurrent.CountDownLatch(1);
+        var release = new java.util.concurrent.CountDownLatch(1);
+        doAnswer(invocation -> {
+            entered.countDown();
+            assertTrue(release.await(30, java.util.concurrent.TimeUnit.SECONDS));
+            return invocation.callRealMethod();
+        }).when(rollback).restoreBaseline(any());
+        var workers = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            var firstRequest = workers.submit(() -> execute.execute(prepared));
+            assertTrue(entered.await(15, java.util.concurrent.TimeUnit.SECONDS));
+            EvolutionStep rolling = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+            assertEquals(EvolutionStepStatus.ROLLING_BACK, rolling.status());
+            assertNotNull(rolling.executionFailureResult());
+            mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+            mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                    .content(repairBody(revision, UUID.randomUUID().toString()))).andExpect(status().isConflict());
+            mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON)
+                    .content(mapper.writeValueAsString(Map.of("expectedCandidateRevision", revision,
+                            "expectedBaselineRevision", revision, "authorizationId", UUID.randomUUID().toString()))))
+                    .andExpect(status().isConflict());
+            release.countDown();
+            assertEquals(EvolutionStepStatus.FAILED, firstRequest.get(60, java.util.concurrent.TimeUnit.SECONDS).step(new EvolutionStepId(stepId)).status());
+            verify(rollback, times(1)).restoreBaseline(any());
+            assertEquals(EvolutionStepStatus.FAILED, plans.findById(new EvolutionPlanId(planId)).orElseThrow()
+                    .step(new EvolutionStepId(stepId)).status());
+        } finally { release.countDown(); workers.shutdownNow(); }
+    }
+
+    private void assertM5dRestartReadsExactlyTheSavedCheckpoint(EvolutionStep expected) throws Exception {
+        try (var restarted = new org.springframework.boot.builder.SpringApplicationBuilder(
+                com.ayywl.delveforge.app.DelveForgeApplication.class)
+                .web(org.springframework.boot.WebApplicationType.NONE).run(
+                        "--delveforge.persistence.database-file=" + BASE.resolve("state.db"),
+                        "--delveforge.workspace.root=" + BASE.resolve("managed"),
+                        "--delveforge.ai.deepseek.api-key=", "--spring.profiles.active=m5d-restart-test")) {
+            EvolutionStep actual = restarted.getBean(EvolutionPlanRepository.class)
+                    .findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+            assertEquals(expected.status(), actual.status());
+            assertEquals(expected.executionFailureResult(), actual.executionFailureResult());
+            assertEquals(expected.automaticRollbackResult(), actual.automaticRollbackResult());
+            assertEquals(expected.repairAuthorizations(), actual.repairAuthorizations());
+            assertNull(actual.executionResult());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"diagnosis", "success", "all-terminal"})
+    void m5dSqliteCheckpointFaultDoesNotFakeRollbackOrLoseEarlierEvidence(String phase) throws Exception {
+        confirm(); coding(PATCH, "DIFF_CHECK");
+        providerHook = () -> {
+            try { Files.writeString(copy.resolve(".git/index.lock"), "M5D OWNED FAULT"); }
+            catch (Exception failure) { throw new AssertionError(failure); }
+        };
+        doAnswer(invocation -> {
+            try { return invocation.callRealMethod(); }
+            catch (ConfirmedExecutionFailureException failure) {
+                Files.delete(copy.resolve(".git/index.lock")); throw failure;
+            }
+        }).when(mutation).applyCandidate(any());
+        String condition = phase.equals("diagnosis") ? "NEW.status='ROLLING_BACK'"
+                : phase.equals("success") ? "NEW.status='FAILED'" : "NEW.status IN ('FAILED','RECOVERY_REQUIRED')";
+        jdbc.execute("CREATE TRIGGER m5d_fault BEFORE UPDATE ON evolution_step WHEN " + condition
+                + " BEGIN SELECT RAISE(ABORT,'M5D INJECTED CHECKPOINT'); END");
+        try {
+            mvc.perform(post(route("execute"))).andExpect(phase.equals("success") ? status().isOk() : status().isInternalServerError());
+        } finally { jdbc.execute("DROP TRIGGER m5d_fault"); }
+        EvolutionStep step = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(phase.equals("diagnosis") ? EvolutionStepStatus.EXECUTING
+                : phase.equals("success") ? EvolutionStepStatus.RECOVERY_REQUIRED : EvolutionStepStatus.ROLLING_BACK, step.status());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertNull(step.executionResult());
+        if (phase.equals("diagnosis")) {
+            assertNull(step.executionFailureResult()); verify(rollback, never()).restoreBaseline(any());
+        } else {
+            assertNotNull(step.executionFailureResult()); verify(rollback, times(1)).restoreBaseline(any());
+            if (phase.equals("all-terminal")) { assertNull(step.automaticRollbackResult()); }
+        }
+        assertM5dRestartReadsExactlyTheSavedCheckpoint(step);
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        assertEquals(step.status(), plans.findById(new EvolutionPlanId(planId)).orElseThrow()
+                .step(new EvolutionStepId(stepId)).status());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"lost-result", "timeout", "interrupted", "crash"})
+    void m5dUnknownMutationNeverStartsAutomaticRollback(String fault) throws Exception {
+        confirm(); coding(PATCH, "DIFF_CHECK");
+        doAnswer(invocation -> {
+            if (fault.equals("lost-result")) { invocation.callRealMethod(); }
+            throw new WorkspaceException("UNKNOWN " + fault);
+        }).when(mutation).applyCandidate(any());
+        mvc.perform(post(route("execute"))).andExpect(status().isInternalServerError());
+        EvolutionStep step = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(EvolutionStepStatus.EXECUTING, step.status());
+        assertNull(step.executionFailureResult()); assertNull(step.automaticRollbackResult());
+        assertNull(step.executionResult()); assertNull(step.verificationResult());
+        assertEquals(revision, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        verify(rollback, never()).restoreBaseline(any());
+        assertM5dRestartReadsExactlyTheSavedCheckpoint(step);
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
     }
 
     @Test

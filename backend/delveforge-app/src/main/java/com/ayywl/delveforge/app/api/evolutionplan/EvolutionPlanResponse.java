@@ -25,7 +25,8 @@ public record EvolutionPlanResponse(String id, String productDirectionId, String
                         step.id().value(), step.planId().value(), step.goal(), step.scope(), step.plannedChanges(),
                         step.verificationCriteria(), step.status(), step.baselineRevision(),
                         step.executionResult(), step.verificationResult(), step.repairAuthorizations(),
-                        step.rollbackAuthorization(), step.rollbackResult())).toList(),
+                        step.rollbackAuthorization(), step.rollbackResult(), step.executionFailureResult(),
+                        step.automaticRollbackResult())).toList(),
                 plan.risks(), plan.evidence().stream().map(EvidenceBasisPayload::from).toList(), plan.status());
     }
 
@@ -37,5 +38,7 @@ public record EvolutionPlanResponse(String id, String productDirectionId, String
             com.ayywl.delveforge.domain.evolution.VerificationResult verificationResult,
             List<RepairAuthorization> repairAuthorizations,
             com.ayywl.delveforge.domain.evolution.RollbackAuthorization rollbackAuthorization,
-            com.ayywl.delveforge.domain.evolution.RollbackResult rollbackResult) {}
+            com.ayywl.delveforge.domain.evolution.RollbackResult rollbackResult,
+            com.ayywl.delveforge.domain.evolution.ExecutionFailureResult executionFailureResult,
+            com.ayywl.delveforge.domain.evolution.AutomaticRollbackResult automaticRollbackResult) {}
 }

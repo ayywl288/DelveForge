@@ -124,6 +124,14 @@ public final class ExecutionPreparationState {
      * 因此物理 revision 由编排明确传入，不能直接用 currentRevision 替代。
      */
     public Loaded requireCheckpoint(Loaded expected, EvolutionStepId stepId, String physicalRevision) {
+        Loaded actual = requireCheckpointMetadata(expected, stepId);
+        inspection.requireTrustedState(new WorkspaceRef(actual.copy().location()),
+                new WorkspaceRef(actual.asset().location()), physicalRevision);
+        return actual;
+    }
+
+    /** 失败现场可能有未发布写入；此入口只核对保存的资格，不赋予物理现场可信性。 */
+    public Loaded requireCheckpointMetadata(Loaded expected, EvolutionStepId stepId) {
         EvolutionPlan plan = plans.findById(expected.plan().id())
                 .orElseThrow(() -> new EvolutionPlanNotFoundException(expected.plan().id()));
         plans.requireFlowBinding(plan);
@@ -145,6 +153,8 @@ public final class ExecutionPreparationState {
                 || !step.repairAuthorizations().equals(previous.repairAuthorizations())
                 || !Objects.equals(step.rollbackAuthorization(), previous.rollbackAuthorization())
                 || !Objects.equals(step.rollbackResult(), previous.rollbackResult())
+                || !Objects.equals(step.executionFailureResult(), previous.executionFailureResult())
+                || !Objects.equals(step.automaticRollbackResult(), previous.automaticRollbackResult())
                 || !step.goal().equals(previous.goal()) || !step.scope().equals(previous.scope())
                 || !step.plannedChanges().equals(previous.plannedChanges())
                 || !step.verificationCriteria().equals(previous.verificationCriteria())
@@ -155,9 +165,12 @@ public final class ExecutionPreparationState {
                 || !asset.location().equals(expected.asset().location())) {
             throw new EvolutionPlanStateException("Execution checkpoint changed");
         }
-        inspection.requireTrustedState(new WorkspaceRef(copy.location()), new WorkspaceRef(asset.location()),
-                physicalRevision);
         return new Loaded(plan, copy, asset);
+    }
+
+    /** 仅回读已保存事实，不检查或授予新的执行资格。 */
+    public EvolutionPlan readStoredPlan(EvolutionPlanId id) {
+        return plans.findById(id).orElseThrow(() -> new EvolutionPlanNotFoundException(id));
     }
 
     public record Loaded(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset asset) {

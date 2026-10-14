@@ -7,6 +7,9 @@ package com.ayywl.delveforge.application.port.workspace;
  */
 public interface WorkspaceMutationPort {
 
-    /** 只应用已授权检查点绑定的校验提案，返回独立检查后的实际 Candidate 事实。 */
+    /**
+     * 只应用已授权检查点绑定的校验提案，返回独立检查后的实际 Candidate 事实。
+     * 仅确认失败使用 ConfirmedExecutionFailureException；其他异常不构成失败或恢复证明。
+     */
     CandidateMutationResult applyCandidate(AuthorizedStepExecution execution);
 }
