@@ -3,7 +3,7 @@
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-10-13
+**Last Updated:** 2026-10-14
 
 ## 1. Architecture Goals
 
@@ -1223,6 +1223,14 @@ ident、working-tree-encoding（含歧义值和显式禁用）；不把字符串
 路径中会调用 clean 的 status / 工作树 diff；index / mode / stage 及整树内容证据仍独立保留。
 checkout 前也检查整个原始 baseline 的属性，防止仅存在于目标版本的外部转换先执行再被拒绝。
 检查不写对象、不刷新真实 index；命令沿用有界进程入口，不支持 `--attr-source` 的 Git 失败关闭。
+M5-005 补强恢复期间的来源约束：共享物理检查和两种 Rollback 入口在任何写入前，拒绝有效的非空
+`core.attributesFile`（包含 include 的有效值）、`.git/info/attributes` 及不确定的 info 路径。
+受控有界 Git 命令逐条固定 `core.attributesFile=`，并在清除外部 Git 环境后设置内部
+`GIT_ATTR_NOSYSTEM=1`，不加载默认全局 / 系统属性，也不改写用户配置。目标 / 当前版本的
+`.gitattributes` 仍受完整 revision 及真实内容证明；未生效的外部转换定义和自定义宏也保守拒绝，
+避免恢复中间属性视图激活未经证明的转换。这是当前技术支持范围：原生 text / eol / autocrlf 的
+LF / CRLF 证明保留；依赖外部属性文件或自定义宏的仓库失败关闭。尚未提供外部来源冻结能力。
+
 原修复记录见 [M5-001/002 报告](validation/m5-review-findings-fix.md)，后续复审修复见
 [M5-003/004 报告](validation/m5-review-findings-003-004-fix.md)。
 

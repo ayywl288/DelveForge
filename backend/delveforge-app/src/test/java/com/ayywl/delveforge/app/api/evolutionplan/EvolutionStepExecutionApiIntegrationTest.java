@@ -534,7 +534,8 @@ class EvolutionStepExecutionApiIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"initial", "repair", "rollback-failure", "unknown-rollback", "false-success", "asset-revoked", "plan-obsolete"})
+    @ValueSource(strings = {"initial", "repair", "rollback-failure", "unknown-rollback", "false-success", "asset-revoked",
+            "plan-obsolete", "external-attributes"})
     void m5dRealExecutionRejectionPreservesEvidenceHistoryAndHonorsExactRollback(String scenario) throws Exception {
         Map<String, String> original = snapshot(source);
         EvolutionStep previous = null;
@@ -567,6 +568,11 @@ class EvolutionStepExecutionApiIntegrationTest {
         if (scenario.equals("rollback-failure")) {
             doAnswer(invocation -> {
                 Files.writeString(copy.resolve("user.txt"), "KEEP USER DATA");
+                return invocation.callRealMethod();
+            }).when(rollback).restoreBaseline(any());
+        } else if (scenario.equals("external-attributes")) {
+            doAnswer(invocation -> {
+                git(copy, "config", "core.attributesFile", "A.java");
                 return invocation.callRealMethod();
             }).when(rollback).restoreBaseline(any());
         } else if (scenario.equals("unknown-rollback")) {
@@ -918,6 +924,35 @@ class EvolutionStepExecutionApiIntegrationTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = {"execute", "repair", "rollback"})
+    void externalAttributesAreRejectedBeforeExecutionRepairOrRollbackAuthorization(String action) throws Exception {
+        EvolutionStep previous = action.equals("execute") ? null : failedCandidate();
+        if (previous == null) {
+            confirm();
+        }
+        String candidate = persistedCopy().currentRevision();
+        String content = Files.readString(copy.resolve("A.java"));
+        git(copy, "config", "core.attributesFile", "A.java");
+        reset(ai);
+        var request = post(route(action));
+        if (!action.equals("execute")) {
+            request.contentType(MediaType.APPLICATION_JSON).content(action.equals("repair")
+                    ? repairBody(candidate, UUID.randomUUID().toString())
+                    : rollbackBody(candidate, revision, UUID.randomUUID().toString()));
+        }
+        mvc.perform(request).andExpect(status().isConflict());
+        assertEquals(previous == null ? EvolutionStepStatus.READY : EvolutionStepStatus.VERIFICATION_FAILED,
+                currentStep().status());
+        assertTrue(currentStep().repairAuthorizations().isEmpty());
+        assertNull(currentStep().rollbackAuthorization());
+        assertEquals(candidate, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(content, Files.readString(copy.resolve("A.java")));
+        assertEquals(candidate, git(copy, "rev-parse", "HEAD").trim());
+        verifyNoInteractions(ai);
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"unset", "unspecified"})
     void repairSentinelFilterAfterGrantKeepsUnknownCheckpointWithoutSideEffects(String driver) throws Exception {
         EvolutionStep failed = failedCandidate();
@@ -980,7 +1015,8 @@ class EvolutionStepExecutionApiIntegrationTest {
     @ParameterizedTest
     @ValueSource(strings = {"index-lock", "head-lock", "extra-after-grant", "ignored-after-grant", "dirty-after-grant",
             "unknown", "wrong-success", "post-restore-change", "revoke-after-restore", "replace-baseline", "graft-view",
-            "hidden-after-grant", "hidden-post-restore-change", "filter-unset-after-grant", "filter-unspecified-after-grant"})
+            "hidden-after-grant", "hidden-post-restore-change", "filter-unset-after-grant", "filter-unspecified-after-grant",
+            "external-attributes-after-grant"})
     void rollbackFailureOrUnknownBlocksWithoutDeletingUserFiles(String fault) throws Exception {
         EvolutionStep failed = failedCandidate();
         String candidate = failed.executionResult().candidateRevision();
@@ -996,6 +1032,7 @@ class EvolutionStepExecutionApiIntegrationTest {
                     }
                     Files.writeString(copy.resolve("user.txt"), "USER CONTENT\n");
                 }
+                case "external-attributes-after-grant" -> git(copy, "config", "core.attributesFile", "A.java");
                 case "dirty-after-grant" -> Files.writeString(copy.resolve("A.java"), "USER CONTENT\n");
                 case "hidden-after-grant" -> hideUnchangedTrackedContent();
                 case "filter-unset-after-grant", "filter-unspecified-after-grant" ->

@@ -47,6 +47,10 @@ final class WorkspaceCommandRunner {
                     .redirectErrorStream(true);
             // 外部 Git 定位变量不能把受控路径重定向到原仓库或另一个 index。
             isolateEnvironment(builder.environment());
+            if (resolved.getFirst().equals("git")) {
+                // 内部固定值在清除外部 GIT_* 后设置；系统属性不属于受版本证明的仓库来源。
+                builder.environment().put("GIT_ATTR_NOSYSTEM", "1");
+            }
             if (index != null) {
                 // 仅内部拥有的临时 index 可覆盖定位；不接受外部环境提供的 Git 路径。
                 builder.environment().put("GIT_INDEX_FILE", index.toString());

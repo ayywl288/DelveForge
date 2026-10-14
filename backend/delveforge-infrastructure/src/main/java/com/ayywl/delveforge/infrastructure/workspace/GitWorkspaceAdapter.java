@@ -162,6 +162,8 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             }
         }
 
+        requireRepositoryAttributeSources(target);
+
         // 整树读取真实文件并重新计算 Git blob；stat 缓存、HEAD 与 status 都不能替代内容证据。
         requireTrackedContent(copy, target, expectedRevision);
 
@@ -309,8 +311,45 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         }
     }
 
+    /** 外部属性不能随 tracked 文件恢复而改变；仅接受受版本证明的仓库属性来源。 */
+    private void requireRepositoryAttributeSources(Path target) {
+        // 此配置查询不带覆盖值，也不解释路径或哨兵；包括 include / 各级配置的有效值。
+        WorkspaceCommandRunner.Result configured = WorkspaceCommandRunner.run(target,
+                List.of("git", "-C", target.toString(), "config", "--null", "--get", "core.attributesFile"),
+                Duration.ofSeconds(30), 1048576);
+        if ((configured.exitCode() != 0 && configured.exitCode() != 1)
+                || (configured.succeeded() && !configured.output().equals("\0"))) {
+            throw new WorkingCopyBasisChangedException("External Git attribute source cannot be proven stable");
+        }
+        Path info = target.resolve(".git/info");
+        try {
+            if ((Files.exists(info, LinkOption.NOFOLLOW_LINKS)
+                    && (!Files.isDirectory(info, LinkOption.NOFOLLOW_LINKS) || !info.toRealPath().equals(info)))
+                    || Files.exists(info.resolve("attributes"), LinkOption.NOFOLLOW_LINKS)) {
+                // info/attributes 的高优先级规则及链接不属于任何固定 revision；不能被 checkout 的属性证明覆盖。
+                throw new WorkingCopyBasisChangedException("Unversioned Git attributes prevent controlled mutation");
+            }
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot confirm Git attribute source isolation", failure);
+        }
+    }
+
     /** 按存在性拒绝外部转换；同时用于当前内容证明与恢复目标的 checkout 前检查。 */
     private void requireSupportedAttributes(Path target, String revision, List<String> paths) {
+        for (String path : paths) {
+            if (path.equals(".gitattributes") || path.endsWith("/.gitattributes")) {
+                String definitions = contentGit(target, revision, "cat-file", "blob", revision + ":" + path);
+                for (String line : definitions.lines().toList()) {
+                    String rule = line.strip();
+                    if (!rule.startsWith("#") && (rule.contains("[attr]")
+                            || Arrays.stream(rule.split("\\s+")).skip(1)
+                            .anyMatch(token -> token.matches("[!-]?(filter|ident|working-tree-encoding)(=.*)?")))) {
+                        // 恢复期间属性文件可分批更新；未生效的转换规则 / 自定义宏也不能在中间视图中启动 filter。
+                        throw new WorkingCopyBasisChangedException("Git attribute definitions cannot prove safe restoration");
+                    }
+                }
+            }
+        }
         List<String> arguments = new ArrayList<>(List.of("check-attr", "-z", "--all", "--"));
         arguments.addAll(paths);
         String output = contentGit(target, revision, arguments.toArray(String[]::new));
@@ -541,6 +580,8 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         String phase = "PRECHECK";
         try {
             Path target = requireManagedCopy(copy);
+            phase = "ATTRIBUTE_SOURCES";
+            requireRepositoryAttributeSources(target);
             phase = "OBJECT_VIEW";
             if (Files.exists(target.resolve(".git/info/grafts"), LinkOption.NOFOLLOW_LINKS)
                     || Files.exists(target.resolve(".git/refs/replace"), LinkOption.NOFOLLOW_LINKS)
@@ -788,7 +829,9 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
 
     protected WorkspaceCommandRunner.Result mutationGitResult(Path directory, Path index, String... arguments) {
         List<String> command = new ArrayList<>(List.of("git", "--no-optional-locks", "-c", "core.fsmonitor=false",
-                "-c", "core.hooksPath=" + directory.resolve(".git/delveforge-disabled-hooks"), "-C", directory.toString()));
+                "-c", "core.hooksPath=" + directory.resolve(".git/delveforge-disabled-hooks"),
+                // 每条命令均固定全局属性为空；即使 tracked include 配置被恢复也不能重新启用外部规则。
+                "-c", "core.attributesFile=", "-C", directory.toString()));
         command.addAll(List.of(arguments));
         return index == null ? WorkspaceCommandRunner.run(directory, command, Duration.ofSeconds(30), 1048576)
                 : WorkspaceCommandRunner.runWithIndex(directory, command, index, Duration.ofSeconds(30), 1048576);

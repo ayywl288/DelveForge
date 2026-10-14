@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import static com.ayywl.delveforge.infrastructure.workspace.GitTestRepositories.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -46,6 +47,11 @@ class GitEvolutionExecutionIntegrationTest {
 
     private AuthorizedStepExecution fixture(boolean maven, int assertion, boolean parameterized, String mavenOverrides,
             boolean additionDeletion) throws Exception {
+        return fixture(maven, assertion, parameterized, mavenOverrides, additionDeletion, null);
+    }
+
+    private AuthorizedStepExecution fixture(boolean maven, int assertion, boolean parameterized, String mavenOverrides,
+            boolean additionDeletion, String rollbackDriver) throws Exception {
         Map<String, String> files = new LinkedHashMap<>();
         files.put("Report.java", "public class Report { static int value() { return 0; } }\n");
         if (maven) {
@@ -75,6 +81,9 @@ class GitEvolutionExecutionIntegrationTest {
         if (additionDeletion) {
             files.put("obsolete.txt", "obsolete\n");
             files.put("untouched.txt", "safe\n");
+        }
+        if (rollbackDriver != null) {
+            files.put("rules.txt", "*.txt filter=" + rollbackDriver + "\n");
         }
         source = repositories.createCommitted("source", files);
         baseline = headRevision(source);
@@ -110,6 +119,12 @@ class GitEvolutionExecutionIntegrationTest {
                     + "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+owned addition\n";
             affected.addAll(List.of("obsolete.txt", "new.txt"));
             originals.put("obsolete.txt", "obsolete\n");
+        }
+        if (rollbackDriver != null) {
+            patch += "--- a/rules.txt\n+++ b/rules.txt\n@@ -1 +1 @@\n-*.txt filter=" + rollbackDriver
+                    + "\n+# inert unpublished rules\n";
+            affected.add("rules.txt");
+            originals.put("rules.txt", files.get("rules.txt"));
         }
         CodingProposal proposal = new CodingProposal(baseline, "change", affected, patch, List.of(
                 new CodingProposal.VerificationAction(CodingProposal.Action.DIFF_CHECK, "", List.of(1))));
@@ -216,20 +231,91 @@ class GitEvolutionExecutionIntegrationTest {
     }
 
     @ParameterizedTest
-    @ValueSource(ints = {137, 139, -1073741819, 128})
-    void unrecognizedProcessExitCannotBecomeConfirmedExecutionFailure(int exit) throws Exception {
+    @CsvSource({"unset,clean", "unspecified,clean", "unset,process", "unspecified,process"})
+    void mutableExternalAttributeSourceCannotRunDuringAutomaticRestore(String driver, String kind) throws Exception {
+        AuthorizedStepExecution authorized = fixture(false, 1, false, "", false, driver);
+        GitWorkspaceAdapter rejected = new GitWorkspaceAdapter(repositories.directory("managed")) {
+            @Override
+            protected WorkspaceCommandRunner.Result mutationGitResult(Path directory, Path index, String... arguments) {
+                if (Arrays.asList(arguments).contains("update-ref")) {
+                    return new WorkspaceCommandRunner.Result(128, "fatal: controlled publication rejection");
+                }
+                return super.mutationGitResult(directory, index, arguments);
+            }
+        };
+        ExecutionFailureResult failure = assertThrows(ConfirmedExecutionFailureException.class,
+                () -> rejected.applyCandidate(authorized)).result();
+        assertEquals("PUBLISH", failure.phase());
+        assertTrue(failure.diffComplete());
+        plan.failStepExecution(stepId, workingCopy, failure);
+        AuthorizedStepRollback rollback = AuthorizedStepRollback.fromExecutionFailure(plan, stepId, workingCopy,
+                new WorkspaceRef(source.toString()));
+        runGit(copy, "config", "core.attributesFile", copy.resolve("rules.txt").toString());
+        runGit(copy, "config", "filter." + driver + "." + kind, kind.equals("clean")
+                ? "printf hit >> .git/filter-ran; cat" : "printf hit >> .git/filter-ran; exit 1");
+        String rulesBefore = Files.readString(copy.resolve("rules.txt"));
+        assertAll(
+                () -> assertThrows(WorkingCopyRollbackException.class, () -> git.restoreBaseline(rollback)),
+                () -> assertFalse(Files.exists(copy.resolve(".git/filter-ran"))),
+                () -> assertEquals(rulesBefore, Files.readString(copy.resolve("rules.txt"))),
+                () -> assertTrue(Files.readString(copy.resolve("Report.java")).contains("return 1")),
+                () -> assertEquals(baseline, headRevision(copy)),
+                () -> assertNull(plan.step(stepId).executionResult()),
+                () -> assertEquals(baseline, workingCopy.lastVerifiedRevision()));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"APPLY,137", "APPLY,139", "APPLY,-1073741819", "APPLY,128",
+            "PUBLISH,137", "PUBLISH,139", "PUBLISH,-1073741819", "PUBLISH,128"})
+    void unrecognizedProcessExitCannotBecomeConfirmedExecutionFailure(String phase, int exit) throws Exception {
         AuthorizedStepExecution authorized = fixture(false, 1, false);
+        boolean[] reached = new boolean[4];
         GitWorkspaceAdapter unknown = new GitWorkspaceAdapter(repositories.directory("managed")) {
             @Override
             protected WorkspaceCommandRunner.Result mutationGitResult(Path directory, Path index, String... arguments) {
-                return new WorkspaceCommandRunner.Result(exit, "process result lost");
+                List<String> args = Arrays.asList(arguments);
+                if (index != null && args.contains("write-tree")) {
+                    reached[0] = true;
+                }
+                if (index == null && args.contains("apply") && args.contains("--check")) {
+                    reached[1] = true;
+                }
+                boolean apply = index == null && args.contains("apply") && !args.contains("--check");
+                boolean publish = args.contains("update-ref");
+                if (apply) {
+                    reached[2] = true;
+                }
+                if ((phase.equals("APPLY") && apply) || (phase.equals("PUBLISH") && publish)) {
+                    assertTrue(reached[0], "Expected tree preflight completed");
+                    assertTrue(reached[1], "Apply check preflight completed");
+                    assertTrue(reached[2], "Real apply stage reached");
+                    reached[3] = true;
+                    if (apply) {
+                        // 模拟真实 APPLY 完成但结果丢失；物理修改不能被推断为已确认失败或 Candidate。
+                        assertTrue(super.mutationGitResult(directory, index, arguments).succeeded());
+                    }
+                    return new WorkspaceCommandRunner.Result(exit, "process result lost");
+                }
+                return super.mutationGitResult(directory, index, arguments);
+            }
+
+            @Override
+            public RestoredBaseline restoreBaseline(AuthorizedStepRollback rollback) {
+                fail("UNKNOWN must not start automatic restoration");
+                return null;
             }
         };
-        assertThrows(WorkspaceException.class, () -> unknown.applyCandidate(authorized));
+        RuntimeException failure = assertThrows(WorkspaceException.class, () -> unknown.applyCandidate(authorized));
+        assertFalse(failure instanceof ConfirmedExecutionFailureException);
+        assertTrue(reached[3], "Unknown result was injected only at " + phase);
         assertEquals(EvolutionStepStatus.EXECUTING, plan.step(stepId).status());
         assertNull(plan.step(stepId).executionFailureResult());
         assertNull(plan.step(stepId).executionResult());
+        assertNull(plan.step(stepId).automaticRollbackResult());
+        assertEquals(baseline, workingCopy.lastVerifiedRevision());
         assertEquals(baseline, headRevision(copy));
+        assertTrue(Files.readString(copy.resolve("Report.java")).contains("return 1"));
+        assertEquals(baseline, headRevision(source));
     }
 
     private CandidateVerification request(String candidate, CodingProposal.Action... actions) {

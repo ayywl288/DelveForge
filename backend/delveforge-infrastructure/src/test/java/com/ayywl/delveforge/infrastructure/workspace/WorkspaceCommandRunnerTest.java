@@ -61,6 +61,14 @@ class WorkspaceCommandRunnerTest {
                 java.nio.charset.StandardCharsets.UTF_8));
     }
 
+    @Test
+    void controlledGitDisablesSystemAttributesWithAnInternalEnvironmentValue() {
+        var result = WorkspaceCommandRunner.run(Path.of("."), List.of("git", "-c",
+                "alias.attribute-env=!printf '%s' \"$GIT_ATTR_NOSYSTEM\"", "attribute-env"), Duration.ofSeconds(5), 1024);
+        assertTrue(result.succeeded());
+        assertEquals("1", result.output());
+    }
+
     public static class Probe {
         public static void main(String[] args) throws Exception {
             if (args[0].equals("output")) {
