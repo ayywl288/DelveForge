@@ -123,7 +123,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         this.existingRoots = List.of();
     }
 
-    /** 只核对物理 revision、隔离与干净状态；Candidate 通过此检查不等于已获得领域信任。 */
+    /** 核对物理 revision、隔离与整树内容；Candidate 通过此检查不等于已获得领域信任。 */
     @Override
     public void requireTrustedState(WorkspaceRef copy, WorkspaceRef source, String expectedRevision) {
         Path target = requireManagedCopy(copy);
@@ -153,6 +153,9 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             }
         }
 
+        // 整树读取真实文件并重新计算 Git blob；stat 缓存、HEAD 与 status 都不能替代内容证据。
+        requireTrackedContent(copy, target, expectedRevision);
+
         // 禁用可选 index 写入与 fsmonitor，准备阶段的检查只读取状态。
         GitCommandResult status = execute(target, "--no-optional-locks", "-c", "core.fsmonitor=false",
                 "status", "--porcelain=v1", "--untracked-files=all", "--ignored");
@@ -162,6 +165,76 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         if (!status.stdoutText().isBlank()) {
             throw new WorkingCopyBasisChangedException("Working Copy contains changes or untracked artifacts");
         }
+    }
+
+    /** 独立于 index 的 stat 缓存核对全部 tracked 内容；固定版本的属性允许合法 Git 换行转换。 */
+    private void requireTrackedContent(WorkspaceRef copy, Path target, String revision) {
+        List<String> paths = new ArrayList<>();
+        List<String> objects = new ArrayList<>();
+        List<String> indexEntries = new ArrayList<>();
+        String tree = contentGit(target, revision, "ls-tree", "-r", "-z", "--full-tree", revision);
+        for (String entry : tree.split("\0")) {
+            if (entry.isEmpty()) {
+                continue;
+            }
+            int separator = entry.indexOf('\t');
+            String[] metadata = separator < 0 ? new String[0] : entry.substring(0, separator).split(" ");
+            if (metadata.length != 3 || !metadata[0].matches("100(644|755)")
+                    || !metadata[1].equals("blob") || !metadata[2].matches("[0-9a-f]{40}")) {
+                throw new WorkingCopyBasisChangedException("Tracked content cannot be proven for this Git tree entry");
+            }
+            String path = entry.substring(separator + 1);
+            paths.add(path);
+            objects.add(metadata[2]);
+            indexEntries.add(metadata[0] + " " + metadata[2] + " 0\t" + path);
+        }
+        // 比较 index 的对象 / mode / stage，读取内容时仍不依赖其文件时间或大小缓存。
+        List<String> actualIndex = Arrays.stream(contentGit(target, revision, "ls-files", "--stage", "-z")
+                .split("\0")).filter(entry -> !entry.isEmpty()).toList();
+        if (!actualIndex.equals(indexEntries)) {
+            throw new WorkingCopyBasisChangedException("Working Copy index differs from the exact revision tree");
+        }
+        inspectSafePaths(copy, paths);
+        for (int start = 0; start < paths.size(); start += 32) {
+            List<String> batch = paths.subList(start, Math.min(start + 32, paths.size()));
+            List<String> attributeArguments = new ArrayList<>(List.of("check-attr", "-z", "filter", "ident", "working-tree-encoding", "--"));
+            attributeArguments.addAll(batch);
+            String[] attributes = contentGit(target, revision, attributeArguments.toArray(String[]::new)).split("\0");
+            if (attributes.length != batch.size() * 9) {
+                throw new WorkingCopyBasisChangedException("Cannot confirm tracked content conversion attributes");
+            }
+            for (int index = 0; index < batch.size(); index++) {
+                List<String> conversions = List.of("filter", "ident", "working-tree-encoding");
+                for (int conversion = 0; conversion < conversions.size(); conversion++) {
+                    int offset = index * 9 + conversion * 3;
+                    String value = attributes[offset + 2];
+                    if (!attributes[offset].equals(batch.get(index))
+                            || !attributes[offset + 1].equals(conversions.get(conversion))
+                            || (!value.equals("unspecified") && !value.equals("unset"))) {
+                        // clean / process 可丢弃内容或执行命令；ident / 编码转换缺少本版精确物化证明。
+                        throw new WorkingCopyBasisChangedException("Git conversion cannot prove exact tracked content");
+                    }
+                }
+            }
+            List<String> hashArguments = new ArrayList<>(List.of("hash-object", "--"));
+            hashArguments.addAll(batch);
+            List<String> hashes = contentGit(target, revision, hashArguments.toArray(String[]::new)).lines().toList();
+            if (!hashes.equals(objects.subList(start, start + batch.size()))) {
+                throw new WorkingCopyBasisChangedException("Working Copy tracked bytes differ from the exact revision");
+            }
+        }
+    }
+
+    private String contentGit(Path target, String revision, String... arguments) {
+        // 属性来自不可变 revision，不采用可能被 stat 缓存漏报的工作树 .gitattributes；不写对象或刷新 index。
+        List<String> exact = new ArrayList<>(List.of("--no-replace-objects", "--attr-source=" + revision,
+                "-c", "core.safecrlf=false"));
+        exact.addAll(List.of(arguments));
+        WorkspaceCommandRunner.Result result = mutationGitResult(target, null, exact.toArray(String[]::new));
+        if (!result.succeeded()) {
+            throw new WorkspaceException("Cannot read exact tracked content with supported Git conversion");
+        }
+        return result.output();
     }
 
     @Override
@@ -193,6 +266,10 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
 
     @Override
     public void requireSafePaths(WorkspaceRef copy, List<String> paths) {
+        inspectSafePaths(copy, paths);
+    }
+
+    private void inspectSafePaths(WorkspaceRef copy, List<String> paths) {
         Path target = requireManagedCopy(copy);
         GitCommandResult tree = execute(target, "ls-tree", "-r", "-z", "HEAD");
         if (!tree.succeeded()) {

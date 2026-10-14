@@ -6,6 +6,10 @@
 **Gate：PASS / 本地待审查。** 最终后端 1,563 项、前端 145 项及构建通过；不代表 OS 崩溃恢复、
 真实用户数据库升级或真实 Provider E2E 已经验证。
 
+**后续独立审查：FAIL。** M5-001 复现了 stat 缓存下的精确恢复误判，M5-002 复现了前端授权拒绝等待标记残留。
+上述 PASS 是原提交的自测结果，不能作为这两项 Finding 已修复的证据；后续修复与实际验证见
+[M5 Review Findings 修复报告](m5-review-findings-fix.md)。
+
 ## 1. Environment / Contract
 
 - Worktree：`C:\Users\28226\.codex\worktrees\m5-lab\DelveForge`；分支：`feature/m5-lab`。

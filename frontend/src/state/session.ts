@@ -490,11 +490,18 @@ export function createSession() {
             )
               clearReceipt();
             if (handlingFailure && checked && failure instanceof ApiError && failure.status > 0
-              && ["INVALID_REQUEST", "CONFLICT", "EXECUTION_CRITERIA_UNSUPPORTED"].includes(failure.code)) {
+              && ["INVALID_REQUEST", "CONFLICT", "EXECUTION_CRITERIA_UNSUPPORTED", "ASSET_TYPE_UNSUPPORTED",
+                "ASSET_READ_PERMISSION_REQUIRED", "ASSET_USAGE_AUTHORIZATION_REQUIRED", "ASSET_LICENSE_INFORMATION_REQUIRED",
+                "ASSET_AUTHORIZATION_CONFLICT"].includes(failure.code)) {
               const step = plan.value?.steps.find(item => item.id === stepId);
-              if (step?.status === "VERIFICATION_FAILED" && copy.value?.currentRevision === repairCandidate
-                && (rollingBack ? !step.rollbackAuthorization
-                  : !step.repairAuthorizations?.some(item => item.id === marker.authorizationId))) clearReceipt();
+              // 明确拒绝仍需 GET 证实同一失败 Candidate / baseline 与本次授权未保存；未知状态不能清除等待。
+              if (step?.status === "VERIFICATION_FAILED" && copy.value?.status === "EVOLVING"
+                && copy.value.currentRevision === repairCandidate && copy.value.lastVerifiedRevision === step.baselineRevision
+                && step.executionResult?.candidateRevision === repairCandidate
+                && step.verificationResult?.candidateRevision === repairCandidate && step.verificationResult.passed === false
+                && (rollingBack ? step.baselineRevision === rollbackBaseline && !step.rollbackAuthorization
+                  : Array.isArray(step.repairAuthorizations)
+                    && !step.repairAuthorizations.some(item => item.id === marker.authorizationId))) clearReceipt();
             }
             throw failure;
           } finally {

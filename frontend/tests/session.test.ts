@@ -508,6 +508,70 @@ describe("长同步 execute", () => {
       expect(s.receipt.value).not.toBeNull();
     },
   );
+  it.each(["REPAIR", "ROLLBACK"] as const)("%s 明确资产拒绝且 GET 确认授权未保存时允许重新显式授权", async (operation) => {
+    for (const code of ["ASSET_TYPE_UNSUPPORTED", "ASSET_READ_PERMISSION_REQUIRED", "ASSET_USAGE_AUTHORIZATION_REQUIRED",
+      "ASSET_LICENSE_INFORMATION_REQUIRED", "ASSET_AUTHORIZATION_CONFLICT"]) {
+      const s = make(); ready(s);
+      const failed = successfulPlan(); failed.status = "ACTIVE";
+      failed.steps[0]!.status = "VERIFICATION_FAILED";
+      failed.steps[0]!.verificationResult!.passed = false;
+      failed.steps[0]!.repairAuthorizations = [];
+      vi.mocked(api.plan).mockResolvedValue(failed);
+      vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: "EVOLVING", currentRevision: "b".repeat(40) });
+      const request = operation === "REPAIR" ? vi.spyOn(api, "repair") : vi.spyOn(api, "rollback");
+      request.mockRejectedValue(new ApiError(409, code));
+      if (operation === "REPAIR") await s.repair("step-1", "b".repeat(40));
+      else await s.rollback("step-1", "b".repeat(40), "a".repeat(40));
+      expect(request).toHaveBeenCalledOnce();
+      expect(s.receipt.value).toBeNull();
+      expect(localStorage.getItem(executionKey)).toBeNull();
+      expect(api.plan).toHaveBeenCalledTimes(2);
+      if (operation === "REPAIR") await s.repair("step-1", "b".repeat(40));
+      else await s.rollback("step-1", "b".repeat(40), "a".repeat(40));
+      expect(request).toHaveBeenCalledTimes(2);
+      const first = request.mock.calls[0]!;
+      const second = request.mock.calls[1]!;
+      expect(first[first.length - 1]).not.toBe(second[second.length - 1]);
+      s.dispose(); vi.restoreAllMocks();
+    }
+  });
+
+  it.each(["REPAIR", "ROLLBACK"] as const)("%s 拒绝后的 GET 不充分或状态未决仍阻止重发", async (operation) => {
+    for (const fault of ["get-failed", "copy-drift", "result-drift", "baseline-drift", "grant-saved", "in-flight", "network"]) {
+      const s = make(); ready(s);
+      const failed = successfulPlan(); failed.status = "ACTIVE";
+      const step = failed.steps[0]!; step.status = "VERIFICATION_FAILED";
+      step.verificationResult!.passed = false; step.repairAuthorizations = [];
+      vi.mocked(api.plan).mockResolvedValue(failed);
+      vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: "EVOLVING", currentRevision: "b".repeat(40) });
+      const deny = async (...args: string[]) => {
+        const id = args[args.length - 1]!;
+        if (fault === "get-failed") vi.mocked(api.plan).mockRejectedValue(new ApiError(0, "CONNECTION_LOST"));
+        if (fault === "copy-drift") vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: "EVOLVING", currentRevision: "c".repeat(40) });
+        if (fault === "result-drift") step.executionResult!.candidateRevision = "c".repeat(40);
+        if (fault === "baseline-drift") step.baselineRevision = "c".repeat(40);
+        if (fault === "grant-saved") {
+          step.status = operation === "ROLLBACK" ? "ROLLING_BACK" : "EXECUTING";
+          if (operation === "ROLLBACK") step.rollbackAuthorization = { id, candidateRevision: "b".repeat(40),
+            baselineRevision: "a".repeat(40), authorizedAt: new Date().toISOString() };
+          else step.repairAuthorizations = [{ id, candidateRevision: "b".repeat(40), authorizedAt: new Date().toISOString(),
+            previousExecution: step.executionResult!, previousVerification: step.verificationResult! }];
+        }
+        if (fault === "in-flight") step.status = operation === "ROLLBACK" ? "ROLLING_BACK" : "EXECUTING";
+        throw new ApiError(fault === "network" ? 0 : 409, fault === "network" ? "CONNECTION_LOST" : "ASSET_READ_PERMISSION_REQUIRED");
+      };
+      const request = operation === "REPAIR" ? vi.spyOn(api, "repair").mockImplementation(deny)
+        : vi.spyOn(api, "rollback").mockImplementation(deny);
+      if (operation === "REPAIR") await s.repair("step-1", "b".repeat(40));
+      else await s.rollback("step-1", "b".repeat(40), "a".repeat(40));
+      expect(s.receipt.value, fault).not.toBeNull();
+      if (operation === "REPAIR") await s.repair("step-1", "b".repeat(40));
+      else await s.rollback("step-1", "b".repeat(40), "a".repeat(40));
+      expect(request, fault).toHaveBeenCalledOnce();
+      s.dispose(); vi.restoreAllMocks(); localStorage.removeItem(executionKey);
+    }
+  });
+
   it("具体授权拒绝沿用原有状态核对，不自动重试 execute", async () => {
     const s = make(); ready(s);
     const execute = vi.spyOn(api, "execute").mockRejectedValue(new ApiError(409, "ASSET_USAGE_AUTHORIZATION_REQUIRED"));

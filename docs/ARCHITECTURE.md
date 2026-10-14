@@ -1213,6 +1213,12 @@ Step / WorkingCopy CAS 同时比较旧历史；所有提交分支重放 Domain �
 index 与工作树。它不用 reset --hard / clean，使用 `--no-overwrite-ignore`，不清理额外用户文件。
 Rollback 还拒绝 replacement refs / graft 元数据，命令显式使用 `--no-replace-objects`；不能把
 被替换的同 SHA 对象视图当作原始 baseline，不删除或改写这些用户元数据。
+M5 Review Findings 修复补强共享物理检查：从固定 revision 枚举全部 tracked blob，比较 index 的
+对象 / mode / stage，并重新读取每个实际文件计算 Git blob identity，不信任 stat 缓存或普通 diff。
+属性读取固定在该 revision；允许 Git text / EOL 转换。custom filter、ident、working-tree-encoding
+缺少本版可靠物化证明时拒绝，不执行过滤器命令或改写配置。检查不写对象、不刷新真实 index，
+命令沿用有界进程入口；不支持 `--attr-source` 的 Git 失败关闭。具体复现与范围见
+[M5 Review Findings 修复报告](validation/m5-review-findings-fix.md)。
 
 V19 仅增加 nullable 授权 / 结果 JSON 槽，旧结果与 Repair 历史不改写。授权及成功检查点沿用
 完整资格 / CAS；失败检查点的 `blockRollback` 只允许匹配已保存授权的 `ROLLING_BACK` 同时

@@ -675,9 +675,45 @@ class EvolutionStepExecutionApiIntegrationTest {
         verifyNoInteractions(ai);
     }
 
+    private void hideUnchangedTrackedContent() throws Exception {
+        git(copy, "config", "core.trustctime", "false");
+        git(copy, "config", "core.checkstat", "minimal");
+        Path unchanged = copy.resolve("src/main/java/Report.java");
+        java.nio.file.attribute.FileTime old = java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() - 10000);
+        Files.setLastModifiedTime(unchanged, old);
+        git(copy, "update-index", "--refresh");
+        Files.writeString(unchanged, Files.readString(unchanged).replace("return 0", "return 9"));
+        Files.setLastModifiedTime(unchanged, old);
+        assertEquals("", git(copy, "status", "--porcelain"));
+        assertEquals("", git(copy, "diff", "--no-ext-diff"));
+    }
+
+    @Test
+    void rollbackRejectsHiddenTrackedTamperingBeforeAuthorization() throws Exception {
+        EvolutionStep failed = failedCandidate();
+        String candidate = failed.executionResult().candidateRevision();
+        hideUnchangedTrackedContent();
+        Map<String, String> untouchedCopy = snapshot(copy);
+        Map<String, String> original = snapshot(source);
+        reset(ai);
+        mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON)
+                .content(rollbackBody(candidate, revision, UUID.randomUUID().toString())))
+                .andExpect(status().isConflict());
+        EvolutionStep rejected = plans.findById(new EvolutionPlanId(planId)).orElseThrow().step(new EvolutionStepId(stepId));
+        assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, rejected.status());
+        assertNull(rejected.rollbackAuthorization());
+        assertNull(rejected.rollbackResult());
+        assertEquals(candidate, persistedCopy().currentRevision());
+        assertEquals(untouchedCopy, snapshot(copy));
+        assertEquals(original, snapshot(source));
+        verify(rollback, never()).restoreBaseline(any());
+        verifyNoInteractions(ai);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"index-lock", "head-lock", "extra-after-grant", "ignored-after-grant", "dirty-after-grant",
-            "unknown", "wrong-success", "post-restore-change", "revoke-after-restore", "replace-baseline", "graft-view"})
+            "unknown", "wrong-success", "post-restore-change", "revoke-after-restore", "replace-baseline", "graft-view",
+            "hidden-after-grant", "hidden-post-restore-change"})
     void rollbackFailureOrUnknownBlocksWithoutDeletingUserFiles(String fault) throws Exception {
         EvolutionStep failed = failedCandidate();
         String candidate = failed.executionResult().candidateRevision();
@@ -694,6 +730,7 @@ class EvolutionStepExecutionApiIntegrationTest {
                     Files.writeString(copy.resolve("user.txt"), "USER CONTENT\n");
                 }
                 case "dirty-after-grant" -> Files.writeString(copy.resolve("A.java"), "USER CONTENT\n");
+                case "hidden-after-grant" -> hideUnchangedTrackedContent();
                 case "replace-baseline" -> {
                     String tree = git(copy, "rev-parse", "HEAD^{tree}").trim();
                     String replacement = git(copy, "-c", "user.name=Fixture", "-c", "user.email=fixture@invalid",
@@ -713,6 +750,9 @@ class EvolutionStepExecutionApiIntegrationTest {
             Object restored = invocation.callRealMethod();
             if (fault.equals("post-restore-change")) {
                 Files.writeString(copy.resolve("A.java"), "USER CONTENT\n");
+            }
+            if (fault.equals("hidden-post-restore-change")) {
+                hideUnchangedTrackedContent();
             }
             if (fault.equals("revoke-after-restore")) {
                 jdbc.update("UPDATE software_asset SET read_permission=0 WHERE id=?", ASSET.value());
