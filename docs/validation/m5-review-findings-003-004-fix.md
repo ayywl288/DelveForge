@@ -2,7 +2,8 @@
 
 日期：2026-10-14（Asia/Shanghai）。基线：`dbf8e2b488381575af1ac130bac85cc069fb839e`。
 Worktree：`C:\Users\28226\.codex\worktrees\m5-lab\DelveForge`，`feature/m5-lab`，开始时干净。
-验证进行中；最终 Gate / 全量统计在完成后记录。本轮只修复这两项，不重构 Verification 或开始新 Slice。
+实现者自验 Gate：PASS；独立复审待执行。本轮只修复这两项，不重构 Verification 或开始新 Slice。
+代码修复提交：`88b8c131edd71ef493f3bb1b1bc7300a4f0bc5fb`；最终验证记录随后单独本地提交。
 
 ## 1. Contract / Isolation
 
@@ -104,13 +105,29 @@ refreshPlan 明确返回已采纳的 Plan / WorkingCopy 快照及查询版本，
 | 首次全后端 | `mvnw.cmd -o -Djava.io.tmpdir=C:\dmrf2-1014-b184 verify` | 1597 / 1 failure / 0 errors / 0 skipped；BUILD FAILURE，02:07 h，15:00:42 完成 |
 | Git 批量读取修正 | 上述 GitRollbackContentIntegrationTest 定向命令 | 21 passed；02:42，15:16:03 完成 |
 | 原并发断言重跑 | `mvnw.cmd -o -Djava.io.tmpdir=C:\dmrf2-1014-b184 -pl backend/delveforge-app -am '-Dtest=EvolutionStepExecutionApiIntegrationTest#repairConcurrentRequestCannotReuseAuthorizationOrStartAnotherProviderCall+rollbackConcurrentRequestAndRepairCannotReuseGrantedAuthorization' -Dsurefire.failIfNoSpecifiedTests=false test` | 2 / 0 failures / 0 errors / 0 skipped；02:15，15:23:23 完成 |
-| 最终全后端 | `mvnw.cmd -o -Djava.io.tmpdir=C:\dmrf2-1014-b184 verify` | 待最终结果 |
+| 最终全后端 | `mvnw.cmd -o -Djava.io.tmpdir=C:\dmrf2-1014-b184 verify` | 1597 / 0 failures / 0 errors / 0 skipped；BUILD SUCCESS，57:08 min，16:25:15 完成，退出 0 |
 | 前端全量 | `pnpm test` | 10 files / 155 passed，22.31 s，12:35:47 开始 |
 | 前端类型 | `pnpm typecheck` | PASS，退出 0 |
 | 前端构建 | `pnpm build` | PASS，56 modules；Vite 796 ms，退出 0 |
 
-本次全量 verify 已重跑 `GitRollbackContentIntegrationTest`：21 / 0 failures / 0 errors / 0 skipped，155.8 s。
-不把定向测试和全量重复相加，最终总数只统计本次 verify 的新 Surefire XML。
+最终全量 verify 重跑 `GitRollbackContentIntegrationTest`：21 / 0 failures / 0 errors / 0 skipped，97.67 s；
+`EvolutionStepExecutionApiIntegrationTest`：86 / 0 failures / 0 errors / 0 skipped，2669 s。
+Spring Boot repackage 和全部 Reactor 均 SUCCESS；不是只统计测试阶段或定向测试。
+以下只汇总最终 verify 的 142 份 Surefire XML；逐文件检查修改时间均晚于该运行日志创建时间，无旧报告。
+
+| 最终模块 | 报告数 | Tests | Failures / Errors / Skipped |
+| --- | --- | --- | --- |
+| Domain | 12 | 228 | 0 / 0 / 0 |
+| Application | 65 | 774 | 0 / 0 / 0 |
+| Infrastructure | 36 | 308 | 0 / 0 / 0 |
+| App | 29 | 287 | 0 / 0 / 0 |
+| 总计 | 142 | 1597 | 0 / 0 / 0 |
+
+M0–M4 与 M5-A/B/C 的现有自动回归全部重跑通过。直接覆盖包括：M4 Verified Success、权限与确认、
+WorkingCopy 隔离、Candidate / lastVerifiedRevision、UNSUPPORTED 预检、Unknown / In-flight 保护；
+M5 的再次 Repair FAIL / PASS、完整历史、精确首次 baseline、额外文件保留、重复与并发请求、SQLite
+检查点失败及新 Spring 上下文回读。没有改状态模型、历史映射或原并发测试屏障。
+这不是真实业务数据库升级、付费 Provider 或 OS 崩溃恢复的验证；未测试范围见下文。
 
 首次全量唯一失败：`repairConcurrentRequestCannotReuseAuthorizationOrStartAnotherProviderCall:1176`
 等待 Provider 检查点的 15 秒断言超时（expected true / actual false）。新证明对每个 CRLF 文件分别
@@ -141,4 +158,5 @@ baseline-only 夹具初版删除 filter 后改为 -text，但沿用旧 autocrlf 
 - 无新的阻塞性业务 Decision Required。本轮完成后停止，等待独立复审。
 
 m5-review2-*.log、Surefire XML、Fixture、数据库与构建产物不提交。
-本报告与实现同一提交交付；最终 Commit SHA 见交付回复及本 Worktree git log -1。
+代码与初版报告提交为 `88b8c131edd71ef493f3bb1b1bc7300a4f0bc5fb`；本报告最终验证记录单独提交。
+最终交付 Commit SHA 见交付回复及本 Worktree git log -1。
