@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.app.config;
 
+import com.ayywl.delveforge.application.evolution.execution.RetryEvolutionStepUseCase;
 import com.ayywl.delveforge.application.evolution.execution.RollbackEvolutionStepUseCase;
 import com.ayywl.delveforge.application.evolution.preparation.CodingProposalParser;
 import com.ayywl.delveforge.application.evolution.preparation.CodingProposalValidator;
@@ -40,6 +41,12 @@ public class ExecutionPreparationUseCaseConfiguration {
             WorkspaceRollbackPort rollback) {
         return new com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase(
                 preparation, state, policy, commits, mutation, verification, rollback);
+    }
+
+    @Bean
+    public RetryEvolutionStepUseCase retryEvolutionStepUseCase(
+            ExecutionPreparationState state, StepExecutionPolicy policy, StepExecutionCommitPort commits) {
+        return new RetryEvolutionStepUseCase(state, policy, commits);
     }
 
     @Bean

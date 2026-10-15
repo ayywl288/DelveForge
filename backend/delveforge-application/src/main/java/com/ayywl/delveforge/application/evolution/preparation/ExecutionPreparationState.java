@@ -98,6 +98,15 @@ public final class ExecutionPreparationState {
         return loaded;
     }
 
+    /** Retry 授权前重新证明原 baseline；FAILED 元数据本身不能替代真实文件证明。 */
+    public Loaded loadRetryFailure(EvolutionPlanId id, EvolutionStepId stepId) {
+        Loaded loaded = loadObjects(id, stepId);
+        policy.requireRetryAllowed(loaded.plan(), stepId, loaded.copy());
+        inspection.requireTrustedState(new WorkspaceRef(loaded.copy().location()),
+                new WorkspaceRef(loaded.asset().location()), loaded.plan().step(stepId).baselineRevision());
+        return loaded;
+    }
+
     /** 只供新授权调用内的准备使用；REST 不提供重启后重放此检查点的入口。 */
     public Loaded revalidateRepair(Loaded expected, EvolutionStepId stepId) {
         EvolutionStep step = expected.plan().step(stepId);
@@ -113,7 +122,9 @@ public final class ExecutionPreparationState {
         if (!actual.copy().id().equals(expected.copy().id())
                 || !actual.copy().lastVerifiedRevision().equals(expected.copy().lastVerifiedRevision())
                 || !actual.copy().location().equals(expected.copy().location())
-                || !actual.asset().location().equals(expected.asset().location())) {
+                || !actual.asset().location().equals(expected.asset().location())
+                || !actual.plan().step(stepId).retryAuthorizations()
+                        .equals(expected.plan().step(stepId).retryAuthorizations())) {
             throw new EvolutionPlanStateException("Execution preparation basis changed");
         }
         return actual;
@@ -151,6 +162,7 @@ public final class ExecutionPreparationState {
                 || !Objects.equals(step.executionResult(), previous.executionResult())
                 || !Objects.equals(step.verificationResult(), previous.verificationResult())
                 || !step.repairAuthorizations().equals(previous.repairAuthorizations())
+                || !step.retryAuthorizations().equals(previous.retryAuthorizations())
                 || !Objects.equals(step.rollbackAuthorization(), previous.rollbackAuthorization())
                 || !Objects.equals(step.rollbackResult(), previous.rollbackResult())
                 || !Objects.equals(step.executionFailureResult(), previous.executionFailureResult())
@@ -175,7 +187,8 @@ public final class ExecutionPreparationState {
 
     public record Loaded(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset asset) {
         public ExecutionPreparationBasis basis(EvolutionStepId id) {
-            return new ExecutionPreparationBasis(plan.id(), id, copy.id(), copy.lastVerifiedRevision());
+            return new ExecutionPreparationBasis(plan.id(), id, copy.id(), copy.lastVerifiedRevision(), null,
+                    plan.step(id).retryAuthorizationId());
         }
     }
 }

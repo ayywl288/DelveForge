@@ -161,7 +161,9 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
                     StepResultJson.read(step.getExecutionFailureResult(),
                             com.ayywl.delveforge.domain.evolution.ExecutionFailureResult.class),
                     StepResultJson.read(step.getAutomaticRollbackResult(),
-                            com.ayywl.delveforge.domain.evolution.AutomaticRollbackResult.class)));
+                            com.ayywl.delveforge.domain.evolution.AutomaticRollbackResult.class),
+                    List.of(StepResultJson.read(step.getRetryAuthorizations(),
+                            com.ayywl.delveforge.domain.evolution.RetryAuthorization[].class))));
         }
 
         // 已保存的是被接受的领域事实；读取时直接重建正式值，不重新制造 AI 提案。
@@ -205,6 +207,7 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         row.setStatus(step.status().name());
         row.setBaselineRevision(step.baselineRevision());
         row.setRepairAuthorizations(StepResultJson.write(step.repairAuthorizations()));
+        row.setRetryAuthorizations(StepResultJson.write(step.retryAuthorizations()));
         stepMapper.insert(row);
         insertStepSection(step.id().value(), "plannedChanges", step.plannedChanges());
         for (int index = 0; index < step.verificationCriteria().size(); index++) {

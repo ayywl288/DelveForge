@@ -2682,6 +2682,28 @@ Retry
 = 从稳定基线重新完整执行 Step
 ```
 
+**M5-E 当前实现范围（实验分支）**
+
+`FAILED → READY` 由独立 Retry 授权完成，不调用 Provider、不产生代码修改。
+前置检查包括 ACTIVE Plan / 当前 Flow 绑定、SELECTED Direction、资产权限、绑定 Working Copy、
+前序 Step 成功及无未决操作；Working Copy 必须 EVOLVING，且实际完整内容、currentRevision、
+lastVerifiedRevision 均匹配该 Step 首次冻结的精确 baselineRevision。此处 baseline 可以是前序 Step
+验证成功后的 revision，不必等于 Working Copy 创建时的 sourceRevision。
+
+请求绑定当前 FAILED 检查点身份（User Rollback 授权或已确认 Execution Failure 身份）、原 baseline
+及新的 Retry 授权身份。旧请求、已用身份或并发输家均不得创建另一份授权。
+本 Slice 延续 Step 内值对象的当前实现选择：追加 `RetryAuthorization`，保存本次独立授权时间、
+被替代轮次的 Execution / Verification、全部 Repair 授权及其失败快照、User / Automatic Rollback
+与 Execution Failure 诊断；再清空当前轮次的结果槽位并进入 READY。更早 Retry 顺序保留，不递归
+复制更早 Retry 数组，不引入独立 Attempt Entity，也不补造历史首次 Confirmation 的时间事实。
+
+后续准备 / Execute 必须显式携带当前 Retry 授权身份；该轮 Repair / User Rollback 也携带相同父身份，
+并仍须各自的新动作授权。它用于区分同一 baseline 上的多轮请求，不替代资产权限或 Scope 检查。
+原首次 baseline 保持不变；通过既有受控 Execution 形成 Candidate 后，重新验证全部适用 Criteria。
+只有 PASS 推进 lastVerifiedRevision。明确执行失败复用 M5-D 诊断 / 精确恢复，明确验证失败保留
+最新 Candidate；UNKNOWN、检查点保存失败、重启未决状态沿用既有 fail-closed 规则。
+GET、启动、异常处理均不授权或自动执行 Retry；本 Slice 不开放 Recovery。
+
 ### 8.15 Recover Working Copy
 
 **Purpose**

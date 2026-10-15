@@ -15,10 +15,12 @@ public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
         UPDATE evolution_step SET status = #{next.status}, baseline_revision = #{next.baselineRevision},
             execution_result = #{execution}, verification_result = #{verification}, repair_authorizations = #{authorizations},
             rollback_authorization = #{rollbackAuthorization}, rollback_result = #{rollbackResult},
-            execution_failure_result = #{failure}, automatic_rollback_result = #{automaticResult}
+            execution_failure_result = #{failure}, automatic_rollback_result = #{automaticResult},
+            retry_authorizations = #{retries}
         WHERE id = #{stepId.value} AND plan_id = #{plan.id.value} AND status = #{old.status}
           AND baseline_revision IS #{old.baselineRevision}
           AND execution_result IS #{oldExecution} AND verification_result IS #{oldVerification}
+          AND retry_authorizations = #{oldRetries}
           AND repair_authorizations = #{oldAuthorizations} AND goal = #{old.goal} AND scope = #{old.scope}
           AND rollback_authorization IS #{oldRollbackAuthorization} AND rollback_result IS #{oldRollbackResult}
           AND execution_failure_result IS #{oldFailure} AND automatic_rollback_result IS #{oldAutomaticResult}
@@ -50,7 +52,8 @@ public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
             @Param("oldRollbackResult") String oldRollbackResult,
             @Param("rollbackAuthorization") String rollbackAuthorization, @Param("rollbackResult") String rollbackResult,
             @Param("oldFailure") String oldFailure, @Param("failure") String failure,
-            @Param("oldAutomaticResult") String oldAutomaticResult, @Param("automaticResult") String automaticResult);
+            @Param("oldAutomaticResult") String oldAutomaticResult, @Param("automaticResult") String automaticResult,
+            @Param("oldRetries") String oldRetries, @Param("retries") String retries);
 
     // 仅追加已授权执行的失败诊断，不授予 Workspace 权限；撤权或 Plan 失效不能抹去已发生事实。
     @Update("""
@@ -58,6 +61,7 @@ public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
         WHERE id = #{stepId.value} AND plan_id = #{plan.id.value} AND status = 'EXECUTING'
           AND baseline_revision = #{old.baselineRevision} AND execution_result IS #{execution}
           AND verification_result IS #{verification} AND repair_authorizations = #{repairs}
+          AND retry_authorizations = #{retries}
           AND rollback_authorization IS #{authorization} AND rollback_result IS #{rollbackResult}
           AND execution_failure_result IS NULL AND automatic_rollback_result IS NULL
           AND goal = #{old.goal} AND scope = #{old.scope}
@@ -73,7 +77,8 @@ public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
             @Param("copy") WorkingCopy copy, @Param("old") EvolutionStep old,
             @Param("execution") String execution, @Param("verification") String verification,
             @Param("repairs") String repairs, @Param("authorization") String authorization,
-            @Param("rollbackResult") String rollbackResult, @Param("failure") String failure);
+            @Param("rollbackResult") String rollbackResult, @Param("failure") String failure,
+            @Param("retries") String retries);
 
     // 只记录已授权回滚的安全阻塞事实；权限撤销不应妨碍诊断落盘，此操作没有 Workspace 写能力。
     @Update("""
@@ -82,6 +87,7 @@ public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
         WHERE id = #{stepId.value} AND plan_id = #{plan.id.value} AND status = 'ROLLING_BACK'
           AND baseline_revision = #{old.baselineRevision} AND execution_result IS #{execution}
           AND verification_result IS #{verification} AND repair_authorizations = #{repairs}
+          AND retry_authorizations = #{retries}
           AND rollback_authorization IS #{authorization} AND rollback_result IS NULL
           AND execution_failure_result IS #{failure} AND automatic_rollback_result IS #{oldAutomaticResult}
           AND goal = #{old.goal} AND scope = #{old.scope}
@@ -98,7 +104,7 @@ public interface EvolutionStepMapper extends BaseMapper<EvolutionStepDO> {
             @Param("execution") String execution, @Param("verification") String verification,
             @Param("repairs") String repairs, @Param("authorization") String authorization, @Param("result") String result,
             @Param("failure") String failure, @Param("oldAutomaticResult") String oldAutomaticResult,
-            @Param("automaticResult") String automaticResult);
+            @Param("automaticResult") String automaticResult, @Param("retries") String retries);
 
     @Update("""
         UPDATE evolution_step SET status = 'READY'

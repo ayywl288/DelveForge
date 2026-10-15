@@ -4,11 +4,15 @@ import com.ayywl.delveforge.application.evolution.preparation.CodingProposal.Act
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.domain.evolution.VerificationResult.Outcome;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.io.IOException;
+import java.nio.file.FileSystemException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
@@ -20,6 +24,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class VerificationOutcomeTest {
     @TempDir
     Path directory;
+
+    @AfterEach
+    void releaseOwnedEmptyDirectory() throws IOException, InterruptedException {
+        // 受控进程已结束后，Windows 的目录句柄仍可能短暂占用；只等待本夹具空目录，不清理任何内容。
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (true) {
+            try {
+                Files.deleteIfExists(directory);
+                return;
+            } catch (FileSystemException locked) {
+                if (System.nanoTime() >= deadline) {
+                    throw locked;
+                }
+                Thread.sleep(20);
+            }
+        }
+    }
 
     @Test
     void onlyCompletedNegativeChecksBecomeConfirmedFailures() {

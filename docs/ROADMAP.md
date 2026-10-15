@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-10-13
+**Last Updated:** 2026-10-15
 
 ---
 
@@ -11,16 +11,16 @@
 
 当前最重要目标：
 
-> M0–M4 核心闭环与 Task G 保持完成 / 冻结。feature/m5-lab 中 M5-A / M5-B / M5-C 已完成，本地待审查；完整 M5 尚未完成。
+> M0–M4 核心闭环与 Task G 保持完成 / 冻结。feature/m5-lab 中 M5-A/B/C/D 及其修复已完成；M5-E FAILED Retry 已本地完成，待独立审查；完整 M5 尚未完成。
 
 本实验不改变已发布 v0.1.0 或 main，不 Push / 合并；不用真实业务数据或付费 Provider。
-本轮只完成独立授权的 User Rollback，结束后停止，不自动开始 Retry、Recovery 或下一 Slice。
+本轮只完成独立授权的 FAILED Retry，结束后停止等待独立审查，不自动开始 Recovery 或下一 Slice。
 
 业务阶段关闭、两次历史 Verified Evolution、Pre-UI 时点 1474 / 85 项确定性回归及尚未重跑的付费 E2E
 见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。
 Task G 当前发行版 UI 的最终结果与 123 项前端回归见 [最终关闭记录](validation/task-g-final-frontend-closeout.md)。
 2026-10-12 用户单独授权的 M4 执行前能力预检与安全错误分类修复见
-[correctness 修复记录](validation/m4-execution-preflight-correctness-fix.md)；冻结边界与 M5 暂缓不变。
+[correctness 修复记录](validation/m4-execution-preflight-correctness-fix.md)；M0–M4 冻结边界不变，M5 仅按本实验 Slice 的单独授权推进。
 UI 接受不代表最新代码的完整付费 E2E、部署或发布验收；M6 仍为 TODO，不自动开始后续工作。
 实施前的技术结构与冻结边界保留在 [历史 UI 交接](UI_TASK_G_HANDOFF.md)；
 干净数据库切换由用户按 [本地数据环境说明](LOCAL_DATA_ENVIRONMENTS.md) 决定，不自动清理旧库或副本。
@@ -624,7 +624,7 @@ M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整�
 
 ### M5 — Failure Safety & Recovery
 
-**Status:** IN_PROGRESS（仅 feature/m5-lab 实验分支的 M5-A / M5-B / M5-C / M5-D；2026-10-14）。其余 Slice 暂缓。
+**Status:** IN_PROGRESS（仅 feature/m5-lab 实验分支的 M5-A/B/C/D/E；2026-10-15）。Recovery 等剩余范围暂缓。
 
 M5-A 实现范围：同一 Candidate 的明确 Verification FAIL → 保存 VerificationResult →
 VERIFICATION_FAILED；Candidate 与 baseline 保留、lastVerifiedRevision 不推进、后续 Step 被阻止。
@@ -644,6 +644,11 @@ M5-D 范围：明确的受控 Execution Failure → 保存诊断与实际 Diff i
 未知执行结果和重启未决检查点不重放。见 [M5-D 报告](validation/m5-d-execution-failure-handling.md)。
 不实现 FAILED Retry、Recovery 或 Verification 重构。
 
+M5-E 范围：精确恢复的 FAILED → 独立授权 / 历史快照 → READY，随后显式携带 Retry 身份复用
+Execution / Candidate / 全量 Criteria Verification；首次 baseline 不变，历史不覆盖。重复请求、
+并发授权、撤权、旧轮次同 baseline CAS 与未知检查点继续阻塞。见
+[M5-E 报告](validation/m5-e-failed-retry.md)。不实现 Recovery、Verification 重构或测试性能优化。
+
 **Goal**
 
 补齐 Evolution Execution 的主要异常路径，使一次失败的代码修改不会破坏后续演化的可信基础。
@@ -657,7 +662,7 @@ M5-D 范围：明确的受控 Execution Failure → 保存诊断与实际 Diff i
 - [x] 自动进入 Rollback。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
 - [x] Rollback 成功后恢复 baselineRevision。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
 - [x] Step 进入 `FAILED`。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
-- [ ] 支持用户明确 Retry。
+- [x] 支持用户明确 Retry（M5-E；仅精确恢复的 FAILED，独立持久化授权）。
 
 #### Verification Failure
 
@@ -721,7 +726,7 @@ Rollback Failure
 
 - [ ] 未验证 Candidate State 永远不会成为后续 Step 的执行基线。
 - [ ] `lastVerifiedRevision` 只有 Verification Success 才能推进。
-- [ ] FAILED 后 Retry 需要新的用户确认。
+- [x] FAILED 后 Retry 需要新的用户确认（M5-E，原 baseline 与全部历史保留）。
 - [ ] VERIFICATION_FAILED 后 Repair 需要新的用户确认。
 - [ ] Recovery 失败不会被系统静默忽略。
 

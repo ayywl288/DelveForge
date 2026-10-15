@@ -8,6 +8,7 @@ import com.ayywl.delveforge.application.port.ai.AiRole;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStateException;
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
@@ -20,6 +21,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -93,8 +95,16 @@ public final class PrepareEvolutionStepUseCase {
 
     /** 返回绑定当前可信 revision 的调用内提案；外部调用前后重查资格，失败不推进领域状态。 */
     public ValidatedExecutionProposal prepare(EvolutionPlanId planId, EvolutionStepId stepId) {
-        // 这里只读受信 revision（A），保持 READY；baseline 到真正开始执行时才冻结。
+        return prepare(planId, stepId, null);
+    }
+
+    /** Retry READY 的准备必须显式绑定已保存授权，不能让旧 execute 请求继承新授权。 */
+    public ValidatedExecutionProposal prepare(EvolutionPlanId planId, EvolutionStepId stepId, String retryId) {
         ExecutionPreparationState.Loaded loaded = state.load(planId, stepId, false);
+        if (!Objects.equals(retryId, loaded.plan().step(stepId).retryAuthorizationId())) {
+            throw new EvolutionPlanStateException(
+                    "Execution must identify its current Retry authorization");
+        }
         return prepare(loaded, stepId, loaded.basis(stepId), () -> state.revalidate(loaded, stepId, false));
     }
 
@@ -103,7 +113,8 @@ public final class PrepareEvolutionStepUseCase {
         state.revalidateRepair(authorized, stepId);
         EvolutionStep step = authorized.plan().step(stepId);
         ExecutionPreparationBasis basis = new ExecutionPreparationBasis(authorized.plan().id(), stepId,
-                authorized.copy().id(), step.executionStartRevision(), step.repairAuthorizations().getLast().id());
+                authorized.copy().id(), step.executionStartRevision(), step.repairAuthorizations().getLast().id(),
+                step.retryAuthorizationId());
         return prepare(authorized, stepId, basis, () -> state.revalidateRepair(authorized, stepId));
     }
 

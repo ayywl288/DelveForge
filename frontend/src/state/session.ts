@@ -32,7 +32,9 @@ export interface ExecutionReceipt {
   planId: string;
   stepId: string;
   startedAt: string;
-  operation?: "REPAIR" | "ROLLBACK";
+  operation?: "REPAIR" | "ROLLBACK" | "RETRY";
+  retryAuthorizationId?: string;
+  failedCheckpointId?: string;
   authorizationId?: string;
   candidateRevision?: string;
   baselineRevision?: string;
@@ -233,25 +235,32 @@ export function createSession() {
     pollError.value = "";
     // 同步观察者也可能更新查询依据；清理前再次核对本次采纳仍有效。
     if (!currentSnapshot(snapshot)) return null;
-    // 仅完成的持久化结果能消除断线的不确定性；READY 不能证明后台准备已结束。
-    if (receipt.value?.planId === result.id) {
-      const step = result.steps.find(
-        (item) => item.id === receipt.value?.stepId,
-      );
-      if (
-        step &&
-        [
-          "SUCCEEDED",
-          "FAILED",
-          "CANCELLED",
-          "RECOVERY_REQUIRED",
-          "VERIFICATION_FAILED",
-        ].includes(step.status) && (!receipt.value.operation || receipt.value.operation === "REPAIR"
-          && step.repairAuthorizations?.some(item => item.id === receipt.value?.authorizationId)
-          || receipt.value.operation === "ROLLBACK" && step.rollbackAuthorization?.id === receipt.value.authorizationId
-            && !!step.rollbackResult && ["FAILED", "RECOVERY_REQUIRED"].includes(step.status))
-      )
-        clearReceipt();
+    // READY 只可确认已持久化的 Retry 授权，不能证明外部执行或准备已结束。
+    const pending = receipt.value;
+    if (pending?.planId === result.id) {
+      const step = result.steps.find(item => item.id === pending.stepId);
+      if (step) {
+        const terminal = ["SUCCEEDED", "FAILED", "CANCELLED", "RECOVERY_REQUIRED",
+          "VERIFICATION_FAILED"].includes(step.status);
+        const retrySaved = pending.operation === "RETRY"
+          && step.retryAuthorizations?.some(item => item.id === pending.authorizationId
+            && item.failedCheckpointId === pending.failedCheckpointId
+            && item.baselineRevision === pending.baselineRevision);
+        const retryReady = step.status === "READY" && wc?.status === "EVOLVING"
+          && wc.currentRevision === pending.baselineRevision
+          && wc.lastVerifiedRevision === pending.baselineRevision;
+        const executionMatches = !pending.operation
+          && step.retryAuthorizations?.at(-1)?.id === pending.retryAuthorizationId;
+        const repairMatches = pending.operation === "REPAIR"
+          && step.repairAuthorizations?.some(item => item.id === pending.authorizationId);
+        const rollbackMatches = pending.operation === "ROLLBACK"
+          && step.rollbackAuthorization?.id === pending.authorizationId && !!step.rollbackResult
+          && ["FAILED", "RECOVERY_REQUIRED"].includes(step.status);
+        if (retrySaved && (terminal || retryReady)
+            || terminal && (executionMatches || repairMatches || rollbackMatches)) {
+          clearReceipt();
+        }
+      }
     }
     return snapshot;
   }
@@ -389,16 +398,17 @@ export function createSession() {
     }
   }
   window.addEventListener("storage", storageChanged);
-  async function execute(stepId: string) {
-    return performStep(stepId);
+  async function execute(stepId: string, retryAuthorizationId?: string) {
+    return performStep(stepId, undefined, undefined, retryAuthorizationId);
   }
-  async function repair(stepId: string, candidateRevision: string) {
-    return performStep(stepId, candidateRevision);
+  async function repair(stepId: string, candidateRevision: string, retryAuthorizationId?: string) {
+    return performStep(stepId, candidateRevision, undefined, retryAuthorizationId);
   }
-  async function rollback(stepId: string, candidateRevision: string, baselineRevision: string) {
-    return performStep(stepId, candidateRevision, baselineRevision);
+  async function rollback(stepId: string, candidateRevision: string, baselineRevision: string, retryAuthorizationId?: string) {
+    return performStep(stepId, candidateRevision, baselineRevision, retryAuthorizationId);
   }
-  async function performStep(stepId: string, repairCandidate?: string, rollbackBaseline?: string) {
+  async function performStep(stepId: string, repairCandidate?: string, rollbackBaseline?: string,
+    retryAuthorizationId?: string) {
     const rollingBack = rollbackBaseline !== undefined;
     const repairing = repairCandidate !== undefined && !rollingBack;
     const handlingFailure = repairing || rollingBack;
@@ -422,6 +432,7 @@ export function createSession() {
             !current ||
             index < 0 ||
             current.status !== "ACTIVE" ||
+            current.steps[index]?.retryAuthorizations?.at(-1)?.id !== retryAuthorizationId ||
             current.steps[index]?.status !== (handlingFailure ? "VERIFICATION_FAILED" : "READY") ||
             current.steps
               .slice(0, index)
@@ -442,6 +453,7 @@ export function createSession() {
             planId: current.id,
             stepId,
             startedAt: new Date().toISOString(),
+            ...(retryAuthorizationId ? { retryAuthorizationId } : {}),
             ...(handlingFailure ? { operation: rollingBack ? "ROLLBACK" as const : "REPAIR" as const,
               authorizationId: crypto.randomUUID(), candidateRevision: repairCandidate,
               ...(rollingBack ? { baselineRevision: rollbackBaseline } : {}) } : {}),
@@ -454,10 +466,15 @@ export function createSession() {
           schedulePoll();
           try {
             const result = rollingBack
-              ? await api.rollback(current.id, stepId, repairCandidate!, rollbackBaseline!, marker.authorizationId!)
+              ? retryAuthorizationId
+                ? await api.rollback(current.id, stepId, repairCandidate!, rollbackBaseline!, marker.authorizationId!, retryAuthorizationId)
+                : await api.rollback(current.id, stepId, repairCandidate!, rollbackBaseline!, marker.authorizationId!)
               : repairing
-              ? await api.repair(current.id, stepId, repairCandidate!, marker.authorizationId!)
-              : await api.execute(current.id, stepId);
+              ? retryAuthorizationId
+                ? await api.repair(current.id, stepId, repairCandidate!, marker.authorizationId!, retryAuthorizationId)
+                : await api.repair(current.id, stepId, repairCandidate!, marker.authorizationId!)
+              : retryAuthorizationId ? await api.execute(current.id, stepId, retryAuthorizationId)
+                : await api.execute(current.id, stepId);
             if (repairing && !result.steps.find(step => step.id === stepId)?.repairAuthorizations
               ?.some(item => item.id === marker.authorizationId)) throw new ApiError(0, "RESPONSE_UNREADABLE");
             if (rollingBack) {
@@ -495,7 +512,8 @@ export function createSession() {
                   ASSET_LICENSE_INFORMATION_REQUIRED: 1,
                   ASSET_AUTHORIZATION_CONFLICT: 1,
                 } &&
-              !handlingFailure && plan.value?.steps.find((step) => step.id === stepId)?.status === "READY" &&
+              !handlingFailure && plan.value?.steps.find(step => step.id === stepId)?.retryAuthorizations?.at(-1)?.id === retryAuthorizationId
+              && plan.value?.steps.find((step) => step.id === stepId)?.status === "READY" &&
               !plan.value.steps.find((step) => step.id === stepId)
                 ?.executionResult &&
               copy.value && ["READY", "EVOLVING"].includes(copy.value.status) &&
@@ -508,7 +526,8 @@ export function createSession() {
                 "ASSET_AUTHORIZATION_CONFLICT"].includes(failure.code)) {
               const step = plan.value?.steps.find(item => item.id === stepId);
               // 明确拒绝仍需 GET 证实同一失败 Candidate / baseline 与本次授权未保存；未知状态不能清除等待。
-              if (step?.status === "VERIFICATION_FAILED" && copy.value?.status === "EVOLVING"
+              if (step?.status === "VERIFICATION_FAILED" && step.retryAuthorizations?.at(-1)?.id === retryAuthorizationId
+                && copy.value?.status === "EVOLVING"
                 && copy.value.currentRevision === repairCandidate && copy.value.lastVerifiedRevision === step.baselineRevision
                 && step.executionResult?.candidateRevision === repairCandidate
                 && step.verificationResult?.candidateRevision === repairCandidate && step.verificationResult.passed === false
@@ -524,6 +543,66 @@ export function createSession() {
           }
         },
       );
+    });
+  }
+  async function retry(stepId: string, failedCheckpointId: string, baselineRevision: string) {
+    if (busy.value || receipt.value || !navigator.locks) {
+      error.value = "已有请求待核对，或浏览器不支持跨标签页执行锁。请先查询状态。";
+      return;
+    }
+    await run("独立授权完整重试（不调用 AI）", async () => {
+      await navigator.locks.request("delveforge.execute", { ifAvailable: true }, async lock => {
+        if (!lock || readReceipt()) throw new Error("execution locked");
+        const snapshot = await refreshPlan();
+        if (!currentSnapshot(snapshot)) throw new ApiError(409, "CONFLICT");
+        const current = plan.value;
+        const step = current?.steps.find(item => item.id === stepId);
+        const failureId = step?.executionFailureResult?.id ?? step?.rollbackAuthorization?.id;
+        if (!current || current.status !== "ACTIVE" || !step || step.status !== "FAILED"
+          || failureId !== failedCheckpointId || step.baselineRevision !== baselineRevision
+          || !copy.value || copy.value.status !== "EVOLVING"
+          || copy.value.currentRevision !== baselineRevision || copy.value.lastVerifiedRevision !== baselineRevision
+          || !(step.automaticRollbackResult?.restored || step.rollbackResult?.restored)
+          || current.steps.slice(0, current.steps.indexOf(step)).some(item => item.status !== "SUCCEEDED")) {
+          throw new ApiError(409, "CONFLICT");
+        }
+        const marker: ExecutionReceipt = { planId: current.id, stepId, operation: "RETRY",
+          startedAt: new Date().toISOString(), authorizationId: crypto.randomUUID(), failedCheckpointId, baselineRevision };
+        localStorage.setItem(executionKey, JSON.stringify(marker));
+        receipt.value = marker;
+        executionRequest.value = marker;
+        executionPending.value = true;
+        schedulePoll();
+        try {
+          const result = await api.retry(current.id, stepId, failedCheckpointId, baselineRevision, marker.authorizationId!);
+          const saved = result.steps.find(item => item.id === stepId);
+          if (saved?.status !== "READY" || !saved.retryAuthorizations?.some(item => item.id === marker.authorizationId
+            && item.failedCheckpointId === failedCheckpointId && item.baselineRevision === baselineRevision)) {
+            throw new ApiError(0, "RESPONSE_UNREADABLE");
+          }
+          setPlan(result);
+          await refreshPlan();
+        } catch (failure) {
+          let checked: AdoptedPlanSnapshot | null = null;
+          try { checked = await refreshPlan(); } catch { pollError.value = "重试授权及当前状态未能核实，保留等待标记。"; }
+          if (currentSnapshot(checked) && failure instanceof ApiError && failure.status > 0
+            && ["INVALID_REQUEST", "CONFLICT", "EXECUTION_CRITERIA_UNSUPPORTED", "ASSET_TYPE_UNSUPPORTED",
+              "ASSET_READ_PERMISSION_REQUIRED", "ASSET_USAGE_AUTHORIZATION_REQUIRED", "ASSET_LICENSE_INFORMATION_REQUIRED",
+              "ASSET_AUTHORIZATION_CONFLICT"].includes(failure.code)) {
+            const actual = plan.value?.steps.find(item => item.id === stepId);
+            if (actual?.status === "FAILED" && actual.baselineRevision === baselineRevision
+              && (actual.executionFailureResult?.id ?? actual.rollbackAuthorization?.id) === failedCheckpointId
+              && copy.value?.status === "EVOLVING" && copy.value.currentRevision === baselineRevision
+              && copy.value.lastVerifiedRevision === baselineRevision && Array.isArray(actual.retryAuthorizations)
+              && !actual.retryAuthorizations.some(item => item.id === marker.authorizationId)) clearReceipt();
+          }
+          throw failure;
+        } finally {
+          executionPending.value = false;
+          executionRequest.value = null;
+          schedulePoll();
+        }
+      });
     });
   }
   async function loadProjects(more = false, deleted = showingDeletedProjects.value) {
@@ -793,6 +872,7 @@ export function createSession() {
     refreshPlan,
     observeExecution,
     execute,
+    retry,
     repair,
     rollback,
     dispose() {

@@ -11,6 +11,8 @@ import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
 import com.ayywl.delveforge.domain.evolution.WorkingCopyStatus;
 
+import java.util.Objects;
+
 /** 从已进入 EXECUTING 的完整检查点建立；客户端不能提交任意路径 / shell。 */
 public final class AuthorizedStepExecution {
     private final WorkspaceRef workingCopy;
@@ -32,6 +34,7 @@ public final class AuthorizedStepExecution {
         ExecutionPreparationBasis basis = validated.basis();
         if (basis.repairAuthorizationId() != null || !step.repairAuthorizations().isEmpty()
                 || plan.status() != EvolutionPlanStatus.ACTIVE || step.status() != EvolutionStepStatus.EXECUTING
+                || !Objects.equals(basis.retryAuthorizationId(), step.retryAuthorizationId())
                 || !basis.planId().equals(plan.id()) || !basis.stepId().equals(stepId)
                 || !basis.workingCopyId().equals(copy.id()) || !copy.id().value().equals(plan.workingCopyId())
                 || copy.status() != WorkingCopyStatus.EVOLVING
@@ -51,6 +54,7 @@ public final class AuthorizedStepExecution {
         if (plan.status() != EvolutionPlanStatus.ACTIVE || step.status() != EvolutionStepStatus.EXECUTING
                 || step.repairAuthorizations().isEmpty() || step.executionResult() != null || step.verificationResult() != null
                 || !step.repairAuthorizations().getLast().id().equals(basis.repairAuthorizationId())
+                || !Objects.equals(basis.retryAuthorizationId(), step.retryAuthorizationId())
                 || !basis.planId().equals(plan.id()) || !basis.stepId().equals(stepId)
                 || !basis.workingCopyId().equals(copy.id()) || !copy.id().value().equals(plan.workingCopyId())
                 || !copy.sourceAssetId().equals(plan.baseAssetId()) || copy.status() != WorkingCopyStatus.EVOLVING

@@ -67,6 +67,11 @@ public final class ExecuteEvolutionStepUseCase {
         return execute(preparation.prepare(planId, stepId));
     }
 
+    public EvolutionPlan execute(EvolutionPlanId planId, EvolutionStepId stepId, String retryAuthorizationId) {
+        return retryAuthorizationId == null ? execute(planId, stepId)
+                : execute(preparation.prepare(planId, stepId, retryAuthorizationId));
+    }
+
     /** 重新核对提案依据后执行；成功返回已保存的 Plan，异常保留最后完整检查点。 */
     public EvolutionPlan execute(ValidatedExecutionProposal validated) {
         // 准备时通过校验不代表此刻仍可执行；写入前重查受信 revision（A）与证据资格。
@@ -97,7 +102,15 @@ public final class ExecuteEvolutionStepUseCase {
 
     /** 明确请求一次 Repair；先保存授权 / 历史及 EXECUTING，再调用 Provider，不重放未知状态。 */
     public EvolutionPlan repair(EvolutionPlanId planId, EvolutionStepId stepId, String candidate, String authorizationId) {
+        return repair(planId, stepId, candidate, authorizationId, null);
+    }
+
+    public EvolutionPlan repair(EvolutionPlanId planId, EvolutionStepId stepId, String candidate, String authorizationId,
+            String retryAuthorizationId) {
         Loaded failed = state.loadRepairCandidate(planId, stepId);
+        if (!Objects.equals(failed.plan().step(stepId).retryAuthorizationId(), retryAuthorizationId)) {
+            throw new EvolutionExecutionException("Repair belongs to a different Retry authorization");
+        }
         PrepareEvolutionStepUseCase.requireSupportedCriteria(failed.plan().step(stepId));
         EvolutionPlan authorized = failed.plan().copy();
         WorkingCopy retained = failed.copy().copy();

@@ -321,4 +321,58 @@ class ExecuteEvolutionStepUseCaseTest {
         assertNull(f.store.plan.step(STEP).executionResult());
         assertEquals(0, f.workspace.verifications);
     }
+    private Fixture restoredRetryFixture() {
+        Fixture f = new Fixture();
+        f.store.plan.startStep(STEP, f.store.copy, new StepExecutionPolicy());
+        f.store.plan.failStepExecution(STEP, f.store.copy, new ExecutionFailureResult("failure", "A", "A",
+                "APPLY_CHECK", 1, "CONFIRMED_GIT_REJECTION", "A", null, false, List.of(), Instant.now()));
+        f.store.plan.finishAutomaticStepRollback(STEP, f.store.copy, new AutomaticRollbackResult("failure", "A", "A",
+                true, "restored", Instant.now()));
+        return f;
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void retryAuthorizationIsAtomicAndNeverCallsMutationOrVerification(boolean conflict) {
+        Fixture f = restoredRetryFixture();
+        EvolutionPlan before = f.store.plan;
+        WorkingCopy beforeCopy = f.store.copy;
+        RetryEvolutionStepUseCase retry = new RetryEvolutionStepUseCase(f.state, new StepExecutionPolicy(), f.store);
+        f.store.failAt = conflict ? 1 : 0;
+        if (conflict) {
+            assertThrows(EvolutionLifecycleConflictException.class, () -> retry.retry(PLAN, STEP, "failure", "A", "retry"));
+            assertSame(before, f.store.plan);
+            assertSame(beforeCopy, f.store.copy);
+            assertTrue(before.step(STEP).retryAuthorizations().isEmpty());
+        } else {
+            retry.retry(PLAN, STEP, "failure", "A", "retry");
+            assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+            assertEquals("retry", f.store.plan.step(STEP).retryAuthorizationId());
+            assertEquals("A", f.store.copy.currentRevision());
+        }
+        assertEquals(EvolutionStepStatus.FAILED, before.step(STEP).status());
+        assertEquals(0, f.workspace.mutations);
+        assertEquals(0, f.workspace.verifications);
+    }
+
+    @Test
+    void retryRejectsAProposalFromThePreviousAttemptDespiteTheSameBaseline() {
+        Fixture f = restoredRetryFixture();
+        ValidatedExecutionProposal old = f.proposal("A");
+        new RetryEvolutionStepUseCase(f.state, new StepExecutionPolicy(), f.store).retry(PLAN, STEP, "failure", "A", "retry");
+        assertThrows(EvolutionExecutionException.class, () -> f.useCase().execute(old));
+        assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+        assertEquals(0, f.workspace.mutations);
+        ValidatedExecutionProposal current = new CodingProposalValidator(new DeterministicRepositorySecretPolicy(),
+                f.workspace, new ExecutionPreparationLimits(2,24,48,65536,524288,786432,262144,16,16)).validate(
+                old.proposal(), new ExecutionPreparationBasis(PLAN, STEP, COPY, "A", null, "retry"),
+                f.store.plan.step(STEP), new WorkspaceRef("managed"), Map.of("src/A.java", "old\n"),
+                Set.of(), Set.of("src/A.java"));
+        f.useCase().execute(current);
+        assertEquals(EvolutionStepStatus.SUCCEEDED, f.store.plan.step(STEP).status());
+        assertEquals("retry", f.store.plan.step(STEP).retryAuthorizationId());
+        assertEquals("B", f.store.copy.lastVerifiedRevision());
+        assertEquals("A", f.store.plan.step(STEP).baselineRevision());
+    }
+
 }

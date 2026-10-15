@@ -1276,6 +1276,22 @@ Persistence 重放 Domain 操作；diagnoseFailure 仅向匹配 EXECUTING 元组
 两种终态都不可保存则保留原未决检查点。无后台任务、自动 Retry 或启动补偿。
 现有 execute / repair 返回保存的真实 Plan；新增只读结果字段与 UI 诊断，不开放新的执行或恢复入口。
 
+**FAILED Retry（M5-E 实验分支）：** 独立 `RetryEvolutionStepUseCase` 使用既有只读资格加载、
+完整基线 inspection、Domain 操作与 StepExecutionCommitPort，只原子保存 FAILED → READY 授权。
+它没有 AI Gateway 或 mutation / rollback Port。之后的显式 prepare / execute 复用 M4 链路，
+ExecutionPreparationBasis 与 capability 核对父 Retry 身份，防止同 baseline 的旧请求继承新授权。
+Repair / User Rollback 在 Retry 轮次中也核对父身份；不合并其独立动作授权。
+
+V21 只新增默认 `[]` 的 retry_authorizations JSON 列。Step 内保存按顺序追加的授权及前轮完整失败
+快照，不建立新 Aggregate。普通、失败诊断及阻塞提交均比较完整 Retry 历史，Persistence 重放
+Domain 转移，并与 WorkingCopy 更新保持原事务；同状态 / 同 baseline 的历史变化也会使 CAS 失败。
+旧 V20 行保留原字段含义，不伪造 Retry 历史。
+
+授权 READY 与请求付费准备 / 执行分开。当前执行准备仍沿用 M4 在 EXECUTING claim 前调用 Provider
+的次序；本 Slice 不新增 Provider 调用的 exactly-once 承诺。UI 使用 Web Lock、持久化等待标记和
+被采纳的最新 GET 快照阻止自动重送；READY 本身不证明未知的外部准备请求已经停止。
+显式保存的 Retry 授权可通过匹配身份的 GET 确认；未决 EXECUTING / ROLLING_BACK 仍阻塞。
+
 ## 7. Dependency Rules
 
 本节描述代码模块之间允许存在的依赖方向，而不是系统运行时的调用顺序。

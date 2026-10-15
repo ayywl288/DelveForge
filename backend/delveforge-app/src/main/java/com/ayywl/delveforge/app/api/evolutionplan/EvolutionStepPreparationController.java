@@ -10,6 +10,7 @@ import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -34,8 +35,11 @@ public class EvolutionStepPreparationController {
     }
 
     @PostMapping("/execution-preparation")
-    public PreparationResponse prepare(@PathVariable String planId, @PathVariable String stepId) {
-        ValidatedExecutionProposal result = prepare.prepare(new EvolutionPlanId(planId), new EvolutionStepId(stepId));
+    public PreparationResponse prepare(@PathVariable String planId, @PathVariable String stepId,
+            @RequestBody(required = false) EvolutionStepExecutionController.ExecuteRequest request) {
+        ValidatedExecutionProposal result = request == null
+                ? prepare.prepare(new EvolutionPlanId(planId), new EvolutionStepId(stepId))
+                : prepare.prepare(new EvolutionPlanId(planId), new EvolutionStepId(stepId), request.retryAuthorizationId());
         return new PreparationResponse(result.basis(), result.proposal(), result.modelVisiblePaths());
     }
 

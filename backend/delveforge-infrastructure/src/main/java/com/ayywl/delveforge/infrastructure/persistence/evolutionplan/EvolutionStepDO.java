@@ -15,6 +15,10 @@ public class EvolutionStepDO {
     private String executionResult;
     private String verificationResult;
     private String repairAuthorizations;
+    private String retryAuthorizations;
+
+    public String getRetryAuthorizations() { return retryAuthorizations; }
+    public void setRetryAuthorizations(String value) { retryAuthorizations = value; }
     private String rollbackAuthorization;
     private String rollbackResult;
     private String executionFailureResult;

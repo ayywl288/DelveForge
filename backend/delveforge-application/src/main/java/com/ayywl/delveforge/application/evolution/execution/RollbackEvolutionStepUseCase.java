@@ -1,7 +1,7 @@
 package com.ayywl.delveforge.application.evolution.execution;
 
-import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState.Loaded;
+import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
 import com.ayywl.delveforge.application.port.persistence.StepExecutionCommitPort;
 import com.ayywl.delveforge.application.port.workspace.AuthorizedStepRollback;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyRollbackException;
@@ -15,6 +15,7 @@ import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
 
 import java.time.Instant;
+import java.util.Objects;
 
 /** 单次显式 Rollback；授权先提交，恢复与 SQLite 分离，未知结果只保存阻塞事实。 */
 public final class RollbackEvolutionStepUseCase {
@@ -33,7 +34,15 @@ public final class RollbackEvolutionStepUseCase {
 
     public EvolutionPlan rollback(EvolutionPlanId planId, EvolutionStepId id, String candidate, String baseline,
             String authorizationId) {
+        return rollback(planId, id, candidate, baseline, authorizationId, null);
+    }
+
+    public EvolutionPlan rollback(EvolutionPlanId planId, EvolutionStepId id, String candidate, String baseline,
+            String authorizationId, String retryAuthorizationId) {
         Loaded failed = state.loadRollbackCandidate(planId, id);
+        if (!Objects.equals(failed.plan().step(id).retryAuthorizationId(), retryAuthorizationId)) {
+            throw new EvolutionExecutionException("Rollback belongs to a different Retry authorization");
+        }
         EvolutionPlan authorized = failed.plan().copy();
         WorkingCopy retained = failed.copy().copy();
         authorized.authorizeStepRollback(id, retained, policy, authorizationId, candidate, baseline, Instant.now());

@@ -1889,4 +1889,403 @@ class EvolutionStepExecutionApiIntegrationTest {
         return result;
     }
 
+    private EvolutionStep m5eRestoredFailure(String origin) throws Exception {
+        String originalPhysicalText = Files.readString(copy.resolve("A.java"));
+        if (origin.equals("user")) {
+            EvolutionStep failed = failedCandidate();
+            String repair = UUID.randomUUID().toString();
+            coding("--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new \n+again \n", "DIFF_CHECK");
+            mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                    .content(repairBody(failed.executionResult().candidateRevision(), repair))).andExpect(status().isOk());
+            failed = currentStep();
+            assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, failed.status());
+            mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(rollbackBody(
+                    failed.executionResult().candidateRevision(), revision, UUID.randomUUID().toString())))
+                    .andExpect(status().isOk());
+        } else {
+            confirm();
+            coding(PATCH, "DIFF_CHECK");
+            m5eRejectGit("index.lock");
+            mvc.perform(post(route("execute"))).andExpect(status().isOk());
+            doCallRealMethod().when(mutation).applyCandidate(any());
+        }
+        EvolutionStep failed = currentStep();
+        assertEquals(EvolutionStepStatus.FAILED, failed.status());
+        assertEquals(revision, persistedCopy().currentRevision());
+        assertEquals(revision, git(copy, "rev-parse", "HEAD").trim());
+        assertEquals(originalPhysicalText, Files.readString(copy.resolve("A.java")));
+        clearInvocations(rollback, mutation, verification);
+        return failed;
+    }
+
+    private void m5eRejectGit(String lockName) throws Exception {
+        m5eRejectGit(lockName, false);
+    }
+
+    private void m5eRejectGit(String lockName, boolean revokeAfterClaim) throws Exception {
+        doAnswer(invocation -> {
+            if (revokeAfterClaim) {
+                jdbc.update("UPDATE software_asset SET read_permission=0 WHERE id=?", ASSET.value());
+            }
+            Path lock = copy.resolve(".git").resolve(lockName);
+            Files.writeString(lock, "OWNED M5-E FAULT");
+            try {
+                return invocation.callRealMethod();
+            } finally {
+                Files.delete(lock);
+            }
+        }).when(mutation).applyCandidate(any());
+    }
+
+    private String m5eRetryBody(EvolutionStep failed, String authorization) throws Exception {
+        return mapper.writeValueAsString(Map.of("expectedFailureId", failed.failedCheckpointId(),
+                "expectedBaselineRevision", revision, "authorizationId", authorization));
+    }
+
+    private void m5eAuthorize(EvolutionStep failed, String authorization) throws Exception {
+        mvc.perform(post(route("retry")).contentType(MediaType.APPLICATION_JSON).content(m5eRetryBody(failed, authorization)))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.steps[0].status").value("READY"))
+                .andExpect(jsonPath("$.steps[0].retryAuthorizations[-1].id").value(authorization));
+    }
+
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder m5eExecute(String authorization)
+            throws Exception {
+        return post(route("execute")).contentType(MediaType.APPLICATION_JSON)
+                .content(mapper.writeValueAsString(Map.of("retryAuthorizationId", authorization)));
+    }
+
+    private void m5eRestart(EvolutionStep expected) throws Exception {
+        WorkingCopy before = persistedCopy();
+        try (var restarted = new org.springframework.boot.builder.SpringApplicationBuilder(
+                com.ayywl.delveforge.app.DelveForgeApplication.class).web(org.springframework.boot.WebApplicationType.NONE)
+                .run("--delveforge.persistence.database-file=" + BASE.resolve("state.db"),
+                        "--delveforge.workspace.root=" + BASE.resolve("managed"),
+                        "--delveforge.ai.deepseek.api-key=", "--spring.profiles.active=m5e-restart-test")) {
+            EvolutionStep actual = restarted.getBean(EvolutionPlanRepository.class).findById(new EvolutionPlanId(planId))
+                    .orElseThrow().step(new EvolutionStepId(stepId));
+            assertEquals(Arrays.asList(expected.status(), expected.baselineRevision(), expected.executionResult(),
+                    expected.verificationResult(), expected.repairAuthorizations(), expected.rollbackAuthorization(),
+                    expected.rollbackResult(), expected.executionFailureResult(), expected.automaticRollbackResult(),
+                    expected.retryAuthorizations()), Arrays.asList(actual.status(), actual.baselineRevision(),
+                    actual.executionResult(), actual.verificationResult(), actual.repairAuthorizations(),
+                    actual.rollbackAuthorization(), actual.rollbackResult(), actual.executionFailureResult(),
+                    actual.automaticRollbackResult(), actual.retryAuthorizations()));
+            WorkingCopy actualCopy = restarted.getBean(WorkingCopyRepository.class).findById(before.id()).orElseThrow();
+            assertEquals(before.status(), actualCopy.status());
+            assertEquals(before.currentRevision(), actualCopy.currentRevision());
+            assertEquals(before.lastVerifiedRevision(), actualCopy.lastVerifiedRevision());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"user", "automatic"})
+    void m5eRetryRequiresIndependentSavedAuthorityThenCompletesTheFullStep(String origin) throws Exception {
+        EvolutionStep previous = m5eRestoredFailure(origin);
+        String authorization = UUID.randomUUID().toString();
+        reset(ai);
+        mvc.perform(post(route("retry")).contentType(MediaType.APPLICATION_JSON)
+                .content(m5eRetryBody(previous, previous.failedCheckpointId()))).andExpect(status().isConflict());
+        for (RepairAuthorization repair : previous.repairAuthorizations()) {
+            mvc.perform(post(route("retry")).contentType(MediaType.APPLICATION_JSON)
+                    .content(m5eRetryBody(previous, repair.id()))).andExpect(status().isConflict());
+        }
+        assertTrue(currentStep().retryAuthorizations().isEmpty());
+        m5eAuthorize(previous, authorization);
+        verifyNoInteractions(ai);
+        verify(mutation, never()).applyCandidate(any());
+        verify(rollback, never()).restoreBaseline(any());
+        EvolutionStep ready = currentStep();
+        assertEquals(revision, ready.baselineRevision());
+        assertEquals(previous.executionResult(), ready.retryAuthorizations().getLast().previousExecution());
+        assertEquals(previous.verificationResult(), ready.retryAuthorizations().getLast().previousVerification());
+        assertEquals(previous.repairAuthorizations(), ready.retryAuthorizations().getLast().previousRepairs());
+        assertEquals(previous.rollbackResult(), ready.retryAuthorizations().getLast().previousRollbackResult());
+        assertEquals(previous.executionFailureResult(), ready.retryAuthorizations().getLast().previousExecutionFailure());
+        assertEquals(previous.automaticRollbackResult(), ready.retryAuthorizations().getLast().previousAutomaticRollback());
+        assertTrue(ready.repairAuthorizations().isEmpty());
+        assertEquals(EvolutionStepStatus.FAILED, previous.status());
+        mvc.perform(post(route("retry")).contentType(MediaType.APPLICATION_JSON).content(m5eRetryBody(previous, authorization)))
+                .andExpect(status().isConflict());
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        mvc.perform(m5eExecute(UUID.randomUUID().toString())).andExpect(status().isConflict());
+        mvc.perform(post(route("execution-preparation"))).andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+        m5eRestart(ready);
+        coding(PATCH, "DIFF_CHECK");
+        mvc.perform(m5eExecute(authorization)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.steps[0].status").value("SUCCEEDED"));
+        EvolutionStep completed = currentStep();
+        assertEquals(ready.retryAuthorizations(), completed.retryAuthorizations());
+        assertEquals(revision, completed.baselineRevision());
+        assertEquals(completed.executionResult().candidateRevision(), persistedCopy().lastVerifiedRevision());
+        assertEquals("old\n", Files.readString(source.resolve("A.java")));
+        m5eRestart(completed);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"apply", "publish", "mutation-unknown", "verification-fail", "verification-unknown", "rollback-unknown", "asset-revoked-after-claim"})
+    void m5eRetryOutcomesRetainHistoryAndUnknownStatesRemainBlocked(String fault) throws Exception {
+        EvolutionStep first = m5eRestoredFailure("automatic");
+        String authorization = UUID.randomUUID().toString();
+        m5eAuthorize(first, authorization);
+        EvolutionPlan ready = plans.findById(new EvolutionPlanId(planId)).orElseThrow();
+        WorkingCopy readyCopy = persistedCopy();
+        coding(fault.equals("verification-fail") ? PATCH.replace("+new\n", "+new \n") : PATCH, "DIFF_CHECK");
+        if (fault.equals("apply") || fault.equals("publish") || fault.equals("rollback-unknown")) {
+            m5eRejectGit(fault.equals("publish") ? "HEAD.lock" : "index.lock");
+        }
+        if (fault.equals("asset-revoked-after-claim")) {
+            m5eRejectGit("index.lock", true);
+        }
+        if (fault.equals("mutation-unknown")) {
+            doThrow(new WorkspaceException("injected lost mutation result")).when(mutation).applyCandidate(any());
+        }
+        if (fault.equals("verification-unknown")) {
+            doThrow(new WorkspaceException("injected lost verification result")).when(verification).verify(any());
+        }
+        if (fault.equals("rollback-unknown")) {
+            doThrow(new WorkspaceException("injected lost rollback result")).when(rollback).restoreBaseline(any());
+        }
+        boolean unknown = fault.equals("mutation-unknown") || fault.equals("verification-unknown");
+        mvc.perform(m5eExecute(authorization))
+                .andExpect(unknown ? status().isInternalServerError() : status().isOk());
+        EvolutionStep result = currentStep();
+        EvolutionStepStatus expected = switch (fault) {
+            case "apply", "publish" -> EvolutionStepStatus.FAILED;
+            case "mutation-unknown" -> EvolutionStepStatus.EXECUTING;
+            case "verification-unknown" -> EvolutionStepStatus.VERIFYING;
+            case "verification-fail" -> EvolutionStepStatus.VERIFICATION_FAILED;
+            default -> EvolutionStepStatus.RECOVERY_REQUIRED;
+        };
+        assertEquals(expected, result.status());
+        verify(mutation).applyCandidate(any());
+        if (fault.equals("verification-unknown")) {
+            verify(verification).verify(any());
+            assertNotNull(result.executionResult());
+            assertNull(result.verificationResult());
+        }
+        if (fault.equals("mutation-unknown")) {
+            verify(verification, never()).verify(any());
+            assertNull(result.executionResult());
+        }
+        assertEquals(ready.step(new EvolutionStepId(stepId)).retryAuthorizations(), result.retryAuthorizations());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        if (fault.equals("asset-revoked-after-claim")) {
+            assertNotNull(result.executionFailureResult());
+            assertFalse(result.automaticRollbackResult().restored());
+            verify(rollback, never()).restoreBaseline(any());
+        }
+        if (unknown || fault.equals("verification-fail")) {
+            assertNull(result.executionFailureResult());
+            verify(rollback, never()).restoreBaseline(any());
+        }
+        if (fault.equals("apply") || fault.equals("publish")) {
+            assertTrue(result.automaticRollbackResult().restored());
+            assertNotEquals(first.executionFailureResult().id(), result.executionFailureResult().id());
+            assertEquals(revision, git(copy, "rev-parse", "HEAD").trim());
+        }
+        mvc.perform(post(route("retry")).contentType(MediaType.APPLICATION_JSON)
+                .content(m5eRetryBody(first, UUID.randomUUID().toString()))).andExpect(status().isConflict());
+        m5eRestart(result);
+        if (fault.equals("apply")) {
+            // READY / baseline 相同但 Retry 历史不同，SQLite 也必须拒绝旧轮次的执行提交。
+            String next = UUID.randomUUID().toString();
+            m5eAuthorize(result, next);
+            EvolutionPlan stale = ready.copy();
+            WorkingCopy staleCopy = readyCopy.copy();
+            stale.startStep(new EvolutionStepId(stepId), staleCopy, new StepExecutionPolicy());
+            assertThrows(EvolutionLifecycleConflictException.class, () -> executionCommits.commit(ready,
+                    new EvolutionStepId(stepId), readyCopy, assets.findById(ASSET).orElseThrow(), stale, staleCopy));
+            assertEquals(next, currentStep().retryAuthorizationId());
+            assertEquals(2, currentStep().retryAuthorizations().size());
+        }
+        if (fault.equals("verification-fail")) {
+            String candidate = result.executionResult().candidateRevision();
+            String repair = UUID.randomUUID().toString();
+            coding("--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new \n+repaired\n", "DIFF_CHECK");
+            mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                    .content(repairBody(candidate, repair))).andExpect(status().isConflict());
+            mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON)
+                    .content(rollbackBody(candidate, revision, UUID.randomUUID().toString())))
+                    .andExpect(status().isConflict());
+            mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                    .content(mapper.writeValueAsString(Map.of("expectedCandidateRevision", candidate,
+                            "authorizationId", repair, "retryAuthorizationId", authorization))))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.steps[0].status").value("SUCCEEDED"));
+            assertEquals(result.retryAuthorizations(), currentStep().retryAuthorizations());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"before-authorization", "before-execution"})
+    void m5eRetryRejectsPhysicalBaselineDriftWithoutExternalExecution(String phase) throws Exception {
+        EvolutionStep failed = m5eRestoredFailure("automatic");
+        String authorization = UUID.randomUUID().toString();
+        if (phase.equals("before-execution")) {
+            m5eAuthorize(failed, authorization);
+        }
+        git(copy, "config", "core.trustctime", "false");
+        git(copy, "config", "core.checkstat", "minimal");
+        git(copy, "update-index", "--refresh");
+        Path tracked = copy.resolve("A.java");
+        var modified = Files.getLastModifiedTime(tracked);
+        String original = Files.readString(tracked);
+        Files.writeString(tracked, original.replace("old", "bad"));
+        Files.setLastModifiedTime(tracked, modified);
+        reset(ai);
+        if (phase.equals("before-authorization")) {
+            mvc.perform(post(route("retry")).contentType(MediaType.APPLICATION_JSON)
+                    .content(m5eRetryBody(failed, authorization))).andExpect(status().isConflict());
+            assertEquals(EvolutionStepStatus.FAILED, currentStep().status());
+            assertTrue(currentStep().retryAuthorizations().isEmpty());
+        } else {
+            mvc.perform(m5eExecute(authorization)).andExpect(status().isConflict());
+            assertEquals(EvolutionStepStatus.READY, currentStep().status());
+            assertEquals(authorization, currentStep().retryAuthorizationId());
+        }
+        assertEquals(original.replace("old", "bad"), Files.readString(tracked));
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        verifyNoInteractions(ai);
+        verify(mutation, never()).applyCandidate(any());
+        verify(rollback, never()).restoreBaseline(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"before-authorization", "after-authorization", "during-provider"})
+    void m5ePermissionRevocationDoesNotManufactureOrReuseRetryAuthority(String phase) throws Exception {
+        EvolutionStep failed = m5eRestoredFailure("automatic");
+        String authorization = UUID.randomUUID().toString();
+        reset(ai);
+        if (phase.equals("before-authorization")) {
+            jdbc.update("UPDATE software_asset SET read_permission=0 WHERE id=?", ASSET.value());
+            mvc.perform(post(route("retry")).contentType(MediaType.APPLICATION_JSON)
+                    .content(m5eRetryBody(failed, authorization))).andExpect(status().isConflict());
+            assertEquals(EvolutionStepStatus.FAILED, currentStep().status());
+            assertTrue(currentStep().retryAuthorizations().isEmpty());
+        } else {
+            m5eAuthorize(failed, authorization);
+            if (phase.equals("after-authorization")) {
+                jdbc.update("UPDATE software_asset SET read_permission=0 WHERE id=?", ASSET.value());
+            } else {
+                coding(PATCH, "DIFF_CHECK");
+                providerHook = () -> jdbc.update("UPDATE software_asset SET read_permission=0 WHERE id=?", ASSET.value());
+            }
+            mvc.perform(m5eExecute(authorization)).andExpect(status().isConflict());
+            assertEquals(EvolutionStepStatus.READY, currentStep().status());
+            assertEquals(authorization, currentStep().retryAuthorizationId());
+        }
+        if (!phase.equals("during-provider")) {
+            verifyNoInteractions(ai);
+        }
+        verify(mutation, never()).applyCandidate(any());
+        assertEquals(revision, persistedCopy().currentRevision());
+        assertEquals(revision, git(copy, "rev-parse", "HEAD").trim());
+        m5eRestart(currentStep());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"authorization-step", "authorization-copy", "execution", "candidate", "verification", "diagnosis", "all-final"})
+    void m5eSqliteFaultsPreserveAuthorityAndTheLastCompleteCheckpoint(String phase) throws Exception {
+        EvolutionStep failed = m5eRestoredFailure("automatic");
+        String authorization = UUID.randomUUID().toString();
+        boolean authorizing = phase.startsWith("authorization");
+        if (!authorizing) {
+            m5eAuthorize(failed, authorization);
+        }
+        String condition = switch (phase) {
+            case "authorization-step" -> "1=1";
+            case "authorization-copy" -> "EXISTS (SELECT 1 FROM evolution_step WHERE status='READY')";
+            case "execution" -> "EXISTS (SELECT 1 FROM evolution_step WHERE status='EXECUTING')";
+            case "candidate" -> "EXISTS (SELECT 1 FROM evolution_step WHERE status='VERIFYING')";
+            case "verification" -> "EXISTS (SELECT 1 FROM evolution_step WHERE status='SUCCEEDED')";
+            case "diagnosis" -> "EXISTS (SELECT 1 FROM evolution_step WHERE status='ROLLING_BACK')";
+            default -> "EXISTS (SELECT 1 FROM evolution_step WHERE status IN ('FAILED','RECOVERY_REQUIRED'))";
+        };
+        jdbc.execute("CREATE TRIGGER m5e_fault BEFORE UPDATE ON "
+                + (phase.equals("authorization-step") ? "evolution_step" : "working_copy") + " WHEN " + condition
+                + " BEGIN SELECT RAISE(ABORT, 'owned M5-E checkpoint failure'); END");
+        reset(ai);
+        if (authorizing) {
+            mvc.perform(post(route("retry")).contentType(MediaType.APPLICATION_JSON)
+                    .content(m5eRetryBody(failed, authorization))).andExpect(status().isInternalServerError());
+            assertEquals(EvolutionStepStatus.FAILED, currentStep().status());
+            assertTrue(currentStep().retryAuthorizations().isEmpty());
+            assertEquals(failed.executionFailureResult(), currentStep().executionFailureResult());
+            verifyNoInteractions(ai);
+        } else {
+            coding(PATCH, "DIFF_CHECK");
+            if (phase.equals("diagnosis") || phase.equals("all-final")) {
+                m5eRejectGit("index.lock");
+            }
+            mvc.perform(m5eExecute(authorization)).andExpect(status().isInternalServerError());
+            EvolutionStepStatus expected = switch (phase) {
+                case "execution" -> EvolutionStepStatus.READY;
+                case "candidate", "diagnosis" -> EvolutionStepStatus.EXECUTING;
+                case "verification" -> EvolutionStepStatus.VERIFYING;
+                default -> EvolutionStepStatus.ROLLING_BACK;
+            };
+            assertEquals(expected, currentStep().status());
+            assertEquals(authorization, currentStep().retryAuthorizationId());
+            assertEquals(failed.executionFailureResult(), currentStep().retryAuthorizations().getLast().previousExecutionFailure());
+            if (phase.equals("diagnosis")) verify(rollback, never()).restoreBaseline(any());
+            if (phase.equals("all-final")) assertNull(currentStep().automaticRollbackResult());
+        }
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        jdbc.execute("DROP TRIGGER m5e_fault");
+        m5eRestart(currentStep());
+        if (!authorizing) {
+            clearInvocations(ai);
+            mvc.perform(post(route("retry")).contentType(MediaType.APPLICATION_JSON)
+                    .content(m5eRetryBody(failed, UUID.randomUUID().toString()))).andExpect(status().isConflict());
+            verifyNoInteractions(ai);
+        }
+    }
+
+    @Test
+    void m5eConcurrentAuthorizationsHaveOneSqliteWinnerAndNoProviderCalls() throws Exception {
+        EvolutionStep failed = m5eRestoredFailure("automatic");
+        reset(ai);
+        var arrived = new java.util.concurrent.CountDownLatch(2);
+        var state = new com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState(
+                plans, copies, assets, directions, (WorkingCopyInspectionPort) mutation, new StepExecutionPolicy());
+        StepExecutionCommitPort synchronizedCommit = (expected, id, before, asset, next, after) -> {
+            arrived.countDown();
+            try {
+                assertTrue(arrived.await(30, java.util.concurrent.TimeUnit.SECONDS));
+            } catch (InterruptedException interruption) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(interruption);
+            }
+            executionCommits.commit(expected, id, before, asset, next, after);
+        };
+        var retry = new com.ayywl.delveforge.application.evolution.execution.RetryEvolutionStepUseCase(
+                state, new StepExecutionPolicy(), synchronizedCommit);
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            var tasks = new ArrayList<java.util.concurrent.Future<String>>();
+            for (int index = 0; index < 2; index++) {
+                tasks.add(pool.submit(() -> {
+                    try {
+                        retry.retry(new EvolutionPlanId(planId), new EvolutionStepId(stepId), failed.failedCheckpointId(),
+                                revision, UUID.randomUUID().toString());
+                        return "saved";
+                    } catch (EvolutionLifecycleConflictException conflict) {
+                        return "conflict";
+                    }
+                }));
+            }
+            List<String> outcomes = List.of(tasks.get(0).get(60, java.util.concurrent.TimeUnit.SECONDS),
+                    tasks.get(1).get(60, java.util.concurrent.TimeUnit.SECONDS));
+            assertEquals(1, outcomes.stream().filter("saved"::equals).count());
+            assertEquals(1, outcomes.stream().filter("conflict"::equals).count());
+        } finally {
+            pool.shutdownNow();
+        }
+        assertEquals(EvolutionStepStatus.READY, currentStep().status());
+        assertEquals(1, currentStep().retryAuthorizations().size());
+        verifyNoInteractions(ai);
+        verify(mutation, never()).applyCandidate(any());
+        m5eRestart(currentStep());
+    }
+
 }

@@ -47,7 +47,12 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
         if (!blockingRollback && !diagnosingFailure) {
             new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
         }
-        if (old.status() == EvolutionStepStatus.READY && next.status() == EvolutionStepStatus.EXECUTING) {
+        if (old.status() == EvolutionStepStatus.FAILED && next.status() == EvolutionStepStatus.READY
+                && !next.retryAuthorizations().isEmpty()) {
+            var authorization = next.retryAuthorizations().getLast();
+            checked.authorizeStepRetry(id, checkedCopy, new StepExecutionPolicy(), authorization.id(),
+                    authorization.failedCheckpointId(), authorization.baselineRevision(), authorization.authorizedAt());
+        } else if (old.status() == EvolutionStepStatus.READY && next.status() == EvolutionStepStatus.EXECUTING) {
             checked.startStep(id, checkedCopy, new StepExecutionPolicy());
         } else if (old.status() == EvolutionStepStatus.VERIFICATION_FAILED
                 && next.status() == EvolutionStepStatus.EXECUTING && !next.repairAuthorizations().isEmpty()) {
@@ -90,6 +95,7 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
                 || !Objects.equals(check.executionResult(), next.executionResult())
                 || !Objects.equals(check.verificationResult(), next.verificationResult())
                 || !check.repairAuthorizations().equals(next.repairAuthorizations())
+                || !check.retryAuthorizations().equals(next.retryAuthorizations())
                 || !Objects.equals(check.rollbackAuthorization(), next.rollbackAuthorization())
                 || !Objects.equals(check.rollbackResult(), next.rollbackResult())
                 || !Objects.equals(check.executionFailureResult(), next.executionFailureResult())
@@ -108,12 +114,12 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
                 ? steps.diagnoseFailure(expected, id, before, old, StepResultJson.write(old.executionResult()),
                         StepResultJson.write(old.verificationResult()), StepResultJson.write(old.repairAuthorizations()),
                         StepResultJson.write(old.rollbackAuthorization()), StepResultJson.write(old.rollbackResult()),
-                        StepResultJson.write(next.executionFailureResult()))
+                        StepResultJson.write(next.executionFailureResult()), StepResultJson.write(old.retryAuthorizations()))
                 : blockingRollback ? steps.blockRollback(expected, id, before, old, StepResultJson.write(old.executionResult()),
                         StepResultJson.write(old.verificationResult()), StepResultJson.write(old.repairAuthorizations()),
                         StepResultJson.write(old.rollbackAuthorization()), StepResultJson.write(next.rollbackResult()),
                         StepResultJson.write(old.executionFailureResult()), StepResultJson.write(old.automaticRollbackResult()),
-                        StepResultJson.write(next.automaticRollbackResult()))
+                        StepResultJson.write(next.automaticRollbackResult()), StepResultJson.write(old.retryAuthorizations()))
                 : steps.advanceCheckpoint(expected, id, before, asset, asset.licenseInfo().orElse(null), old, next,
                         StepResultJson.write(old.executionResult()), StepResultJson.write(old.verificationResult()),
                         StepResultJson.write(next.executionResult()), StepResultJson.write(next.verificationResult()),
@@ -121,7 +127,8 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
                         StepResultJson.write(old.rollbackAuthorization()), StepResultJson.write(old.rollbackResult()),
                         StepResultJson.write(next.rollbackAuthorization()), StepResultJson.write(next.rollbackResult()),
                         StepResultJson.write(old.executionFailureResult()), StepResultJson.write(next.executionFailureResult()),
-                        StepResultJson.write(old.automaticRollbackResult()), StepResultJson.write(next.automaticRollbackResult()));
+                        StepResultJson.write(old.automaticRollbackResult()), StepResultJson.write(next.automaticRollbackResult()),
+                        StepResultJson.write(old.retryAuthorizations()), StepResultJson.write(next.retryAuthorizations()));
         if (changed != 1 || copies.advanceCheckpoint(before, after) != 1) {
             throw new EvolutionLifecycleConflictException("Execution checkpoint basis changed before commit");
         }

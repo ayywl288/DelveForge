@@ -427,4 +427,118 @@ class StepExecutionLifecycleTest {
         assertEquals("B", history.getFirst().previousExecution().candidateRevision());
         assertNull(plan.step(first).executionResult());
     }
+    private void restoredExecutionFailure(EvolutionPlan plan, WorkingCopy copy, String failureId) {
+        plan.startStep(first, copy, policy);
+        plan.failStepExecution(first, copy, new ExecutionFailureResult(failureId, "A", "A", "APPLY_CHECK", 1,
+                "CONFIRMED_GIT_REJECTION", "A", null, false, List.of(), Instant.now()));
+        plan.finishAutomaticStepRollback(first, copy, new AutomaticRollbackResult(failureId, "A", "A", true,
+                "Exact baseline confirmed", Instant.now()));
+    }
+
+    @Test
+    void retriesPreserveEveryExecutionFailureAndFirstBaselineAcrossMultipleRounds() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        for (int index = 0; index < 3; index++) {
+            restoredExecutionFailure(plan, copy, "failure-" + index);
+            EvolutionStep failed = plan.copy().step(first);
+            plan.authorizeStepRetry(first, copy, policy, "retry-" + index, "failure-" + index, "A", Instant.now());
+            assertEquals(EvolutionStepStatus.READY, plan.step(first).status());
+            assertEquals("A", plan.step(first).baselineRevision());
+            assertEquals("A", plan.step(first).executionStartRevision());
+            assertEquals("A", copy.currentRevision());
+            assertEquals("A", copy.lastVerifiedRevision());
+            assertEquals(failed.executionFailureResult(), plan.step(first).retryAuthorizations()
+                    .getLast().previousExecutionFailure());
+            assertEquals(failed.automaticRollbackResult(), plan.step(first).retryAuthorizations()
+                    .getLast().previousAutomaticRollback());
+            assertNull(plan.step(first).executionFailureResult());
+            assertEquals(plan.step(first).retryAuthorizations(), plan.copy().step(first).retryAuthorizations());
+            assertEquals(EvolutionStepStatus.FAILED, failed.status());
+        }
+        plan.startStep(first, copy, policy);
+        plan.recordExecution(first, copy, execution("B"));
+        plan.succeedStep(first, copy, verification("B", true, List.of(1, 2)));
+        assertEquals("B", copy.lastVerifiedRevision());
+        assertEquals("A", plan.step(first).baselineRevision());
+        assertEquals(3, plan.step(first).retryAuthorizations().size());
+        assertThrows(UnsupportedOperationException.class, () -> plan.step(first).retryAuthorizations().clear());
+    }
+
+    @Test
+    void retryArchivesRepairVerificationAndUserRollbackWithoutLosingPriorAuthorization() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        plan.recordExecution(first, copy, execution("B"));
+        plan.failStepVerification(first, copy, confirmedFailure("B"));
+        plan.authorizeStepRepair(first, copy, policy, "repair-old", "B", Instant.now());
+        plan.recordExecution(first, copy, execution("C"));
+        plan.failStepVerification(first, copy, confirmedFailure("C"));
+        plan.authorizeStepRollback(first, copy, policy, "rollback-old", "C", "A", Instant.now());
+        plan.finishStepRollback(first, copy, new RollbackResult("rollback-old", "A", "A", true, "restored", Instant.now()));
+        EvolutionStep failed = plan.copy().step(first);
+        plan.authorizeStepRetry(first, copy, policy, "retry-new", "rollback-old", "A", Instant.now());
+        RetryAuthorization retry = plan.step(first).retryAuthorizations().getLast();
+        assertEquals(failed.executionResult(), retry.previousExecution());
+        assertEquals(failed.verificationResult(), retry.previousVerification());
+        assertEquals(failed.repairAuthorizations(), retry.previousRepairs());
+        assertEquals(failed.rollbackAuthorization(), retry.previousRollbackAuthorization());
+        assertEquals(failed.rollbackResult(), retry.previousRollbackResult());
+        assertTrue(plan.step(first).repairAuthorizations().isEmpty());
+        plan.startStep(first, copy, policy);
+        plan.recordExecution(first, copy, execution("D"));
+        plan.failStepVerification(first, copy, confirmedFailure("D"));
+        for (String reused : List.of("repair-old", "rollback-old", "retry-new")) {
+            assertThrows(EvolutionPlanStateException.class,
+                    () -> plan.authorizeStepRepair(first, copy, policy, reused, "D", Instant.now()));
+            assertThrows(EvolutionPlanStateException.class,
+                    () -> plan.authorizeStepRollback(first, copy, policy, reused, "D", "A", Instant.now()));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"wrong-baseline", "old-failure", "reused-id", "candidate", "trust-drift", "recovery"})
+    void retryRejectsStaleOrUnsafeFactsWithoutChangingLoadedObjects(String fault) {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        plan.confirmStep(first, copy, policy);
+        restoredExecutionFailure(plan, copy, "failure");
+        WorkingCopy supplied = switch (fault) {
+            case "candidate" -> WorkingCopy.reconstitute(copy.id(), asset, "A", "managed", "B", "A", WorkingCopyStatus.EVOLVING);
+            case "trust-drift" -> WorkingCopy.reconstitute(copy.id(), asset, "A", "managed", "B", "B", WorkingCopyStatus.EVOLVING);
+            case "recovery" -> WorkingCopy.reconstitute(copy.id(), asset, "A", "managed", "A", "A", WorkingCopyStatus.RECOVERY_REQUIRED);
+            default -> copy;
+        };
+        assertThrows(EvolutionPlanStateException.class, () -> plan.authorizeStepRetry(first, supplied, policy,
+                fault.equals("reused-id") ? "failure" : "new", fault.equals("old-failure") ? "old" : "failure",
+                fault.equals("wrong-baseline") ? "B" : "A", Instant.now()));
+        assertEquals(EvolutionStepStatus.FAILED, plan.step(first).status());
+        assertTrue(plan.step(first).retryAuthorizations().isEmpty());
+        assertEquals("A", copy.currentRevision());
+        assertEquals("A", plan.step(first).baselineRevision());
+    }
+
+    @Test
+    void retryUsesTheStepBaselineAfterEarlierVerifiedWorkRatherThanTheSourceRevision() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = WorkingCopy.reconstitute(new WorkingCopyId("copy"), asset, "A", "managed", "B", "B",
+                WorkingCopyStatus.EVOLVING);
+        plan.confirmStep(first, copy, policy);
+        plan.startStep(first, copy, policy);
+        plan.failStepExecution(first, copy, new ExecutionFailureResult("failed-at-B", "B", "B", "APPLY_CHECK", 1,
+                "CONFIRMED_GIT_REJECTION", "B", null, false, List.of(), Instant.now()));
+        plan.finishAutomaticStepRollback(first, copy, new AutomaticRollbackResult("failed-at-B", "B", "B", true,
+                "restored", Instant.now()));
+        assertThrows(EvolutionPlanStateException.class, () -> plan.authorizeStepRetry(first, copy, policy,
+                "retry", "failed-at-B", "A", Instant.now()));
+        plan.authorizeStepRetry(first, copy, policy, "retry", "failed-at-B", "B", Instant.now());
+        plan.startStep(first, copy, policy);
+        assertEquals("A", copy.sourceRevision());
+        assertEquals("B", copy.currentRevision());
+        assertEquals("B", plan.step(first).baselineRevision());
+    }
+
 }

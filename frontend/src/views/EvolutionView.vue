@@ -9,6 +9,10 @@ import ConfirmDialog from "../components/ConfirmDialog.vue";
 import StepPrerequisites from "../components/StepPrerequisites.vue";
 import NavigationIcon from "../components/NavigationIcon.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
+const retryOpen = ref(false);
+const retryAcknowledged = ref(false);
+const retryFailureId = ref("");
+const retryBaseline = ref("");
 const repairOpen = ref(false);
 const repairAcknowledged = ref(false);
 const repairCandidate = ref("");
@@ -74,6 +78,8 @@ watch(() => props.s.plan?.id, () => {
   executeOpen.value = false;
   repairOpen.value = false;
   rollbackOpen.value = false;
+  retryOpen.value = false;
+  retryAcknowledged.value = false;
   acknowledged.value = false;
   dialogStep.value = null;
 });
@@ -106,7 +112,8 @@ const actionReason = computed(() => {
   if (step?.status === "VERIFYING") return "后端记录正在验证。Candidate 尚不能视为验证通过。";
   if (step?.status === "VERIFICATION_FAILED") return "验证已明确失败，Candidate 保留，最近可信版本未推进。可单独授权修复或回滚，后续步骤继续阻止。";
   if (step?.status === "ROLLING_BACK") return "已有回滚检查点，尚无最终恢复结果。只能查询，不能重放或推断原请求已经停止。";
-  if (step?.status === "FAILED") return "此步骤未成功，回滚已确认恢复原始基线。本版没有 Retry 入口。";
+  if (step?.status === "FAILED") return "此步骤未成功，回滚已确认恢复原始基线。可独立授权完整重试，历史记录继续保留。";
+  if (step?.status === "READY" && step.retryAuthorizations?.length) return "本次重试已独立授权，尚未执行。审阅风险并点击执行后才会调用 AI 和修改副本。";
   if (step?.status === "RECOVERY_REQUIRED") return "回滚未能确认完整恢复，隔离副本已阻塞。本版没有 Recovery 入口。";
   if (step?.status === "CANCELLED") return "此步骤已取消，没有执行入口。";
   if (plan?.status === "SUPERSEDED") return "此计划已替代，仅供历史查看，不能继续授权或执行。";
@@ -133,6 +140,30 @@ const canRepair = computed(() => {
     && copy.lastVerifiedRevision === step.baselineRevision && !props.s.busy && !props.s.receipt
     && plan.steps.slice(0, plan.steps.indexOf(step)).every(item => item.status === "SUCCEEDED");
 });
+const canRetry = computed(() => {
+  const step = chosen.value, copy = props.s.copy, plan = props.s.plan;
+  return !!step && !!copy && !!plan && plan.status === "ACTIVE" && step.status === "FAILED"
+    && copy.status === "EVOLVING" && step.baselineRevision === copy.currentRevision
+    && copy.currentRevision === copy.lastVerifiedRevision
+    && !!(step.executionFailureResult?.id ?? step.rollbackAuthorization?.id)
+    && !!(step.automaticRollbackResult?.restored || step.rollbackResult?.restored)
+    && !props.s.busy && !props.s.receipt
+    && plan.steps.slice(0, plan.steps.indexOf(step)).every(item => item.status === "SUCCEEDED");
+});
+function openRetry() {
+  dialogStep.value = chosen.value ?? null;
+  retryAcknowledged.value = false;
+  retryFailureId.value = chosen.value?.executionFailureResult?.id ?? chosen.value?.rollbackAuthorization?.id ?? "";
+  retryBaseline.value = chosen.value?.baselineRevision ?? "";
+  retryOpen.value = true;
+}
+function retry() {
+  if (!dialogStep.value || !retryAcknowledged.value || !canRetry.value
+    || dialogStep.value.id !== chosen.value?.id || retryBaseline.value !== chosen.value?.baselineRevision
+    || retryFailureId.value !== (chosen.value?.executionFailureResult?.id ?? chosen.value?.rollbackAuthorization?.id)) return;
+  retryOpen.value = false;
+  props.s.retry(dialogStep.value.id, retryFailureId.value, retryBaseline.value);
+}
 function openRepair() {
   dialogStep.value = chosen.value ?? null;
   repairCandidate.value = props.s.copy?.currentRevision ?? "";
@@ -151,13 +182,17 @@ function rollback() {
     || dialogStep.value.id !== chosen.value?.id || rollbackCandidate.value !== props.s.copy?.currentRevision
     || rollbackBaseline.value !== chosen.value?.baselineRevision) return;
   rollbackOpen.value = false;
-  props.s.rollback(dialogStep.value.id, rollbackCandidate.value, rollbackBaseline.value);
+  const retryId = dialogStep.value.retryAuthorizations?.at(-1)?.id;
+  if (retryId) props.s.rollback(dialogStep.value.id, rollbackCandidate.value, rollbackBaseline.value, retryId);
+  else props.s.rollback(dialogStep.value.id, rollbackCandidate.value, rollbackBaseline.value);
 }
 function repair() {
   if (!dialogStep.value || !repairAcknowledged.value || !canRepair.value
     || dialogStep.value.id !== chosen.value?.id || repairCandidate.value !== props.s.copy?.currentRevision) return;
   repairOpen.value = false;
-  props.s.repair(dialogStep.value.id, repairCandidate.value);
+  const retryId = dialogStep.value.retryAuthorizations?.at(-1)?.id;
+  if (retryId) props.s.repair(dialogStep.value.id, repairCandidate.value, retryId);
+  else props.s.repair(dialogStep.value.id, repairCandidate.value);
 }
 function openExecute() {
   dialogStep.value = chosen.value ?? null;
@@ -167,7 +202,9 @@ function openExecute() {
 function execute() {
   if (!dialogStep.value || !acknowledged.value || !canExecute.value) return;
   executeOpen.value = false;
-  props.s.execute(dialogStep.value.id);
+  const retryId = dialogStep.value.retryAuthorizations?.at(-1)?.id;
+  if (retryId) props.s.execute(dialogStep.value.id, retryId);
+  else props.s.execute(dialogStep.value.id);
 }
 function checkOutcome(check: VerificationResult["checks"][number]) {
   if (check.outcome === "NOT_RUN") return "未执行";
@@ -209,7 +246,9 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
         class="execution-notice"
       >
         <strong role="status">{{
-          s.executionPending ? "执行请求已提交，正在等待后端结果" : "执行结果待核对，仅查询状态"
+          request?.operation === "RETRY"
+            ? (s.executionPending ? "重试授权请求已提交，正在等待确认" : "重试授权结果待核对，仅查询状态")
+            : s.executionPending ? "执行请求已提交，正在等待后端结果" : "执行结果待核对，仅查询状态"
         }}</strong>
         <p v-if="s.executionPending" class="waiting-duration" role="timer" aria-live="off">前端已等待 {{ elapsed }}。这不是后台执行进度。</p>
         <p>
@@ -309,6 +348,7 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
           <div class="execution-action" :class="{ 'inline-note': recoveryBlocked }" :data-status="chosen.status">
             <p role="status">{{ actionReason }}</p>
             <button v-if="chosen.status === 'PENDING_CONFIRMATION' || !s.copy" @click="emit('planning')"><NavigationIcon name="lock" />前往规划页核对与授权</button>
+            <button v-if="chosen.status === 'FAILED'" :disabled="!canRetry" @click="openRetry"><NavigationIcon name="play" />审阅并独立授权完整重试</button>
             <button v-if="chosen.status === 'READY'" :disabled="!canExecute" @click="openExecute"><NavigationIcon name="play" />审阅风险并执行此 Step</button>
             <button v-if="chosen.status === 'VERIFICATION_FAILED'" :disabled="!canRepair" @click="openRepair"><NavigationIcon name="play" />审阅并授权本次修复</button>
             <button v-if="chosen.status === 'VERIFICATION_FAILED'" class="secondary" :disabled="!canRepair" @click="openRollback"><NavigationIcon name="lock" />审阅并授权回滚</button>
@@ -361,6 +401,37 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
               {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ checkOutcome(check) }} · {{ check.summary }}
             </p>
             <ContentList title="此前失败事实" :items="authorization.previousVerification.failures" />
+          </details>
+        </section>
+        <section v-if="chosen.retryAuthorizations?.length" id="retry-history" class="execution-section">
+          <h3>完整重试授权与此前失败历史</h3>
+          <details v-for="authorization in chosen.retryAuthorizations" :key="authorization.id" class="reading-disclosure">
+            <summary>完整重试授权 · {{ new Date(authorization.authorizedAt).toLocaleString('zh-CN') }}</summary>
+            <p class="meta">授权 ID：{{ authorization.id }} · 此前失败 ID：{{ authorization.failedCheckpointId }}</p>
+            <RevisionText label="原始可信基线" :value="authorization.baselineRevision" />
+            <ContentList v-if="authorization.previousExecution" title="此前 Candidate 的文件" :items="authorization.previousExecution.affectedPaths" />
+            <template v-if="authorization.previousExecutionFailure">
+              <p>此前执行失败阶段：{{ authorization.previousExecutionFailure.phase }} · {{ authorization.previousExecutionFailure.diagnostic }}</p>
+              <ContentList title="失败现场差异路径" :items="authorization.previousExecutionFailure.diff.map(item => item.path)" />
+            </template>
+            <template v-if="authorization.previousVerification">
+              <p>{{ authorization.previousVerification.summary }}</p>
+              <p v-for="(check, index) in authorization.previousVerification.checks" :key="index">
+                {{ check.action }} {{ check.target }}：{{ checkOutcome(check) }} · {{ check.summary }}
+              </p>
+            </template>
+            <details v-for="repair in authorization.previousRepairs" :key="repair.id" class="reading-disclosure">
+              <summary>此前修复授权 · {{ new Date(repair.authorizedAt).toLocaleString('zh-CN') }}</summary>
+              <p class="meta">授权 ID：{{ repair.id }}</p>
+              <RevisionText label="此前失败 Candidate" :value="repair.candidateRevision" />
+              <ContentList title="此前执行的文件" :items="repair.previousExecution.affectedPaths" />
+              <p v-for="(check, index) in repair.previousVerification.checks" :key="index">
+                {{ check.action }} {{ check.target }}：{{ checkOutcome(check) }} · {{ check.summary }}
+              </p>
+            </details>
+            <p v-if="authorization.previousRollbackAuthorization" class="meta">用户回滚授权 ID：{{ authorization.previousRollbackAuthorization.id }}</p>
+            <p v-if="authorization.previousRollbackResult">用户回滚：{{ authorization.previousRollbackResult.diagnostic }}</p>
+            <p v-if="authorization.previousAutomaticRollback">系统回滚：{{ authorization.previousAutomaticRollback.diagnostic }}</p>
           </details>
         </section>
         <section id="execution-result" class="execution-section">
@@ -519,6 +590,16 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
         type="checkbox"
       />我确认信任此仓库、授权当前 Step 的范围，接受费用与宿主执行风险</label
     >
+  </ConfirmDialog>
+  <ConfirmDialog :open="retryOpen" title="独立授权完整重试这个 Step？" confirm-label="授权完整重试，返回待执行"
+    :disabled="!retryAcknowledged || !canRetry || retryBaseline !== chosen?.baselineRevision
+      || retryFailureId !== (chosen?.executionFailureResult?.id ?? chosen?.rollbackAuthorization?.id) || dialogStep?.id !== chosen?.id"
+    @close="retryOpen = false" @confirm="retry">
+    <h3>{{ dialogStep?.goal }}</h3><p>{{ dialogStep?.scope }}</p>
+    <RevisionText label="保持不变的原始可信基线" :value="retryBaseline" />
+    <p>从已精确恢复的原始基线重新完整执行原 Step。此前执行、验证、修复与回滚历史全部保留。</p>
+    <p>此按钮只保存本次独立授权，不调用 AI、不修改代码。随后仍须审阅风险并点击执行；执行将调用 Provider、产生费用，并重新验证全部标准。</p>
+    <label class="check"><input v-model="retryAcknowledged" type="checkbox" />我重新授权从上述基线完整重试原 Step，不复用此前执行、修复或回滚授权</label>
   </ConfirmDialog>
   <ConfirmDialog :open="repairOpen" title="授权修复这个失败 Candidate？" confirm-label="授权并开始本次修复"
     :disabled="!repairAcknowledged || !canRepair || repairCandidate !== s.copy?.currentRevision || dialogStep?.id !== chosen?.id"

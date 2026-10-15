@@ -149,6 +149,15 @@ export interface EvolutionStep {
     previousExecution: ExecutionResult;
     previousVerification: VerificationResult;
   }[];
+  retryAuthorizations?: {
+    id: string; failedCheckpointId: string; baselineRevision: string; authorizedAt: string;
+    previousExecution: ExecutionResult | null; previousVerification: VerificationResult | null;
+    previousRepairs: NonNullable<EvolutionStep["repairAuthorizations"]>;
+    previousRollbackAuthorization: EvolutionStep["rollbackAuthorization"];
+    previousRollbackResult: EvolutionStep["rollbackResult"];
+    previousExecutionFailure: EvolutionStep["executionFailureResult"];
+    previousAutomaticRollback: EvolutionStep["automaticRollbackResult"];
+  }[];
   executionFailureResult?: {
     id: string; baselineRevision: string; startingRevision: string; phase: string;
     exitCode: number; diagnostic: string; observedRevision: string | null; expectedTree: string | null;

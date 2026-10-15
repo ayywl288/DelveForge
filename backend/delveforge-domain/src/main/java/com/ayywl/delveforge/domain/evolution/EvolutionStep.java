@@ -24,6 +24,7 @@ public final class EvolutionStep {
     private VerificationResult verificationResult;
     // 每次 Repair 开始前追加其授权及失败快照；当前结果可继续推进，历史事实不被替换。
     private List<RepairAuthorization> repairAuthorizations = List.of();
+    private List<RetryAuthorization> retryAuthorizations = List.of();
     private RollbackAuthorization rollbackAuthorization;
     private RollbackResult rollbackResult;
     private ExecutionFailureResult executionFailureResult;
@@ -69,7 +70,7 @@ public final class EvolutionStep {
     EvolutionStep copy() {
         return reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria,
                 status, baselineRevision, executionResult, verificationResult, repairAuthorizations,
-                rollbackAuthorization, rollbackResult, executionFailureResult, automaticRollbackResult);
+                rollbackAuthorization, rollbackResult, executionFailureResult, automaticRollbackResult, retryAuthorizations);
     }
 
     /** 恢复完整历史检查点；不以当前证据适配规则重新判定已保存的成功事实。 */
@@ -101,7 +102,37 @@ public final class EvolutionStep {
             EvolutionStepStatus status, String baseline, ExecutionResult execution, VerificationResult verification,
             List<RepairAuthorization> authorizations, RollbackAuthorization rollback, RollbackResult rollbackResult,
             ExecutionFailureResult failure, AutomaticRollbackResult automaticResult) {
+        return reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria, status, baseline,
+                execution, verification, authorizations, rollback, rollbackResult, failure, automaticResult, List.of());
+    }
+
+    public static EvolutionStep reconstitute(EvolutionStepId id, EvolutionPlanId planId, String goal, String scope,
+            List<String> plannedChanges, List<VerificationCriterion> verificationCriteria,
+            EvolutionStepStatus status, String baseline, ExecutionResult execution, VerificationResult verification,
+            List<RepairAuthorization> authorizations, RollbackAuthorization rollback, RollbackResult rollbackResult,
+            ExecutionFailureResult failure, AutomaticRollbackResult automaticResult, List<RetryAuthorization> retries) {
         EvolutionStep step = reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria);
+        step.retryAuthorizations = List.copyOf(retries);
+        HashSet<String> historyIds = new HashSet<>();
+        for (RetryAuthorization retry : step.retryAuthorizations) {
+            if (!retry.baselineRevision().equals(baseline)) {
+                throw new EvolutionPlanStateException("Retry history cannot replace the original baseline");
+            }
+            reconstitute(id, planId, goal, scope, plannedChanges, verificationCriteria, EvolutionStepStatus.FAILED,
+                    baseline, retry.previousExecution(), retry.previousVerification(), retry.previousRepairs(),
+                    retry.previousRollbackAuthorization(), retry.previousRollbackResult(),
+                    retry.previousExecutionFailure(), retry.previousAutomaticRollback());
+            for (RepairAuthorization repair : retry.previousRepairs()) {
+                addStoredAuthorization(historyIds, repair.id());
+            }
+            if (retry.previousRollbackAuthorization() != null) {
+                addStoredAuthorization(historyIds, retry.previousRollbackAuthorization().id());
+            }
+            if (retry.previousExecutionFailure() != null) {
+                addStoredAuthorization(historyIds, retry.previousExecutionFailure().id());
+            }
+            addStoredAuthorization(historyIds, retry.id());
+        }
         step.baselineRevision = baseline;
         step.repairAuthorizations = List.copyOf(authorizations);
         HashSet<String> ids = new HashSet<>();
@@ -115,6 +146,19 @@ public final class EvolutionStep {
             previousCandidate = authorization.candidateRevision();
         }
         boolean prepared = status == EvolutionStepStatus.PENDING_CONFIRMATION || status == EvolutionStepStatus.READY;
+        boolean retryReady = status == EvolutionStepStatus.READY && !step.retryAuthorizations.isEmpty();
+        if (status == EvolutionStepStatus.PENDING_CONFIRMATION && !step.retryAuthorizations.isEmpty()) {
+            throw new EvolutionPlanStateException("Retry cannot manufacture a pending initial confirmation");
+        }
+        for (RepairAuthorization authorization : step.repairAuthorizations) {
+            addStoredAuthorization(historyIds, authorization.id());
+        }
+        if (rollback != null) {
+            addStoredAuthorization(historyIds, rollback.id());
+        }
+        if (failure != null) {
+            addStoredAuthorization(historyIds, failure.id());
+        }
         boolean executing = status == EvolutionStepStatus.EXECUTING;
         boolean verifying = status == EvolutionStepStatus.VERIFYING;
         boolean succeeded = status == EvolutionStepStatus.SUCCEEDED;
@@ -126,7 +170,8 @@ public final class EvolutionStep {
         boolean anyRollbackFlow = rolling || rolledBack || recovery;
         boolean rollbackFlow = anyRollbackFlow && !automatic;
         if ((!prepared && !executing && !verifying && !succeeded && !failed && !anyRollbackFlow)
-                || (prepared && (baseline != null || execution != null || verification != null
+                || (prepared && ((!retryReady && baseline != null) || (retryReady && (baseline == null || baseline.isBlank()))
+                        || execution != null || verification != null
                         || !step.repairAuthorizations.isEmpty()))
                 || (!prepared && (baseline == null || baseline.isBlank()))
                 || (executing && (execution != null || verification != null))
@@ -177,7 +222,7 @@ public final class EvolutionStep {
         if (status != EvolutionStepStatus.EXECUTING || executionResult != null || verificationResult != null
                 || executionFailureResult != null || failure == null
                 || !baselineRevision.equals(failure.baselineRevision())
-                || !executionStartRevision().equals(failure.startingRevision())) {
+                || !executionStartRevision().equals(failure.startingRevision()) || authorizationUsed(failure.id())) {
             throw new EvolutionPlanStateException("Execution failure does not match its uncompleted checkpoint");
         }
         executionFailureResult = failure;
@@ -203,10 +248,13 @@ public final class EvolutionStep {
     public AutomaticRollbackResult automaticRollbackResult() { return automaticRollbackResult; }
 
     void start(String baseline) {
-        if (status != EvolutionStepStatus.READY || baselineRevision != null) {
-            throw new EvolutionPlanStateException("Only a READY Step can freeze its first baseline");
+        if (status != EvolutionStepStatus.READY || (baselineRevision != null
+                && (retryAuthorizations.isEmpty() || !baselineRevision.equals(baseline)))) {
+            throw new EvolutionPlanStateException("READY execution requires its original authorized baseline");
         }
-        baselineRevision = PlanningContent.text(baseline, "baselineRevision");
+        if (baselineRevision == null) {
+            baselineRevision = PlanningContent.text(baseline, "baselineRevision");
+        }
         status = EvolutionStepStatus.EXECUTING;
     }
 
@@ -222,7 +270,7 @@ public final class EvolutionStep {
 
     void authorizeRepair(String authorizationId, String candidate, Instant authorizedAt) {
         if (status != EvolutionStepStatus.VERIFICATION_FAILED || !candidate.equals(executionResult.candidateRevision())
-                || repairAuthorizations.stream().anyMatch(value -> value.id().equals(authorizationId))) {
+                || authorizationUsed(authorizationId)) {
             throw new EvolutionPlanStateException("Repair requires a new authorization for the current failed Candidate");
         }
         RepairAuthorization authorization = new RepairAuthorization(authorizationId, candidate, authorizedAt,
@@ -233,6 +281,59 @@ public final class EvolutionStep {
         executionResult = null;
         verificationResult = null;
         status = EvolutionStepStatus.EXECUTING;
+    }
+
+    /** 在清空本轮槽位前追加完整失败快照；READY 不会自动发起外部操作。 */
+    void authorizeRetry(String authorizationId, String failedId, Instant authorizedAt) {
+        if (status != EvolutionStepStatus.FAILED || !failedCheckpointId().equals(failedId)
+                || authorizationUsed(authorizationId)) {
+            throw new EvolutionPlanStateException("Retry requires a new authorization for the current restored failure");
+        }
+        RetryAuthorization authorization = new RetryAuthorization(authorizationId, failedId, baselineRevision,
+                authorizedAt, executionResult, verificationResult, repairAuthorizations, rollbackAuthorization,
+                rollbackResult, executionFailureResult, automaticRollbackResult);
+        List<RetryAuthorization> history = new ArrayList<>(retryAuthorizations);
+        history.add(authorization);
+        retryAuthorizations = List.copyOf(history);
+        executionResult = null;
+        verificationResult = null;
+        repairAuthorizations = List.of();
+        rollbackAuthorization = null;
+        rollbackResult = null;
+        executionFailureResult = null;
+        automaticRollbackResult = null;
+        status = EvolutionStepStatus.READY;
+    }
+
+    private static void addStoredAuthorization(HashSet<String> ids, String id) {
+        if (!ids.add(id)) {
+            throw new EvolutionPlanStateException("Stored action identity is duplicated across Retry history");
+        }
+    }
+
+    private boolean authorizationUsed(String id) {
+        if (id == null || id.isBlank()) {
+            return true;
+        }
+        return repairAuthorizations.stream().anyMatch(value -> value.id().equals(id))
+                || rollbackAuthorization != null && rollbackAuthorization.id().equals(id)
+                || executionFailureResult != null && executionFailureResult.id().equals(id)
+                || retryAuthorizations.stream().anyMatch(value -> value.id().equals(id)
+                        || value.failedCheckpointId().equals(id)
+                        || value.previousRepairs().stream().anyMatch(repair -> repair.id().equals(id)));
+    }
+
+    public String failedCheckpointId() {
+        return executionFailureResult != null ? executionFailureResult.id()
+                : rollbackAuthorization == null ? null : rollbackAuthorization.id();
+    }
+
+    public List<RetryAuthorization> retryAuthorizations() {
+        return retryAuthorizations;
+    }
+
+    public String retryAuthorizationId() {
+        return retryAuthorizations.isEmpty() ? null : retryAuthorizations.getLast().id();
     }
 
     /** 当前动作的代码起点；它不替代首次执行冻结的 baselineRevision。 */
@@ -248,7 +349,7 @@ public final class EvolutionStep {
     void authorizeRollback(String authorizationId, String candidate, String baseline, Instant authorizedAt) {
         if (status != EvolutionStepStatus.VERIFICATION_FAILED || rollbackAuthorization != null
                 || !baselineRevision.equals(baseline) || !executionResult.candidateRevision().equals(candidate)
-                || repairAuthorizations.stream().anyMatch(value -> value.id().equals(authorizationId))) {
+                || authorizationUsed(authorizationId)) {
             throw new EvolutionPlanStateException("Rollback requires a new authorization for the current failure");
         }
         rollbackAuthorization = new RollbackAuthorization(authorizationId, candidate, baseline, authorizedAt);

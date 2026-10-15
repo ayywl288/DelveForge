@@ -544,7 +544,7 @@ describe("长同步 execute", () => {
       step.verificationResult!.passed = false; step.repairAuthorizations = [];
       vi.mocked(api.plan).mockResolvedValue(failed);
       vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: "EVOLVING", currentRevision: "b".repeat(40) });
-      const deny = async (...args: string[]) => {
+      const deny = async (...args: (string | undefined)[]) => {
         const id = args[args.length - 1]!;
         if (fault === "get-failed") vi.mocked(api.plan).mockRejectedValue(new ApiError(0, "CONNECTION_LOST"));
         if (fault === "copy-drift") vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(), status: "EVOLVING", currentRevision: "c".repeat(40) });
@@ -583,7 +583,7 @@ describe("长同步 execute", () => {
     let oldGet!: (value: ReturnType<typeof plan>) => void;
     let newGet!: (value: ReturnType<typeof plan>) => void;
     let authorization = "";
-    const deny = async (...args: string[]) => {
+    const deny = async (...args: (string | undefined)[]) => {
       authorization = args[args.length - 1]!;
       vi.mocked(api.plan).mockImplementationOnce(() => new Promise(resolve => { oldGet = resolve; }))
         .mockImplementationOnce(() => new Promise(resolve => { newGet = resolve; }));

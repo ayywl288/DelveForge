@@ -67,6 +67,17 @@ public final class StepExecutionPolicy {
         }
     }
 
+    /** FAILED 只接受已恢复的首次可信基线，不能把任意安全 Revision 作为替代。 */
+    public void requireRetryAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy) {
+        requireAllowed(plan, id, copy, EvolutionStepStatus.FAILED);
+        EvolutionStep step = plan.step(id);
+        if (copy.status() != WorkingCopyStatus.EVOLVING || step.baselineRevision() == null
+                || !step.baselineRevision().equals(copy.currentRevision())
+                || !step.baselineRevision().equals(copy.lastVerifiedRevision())) {
+            throw new EvolutionPlanStateException("Retry requires the restored original trusted baseline");
+        }
+    }
+
     private void requireAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy,
             EvolutionStepStatus expected) {
         EvolutionStep step = plan.step(id);
@@ -75,7 +86,8 @@ public final class StepExecutionPolicy {
                 || !copy.sourceAssetId().equals(plan.baseAssetId())
                 || (copy.status() != WorkingCopyStatus.READY && copy.status() != WorkingCopyStatus.EVOLVING)
                 || copy.lastVerifiedRevision() == null || copy.lastVerifiedRevision().isBlank()
-                || !copy.lastVerifiedRevision().equals(copy.currentRevision())) {
+                || !copy.lastVerifiedRevision().equals(copy.currentRevision())
+                || (step.baselineRevision() != null && !step.baselineRevision().equals(copy.lastVerifiedRevision()))) {
             throw new EvolutionPlanStateException("Step requires an ACTIVE Plan and its trusted available Working Copy");
         }
         for (EvolutionStep preceding : plan.steps()) {

@@ -301,3 +301,14 @@ Execution Failure / ROLLING_BACK 检查点建立，不制造 User Rollback 授�
 独立授权。Application 不持有 shell 或 filesystem 能力，Infrastructure 仅恢复能证明归属的 Step 修改。
 固定预期 tree 只是未发布补丁的技术证据，不成为 Candidate 或新的领域 Aggregate。
 未知执行结果、未决重启和无法证明的文件现场继续 fail closed；不引入任务引擎或自动重放。
+
+## M5-E refinement — 2026-10-15
+
+FAILED Retry 的授权只通过现有 inspection 和原子 Domain / Persistence 转移返回 READY，不持有写
+Port 或 AI Gateway。原 Step baseline 保持不变，新的 RetryAuthorization 在 Step 内归档上一轮失败
+快照。该 Slice 延续 M5-B/C/D 的值对象历史实现，不引入独立 Attempt、Aggregate 或新执行架构。
+
+显式执行准备与 Option E 的 AuthorizedStepExecution 绑定当前已持久化 Retry 身份；该轮后续
+Repair / User Rollback 也核对父身份，防止同 baseline 请求发生跨轮次复用。每种动作自己的授权、
+资产资格、真实内容守卫和检查点 CAS 仍独立执行。Git / SQLite 不形成跨技术事务，原 UNKNOWN
+及重启未决边界不变；不引入启动补偿、自动 Retry、Recovery 或后台任务。

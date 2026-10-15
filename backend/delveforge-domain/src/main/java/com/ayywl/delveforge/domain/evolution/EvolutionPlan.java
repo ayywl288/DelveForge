@@ -155,6 +155,16 @@ public final class EvolutionPlan {
         step(id).authorizeRepair(authorizationId, candidate, authorizedAt);
     }
 
+    /** 用户授权重试当前已精确恢复的失败；后续执行仍须独立核对这次授权。 */
+    public void authorizeStepRetry(EvolutionStepId id, WorkingCopy copy, StepExecutionPolicy policy,
+            String authorizationId, String failedCheckpointId, String baseline, java.time.Instant authorizedAt) {
+        policy.requireRetryAllowed(this, id, copy);
+        if (!step(id).baselineRevision().equals(baseline)) {
+            throw new EvolutionPlanStateException("Retry cannot replace the original baseline");
+        }
+        step(id).authorizeRetry(authorizationId, failedCheckpointId, authorizedAt);
+    }
+
     /** 保存失败证据与系统 ROLLING_BACK；不把未完成修改当作 Candidate。 */
     public void failStepExecution(EvolutionStepId id, WorkingCopy copy, ExecutionFailureResult failure) {
         requireExecutionOwner(copy);

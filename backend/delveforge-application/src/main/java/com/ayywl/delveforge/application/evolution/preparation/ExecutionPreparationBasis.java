@@ -6,9 +6,13 @@ import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
 
 /** 调用内修改依据：首次执行指向可信 A，Repair 指向授权 Candidate B；仍需重查持久化检查点。 */
 public record ExecutionPreparationBasis(EvolutionPlanId planId, EvolutionStepId stepId,
-        WorkingCopyId workingCopyId, String expectedRevision, String repairAuthorizationId) {
+        WorkingCopyId workingCopyId, String expectedRevision, String repairAuthorizationId, String retryAuthorizationId) {
+    public ExecutionPreparationBasis(EvolutionPlanId planId, EvolutionStepId stepId,
+            WorkingCopyId workingCopyId, String expectedRevision, String repairAuthorizationId) {
+        this(planId, stepId, workingCopyId, expectedRevision, repairAuthorizationId, null);
+    }
     public ExecutionPreparationBasis(EvolutionPlanId planId, EvolutionStepId stepId,
             WorkingCopyId workingCopyId, String expectedRevision) {
-        this(planId, stepId, workingCopyId, expectedRevision, null);
+        this(planId, stepId, workingCopyId, expectedRevision, null, null);
     }
 }

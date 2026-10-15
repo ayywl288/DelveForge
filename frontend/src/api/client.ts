@@ -214,16 +214,22 @@ export const api = {
     request<EvolutionPlan>(`${plan(value)}/prepare`, "POST"),
   confirmStep: (value: string, step: string) =>
     request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/confirm`, "POST"),
-  execute: (value: string, step: string) =>
-    request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/execute`, "POST"),
-  repair: (value: string, step: string, expectedCandidateRevision: string, authorizationId: string) =>
+  execute: (value: string, step: string, retryAuthorizationId?: string) =>
+    request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/execute`, "POST",
+      retryAuthorizationId ? { retryAuthorizationId } : undefined),
+  retry: (value: string, step: string, expectedFailureId: string, expectedBaselineRevision: string,
+    authorizationId: string) => request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/retry`, "POST", {
+      expectedFailureId, expectedBaselineRevision, authorizationId,
+    }),
+  repair: (value: string, step: string, expectedCandidateRevision: string, authorizationId: string, retryAuthorizationId?: string) =>
     request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/repair`, "POST", {
-      expectedCandidateRevision, authorizationId,
+      expectedCandidateRevision, authorizationId, ...(retryAuthorizationId ? { retryAuthorizationId } : {}),
     }),
   rollback: (value: string, step: string, expectedCandidateRevision: string,
-    expectedBaselineRevision: string, authorizationId: string) =>
+    expectedBaselineRevision: string, authorizationId: string, retryAuthorizationId?: string) =>
     request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/rollback`, "POST", {
       expectedCandidateRevision, expectedBaselineRevision, authorizationId,
+      ...(retryAuthorizationId ? { retryAuthorizationId } : {}),
     }),
   workingCopy: (value: string) =>
     request<WorkingCopy>(`/working-copies/${id(value)}`),
