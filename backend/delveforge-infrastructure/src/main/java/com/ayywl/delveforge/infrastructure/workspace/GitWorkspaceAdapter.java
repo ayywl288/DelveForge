@@ -204,6 +204,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         if (!actualIndex.equals(indexEntries)) {
             throw new WorkingCopyBasisChangedException("Working Copy index differs from the exact revision tree");
         }
+        requireCanonicalAttributePaths(target, paths);
         inspectSafePaths(copy, paths);
         // 替代 status 后保留 Git 启用 filemode 时的实际可执行位检查；Windows 不解释 POSIX mode。
         if (target.getFileSystem().supportedFileAttributeViews().contains("posix")
@@ -334,19 +335,129 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         }
     }
 
+    /** Git 对象路径区分大小写，宿主文件系统未必如此；无法统一解释的属性文件名不进入写路径。 */
+    private void requireCanonicalAttributePaths(Path target, List<String> paths) {
+        TreeSet<Path> directories = new TreeSet<>();
+        directories.add(target);
+        for (String path : paths) {
+            String safe = requireSafeRelativePath(path, false);
+            for (String segment : safe.split("/")) {
+                if (segment.equalsIgnoreCase(".gitattributes") && !segment.equals(".gitattributes")) {
+                    throw new WorkingCopyBasisChangedException("Git attribute path has an ambiguous case variant");
+                }
+            }
+            Path parent = target.resolve(safe).getParent();
+            while (parent != null && parent.startsWith(target)) {
+                directories.add(parent);
+                parent = parent.getParent();
+            }
+        }
+        try {
+            for (Path directory : directories) {
+                if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
+                    continue;
+                }
+                if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
+                        || !directory.toRealPath().equals(directory)) {
+                    throw new WorkingCopyBasisChangedException("Cannot prove Git attribute directory identity");
+                }
+                // 枚举真实目录项，不能用 Windows Path.equals 或 Git index 推断磁盘上的大小写。
+                try (var entries = Files.newDirectoryStream(directory)) {
+                    for (Path entry : entries) {
+                        String name = entry.getFileName().toString();
+                        if (name.equalsIgnoreCase(".gitattributes")
+                                && (!name.equals(".gitattributes")
+                                || !Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS)
+                                || !entry.toRealPath().equals(entry))) {
+                            throw new WorkingCopyBasisChangedException("Physical Git attribute source is ambiguous");
+                        }
+                    }
+                }
+            }
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot prove Git attribute path identity", failure);
+        }
+    }
+
+    /** 只解析 Git 的首个 pattern 字段及属性 token；不是 glob 匹配器，也不扩展支持的转换。 */
+    private void requireSafeAttributeRule(String line) {
+        int cursor = 0;
+        while (cursor < line.length() && isAttributeBlank(line.charAt(cursor))) {
+            cursor++;
+        }
+        if (cursor == line.length() || line.charAt(cursor) == '#') {
+            return;
+        }
+        String pattern;
+        if (line.charAt(cursor) == '"') {
+            StringBuilder decoded = new StringBuilder();
+            boolean closed = false;
+            cursor++;
+            while (cursor < line.length()) {
+                char value = line.charAt(cursor++);
+                if (value == '"') {
+                    closed = true;
+                    break;
+                }
+                if (value == '\\') {
+                    if (cursor == line.length()) {
+                        throw new WorkingCopyBasisChangedException("Cannot decode quoted Git attribute pattern");
+                    }
+                    char escaped = line.charAt(cursor++);
+                    if (escaped >= '0' && escaped <= '3' && cursor + 1 < line.length()
+                            && line.charAt(cursor) >= '0' && line.charAt(cursor) <= '7'
+                            && line.charAt(cursor + 1) >= '0' && line.charAt(cursor + 1) <= '7') {
+                        value = (char) ((escaped - '0') * 64 + (line.charAt(cursor) - '0') * 8
+                                + line.charAt(cursor + 1) - '0');
+                        cursor += 2;
+                    } else {
+                        value = switch (escaped) {
+                            case '"', '\\' -> escaped;
+                            case 'a' -> '\u0007';
+                            case 'b' -> '\b';
+                            case 'f' -> '\f';
+                            case 'n' -> '\n';
+                            case 'r' -> '\r';
+                            case 't' -> '\t';
+                            case 'v' -> '\u000b';
+                            default -> throw new WorkingCopyBasisChangedException(
+                                    "Cannot decode quoted Git attribute pattern");
+                        };
+                    }
+                }
+                decoded.append(value);
+            }
+            if (!closed) {
+                throw new WorkingCopyBasisChangedException("Cannot decode quoted Git attribute pattern");
+            }
+            pattern = decoded.toString();
+        } else {
+            int start = cursor;
+            while (cursor < line.length() && !isAttributeBlank(line.charAt(cursor))) {
+                cursor++;
+            }
+            pattern = line.substring(start, cursor);
+        }
+        // Git 只把首个解码后的 pattern 的非空 [attr] 前缀视为宏；中间字符组与单独 [attr] 是 glob。
+        if ((pattern.startsWith("[attr]") && pattern.length() > 6)
+                || Arrays.stream(line.substring(cursor).split("[ \\t\\r\\n]+"))
+                        .anyMatch(token -> token.matches("[!-]?(filter|ident|working-tree-encoding)(=.*)?"))) {
+            // 恢复会分批更新属性文件；休眠转换规则和真实宏也必须在危险写入前拒绝。
+            throw new WorkingCopyBasisChangedException("Git attribute definitions cannot prove safe restoration");
+        }
+    }
+
+    private boolean isAttributeBlank(char value) {
+        return value == ' ' || value == '\t' || value == '\r' || value == '\n';
+    }
+
     /** 按存在性拒绝外部转换；同时用于当前内容证明与恢复目标的 checkout 前检查。 */
     private void requireSupportedAttributes(Path target, String revision, List<String> paths) {
         for (String path : paths) {
             if (path.equals(".gitattributes") || path.endsWith("/.gitattributes")) {
                 String definitions = contentGit(target, revision, "cat-file", "blob", revision + ":" + path);
                 for (String line : definitions.lines().toList()) {
-                    String rule = line.strip();
-                    if (!rule.startsWith("#") && (rule.contains("[attr]")
-                            || Arrays.stream(rule.split("\\s+")).skip(1)
-                            .anyMatch(token -> token.matches("[!-]?(filter|ident|working-tree-encoding)(=.*)?")))) {
-                        // 恢复期间属性文件可分批更新；未生效的转换规则 / 自定义宏也不能在中间视图中启动 filter。
-                        throw new WorkingCopyBasisChangedException("Git attribute definitions cannot prove safe restoration");
-                    }
+                    requireSafeAttributeRule(line);
                 }
             }
         }
@@ -604,6 +715,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             List<String> baselinePaths = Arrays.stream(contentGit(target, baseline,
                     "ls-tree", "-r", "--name-only", "-z", baseline).split("\0"))
                     .filter(path -> !path.isEmpty()).toList();
+            requireCanonicalAttributePaths(target, baselinePaths);
             for (int start = 0; start < baselinePaths.size(); start += 32) {
                 requireSupportedAttributes(target, baseline,
                         baselinePaths.subList(start, Math.min(start + 32, baselinePaths.size())));

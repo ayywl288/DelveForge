@@ -88,6 +88,12 @@ class EvolutionStepExecutionApiIntegrationTest {
         Files.createDirectories(source);
         git(source, "init", "-q");
         Files.writeString(source.resolve("A.java"), "old\n");
+        if (List.of("caseVariantAttributesBlockBeforeExecutionRepairOrRollbackAuthorization",
+                "m5dRealExecutionRejectionPreservesEvidenceHistoryAndHonorsExactRollback",
+                "rollbackFailureOrUnknownBlocksWithoutDeletingUserFiles")
+                .contains(test.getTestMethod().orElseThrow().getName())) {
+            Files.writeString(source.resolve(".gitattributes"), "*.java text eol=lf\n");
+        }
         Files.createDirectories(source.resolve("src/main/java"));
         Files.writeString(source.resolve("src/main/java/Report.java"), "public class Report { public static int value() { return 0; } }\n");
         Path repositoryRoot = Path.of("../..").toAbsolutePath().normalize();
@@ -535,7 +541,7 @@ class EvolutionStepExecutionApiIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"initial", "repair", "rollback-failure", "unknown-rollback", "false-success", "asset-revoked",
-            "plan-obsolete", "external-attributes"})
+            "plan-obsolete", "external-attributes", "attribute-case-alias"})
     void m5dRealExecutionRejectionPreservesEvidenceHistoryAndHonorsExactRollback(String scenario) throws Exception {
         Map<String, String> original = snapshot(source);
         EvolutionStep previous = null;
@@ -573,6 +579,11 @@ class EvolutionStepExecutionApiIntegrationTest {
         } else if (scenario.equals("external-attributes")) {
             doAnswer(invocation -> {
                 git(copy, "config", "core.attributesFile", "A.java");
+                return invocation.callRealMethod();
+            }).when(rollback).restoreBaseline(any());
+        } else if (scenario.equals("attribute-case-alias")) {
+            doAnswer(invocation -> {
+                renamePhysicalAttributes();
                 return invocation.callRealMethod();
             }).when(rollback).restoreBaseline(any());
         } else if (scenario.equals("unknown-rollback")) {
@@ -952,6 +963,43 @@ class EvolutionStepExecutionApiIntegrationTest {
         verifyNoInteractions(ai);
     }
 
+    private void renamePhysicalAttributes() throws Exception {
+        Path intermediate = copy.resolve(".git/owned-attribute-case-rename");
+        Files.move(copy.resolve(".gitattributes"), intermediate);
+        Files.move(intermediate, copy.resolve(".GITATTRIBUTES"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"execute", "repair", "rollback"})
+    void caseVariantAttributesBlockBeforeExecutionRepairOrRollbackAuthorization(String action) throws Exception {
+        EvolutionStep previous = action.equals("execute") ? null : failedCandidate();
+        if (previous == null) {
+            confirm();
+        }
+        String candidate = persistedCopy().currentRevision();
+        renamePhysicalAttributes();
+        String content = Files.readString(copy.resolve("A.java"));
+        String attributes = Files.readString(copy.resolve(".GITATTRIBUTES"));
+        reset(ai);
+        var request = post(route(action));
+        if (!action.equals("execute")) {
+            request.contentType(MediaType.APPLICATION_JSON).content(action.equals("repair")
+                    ? repairBody(candidate, UUID.randomUUID().toString())
+                    : rollbackBody(candidate, revision, UUID.randomUUID().toString()));
+        }
+        mvc.perform(request).andExpect(status().isConflict());
+        assertEquals(previous == null ? EvolutionStepStatus.READY : EvolutionStepStatus.VERIFICATION_FAILED,
+                currentStep().status());
+        assertTrue(currentStep().repairAuthorizations().isEmpty());
+        assertNull(currentStep().rollbackAuthorization());
+        assertEquals(candidate, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(candidate, git(copy, "rev-parse", "HEAD").trim());
+        assertEquals(content, Files.readString(copy.resolve("A.java")));
+        assertEquals(attributes, Files.readString(copy.resolve(".GITATTRIBUTES")));
+        verifyNoInteractions(ai);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"unset", "unspecified"})
     void repairSentinelFilterAfterGrantKeepsUnknownCheckpointWithoutSideEffects(String driver) throws Exception {
@@ -1016,7 +1064,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     @ValueSource(strings = {"index-lock", "head-lock", "extra-after-grant", "ignored-after-grant", "dirty-after-grant",
             "unknown", "wrong-success", "post-restore-change", "revoke-after-restore", "replace-baseline", "graft-view",
             "hidden-after-grant", "hidden-post-restore-change", "filter-unset-after-grant", "filter-unspecified-after-grant",
-            "external-attributes-after-grant"})
+            "external-attributes-after-grant", "attribute-case-alias-after-grant"})
     void rollbackFailureOrUnknownBlocksWithoutDeletingUserFiles(String fault) throws Exception {
         EvolutionStep failed = failedCandidate();
         String candidate = failed.executionResult().candidateRevision();
@@ -1033,6 +1081,7 @@ class EvolutionStepExecutionApiIntegrationTest {
                     Files.writeString(copy.resolve("user.txt"), "USER CONTENT\n");
                 }
                 case "external-attributes-after-grant" -> git(copy, "config", "core.attributesFile", "A.java");
+                case "attribute-case-alias-after-grant" -> renamePhysicalAttributes();
                 case "dirty-after-grant" -> Files.writeString(copy.resolve("A.java"), "USER CONTENT\n");
                 case "hidden-after-grant" -> hideUnchangedTrackedContent();
                 case "filter-unset-after-grant", "filter-unspecified-after-grant" ->
@@ -1099,7 +1148,7 @@ class EvolutionStepExecutionApiIntegrationTest {
                 .content(repairBody(candidate, UUID.randomUUID().toString()))).andExpect(status().isConflict());
         verify(rollback, times(1)).restoreBaseline(any());
         verifyNoInteractions(ai);
-        if (fault.equals("unknown")) {
+        if (fault.equals("unknown") || fault.equals("attribute-case-alias-after-grant")) {
             assertRollbackRestart(EvolutionStepStatus.RECOVERY_REQUIRED);
         }
     }

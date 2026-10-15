@@ -1230,6 +1230,12 @@ M5-005 补强恢复期间的来源约束：共享物理检查和两种 Rollback 
 `.gitattributes` 仍受完整 revision 及真实内容证明；未生效的外部转换定义和自定义宏也保守拒绝，
 避免恢复中间属性视图激活未经证明的转换。这是当前技术支持范围：原生 text / eol / autocrlf 的
 LF / CRLF 证明保留；依赖外部属性文件或自定义宏的仓库失败关闭。尚未提供外部来源冻结能力。
+M5-007/008 在上述共享守卫中核对固定 tree、完全匹配的 index 路径及 tracked 路径祖先目录的真实目录项。
+非规范大小写的 `.gitattributes` 一律失败关闭，包括根目录、嵌套目录、仅磁盘改名和仅目标 baseline 存在
+的情况；不通过增加大小写转换支持来猜测 Git 对象与宿主文件系统的不同解释。原始 baseline 在任何
+restore / checkout 前执行同一检查。自定义宏只按 Git 首个 pattern 的 C 引号解码，且仅在以 `[attr]` 开头、后缀非空时
+识别；中间含 `[attr]` 或恰好为 `[attr]` 的合法 glob 不当作宏，真实宏及外部转换仍拒绝。
+
 
 原修复记录见 [M5-001/002 报告](validation/m5-review-findings-fix.md)，后续复审修复见
 [M5-003/004 报告](validation/m5-review-findings-003-004-fix.md)。
