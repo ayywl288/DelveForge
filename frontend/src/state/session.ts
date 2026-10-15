@@ -20,6 +20,7 @@ import type {
 
 export const sessionKey = "delveforge.session.v1";
 export const executionKey = "delveforge.execution.v1";
+const receiptLockName = "delveforge.execution-receipt";
 export const projectKey = "delveforge.project.v1";
 export interface SessionIds {
   profileId: string;
@@ -29,6 +30,8 @@ export interface SessionIds {
   planId: string;
 }
 export interface ExecutionReceipt {
+  // 新请求独立生成；兼容旧标记时仍比较完整内容，不能借用父 Retry 身份。
+  requestId?: string;
   planId: string;
   stepId: string;
   startedAt: string;
@@ -73,20 +76,25 @@ function readIds(): SessionIds {
     return emptyIds();
   }
 }
-function readReceipt(): ExecutionReceipt | null {
+function parseReceipt(raw: string | null): ExecutionReceipt | null {
   try {
-    const saved = JSON.parse(
-      localStorage.getItem(executionKey) ?? "null",
-    ) as ExecutionReceipt | null;
-    return saved &&
-      validId(saved.planId) &&
-      validId(saved.stepId) &&
-      typeof saved.startedAt === "string"
-      ? saved
-      : null;
+    const saved = JSON.parse(raw ?? "null") as ExecutionReceipt | null;
+    return saved && validId(saved.planId) && validId(saved.stepId) && typeof saved.startedAt === "string"
+      ? saved : null;
   } catch {
     return null;
   }
+}
+function readReceipt(): ExecutionReceipt | null {
+  try {
+    return parseReceipt(localStorage.getItem(executionKey));
+  } catch {
+    return null;
+  }
+}
+function sameReceipt(actual: ExecutionReceipt | null, expected: ExecutionReceipt | null) {
+  return actual !== null && expected !== null && actual.requestId === expected.requestId
+    && JSON.stringify(actual) === JSON.stringify(expected);
 }
 export function createSession() {
   const ids = reactive(readIds());
@@ -220,6 +228,8 @@ export function createSession() {
   async function refreshPlan(): Promise<AdoptedPlanSnapshot | null> {
     const value = ids.planId || (!projectContext.value ? receipt.value?.planId : "");
     if (!value) return null;
+    // GET 只可证明它开始查询时的请求；storage 事件不能替换本次清理依据。
+    const pending = receipt.value ? { ...receipt.value } : null;
     const version = ++planVersion;
     const result = await api.plan(value);
     const wc = result.workingCopyId
@@ -236,7 +246,7 @@ export function createSession() {
     // 同步观察者也可能更新查询依据；清理前再次核对本次采纳仍有效。
     if (!currentSnapshot(snapshot)) return null;
     // READY 只可确认已持久化的 Retry 授权，不能证明外部执行或准备已结束。
-    const pending = receipt.value;
+    let completed = false;
     if (pending?.planId === result.id) {
       const step = result.steps.find(item => item.id === pending.stepId);
       if (step) {
@@ -256,25 +266,59 @@ export function createSession() {
         const rollbackMatches = pending.operation === "ROLLBACK"
           && step.rollbackAuthorization?.id === pending.authorizationId && !!step.rollbackResult
           && ["FAILED", "RECOVERY_REQUIRED"].includes(step.status);
-        if (retrySaved && (terminal || retryReady)
-            || terminal && (executionMatches || repairMatches || rollbackMatches)) {
-          clearReceipt();
-        }
+        completed = !!(retrySaved && (terminal || retryReady)
+          || terminal && (executionMatches || repairMatches || rollbackMatches));
       }
     }
-    return snapshot;
+    await reconcileReceipt(pending, () => completed && currentSnapshot(snapshot));
+    return currentSnapshot(snapshot) ? snapshot : null;
   }
   function currentSnapshot(snapshot: AdoptedPlanSnapshot | null) {
     return snapshot !== null && !disposed && snapshot.version === planVersion
       && plan.value === snapshot.plan && copy.value === snapshot.copy;
   }
-  function clearReceipt() {
-    try {
-      localStorage.removeItem(executionKey);
-      receipt.value = null;
-    } catch {
-      notice.value = "无法清除本浏览器的等待标记，请检查浏览器存储设置。";
+  // 与发送路径共用短时锁；锁内不等待 GET / POST，避免重入长期执行锁。
+  async function reconcileReceipt(expected: ExecutionReceipt | null, canClear: () => boolean) {
+    if (disposed) return;
+    if (!navigator.locks) {
+      notice.value = "浏览器无法核对跨标签页等待标记，保留阻塞状态。";
+      return;
     }
+    try {
+      await navigator.locks.request(receiptLockName, {}, lock => {
+        if (!lock) throw new Error("receipt lock unavailable");
+        if (disposed) return;
+        const raw = localStorage.getItem(executionKey);
+        const actual = parseReceipt(raw);
+        // 即使父 Retry 相同，后续请求也不是本次 GET / 拒绝检查所证明的请求。
+        if (sameReceipt(actual, expected) && canClear()) {
+          localStorage.removeItem(executionKey);
+          receipt.value = null;
+        } else if (actual) {
+          receipt.value = actual;
+        } else if (raw === null) {
+          // 存储暂时缺失不能证明本标签的 UNKNOWN 已结束；清理内存也须匹配原请求与结果。
+          if (sameReceipt(receipt.value, expected) && canClear()) receipt.value = null;
+        } else {
+          notice.value = "持久化等待标记无法读取，保留标记并阻止新请求。";
+        }
+      });
+    } catch {
+      notice.value = "无法核对或清除本浏览器的等待标记，保留阻塞状态。";
+    }
+  }
+  async function writeReceipt(marker: ExecutionReceipt, snapshot: AdoptedPlanSnapshot) {
+    await navigator.locks.request(receiptLockName, {}, lock => {
+      if (!lock || !currentSnapshot(snapshot)) throw new ApiError(409, "CONFLICT");
+      const raw = localStorage.getItem(executionKey);
+      if (raw !== null) {
+        const actual = parseReceipt(raw);
+        if (actual) receipt.value = actual;
+        throw new Error("execution receipt already exists");
+      }
+      localStorage.setItem(executionKey, JSON.stringify(marker));
+      receipt.value = marker;
+    });
   }
   async function run(label: string, operation: () => Promise<void>, saveContext = true) {
     if (busy.value) return;
@@ -450,6 +494,7 @@ export function createSession() {
             throw new ApiError(409, "CONFLICT");
           }
           const marker: ExecutionReceipt = {
+            requestId: crypto.randomUUID(),
             planId: current.id,
             stepId,
             startedAt: new Date().toISOString(),
@@ -459,8 +504,7 @@ export function createSession() {
               ...(rollingBack ? { baselineRevision: rollbackBaseline } : {}) } : {}),
           };
           // 写入失败时停止发送；刷新后只恢复 ID 与等待标记，不重放任何命令。
-          localStorage.setItem(executionKey, JSON.stringify(marker));
-          receipt.value = marker;
+          await writeReceipt(marker, prepared!);
           executionRequest.value = marker;
           executionPending.value = true;
           schedulePoll();
@@ -518,8 +562,9 @@ export function createSession() {
                 ?.executionResult &&
               copy.value && ["READY", "EVOLVING"].includes(copy.value.status) &&
               copy.value.currentRevision === copy.value.lastVerifiedRevision
-            )
-              clearReceipt();
+            ) {
+              await reconcileReceipt(marker, () => currentSnapshot(checked));
+            }
             if (handlingFailure && currentSnapshot(checked) && failure instanceof ApiError && failure.status > 0
               && ["INVALID_REQUEST", "CONFLICT", "EXECUTION_CRITERIA_UNSUPPORTED", "ASSET_TYPE_UNSUPPORTED",
                 "ASSET_READ_PERMISSION_REQUIRED", "ASSET_USAGE_AUTHORIZATION_REQUIRED", "ASSET_LICENSE_INFORMATION_REQUIRED",
@@ -533,7 +578,9 @@ export function createSession() {
                 && step.verificationResult?.candidateRevision === repairCandidate && step.verificationResult.passed === false
                 && (rollingBack ? step.baselineRevision === rollbackBaseline && !step.rollbackAuthorization
                   : Array.isArray(step.repairAuthorizations)
-                    && !step.repairAuthorizations.some(item => item.id === marker.authorizationId))) clearReceipt();
+                    && !step.repairAuthorizations.some(item => item.id === marker.authorizationId))) {
+                await reconcileReceipt(marker, () => currentSnapshot(checked));
+              }
             }
             throw failure;
           } finally {
@@ -566,10 +613,11 @@ export function createSession() {
           || current.steps.slice(0, current.steps.indexOf(step)).some(item => item.status !== "SUCCEEDED")) {
           throw new ApiError(409, "CONFLICT");
         }
-        const marker: ExecutionReceipt = { planId: current.id, stepId, operation: "RETRY",
-          startedAt: new Date().toISOString(), authorizationId: crypto.randomUUID(), failedCheckpointId, baselineRevision };
-        localStorage.setItem(executionKey, JSON.stringify(marker));
-        receipt.value = marker;
+        const marker: ExecutionReceipt = {
+          requestId: crypto.randomUUID(), planId: current.id, stepId, operation: "RETRY",
+          startedAt: new Date().toISOString(), authorizationId: crypto.randomUUID(), failedCheckpointId, baselineRevision,
+        };
+        await writeReceipt(marker, snapshot!);
         executionRequest.value = marker;
         executionPending.value = true;
         schedulePoll();
@@ -594,7 +642,9 @@ export function createSession() {
               && (actual.executionFailureResult?.id ?? actual.rollbackAuthorization?.id) === failedCheckpointId
               && copy.value?.status === "EVOLVING" && copy.value.currentRevision === baselineRevision
               && copy.value.lastVerifiedRevision === baselineRevision && Array.isArray(actual.retryAuthorizations)
-              && !actual.retryAuthorizations.some(item => item.id === marker.authorizationId)) clearReceipt();
+              && !actual.retryAuthorizations.some(item => item.id === marker.authorizationId)) {
+              await reconcileReceipt(marker, () => currentSnapshot(checked));
+            }
           }
           throw failure;
         } finally {

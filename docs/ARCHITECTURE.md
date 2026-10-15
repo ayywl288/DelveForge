@@ -1292,6 +1292,14 @@ Domain 转移，并与 WorkingCopy 更新保持原事务；同状态 / 同 basel
 被采纳的最新 GET 快照阻止自动重送；READY 本身不证明未知的外部准备请求已经停止。
 显式保存的 Retry 授权可通过匹配身份的 GET 确认；未决 EXECUTING / ROLLING_BACK 仍阻塞。
 
+M5-010：浏览器 receipt 为每个 Execute / Repair / Rollback / Retry 请求生成独立 requestId，
+不使用父 Retry ID 代替请求身份。GET 在开始时捕获待核实标记；清理仍须符合原业务结果规则。
+所有 receipt 写入和清理共用短时 `delveforge.execution-receipt` Web Lock，在锁内重新读取存储、
+比较完整预期标记并检查查询版本，检查与删除之间不等待网络。原 `delveforge.execute` 长时锁
+继续串行用户操作；两种锁职责分开，避免操作内 GET 重入长时锁。旧格式标记只按完整内容核对，
+不补造领域授权；未知结果、损坏 / 不可读存储和过期 GET 不允许覆盖或重发请求。
+requestId 只用于浏览器等待保护，不成为后端 Attempt、授权或新的领域状态。
+
 ## 7. Dependency Rules
 
 本节描述代码模块之间允许存在的依赖方向，而不是系统运行时的调用顺序。
