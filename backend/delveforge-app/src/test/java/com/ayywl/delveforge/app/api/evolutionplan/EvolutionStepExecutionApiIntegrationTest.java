@@ -90,9 +90,16 @@ class EvolutionStepExecutionApiIntegrationTest {
         Files.writeString(source.resolve("A.java"), "old\n");
         if (List.of("caseVariantAttributesBlockBeforeExecutionRepairOrRollbackAuthorization",
                 "m5dRealExecutionRejectionPreservesEvidenceHistoryAndHonorsExactRollback",
-                "rollbackFailureOrUnknownBlocksWithoutDeletingUserFiles")
+                "rollbackFailureOrUnknownBlocksWithoutDeletingUserFiles",
+                "bomPhysicalChangeBlocksBeforeExecutionRepairOrRollbackAuthorization",
+                "repairBomAfterGrantKeepsExecutingCheckpoint",
+                "rollbackSqliteFailureNeverExposesPartialCheckpointOrFalseSuccess")
                 .contains(test.getTestMethod().orElseThrow().getName())) {
             Files.writeString(source.resolve(".gitattributes"), "*.java text eol=lf\n");
+        }
+        if (test.getTestMethod().orElseThrow().getName()
+                .equals("bomInHistoricalReadyCheckpointBlocksExecutionBeforeProvider")) {
+            Files.writeString(source.resolve(".gitattributes"), "\ufeff*.java text eol=lf\n");
         }
         Files.createDirectories(source.resolve("src/main/java"));
         Files.writeString(source.resolve("src/main/java/Report.java"), "public class Report { public static int value() { return 0; } }\n");
@@ -541,7 +548,7 @@ class EvolutionStepExecutionApiIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"initial", "repair", "rollback-failure", "unknown-rollback", "false-success", "asset-revoked",
-            "plan-obsolete", "external-attributes", "attribute-case-alias"})
+            "plan-obsolete", "external-attributes", "attribute-case-alias", "bom-after-grant"})
     void m5dRealExecutionRejectionPreservesEvidenceHistoryAndHonorsExactRollback(String scenario) throws Exception {
         Map<String, String> original = snapshot(source);
         EvolutionStep previous = null;
@@ -584,6 +591,11 @@ class EvolutionStepExecutionApiIntegrationTest {
         } else if (scenario.equals("attribute-case-alias")) {
             doAnswer(invocation -> {
                 renamePhysicalAttributes();
+                return invocation.callRealMethod();
+            }).when(rollback).restoreBaseline(any());
+        } else if (scenario.equals("bom-after-grant")) {
+            doAnswer(invocation -> {
+                addPhysicalAttributeBom();
                 return invocation.callRealMethod();
             }).when(rollback).restoreBaseline(any());
         } else if (scenario.equals("unknown-rollback")) {
@@ -631,6 +643,10 @@ class EvolutionStepExecutionApiIntegrationTest {
                 .content(repairBody(starting, UUID.randomUUID().toString()))).andExpect(status().isConflict());
         verifyNoInteractions(ai);
         assertEquals(original, snapshot(source));
+        if (scenario.equals("bom-after-grant")) {
+            assertTrue(Files.readString(copy.resolve(".gitattributes")).startsWith("\ufeff"));
+            assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+        }
         assertM5dRestartReadsExactlyTheSavedCheckpoint(step);
     }
 
@@ -963,6 +979,141 @@ class EvolutionStepExecutionApiIntegrationTest {
         verifyNoInteractions(ai);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"execute", "repair"})
+    void bomProposalRetainsAuthorizedCheckpointBeforeActualMutation(String action) throws Exception {
+        EvolutionStep previous = action.equals("repair") ? failedCandidate() : null;
+        if (previous == null) {
+            confirm();
+        }
+        String starting = persistedCopy().currentRevision();
+        String before = Files.readString(copy.resolve("A.java"));
+        String patch = "--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-" + (previous == null ? "old" : "new ")
+                + "\n+changed\n--- /dev/null\n+++ b/.gitattributes\n@@ -0,0 +1 @@\n+\ufeff\"*.java\"filter=unset\n";
+        coding(patch, "DIFF_CHECK");
+        for (String kind : List.of("clean", "smudge", "process")) {
+            git(copy, "config", "filter.unset." + kind, kind.equals("process")
+                    ? "printf hit >> .git/filter-ran; exit 1" : "printf hit >> .git/filter-ran; cat");
+        }
+        String authorization = UUID.randomUUID().toString();
+        var request = post(route(action));
+        if (previous != null) {
+            request.contentType(MediaType.APPLICATION_JSON).content(repairBody(starting, authorization));
+        }
+        clearInvocations(rollback);
+        mvc.perform(request).andExpect(status().isConflict());
+        EvolutionStep pending = currentStep();
+        assertEquals(EvolutionStepStatus.EXECUTING, pending.status());
+        assertEquals(revision, pending.baselineRevision());
+        assertNull(pending.executionResult());
+        assertNull(pending.executionFailureResult());
+        assertNull(pending.automaticRollbackResult());
+        if (previous != null) {
+            assertEquals(authorization, pending.repairAuthorizations().getLast().id());
+            assertEquals(previous.verificationResult(), pending.repairAuthorizations().getLast().previousVerification());
+        }
+        assertEquals(starting, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(starting, git(copy, "rev-parse", "HEAD").trim());
+        assertEquals(before, Files.readString(copy.resolve("A.java")));
+        assertFalse(Files.exists(copy.resolve(".gitattributes")));
+        assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+        verify(rollback, never()).restoreBaseline(any());
+        assertM5dRestartReadsExactlyTheSavedCheckpoint(pending);
+        reset(ai);
+        var duplicate = post(route(action));
+        if (previous != null) {
+            duplicate.contentType(MediaType.APPLICATION_JSON).content(repairBody(starting, authorization));
+        }
+        mvc.perform(duplicate).andExpect(status().isConflict());
+        verifyNoInteractions(ai);
+        verify(rollback, never()).restoreBaseline(any());
+    }
+
+    private void addPhysicalAttributeBom() throws Exception {
+        Path attributes = copy.resolve(".gitattributes");
+        Files.writeString(attributes, "\ufeff" + Files.readString(attributes));
+    }
+
+    @Test
+    void bomInHistoricalReadyCheckpointBlocksExecutionBeforeProvider() throws Exception {
+        // 任务数据库还原旧版本已保存的 READY 确认事实；不 mock 待测 Workspace 检查或调用 Provider。
+        jdbc.update("UPDATE evolution_step SET status='READY' WHERE id=?", stepId);
+        assertEquals(EvolutionStepStatus.READY, currentStep().status());
+        assertTrue(Files.readString(copy.resolve(".gitattributes")).startsWith("\ufeff"));
+        reset(ai);
+        clearInvocations(mutation, rollback);
+        mvc.perform(post(route("execute"))).andExpect(status().isConflict());
+        assertEquals(EvolutionStepStatus.READY, currentStep().status());
+        assertNull(currentStep().baselineRevision());
+        assertNull(currentStep().executionResult());
+        assertEquals(revision, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(revision, git(copy, "rev-parse", "HEAD").trim());
+        verify(mutation, never()).applyCandidate(any());
+        verify(rollback, never()).restoreBaseline(any());
+        verifyNoInteractions(ai);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"execute", "repair", "rollback"})
+    void bomPhysicalChangeBlocksBeforeExecutionRepairOrRollbackAuthorization(String action) throws Exception {
+        EvolutionStep previous = action.equals("execute") ? null : failedCandidate();
+        if (previous == null) {
+            confirm();
+        }
+        String candidate = persistedCopy().currentRevision();
+        addPhysicalAttributeBom();
+        String content = Files.readString(copy.resolve("A.java"));
+        reset(ai);
+        var request = post(route(action));
+        if (!action.equals("execute")) {
+            request.contentType(MediaType.APPLICATION_JSON).content(action.equals("repair")
+                    ? repairBody(candidate, UUID.randomUUID().toString())
+                    : rollbackBody(candidate, revision, UUID.randomUUID().toString()));
+        }
+        mvc.perform(request).andExpect(status().isConflict());
+        assertEquals(previous == null ? EvolutionStepStatus.READY : EvolutionStepStatus.VERIFICATION_FAILED,
+                currentStep().status());
+        assertTrue(currentStep().repairAuthorizations().isEmpty());
+        assertNull(currentStep().rollbackAuthorization());
+        assertEquals(candidate, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertEquals(candidate, git(copy, "rev-parse", "HEAD").trim());
+        assertEquals(content, Files.readString(copy.resolve("A.java")));
+        assertTrue(Files.readString(copy.resolve(".gitattributes")).startsWith("\ufeff"));
+        assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void repairBomAfterGrantKeepsExecutingCheckpoint() throws Exception {
+        EvolutionStep failed = failedCandidate();
+        String candidate = failed.executionResult().candidateRevision();
+        coding("--- a/A.java\n+++ b/A.java\n@@ -1 +1 @@\n-new \n+repaired\n", "DIFF_CHECK");
+        providerHook = () -> {
+            try {
+                addPhysicalAttributeBom();
+            } catch (Exception failure) {
+                throw new AssertionError(failure);
+            }
+        };
+        String authorization = UUID.randomUUID().toString();
+        mvc.perform(post(route("repair")).contentType(MediaType.APPLICATION_JSON)
+                .content(repairBody(candidate, authorization))).andExpect(status().isConflict());
+        EvolutionStep pending = currentStep();
+        assertEquals(EvolutionStepStatus.EXECUTING, pending.status());
+        assertEquals(authorization, pending.repairAuthorizations().getLast().id());
+        assertEquals(failed.verificationResult(), pending.repairAuthorizations().getLast().previousVerification());
+        assertNull(pending.executionResult());
+        assertNull(pending.executionFailureResult());
+        assertNull(pending.automaticRollbackResult());
+        assertEquals(candidate, persistedCopy().currentRevision());
+        assertEquals(revision, persistedCopy().lastVerifiedRevision());
+        assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+        assertM5dRestartReadsExactlyTheSavedCheckpoint(pending);
+    }
+
     private void renamePhysicalAttributes() throws Exception {
         Path intermediate = copy.resolve(".git/owned-attribute-case-rename");
         Files.move(copy.resolve(".gitattributes"), intermediate);
@@ -1064,7 +1215,7 @@ class EvolutionStepExecutionApiIntegrationTest {
     @ValueSource(strings = {"index-lock", "head-lock", "extra-after-grant", "ignored-after-grant", "dirty-after-grant",
             "unknown", "wrong-success", "post-restore-change", "revoke-after-restore", "replace-baseline", "graft-view",
             "hidden-after-grant", "hidden-post-restore-change", "filter-unset-after-grant", "filter-unspecified-after-grant",
-            "external-attributes-after-grant", "attribute-case-alias-after-grant"})
+            "external-attributes-after-grant", "attribute-case-alias-after-grant", "bom-after-grant"})
     void rollbackFailureOrUnknownBlocksWithoutDeletingUserFiles(String fault) throws Exception {
         EvolutionStep failed = failedCandidate();
         String candidate = failed.executionResult().candidateRevision();
@@ -1082,6 +1233,7 @@ class EvolutionStepExecutionApiIntegrationTest {
                 }
                 case "external-attributes-after-grant" -> git(copy, "config", "core.attributesFile", "A.java");
                 case "attribute-case-alias-after-grant" -> renamePhysicalAttributes();
+                case "bom-after-grant" -> addPhysicalAttributeBom();
                 case "dirty-after-grant" -> Files.writeString(copy.resolve("A.java"), "USER CONTENT\n");
                 case "hidden-after-grant" -> hideUnchangedTrackedContent();
                 case "filter-unset-after-grant", "filter-unspecified-after-grant" ->
@@ -1139,6 +1291,10 @@ class EvolutionStepExecutionApiIntegrationTest {
                     ? !git(copy, "for-each-ref", "--format=%(refname)", "refs/replace/").isBlank()
                     : Files.exists(copy.resolve(".git/info/grafts")));
         }
+        if (fault.equals("bom-after-grant")) {
+            assertTrue(Files.readString(copy.resolve(".gitattributes")).startsWith("\ufeff"));
+            assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+        }
         if (fault.startsWith("filter-")) {
             assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
             assertEquals("evil\n", Files.readString(copy.resolve("A.java")));
@@ -1148,19 +1304,26 @@ class EvolutionStepExecutionApiIntegrationTest {
                 .content(repairBody(candidate, UUID.randomUUID().toString()))).andExpect(status().isConflict());
         verify(rollback, times(1)).restoreBaseline(any());
         verifyNoInteractions(ai);
-        if (fault.equals("unknown") || fault.equals("attribute-case-alias-after-grant")) {
+        if (fault.equals("unknown") || fault.equals("attribute-case-alias-after-grant")
+                || fault.equals("bom-after-grant")) {
             assertRollbackRestart(EvolutionStepStatus.RECOVERY_REQUIRED);
         }
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"authorization", "success", "all-final"})
+    @ValueSource(strings = {"authorization", "success", "all-final", "all-final-bom"})
     void rollbackSqliteFailureNeverExposesPartialCheckpointOrFalseSuccess(String phase) throws Exception {
         EvolutionStep failed = failedCandidate();
         String candidate = failed.executionResult().candidateRevision();
         EvolutionPlan loaded = plans.findById(new EvolutionPlanId(planId)).orElseThrow();
         WorkingCopy loadedCopy = persistedCopy();
         String condition = phase.equals("authorization") ? "ROLLING_BACK" : phase.equals("success") ? "FAILED" : "FAILED','RECOVERY_REQUIRED";
+        if (phase.equals("all-final-bom")) {
+            doAnswer(invocation -> {
+                addPhysicalAttributeBom();
+                return invocation.callRealMethod();
+            }).when(rollback).restoreBaseline(any());
+        }
         jdbc.execute("CREATE TRIGGER m5c_checkpoint_failure BEFORE UPDATE ON working_copy WHEN EXISTS"
                 + " (SELECT 1 FROM evolution_step WHERE id='" + stepId + "' AND status IN ('" + condition + "'))"
                 + " BEGIN SELECT RAISE(ABORT, 'injected M5-C checkpoint failure'); END");
@@ -1176,7 +1339,8 @@ class EvolutionStepExecutionApiIntegrationTest {
         assertEquals(candidate, loadedCopy.currentRevision());
         assertEquals(candidate, persistedCopy().currentRevision());
         assertEquals(revision, persistedCopy().lastVerifiedRevision());
-        assertEquals(phase.equals("authorization") ? candidate : revision, git(copy, "rev-parse", "HEAD").trim());
+        assertEquals(phase.equals("authorization") || phase.equals("all-final-bom") ? candidate : revision,
+                git(copy, "rev-parse", "HEAD").trim());
         assertEquals(phase.equals("authorization") ? EvolutionStepStatus.VERIFICATION_FAILED
                 : phase.equals("success") ? EvolutionStepStatus.RECOVERY_REQUIRED : EvolutionStepStatus.ROLLING_BACK,
                 currentStep().status());
@@ -1185,8 +1349,13 @@ class EvolutionStepExecutionApiIntegrationTest {
                 persistedCopy().status());
         verify(rollback, times(phase.equals("authorization") ? 0 : 1)).restoreBaseline(any());
         verifyNoInteractions(ai);
-        if (phase.equals("all-final")) {
+        if (phase.startsWith("all-final")) {
             assertNull(currentStep().rollbackResult());
+            if (phase.equals("all-final-bom")) {
+                assertTrue(Files.readString(copy.resolve(".gitattributes")).startsWith("\ufeff"));
+                assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+                assertNotNull(currentStep().rollbackAuthorization());
+            }
             assertRollbackRestart(EvolutionStepStatus.ROLLING_BACK);
             mvc.perform(post(route("rollback")).contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
             mvc.perform(post(route("execute"))).andExpect(status().isConflict());

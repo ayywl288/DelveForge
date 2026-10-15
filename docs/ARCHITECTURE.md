@@ -1235,6 +1235,12 @@ M5-007/008 在上述共享守卫中核对固定 tree、完全匹配的 index 路
 的情况；不通过增加大小写转换支持来猜测 Git 对象与宿主文件系统的不同解释。原始 baseline 在任何
 restore / checkout 前执行同一检查。自定义宏只按 Git 首个 pattern 的 C 引号解码，且仅在以 `[attr]` 开头、后缀非空时
 识别；中间含 `[attr]` 或恰好为 `[attr]` 的合法 glob 不当作宏，真实宏及外部转换仍拒绝。
+M5-009 将属性文本限制为可统一证明的 UTF-8 / LF / CRLF 子集：任意位置的 BOM / U+FEFF、
+UTF-8 解码替换字符 U+FFFD（含合法编码的同名字符）、NUL、其他 C0 控制字节、DEL 和裸 CR 均失败关闭；
+不通过剥离 BOM 或扩大解析器来兼容。属性能力按 ASCII 属性名及首个 `=` 判断，不用值上的正则 dot，
+避免 Unicode 行分隔符隐藏转换能力。固定 tree 的全部属性检查同时用于原始 baseline 和调用私有 index
+产生的完整预期 tree；后者必须先于真实 `apply --check --index` / Apply / Candidate 发布，覆盖提案新增属性文件。
+此拒绝保留既有 EXECUTING 未决检查点，不制造已确认 Execution Failure；恢复阶段拒绝沿用阻塞结果规则。
 
 
 原修复记录见 [M5-001/002 报告](validation/m5-review-findings-fix.md)，后续复审修复见

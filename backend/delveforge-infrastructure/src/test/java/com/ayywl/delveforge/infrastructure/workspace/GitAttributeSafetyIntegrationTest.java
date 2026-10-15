@@ -32,19 +32,24 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.nio.charset.Charset;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import static com.ayywl.delveforge.infrastructure.workspace.GitTestRepositories.commit;
@@ -84,16 +89,31 @@ class GitAttributeSafetyIntegrationTest {
     }
 
     private AuthorizedStepRollback fixture(String attributesPath, String rules, boolean automatic) throws Exception {
+        return fixture(attributesPath, rules, automatic, false);
+    }
+
+    private AuthorizedStepRollback fixture(String attributesPath, String rules, boolean automatic, boolean intermediate)
+            throws Exception {
         reportPath = attributesPath.contains("/") ? "src/Report.java" : "Report.java";
         Map<String, String> files = new LinkedHashMap<>(Map.of(attributesPath, rules,
                 reportPath, "public class Report { int value = 0; }\n",
                 "docs/attr.txt", "trusted\n"));
+        String child = attributesPath.substring(0, attributesPath.lastIndexOf('/') + 1) + "src/.gitattributes";
+        if (intermediate) {
+            files.put(child, "\ufeff\"*\"!filter\n");
+            files.put(child.replace(".gitattributes", "Payload.java"), "class Payload {}\n");
+        }
         source = repositories.createCommitted("source", files);
         baseline = headRevision(source);
         copy = Path.of(adapter.provision(new WorkspaceRef(source.toString()), baseline, "copy").workspace().value());
         runGit(copy, "config", "core.autocrlf", "false");
         for (Map.Entry<String, String> file : files.entrySet()) {
             Files.writeString(copy.resolve(file.getKey()), file.getValue());
+        }
+        if (intermediate) {
+            Files.writeString(copy.resolve(attributesPath), "# inert Candidate rules\n");
+            Files.writeString(copy.resolve(child), "# inert Candidate rules\n");
+            runGit(copy, "add", "--", attributesPath, child);
         }
         Files.writeString(copy.resolve(reportPath), "public class Report { int value = 1; }\n");
         runGit(copy, "add", "--", reportPath);
@@ -129,6 +149,7 @@ class GitAttributeSafetyIntegrationTest {
                     diff.add(new ExecutionFailureResult.DiffEntry(path, original, index, actual));
                 }
             }
+            diff.sort(Comparator.comparing(ExecutionFailureResult.DiffEntry::path));
             ExecutionFailureResult failure = new ExecutionFailureResult(UUID.randomUUID().toString(), baseline, baseline,
                     "PUBLISH", rejection.exitCode(), "CONFIRMED_GIT_REJECTION", baseline, tree, true, diff, Instant.now());
             plan.failStepExecution(stepId, working, failure);
@@ -286,6 +307,107 @@ class GitAttributeSafetyIntegrationTest {
         assertThrows(WorkingCopyBasisChangedException.class, () -> adapter.requireTrustedState(
                 new WorkspaceRef(copy.toString()), new WorkspaceRef(source.toString()), candidate));
         assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+    }
+
+    static Stream<Arguments> bomRules() {
+        return Stream.of(".gitattributes", "area/.gitattributes").flatMap(path -> Stream.of(
+                "*.unmatched filter=unset\n", "\"*.unmatched\"filter=unset\n",
+                "[attr]custom text eol=lf\n*.unmatched custom\n",
+                "\"[attr]custom\"filter=unset\n*.unmatched custom\n",
+                "*.java text eol=lf\n").map(rule -> Arguments.of(path, "\ufeff" + rule)));
+    }
+
+    @ParameterizedTest
+    @MethodSource("bomRules")
+    void bomDefinitionsAreRejectedBySharedGuardAndUserRollbackBeforeMutation(String path, String rules)
+            throws Exception {
+        AuthorizedStepRollback authorized = fixture(path, rules, false);
+        String probe = path.substring(0, path.lastIndexOf('/') + 1) + "probe.unmatched";
+        String attribute = rules.contains("filter=") ? "filter" : "eol";
+        String actual = runGit(copy, "check-attr", attribute, "--", probe);
+        if (rules.contains("[attr]") && path.contains("/")) {
+            // Git 不允许嵌套文件定义宏；仍须按本轮保守策略拒绝其 BOM，而不是声称宏已生效。
+            assertTrue(actual.contains("not allowed"));
+        } else if (rules.contains("filter=")) {
+            assertTrue(actual.contains(": filter: unset"));
+        } else if (rules.contains("[attr]")) {
+            assertTrue(actual.contains(": eol: lf"));
+        }
+        runGit(copy, "config", "filter.unset.clean", "printf hit >> .git/filter-ran; cat");
+        runGit(copy, "config", "filter.unset.smudge", "printf hit >> .git/filter-ran; cat");
+        String before = Files.readString(copy.resolve(reportPath));
+        assertAll(
+                () -> assertThrows(WorkingCopyBasisChangedException.class, () -> adapter.requireTrustedState(
+                        new WorkspaceRef(copy.toString()), new WorkspaceRef(source.toString()), candidate)),
+                () -> assertThrows(WorkingCopyRollbackException.class, () -> adapter.restoreBaseline(authorized)),
+                () -> assertFalse(Files.exists(copy.resolve(".git/filter-ran")), "FILTER_SIDE_EFFECT"),
+                () -> assertEquals(candidate, headRevision(copy)),
+                () -> assertEquals(before, Files.readString(copy.resolve(reportPath))));
+    }
+
+    static Stream<Arguments> bomIntermediateCases() {
+        return Stream.of(".gitattributes", "area/.gitattributes").flatMap(path -> Stream.of("unset", "unspecified")
+                .flatMap(driver -> Stream.of("clean", "process", "smudge")
+                .flatMap(kind -> Stream.of(false, true).map(automatic -> Arguments.of(path, driver, kind, automatic)))));
+    }
+
+    @ParameterizedTest
+    @MethodSource("bomIntermediateCases")
+    void bomRulesCannotExecuteFiltersInIntermediateUserOrAutomaticRestoration(String attributes, String driver,
+            String kind, boolean automatic) throws Exception {
+        AuthorizedStepRollback authorized = fixture(attributes, "\ufeff\"src/*\"filter=" + driver + "\n",
+                automatic, true);
+        runGit(copy, "config", "filter." + driver + "." + kind, kind.equals("process")
+                ? "printf hit >> .git/filter-ran; exit 1" : "printf hit >> .git/filter-ran; cat");
+        // 两个端点视图均无生效 filter，不能只依赖端点 check-attr 或恢复后的阻塞来证明中间写入安全。
+        assertEquals("", runGit(copy, "--attr-source=" + baseline, "check-attr", "--all", "--", reportPath));
+        String before = Files.readString(copy.resolve(reportPath));
+        assertAll(
+                () -> assertEquals("BASELINE_ATTRIBUTES", assertThrows(WorkingCopyRollbackException.class,
+                        () -> adapter.restoreBaseline(authorized)).phase()),
+                () -> assertFalse(Files.exists(copy.resolve(".git/filter-ran")), "FILTER_SIDE_EFFECT"),
+                () -> assertEquals(candidate, headRevision(copy)),
+                () -> assertEquals(before, Files.readString(copy.resolve(reportPath))),
+                () -> assertEquals("# inert Candidate rules\n", Files.readString(copy.resolve(attributes))),
+                () -> assertEquals(baseline, headRevision(source)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\ufeff# inert\n", "# inert\n\ufeff*.java text\n", "*.java text\0\n",
+            "*.java text\ufffd\n", "*.unused\rfilter=unset\n", "*.unused\u000bfilter=unset\n",
+            "*.unused\u000cfilter=unset\n", "*.unused\u007ffilter=unset\n"})
+    void ambiguousAttributeTextFailsClosedEvenWithoutAnActiveConversion(String rules) throws Exception {
+        fixture(".gitattributes", rules, false);
+        assertThrows(WorkingCopyBasisChangedException.class, () -> adapter.requireTrustedState(
+                new WorkspaceRef(copy.toString()), new WorkspaceRef(source.toString()), candidate));
+        assertFalse(Files.exists(copy.resolve(".git/filter-ran")), "FILTER_SIDE_EFFECT");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\u0085", "\u2028", "\u2029"})
+    void conversionNameCannotBeHiddenByNonGitLineSeparatorsInItsValue(String separator) throws Exception {
+        fixture(".gitattributes", "*.unmatched filter=driver" + separator + "value\n", false);
+        String actual = runGit(copy, "check-attr", "filter", "--", "probe.unmatched");
+        assertTrue(actual.contains(": filter: driver" + separator + "value"));
+        assertThrows(WorkingCopyBasisChangedException.class, () -> adapter.requireTrustedState(
+                new WorkspaceRef(copy.toString()), new WorkspaceRef(source.toString()), candidate));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"UTF-16LE", "UTF-16BE", "UTF-32LE", "UTF-32BE", "invalid-UTF-8"})
+    void nonUtf8AttributeBlobsAreRejectedWithoutConversion(String encoding) throws Exception {
+        fixture(".gitattributes", "# inert UTF-8\n", false);
+        byte[] bytes = encoding.equals("invalid-UTF-8")
+                ? new byte[] {'#', ' ', (byte) 0xff, '\n'}
+                : "# inert\n".getBytes(Charset.forName(encoding));
+        Files.write(copy.resolve(".gitattributes"), bytes);
+        runGit(copy, "add", "--", ".gitattributes");
+        commit(copy, "Owned unsupported encoding fixture");
+        candidate = headRevision(copy);
+        assertThrows(WorkingCopyBasisChangedException.class, () -> adapter.requireTrustedState(
+                new WorkspaceRef(copy.toString()), new WorkspaceRef(source.toString()), candidate));
+        assertFalse(Files.exists(copy.resolve(".git/filter-ran")), "FILTER_SIDE_EFFECT");
+        assertTrue(java.util.Arrays.equals(bytes, Files.readAllBytes(copy.resolve(".gitattributes"))));
     }
 
 }

@@ -441,10 +441,34 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         // Git 只把首个解码后的 pattern 的非空 [attr] 前缀视为宏；中间字符组与单独 [attr] 是 glob。
         if ((pattern.startsWith("[attr]") && pattern.length() > 6)
                 || Arrays.stream(line.substring(cursor).split("[ \\t\\r\\n]+"))
-                        .anyMatch(token -> token.matches("[!-]?(filter|ident|working-tree-encoding)(=.*)?"))) {
+                        .anyMatch(this::isExternalConversionAttribute)) {
             // 恢复会分批更新属性文件；休眠转换规则和真实宏也必须在危险写入前拒绝。
             throw new WorkingCopyBasisChangedException("Git attribute definitions cannot prove safe restoration");
         }
+    }
+
+    /** 属性文本只接受可证明的 UTF-8 / LF / CRLF 子集；不把 BOM 当作可兼容的语法前缀。 */
+    private void requireSafeAttributeText(String definitions) {
+        for (int index = 0; index < definitions.length(); index++) {
+            char value = definitions.charAt(index);
+            if (value == '\ufeff' || value == '\ufffd' || value == 127
+                    || (value < 32 && value != '\t' && value != '\n' && value != '\r')
+                    || (value == '\r' && (index + 1 == definitions.length()
+                            || definitions.charAt(index + 1) != '\n'))) {
+                // 有界命令以 UTF-8 解码；替换字符、NUL/控制字节或裸 CR 不足以统一证明 Git 的字节解释。
+                throw new WorkingCopyBasisChangedException("Git attribute text has an unproven encoding or delimiter");
+            }
+        }
+    }
+
+    private boolean isExternalConversionAttribute(String token) {
+        int separator = token.indexOf('=');
+        String name = separator < 0 ? token : token.substring(0, separator);
+        if (name.startsWith("-") || name.startsWith("!")) {
+            name = name.substring(1);
+        }
+        // 只按 ASCII 属性名判定能力；任意值里的 Unicode 行分隔符不能绕过正则的 dot 边界。
+        return List.of("filter", "ident", "working-tree-encoding").contains(name);
     }
 
     private boolean isAttributeBlank(char value) {
@@ -456,6 +480,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         for (String path : paths) {
             if (path.equals(".gitattributes") || path.endsWith("/.gitattributes")) {
                 String definitions = contentGit(target, revision, "cat-file", "blob", revision + ":" + path);
+                requireSafeAttributeText(definitions);
                 for (String line : definitions.lines().toList()) {
                     requireSafeAttributeRule(line);
                 }
@@ -474,6 +499,17 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
                 // --all 的属性存在性不依赖歧义值；显式 -filter 也保守拒绝，不能把同名 driver 当作安全哨兵。
                 throw new WorkingCopyBasisChangedException("Git conversion cannot prove exact tracked content");
             }
+        }
+    }
+
+    /** 仅检查不可变 tree 的属性能力，供写入前的预期结果和原始恢复目标共用。 */
+    private void requireSafeTreeAttributes(Path target, String revision) {
+        List<String> paths = Arrays.stream(contentGit(target, revision,
+                "ls-tree", "-r", "--name-only", "-z", revision).split("\0"))
+                .filter(path -> !path.isEmpty()).toList();
+        requireCanonicalAttributePaths(target, paths);
+        for (int start = 0; start < paths.size(); start += 32) {
+            requireSupportedAttributes(target, revision, paths.subList(start, Math.min(start + 32, paths.size())));
         }
     }
 
@@ -593,6 +629,9 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             mutationGit(target, expectedIndex, "read-tree", startingRevision);
             mutationGit(target, expectedIndex, "apply", "--cached", "--whitespace=nowarn", "--", patch.toString());
             expectedTree = mutationGit(target, expectedIndex, "write-tree").trim();
+            phase = "EXPECTED_ATTRIBUTES";
+            // 提案本身也可能引入属性转换；必须先证明完整预期 tree，再触达真实 index / 工作树。
+            requireSafeTreeAttributes(target, expectedTree);
 
             // 可变 index / 工作树只是执行载体，不能替代后面的不可变快照校验。
             phase = "APPLY_CHECK";
@@ -712,14 +751,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             rollbackGit(target, phase, "cat-file", "-e", baseline + "^{commit}");
             phase = "BASELINE_ATTRIBUTES";
             // 初始 baseline 可能具有 Candidate 已删除的属性；checkout 前拒绝目标转换，不能先运行 smudge 再拒绝。
-            List<String> baselinePaths = Arrays.stream(contentGit(target, baseline,
-                    "ls-tree", "-r", "--name-only", "-z", baseline).split("\0"))
-                    .filter(path -> !path.isEmpty()).toList();
-            requireCanonicalAttributePaths(target, baselinePaths);
-            for (int start = 0; start < baselinePaths.size(); start += 32) {
-                requireSupportedAttributes(target, baseline,
-                        baselinePaths.subList(start, Math.min(start + 32, baselinePaths.size())));
-            }
+            requireSafeTreeAttributes(target, baseline);
             phase = "PATH_CHECK";
             // 候选与目标两侧路径均检查，防止链接、嵌套仓库和 Windows 路径别名。
             List<String> paths = Arrays.stream(rollbackGit(target, phase, "diff", "--no-ext-diff", "--no-renames",

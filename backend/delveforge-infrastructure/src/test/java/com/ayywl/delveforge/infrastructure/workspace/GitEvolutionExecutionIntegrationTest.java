@@ -11,6 +11,7 @@ import com.ayywl.delveforge.domain.evolution.*;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import java.nio.file.*;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -584,4 +585,87 @@ class GitEvolutionExecutionIntegrationTest {
         assertThrows(WorkingCopyBasisChangedException.class, () -> git.applyCandidate(wrong));
         assertEquals(before, snapshot(source));
     }
+
+    @ParameterizedTest
+    @CsvSource({".gitattributes,clean,false", ".gitattributes,process,false", ".gitattributes,smudge,false",
+            "area/.gitattributes,clean,false", "area/.gitattributes,process,false", "area/.gitattributes,smudge,false",
+            ".gitattributes,clean,true", ".gitattributes,process,true", ".gitattributes,smudge,true",
+            "area/.gitattributes,clean,true", "area/.gitattributes,process,true", "area/.gitattributes,smudge,true"})
+    void bomProposalIsRejectedBeforeAnyActualApplyOrPublication(String attributes, String kind, boolean repair)
+            throws Exception {
+        AuthorizedStepExecution initial = fixture(false, 1);
+        String starting = baseline;
+        String repairId = null;
+        if (repair) {
+            CandidateMutationResult result = git.applyCandidate(initial);
+            starting = result.revision();
+            ExecutionResult execution = new ExecutionResult(starting, result.changes(), result.changedPaths(),
+                    result.warnings(), List.of(), result.executedAt());
+            VerificationResult failed = new VerificationResult(starting, List.of(new VerificationResult.Check(
+                    "DIFF_CHECK", "", List.of(1), VerificationResult.Outcome.FAILED, "Fixture failure")),
+                    false, List.of("Fixture failure"), "Fixture failure", Instant.now());
+            // Port 夹具还原既有失败事实；目标调用仍使用真实 Git 与本次独立 Repair capability。
+            EvolutionStep step = EvolutionStep.reconstitute(stepId, planId, "goal", "scope", List.of("change"),
+                    List.of(VerificationCriterion.technical(VerificationCriterion.Kind.DIFF_CHECK_PASSES)),
+                    EvolutionStepStatus.VERIFICATION_FAILED, baseline, execution, failed);
+            plan = EvolutionPlan.reconstitute(planId, plan.productDirectionId(), assetId, plan.baseRepositoryProfileId(),
+                    plan.currentState(), plan.targetState(), plan.reusableCapabilities(), plan.changes(), List.of(step),
+                    plan.risks(), plan.evidence(), workingCopy.id(), EvolutionPlanStatus.ACTIVE);
+            workingCopy = WorkingCopy.reconstitute(workingCopy.id(), assetId, baseline, copy.toString(), starting,
+                    baseline, WorkingCopyStatus.EVOLVING);
+            repairId = UUID.randomUUID().toString();
+            plan.authorizeStepRepair(stepId, workingCopy, new StepExecutionPolicy(), repairId, starting, Instant.now());
+        }
+        String original = "public class Report { static int value() { return " + (repair ? 1 : 0) + "; } }\n";
+        String patch = "--- a/Report.java\n+++ b/Report.java\n@@ -1 +1 @@\n-" + original
+                + "+" + original.replace("return " + (repair ? 1 : 0), "return 2")
+                + "--- /dev/null\n+++ b/" + attributes + "\n@@ -0,0 +1 @@\n+\ufeff\"*.java\"filter=unset\n";
+        CodingProposal proposal = new CodingProposal(starting, "change", List.of("Report.java", attributes), patch,
+                List.of(new CodingProposal.VerificationAction(CodingProposal.Action.DIFF_CHECK, "", List.of(1))));
+        ValidatedExecutionProposal validated = new CodingProposalValidator(new DeterministicRepositorySecretPolicy(), git,
+                new ExecutionPreparationLimits(2,24,48,65536,524288,786432,262144,16,16)).validate(proposal,
+                new ExecutionPreparationBasis(planId, stepId, workingCopy.id(), starting, repairId), plan.step(stepId),
+                new WorkspaceRef(copy.toString()), Map.of("Report.java", original), Set.of(), Set.of("Report.java"));
+        AuthorizedStepExecution authorized = repair
+                ? AuthorizedStepExecution.fromRepair(plan, stepId, workingCopy, new WorkspaceRef(source.toString()), validated)
+                : AuthorizedStepExecution.from(plan, stepId, workingCopy, new WorkspaceRef(source.toString()), validated);
+        boolean[] reached = {false, false, false, false};
+        GitWorkspaceAdapter observed = new GitWorkspaceAdapter(repositories.directory("managed")) {
+            @Override
+            protected WorkspaceCommandRunner.Result mutationGitResult(Path directory, Path index, String... arguments) {
+                List<String> args = Arrays.asList(arguments);
+                if (index != null && args.contains("write-tree")) {
+                    reached[3] = true;
+                }
+                if (args.contains("apply") && args.contains("--check")) {
+                    reached[0] = true;
+                }
+                if (args.contains("apply") && !args.contains("--check") && !args.contains("--cached")) {
+                    reached[1] = true;
+                }
+                if (args.contains("update-ref")) {
+                    reached[2] = true;
+                }
+                return super.mutationGitResult(directory, index, arguments);
+            }
+        };
+        runGit(copy, "config", "filter.unset." + kind, kind.equals("process")
+                ? "printf hit >> .git/filter-ran; exit 1" : "printf hit >> .git/filter-ran; cat");
+        String before = Files.readString(copy.resolve("Report.java"));
+        String expected = starting;
+        assertAll(
+                () -> assertThrows(WorkingCopyBasisChangedException.class, () -> observed.applyCandidate(authorized)),
+                () -> assertTrue(reached[3], "Expected tree must be built before its attributes are rejected"),
+                () -> assertFalse(reached[0], "Actual apply check must not be reached"),
+                () -> assertFalse(reached[1], "Actual apply must not be reached"),
+                () -> assertFalse(reached[2], "Publication must not be reached"),
+                () -> assertFalse(Files.exists(copy.resolve(".git/filter-ran")), "FILTER_SIDE_EFFECT"),
+                () -> assertFalse(Files.exists(copy.resolve(attributes))),
+                () -> assertEquals(expected, headRevision(copy)),
+                () -> assertEquals(before, Files.readString(copy.resolve("Report.java"))),
+                () -> assertEquals(baseline, headRevision(source)));
+        assertEquals(EvolutionStepStatus.EXECUTING, plan.step(stepId).status());
+        assertEquals(baseline, workingCopy.lastVerifiedRevision());
+    }
+
 }
