@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 内部有哪些核心业务概念，这些概念分别代表什么，以及它们之间如何协作。
 
 **Status:** Stable
-**Last Updated:** 2026-10-13
+**Last Updated:** 2026-10-16
 
 ## 1. Domain Overview
 
@@ -2705,6 +2705,12 @@ lastVerifiedRevision 均匹配该 Step 首次冻结的精确 baselineRevision。
 GET、启动、异常处理均不授权或自动执行 Retry；本 Slice 不开放 Recovery。
 
 ### 8.15 Recover Working Copy
+
+**实现状态（2026-10-16，用户已裁定）：Recovery 写入 DEFERRED。** 以下仍为完整领域目标，
+不是已开放能力。当前隔离方案尚不能证明旧写者停止或失去写能力；RECOVERY_REQUIRED 及遗留
+UNKNOWN 保持阻塞，不接管、不重放、不改判，也不据此制造 Recovery Failure 或 UNRECOVERABLE。
+重新开放须独立安全架构设计与实证；见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)
+及 [M5 阶段性收尾](validation/m5-partial-closeout.md)。本说明不删除或放宽下述目标转换与不变量。
 
 **Purpose**
 

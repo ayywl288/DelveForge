@@ -3,7 +3,7 @@
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-10-14
+**Last Updated:** 2026-10-16
 
 ## 1. Architecture Goals
 
@@ -1539,13 +1539,23 @@ Evolution Step explicitly confirmed by user
 
 ---
 
-上述执行与失败流程描述完整 MVP 目标架构。实现阶段以 `ROADMAP.md` 为准：
-M4 实现成功路径与 fail-closed 安全，M5 实现完整失败 / 恢复流程；M4 异常时保留
-最后完整持久化检查点并阻止后续 Evolution，不表示 Rollback / Recovery 已发生。
+上述流程保留完整 MVP 目标，当前实现范围以 `ROADMAP.md` 为准。2026-10-10 的历史交付是
+M4 DONE / FROZEN、M5 当时 DEFERRED；显式本地成功配置与 Java/Maven 支持范围见
+[M4 本地使用](M4_LOCAL_USAGE.md)，历史证据见 [M4 交付关闭记录](validation/m4-delivery-closeout.md)。
 
-2026-10-10 交付状态：M4 DONE / FROZEN，真实受控 Verified B 已完成；M5 DEFERRED。
-显式本地成功配置与默认配置的区别、Java/Maven 支持范围见 [M4 本地使用](M4_LOCAL_USAGE.md)，
-合并及离线最终验证见 [交付关闭记录](validation/m4-delivery-closeout.md)。此状态不扩大上述失败语义。
+2026-10-16 当前实验分支状态为 **M5 PARTIAL / Recovery 写入 DEFERRED**：A～E 的明确验证失败、
+独立 Repair、User Rollback、明确执行失败的系统 Rollback、FAILED Retry 及其修复已通过独立审查，
+不等于已集成／发布或完整 M5 完成。F1/F1b 审查通过的是实验与 NO-GO 结论，不是隔离能力通过。
+
+Job + Mutex 的 WMI 逃逸、受限 Token 初始化失败、同 SID ACL 的已有句柄及 staging 父路径别名
+缺口，使当前方案不能证明旧写者停止或失去写能力。按用户裁定停止当前候选研究，不集成原型，
+不开放 Recovery Port / UseCase / API / UI，不添加重启补偿或后台接管。RECOVERY_REQUIRED 与遗留
+EXECUTING / VERIFYING / ROLLING_BACK UNKNOWN 保留事实并阻塞，不根据 PID、超时、CAS 或普通锁
+推断安全。现有 WorkingCopy clone 隔离和调用内清理不是宿主 OS 沙箱。
+
+重新开放 Recovery 写入须独立安全架构设计、真实 OS 正反实验及独立审查；原始 baseline、独立授权
+和历史边界不变。决策见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)，
+已完成能力、长期阻塞状态与集成／发布 Gate 见 [M5 阶段性收尾](validation/m5-partial-closeout.md)。
 
 ## 9. Architecture Decisions
 

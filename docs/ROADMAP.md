@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-10-15
+**Last Updated:** 2026-10-16
 
 ---
 
@@ -11,10 +11,13 @@
 
 当前最重要目标：
 
-> M0–M4 核心闭环与 Task G 保持完成 / 冻结。feature/m5-lab 中 M5-A/B/C/D 及其修复已完成；M5-E FAILED Retry 已本地完成，待独立审查；完整 M5 尚未完成。
+> M0–M4 核心闭环与 Task G 保持完成 / 冻结。feature/m5-lab 的 M5-A～E 及其修复已实现并通过独立审查，进入阶段性收尾；完整 M5 尚未完成。Recovery 写入能力正式延期。
 
 本实验不改变已发布 v0.1.0 或 main，不 Push / 合并；不用真实业务数据或付费 Provider。
-本轮只完成独立授权的 FAILED Retry，结束后停止等待独立审查，不自动开始 Recovery 或下一 Slice。
+F1/F1b 原型及实验记录均已通过独立审查，但隔离技术 Gate 均为 NO-GO；用户已决定停止当前候选研究。
+本轮只整理文档和发布就绪差距，停止后等待独立审查，不自动集成、发布或开始 Recovery。
+完成范围、证据与发布前 Gate 见 [M5 阶段性收尾](validation/m5-partial-closeout.md)；
+延期决策见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md) 的 2026-10-16 refinement。
 
 业务阶段关闭、两次历史 Verified Evolution、Pre-UI 时点 1474 / 85 项确定性回归及尚未重跑的付费 E2E
 见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。
@@ -624,7 +627,8 @@ M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整�
 
 ### M5 — Failure Safety & Recovery
 
-**Status:** IN_PROGRESS（仅 feature/m5-lab 实验分支的 M5-A/B/C/D/E；2026-10-15）。Recovery 等剩余范围暂缓。
+**Status:** PARTIAL（阶段性收尾；M5-A～E 及修复独立审查 PASS；Recovery DEFERRED；2026-10-16）。
+仅实验分支，尚未合并／发布；不是完整 M5 DONE。F1/F1b 的审查 PASS 不改变技术 NO-GO。
 
 M5-A 实现范围：同一 Candidate 的明确 Verification FAIL → 保存 VerificationResult →
 VERIFICATION_FAILED；Candidate 与 baseline 保留、lastVerifiedRevision 不推进、后续 Step 被阻止。
@@ -649,8 +653,13 @@ Execution / Candidate / 全量 Criteria Verification；首次 baseline 不变，
 并发授权、撤权、旧轮次同 baseline CAS 与未知检查点继续阻塞。见
 [M5-E 报告](validation/m5-e-failed-retry.md)。不实现 Recovery、Verification 重构或测试性能优化。
 
+Recovery 当前不开放写入：旧写者停止或失去写能力尚无可接受证明；F1 的 Job + Mutex 存在 WMI 逃逸，
+F1b 的受限 Token、同 SID ACL 与 staging 原型未形成安全隔离。RECOVERY_REQUIRED 与遗留 UNKNOWN
+继续阻塞，不接管、不重放、不伪造可信状态。重新开放须另经安全架构设计、OS 实证和独立审查。
+
 **Goal**
 
+以下完整 M5 领域目标保留；延期不等于已验收。
 补齐 Evolution Execution 的主要异常路径，使一次失败的代码修改不会破坏后续演化的可信基础。
 
 **Deliverables**
@@ -678,22 +687,24 @@ Execution / Candidate / 全量 Criteria Verification；首次 baseline 不变，
 #### Recovery
 
 - [x] 正常调用中的 Rollback Failure / 未确认结果后进入 `RECOVERY_REQUIRED`（M5-C）；数据库不可写与重启未决边界见报告。
-- [ ] 阻止新的 Execution / Repair / Retry。
-- [ ] 支持尝试恢复 baselineRevision。
-- [ ] Recovery Success 后恢复可重试状态。
-- [ ] 无法精确恢复 baselineRevision 时标记 Working Copy 为 `UNRECOVERABLE`。
-- [ ] UNRECOVERABLE 时禁止当前 Evolution Plan 继续执行。
+- [x] RECOVERY_REQUIRED 阻止新的 Execution / Repair / Retry（现有资格守卫；不代表实现 Recovery）。
+- [ ] 支持尝试恢复 baselineRevision（DEFERRED；无写入口）。
+- [ ] Recovery Success 后恢复可重试状态（DEFERRED）。
+- [ ] 无法精确恢复 baselineRevision 时标记 Working Copy 为 `UNRECOVERABLE`（Recovery 判定／写入 DEFERRED）。
+- [x] 已存在 UNRECOVERABLE 状态时禁止后续 Step（防御性资格守卫；本版不通过 Recovery 产生该状态）。
 
 #### Audit / Traceability
 
-- [ ] 保存重要用户授权事实。
-- [ ] 保存重要 Step Execution / Verification 事件。
-- [ ] 保存 Rollback / Recovery 结果。
-- [ ] 重要历史事件不得被后续状态变化覆盖。
+- [x] 保存本 Slice 的 Repair / User Rollback / Retry 独立授权事实。
+- [x] 保存当前 Execution / Verification 结果及 Repair / Retry 前轮失败快照。
+- [x] 保存 User / Automatic Rollback 结果。
+- [x] 已实现的授权及失败历史在后续动作中保留（Step 内值对象；非完整事件流或 Attempt 框架）。
+- [ ] Recovery 授权、结果及相关审计（DEFERRED；完整审计目标不据上述有限能力标为完成）。
 
 **Acceptance Criteria**
 
-至少通过自动化测试或可重复场景证明以下路径成立：
+以下为完整 M5 的验收目标。前三条已有 A～E 实现及回归，最后的 Recovery / UNRECOVERABLE 路径延期，
+因此不能宣布完整 M5 或完整 MVP 失败恢复能力已完成。
 
 ```text
 Execution Failure
@@ -724,11 +735,11 @@ Rollback Failure
 
 并保证：
 
-- [ ] 未验证 Candidate State 永远不会成为后续 Step 的执行基线。
-- [ ] `lastVerifiedRevision` 只有 Verification Success 才能推进。
+- [x] 未验证 Candidate 不获得后续 Step 基线资格（A～E 生命周期／真实内容守卫；不声称 OS 沙箱）。
+- [x] `lastVerifiedRevision` 只有 Verification Success 才能推进（现有 M4 / M5 回归）。
 - [x] FAILED 后 Retry 需要新的用户确认（M5-E，原 baseline 与全部历史保留）。
-- [ ] VERIFICATION_FAILED 后 Repair 需要新的用户确认。
-- [ ] Recovery 失败不会被系统静默忽略。
+- [x] VERIFICATION_FAILED 后 Repair 需要新的用户确认（M5-B）。
+- [ ] Recovery 失败不会被系统静默忽略（Recovery 调用及结果处理 DEFERRED；原 Rollback 阻塞事实已实现）。
 
 ---
 
