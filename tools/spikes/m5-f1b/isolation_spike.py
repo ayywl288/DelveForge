@@ -1,6 +1,6 @@
 """Windows isolation experiment; no accounts, existing ACLs or VM settings changed.
 
-Run from the lab worktree: python tools/spikes/m5-f1b/isolation_spike.py run
+Run from the lab worktree: python tools/spikes/m5-f1b/isolation_spike.py run --output-parent <task-owned E directory>
 Uses the checked-in F1 native-process fixture helper, not production adapters.
 Exit 2 = completed NO-GO evidence, 1 = experiment failed. Never authorizes Recovery.
 """
@@ -22,6 +22,7 @@ import uuid
 if os.name != "nt" or not __debug__:
     raise SystemExit("Requires real Windows and assertions enabled; no simulated fallback")
 
+sys.dont_write_bytecode = True
 SCRIPT = str(Path(__file__).resolve())
 DEFAULT_HELPER = Path(SCRIPT).parents[1] / "m5-f1" / "ownership_spike.py"
 helper_parser = argparse.ArgumentParser(add_help=False)
@@ -79,7 +80,16 @@ INVALID = C.c_void_p(-1).value
 
 
 def args_for(action, folder, *rest):
-    return [F.PYTHON, SCRIPT, "--helper", HELPER, action, str(folder), *rest]
+    return [F.PYTHON, "-B", SCRIPT, "--helper", HELPER, action, str(folder), *rest]
+
+
+def source_facts():
+    files = [Path(SCRIPT).parent / name for name in ("isolation_spike.py", "token_probe.py",
+                                                    "private_desktop.py", "loader_probe.py")]
+    files.append(Path(HELPER))
+    return {path.name: dict(raw_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                           lf_sha256=hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest())
+            for path in files}
 
 
 def native_exit(handle):
@@ -124,14 +134,25 @@ def identity(process=None):
         F.close_handle(token)
 
 
-def make_restricted():
+def make_restricted(include_logon=False):
     original, result, sid = W.HANDLE(), W.HANDLE(), C.c_void_p()
     F.checked(open_token(current_process(), 0x8b, C.byref(original)), "open own primary token")
     try:
         F.checked(string_sid("S-1-5-12", C.byref(sid)), "Restricted Code SID")
-        entry = SID_ATTR(sid, 0)
+        entries = [SID_ATTR(sid, 0)]
+        if include_logon:
+            groups = token_buffer(original, 2)
+            count = W.DWORD.from_buffer(groups).value
+            offset = (C.sizeof(W.DWORD) + C.alignment(SID_ATTR) - 1) & ~(C.alignment(SID_ATTR) - 1)
+            for index in range(count):
+                group = SID_ATTR.from_buffer(groups, offset + index * C.sizeof(SID_ATTR))
+                if group.Attributes & 0xC0000000 == 0xC0000000:
+                    entries.append(SID_ATTR(group.Sid, 0))
+            if len(entries) != 2:
+                raise RuntimeError('expected one real logon SID')
+        restricted_sids = (SID_ATTR * len(entries))(*entries)
         # 仅减少当前 Token 权限；不是创建独立账户，也不启用任何权限。
-        F.checked(restrict_token(original, 0x9, 0, None, 0, None, 1, C.byref(entry), C.byref(result)),
+        F.checked(restrict_token(original, 0x9, 0, None, 0, None, len(entries), restricted_sids, C.byref(result)),
                   "CreateRestrictedToken(DISABLE_MAX_PRIVILEGE | WRITE_RESTRICTED)")
         return result
     finally:
@@ -208,7 +229,7 @@ def try_append(path):
 
 
 def require_fixture(folder):
-    assert folder.resolve() == folder and not folder.is_symlink()
+    assert folder.drive.upper() == "E:" and folder.resolve() == folder and not folder.is_symlink()
     marker = folder.parent / "spike-root.json"
     if not marker.is_file() or F.load(marker).get("purpose") != "m5-f1b-isolated-fixture":
         raise RuntimeError("refusing any non-fixture path")
@@ -254,7 +275,7 @@ def token_actor(folder, mode):
     stage = folder / "staging"
     facts = identity()
     F.save(stage / (mode + ".pid.json"), dict(pid=os.getpid(), identity=facts))
-    if mode == "managed":
+    if mode in ("managed", "broker-launcher"):
         config = F.load(folder / "config.json")
         outcomes = [dict(path=path, **try_append(path)) for path in config["paths"]]
         dac_result = {}
@@ -267,7 +288,7 @@ def token_actor(folder, mode):
         F.save(stage / "managed-results.json", dict(identity=facts, paths=outcomes, dac=dac_result,
                                                     stage_write=try_append(stage / "allowed.txt")))
         # 与 F1 同一真实 WMI 代创建机制；固定命令只启动本原型的有界 writer。
-        argv = args_for("actor", folder, "brokered")
+        argv = args_for("actor", folder, config.get("broker_mode", "brokered"))
         quote = lambda value: "'" + str(value).replace("'", "''") + "'"
         cmd = ("$ErrorActionPreference='Stop'; try { $r=Invoke-CimMethod -ClassName Win32_Process "
                "-MethodName Create -Arguments @{CommandLine=" + quote(subprocess.list2cmdline(argv))
@@ -283,7 +304,7 @@ def token_actor(folder, mode):
         F.save(stage / "broker-client-exit.json", dict(exit_code=result.returncode))
         return
     target = stage / "payload.bin" if mode == "artifact-writer" else folder / "protected" / "protected.txt"
-    hold = mode in ("held", "artifact-writer")
+    hold = mode in ("held", "artifact-writer", "broker-held")
     handle = open_append(target) if hold else None
     F.save(stage / (mode + "-ready.json"), dict(identity=facts, held=hold))
     end, successes, failures = time.monotonic() + 30, 0, 0
@@ -304,7 +325,7 @@ def token_actor(folder, mode):
         F.save(stage / (mode + "-done.json"), dict(successes=successes, failures=failures))
 
 
-def owner(folder, restricted):
+def owner(folder, restricted, broker_control=False):
     job_name = F.names(folder) + ".job." + uuid.uuid4().hex
     job = F.new_job(job_name)
     process = None
@@ -317,13 +338,14 @@ def owner(folder, restricted):
         if restricted:
             process, pid = launch_restricted(folder, "managed", job)
         else:
-            process, pid = F.launch_native(args_for("actor", folder, "held"), folder, job=job)
+            process, pid = F.launch_native(args_for("actor", folder, "broker-launcher" if broker_control else "held"),
+                                             folder, job=job)
         F.save(folder / "root-process.json", dict(pid=pid))
-        phase_file = folder / "staging" / ("managed-results.json" if restricted else "held-ready.json")
+        phase_file = folder / "staging" / ("managed-results.json" if restricted or broker_control else "held-ready.json")
         F.until(lambda: phase_file.exists() or F.wait_handle(process, 0) == 0)
         if not phase_file.exists():
             raise RuntimeError("native process exited before target stage: " + hex(native_exit(process)))
-        if restricted:
+        if restricted or broker_control:
             F.until(lambda: (folder / "staging" / "broker-result.json").exists(), 15)
         F.save(folder / "ready.json", dict(owner=identity(), job=F.accounting(job)))
         F.until(lambda: (folder / "finish-owner").exists(), 30)
@@ -378,8 +400,8 @@ def snapshot(stage, relative):
 
 
 class Experiments(F.Experiments):
-    def start_owner(self, folder, restricted=True):
-        mode = "restricted" if restricted else "held"
+    def start_owner(self, folder, restricted=True, broker_control=False):
+        mode = "broker-control" if broker_control else ("restricted" if restricted else "held")
         with (folder / "owner.log").open("wb") as out:
             process = subprocess.Popen(args_for("owner", folder, mode), stdout=out, stderr=subprocess.STDOUT,
                                        creationflags=0x08000000)
@@ -461,7 +483,7 @@ class Experiments(F.Experiments):
         finally:
             F.checked(set_security(str(target), 0x80000004, old), "restore only fixture DACL")
 
-    def staging_receive(self, folder):
+    def staging_receive(self, folder, restricted=True):
         configure(folder)
         stage = folder / "staging"
         payload = stage / "payload.bin"
@@ -483,7 +505,10 @@ class Experiments(F.Experiments):
         payload.write_bytes(b"fresh\n")
         job = F.new_job(F.names(folder) + ".artifact." + uuid.uuid4().hex)
         self.jobs.append(job)
-        handle, pid = launch_restricted(folder, "artifact-writer", job)
+        if restricted:
+            handle, pid = launch_restricted(folder, "artifact-writer", job)
+        else:
+            handle, pid = F.launch_native(args_for("actor", folder, "artifact-writer"), folder, job=job)
         self.handles.append(handle)
         F.until(lambda: (stage / "artifact-writer-ready.json").exists() or F.wait_handle(handle, 0) == 0)
         if not (stage / "artifact-writer-ready.json").exists():
@@ -494,22 +519,149 @@ class Experiments(F.Experiments):
         assert F.wait_handle(handle, 5000) == 0
         final = snapshot(stage, "payload.bin")
         assert final["accepted"] and not final["verification_trusted"]
-        return dict(normal_bytes_only=normal, path_rejections=rejected_paths, hardlink=linked,
+        return dict(writer_restricted=restricted, normal_bytes_only=normal, path_rejections=rejected_paths, hardlink=linked,
                     symbolic=symlink, live_writer=busy, post_exit_bytes_only=final,
                     note="not a complete sandbox export or production acceptance protocol")
 
 
-def run():
-    root = Path(tempfile.mkdtemp(prefix="delveforge-m5f1b-")).resolve()
+    def host_staging_receive(self, folder):
+        # 此对照仅验证宿主接收原语，不冒充受限执行身份已运行。
+        return self.staging_receive(folder, restricted=False)
+
+    def broker_acl_counterexample(self, folder):
+        config = configure(folder)
+        (folder / "staging" / "allowed.txt").write_bytes(b"allowed\n")
+        process = self.start_owner(folder, restricted=False, broker_control=True)
+        managed = F.load(folder / "staging" / "managed-results.json")
+        assert not managed["identity"]["restricted"]
+        broker = json.loads((folder / "staging" / "broker-result.json").read_text(encoding="utf-8-sig"))
+        assert broker.get("ok") and broker.get("returnValue") == 0, broker
+        writer = self.writer_handle(folder / "staging", "brokered")
+        assert F.load(folder / "staging" / "brokered.pid.json")["pid"] == broker["pid"]
+        job = self.keep_job(folder)
+        member = W.BOOL()
+        F.checked(F.is_in_job(writer, job, C.byref(member)), "actual broker job membership")
+        token = identity(writer)
+        assert not member.value and not token["restricted"]
+        assert token["user_sid"] == identity()["user_sid"]
+        busy = self.rival(folder, "before-crash.json")
+        assert not busy["acquired"]
+        self.crash(process)
+        F.checked(F.terminate_job(job, 98), "terminate only retained fixture job")
+        F.until(lambda: F.accounting(job)["active"] == 0)
+        target = folder / "protected" / "protected.txt"
+        before = len(target.read_bytes())
+        time.sleep(0.25)
+        after = len(target.read_bytes())
+        assert after > before and F.wait_handle(writer, 0) == 258
+        takeover = self.rival(folder, "after-crash.json")
+        assert takeover["acquired"]
+        old = descriptor(target)
+        try:
+            deny = "D:P(D;;0x116;;;" + config["user"] + ")(A;;FA;;;SY)(A;;FA;;;" + config["user"] + ")"
+            dacl(target, deny)
+            denied = [dict(path=path, **try_append(path)) for path in config["paths"]]
+            assert all(not value["written"] and value["error"] == 5 for value in denied)
+            frozen = len(target.read_bytes())
+            time.sleep(0.25)
+            assert len(target.read_bytes()) == frozen and F.wait_handle(writer, 0) == 258
+            F.checked(set_security(str(target), 0x80000004, old), "restore only fixture DACL")
+            trusted_open = try_append(target)
+            assert trusted_open["written"]
+            restored = len(target.read_bytes())
+            time.sleep(0.25)
+            resumed = len(target.read_bytes())
+            assert resumed > restored
+            return dict(managed_identity=managed["identity"], broker_identity=token,
+                        managed_paths=managed["paths"], broker=broker, broker_in_job=bool(member.value),
+                        job_after=F.accounting(job), broker_wait=F.wait_handle(writer, 0),
+                        after_owner_crash=dict(before=before, after=after),
+                        competing_before=busy, competing_after=takeover,
+                        revoked_aliases=denied, host_reopen=trusted_open,
+                        after_restore=dict(before=restored, after=resumed), symbolic=config["symlink"],
+                        recovery_eligible=False,
+                        counterexample="Same-SID ACL cannot separate host from escaped broker writer; gate acquisition is not safety")
+        finally:
+            F.checked(set_security(str(target), 0x80000004, old), "restore task fixture DACL")
+
+
+    def broker_held_counterexample(self, folder):
+        config = configure(folder)
+        config["broker_mode"] = "broker-held"
+        F.save(folder / "config.json", config)
+        (folder / "staging" / "allowed.txt").write_bytes(b"allowed\n")
+        process = self.start_owner(folder, restricted=False, broker_control=True)
+        broker = json.loads((folder / "staging" / "broker-result.json").read_text(encoding="utf-8-sig"))
+        assert broker.get("ok") and broker.get("returnValue") == 0, broker
+        writer = self.writer_handle(folder / "staging", "broker-held")
+        assert F.load(folder / "staging" / "broker-held.pid.json")["pid"] == broker["pid"]
+        job, member = self.keep_job(folder), W.BOOL()
+        F.checked(F.is_in_job(writer, job, C.byref(member)), "held broker actual job membership")
+        assert not member.value
+        target = folder / "protected" / "protected.txt"
+        old = descriptor(target)
+        try:
+            deny = "D:P(D;;0x116;;;" + config["user"] + ")(A;;FA;;;SY)(A;;FA;;;" + config["user"] + ")"
+            dacl(target, deny)
+            denied = try_append(target)
+            assert not denied["written"] and denied["error"] == 5
+            rival_before = self.rival(folder, "before-crash.json")
+            assert not rival_before["acquired"]
+            self.crash(process)
+            F.checked(F.terminate_job(job, 98), "terminate only own retained job")
+            F.until(lambda: F.accounting(job)["active"] == 0)
+            before = len(target.read_bytes())
+            time.sleep(0.25)
+            after = len(target.read_bytes())
+            assert after > before and F.wait_handle(writer, 0) == 258
+            rival_after = self.rival(folder, "after-crash.json")
+            assert rival_after["acquired"]
+            return dict(broker=broker, broker_identity=identity(writer), broker_in_job=False,
+                        denied_new_open=denied, after_crash_and_revocation=dict(before=before, after=after),
+                        job_after=F.accounting(job), broker_wait=F.wait_handle(writer, 0),
+                        rival_before=rival_before, rival_after=rival_after, recovery_eligible=False,
+                        counterexample="Escaped pre-opened writer survives owner death, empty Job and ACL revocation")
+        finally:
+            F.checked(set_security(str(target), 0x80000004, old), "restore only held-writer fixture DACL")
+
+    def staging_parent_alias(self, folder):
+        configure(folder)
+        target = folder / "protected"
+        (target / "payload.bin").write_bytes(b"host-owned test bytes; not real user data")
+        alias = folder / "receive-alias"
+        quote = lambda value: "'" + str(value).replace("'", "''") + "'"
+        command = "$ErrorActionPreference='Stop'; New-Item -ItemType Junction -Path " + quote(alias) + " -Target " + quote(target) + " | Out-Null"
+        ps = str(Path(os.environ["SystemRoot"]) / "System32/WindowsPowerShell/v1.0/powershell.exe")
+        outcome = subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", command],
+                                 timeout=10, capture_output=True, creationflags=0x08000000)
+        assert outcome.returncode == 0
+        received = snapshot(alias, "payload.bin")
+        assert received["accepted"] and not received["verification_trusted"]
+        return dict(raw_receiver=received, alias=str(alias), actual_parent=str(target),
+                    receiver_safe_for_production=False,
+                    counterexample="Leaf-file checks do not reject a junction in the staging parent")
+
+
+def run(output_parent):
+    output_parent = output_parent.resolve(strict=True)
+    if output_parent.drive.upper() != "E:":
+        raise RuntimeError("existing E-drive task output parent required")
+    root = Path(tempfile.mkdtemp(prefix="delveforge-m5f1b-", dir=output_parent)).resolve()
+    os.environ.update(TEMP=str(root), TMP=str(root), PYTHONDONTWRITEBYTECODE="1",
+                      PSModuleAnalysisCachePath=str(root / "powershell-analysis-cache"))
     F.save(root / "spike-root.json", dict(purpose="m5-f1b-isolated-fixture", id=uuid.uuid4().hex))
     print("RESULT_ROOT=" + str(root), flush=True)
     tests = Experiments(root)
     for name, method in (("01-restricted-and-broker", tests.restricted_and_broker),
                          ("02-open-handle-revocation", tests.held_handle),
-                         ("03-staging-byte-receive", tests.staging_receive)):
+                         ("03-staging-byte-receive", tests.staging_receive),
+                         ("04-host-staging-control", tests.host_staging_receive),
+                         ("05-same-sid-broker-acl", tests.broker_acl_counterexample),
+                         ("06-broker-preopened-handle", tests.broker_held_counterexample),
+                         ("07-staging-parent-alias", tests.staging_parent_alias)):
         tests.scenario(name, method)
     result = dict(gate="NO-GO", host_identity=identity(), platform=str(sys.getwindowsversion()),
-                  scenarios=tests.results, scenario_count=len(tests.results),
+                  scenarios=tests.results, scenario_count=len(tests.results), source_files=source_facts(),
                   scenarios_passed=sum(value["passed"] for value in tests.results),
                   source_sha256=hashlib.sha256(Path(SCRIPT).read_bytes()).hexdigest(),
                   source_lf_sha256=hashlib.sha256(Path(SCRIPT).read_bytes().replace(b"\r\n", b"\n")).hexdigest(),
@@ -525,7 +677,8 @@ def run():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
-    sub.add_parser("run")
+    run_command = sub.add_parser("run")
+    run_command.add_argument("--output-parent", type=Path, required=True)
     for name in ("actor", "owner"):
         command = sub.add_parser(name)
         command.add_argument("folder", type=Path)
@@ -535,13 +688,13 @@ if __name__ == "__main__":
     command.add_argument("filename")
     args = parser.parse_args(remaining)
     if args.action == "run":
-        raise SystemExit(run())
+        raise SystemExit(run(args.output_parent))
     require_fixture(args.folder)
     try:
         if args.action == "actor":
             token_actor(args.folder, args.mode)
         elif args.action == "owner":
-            owner(args.folder, args.mode == "restricted")
+            owner(args.folder, args.mode == "restricted", args.mode == "broker-control")
         else:
             contention(args.folder, args.filename)
     except BaseException:
