@@ -56,7 +56,6 @@ public interface ProjectContextMapper {
                     p.status NOT IN ('PROPOSED','ACTIVE','COMPLETED','ABANDONED','SUPERSEDED')
                     OR EXISTS (SELECT 1 FROM evolution_step s WHERE s.plan_id = p.id
                         AND (s.status NOT IN ('PENDING_CONFIRMATION','SUCCEEDED','FAILED','CANCELLED')
-                            OR (s.status = 'FAILED' AND s.execution_result IS NULL)
                             OR (s.status = 'SUCCEEDED' AND
                                 (s.execution_result IS NULL OR s.verification_result IS NULL))
                             OR (s.execution_result IS NOT NULL AND NOT json_valid(s.execution_result))
@@ -67,6 +66,14 @@ public interface ProjectContextMapper {
                             AND w.status IN ('READY','EVOLVING','CLOSED')))))
             """)
     int unsafeExecutionCount(@Param("planId") String planId, @Param("flowId") String flowId);
+
+    // 无普通 ExecutionResult 的 FAILED 在同一写锁事务内交由领域重建校验，不用 JSON SQL 另造成功规则。
+    @Select("""
+            SELECT DISTINCT p.id FROM evolution_plan p JOIN evolution_step s ON s.plan_id = p.id
+            WHERE (p.id = #{planId} OR (#{flowId} IS NOT NULL AND p.flow_id = #{flowId}))
+                AND s.status = 'FAILED' AND s.execution_result IS NULL
+            """)
+    List<String> failedWithoutExecutionPlanIds(@Param("planId") String planId, @Param("flowId") String flowId);
 
     @Select("SELECT * FROM project_flow_context WHERE id = #{id}")
     ProjectContextRow find(String id);

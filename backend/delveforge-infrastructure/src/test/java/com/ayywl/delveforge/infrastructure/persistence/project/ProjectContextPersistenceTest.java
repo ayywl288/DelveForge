@@ -1,16 +1,22 @@
 package com.ayywl.delveforge.infrastructure.persistence.project;
 
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
 import com.ayywl.delveforge.application.port.persistence.ProjectContextRepository;
+import com.ayywl.delveforge.application.port.persistence.WorkingCopyRepository;
 import com.ayywl.delveforge.application.project.ProjectContextConflictException;
 import com.ayywl.delveforge.application.project.ProjectFlowContext;
 import com.ayywl.delveforge.application.project.ProjectVisibility;
 import com.ayywl.delveforge.application.project.ProjectDeletionBlockedException;
 import com.ayywl.delveforge.infrastructure.persistence.SqliteDataSourceConfiguration;
+import com.ayywl.delveforge.infrastructure.persistence.evolutionplan.SqliteEvolutionPlanRepository;
+import com.ayywl.delveforge.infrastructure.persistence.workingcopy.SqliteWorkingCopyRepository;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -49,8 +55,11 @@ class ProjectContextPersistenceTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    @Import({SqliteDataSourceConfiguration.class, SqliteProjectContextRepository.class})
-    @MapperScan("com.ayywl.delveforge.infrastructure.persistence.project")
+    @Import({SqliteDataSourceConfiguration.class, SqliteProjectContextRepository.class,
+            SqliteEvolutionPlanRepository.class, SqliteWorkingCopyRepository.class})
+    @MapperScan({"com.ayywl.delveforge.infrastructure.persistence.project",
+            "com.ayywl.delveforge.infrastructure.persistence.evolutionplan",
+            "com.ayywl.delveforge.infrastructure.persistence.workingcopy"})
     static class TestApplication {
         @Bean ObjectMapper objectMapper() { return new ObjectMapper(); }
     }
@@ -58,6 +67,8 @@ class ProjectContextPersistenceTest {
     @Autowired private ProjectContextRepository contexts;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private ProjectContextMapper mapper;
+    @Autowired private EvolutionPlanRepository plans;
+    @Autowired private WorkingCopyRepository copies;
 
     @BeforeEach
     void resetTestRows() {
@@ -125,7 +136,7 @@ class ProjectContextPersistenceTest {
             assertEquals(1, row.getLong(1));
             assertEquals(deleted.deletedAt().toString(), row.getString(2));
         }
-        var reopened = new SqliteProjectContextRepository(mapper, new ObjectMapper());
+        var reopened = new SqliteProjectContextRepository(mapper, new ObjectMapper(), plans, copies);
         assertEquals(deleted, reopened.visibility("project:durable-deletion"));
         assertEquals(List.of(), reopened.historyKeys(0, 50));
         assertEquals(List.of("project:durable-deletion"), reopened.historyKeys(0, 50, true));
@@ -136,20 +147,22 @@ class ProjectContextPersistenceTest {
         assertEquals(2, reopened.findById("durable-deletion").orElseThrow().version());
     }
 
-    @Test
-    void failedLegacyDeletionRollsBackMarkerInRealIndependentTransaction() {
+    @ParameterizedTest
+    @ValueSource(strings = {"READY", "FAILED"})
+    void failedLegacyDeletionRollsBackMarkerInRealIndependentTransaction(String stepStatus) {
         String planId = "unsafe-" + UUID.randomUUID();
         jdbc.update("INSERT INTO evolution_plan(id, product_direction_id, base_asset_id, base_repository_profile_id, "
                 + "current_summary, target_problem, target_product, target_differentiation, status, flow_id) "
                 + "VALUES(?, 'explicit-direction', 'explicit-asset', 'explicit-repo', 'REST', 'REST', 'REST', 'REST', 'ACTIVE', ?)",
                 planId, planId);
         jdbc.update("INSERT INTO evolution_step(id, plan_id, position, goal, scope, status) "
-                + "VALUES(?, ?, 0, 'REST', 'src', 'READY')", planId + "-step", planId);
+                + "VALUES(?, ?, 0, 'REST', 'src', ?)", planId + "-step", planId, stepStatus);
         assertThrows(ProjectDeletionBlockedException.class,
                 () -> contexts.changeVisibility("plan:" + planId, 0, true, Instant.now()));
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM project_legacy_visibility WHERE plan_id=?",
                 Integer.class, planId));
-        assertEquals("READY", jdbc.queryForObject("SELECT status FROM evolution_step WHERE plan_id=?", String.class, planId));
+        assertEquals(stepStatus,
+                jdbc.queryForObject("SELECT status FROM evolution_step WHERE plan_id=?", String.class, planId));
         jdbc.update("DELETE FROM evolution_step WHERE plan_id=?", planId);
         jdbc.update("DELETE FROM evolution_plan WHERE id=?", planId);
     }

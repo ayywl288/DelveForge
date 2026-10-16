@@ -1,12 +1,20 @@
 package com.ayywl.delveforge.infrastructure.persistence.project;
 
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
 import com.ayywl.delveforge.application.port.persistence.ProjectContextRepository;
 import com.ayywl.delveforge.application.port.persistence.ProjectHistoryIndex;
+import com.ayywl.delveforge.application.port.persistence.WorkingCopyRepository;
 import com.ayywl.delveforge.application.project.ProjectContextConflictException;
-import com.ayywl.delveforge.application.project.ProjectFlowContext;
 import com.ayywl.delveforge.application.project.ProjectDeletionBlockedException;
+import com.ayywl.delveforge.application.project.ProjectFlowContext;
 import com.ayywl.delveforge.application.project.ProjectNotFoundException;
 import com.ayywl.delveforge.application.project.ProjectVisibility;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+import com.ayywl.delveforge.domain.evolution.EvolutionStep;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
+import com.ayywl.delveforge.domain.evolution.WorkingCopy;
+import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -22,10 +30,15 @@ import java.util.Optional;
 public class SqliteProjectContextRepository implements ProjectContextRepository, ProjectHistoryIndex {
     private final ProjectContextMapper mapper;
     private final ObjectMapper json;
+    private final EvolutionPlanRepository plans;
+    private final WorkingCopyRepository copies;
 
-    public SqliteProjectContextRepository(ProjectContextMapper mapper, ObjectMapper json) {
+    public SqliteProjectContextRepository(ProjectContextMapper mapper, ObjectMapper json,
+            EvolutionPlanRepository plans, WorkingCopyRepository copies) {
         this.mapper = mapper;
         this.json = json;
+        this.plans = plans;
+        this.copies = copies;
     }
 
     @Override
@@ -133,7 +146,8 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
             planId = row.planId();
             flowId = row.flowId();
         }
-        if (deleted && mapper.unsafeExecutionCount(planId, flowId) != 0) {
+        if (deleted && (mapper.unsafeExecutionCount(planId, flowId) != 0
+                || unresolvedFailedExecution(planId, flowId))) {
             throw new ProjectDeletionBlockedException();
         }
         String deletedAt = deleted ? now.toString() : null;
@@ -143,6 +157,34 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
             throw new ProjectContextConflictException();
         }
         return new ProjectVisibility(key, Math.addExact(expectedVersion, 1), deleted ? now : null);
+    }
+
+    private boolean unresolvedFailedExecution(String planId, String flowId) {
+        for (String id : mapper.failedWithoutExecutionPlanIds(planId, flowId)) {
+            EvolutionPlan plan;
+            WorkingCopy copy;
+            try {
+                // 复用完整检查点重建：确认失败诊断、恢复结果、授权历史和原 baseline 必须一致。
+                plan = plans.findById(new EvolutionPlanId(id)).orElseThrow();
+                if (plan.workingCopyId() == null) {
+                    return true;
+                }
+                copy = copies.findById(new WorkingCopyId(plan.workingCopyId())).orElseThrow();
+            } catch (RuntimeException unreadable) {
+                return true;
+            }
+            if (!plan.baseAssetId().equals(copy.sourceAssetId())) {
+                return true;
+            }
+            for (EvolutionStep step : plan.steps()) {
+                if (step.status() == EvolutionStepStatus.FAILED && step.executionResult() == null
+                        && (!step.baselineRevision().equals(copy.currentRevision())
+                                || !step.baselineRevision().equals(copy.lastVerifiedRevision()))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Override
