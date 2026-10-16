@@ -177,6 +177,10 @@ exit=0。不可将 wrapper exit=0 报为机制 GO。默认受限环境拒绝 CIM
 - 最终临时根：`%TEMP%\delveforge-m5f1-xkyaigrx`。
 - 最终完整控制台：`%TEMP%\m5f1-final-63136846cfb24cea8ff579d79e676200.log`。
 - 最终原型 SHA-256：`502c320f1963fc774f55cc0bc213c3728f81c8f02cdadf30ec7fa5261c329d74`。
+- 上述是实际运行的 Windows CRLF 文件字节 hash。Git 按 LF 保存的同一源码对象 SHA-256 为
+  `dc747f44b8d75e0532f7f9a9bee6ab128d18957fcdd97358fd6caafcb0dc1b89`。提交后直接比较原始
+  字节 hash 首次失败；已逐字节确认差异仅为 666 处 CRLF→LF，规范化后源码完全一致，核对通过。
+  未因此修改原型、实验断言或原始实验结果；复审时应区分运行文件字节 hash 与 Git 对象 hash。
 - `final-results.json` 保存精确场景值／耗时、源码 hash 和平台，不依赖报告摘要重建结果。
 - 未运行 Maven verify 或 frontend test/typecheck/build：本轮没有生产后端或前端变更；没有把
   历史 M0～M5-E PASS 当作新机制验证，也没有声称本原型已接入 Java／SQLite／REST。
