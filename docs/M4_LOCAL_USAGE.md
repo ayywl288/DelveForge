@@ -1,6 +1,6 @@
 # M4 本地后端使用
 
-M0–M4 后端已完成并冻结；M5 Repair / Retry / Recovery 暂缓。DelveForge 自举及 GS REST 外部仓库各已有一个真实 Verified Step；前者详见 [真实案例](validation/m4-real-provider-verified-evolution-smoke.md)，两例证据与最新代码的验证边界见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。本文提供可迁移的运行方式，不承诺其它仓库一次成功。
+M0–M4 后端已完成并冻结；当前候选的 M5-A～E 为 PARTIAL，Recovery 写入正式延期；新增失败处理、长期阻塞与数据升级边界见 [M5 PARTIAL 本地说明](M5_PARTIAL_LOCAL_USAGE.md)。DelveForge 自举及 GS REST 外部仓库各已有一个真实 Verified Step；前者详见 [真实案例](validation/m4-real-provider-verified-evolution-smoke.md)，两例证据与最新代码的验证边界见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。本文提供可迁移的运行方式，不承诺其它仓库一次成功。
 
 ## 1. 适用仓库与运行环境
 
@@ -242,6 +242,6 @@ CodingProposal 解析或契约校验失败返回 HTTP 422 / `CODING_PROPOSAL_INV
 
 Maven 在私有 `.git/v` 的精确 Candidate 副本中运行。Execution 完成时 `currentRevision=B`，`lastVerifiedRevision` 仍为 A；只有全部既有 Criteria 具有同一个 B 的成功证据，才一次提交 `SUCCEEDED` 与 `lastVerifiedRevision=B`。查看 API 与 Git diff 后自行判断业务结果，不能只看 HTTP 200。
 
-准备阶段拒绝时没有 mutation，可先根据证据纠正输入或配置。进入 EXECUTING / VERIFYING 后异常可能保留最后完整检查点。**M5 尚未实现：** 不手工改 SQLite、强制成功、reset 活跃 Candidate 或重发失败 Candidate 来伪造恢复；保留状态、日志与 Git 证据并停止该步骤。客户端请求失败或超时后先查询状态，避免并发或重复执行。
+准备阶段拒绝时没有 mutation，可先根据证据纠正输入或配置。进入 EXECUTING / VERIFYING 后异常可能保留最后完整检查点。**Recovery 写入正式延期；未决检查点继续阻塞：** 不手工改 SQLite、强制成功、reset 活跃 Candidate 或重发失败 Candidate 来伪造恢复；保留状态、日志与 Git 证据并停止该步骤。客户端请求失败或超时后先查询状态，避免并发或重复执行。
 
 交付整合、最终测试和证据归档见 [M4 Delivery Closeout](validation/m4-delivery-closeout.md)。

@@ -247,7 +247,7 @@ DelveForge 曾完成过两次真实 Provider 驱动的受控代码演化：
 - **Experimental Evolution**：代码修改与验证主要针对受信任的小型 Java/Maven 仓库，即使是 Demo 或历史成功过的仓库也不保证再次演化成功。
 - **Limited Verification**：当前主要支持 Maven 构建、Java 测试及 Git Diff 检查；无法自动验证的验收标准会阻止对应 Step 执行。
 - **No OS Sandbox**：WorkingCopy 与原始仓库分离，但本机 Maven 构建和测试不是操作系统级沙箱。请仅使用可信仓库与测试数据。
-- **No Automatic Repair**：M5 Repair / Retry / Recovery 尚未实现。失败或执行状态不确定时，应先查询实际状态，不要盲目重复提交 execute。
+- **M5 PARTIAL**：已实现明确 Verification Failure、独立授权 Repair / User Rollback、受控 Automatic Rollback 与 FAILED Retry；Recovery 写入正式延期。`RECOVERY_REQUIRED` 与遗留 UNKNOWN 继续阻塞，刷新或重启不保证解除。支持范围、Git 输入拒绝、备份及降级限制见 [M5 PARTIAL 本地说明](docs/M5_PARTIAL_LOCAL_USAGE.md)。
 
 ## 🛠️ Tech Stack
 

@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-10-16
+**Last Updated:** 2026-10-17
 
 ---
 
@@ -15,7 +15,9 @@
 
 本实验不改变已发布 v0.1.0 或 main，不 Push / 合并；不用真实业务数据或付费 Provider。
 F1/F1b 原型及实验记录均已通过独立审查，但隔离技术 Gate 均为 NO-GO；用户已决定停止当前候选研究。
-本轮只整理文档和发布就绪差距，停止后等待独立审查，不自动集成、发布或开始 Recovery。
+2026-10-17 独立最终验收完成，结论为 **M5 PARTIAL READY FOR LOCAL MERGE**；仅表示有限范围本地集成就绪，完整 M5 保持 PARTIAL。
+完整回归、隔离升级、打包重启、真实 Edge 证据及剩余边界见 [M5 最终验收](validation/m5-final-acceptance-20261017.md)。
+报告完成后停止，等待用户安排；不自动合并、发布或开始 Recovery。
 完成范围、证据与发布前 Gate 见 [M5 阶段性收尾](validation/m5-partial-closeout.md)；
 延期决策见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md) 的 2026-10-16 refinement。
 
