@@ -39,6 +39,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -480,6 +481,78 @@ class ProjectWorkspaceIntegrationTest {
         assertEquals(steps, jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id));
         assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM project_legacy_visibility WHERE deleted_at IS NOT NULL",
                 Integer.class));
+        verifyNoInteractions(ai);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"baseline-revision", "copy-asset", "other-round"})
+    void jsonNullExecutionCannotBypassFailedCheckpointOrWorkingCopyBinding(String fault) throws Exception {
+        String id = "json-null-failed";
+        String key;
+        if (fault.equals("other-round")) {
+            JsonNode context = create("JSON null 同流程", "shared-user");
+            seedAutomaticRollback(id, context.path("flowId").asText());
+            jdbc.update("UPDATE evolution_step SET automatic_rollback_result=NULL WHERE id=?", id + "-step-1");
+            key = "project:" + context.path("id").asText();
+        } else {
+            seedAutomaticRollback(id);
+            key = "plan:" + id;
+            if (fault.equals("baseline-revision")) {
+                jdbc.update("UPDATE working_copy SET current_revision='other', last_verified_revision='other' WHERE id=?",
+                        "copy-" + id);
+            } else {
+                jdbc.update("UPDATE working_copy SET source_asset_id='asset-two' WHERE id=?", "copy-" + id);
+            }
+        }
+        jdbc.update("UPDATE evolution_step SET execution_result='null' WHERE id=?", id + "-step-1");
+        assertEquals("null", jdbc.queryForObject("SELECT execution_result FROM evolution_step WHERE id=?",
+                String.class, id + "-step-1"));
+        var steps = jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id);
+        var copy = jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id);
+        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
+        assertEquals(steps, jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id));
+        assertEquals(copy, jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id));
+        mvc.perform(get("/api/projects/{key}", key)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.visibility.version").value(0))
+                .andExpect(jsonPath("$.visibility.deletedAt").doesNotExist());
+        verifyNoInteractions(ai);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", " \nnull\t"})
+    void exactAutomaticRollbackWithJsonNullExecutionStillAllowsDeletion(String execution) throws Exception {
+        String id = "valid-json-null";
+        seedAutomaticRollback(id);
+        jdbc.update("UPDATE evolution_step SET execution_result=? WHERE id=?", execution, id + "-step-1");
+        assertNull(plans.findById(new EvolutionPlanId(id)).orElseThrow().steps().getFirst().executionResult());
+        deleteAndAssertFactsRetained(id, "plan:" + id);
+        assertEquals(execution, jdbc.queryForObject("SELECT execution_result FROM evolution_step WHERE id=?",
+                String.class, id + "-step-1"));
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"null", " \nnull\t", "{}", "[]", "[null]", "false", "0", "\"null\"", "", "not-json", "null null"})
+    void everyFailedRepresentationInAnotherRoundStillRequiresReconstructionAndBinding(String execution) throws Exception {
+        JsonNode context = create("同流程持久化表示", "shared-user");
+        String id = "failed-representation";
+        seedAutomaticRollback(id, context.path("flowId").asText());
+        jdbc.update("UPDATE evolution_step SET execution_result=? WHERE id=?", execution, id + "-step-1");
+        jdbc.update("UPDATE working_copy SET current_revision='other', last_verified_revision='other' WHERE id=?",
+                "copy-" + id);
+        var steps = jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id);
+        var copy = jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id);
+        String key = "project:" + context.path("id").asText();
+        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
+        mvc.perform(get("/api/projects/{key}", key)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.visibility.version").value(0))
+                .andExpect(jsonPath("$.visibility.deletedAt").doesNotExist());
+        assertEquals(steps, jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id));
+        assertEquals(copy, jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id));
         verifyNoInteractions(ai);
     }
 

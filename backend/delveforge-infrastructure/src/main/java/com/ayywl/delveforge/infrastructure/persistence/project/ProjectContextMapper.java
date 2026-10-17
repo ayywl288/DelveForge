@@ -67,13 +67,13 @@ public interface ProjectContextMapper {
             """)
     int unsafeExecutionCount(@Param("planId") String planId, @Param("flowId") String flowId);
 
-    // 无普通 ExecutionResult 的 FAILED 在同一写锁事务内交由领域重建校验，不用 JSON SQL 另造成功规则。
+    // 所有 FAILED 均在同一写锁事务内交由领域重建校验，不能以原始 JSON 表示决定是否需要检查。
     @Select("""
             SELECT DISTINCT p.id FROM evolution_plan p JOIN evolution_step s ON s.plan_id = p.id
             WHERE (p.id = #{planId} OR (#{flowId} IS NOT NULL AND p.flow_id = #{flowId}))
-                AND s.status = 'FAILED' AND s.execution_result IS NULL
+                AND s.status = 'FAILED'
             """)
-    List<String> failedWithoutExecutionPlanIds(@Param("planId") String planId, @Param("flowId") String flowId);
+    List<String> failedPlanIds(@Param("planId") String planId, @Param("flowId") String flowId);
 
     @Select("SELECT * FROM project_flow_context WHERE id = #{id}")
     ProjectContextRow find(String id);

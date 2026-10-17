@@ -160,7 +160,7 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
     }
 
     private boolean unresolvedFailedExecution(String planId, String flowId) {
-        for (String id : mapper.failedWithoutExecutionPlanIds(planId, flowId)) {
+        for (String id : mapper.failedPlanIds(planId, flowId)) {
             EvolutionPlan plan;
             WorkingCopy copy;
             try {
@@ -177,7 +177,7 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
                 return true;
             }
             for (EvolutionStep step : plan.steps()) {
-                if (step.status() == EvolutionStepStatus.FAILED && step.executionResult() == null
+                if (step.status() == EvolutionStepStatus.FAILED
                         && (!step.baselineRevision().equals(copy.currentRevision())
                                 || !step.baselineRevision().equals(copy.lastVerifiedRevision()))) {
                     return true;

@@ -167,6 +167,26 @@ class ProjectContextPersistenceTest {
         jdbc.update("DELETE FROM evolution_plan WHERE id=?", planId);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "{}", "[]"})
+    void nonNullFailedRepresentationCannotCommitLegacyVisibilityWithoutAValidCheckpoint(String execution) {
+        String planId = "failed-representation-" + UUID.randomUUID();
+        jdbc.update("INSERT INTO evolution_plan(id, product_direction_id, base_asset_id, base_repository_profile_id, "
+                + "current_summary, target_problem, target_product, target_differentiation, status, flow_id) "
+                + "VALUES(?, 'explicit-direction', 'explicit-asset', 'explicit-repo', 'REST', 'REST', 'REST', 'REST', 'ACTIVE', ?)",
+                planId, planId);
+        jdbc.update("INSERT INTO evolution_step(id, plan_id, position, goal, scope, status, execution_result) "
+                + "VALUES(?, ?, 0, 'REST', 'src', 'FAILED', ?)", planId + "-step", planId, execution);
+        assertThrows(ProjectDeletionBlockedException.class,
+                () -> contexts.changeVisibility("plan:" + planId, 0, true, Instant.now()));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM project_legacy_visibility WHERE plan_id=?",
+                Integer.class, planId));
+        assertEquals(execution, jdbc.queryForObject("SELECT execution_result FROM evolution_step WHERE plan_id=?",
+                String.class, planId));
+        jdbc.update("DELETE FROM evolution_step WHERE plan_id=?", planId);
+        jdbc.update("DELETE FROM evolution_plan WHERE id=?", planId);
+    }
+
     @Test
     void historicalRoundCannotBeDeletedWhileAnotherExplicitRoundInItsFlowIsAuthorized() {
         contexts.create(context("same-flow-root", null, 0, List.of()), null);
