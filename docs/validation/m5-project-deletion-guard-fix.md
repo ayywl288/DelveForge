@@ -3,7 +3,8 @@
 > 第 1～5 节保留 2026-10-16 首轮 Minor 修复及其当时自验记录。该版本随后被独立复审发现
 > JSON `null` 筛选绕过 Important，不能据首轮自验宣称独立复审 PASS。
 > 第 6 节记录 JSON `null` 筛选修复。该修复保留；随后发现的尾随 token 解析 Important 及当前
-> 红绿证据见第 7 节。各轮自验不能替代独立复审；当前等待独立复审。
+> 红绿证据见第 7 节。第 8 节是对已修复 `dc19cfa8` 的本次复核，没有重复修改生产代码。
+> 各轮自验不能替代独立复审；当前等待独立复审。
 
 日期：2026-10-16（Asia/Shanghai）。Worktree：`E:\develop\DelveForge-worktrees\m5-lab`。
 分支：`feature/m5-lab`；本轮基线：`73bf6b88e7eb47ba25d83d8e0109e9080d5e6d6e`。
@@ -339,3 +340,74 @@ TEMP、TMP、java.io.tmpdir 均为其 `tmp` 子目录；MAVEN_OPTS=`-Xmx512m`。
 
 只提交一个生产读取修复、两个测试文件及本报告。原有 `.pyc`、main、Tag、其它 Worktree 和真实数据保留。
 不 Push、不合并、不发布，不进入其它 M5 功能；最终 Commit SHA 由 Git 和交付消息提供，提交后停止等待复审。
+
+## 8. 2026-10-17 当前修复 HEAD 复核：无需重复修复
+
+本轮实际起始 HEAD：`dc19cfa8d3ba70871c378ae3edaebc8f0f1b1d00`；分支 feature/m5-lab。
+工作树无已跟踪修改，仅保留原有未跟踪 `.pyc`，SHA-256 与此前保留值相同。
+先检查 `150f3558cedbfc6966a61fe4caaa2af8e66751a1..HEAD`：实际为 4 文件、+218 / -2，
+其中唯一生产改动是 StepResultJson 的 ObjectReader 局部启用 FAIL_ON_TRAILING_TOKENS，
+另外为两个测试文件及本报告。旧 FAIL 针对 150f3558，不能据此认定当前版本仍失败。
+
+### 8.1 当前结果与持久化保护
+
+在上述已修复源码上重新运行既有真实 Spring MVC / 隔离 SQLite 回归，没有修改任何生产或测试代码：
+
+| 当前用例 | 实际结果 | 拒绝后的事实检查 |
+| --- | --- | --- |
+| execution_failure_result 的完整对象后追加 ` false` | 409 PROJECT_DELETION_BLOCKED | 导航 version=0、deletedAt 为空；Step／WorkingCopy 和两个结果原文不变 |
+| automatic_rollback_result 的完整对象后追加 ` false` | 409 PROJECT_DELETION_BLOCKED | 同上 |
+| execution_result='null' 且 baseline / current / lastVerified 不匹配 | 409 PROJECT_DELETION_BLOCKED | 导航与历史不变 |
+| execution_result='null' 且副本资产不匹配 | 409 PROJECT_DELETION_BLOCKED | 导航与历史不变 |
+| 同 flow 其它轮次 execution_result='null' 且缺少自动恢复结果 | 409 PROJECT_DELETION_BLOCKED | 导航与历史不变 |
+
+两个尾随反例在当前 HEAD **不能复现错误 200**，没有为此再改生产代码或重跑旧版本。
+同 flow 尾随字段、合法前后空白、对象／数组／null 后多 token、单独 JSON null 与 SQL NULL、
+合法 Automatic / User Rollback 删除、损坏／缺失结果、未决状态的原断言随整类测试执行且全部通过。
+这里的 HTTP 结果由实际 MVC DELETE 响应的 status/code 断言确认，不是用解析器单元测试代替 API。
+
+### 8.2 全部 E 盘隔离与实际命令
+
+本轮专用目录：`E:\develop\DelveForge-worktrees\m5-lab-artifacts\deletion-guard-dc19cfa-recheck-20261017`。
+仓库的两个 SQLite 测试原来使用相对 `target/test-databases/<UUID>`。为不改测试源码、也不覆盖历史
+Surefire 输出，建立仅用于本轮的 `build-view/`：复制当前 5 份 POM，保持依赖／模块／版本／规则，
+将 Java sourceDirectory / testSourceDirectory 指向本 Worktree 原文件；已跟踪资源按原相对路径复制。
+临时 Surefire 配置只把工作目录设为本轮 `test-working/`，报告目录设为本轮 `reports/<module>/`。
+这些临时 POM 不属于仓库变更，也不用于发布构建。
+
+执行前后校验 614 个仓库输入文件 SHA-256 不变，记录为 `source-manifest.json`。
+三份新 XML 的 user.dir 均为本轮 test-working，java.io.tmpdir 均为本轮 tmp；
+两个 UUID 测试目录中的 history.db、projects.db 和 upgrade.db 均位于本轮目录，没有使用真实数据库。
+TEMP / TMP 和 Maven／测试 JVM 的临时目录均为该 E 盘 tmp；移除测试 shell 的 Provider key /
+SPRING_APPLICATION_JSON，沿用现有 Mock/Fake。仓库 POM、生产与测试源码均未修改。
+
+从 Worktree 根运行本仓库 Wrapper（临时视图直接引用当前源码）：
+
+```powershell
+.\mvnw.cmd -o -f 'E:\develop\DelveForge-worktrees\m5-lab-artifacts\deletion-guard-dc19cfa-recheck-20261017\build-view\pom.xml' -pl backend/delveforge-app -am '-DargLine=-Djava.io.tmpdir=E:/develop/DelveForge-worktrees/m5-lab-artifacts/deletion-guard-dc19cfa-recheck-20261017/tmp' '-Dtest=StepResultJsonCompatibilityTest,ProjectWorkspaceIntegrationTest,ProjectContextPersistenceTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
+```
+
+实际 `targeted-test.log`：**BUILD SUCCESS，原生退出码 0，22.235 s，2026-10-17 15:11:02 +08:00 完成**。
+只是编译与定向 test 阶段，不是完整 verify／打包验收。
+逐份核对新生成 XML 的时间、tests/failures/errors/skipped 和关键用例，无错误或跳过；
+`validation-summary.json` 保存 XML 哈希、时间、计数、数据库路径和退出码，原生退出码另见 targeted-test-exit.txt。
+
+| 本轮实际重新执行 | Tests | Failures / Errors / Skipped |
+| --- | ---: | --- |
+| StepResultJsonCompatibilityTest | 21 | 0 / 0 / 0 |
+| ProjectWorkspaceIntegrationTest | 72 | 0 / 0 / 0 |
+| ProjectContextPersistenceTest | 11 | 0 / 0 / 0 |
+| 本轮合计（3 XML） | 104 | 0 / 0 / 0 |
+
+没有把上一轮 196 项或更早的历史 verify 算作本次重跑。
+
+### 8.3 最终 Diff、验证边界与停止
+
+本轮只追加验证报告，生产／测试／POM Diff 为零；未重新实现已完成的修复。
+本记录如单独提交，源码与上述受测 dc19cfa8 完全一致，最终文档 Commit SHA 由交付消息与 Git 提供。
+`git diff --check` 通过；原 `.pyc` 保留且不提交，main、Tag、其它 Worktree 与真实业务数据不改。
+
+**实现者定向验证 PASS**；不是独立 Gate PASS。无新增 Decision Required。
+尚未验证：完整后端 verify、前端、付费 Provider E2E、发布验收、真实用户库升级、物理 Git 恢复和 OS 崩溃。
+本轮临时路径配置只用于隔离测试，不证明原部署／打包环境就绪；损坏历史继续阻塞，没有自动修补或 Recovery。
+完成后停止等待独立复审，不 Push、不合并、不发布，不自动开始其它 M5 功能。
