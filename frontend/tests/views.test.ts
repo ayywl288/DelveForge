@@ -357,4 +357,26 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     expect(execute).not.toHaveBeenCalled();
     expect(button(root, "审阅风险并执行此 Step")).toBeUndefined();
   });
+  it.each(["ROLLING_BACK", "FAILED", "RECOVERY_REQUIRED"] as const)(
+    "执行失败 %s 展示真实恢复结果，不制造 Candidate 或自动重发", async (status) => {
+      const s = session(); s.plan = plan(); s.copy = { ...copy(), status: status === "RECOVERY_REQUIRED" ? "RECOVERY_REQUIRED" : "EVOLVING" };
+      const step = s.plan.steps[0]!; step.status = status; step.baselineRevision = "a".repeat(40);
+      step.executionFailureResult = { id: "failure", baselineRevision: "a".repeat(40), startingRevision: "a".repeat(40),
+        phase: "PUBLISH", exitCode: 128, diagnostic: "CONFIRMED_GIT_REJECTION", observedRevision: "a".repeat(40),
+        expectedTree: "c".repeat(40), diffComplete: true,
+        diff: [{ path: "src/ReportService.java", baselineBlob: "old", indexEntry: "new", workingBlob: "new" }],
+        failedAt: "2026-10-14T10:00:00Z" };
+      if (status !== "ROLLING_BACK") {
+        step.automaticRollbackResult = { failureId: "failure", baselineRevision: "a".repeat(40), observedRevision: status === "FAILED" ? "a".repeat(40) : null,
+          restored: status === "FAILED", diagnostic: "RESULT", completedAt: "2026-10-14T10:01:00Z" };
+      }
+      const execute = vi.spyOn(s, "execute"); const rollback = vi.spyOn(s, "rollback");
+      const root = mount(EvolutionView, s); await settle();
+      expect(root.textContent).toContain("执行已确认失败，未形成合法 Candidate");
+      expect(root.textContent).toContain("src/ReportService.java");
+      expect(root.textContent).toContain(status === "ROLLING_BACK" ? "尚无最终恢复结果"
+        : status === "FAILED" ? "已确认精确恢复原始基线" : "完整恢复未确认，禁止继续修改");
+      expect(root.querySelector(".success-note")).toBeNull();
+      expect(execute).not.toHaveBeenCalled(); expect(rollback).not.toHaveBeenCalled();
+    });
 });

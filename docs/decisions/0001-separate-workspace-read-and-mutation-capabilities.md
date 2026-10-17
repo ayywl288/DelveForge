@@ -261,6 +261,28 @@ Git / Maven 命令由 Infrastructure 基于仓库事实解析，不接收任意 
 业务状态与 Git 不组成跨技术事务，三个条件提交检查点保护半权威状态边界；M4 异常暂留
 最后完整检查点并 fail closed，M5 再实现 canonical 失败 / 恢复流程。
 
+## M5-B refinement — 2026-10-13
+
+Repair 继续使用 Option E 的同一窄 mutation capability。`fromRepair` 只接受当前 EXECUTING
+检查点、本次持久化授权身份与调用内校验提案；修改起点是失败 Candidate B，可信 baseline 仍为 A。
+资产授权、绑定、隔离、实际 Git revision、提案范围及检查点 CAS 仍须独立核对。
+用户的首次 Step Confirmation 不能构造 Repair 授权。重复 / 并发 Repair 先由原子授权检查点拒绝，
+不重新调用 Provider；重启仅恢复事实，没有恢复或重放入口。Verification 重跑原 A..C 与全部标准。
+Port 划分、模块依赖、WorkingCopy 策略不变；未增加通用命令、Attempt 或后台任务框架。
+
+## M5-C refinement — 2026-10-13
+
+User Rollback 使用独立 `WorkspaceRollbackPort`，不向读取或步骤补丁能力加入通用 Git 命令。
+Option E 的 `AuthorizedStepRollback` 绑定本次授权检查点、失败 Candidate 与原 Step baseline。
+操作只在托管独立克隆中执行；选择非强制 checkout、禁用 hooks、禁止覆盖 ignored 文件，
+并在恢复前后核对实际内容。额外文件及用户修改不在授权清理范围，拒绝后不自动扩大权限。
+
+SQLite / Git 仍无跨技术事务。授权先提交，精确恢复确认后提交 FAILED；异常只提交安全阻塞事实。
+这个事实写入不授予任何外部能力，仍通过旧授权 / 结果 / WorkingCopy CAS，不因资产撤权而抹去
+未知操作的诊断。成功检查点与所有既有执行流程继续使用完整资产资格守卫。
+用户已裁定重启残留 ROLLING_BACK 只读保留、阻塞、不重放；所有权及停止判据留给后续 Recovery。
+本 Slice 不增加恢复后台任务、Retry、自动 Execution Failure Rollback 或破坏性清理协议。
+
 ## References
 
 ```text
@@ -271,3 +293,50 @@ WorkspaceReadPort
 WorkspaceMutationPort
 WorkspaceRef
 ```
+
+## M5-D refinement — 2026-10-14
+
+System Rollback 继续使用独立 WorkspaceRollbackPort 和 Option E 的范围绑定。能力从已保存的
+Execution Failure / ROLLING_BACK 检查点建立，不制造 User Rollback 授权；正常 User Rollback 入口仍须
+独立授权。Application 不持有 shell 或 filesystem 能力，Infrastructure 仅恢复能证明归属的 Step 修改。
+固定预期 tree 只是未发布补丁的技术证据，不成为 Candidate 或新的领域 Aggregate。
+未知执行结果、未决重启和无法证明的文件现场继续 fail closed；不引入任务引擎或自动重放。
+
+## M5-E refinement — 2026-10-15
+
+FAILED Retry 的授权只通过现有 inspection 和原子 Domain / Persistence 转移返回 READY，不持有写
+Port 或 AI Gateway。原 Step baseline 保持不变，新的 RetryAuthorization 在 Step 内归档上一轮失败
+快照。该 Slice 延续 M5-B/C/D 的值对象历史实现，不引入独立 Attempt、Aggregate 或新执行架构。
+
+显式执行准备与 Option E 的 AuthorizedStepExecution 绑定当前已持久化 Retry 身份；该轮后续
+Repair / User Rollback 也核对父身份，防止同 baseline 请求发生跨轮次复用。每种动作自己的授权、
+资产资格、真实内容守卫和检查点 CAS 仍独立执行。Git / SQLite 不形成跨技术事务，原 UNKNOWN
+及重启未决边界不变；不引入启动补偿、自动 Retry、Recovery 或后台任务。
+
+## M5 partial closeout — Recovery write capability deferred — 2026-10-16
+
+状态：Accepted（用户明确裁定）；原有 capability 拆分决策与完整 Recovery 领域目标保留。
+
+**问题与证据：** 后端 CAS、PID 消失、超时、重启和普通锁释放都不能证明旧进程失去副本写能力。
+[F1](../validation/m5-f1-ownership-spike.md) 的真实 WMI 代创建 writer 在 Owner 退出、受管 Job 归零后
+仍可写；[F1b](../validation/m5-f1b-isolation-spike.md) 的原受限进程在 KERNELBASE 初始化失败，
+不能冒充已运行的独立身份。宿主对照中，同 SID ACL 不能撤销预开句柄，也不能只向可信宿主重新放行；
+staging 原型的叶文件校验还遗漏父目录 junction。两轮实验虽经独立审查通过，技术 Gate 均为 NO-GO。
+
+**决策：** 停止当前隔离候选研究，延期 Recovery 写能力，不将 Spike 接入生产 Port、UseCase、API、UI
+或 SQLite；不推进 F2/F3，不以 feature flag、人工勾选或推测停止替代安全证明。M5-A～E 可作为部分能力
+进入独立最终集成审查，但不能据此将 M5 标为 DONE 或声称已具备完整失败恢复能力。
+
+**保持的边界：** 当前 RECOVERY_REQUIRED 与遗留 EXECUTING / VERIFYING / ROLLING_BACK UNKNOWN
+保留原事实、只读查询并阻塞，不接管、不重放、不伪造 FAILED / Verified State / UNRECOVERABLE。
+此延期不取消正常调用内已确认失败的 User / Automatic Rollback，也不改变已精确恢复 FAILED 的独立 Retry。
+所有旧检查点不能追溯获得原型的所有权／停止保证；导航 restore 不构成业务 Recovery。
+
+**取舍与后续条件：** 延期牺牲当前版本对长期阻塞现场的可恢复性，保留软件信任与历史含义。
+拒绝直接采用局部 Job 计数、同 SID 撤权或未封闭的 staging 接收器。若未来重新提案，须先独立设计受支持的
+执行身份／隔离部署边界，覆盖所有潜在写入口、broker、预开句柄、监督器崩溃、路径别名和接管时序，
+以真实 OS 正反实验及独立审查证明旧写者不能继续写；再裁定集成，不默认选定账户、Sandbox 或 VM 技术。
+Recovery 仍需新的独立用户授权，目标只能是原 Step baseline；无法证明安全时继续阻塞。
+
+本决策只记录已授权的延期，不引入新状态机或架构技术。发布影响与后续 Gate 见
+[M5 阶段性收尾](../validation/m5-partial-closeout.md)。

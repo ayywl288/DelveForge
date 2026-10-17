@@ -1,0 +1,11 @@
+{
+  "python_compile_files": 5,
+  "source_hashes_match": true,
+  "scenario_count": 7,
+  "observations_satisfied": 5,
+  "unreached_due_to_initialization_failure": 2,
+  "gate": "NO-GO",
+  "main_unchanged": true,
+  "historical_bytecode_unchanged": true,
+  "production_sources_unchanged": true
+}

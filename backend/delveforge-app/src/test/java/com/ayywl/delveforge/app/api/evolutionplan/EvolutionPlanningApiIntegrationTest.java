@@ -4,6 +4,7 @@ import com.ayywl.delveforge.application.port.ai.*;
 import com.ayywl.delveforge.application.port.persistence.*;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceRollbackPort;
 import com.ayywl.delveforge.domain.asset.*;
 import com.ayywl.delveforge.domain.direction.*;
 import com.ayywl.delveforge.domain.evidence.*;
@@ -65,7 +66,7 @@ class EvolutionPlanningApiIntegrationTest {
     @MockitoBean AiGateway ai;
     @MockitoBean(extraInterfaces = {
             com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort.class,
-            com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort.class})
+            com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort.class, WorkspaceRollbackPort.class})
     WorkspaceReadPort reads;
     @MockitoBean WorkspaceMutationPort mutations;
     private static final SoftwareAssetId ASSET = new SoftwareAssetId("asset");

@@ -2,18 +2,23 @@ package com.ayywl.delveforge.infrastructure.workspace;
 
 import com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException;
 import com.ayywl.delveforge.application.port.workspace.AuthorizedStepExecution;
+import com.ayywl.delveforge.application.port.workspace.AuthorizedStepRollback;
 import com.ayywl.delveforge.application.port.workspace.CandidateMutationResult;
+import com.ayywl.delveforge.application.port.workspace.ConfirmedExecutionFailureException;
 import com.ayywl.delveforge.application.port.workspace.PreparedWorkspace;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyRollbackException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceRollbackPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceStorageUnavailableException;
+import com.ayywl.delveforge.domain.evolution.ExecutionFailureResult;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,15 +35,22 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -94,7 +106,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 @EnableConfigurationProperties(WorkspaceProperties.class)
 public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvisioningPort,
-        WorkingCopyInspectionPort, WorkspaceMutationPort {
+        WorkingCopyInspectionPort, WorkspaceMutationPort, WorkspaceRollbackPort {
 
     private static final Logger log = LoggerFactory.getLogger(GitWorkspaceAdapter.class);
 
@@ -120,7 +132,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         this.existingRoots = List.of();
     }
 
-    /** 只核对物理 revision、隔离与干净状态；Candidate 通过此检查不等于已获得领域信任。 */
+    /** 核对物理 revision、隔离与整树内容；Candidate 通过此检查不等于已获得领域信任。 */
     @Override
     public void requireTrustedState(WorkspaceRef copy, WorkspaceRef source, String expectedRevision) {
         Path target = requireManagedCopy(copy);
@@ -150,15 +162,367 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             }
         }
 
-        // 禁用可选 index 写入与 fsmonitor，准备阶段的检查只读取状态。
-        GitCommandResult status = execute(target, "--no-optional-locks", "-c", "core.fsmonitor=false",
-                "status", "--porcelain=v1", "--untracked-files=all", "--ignored");
-        if (!status.succeeded()) {
-            throw new WorkspaceException("Cannot inspect Working Copy status");
-        }
-        if (!status.stdoutText().isBlank()) {
+        requireRepositoryAttributeSources(target);
+
+        // 整树读取真实文件并重新计算 Git blob；stat 缓存、HEAD 与 status 都不能替代内容证据。
+        requireTrackedContent(copy, target, expectedRevision);
+
+        // tracked 内容已经独立证明；status / 工作树 diff 会调用 clean filter，额外文件只用枚举能力检查。
+        if (!contentGit(target, expectedRevision, "ls-files", "--others", "--exclude-standard", "-z").isEmpty()
+                || !contentGit(target, expectedRevision, "ls-files", "--others", "--ignored", "--exclude-standard", "-z")
+                        .isEmpty()) {
             throw new WorkingCopyBasisChangedException("Working Copy contains changes or untracked artifacts");
         }
+    }
+
+    /** 独立于 index 的 stat 缓存核对全部 tracked 内容；固定版本的属性允许合法 Git 换行转换。 */
+    private void requireTrackedContent(WorkspaceRef copy, Path target, String revision) {
+        List<String> paths = new ArrayList<>();
+        List<String> objects = new ArrayList<>();
+        List<String> modes = new ArrayList<>();
+        List<String> indexEntries = new ArrayList<>();
+        String tree = contentGit(target, revision, "ls-tree", "-r", "-z", "--full-tree", revision);
+        for (String entry : tree.split("\0")) {
+            if (entry.isEmpty()) {
+                continue;
+            }
+            int separator = entry.indexOf('\t');
+            String[] metadata = separator < 0 ? new String[0] : entry.substring(0, separator).split(" ");
+            if (metadata.length != 3 || !metadata[0].matches("100(644|755)")
+                    || !metadata[1].equals("blob") || !metadata[2].matches("[0-9a-f]{40}")) {
+                throw new WorkingCopyBasisChangedException("Tracked content cannot be proven for this Git tree entry");
+            }
+            String path = entry.substring(separator + 1);
+            paths.add(path);
+            objects.add(metadata[2]);
+            modes.add(metadata[0]);
+            indexEntries.add(metadata[0] + " " + metadata[2] + " 0\t" + path);
+        }
+        // 比较 index 的对象 / mode / stage，读取内容时仍不依赖其文件时间或大小缓存。
+        List<String> actualIndex = Arrays.stream(contentGit(target, revision, "ls-files", "--stage", "-z")
+                .split("\0")).filter(entry -> !entry.isEmpty()).toList();
+        if (!actualIndex.equals(indexEntries)) {
+            throw new WorkingCopyBasisChangedException("Working Copy index differs from the exact revision tree");
+        }
+        requireCanonicalAttributePaths(target, paths);
+        inspectSafePaths(copy, paths);
+        // 替代 status 后保留 Git 启用 filemode 时的实际可执行位检查；Windows 不解释 POSIX mode。
+        if (target.getFileSystem().supportedFileAttributeViews().contains("posix")
+                && contentGit(target, revision, "config", "--type=bool", "--default=true", "--get", "core.filemode")
+                        .trim().equals("true")) {
+            try {
+                for (int index = 0; index < paths.size(); index++) {
+                    boolean executable = Files.getPosixFilePermissions(target.resolve(paths.get(index)),
+                            LinkOption.NOFOLLOW_LINKS).contains(PosixFilePermission.OWNER_EXECUTE);
+                    if (executable != modes.get(index).equals("100755")) {
+                        throw new WorkingCopyBasisChangedException("Tracked executable mode differs from the exact revision");
+                    }
+                }
+            } catch (IOException failure) {
+                throw new WorkspaceException("Cannot prove tracked executable mode", failure);
+            }
+        }
+        for (int start = 0; start < paths.size(); start += 32) {
+            List<String> batch = paths.subList(start, Math.min(start + 32, paths.size()));
+            requireSupportedAttributes(target, revision, batch);
+            // 即使属性 / 配置在检查后变化，此命令也没有执行 filter 的能力。
+            List<String> hashArguments = new ArrayList<>(List.of("hash-object", "--no-filters", "--"));
+            hashArguments.addAll(batch);
+            List<String> hashes = contentGit(target, revision, hashArguments.toArray(String[]::new)).lines().toList();
+            if (hashes.size() != batch.size()) {
+                throw new WorkingCopyBasisChangedException("Cannot read all tracked byte identities");
+            }
+            List<String> converted = new ArrayList<>();
+            for (int index = 0; index < batch.size(); index++) {
+                if (!hashes.get(index).equals(objects.get(start + index))) {
+                    converted.add(batch.get(index));
+                }
+            }
+            // 元数据按批次读取，仍逐文件证明完整真实字节；不能让 CRLF 文件数线性放大进程启动成本。
+            Map<String, String> eolFacts = converted.isEmpty() ? Map.of() : trackedEolFacts(target, revision, converted);
+            String autocrlf = converted.isEmpty() ? "false"
+                    : contentGit(target, revision, "config", "--default=false", "--get", "core.autocrlf")
+                            .trim().toLowerCase(Locale.ROOT);
+            for (int index = 0; index < batch.size(); index++) {
+                String expected = objects.get(start + index);
+                String path = batch.get(index);
+                if (!hashes.get(index).equals(expected)
+                        && !lineEndingEquivalent(target, path, expected, eolFacts.get(path), autocrlf)) {
+                    throw new WorkingCopyBasisChangedException("Working Copy tracked bytes differ from the exact revision");
+                }
+            }
+        }
+    }
+
+    private Map<String, String> trackedEolFacts(Path target, String revision, List<String> paths) {
+        List<String> arguments = new ArrayList<>(List.of("--literal-pathspecs", "ls-files", "--eol", "-z", "--"));
+        arguments.addAll(paths);
+        Map<String, String> facts = new HashMap<>();
+        for (String record : contentGit(target, revision, arguments.toArray(String[]::new)).split("\0")) {
+            int separator = record.indexOf('\t');
+            String path = separator < 0 ? "" : record.substring(separator + 1);
+            if (!paths.contains(path) || facts.put(path, record.substring(0, separator)) != null) {
+                throw new WorkingCopyBasisChangedException("Cannot read exact tracked EOL descriptions");
+            }
+        }
+        if (facts.size() != paths.size()) {
+            throw new WorkingCopyBasisChangedException("Cannot read all tracked EOL descriptions");
+        }
+        return facts;
+    }
+
+    /** 仅使用 Git 的只读 EOL 描述和本地字节转换，不调用任何 Git clean / smudge / process。 */
+    private boolean lineEndingEquivalent(Path target, String path, String expected, String eol, String autocrlf) {
+        String[] facts = eol.trim().split("\\s+", 3);
+        if (facts.length != 3 || !facts[0].equals("i/lf")
+                || (!facts[1].equals("w/crlf") && !facts[1].equals("w/mixed"))) {
+            return false;
+        }
+        String attributes = facts[2].trim();
+        boolean text = List.of("attr/text", "attr/text=auto", "attr/text eol=lf", "attr/text eol=crlf",
+                "attr/text=auto eol=lf", "attr/text=auto eol=crlf").contains(attributes);
+        if (attributes.equals("attr/")) {
+            text = autocrlf.equals("true") || autocrlf.equals("input");
+        }
+        if (!text) {
+            return false;
+        }
+        try (var input = Files.newInputStream(target.resolve(path))) {
+            // 只有需要 EOL 等价证明的文件才读取有界快照；超限不截断、不改写源码。
+            byte[] actual = input.readNBytes(1048577);
+            if (actual.length > 1048576) {
+                throw new WorkspaceException("Tracked EOL proof exceeds its byte budget");
+            }
+            byte[] normalized = new byte[actual.length];
+            int length = 0;
+            for (int index = 0; index < actual.length; index++) {
+                if (actual[index] == 0) {
+                    return false;
+                }
+                if (actual[index] != '\r' || index + 1 == actual.length || actual[index + 1] != '\n') {
+                    normalized[length++] = actual[index];
+                }
+            }
+            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            digest.update(("blob " + length + "\0").getBytes(StandardCharsets.US_ASCII));
+            digest.update(normalized, 0, length);
+            return HexFormat.of().formatHex(digest.digest()).equals(expected);
+        } catch (IOException | NoSuchAlgorithmException failure) {
+            throw new WorkspaceException("Cannot prove tracked EOL bytes", failure);
+        }
+    }
+
+    /** 外部属性不能随 tracked 文件恢复而改变；仅接受受版本证明的仓库属性来源。 */
+    private void requireRepositoryAttributeSources(Path target) {
+        // 此配置查询不带覆盖值，也不解释路径或哨兵；包括 include / 各级配置的有效值。
+        WorkspaceCommandRunner.Result configured = WorkspaceCommandRunner.run(target,
+                List.of("git", "-C", target.toString(), "config", "--null", "--get", "core.attributesFile"),
+                Duration.ofSeconds(30), 1048576);
+        if ((configured.exitCode() != 0 && configured.exitCode() != 1)
+                || (configured.succeeded() && !configured.output().equals("\0"))) {
+            throw new WorkingCopyBasisChangedException("External Git attribute source cannot be proven stable");
+        }
+        Path info = target.resolve(".git/info");
+        try {
+            if ((Files.exists(info, LinkOption.NOFOLLOW_LINKS)
+                    && (!Files.isDirectory(info, LinkOption.NOFOLLOW_LINKS) || !info.toRealPath().equals(info)))
+                    || Files.exists(info.resolve("attributes"), LinkOption.NOFOLLOW_LINKS)) {
+                // info/attributes 的高优先级规则及链接不属于任何固定 revision；不能被 checkout 的属性证明覆盖。
+                throw new WorkingCopyBasisChangedException("Unversioned Git attributes prevent controlled mutation");
+            }
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot confirm Git attribute source isolation", failure);
+        }
+    }
+
+    /** Git 对象路径区分大小写，宿主文件系统未必如此；无法统一解释的属性文件名不进入写路径。 */
+    private void requireCanonicalAttributePaths(Path target, List<String> paths) {
+        TreeSet<Path> directories = new TreeSet<>();
+        directories.add(target);
+        for (String path : paths) {
+            String safe = requireSafeRelativePath(path, false);
+            for (String segment : safe.split("/")) {
+                if (segment.equalsIgnoreCase(".gitattributes") && !segment.equals(".gitattributes")) {
+                    throw new WorkingCopyBasisChangedException("Git attribute path has an ambiguous case variant");
+                }
+            }
+            Path parent = target.resolve(safe).getParent();
+            while (parent != null && parent.startsWith(target)) {
+                directories.add(parent);
+                parent = parent.getParent();
+            }
+        }
+        try {
+            for (Path directory : directories) {
+                if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
+                    continue;
+                }
+                if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)
+                        || !directory.toRealPath().equals(directory)) {
+                    throw new WorkingCopyBasisChangedException("Cannot prove Git attribute directory identity");
+                }
+                // 枚举真实目录项，不能用 Windows Path.equals 或 Git index 推断磁盘上的大小写。
+                try (var entries = Files.newDirectoryStream(directory)) {
+                    for (Path entry : entries) {
+                        String name = entry.getFileName().toString();
+                        if (name.equalsIgnoreCase(".gitattributes")
+                                && (!name.equals(".gitattributes")
+                                || !Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS)
+                                || !entry.toRealPath().equals(entry))) {
+                            throw new WorkingCopyBasisChangedException("Physical Git attribute source is ambiguous");
+                        }
+                    }
+                }
+            }
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot prove Git attribute path identity", failure);
+        }
+    }
+
+    /** 只解析 Git 的首个 pattern 字段及属性 token；不是 glob 匹配器，也不扩展支持的转换。 */
+    private void requireSafeAttributeRule(String line) {
+        int cursor = 0;
+        while (cursor < line.length() && isAttributeBlank(line.charAt(cursor))) {
+            cursor++;
+        }
+        if (cursor == line.length() || line.charAt(cursor) == '#') {
+            return;
+        }
+        String pattern;
+        if (line.charAt(cursor) == '"') {
+            StringBuilder decoded = new StringBuilder();
+            boolean closed = false;
+            cursor++;
+            while (cursor < line.length()) {
+                char value = line.charAt(cursor++);
+                if (value == '"') {
+                    closed = true;
+                    break;
+                }
+                if (value == '\\') {
+                    if (cursor == line.length()) {
+                        throw new WorkingCopyBasisChangedException("Cannot decode quoted Git attribute pattern");
+                    }
+                    char escaped = line.charAt(cursor++);
+                    if (escaped >= '0' && escaped <= '3' && cursor + 1 < line.length()
+                            && line.charAt(cursor) >= '0' && line.charAt(cursor) <= '7'
+                            && line.charAt(cursor + 1) >= '0' && line.charAt(cursor + 1) <= '7') {
+                        value = (char) ((escaped - '0') * 64 + (line.charAt(cursor) - '0') * 8
+                                + line.charAt(cursor + 1) - '0');
+                        cursor += 2;
+                    } else {
+                        value = switch (escaped) {
+                            case '"', '\\' -> escaped;
+                            case 'a' -> '\u0007';
+                            case 'b' -> '\b';
+                            case 'f' -> '\f';
+                            case 'n' -> '\n';
+                            case 'r' -> '\r';
+                            case 't' -> '\t';
+                            case 'v' -> '\u000b';
+                            default -> throw new WorkingCopyBasisChangedException(
+                                    "Cannot decode quoted Git attribute pattern");
+                        };
+                    }
+                }
+                decoded.append(value);
+            }
+            if (!closed) {
+                throw new WorkingCopyBasisChangedException("Cannot decode quoted Git attribute pattern");
+            }
+            pattern = decoded.toString();
+        } else {
+            int start = cursor;
+            while (cursor < line.length() && !isAttributeBlank(line.charAt(cursor))) {
+                cursor++;
+            }
+            pattern = line.substring(start, cursor);
+        }
+        // Git 只把首个解码后的 pattern 的非空 [attr] 前缀视为宏；中间字符组与单独 [attr] 是 glob。
+        if ((pattern.startsWith("[attr]") && pattern.length() > 6)
+                || Arrays.stream(line.substring(cursor).split("[ \\t\\r\\n]+"))
+                        .anyMatch(this::isExternalConversionAttribute)) {
+            // 恢复会分批更新属性文件；休眠转换规则和真实宏也必须在危险写入前拒绝。
+            throw new WorkingCopyBasisChangedException("Git attribute definitions cannot prove safe restoration");
+        }
+    }
+
+    /** 属性文本只接受可证明的 UTF-8 / LF / CRLF 子集；不把 BOM 当作可兼容的语法前缀。 */
+    private void requireSafeAttributeText(String definitions) {
+        for (int index = 0; index < definitions.length(); index++) {
+            char value = definitions.charAt(index);
+            if (value == '\ufeff' || value == '\ufffd' || value == 127
+                    || (value < 32 && value != '\t' && value != '\n' && value != '\r')
+                    || (value == '\r' && (index + 1 == definitions.length()
+                            || definitions.charAt(index + 1) != '\n'))) {
+                // 有界命令以 UTF-8 解码；替换字符、NUL/控制字节或裸 CR 不足以统一证明 Git 的字节解释。
+                throw new WorkingCopyBasisChangedException("Git attribute text has an unproven encoding or delimiter");
+            }
+        }
+    }
+
+    private boolean isExternalConversionAttribute(String token) {
+        int separator = token.indexOf('=');
+        String name = separator < 0 ? token : token.substring(0, separator);
+        if (name.startsWith("-") || name.startsWith("!")) {
+            name = name.substring(1);
+        }
+        // 只按 ASCII 属性名判定能力；任意值里的 Unicode 行分隔符不能绕过正则的 dot 边界。
+        return List.of("filter", "ident", "working-tree-encoding").contains(name);
+    }
+
+    private boolean isAttributeBlank(char value) {
+        return value == ' ' || value == '\t' || value == '\r' || value == '\n';
+    }
+
+    /** 按存在性拒绝外部转换；同时用于当前内容证明与恢复目标的 checkout 前检查。 */
+    private void requireSupportedAttributes(Path target, String revision, List<String> paths) {
+        for (String path : paths) {
+            if (path.equals(".gitattributes") || path.endsWith("/.gitattributes")) {
+                String definitions = contentGit(target, revision, "cat-file", "blob", revision + ":" + path);
+                requireSafeAttributeText(definitions);
+                for (String line : definitions.lines().toList()) {
+                    requireSafeAttributeRule(line);
+                }
+            }
+        }
+        List<String> arguments = new ArrayList<>(List.of("check-attr", "-z", "--all", "--"));
+        arguments.addAll(paths);
+        String output = contentGit(target, revision, arguments.toArray(String[]::new));
+        String[] attributes = output.isEmpty() ? new String[0] : output.split("\0");
+        if (attributes.length % 3 != 0) {
+            throw new WorkingCopyBasisChangedException("Cannot confirm tracked content conversion attributes");
+        }
+        for (int offset = 0; offset < attributes.length; offset += 3) {
+            if (!paths.contains(attributes[offset])
+                    || List.of("filter", "ident", "working-tree-encoding").contains(attributes[offset + 1])) {
+                // --all 的属性存在性不依赖歧义值；显式 -filter 也保守拒绝，不能把同名 driver 当作安全哨兵。
+                throw new WorkingCopyBasisChangedException("Git conversion cannot prove exact tracked content");
+            }
+        }
+    }
+
+    /** 仅检查不可变 tree 的属性能力，供写入前的预期结果和原始恢复目标共用。 */
+    private void requireSafeTreeAttributes(Path target, String revision) {
+        List<String> paths = Arrays.stream(contentGit(target, revision,
+                "ls-tree", "-r", "--name-only", "-z", revision).split("\0"))
+                .filter(path -> !path.isEmpty()).toList();
+        requireCanonicalAttributePaths(target, paths);
+        for (int start = 0; start < paths.size(); start += 32) {
+            requireSupportedAttributes(target, revision, paths.subList(start, Math.min(start + 32, paths.size())));
+        }
+    }
+
+    private String contentGit(Path target, String revision, String... arguments) {
+        // 属性来自不可变 revision，不采用可能被 stat 缓存漏报的工作树 .gitattributes；不写对象或刷新 index。
+        List<String> exact = new ArrayList<>(List.of("--no-replace-objects", "--attr-source=" + revision,
+                "-c", "core.safecrlf=false"));
+        exact.addAll(List.of(arguments));
+        WorkspaceCommandRunner.Result result = mutationGitResult(target, null, exact.toArray(String[]::new));
+        if (!result.succeeded()) {
+            throw new WorkspaceException("Cannot read exact tracked content with supported Git conversion");
+        }
+        return result.output();
     }
 
     @Override
@@ -190,6 +554,10 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
 
     @Override
     public void requireSafePaths(WorkspaceRef copy, List<String> paths) {
+        inspectSafePaths(copy, paths);
+    }
+
+    private void inspectSafePaths(WorkspaceRef copy, List<String> paths) {
         Path target = requireManagedCopy(copy);
         GitCommandResult tree = execute(target, "ls-tree", "-r", "-z", "HEAD");
         if (!tree.succeeded()) {
@@ -239,37 +607,47 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     @Override
     public CandidateMutationResult applyCandidate(AuthorizedStepExecution execution) {
         WorkspaceRef copy = execution.workingCopy();
-        String baseline = execution.validated().basis().expectedRevision();
+        String startingRevision = execution.validated().basis().expectedRevision();
         var proposal = execution.validated().proposal();
-        requireTrustedState(copy, execution.originalAsset(), baseline);
+        requireTrustedState(copy, execution.originalAsset(), startingRevision);
         requireSafePaths(copy, proposal.declaredAffectedPaths());
         Path target = requireManagedCopy(copy);
 
         Path patch = null;
         Path expectedIndex = null;
+        String expectedTree = null;
+        String phase = "PATCH_MATERIALIZATION";
+        ConfirmedExecutionFailureException confirmed = null;
         try {
             patch = Files.createTempFile(target.resolve(".git"), "delveforge-patch-", ".diff");
             Files.writeString(patch, proposal.unifiedDiff(), StandardCharsets.UTF_8);
 
-            // 从不可变基线和已验证补丁独立生成预期 tree，不能以共享 index 的早期快照代替它。
+            // 从本次不可变修改起点（首次 A / Repair B）生成 tree，不把 Candidate 起点误当作可信基线。
             expectedIndex = Files.createTempFile(target.resolve(".git"), "delveforge-index-", ".tmp");
             Files.delete(expectedIndex);
-            mutationGit(target, expectedIndex, "read-tree", baseline);
+            phase = "EXPECTED_TREE";
+            mutationGit(target, expectedIndex, "read-tree", startingRevision);
             mutationGit(target, expectedIndex, "apply", "--cached", "--whitespace=nowarn", "--", patch.toString());
-            String expectedTree = mutationGit(target, expectedIndex, "write-tree").trim();
+            expectedTree = mutationGit(target, expectedIndex, "write-tree").trim();
+            phase = "EXPECTED_ATTRIBUTES";
+            // 提案本身也可能引入属性转换；必须先证明完整预期 tree，再触达真实 index / 工作树。
+            requireSafeTreeAttributes(target, expectedTree);
 
             // 可变 index / 工作树只是执行载体，不能替代后面的不可变快照校验。
+            phase = "APPLY_CHECK";
             mutationGit(target, "apply", "--check", "--index", "--whitespace=nowarn", "--", patch.toString());
-            requireTrustedState(copy, execution.originalAsset(), baseline);
+            requireTrustedState(copy, execution.originalAsset(), startingRevision);
+            phase = "APPLY";
             mutationGit(target, "apply", "--index", "--whitespace=nowarn", "--", patch.toString());
 
+            phase = "APPLIED_TREE_CHECK";
             List<String> indexed = Arrays.stream(mutationGit(target, "diff", "--cached", "--no-ext-diff", "--no-renames",
-                    "--name-only", "-z", baseline, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
+                    "--name-only", "-z", startingRevision, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
             if (!new HashSet<>(indexed).equals(new HashSet<>(proposal.declaredAffectedPaths()))
                     || !mutationGit(target, "diff", "--no-ext-diff", "--name-only", "-z", "--").isEmpty()
                     || !mutationGit(target, "ls-files", "--others", "--exclude-standard", "-z").isEmpty()
                     || !mutationGit(target, "ls-files", "--others", "--ignored", "--exclude-standard", "-z").isEmpty()
-                    || !baseline.equals(headRevision(copy))) {
+                    || !startingRevision.equals(headRevision(copy))) {
                 throw new EvolutionExecutionException("Actual Working Copy change differs from the authorized scope");
             }
             requireSafePaths(copy, indexed);
@@ -280,39 +658,285 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
 
             // 发布前只检查固定 tree；路径及执行摘要也必须来自这个不可变版本。
             List<String> actual = Arrays.stream(mutationGit(target, "diff", "--no-ext-diff", "--no-renames",
-                    "--name-only", "-z", baseline, tree, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
+                    "--name-only", "-z", startingRevision, tree, "--").split("\0")).filter(path -> !path.isEmpty()).toList();
             if (!new HashSet<>(actual).equals(new HashSet<>(proposal.declaredAffectedPaths()))) {
                 throw new EvolutionExecutionException("Candidate tree exceeds the authorized scope");
             }
             requireSafePaths(copy, actual);
             List<String> changes = mutationGit(target, "diff", "--no-ext-diff", "--no-renames",
-                    "--numstat", baseline, tree, "--").lines().toList();
+                    "--numstat", startingRevision, tree, "--").lines().toList();
 
+            phase = "COMMIT_OBJECT";
             String candidate = mutationGit(target, "-c", "user.name=DelveForge", "-c", "user.email=local@delveforge.invalid",
-                    "-c", "commit.gpgSign=false", "commit-tree", tree, "-p", baseline,
+                    "-c", "commit.gpgSign=false", "commit-tree", tree, "-p", startingRevision,
                     "-m", "DelveForge evolution step " + execution.validated().basis().stepId().value()).trim();
 
             // update-ref 的旧值核对防止并发 HEAD 漂移；commit-tree 不运行提交 hooks。
-            mutationGit(target, "update-ref", "HEAD", candidate, baseline);
+            phase = "PUBLISH";
+            mutationGit(target, "update-ref", "HEAD", candidate, startingRevision);
             requireTrustedState(copy, execution.originalAsset(), candidate);
             return new CandidateMutationResult(candidate, actual, changes, List.of(), Instant.now());
+        } catch (ConfirmedGitRejection failure) {
+            confirmed = new ConfirmedExecutionFailureException(captureFailure(execution, target, phase,
+                    failure.exitCode, expectedTree));
+            throw confirmed;
         } catch (IOException failure) {
             throw new WorkspaceException("Cannot materialize controlled proposal patch", failure);
         } finally {
+            WorkspaceException cleanup = null;
             if (expectedIndex != null) {
                 try {
                     Files.deleteIfExists(expectedIndex);
                     Files.deleteIfExists(Path.of(expectedIndex + ".lock"));
                 } catch (IOException failure) {
-                    throw new WorkspaceException("Cannot remove invocation index artifact", failure);
+                    cleanup = new WorkspaceException("Cannot remove invocation index artifact", failure);
                 }
             }
             if (patch != null) {
                 try {
                     Files.deleteIfExists(patch);
                 } catch (IOException failure) {
-                    throw new WorkspaceException("Cannot remove invocation patch artifact", failure);
+                    if (cleanup == null) {
+                        cleanup = new WorkspaceException("Cannot remove invocation patch artifact", failure);
+                    } else {
+                        cleanup.addSuppressed(failure);
+                    }
                 }
+            }
+            if (cleanup != null) {
+                if (confirmed == null) {
+                    // 已形成但未交付的 Candidate 或其他未知结果仍未知，不由清理异常推断失败。
+                    throw cleanup;
+                }
+                // 已确认的主失败不能被 finally 覆盖；保留 Diff 与诊断，恢复仍须独立证明。
+                ExecutionFailureResult fact = confirmed.result();
+                var retained = new ConfirmedExecutionFailureException(new ExecutionFailureResult(fact.id(),
+                        fact.baselineRevision(), fact.startingRevision(), fact.phase(), fact.exitCode(),
+                        fact.diagnostic() + ";ARTIFACT_CLEANUP_NOT_CONFIRMED", fact.observedRevision(),
+                        fact.expectedTree(), fact.diffComplete(), fact.diff(), fact.failedAt()));
+                retained.addSuppressed(confirmed);
+                retained.addSuppressed(cleanup);
+                throw retained;
+            }
+        }
+    }
+
+    /** User Rollback 要求干净 Candidate；系统回滚可额外恢复已证明的完整未发布 tree，不清理用户文件。 */
+    @Override
+    public RestoredBaseline restoreBaseline(AuthorizedStepRollback authorized) {
+        WorkspaceRef copy = authorized.workingCopy();
+        String candidate = authorized.startingRevision();
+        String baseline = authorized.baselineRevision();
+        String phase = "PRECHECK";
+        try {
+            Path target = requireManagedCopy(copy);
+            phase = "ATTRIBUTE_SOURCES";
+            requireRepositoryAttributeSources(target);
+            phase = "OBJECT_VIEW";
+            if (Files.exists(target.resolve(".git/info/grafts"), LinkOption.NOFOLLOW_LINKS)
+                    || Files.exists(target.resolve(".git/refs/replace"), LinkOption.NOFOLLOW_LINKS)
+                    || !rollbackGit(target, phase, "for-each-ref", "--format=%(refname)", "refs/replace/").isBlank()) {
+                throw new WorkspaceException("Rollback cannot confirm baseline through an alternate Git object view");
+            }
+            if (authorized.executionFailure() != null) {
+                phase = "FAILURE_SNAPSHOT";
+                requireFailureSnapshot(authorized, target);
+            } else {
+                requireTrustedState(copy, authorized.originalAsset(), candidate);
+            }
+            if (!candidate.matches("[0-9a-f]{40}") || !baseline.matches("[0-9a-f]{40}")) {
+                throw new WorkspaceException("Rollback requires exact commit identities");
+            }
+            phase = "BASELINE_LOOKUP";
+            rollbackGit(target, phase, "cat-file", "-e", baseline + "^{commit}");
+            phase = "BASELINE_ATTRIBUTES";
+            // 初始 baseline 可能具有 Candidate 已删除的属性；checkout 前拒绝目标转换，不能先运行 smudge 再拒绝。
+            requireSafeTreeAttributes(target, baseline);
+            phase = "PATH_CHECK";
+            // 候选与目标两侧路径均检查，防止链接、嵌套仓库和 Windows 路径别名。
+            List<String> paths = Arrays.stream(rollbackGit(target, phase, "diff", "--no-ext-diff", "--no-renames",
+                    "--name-only", "-z", candidate, baseline, "--").split("\0"))
+                    .filter(path -> !path.isEmpty()).toList();
+            requireSafePaths(copy, paths);
+            if (authorized.executionFailure() != null) {
+                phase = "UNPUBLISHED_RESTORE";
+                restoreProvenUnpublishedTree(authorized, target);
+            } else {
+                requireTrustedState(copy, authorized.originalAsset(), candidate);
+            }
+            phase = "CHECKOUT";
+            // 不强制覆盖 ignored / untracked 文件，禁用 hooks，操作只在托管独立克隆中发生。
+            rollbackGit(target, phase, "checkout", "--detach", "--no-overwrite-ignore", "--no-recurse-submodules", baseline);
+            phase = "POSTCHECK";
+            requireTrustedState(copy, authorized.originalAsset(), baseline);
+            return new RestoredBaseline(baseline, Instant.now());
+        } catch (RuntimeException failure) {
+            String observed = null;
+            if (!Thread.currentThread().isInterrupted()) {
+                try {
+                    String actual = headRevision(copy);
+                    if (actual.matches("[0-9a-f]{40}")) {
+                        observed = actual;
+                    }
+                } catch (RuntimeException inspectionFailure) {
+                    failure.addSuppressed(inspectionFailure);
+                }
+            }
+            Integer exit = failure instanceof WorkingCopyRollbackException detail ? detail.exitCode() : null;
+            log.warn("operation=workspace.rollback result=NOT_CONFIRMED phase={} exitCode={} observedRevision={} exceptionType={}",
+                    phase, exit, observed, failure.getClass().getSimpleName());
+            throw new WorkingCopyRollbackException(phase, observed, exit, failure);
+        }
+    }
+
+    private static final class ConfirmedGitRejection extends RuntimeException {
+        private final int exitCode;
+
+        private ConfirmedGitRejection(int exitCode) {
+            super("Git rejected controlled mutation");
+            this.exitCode = exitCode;
+        }
+    }
+
+    /** 只保存真实 identity / index 差异，不保存源码、补丁、命令自由文本或凭据。 */
+    private ExecutionFailureResult captureFailure(AuthorizedStepExecution execution, Path target,
+            String phase, int exit, String expectedTree) {
+        String startingRevision = execution.validated().basis().expectedRevision();
+        // Repair 的 expectedRevision 是 B，失败恢复目标仍为第一次冻结的 A。
+        // 能力已由完整 EXECUTING 检查点构造，baseline 随能力携带，不从 HEAD 猜测。
+        return captureFailure(execution.workingCopy(), target, execution.baselineRevision(), startingRevision,
+                phase, exit, expectedTree);
+    }
+
+    private ExecutionFailureResult captureFailure(WorkspaceRef copy, Path target, String baseline, String start,
+            String phase, int exit, String expectedTree) {
+        String observed = null;
+        try {
+            observed = contentGit(target, start, "rev-parse", "HEAD").trim();
+            if (!observed.matches("[0-9a-f]{40}")) {
+                throw new WorkspaceException("Failure HEAD identity is unavailable");
+            }
+            // 不读取额外用户文件；其存在阻止现场完整证明和后续恢复。
+            requireNoExtraFiles(target, start);
+            Map<String, String> baselineBlobs = new LinkedHashMap<>();
+            Map<String, String> baselineEntries = new LinkedHashMap<>();
+            for (String row : contentGit(target, baseline, "ls-tree", "-r", "-z", baseline).split("\0")) {
+                if (row.isEmpty()) {
+                    continue;
+                }
+                int tab = row.indexOf('\t');
+                String[] fields = row.substring(0, tab).split(" ");
+                if (!fields[1].equals("blob")) {
+                    throw new WorkspaceException("Unsupported failure tree");
+                }
+                baselineBlobs.put(row.substring(tab + 1), fields[2]);
+                baselineEntries.put(row.substring(tab + 1), fields[0] + " " + fields[2] + " 0");
+            }
+            Map<String, String> indexEntries = new LinkedHashMap<>();
+            for (String row : contentGit(target, start, "ls-files", "--stage", "-z").split("\0")) {
+                if (row.isEmpty()) {
+                    continue;
+                }
+                int tab = row.indexOf('\t');
+                String path = row.substring(tab + 1);
+                if (indexEntries.put(path, row.substring(0, tab)) != null) {
+                    throw new WorkspaceException("Unmerged failure index");
+                }
+            }
+            TreeSet<String> all = new TreeSet<>(baselineBlobs.keySet());
+            all.addAll(indexEntries.keySet());
+            inspectSafePaths(copy, List.copyOf(all));
+            List<String> present = all.stream().filter(path -> Files.exists(target.resolve(path),
+                    LinkOption.NOFOLLOW_LINKS)).toList();
+            Map<String, String> physical = new LinkedHashMap<>();
+            for (int offset = 0; offset < present.size(); offset += 32) {
+                List<String> batch = present.subList(offset, Math.min(offset + 32, present.size()));
+                List<String> args = new ArrayList<>(List.of("hash-object", "--no-filters", "--"));
+                args.addAll(batch);
+                List<String> hashes = contentGit(target, start, args.toArray(String[]::new)).lines().toList();
+                if (hashes.size() != batch.size()) {
+                    throw new WorkspaceException("Incomplete failure byte proof");
+                }
+                for (int i = 0; i < batch.size(); i++) {
+                    physical.put(batch.get(i), hashes.get(i));
+                }
+            }
+            List<ExecutionFailureResult.DiffEntry> diff = new ArrayList<>();
+            for (String path : all) {
+                String original = baselineBlobs.get(path);
+                String entry = indexEntries.get(path);
+                String raw = physical.get(path);
+                if (!java.util.Objects.equals(baselineEntries.get(path), entry)
+                        || !java.util.Objects.equals(original, raw)) {
+                    diff.add(new ExecutionFailureResult.DiffEntry(path, original, entry, raw));
+                }
+            }
+            return new ExecutionFailureResult(UUID.randomUUID().toString(), baseline, start, phase, exit,
+                    "CONFIRMED_GIT_REJECTION", observed, expectedTree, true, diff, Instant.now());
+        } catch (RuntimeException failure) {
+            return new ExecutionFailureResult(UUID.randomUUID().toString(), baseline, start, phase, exit,
+                    "CONFIRMED_GIT_REJECTION;EVIDENCE_UNAVAILABLE:" + failure.getClass().getSimpleName(),
+                    observed, expectedTree, false, List.of(), Instant.now());
+        }
+    }
+
+    private void requireNoExtraFiles(Path target, String revision) {
+        if (!contentGit(target, revision, "ls-files", "--others", "--exclude-standard", "-z").isEmpty()
+                || !contentGit(target, revision, "ls-files", "--others", "--ignored", "--exclude-standard", "-z").isEmpty()) {
+            throw new WorkingCopyBasisChangedException("Extra user files prevent exact failure proof");
+        }
+    }
+
+    private void requireFailureSnapshot(AuthorizedStepRollback authorized, Path target) {
+        ExecutionFailureResult saved = authorized.executionFailure();
+        ExecutionFailureResult actual = captureFailure(authorized.workingCopy(), target, saved.baselineRevision(),
+                saved.startingRevision(), saved.phase(), saved.exitCode(), saved.expectedTree());
+        if (!saved.diffComplete() || !actual.diffComplete()
+                || !saved.startingRevision().equals(actual.observedRevision())
+                || !java.util.Objects.equals(saved.observedRevision(), actual.observedRevision())
+                || !saved.diff().equals(actual.diff())) {
+            throw new WorkingCopyBasisChangedException("Failure snapshot no longer matches physical state");
+        }
+    }
+
+    private void restoreProvenUnpublishedTree(AuthorizedStepRollback authorized, Path target) {
+        requireFailureSnapshot(authorized, target);
+        try {
+            requireTrustedState(authorized.workingCopy(), authorized.originalAsset(), authorized.startingRevision());
+            return;
+        } catch (WorkingCopyBasisChangedException changed) {
+            // 干净起点不匹配时，只考虑本次固定的完整补丁 tree；其他部分写入不能被强制覆盖。
+            String expected = authorized.executionFailure().expectedTree();
+            if (expected == null || !expected.matches("[0-9a-f]{40}")) {
+                throw changed;
+            }
+            Path original = resolveLocation(authorized.originalAsset()).toAbsolutePath().normalize();
+            try {
+                original = original.toRealPath();
+            } catch (IOException failure) {
+                throw new WorkspaceException("Cannot confirm automatic rollback isolation", failure);
+            }
+            if (target.startsWith(original) || original.startsWith(target)
+                    || target.getParent().startsWith(original) || original.startsWith(target.getParent())) {
+                throw new WorkingCopyBasisChangedException("Automatic rollback overlaps original asset");
+            }
+            for (String flag : contentGit(target, expected, "ls-files", "-v", "-z").split("\0")) {
+                if (!flag.isEmpty() && (Character.isLowerCase(flag.charAt(0)) || flag.charAt(0) == 'S')) {
+                    throw new WorkingCopyBasisChangedException("Failure index flags hide content");
+                }
+            }
+            requireTrackedContent(authorized.workingCopy(), target, expected);
+            requireNoExtraFiles(target, expected);
+            List<String> paths = Arrays.stream(rollbackGit(target, "UNPUBLISHED_PATHS", "diff", "--no-ext-diff",
+                    "--no-renames", "--name-only", "-z", authorized.baselineRevision(), expected, "--")
+                    .split("\0")).filter(path -> !path.isEmpty()).toList();
+            requireSafePaths(authorized.workingCopy(), paths);
+            requireFailureSnapshot(authorized, target);
+            if (!paths.isEmpty()) {
+                List<String> args = new ArrayList<>(List.of("--literal-pathspecs", "restore",
+                        "--source=" + authorized.baselineRevision(), "--staged", "--worktree", "--"));
+                args.addAll(paths);
+                rollbackGit(target, "UNPUBLISHED_RESTORE", args.toArray(String[]::new));
             }
         }
     }
@@ -322,15 +946,39 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     }
 
     private String mutationGit(Path directory, Path index, String... arguments) {
-        List<String> command = new ArrayList<>(List.of("git", "--no-optional-locks", "-c", "core.fsmonitor=false",
-                "-c", "core.hooksPath=" + directory.resolve(".git/delveforge-disabled-hooks"), "-C", directory.toString()));
-        command.addAll(List.of(arguments));
-        var result = index == null ? WorkspaceCommandRunner.run(directory, command, Duration.ofSeconds(30), 1048576)
-                : WorkspaceCommandRunner.runWithIndex(directory, command, index, Duration.ofSeconds(30), 1048576);
+        var result = mutationGitResult(directory, index, arguments);
         if (!result.succeeded()) {
-            throw new EvolutionExecutionException("Controlled Git mutation did not complete (exit " + result.exitCode() + ")");
+            // 仅接受正常返回、完整读取且具有 Git 拒绝标记的有限负向结果；信号退出等仍 UNKNOWN。
+            String output = result.output().stripLeading();
+            if ((result.exitCode() == 1 && output.startsWith("error:"))
+                    || (result.exitCode() == 128 && output.startsWith("fatal:"))) {
+                throw new ConfirmedGitRejection(result.exitCode());
+            }
+            throw new WorkspaceException("Controlled Git mutation outcome is not established");
         }
         return result.output();
+    }
+
+    private String rollbackGit(Path directory, String phase, String... arguments) {
+        // 同一 SHA 的 replacement / graft 视图不能作为原始 baseline 的恢复依据。
+        List<String> exactArguments = new ArrayList<>(List.of("--no-replace-objects"));
+        exactArguments.addAll(List.of(arguments));
+        var result = mutationGitResult(directory, null, exactArguments.toArray(String[]::new));
+        if (!result.succeeded()) {
+            throw new WorkingCopyRollbackException(phase, null, result.exitCode(),
+                    new WorkspaceException("Controlled rollback Git operation did not complete"));
+        }
+        return result.output();
+    }
+
+    protected WorkspaceCommandRunner.Result mutationGitResult(Path directory, Path index, String... arguments) {
+        List<String> command = new ArrayList<>(List.of("git", "--no-optional-locks", "-c", "core.fsmonitor=false",
+                "-c", "core.hooksPath=" + directory.resolve(".git/delveforge-disabled-hooks"),
+                // 每条命令均固定全局属性为空；即使 tracked include 配置被恢复也不能重新启用外部规则。
+                "-c", "core.attributesFile=", "-C", directory.toString()));
+        command.addAll(List.of(arguments));
+        return index == null ? WorkspaceCommandRunner.run(directory, command, Duration.ofSeconds(30), 1048576)
+                : WorkspaceCommandRunner.runWithIndex(directory, command, index, Duration.ofSeconds(30), 1048576);
     }
 
     private Path requireManagedCopy(WorkspaceRef copy) {

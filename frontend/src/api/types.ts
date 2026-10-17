@@ -118,6 +118,7 @@ export interface VerificationResult {
     criterionIndexes: number[];
     passed: boolean;
     summary: string;
+    outcome?: "PASSED" | "FAILED" | "NOT_RUN" | "INCONCLUSIVE";
   }[];
 }
 export interface EvolutionStep {
@@ -141,6 +142,40 @@ export interface EvolutionStep {
   baselineRevision: string | null;
   executionResult: ExecutionResult | null;
   verificationResult: VerificationResult | null;
+  repairAuthorizations?: {
+    id: string;
+    candidateRevision: string;
+    authorizedAt: string;
+    previousExecution: ExecutionResult;
+    previousVerification: VerificationResult;
+  }[];
+  retryAuthorizations?: {
+    id: string; failedCheckpointId: string; baselineRevision: string; authorizedAt: string;
+    previousExecution: ExecutionResult | null; previousVerification: VerificationResult | null;
+    previousRepairs: NonNullable<EvolutionStep["repairAuthorizations"]>;
+    previousRollbackAuthorization: EvolutionStep["rollbackAuthorization"];
+    previousRollbackResult: EvolutionStep["rollbackResult"];
+    previousExecutionFailure: EvolutionStep["executionFailureResult"];
+    previousAutomaticRollback: EvolutionStep["automaticRollbackResult"];
+  }[];
+  executionFailureResult?: {
+    id: string; baselineRevision: string; startingRevision: string; phase: string;
+    exitCode: number; diagnostic: string; observedRevision: string | null; expectedTree: string | null;
+    diffComplete: boolean;
+    diff: { path: string; baselineBlob: string | null; indexEntry: string | null; workingBlob: string | null }[];
+    failedAt: string;
+  } | null;
+  automaticRollbackResult?: {
+    failureId: string; baselineRevision: string; observedRevision: string | null;
+    restored: boolean; diagnostic: string; completedAt: string;
+  } | null;
+  rollbackAuthorization?: {
+    id: string; candidateRevision: string; baselineRevision: string; authorizedAt: string;
+  } | null;
+  rollbackResult?: {
+    authorizationId: string; baselineRevision: string; observedRevision: string | null;
+    restored: boolean; diagnostic: string; completedAt: string;
+  } | null;
 }
 export interface EvolutionPlan {
   id: string;

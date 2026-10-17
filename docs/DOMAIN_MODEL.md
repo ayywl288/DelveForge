@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 内部有哪些核心业务概念，这些概念分别代表什么，以及它们之间如何协作。
 
 **Status:** Stable
-**Last Updated:** 2026-10-11
+**Last Updated:** 2026-10-16
 
 ## 1. Domain Overview
 
@@ -1361,6 +1361,11 @@ Rollback / Recovery 转换由 M5 实现。M4 在进入 `EXECUTING` 或 `VERIFYIN
 不标记 Step `SUCCEEDED`，并阻止不一致或未解决状态上的后续 Evolution。
 暂留检查点不表示 Rollback / Recovery 已发生，也不改变下述最终失败语义。
 
+M5-A 实验分支仅补齐已明确完成的 Verification FAIL：保存失败结果并进入 VERIFICATION_FAILED，
+WorkingCopy 保持 EVOLVING、currentRevision 指向 Candidate，lastVerifiedRevision 保持原可信基线。
+超时、进程崩溃、中断、结果未知或证据不足继续保留最后完整检查点；不推断已失败或已回滚。
+本 Slice 不开放 Repair / Retry / Rollback / Recovery。
+
 ```mermaid
 stateDiagram-v2
     [*] --> CREATING
@@ -1800,7 +1805,8 @@ Task F-Fix 引入稳定的演化作用域身份 `flowId`，不引入新的 Aggre
 | `INV-V11` | Evolution Step 从 `RECOVERY_REQUIRED` 恢复为 `FAILED` 的唯一前提是 Working Copy 已精确恢复到该 Step 的 `baselineRevision`；无法恢复到该 Revision 时，当前 Working Copy 必须进入 `UNRECOVERABLE`，当前 Plan 不得继续原执行路径。 |
 
 上述 Verification Failure / Repair / Rollback / Recovery 规则仍为完整 MVP 目标不变量。
-M4 对验证异常或未通过结果可暂留 `VERIFYING` 检查点，M5 再实现完整失败转换；
+M4 对验证异常或未通过结果可暂留 `VERIFYING` 检查点；M5-A 对明确 FAIL 实现
+`VERIFYING → VERIFICATION_FAILED`，验证异常和未知结果仍保留 `VERIFYING`；
 期间 `INV-V01`–`INV-V03` 的信任边界始终生效：不得标记成功、不得推进可信 revision，
 不得从该 Candidate 开始后续 Step。暂留 `VERIFYING` 不表示验证仍在运行或已经成功，
 也不表示回滚 / 恢复已完成。
@@ -2445,7 +2451,13 @@ Domain 独立核对 kind、动作与有界 target，不能任意绑定索引。
 这是 M4 当前能力限制，不是放宽 `INV-V01`，也不引入通用自然语言证明器或新的审批生命周期。
 检查保留动作、target、Criteria 索引与有界实际结果摘要；领域不接受缺项、矛盾结果或其他 revision。
 结果、SUCCEEDED 与 lastVerifiedRevision = B 一次提交成功后才生效。
-技术失败或持久化失败按 §6.4 暂留 VERIFYING，不保存成功事实或推进可信 revision。
+M5-A 对明确失败保存 VerificationResult 并进入 VERIFICATION_FAILED；证据不足、异常、结果未知
+或持久化失败按 §6.4 暂留 VERIFYING，不保存成功事实或推进可信 revision。
+
+M5-A 的 Check.outcome 区分 PASSED、FAILED、NOT_RUN 与 INCONCLUSIVE。失败转移要求同一 Candidate、
+每项标准与动作的合法对应及至少一项明确 FAILED，不接受 INCONCLUSIVE；NOT_RUN 只记录因前项失败
+而未执行的动作，不作为已完成的负向证据。结果与 Step 状态原子保存，WorkingCopy revisions 不变。
+历史成功恢复继续只检查完整记录结构；旧负值缺少明确动作结果时不得升级成确认失败。
 
 #### Verification Failed
 
@@ -2512,6 +2524,24 @@ VERIFYING
 
 Repair 不能绕过 Verification 直接将 Step 标记为 SUCCEEDED。
 
+**M5-B 当前实现（feature/m5-lab）：** 用户通过独立 Repair 请求提交当前 Candidate revision 与本次
+授权 ID；首次 Step Confirmation 不替代该授权。Domain 在原 Step 内追加 `RepairAuthorization`
+Value Object，记录 ID、所依据的 Candidate、授权时间及此前完整 Execution / Verification 失败快照，
+然后进入 EXECUTING。当前结果槽清空，首次 baseline 不重设，WorkingCopy 的 current / lastVerified 均不推进。
+授权 ID 在同一 Step 内不得复用；旧 Candidate、其他占用流程、资产授权或隔离检查失配时拒绝。
+
+本 Slice 采用原子授权检查点先于 Provider 的顺序，避免并发或重复请求再次调用 Provider。
+授权后 Provider、提案、mutation 或验证异常保留最后完整检查点，不重放请求，也不引入
+EXECUTING → VERIFICATION_FAILED 的撤销授权转移。该状态不证明请求仍在运行或已经回滚。
+Repair 只有在明确失败并保存新 VerificationResult 后才能再次接受新的 Repair 授权。
+
+Repair 从授权的 Candidate B 应用增量补丁并形成 C；验证使用原 baseline A 到 C 的软件状态，
+全部既有 Criteria 都必须重新获得对应证据。当前保守技术策略重跑此前动作及定向测试身份，
+再追加新提案的动作，按动作 / target 合并索引并继续使用既有预算；不允许新测试掩盖旧失败。
+只有 PASS 才推进 lastVerified；明确 FAIL 保存 C，未知结果保持 fail-closed。
+每次新 Repair 授权都先归档其所依据的失败结果，既有快照不能被后续结果覆盖。
+这只保存本 Slice 必要事实，不引入独立 Execution Attempt Entity、Rollback、Retry 或 Recovery。
+
 ### 8.13 Rollback Evolution Step
 
 **Purpose**
@@ -2575,6 +2605,50 @@ No Repair
 No Automatic Evolution
 ```
 
+**M5-C 实现范围（feature/m5-lab 实验）：** 仅开放 `VERIFICATION_FAILED` 的明确 User Rollback。
+授权绑定原 Step、当前失败 Candidate 和首次固定 baseline；不能复用 Repair 授权身份，也不能指定
+上一 Candidate 或 WorkingCopy.sourceRevision 作为替代目标。授权与 `ROLLING_BACK` 先原子落盘，
+然后才调用受控恢复能力。当前失败 Execution / Verification 及 Repair 历史继续保留，不清空或覆盖。
+
+本 Slice 使用 Step 内部 `RollbackAuthorization` / `RollbackResult` Value Object，不引入完整 Attempt
+或事件框架。只有实际 HEAD、index、工作树均精确符合原 baseline，且成功检查点完成后，才记录
+`FAILED` 与 currentRevision=baseline；lastVerifiedRevision 不推进。未确认的恢复结果保存诊断并令
+Step / WorkingCopy 进入 `RECOVERY_REQUIRED`；其中 currentRevision 保留最后已记录 Candidate，
+不是对未知物理现场的断言，observedRevision 也不能单独证明完整恢复。
+
+本版保守实现选择：授权前拒绝脏树、ignored / untracked 文件及隔离不确定；授权后发现这些情况
+则保存阻塞结果。不强制覆盖、不执行额外文件清理；只有 Candidate 的已跟踪 Step 改动属于放弃范围。
+不调用 Provider，不自动重试，不提供 Execution Failure 自动回滚、FAILED Retry 或 Recovery。
+
+**2026-10-13 用户裁定的本轮边界：** 重启读到残留 `ROLLING_BACK` 时保留原检查点并禁止新的
+Execution / Repair / Rollback，不重放、不推断旧调用已停止，不转换成 `FAILED` 或 `RECOVERY_REQUIRED`。
+后续 Recovery Slice 仍须裁定旧调用停止的判据、所有权与未知结果处理；本轮没有 Recovery 请求入口。
+数据库拒绝成功与阻塞检查点时也只能保留 `ROLLING_BACK`；不能伪造已持久化的失败或恢复成功。
+
+**M5-D 实现范围（feature/m5-lab 实验）：** 受控 Execution 明确失败后，先原子保存
+`ExecutionFailureResult` 与 EXECUTING → ROLLING_BACK，再尝试系统 Rollback。此记录没有 Candidate，
+其失败身份只用于本次系统操作关联，不制造 `RollbackAuthorization`；当前版本的完整 ExecutionResult
+继续只表示合法 Candidate。失败记录绑定首次 baseline、本次起点、阶段与有限诊断。此前 Repair 的
+授权及 Execution / Verification 失败快照保留。系统恢复结果以独立 `AutomaticRollbackResult` 保存。
+
+当前有限技术判定只接受正常结束、完整读取且带 Git 拒绝标记的受控命令负向结果；不以任意异常或
+非零退出推断失败。超时、中断、信号退出、输出丢失、Provider / 提案异常或 Candidate 保存异常仍
+保持最后完整检查点，不自动回滚或重放；本 Slice 不扩展其分类。失败 Diff 证据为固定 baseline blob、
+实际 index mode / blob / stage、重新读取物理文件的 byte identity 差异及预期补丁 tree。
+它不持久化原始源码、完整 unifiedDiff 或自由命令输出；CRLF 的原始 identity 可以不同于 canonical blob。
+无法完整读取时明确保存证据不可用，不能将它作为破坏性恢复依据。
+
+系统回滚复用精确 baseline 证明。干净执行起点沿用非强制 checkout；完整但未发布的补丁只有在
+失败现场未漂移、整树 index 与真实内容匹配本次固定预期 tree、隔离 / 路径 / 属性 / 额外文件守卫
+均通过后，才恢复 baseline..tree 的已跟踪 Step 文件，再做 detached checkout 与完整基线证明。
+无法证明归属的部分写入、额外用户文件、属性转换不安全或恢复结果未知进入 RECOVERY_REQUIRED。
+不使用 reset --hard / clean，不清理其他文件，不形成假的 Candidate，不推进 lastVerifiedRevision。
+失败诊断 CAS 与已有阻塞提交一样，只追加已授权执行的安全事实，不授予 Workspace 权限；
+执行后撤权或 Plan 失效不抹去诊断。恢复能力之前仍完整重查当前资产 / Flow / Plan 资格，失效时只保存
+RECOVERY_REQUIRED，不调用 Git。诊断提交失败则不启动恢复；终态与阻塞检查点都不可保存时保留
+ROLLING_BACK 并返回错误。
+重启继续只读保存事实，不判断旧调用已停止，不重放未决 Execution 或 Rollback。
+
 ### 8.14 Retry Evolution Step
 
 **Purpose**
@@ -2608,7 +2682,35 @@ Retry
 = 从稳定基线重新完整执行 Step
 ```
 
+**M5-E 当前实现范围（实验分支）**
+
+`FAILED → READY` 由独立 Retry 授权完成，不调用 Provider、不产生代码修改。
+前置检查包括 ACTIVE Plan / 当前 Flow 绑定、SELECTED Direction、资产权限、绑定 Working Copy、
+前序 Step 成功及无未决操作；Working Copy 必须 EVOLVING，且实际完整内容、currentRevision、
+lastVerifiedRevision 均匹配该 Step 首次冻结的精确 baselineRevision。此处 baseline 可以是前序 Step
+验证成功后的 revision，不必等于 Working Copy 创建时的 sourceRevision。
+
+请求绑定当前 FAILED 检查点身份（User Rollback 授权或已确认 Execution Failure 身份）、原 baseline
+及新的 Retry 授权身份。旧请求、已用身份或并发输家均不得创建另一份授权。
+本 Slice 延续 Step 内值对象的当前实现选择：追加 `RetryAuthorization`，保存本次独立授权时间、
+被替代轮次的 Execution / Verification、全部 Repair 授权及其失败快照、User / Automatic Rollback
+与 Execution Failure 诊断；再清空当前轮次的结果槽位并进入 READY。更早 Retry 顺序保留，不递归
+复制更早 Retry 数组，不引入独立 Attempt Entity，也不补造历史首次 Confirmation 的时间事实。
+
+后续准备 / Execute 必须显式携带当前 Retry 授权身份；该轮 Repair / User Rollback 也携带相同父身份，
+并仍须各自的新动作授权。它用于区分同一 baseline 上的多轮请求，不替代资产权限或 Scope 检查。
+原首次 baseline 保持不变；通过既有受控 Execution 形成 Candidate 后，重新验证全部适用 Criteria。
+只有 PASS 推进 lastVerifiedRevision。明确执行失败复用 M5-D 诊断 / 精确恢复，明确验证失败保留
+最新 Candidate；UNKNOWN、检查点保存失败、重启未决状态沿用既有 fail-closed 规则。
+GET、启动、异常处理均不授权或自动执行 Retry；本 Slice 不开放 Recovery。
+
 ### 8.15 Recover Working Copy
+
+**实现状态（2026-10-16，用户已裁定）：Recovery 写入 DEFERRED。** 以下仍为完整领域目标，
+不是已开放能力。当前隔离方案尚不能证明旧写者停止或失去写能力；RECOVERY_REQUIRED 及遗留
+UNKNOWN 保持阻塞，不接管、不重放、不改判，也不据此制造 Recovery Failure 或 UNRECOVERABLE。
+重新开放须独立安全架构设计与实证；见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)
+及 [M5 阶段性收尾](validation/m5-partial-closeout.md)。本说明不删除或放宽下述目标转换与不变量。
 
 **Purpose**
 

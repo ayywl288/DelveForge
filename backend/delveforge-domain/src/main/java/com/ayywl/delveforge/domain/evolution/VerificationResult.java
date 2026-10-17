@@ -7,6 +7,9 @@ import java.util.List;
 /** 检查事实不自行赋予信任；Step 对 Candidate 身份及全部 Criteria 的对应证据作最终判断。 */
 public record VerificationResult(String candidateRevision, List<Check> checks, boolean passed,
         List<String> failures, String summary, Instant verifiedAt) {
+    /** 未执行与证据不确定不能单独成为确认失败的依据。 */
+    public enum Outcome { PASSED, FAILED, NOT_RUN, INCONCLUSIVE }
+
     public VerificationResult {
         candidateRevision = PlanningContent.text(candidateRevision, "verification.candidateRevision");
         checks = List.copyOf(checks);
@@ -19,6 +22,21 @@ public record VerificationResult(String candidateRevision, List<Check> checks, b
     }
 
     public boolean satisfies(List<VerificationCriterion> criteria) {
+        return passed && hasSupportedCoverage(criteria);
+    }
+
+    /** 只有对应标准的明确失败事实才允许结束 VERIFYING；未知结果不能转成失败。 */
+    public boolean confirmsFailure(List<VerificationCriterion> criteria) {
+        return recordsConfirmedFailure() && hasSupportedCoverage(criteria);
+    }
+
+    private boolean recordsConfirmedFailure() {
+        return !passed && !failures.isEmpty()
+                && checks.stream().anyMatch(check -> check.outcome() == Outcome.FAILED)
+                && checks.stream().noneMatch(check -> check.outcome() == Outcome.INCONCLUSIVE);
+    }
+
+    private boolean hasSupportedCoverage(List<VerificationCriterion> criteria) {
         // 模型提议的索引不是证据；每个对应动作必须独立满足该 Criterion 的证据类型。
         HashSet<Integer> covered = new HashSet<>();
         for (Check check : checks) {
@@ -30,11 +48,19 @@ public record VerificationResult(String candidateRevision, List<Check> checks, b
                 covered.add(index);
             }
         }
-        return passed && !criteria.isEmpty() && covered.size() == criteria.size();
+        return !criteria.isEmpty() && covered.size() == criteria.size();
     }
 
     /** 历史结构检查不赋予标准当前执行资格，也不重新解释历史证据类型。 */
     boolean recordsPassedCoverage(int criterionCount) {
+        return passed && recordsCoverage(criterionCount);
+    }
+
+    boolean recordsFailedCoverage(int criterionCount) {
+        return recordsConfirmedFailure() && recordsCoverage(criterionCount);
+    }
+
+    private boolean recordsCoverage(int criterionCount) {
         HashSet<Integer> covered = new HashSet<>();
         for (Check check : checks) {
             for (Integer index : check.criterionIndexes()) {
@@ -44,10 +70,20 @@ public record VerificationResult(String candidateRevision, List<Check> checks, b
                 covered.add(index);
             }
         }
-        return passed && criterionCount > 0 && covered.size() == criterionCount;
+        return criterionCount > 0 && covered.size() == criterionCount;
     }
 
-    public record Check(String action, String target, List<Integer> criterionIndexes, boolean passed, String summary) {
+    public record Check(String action, String target, List<Integer> criterionIndexes, boolean passed,
+            String summary, Outcome outcome) {
+        /** 旧数据缺少动作结果分类：旧 PASS 可读，旧负值不推断为明确失败。 */
+        public Check(String action, String target, List<Integer> indexes, boolean passed, String summary) {
+            this(action, target, indexes, passed, summary, null);
+        }
+
+        public Check(String action, String target, List<Integer> indexes, Outcome outcome, String summary) {
+            this(action, target, indexes, outcome == Outcome.PASSED, summary, outcome);
+        }
+
         public Check {
             if (!List.of("BUILD", "TEST", "FOCUSED_TEST", "DIFF_CHECK").contains(action)) {
                 throw new EvolutionPlanStateException("Unsupported verification fact");
@@ -55,6 +91,10 @@ public record VerificationResult(String candidateRevision, List<Check> checks, b
             target = target == null ? "" : target;
             criterionIndexes = List.copyOf(criterionIndexes);
             summary = PlanningContent.text(summary, "check.summary");
+            outcome = outcome == null ? (passed ? Outcome.PASSED : Outcome.INCONCLUSIVE) : outcome;
+            if (passed != (outcome == Outcome.PASSED)) {
+                throw new EvolutionPlanStateException("Contradictory verification check outcome");
+            }
         }
     }
 }

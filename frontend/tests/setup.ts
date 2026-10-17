@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, vi } from "vitest";
+import { installWebLocks } from "./webLocks";
 
 beforeEach(() => {
   localStorage.clear();
@@ -10,25 +11,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () {
     this.removeAttribute("open");
   };
-  let held = false;
-  Object.defineProperty(navigator, "locks", {
-    configurable: true,
-    value: {
-      request: async (
-        _name: string,
-        _options: unknown,
-        callback: (lock: object | null) => Promise<void>,
-      ) => {
-        if (held) return callback(null);
-        held = true;
-        try {
-          return await callback({ name: "test-lock" });
-        } finally {
-          held = false;
-        }
-      },
-    },
-  });
+  installWebLocks();
 });
 afterEach(() => {
   vi.useRealTimers();

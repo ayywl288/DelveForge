@@ -3,7 +3,7 @@
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-10-12
+**Last Updated:** 2026-10-16
 
 ## 1. Architecture Goals
 
@@ -1168,9 +1168,137 @@ Maven 启动参数在两个平台都先放 Wrapper 启动程序，再放公共�
 
 SQLite 在三个事务检查点同时条件更新 Step 与 WorkingCopy：
 READY → EXECUTING（冻结 A、EVOLVING）；EXECUTING → VERIFYING（ExecutionResult B、current B）；
-VERIFYING → SUCCEEDED（VerificationResult B、lastVerified B）。提交前在隔离对象上完成领域转换，
+VERIFYING → SUCCEEDED（VerificationResult B、lastVerified B），或 M5-A 的
+VERIFYING → VERIFICATION_FAILED（失败 VerificationResult B、保留 current B / lastVerified A）。
+提交前在隔离对象上完成领域转换，
 事务比较当前生命周期、revision、Plan / Direction / Asset 授权依据。外部操作与数据库不形成一个事务；
-异常保留最后完整检查点，未解决流程或物理 / 持久 revision 不一致会阻止继续执行。M5 实现完整失败转换。
+异常保留最后完整检查点，未解决流程或物理 / 持久 revision 不一致会阻止继续执行。
+M5-A 不增加跨技术事务、重试或补偿；完整失败恢复留待后续 Slice。
+
+**M5-A 当前实现选择（实验分支）：** VerificationFacts / VerificationResult 的检查项增加
+`outcome`（PASSED / FAILED / NOT_RUN / INCONCLUSIVE），保留原 passed 字段。只有明确完成的负向检查
+可以保存为 VERIFICATION_FAILED；剩余动作以 NOT_RUN 记录，不伪造其失败或成功。
+Git Diff 要有检查错误退出及输出；Maven 编译失败要有正常 BUILD FAILURE 与 Compilation failure，
+测试失败还须本次有界报告记录失败，定向测试须核对失败身份。未认证的 Maven 退出、测试子进程崩溃、
+配置不足、缺少报告、超时、输出读取失败和中断继续 fail closed。
+该判定是当前有限技术适配选择；未认证的负向结果不推断为已知失败。
+原 execute 端点在成功保存明确 FAIL 后返回 200 与真实失败 Plan，HTTP 成功不表示 Step 成功。
+SQLite 沿用现有结果 JSON 与 CAS；没有 schema 迁移，也不改写已有检查点。
+旧 JSON 缺少 outcome 时，通过项恢复为 PASSED，负值恢复为 INCONCLUSIVE，不补造明确失败。
+
+**Candidate Repair（M5-B 实验分支）：** 独立 `POST /api/evolution-plans/{planId}/steps/{stepId}/repair`
+接受 `{ expectedCandidateRevision, authorizationId }`，不接受客户端序列化提案、任意路径或命令。
+请求本身是当前一次 Repair 的明确授权；UUID 是本版协议去重身份，不是资产权限或通用授权 token。
+在 Provider 前条件提交 VERIFICATION_FAILED → EXECUTING、授权与旧失败快照，然后在当前 Candidate
+只读准备提案并重新核对资格。原 execute / execution-preparation 入口仍只接受 READY。
+
+ExecutionPreparationBasis 在 Repair 中的 expectedRevision 表示修改起点 B，repairAuthorizationId 绑定
+本次调用内提案；AuthorizedStepExecution.fromRepair 同时检查首次可信 baseline A、授权身份与实际 B。
+Git 从 B 创建单个子 Candidate C，Verification 的 baseline 始终是 A，成功后才赋予 C 软件信任。
+生命周期与 Git 仍不形成跨技术事务；没有重启后重放 Repair 的端点或后台任务。
+
+V18 只给 evolution_step 增加默认 `[]` 的 repair_authorizations JSON 列，存放 Step 内部不可覆盖的
+RepairAuthorization Value Object 列表。每项含授权事实及其所依据的失败结果，不引入独立 Attempt Aggregate。
+Step / WorkingCopy CAS 同时比较旧历史；所有提交分支重放 Domain 操作并检查完整历史一致性。
+旧状态、baseline、Execution / Verification 原文保持不变，不回填虚构授权；正常 GET 返回授权与历史。
+授权后的 Provider、解析或执行异常保持最后检查点，该 Slice 不实现补偿、Retry 或 Recovery。
+
+**User Rollback（M5-C 实验分支）：** 新增独立
+`POST /api/evolution-plans/{planId}/steps/{stepId}/rollback`，请求只携带当前完整 Candidate、
+首次 baseline 与新 UUID 授权身份。`RollbackEvolutionStepUseCase` 不依赖 AI Gateway，复用
+资产 / Flow / 生命周期检查、隔离对象副本与 Step / WorkingCopy 原子提交。
+`WorkspaceRollbackPort` 是独立且不继承其他 Port 的窄能力；`AuthorizedStepRollback` 只能从
+匹配本次授权的 `ROLLING_BACK` 检查点构造。Git Adapter 核对托管位置、隔离、真实 Candidate、
+安全路径及目标 commit，执行禁用 hooks 的非强制 detached checkout，并重新核对精确 HEAD、
+index 与工作树。它不用 reset --hard / clean，使用 `--no-overwrite-ignore`，不清理额外用户文件。
+Rollback 还拒绝 replacement refs / graft 元数据，命令显式使用 `--no-replace-objects`；不能把
+被替换的同 SHA 对象视图当作原始 baseline，不删除或改写这些用户元数据。
+M5 Review Findings 修复补强共享物理检查：从固定 revision 枚举全部 tracked blob，比较 index 的
+对象 / mode / stage，并重新读取每个实际文件计算 Git blob identity，不信任 stat 缓存或普通 diff。
+属性读取固定在该 revision。M5-003 修复使用 `check-attr --all` 的属性存在性，拒绝显式 filter、
+ident、working-tree-encoding（含歧义值和显式禁用）；不把字符串 unset / unspecified 当作安全状态。
+真实字节仅用 `hash-object --no-filters`，LF / CRLF 等价只使用 Git 只读 EOL 描述及有界本地字节证明
+（需要转换的文件上限 1 MiB），不执行 clean / smudge / process。 EOL / config 按批次读取，
+每个实际文件仍分别证明完整 byte identity，不采用 stat 缓存。额外文件使用只读枚举，取消该证明
+路径中会调用 clean 的 status / 工作树 diff；index / mode / stage 及整树内容证据仍独立保留。
+checkout 前也检查整个原始 baseline 的属性，防止仅存在于目标版本的外部转换先执行再被拒绝。
+检查不写对象、不刷新真实 index；命令沿用有界进程入口，不支持 `--attr-source` 的 Git 失败关闭。
+M5-005 补强恢复期间的来源约束：共享物理检查和两种 Rollback 入口在任何写入前，拒绝有效的非空
+`core.attributesFile`（包含 include 的有效值）、`.git/info/attributes` 及不确定的 info 路径。
+受控有界 Git 命令逐条固定 `core.attributesFile=`，并在清除外部 Git 环境后设置内部
+`GIT_ATTR_NOSYSTEM=1`，不加载默认全局 / 系统属性，也不改写用户配置。目标 / 当前版本的
+`.gitattributes` 仍受完整 revision 及真实内容证明；未生效的外部转换定义和自定义宏也保守拒绝，
+避免恢复中间属性视图激活未经证明的转换。这是当前技术支持范围：原生 text / eol / autocrlf 的
+LF / CRLF 证明保留；依赖外部属性文件或自定义宏的仓库失败关闭。尚未提供外部来源冻结能力。
+M5-007/008 在上述共享守卫中核对固定 tree、完全匹配的 index 路径及 tracked 路径祖先目录的真实目录项。
+非规范大小写的 `.gitattributes` 一律失败关闭，包括根目录、嵌套目录、仅磁盘改名和仅目标 baseline 存在
+的情况；不通过增加大小写转换支持来猜测 Git 对象与宿主文件系统的不同解释。原始 baseline 在任何
+restore / checkout 前执行同一检查。自定义宏只按 Git 首个 pattern 的 C 引号解码，且仅在以 `[attr]` 开头、后缀非空时
+识别；中间含 `[attr]` 或恰好为 `[attr]` 的合法 glob 不当作宏，真实宏及外部转换仍拒绝。
+M5-009 将属性文本限制为可统一证明的 UTF-8 / LF / CRLF 子集：任意位置的 BOM / U+FEFF、
+UTF-8 解码替换字符 U+FFFD（含合法编码的同名字符）、NUL、其他 C0 控制字节、DEL 和裸 CR 均失败关闭；
+不通过剥离 BOM 或扩大解析器来兼容。属性能力按 ASCII 属性名及首个 `=` 判断，不用值上的正则 dot，
+避免 Unicode 行分隔符隐藏转换能力。固定 tree 的全部属性检查同时用于原始 baseline 和调用私有 index
+产生的完整预期 tree；后者必须先于真实 `apply --check --index` / Apply / Candidate 发布，覆盖提案新增属性文件。
+此拒绝保留既有 EXECUTING 未决检查点，不制造已确认 Execution Failure；恢复阶段拒绝沿用阻塞结果规则。
+
+
+原修复记录见 [M5-001/002 报告](validation/m5-review-findings-fix.md)，后续复审修复见
+[M5-003/004 报告](validation/m5-review-findings-003-004-fix.md)。
+
+V19 仅增加 nullable 授权 / 结果 JSON 槽，旧结果与 Repair 历史不改写。授权及成功检查点沿用
+完整资格 / CAS；失败检查点的 `blockRollback` 只允许匹配已保存授权的 `ROLLING_BACK` 同时
+转为 Step / WorkingCopy `RECOVERY_REQUIRED`，不提供 Workspace 能力。该安全事实写入不因
+资产权限撤销而被禁止，但仍比较完整旧结果、历史、绑定及 WorkingCopy revision / location。
+权限撤销仍禁止新的授权、代码操作或成功转移；这不改变 M4 / M5-A/B 的授权守卫。
+
+恢复、状态重查或成功提交异常后，只尝试保存新的阻塞结果，不重跑 Git。两种结果提交都不可用
+时保留原 `ROLLING_BACK` 检查点并返回错误。启动 / GET 仅恢复保存的事实，不做补偿、重放或自动
+状态改判；此边界已由用户明确裁定，未决调用所有权留给后续 Recovery Slice。
+M5-004 的前端 GET 返回已采纳快照或 null；清理等待标记要求该快照仍对应最新查询版本与当前对象。
+被淘汰 GET、执行前资格查询未被采纳、已保存的未决授权都不允许触发新的 POST 或清理等待。
+
+
+**Execution Failure（M5-D 实验分支）：** `WorkspaceMutationPort` 只通过专用确认失败类型提供
+已完成的负向执行事实；其他异常保持未知。Git 适配器保存阶段、受控拒绝类别与真实 identity Diff，
+不保存命令自由文本。Application 将失败与 ROLLING_BACK 先原子提交，再从该检查点建立系统恢复
+capability；它不需要 AI Gateway 或新的用户 Rollback 授权。User Rollback 的独立授权边界保持。
+
+`AuthorizedStepRollback.fromExecutionFailure` 是 Option E 的系统触发入口，绑定原 Step / WorkingCopy
+与已保存失败。完整未发布补丁采用只针对已证明 Step 路径的 `restore --source=baseline --staged --worktree`，
+再沿用非强制 checkout、无 filter 的整树字节 / index / mode 证明。完整预期 tree 来自固定起点和
+校验补丁的调用私有 index，不是 Candidate 或受信 Revision。其他部分写入与额外文件保守阻塞。
+
+V20 仅增加 nullable 失败 / 系统恢复结果 JSON；CAS 比较这些字段与已有授权、历史、状态及 revision。
+Persistence 重放 Domain 操作；diagnoseFailure 仅向匹配 EXECUTING 元组追加失败 / ROLLING_BACK，
+沿用 blockRollback 的安全事实模式。它不授予外部能力；恢复前仍检查当前资产与 Flow / Plan 资格。
+所有外部恢复与数据库仍分离。成功检查点不可提交时尝试保存阻塞事实，
+两种终态都不可保存则保留原未决检查点。无后台任务、自动 Retry 或启动补偿。
+现有 execute / repair 返回保存的真实 Plan；新增只读结果字段与 UI 诊断，不开放新的执行或恢复入口。
+
+**FAILED Retry（M5-E 实验分支）：** 独立 `RetryEvolutionStepUseCase` 使用既有只读资格加载、
+完整基线 inspection、Domain 操作与 StepExecutionCommitPort，只原子保存 FAILED → READY 授权。
+它没有 AI Gateway 或 mutation / rollback Port。之后的显式 prepare / execute 复用 M4 链路，
+ExecutionPreparationBasis 与 capability 核对父 Retry 身份，防止同 baseline 的旧请求继承新授权。
+Repair / User Rollback 在 Retry 轮次中也核对父身份；不合并其独立动作授权。
+
+V21 只新增默认 `[]` 的 retry_authorizations JSON 列。Step 内保存按顺序追加的授权及前轮完整失败
+快照，不建立新 Aggregate。普通、失败诊断及阻塞提交均比较完整 Retry 历史，Persistence 重放
+Domain 转移，并与 WorkingCopy 更新保持原事务；同状态 / 同 baseline 的历史变化也会使 CAS 失败。
+旧 V20 行保留原字段含义，不伪造 Retry 历史。
+
+授权 READY 与请求付费准备 / 执行分开。当前执行准备仍沿用 M4 在 EXECUTING claim 前调用 Provider
+的次序；本 Slice 不新增 Provider 调用的 exactly-once 承诺。UI 使用 Web Lock、持久化等待标记和
+被采纳的最新 GET 快照阻止自动重送；READY 本身不证明未知的外部准备请求已经停止。
+显式保存的 Retry 授权可通过匹配身份的 GET 确认；未决 EXECUTING / ROLLING_BACK 仍阻塞。
+
+M5-010：浏览器 receipt 为每个 Execute / Repair / Rollback / Retry 请求生成独立 requestId，
+不使用父 Retry ID 代替请求身份。GET 在开始时捕获待核实标记；清理仍须符合原业务结果规则。
+所有 receipt 写入和清理共用短时 `delveforge.execution-receipt` Web Lock，在锁内重新读取存储、
+比较完整预期标记并检查查询版本，检查与删除之间不等待网络。原 `delveforge.execute` 长时锁
+继续串行用户操作；两种锁职责分开，避免操作内 GET 重入长时锁。旧格式标记只按完整内容核对，
+不补造领域授权；未知结果、损坏 / 不可读存储和过期 GET 不允许覆盖或重发请求。
+requestId 只用于浏览器等待保护，不成为后端 Attempt、授权或新的领域状态。
 
 ## 7. Dependency Rules
 
@@ -1199,7 +1327,7 @@ Evolution ──────────┬────────────�
 - Repository Analysis 只能依赖 Workspace 的只读能力，不得获得代码写入、删除或修改权限。
 - Opportunity Discovery 不得直接修改 Repository，也不应依赖 Workspace 的写能力。
 - Evolution Execution 是 MVP 中唯一允许请求 Workspace 写能力的业务流程。
-- Workspace 在 Application 层使用互不继承的能力 Port：WorkspaceReadPort（只读）、WorkingCopyProvisioningPort（M3 环境准备）、WorkingCopyInspectionPort（只读检查）、WorkspaceMutationPort（受控步骤修改）、WorkspaceVerificationPort（有限验证）。GitWorkspaceAdapter 实现读取、准备、检查和修改；独立验证 Adapter 实现验证。只读流程仍只获得读取能力。授权作用域与 M3 / M4 refinement 见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
+- Workspace 在 Application 层使用互不继承的能力 Port：WorkspaceReadPort（只读）、WorkingCopyProvisioningPort（M3 环境准备）、WorkingCopyInspectionPort（只读检查）、WorkspaceMutationPort（受控步骤修改）、WorkspaceVerificationPort（有限验证）、WorkspaceRollbackPort（已授权 Step 精确恢复）。GitWorkspaceAdapter 实现读取、准备、检查、修改和恢复；独立验证 Adapter 实现验证。只读流程仍只获得读取能力。授权作用域与 refinement 见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
 - Application / Agent Orchestrator 可以协调各业务模块，但业务模块不得反向依赖 Orchestrator。
 - 跨模块协作应通过公开接口和明确的数据模型完成，不得通过直接读取或修改其他模块拥有的数据库表实现。
 - 禁止循环依赖。
@@ -1411,13 +1539,23 @@ Evolution Step explicitly confirmed by user
 
 ---
 
-上述执行与失败流程描述完整 MVP 目标架构。实现阶段以 `ROADMAP.md` 为准：
-M4 实现成功路径与 fail-closed 安全，M5 实现完整失败 / 恢复流程；M4 异常时保留
-最后完整持久化检查点并阻止后续 Evolution，不表示 Rollback / Recovery 已发生。
+上述流程保留完整 MVP 目标，当前实现范围以 `ROADMAP.md` 为准。2026-10-10 的历史交付是
+M4 DONE / FROZEN、M5 当时 DEFERRED；显式本地成功配置与 Java/Maven 支持范围见
+[M4 本地使用](M4_LOCAL_USAGE.md)，历史证据见 [M4 交付关闭记录](validation/m4-delivery-closeout.md)。
 
-2026-10-10 交付状态：M4 DONE / FROZEN，真实受控 Verified B 已完成；M5 DEFERRED。
-显式本地成功配置与默认配置的区别、Java/Maven 支持范围见 [M4 本地使用](M4_LOCAL_USAGE.md)，
-合并及离线最终验证见 [交付关闭记录](validation/m4-delivery-closeout.md)。此状态不扩大上述失败语义。
+2026-10-16 当前实验分支状态为 **M5 PARTIAL / Recovery 写入 DEFERRED**：A～E 的明确验证失败、
+独立 Repair、User Rollback、明确执行失败的系统 Rollback、FAILED Retry 及其修复已通过独立审查，
+不等于已集成／发布或完整 M5 完成。F1/F1b 审查通过的是实验与 NO-GO 结论，不是隔离能力通过。
+
+Job + Mutex 的 WMI 逃逸、受限 Token 初始化失败、同 SID ACL 的已有句柄及 staging 父路径别名
+缺口，使当前方案不能证明旧写者停止或失去写能力。按用户裁定停止当前候选研究，不集成原型，
+不开放 Recovery Port / UseCase / API / UI，不添加重启补偿或后台接管。RECOVERY_REQUIRED 与遗留
+EXECUTING / VERIFYING / ROLLING_BACK UNKNOWN 保留事实并阻塞，不根据 PID、超时、CAS 或普通锁
+推断安全。现有 WorkingCopy clone 隔离和调用内清理不是宿主 OS 沙箱。
+
+重新开放 Recovery 写入须独立安全架构设计、真实 OS 正反实验及独立审查；原始 baseline、独立授权
+和历史边界不变。决策见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)，
+已完成能力、长期阻塞状态与集成／发布 Gate 见 [M5 阶段性收尾](validation/m5-partial-closeout.md)。
 
 ## 9. Architecture Decisions
 

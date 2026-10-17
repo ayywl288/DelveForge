@@ -78,11 +78,13 @@ class ExecuteEvolutionStepUseCaseTest {
     private static final class Workspace implements WorkingCopyInspectionPort, WorkspaceMutationPort, WorkspaceVerificationPort {
         String head = "A";
         boolean mutationFails;
+        ExecutionFailureResult confirmedFailure;
         boolean unexpected;
         boolean verificationFails;
         boolean unsupported;
         boolean driftAtSupport;
         boolean wrongVerification;
+        String verificationFault;
         int mutations;
         int verifications;
         Store store;
@@ -104,6 +106,7 @@ class ExecuteEvolutionStepUseCaseTest {
             assertEquals(EvolutionStepStatus.EXECUTING, store.plan.step(STEP).status());
             assertEquals("A", store.plan.step(STEP).baselineRevision());
             assertEquals("A", store.copy.lastVerifiedRevision());
+            if (confirmedFailure != null) { throw new ConfirmedExecutionFailureException(confirmedFailure); }
             head = "B";
             if (mutationFails) { throw new EvolutionExecutionException("partial mutation"); }
             return new CandidateMutationResult("B", List.of(unexpected ? ".git/config" : "src/A.java"),
@@ -116,8 +119,19 @@ class ExecuteEvolutionStepUseCaseTest {
             assertEquals(EvolutionStepStatus.VERIFYING, store.plan.step(STEP).status());
             assertEquals("B", store.copy.currentRevision());
             assertEquals("A", store.copy.lastVerifiedRevision());
+            if (List.of("timeout", "crash", "interrupted").contains(verificationFault == null ? "" : verificationFault)) {
+                throw new WorkspaceException("injected " + verificationFault);
+            }
+            if ("missing".equals(verificationFault)) {
+                return new VerificationFacts("B", List.of(), Instant.now());
+            }
+            VerificationResult.Outcome outcome = verificationFails ? VerificationResult.Outcome.FAILED
+                    : "inconclusive".equals(verificationFault) ? VerificationResult.Outcome.INCONCLUSIVE
+                    : "not-run".equals(verificationFault) ? VerificationResult.Outcome.NOT_RUN
+                    : VerificationResult.Outcome.PASSED;
             return new VerificationFacts(wrongVerification ? "C" : "B", List.of(new VerificationFacts.Check(
-                    CodingProposal.Action.TEST, "", !verificationFails, "exit")), Instant.now());
+                    "wrong-action".equals(verificationFault) ? CodingProposal.Action.BUILD : CodingProposal.Action.TEST,
+                    "", outcome, "exit")), "missing-time".equals(verificationFault) ? null : Instant.now());
         }
     }
 
@@ -145,7 +159,7 @@ class ExecuteEvolutionStepUseCaseTest {
                     new WorkspaceRef("managed"), Map.of("src/A.java", "old\n"), Set.of(), Set.of("src/A.java"));
         }
         ExecuteEvolutionStepUseCase useCase() {
-            return new ExecuteEvolutionStepUseCase(null, state, new StepExecutionPolicy(), store, workspace, workspace);
+            return new ExecuteEvolutionStepUseCase(null, state, new StepExecutionPolicy(), store, workspace, workspace, request -> { throw new AssertionError("Unexpected rollback"); });
         }
     }
 
@@ -228,16 +242,137 @@ class ExecuteEvolutionStepUseCaseTest {
         assertEquals(0, f.workspace.mutations);
         assertEquals(0, f.workspace.verifications);
     }
-    @Test void failedVerificationOrWrongCandidateNeverMarksSuccess() {
-        for (boolean wrong : List.of(true, false)) {
-            Fixture f = new Fixture();
-            f.workspace.wrongVerification = wrong;
-            f.workspace.verificationFails = !wrong;
-            assertThrows(RuntimeException.class, () -> f.useCase().execute(f.proposal("A")));
-            assertEquals(EvolutionStepStatus.VERIFYING, f.store.plan.step(STEP).status());
-            assertEquals("B", f.store.plan.step(STEP).executionResult().candidateRevision());
-            assertEquals("A", f.store.copy.lastVerifiedRevision());
-            assertNull(f.store.plan.step(STEP).verificationResult());
-        }
+    @Test void confirmedFailureCommitsResultWithoutPromotingTrustOrRepeatingExecution() {
+        Fixture f = new Fixture();
+        f.workspace.verificationFails = true;
+        ValidatedExecutionProposal proposal = f.proposal("A");
+        EvolutionPlan result = f.useCase().execute(proposal);
+        assertEquals(EvolutionStepStatus.VERIFICATION_FAILED, result.step(STEP).status());
+        assertFalse(result.step(STEP).verificationResult().passed());
+        assertEquals(VerificationResult.Outcome.FAILED, result.step(STEP).verificationResult().checks().getFirst().outcome());
+        assertEquals("A", result.step(STEP).baselineRevision());
+        assertEquals("B", f.store.copy.currentRevision());
+        assertEquals("A", f.store.copy.lastVerifiedRevision());
+        assertEquals(WorkingCopyStatus.EVOLVING, f.store.copy.status());
+        assertEquals(3, f.store.commits);
+        assertNull(f.store.historicalObjects.getLast().step(STEP).verificationResult());
+        assertThrows(EvolutionPlanStateException.class, () -> f.useCase().execute(proposal));
+        assertEquals(1, f.workspace.mutations);
+        assertEquals(1, f.workspace.verifications);
     }
+
+    @Test void failedResultCommitLeavesLoadedAndStoredVerifyingCheckpointUntouched() {
+        Fixture f = new Fixture();
+        f.workspace.verificationFails = true;
+        f.store.failAt = 3;
+        assertThrows(EvolutionLifecycleConflictException.class, () -> f.useCase().execute(f.proposal("A")));
+        assertEquals(EvolutionStepStatus.VERIFYING, f.store.plan.step(STEP).status());
+        assertNull(f.store.plan.step(STEP).verificationResult());
+        assertEquals("B", f.store.copy.currentRevision());
+        assertEquals("A", f.store.copy.lastVerifiedRevision());
+        assertSame(f.store.plan, f.store.historicalObjects.getLast());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"timeout", "crash", "interrupted", "missing", "wrong-action", "inconclusive", "not-run", "missing-time", "wrong-candidate"})
+    void unknownOrMalformedVerificationKeepsLastCheckpointAndNeverRecordsFailure(String fault) {
+        Fixture f = new Fixture();
+        f.workspace.verificationFault = fault;
+        f.workspace.wrongVerification = fault.equals("wrong-candidate");
+        ValidatedExecutionProposal proposal = f.proposal("A");
+        assertThrows(RuntimeException.class, () -> f.useCase().execute(proposal));
+        assertEquals(2, f.store.commits);
+        assertEquals(EvolutionStepStatus.VERIFYING, f.store.plan.step(STEP).status());
+        assertEquals("B", f.store.plan.step(STEP).executionResult().candidateRevision());
+        assertEquals("B", f.store.copy.currentRevision());
+        assertEquals("A", f.store.copy.lastVerifiedRevision());
+        assertNull(f.store.plan.step(STEP).verificationResult());
+        assertThrows(EvolutionPlanStateException.class, () -> f.useCase().execute(proposal));
+        assertEquals(1, f.workspace.mutations);
+    }
+    @ParameterizedTest
+    @ValueSource(ints = {0, 2, 3})
+    void confirmedFailureSavesDiagnosticBeforeSingleRollbackAndHonorsCheckpointFailures(int failAt) {
+        Fixture f = new Fixture();
+        ExecutionFailureResult failure = new ExecutionFailureResult("failure", "A", "A", "APPLY", 128,
+                "CONFIRMED_GIT_REJECTION", "A", null, true, List.of(), Instant.now());
+        f.workspace.confirmedFailure = failure;
+        f.store.failAt = failAt;
+        int[] calls = {0};
+        ExecuteEvolutionStepUseCase useCase = new ExecuteEvolutionStepUseCase(null, f.state,
+                new StepExecutionPolicy(), f.store, f.workspace, f.workspace, request -> {
+                    calls[0]++;
+                    assertEquals(EvolutionStepStatus.ROLLING_BACK, f.store.plan.step(STEP).status());
+                    assertEquals(failure, f.store.plan.step(STEP).executionFailureResult());
+                    assertNull(request.authorization());
+                    throw new WorkspaceException("unknown rollback result");
+                });
+        if (failAt == 0) {
+            assertEquals(EvolutionStepStatus.RECOVERY_REQUIRED, useCase.execute(f.proposal("A")).step(STEP).status());
+            assertFalse(f.store.plan.step(STEP).automaticRollbackResult().restored());
+        } else {
+            assertThrows(EvolutionLifecycleConflictException.class, () -> useCase.execute(f.proposal("A")));
+            assertEquals(failAt == 2 ? EvolutionStepStatus.EXECUTING : EvolutionStepStatus.ROLLING_BACK,
+                    f.store.plan.step(STEP).status());
+        }
+        assertEquals(failAt == 2 ? 0 : 1, calls[0]);
+        assertEquals("A", f.store.copy.currentRevision());
+        assertEquals("A", f.store.copy.lastVerifiedRevision());
+        assertNull(f.store.plan.step(STEP).executionResult());
+        assertEquals(0, f.workspace.verifications);
+    }
+    private Fixture restoredRetryFixture() {
+        Fixture f = new Fixture();
+        f.store.plan.startStep(STEP, f.store.copy, new StepExecutionPolicy());
+        f.store.plan.failStepExecution(STEP, f.store.copy, new ExecutionFailureResult("failure", "A", "A",
+                "APPLY_CHECK", 1, "CONFIRMED_GIT_REJECTION", "A", null, false, List.of(), Instant.now()));
+        f.store.plan.finishAutomaticStepRollback(STEP, f.store.copy, new AutomaticRollbackResult("failure", "A", "A",
+                true, "restored", Instant.now()));
+        return f;
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void retryAuthorizationIsAtomicAndNeverCallsMutationOrVerification(boolean conflict) {
+        Fixture f = restoredRetryFixture();
+        EvolutionPlan before = f.store.plan;
+        WorkingCopy beforeCopy = f.store.copy;
+        RetryEvolutionStepUseCase retry = new RetryEvolutionStepUseCase(f.state, new StepExecutionPolicy(), f.store);
+        f.store.failAt = conflict ? 1 : 0;
+        if (conflict) {
+            assertThrows(EvolutionLifecycleConflictException.class, () -> retry.retry(PLAN, STEP, "failure", "A", "retry"));
+            assertSame(before, f.store.plan);
+            assertSame(beforeCopy, f.store.copy);
+            assertTrue(before.step(STEP).retryAuthorizations().isEmpty());
+        } else {
+            retry.retry(PLAN, STEP, "failure", "A", "retry");
+            assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+            assertEquals("retry", f.store.plan.step(STEP).retryAuthorizationId());
+            assertEquals("A", f.store.copy.currentRevision());
+        }
+        assertEquals(EvolutionStepStatus.FAILED, before.step(STEP).status());
+        assertEquals(0, f.workspace.mutations);
+        assertEquals(0, f.workspace.verifications);
+    }
+
+    @Test
+    void retryRejectsAProposalFromThePreviousAttemptDespiteTheSameBaseline() {
+        Fixture f = restoredRetryFixture();
+        ValidatedExecutionProposal old = f.proposal("A");
+        new RetryEvolutionStepUseCase(f.state, new StepExecutionPolicy(), f.store).retry(PLAN, STEP, "failure", "A", "retry");
+        assertThrows(EvolutionExecutionException.class, () -> f.useCase().execute(old));
+        assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+        assertEquals(0, f.workspace.mutations);
+        ValidatedExecutionProposal current = new CodingProposalValidator(new DeterministicRepositorySecretPolicy(),
+                f.workspace, new ExecutionPreparationLimits(2,24,48,65536,524288,786432,262144,16,16)).validate(
+                old.proposal(), new ExecutionPreparationBasis(PLAN, STEP, COPY, "A", null, "retry"),
+                f.store.plan.step(STEP), new WorkspaceRef("managed"), Map.of("src/A.java", "old\n"),
+                Set.of(), Set.of("src/A.java"));
+        f.useCase().execute(current);
+        assertEquals(EvolutionStepStatus.SUCCEEDED, f.store.plan.step(STEP).status());
+        assertEquals("retry", f.store.plan.step(STEP).retryAuthorizationId());
+        assertEquals("B", f.store.copy.lastVerifiedRevision());
+        assertEquals("A", f.store.plan.step(STEP).baselineRevision());
+    }
+
 }

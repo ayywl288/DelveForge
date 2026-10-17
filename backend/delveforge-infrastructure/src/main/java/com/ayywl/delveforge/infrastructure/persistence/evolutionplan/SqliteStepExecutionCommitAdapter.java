@@ -9,6 +9,7 @@ import com.ayywl.delveforge.domain.evolution.EvolutionPlanStateException;
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
+import com.ayywl.delveforge.domain.evolution.RepairAuthorization;
 import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
 import com.ayywl.delveforge.infrastructure.persistence.workingcopy.WorkingCopyMapper;
@@ -34,21 +35,54 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
     @Transactional
     public void commit(EvolutionPlan expected, EvolutionStepId id, WorkingCopy before, SoftwareAsset asset,
             EvolutionPlan updated, WorkingCopy after) {
-        new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
-
         // 重放 Domain 操作验证完整转移，不能凭调用方给出的新状态直接写入。
         EvolutionPlan checked = expected.copy();
         WorkingCopy checkedCopy = before.copy();
         EvolutionStep old = expected.step(id);
         EvolutionStep next = updated.step(id);
-        if (old.status() == EvolutionStepStatus.READY && next.status() == EvolutionStepStatus.EXECUTING) {
+        boolean blockingRollback = old.status() == EvolutionStepStatus.ROLLING_BACK
+                && next.status() == EvolutionStepStatus.RECOVERY_REQUIRED;
+        boolean diagnosingFailure = old.status() == EvolutionStepStatus.EXECUTING
+                && next.status() == EvolutionStepStatus.ROLLING_BACK && next.executionFailureResult() != null;
+        if (!blockingRollback && !diagnosingFailure) {
+            new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
+        }
+        if (old.status() == EvolutionStepStatus.FAILED && next.status() == EvolutionStepStatus.READY
+                && !next.retryAuthorizations().isEmpty()) {
+            var authorization = next.retryAuthorizations().getLast();
+            checked.authorizeStepRetry(id, checkedCopy, new StepExecutionPolicy(), authorization.id(),
+                    authorization.failedCheckpointId(), authorization.baselineRevision(), authorization.authorizedAt());
+        } else if (old.status() == EvolutionStepStatus.READY && next.status() == EvolutionStepStatus.EXECUTING) {
             checked.startStep(id, checkedCopy, new StepExecutionPolicy());
+        } else if (old.status() == EvolutionStepStatus.VERIFICATION_FAILED
+                && next.status() == EvolutionStepStatus.EXECUTING && !next.repairAuthorizations().isEmpty()) {
+            RepairAuthorization authorization = next.repairAuthorizations().getLast();
+            checked.authorizeStepRepair(id, checkedCopy, new StepExecutionPolicy(), authorization.id(),
+                    authorization.candidateRevision(), authorization.authorizedAt());
+        } else if (old.status() == EvolutionStepStatus.EXECUTING && next.status() == EvolutionStepStatus.ROLLING_BACK
+                && next.executionFailureResult() != null) {
+            checked.failStepExecution(id, checkedCopy, next.executionFailureResult());
         } else if (old.status() == EvolutionStepStatus.EXECUTING && next.status() == EvolutionStepStatus.VERIFYING) {
             checked.recordExecution(id, checkedCopy, next.executionResult());
         } else if (old.status() == EvolutionStepStatus.VERIFYING && next.status() == EvolutionStepStatus.SUCCEEDED) {
             checked.succeedStep(id, checkedCopy, next.verificationResult());
+        } else if (old.status() == EvolutionStepStatus.VERIFYING
+                && next.status() == EvolutionStepStatus.VERIFICATION_FAILED) {
+            checked.failStepVerification(id, checkedCopy, next.verificationResult());
+        } else if (old.status() == EvolutionStepStatus.VERIFICATION_FAILED
+                && next.status() == EvolutionStepStatus.ROLLING_BACK && next.rollbackAuthorization() != null) {
+            var authorization = next.rollbackAuthorization();
+            checked.authorizeStepRollback(id, checkedCopy, new StepExecutionPolicy(), authorization.id(),
+                    authorization.candidateRevision(), authorization.baselineRevision(), authorization.authorizedAt());
+        } else if (old.status() == EvolutionStepStatus.ROLLING_BACK
+                && (next.status() == EvolutionStepStatus.FAILED || blockingRollback)) {
+            if (old.executionFailureResult() != null) {
+                checked.finishAutomaticStepRollback(id, checkedCopy, next.automaticRollbackResult());
+            } else {
+                checked.finishStepRollback(id, checkedCopy, next.rollbackResult());
+            }
         } else {
-            throw new EvolutionPlanStateException("Unsupported M4 checkpoint transition");
+            throw new EvolutionPlanStateException("Unsupported execution checkpoint transition");
         }
 
         EvolutionStep check = checked.step(id);
@@ -60,6 +94,15 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
                 || check.status() != next.status() || !Objects.equals(check.baselineRevision(), next.baselineRevision())
                 || !Objects.equals(check.executionResult(), next.executionResult())
                 || !Objects.equals(check.verificationResult(), next.verificationResult())
+                || !check.repairAuthorizations().equals(next.repairAuthorizations())
+                || !check.retryAuthorizations().equals(next.retryAuthorizations())
+                || !Objects.equals(check.rollbackAuthorization(), next.rollbackAuthorization())
+                || !Objects.equals(check.rollbackResult(), next.rollbackResult())
+                || !Objects.equals(check.executionFailureResult(), next.executionFailureResult())
+                || !Objects.equals(check.automaticRollbackResult(), next.automaticRollbackResult())
+                || !check.goal().equals(next.goal()) || !check.scope().equals(next.scope())
+                || !check.plannedChanges().equals(next.plannedChanges())
+                || !check.verificationCriteria().equals(next.verificationCriteria())
                 || checkedCopy.status() != after.status()
                 || !checkedCopy.currentRevision().equals(after.currentRevision())
                 || !checkedCopy.lastVerifiedRevision().equals(after.lastVerifiedRevision())) {
@@ -67,10 +110,26 @@ public class SqliteStepExecutionCommitAdapter implements StepExecutionCommitPort
         }
 
         // 两项写入共同受事务保护，任一旧依据不匹配都不能暴露半个检查点。
-        if (steps.advanceCheckpoint(expected, id, before, asset, asset.licenseInfo().orElse(null), old, next,
-                StepResultJson.write(old.executionResult()), StepResultJson.write(old.verificationResult()),
-                StepResultJson.write(next.executionResult()), StepResultJson.write(next.verificationResult())) != 1
-                || copies.advanceCheckpoint(before, after) != 1) {
+        int changed = diagnosingFailure
+                ? steps.diagnoseFailure(expected, id, before, old, StepResultJson.write(old.executionResult()),
+                        StepResultJson.write(old.verificationResult()), StepResultJson.write(old.repairAuthorizations()),
+                        StepResultJson.write(old.rollbackAuthorization()), StepResultJson.write(old.rollbackResult()),
+                        StepResultJson.write(next.executionFailureResult()), StepResultJson.write(old.retryAuthorizations()))
+                : blockingRollback ? steps.blockRollback(expected, id, before, old, StepResultJson.write(old.executionResult()),
+                        StepResultJson.write(old.verificationResult()), StepResultJson.write(old.repairAuthorizations()),
+                        StepResultJson.write(old.rollbackAuthorization()), StepResultJson.write(next.rollbackResult()),
+                        StepResultJson.write(old.executionFailureResult()), StepResultJson.write(old.automaticRollbackResult()),
+                        StepResultJson.write(next.automaticRollbackResult()), StepResultJson.write(old.retryAuthorizations()))
+                : steps.advanceCheckpoint(expected, id, before, asset, asset.licenseInfo().orElse(null), old, next,
+                        StepResultJson.write(old.executionResult()), StepResultJson.write(old.verificationResult()),
+                        StepResultJson.write(next.executionResult()), StepResultJson.write(next.verificationResult()),
+                        StepResultJson.write(old.repairAuthorizations()), StepResultJson.write(next.repairAuthorizations()),
+                        StepResultJson.write(old.rollbackAuthorization()), StepResultJson.write(old.rollbackResult()),
+                        StepResultJson.write(next.rollbackAuthorization()), StepResultJson.write(next.rollbackResult()),
+                        StepResultJson.write(old.executionFailureResult()), StepResultJson.write(next.executionFailureResult()),
+                        StepResultJson.write(old.automaticRollbackResult()), StepResultJson.write(next.automaticRollbackResult()),
+                        StepResultJson.write(old.retryAuthorizations()), StepResultJson.write(next.retryAuthorizations()));
+        if (changed != 1 || copies.advanceCheckpoint(before, after) != 1) {
             throw new EvolutionLifecycleConflictException("Execution checkpoint basis changed before commit");
         }
     }

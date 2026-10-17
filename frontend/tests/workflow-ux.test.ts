@@ -230,6 +230,30 @@ describe("G2 路线与执行分区", () => {
         expect(execute).not.toHaveBeenCalled(); expect(s.plan.steps[1]?.status).toBe("PENDING_CONFIRMATION");
     });
 
+    it("明确 FAIL 展示保留的 Candidate、可信版本和未执行检查，禁止修复及后续执行", async () => {
+        const s = session(); s.plan = successfulPlan(); s.copy = copy();
+        const step = s.plan.steps[0]!;
+        step.status = "VERIFICATION_FAILED";
+        s.copy.status = "EVOLVING"; s.copy.currentRevision = "b".repeat(40);
+        step.verificationResult!.passed = false;
+        step.verificationResult!.failures = ["Build failed"];
+        step.verificationResult!.checks = [
+            { action: "BUILD", target: "", criterionIndexes: [1], passed: false, outcome: "FAILED", summary: "Build failed" },
+            { action: "TEST", target: "", criterionIndexes: [2], passed: false, outcome: "NOT_RUN", summary: "Earlier check failed" },
+        ];
+        const execute = vi.spyOn(s, "execute");
+        const root = mount(EvolutionView, s);
+        expect(root.querySelector("#verification-result")?.textContent).toContain("FAIL");
+        expect([...root.querySelectorAll(".check-outcome")].map(item => item.textContent)).toEqual(["FAIL", "未执行"]);
+        expect(root.querySelector(".execution-action")?.textContent).toContain("Candidate 保留");
+        expect(root.querySelector(".execution-action")?.textContent).toContain("最近可信版本未推进");
+        expect(root.textContent).toContain("a".repeat(40));
+        expect(root.textContent).toContain("b".repeat(40));
+        expect(button(root, "审阅风险并执行")).toBeUndefined();
+        expect(root.querySelector(".success-note")).toBeNull();
+        expect(execute).not.toHaveBeenCalled();
+    });
+
     it.each(["EXECUTING", "VERIFYING", "FAILED", "VERIFICATION_FAILED", "ROLLING_BACK", "RECOVERY_REQUIRED", "CANCELLED"] as EvolutionStep["status"][])(
         "后端状态 %s 保留原始代码、禁用执行且不生成成功信号", async status => {
             const s = session(); s.plan = plan(); s.copy = copy(); s.plan.steps[0]!.status = status;
@@ -244,4 +268,50 @@ describe("G2 路线与执行分区", () => {
             if (status === "CANCELLED") expect(root.querySelector(".execution-action")?.textContent).toContain("已取消");
         },
     );
+
+    it("修复单独展示失败 Candidate 与费用确认，旧 Step 授权不会直接触发 Repair", async () => {
+        const s = session(); s.plan = successfulPlan(); s.copy = copy(); s.copy.status = "EVOLVING";
+        s.plan.status = "ACTIVE";
+        s.copy.currentRevision = "b".repeat(40);
+        const step = s.plan.steps[0]!; step.status = "VERIFICATION_FAILED"; step.verificationResult!.passed = false;
+        const repair = vi.spyOn(s, "repair").mockResolvedValue(undefined);
+        const root = mount(EvolutionView, s);
+        expect(repair).not.toHaveBeenCalled();
+        button(root, "审阅并授权本次修复").click(); await nextTick();
+        const confirm = button(root, "授权并开始本次修复");
+        expect(confirm.disabled).toBe(true);
+        expect(root.textContent).toContain("我单独授权本次修复");
+        expect(root.textContent).toContain("原 baseline 和失败记录保留");
+        const checkbox = root.querySelector<HTMLInputElement>('dialog[open] input[type="checkbox"]')!;
+        checkbox.click(); await nextTick();
+        s.copy.currentRevision = "c".repeat(40); await nextTick();
+        expect(confirm.disabled).toBe(true); expect(repair).not.toHaveBeenCalled();
+        s.copy.currentRevision = "b".repeat(40); await nextTick();
+        confirm.click(); await nextTick();
+        expect(repair).toHaveBeenCalledExactlyOnceWith(step.id, "b".repeat(40));
+    });
+
+    it("Rollback 独立确认当前 Candidate 与原始 baseline，漂移时拒绝且不调用 Repair", async () => {
+        const s = session(); s.plan = successfulPlan(); s.plan.status = "ACTIVE"; s.copy = copy();
+        s.copy.status = "EVOLVING"; s.copy.currentRevision = "b".repeat(40);
+        const step = s.plan.steps[0]!; step.status = "VERIFICATION_FAILED"; step.verificationResult!.passed = false;
+        const rollback = vi.spyOn(s, "rollback").mockResolvedValue(undefined);
+        const repair = vi.spyOn(s, "repair").mockResolvedValue(undefined);
+        const root = mount(EvolutionView, s);
+        expect(rollback).not.toHaveBeenCalled();
+        button(root, "审阅并授权回滚").click(); await nextTick();
+        const confirm = button(root, "授权并回滚到原始基线");
+        expect(confirm.disabled).toBe(true);
+        expect(root.querySelector("dialog[open]")?.textContent).toContain("最初的基线");
+        expect(root.querySelector("dialog[open]")?.textContent).toContain("不清理这些文件");
+        root.querySelector<HTMLInputElement>('dialog[open] input[type="checkbox"]')!.click(); await nextTick();
+        step.baselineRevision = "c".repeat(40); await nextTick();
+        expect(confirm.disabled).toBe(true); expect(rollback).not.toHaveBeenCalled();
+        step.baselineRevision = "a".repeat(40); s.copy.currentRevision = "c".repeat(40); await nextTick();
+        expect(confirm.disabled).toBe(true);
+        s.copy.currentRevision = "b".repeat(40); await nextTick();
+        confirm.click(); await nextTick();
+        expect(rollback).toHaveBeenCalledExactlyOnceWith(step.id, "b".repeat(40), "a".repeat(40));
+        expect(repair).not.toHaveBeenCalled();
+    });
 });

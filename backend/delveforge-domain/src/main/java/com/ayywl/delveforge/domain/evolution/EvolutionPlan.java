@@ -136,12 +136,68 @@ public final class EvolutionPlan {
         requireExecutionOwner(copy);
         EvolutionStep step = step(id);
         if (step.status() != EvolutionStepStatus.EXECUTING || result == null
-                || step.baselineRevision().equals(result.candidateRevision())) {
+                || step.baselineRevision().equals(result.candidateRevision())
+                || step.executionStartRevision().equals(result.candidateRevision())) {
             throw new EvolutionPlanStateException("Invalid execution checkpoint");
         }
-        copy.requireCheckpoint(step.baselineRevision(), step.baselineRevision());
-        copy.recordCandidate(step.baselineRevision(), result.candidateRevision());
+        copy.requireCheckpoint(step.baselineRevision(), step.executionStartRevision());
+        copy.recordCandidate(step.baselineRevision(), step.executionStartRevision(), result.candidateRevision());
         step.recordExecution(result);
+    }
+
+    /** 明确授权只针对本次失败 Candidate；在清空当前结果前先追加完整历史快照。 */
+    public void authorizeStepRepair(EvolutionStepId id, WorkingCopy copy, StepExecutionPolicy policy,
+            String authorizationId, String candidate, java.time.Instant authorizedAt) {
+        policy.requireRepairAllowed(this, id, copy);
+        if (!copy.currentRevision().equals(candidate)) {
+            throw new EvolutionPlanStateException("Repair authorization Candidate changed");
+        }
+        step(id).authorizeRepair(authorizationId, candidate, authorizedAt);
+    }
+
+    /** 用户授权重试当前已精确恢复的失败；后续执行仍须独立核对这次授权。 */
+    public void authorizeStepRetry(EvolutionStepId id, WorkingCopy copy, StepExecutionPolicy policy,
+            String authorizationId, String failedCheckpointId, String baseline, java.time.Instant authorizedAt) {
+        policy.requireRetryAllowed(this, id, copy);
+        if (!step(id).baselineRevision().equals(baseline)) {
+            throw new EvolutionPlanStateException("Retry cannot replace the original baseline");
+        }
+        step(id).authorizeRetry(authorizationId, failedCheckpointId, authorizedAt);
+    }
+
+    /** 保存失败证据与系统 ROLLING_BACK；不把未完成修改当作 Candidate。 */
+    public void failStepExecution(EvolutionStepId id, WorkingCopy copy, ExecutionFailureResult failure) {
+        requireExecutionOwner(copy);
+        EvolutionStep step = step(id);
+        copy.requireCheckpoint(step.baselineRevision(), step.executionStartRevision());
+        step.failExecution(failure);
+    }
+
+    public void finishAutomaticStepRollback(EvolutionStepId id, WorkingCopy copy, AutomaticRollbackResult result) {
+        requireExecutionOwner(copy);
+        EvolutionStep step = step(id);
+        step.requireAutomaticRollbackResult(result);
+        copy.finishRollback(step.baselineRevision(), step.executionStartRevision(), result.restored());
+        step.finishAutomaticRollback(result);
+    }
+
+    /** 当前失败 Candidate 的独立授权；不复用确认或 Repair 授权，不改变首次 baseline。 */
+    public void authorizeStepRollback(EvolutionStepId id, WorkingCopy copy, StepExecutionPolicy policy,
+            String authorizationId, String candidate, String baseline, java.time.Instant authorizedAt) {
+        policy.requireRollbackAllowed(this, id, copy);
+        if (!copy.currentRevision().equals(candidate)) {
+            throw new EvolutionPlanStateException("Rollback Candidate changed");
+        }
+        step(id).authorizeRollback(authorizationId, candidate, baseline, authorizedAt);
+    }
+
+    /** 只有已核对的精确恢复事实允许 FAILED；其他结果只阻塞，不提升软件信任。 */
+    public void finishStepRollback(EvolutionStepId id, WorkingCopy copy, RollbackResult result) {
+        requireExecutionOwner(copy);
+        EvolutionStep step = step(id);
+        step.requireRollbackResult(result);
+        copy.finishRollback(step.baselineRevision(), step.rollbackAuthorization().candidateRevision(), result.restored());
+        step.finishRollback(result);
     }
 
     /** 同一 Candidate 满足全部标准后，才同时记录 Step 成功与 WorkingCopy 信任推进。 */
@@ -152,6 +208,15 @@ public final class EvolutionPlan {
         copy.requireCheckpoint(step.baselineRevision(), result.candidateRevision());
         copy.trustCandidate(step.baselineRevision(), result.candidateRevision());
         step.succeed(result);
+    }
+
+    /** 保存明确验证失败；保留 Candidate、首次基线及 WorkingCopy 的可信 revision。 */
+    public void failStepVerification(EvolutionStepId id, WorkingCopy copy, VerificationResult result) {
+        requireExecutionOwner(copy);
+        EvolutionStep step = step(id);
+        step.requireVerificationFailed(result);
+        copy.requireCheckpoint(step.baselineRevision(), result.candidateRevision());
+        step.failVerification(result);
     }
 
     public void activate(PlanActivationPolicy policy, WorkingCopy copy,

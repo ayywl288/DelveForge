@@ -11,9 +11,11 @@ import com.ayywl.delveforge.domain.evolution.*;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import java.nio.file.*;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import static com.ayywl.delveforge.infrastructure.workspace.GitTestRepositories.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -41,6 +43,16 @@ class GitEvolutionExecutionIntegrationTest {
     }
 
     private AuthorizedStepExecution fixture(boolean maven, int assertion, boolean parameterized, String mavenOverrides) throws Exception {
+        return fixture(maven, assertion, parameterized, mavenOverrides, false);
+    }
+
+    private AuthorizedStepExecution fixture(boolean maven, int assertion, boolean parameterized, String mavenOverrides,
+            boolean additionDeletion) throws Exception {
+        return fixture(maven, assertion, parameterized, mavenOverrides, additionDeletion, null);
+    }
+
+    private AuthorizedStepExecution fixture(boolean maven, int assertion, boolean parameterized, String mavenOverrides,
+            boolean additionDeletion, String rollbackDriver) throws Exception {
         Map<String, String> files = new LinkedHashMap<>();
         files.put("Report.java", "public class Report { static int value() { return 0; } }\n");
         if (maven) {
@@ -66,6 +78,13 @@ class GitEvolutionExecutionIntegrationTest {
                 files.put("src/test/java/FailingTest.java", "public class FailingTest { @org.junit.jupiter.api.Test"
                         + " void omitted() { org.junit.jupiter.api.Assertions.fail(\"Must not be omitted\"); } }\n");
             }
+        }
+        if (additionDeletion) {
+            files.put("obsolete.txt", "obsolete\n");
+            files.put("untouched.txt", "safe\n");
+        }
+        if (rollbackDriver != null) {
+            files.put("rules.txt", "*.txt filter=" + rollbackDriver + "\n");
         }
         source = repositories.createCommitted("source", files);
         baseline = headRevision(source);
@@ -95,14 +114,209 @@ class GitEvolutionExecutionIntegrationTest {
                     + assertion + ", Report.value()); } }\n";
             affected.add(testPath);
         }
+        Map<String, String> originals = new LinkedHashMap<>(Map.of(report, original));
+        if (additionDeletion) {
+            patch += "--- a/obsolete.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-obsolete\n"
+                    + "--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+owned addition\n";
+            affected.addAll(List.of("obsolete.txt", "new.txt"));
+            originals.put("obsolete.txt", "obsolete\n");
+        }
+        if (rollbackDriver != null) {
+            patch += "--- a/rules.txt\n+++ b/rules.txt\n@@ -1 +1 @@\n-*.txt filter=" + rollbackDriver
+                    + "\n+# inert unpublished rules\n";
+            affected.add("rules.txt");
+            originals.put("rules.txt", files.get("rules.txt"));
+        }
         CodingProposal proposal = new CodingProposal(baseline, "change", affected, patch, List.of(
                 new CodingProposal.VerificationAction(CodingProposal.Action.DIFF_CHECK, "", List.of(1))));
         ValidatedExecutionProposal validated = new CodingProposalValidator(new DeterministicRepositorySecretPolicy(), git,
                 new ExecutionPreparationLimits(2,24,48,65536,524288,786432,262144,16,16)).validate(proposal,
                 new ExecutionPreparationBasis(planId, stepId, workingCopy.id(), baseline), plan.step(stepId),
-                new WorkspaceRef(copy.toString()), Map.of(report, original), Set.of(), files.keySet());
+                new WorkspaceRef(copy.toString()), originals, Set.of(), files.keySet());
         plan.startStep(stepId, workingCopy, new StepExecutionPolicy());
         return AuthorizedStepExecution.from(plan, stepId, workingCopy, new WorkspaceRef(source.toString()), validated);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"normal", "tracked-tamper", "extra", "index-lock", "filter-unset", "filter-unspecified", "addition-deletion", "cleanup-failure"})
+    void confirmedPublishFailureRecordsPhysicalDiffAndRestoresOnlyProvenStepTree(String fault) throws Exception {
+        AuthorizedStepExecution authorized = fixture(false, 1, false, "", fault.equals("addition-deletion"));
+        String originalPhysical = Files.readString(copy.resolve("Report.java"));
+        Path[] ownedIndex = {null};
+        GitWorkspaceAdapter failing = new GitWorkspaceAdapter(repositories.directory("managed")) {
+            @Override
+            protected WorkspaceCommandRunner.Result mutationGitResult(Path directory, Path index, String... arguments) {
+                if (Arrays.asList(arguments).contains("update-ref")) {
+                    try {
+                        Files.writeString(copy.resolve(".git/HEAD.lock"), "TASK OWNED FAULT");
+                        if (fault.equals("tracked-tamper")) {
+                            Files.writeString(copy.resolve("Report.java"), "USER MODIFICATION\n");
+                        }
+                        return super.mutationGitResult(directory, index, arguments);
+                    } catch (java.io.IOException failure) {
+                        throw new AssertionError(failure);
+                    } finally {
+                        try { Files.deleteIfExists(copy.resolve(".git/HEAD.lock")); }
+                        catch (java.io.IOException failure) { throw new AssertionError(failure); }
+                    }
+                }
+                var result = super.mutationGitResult(directory, index, arguments);
+                if (fault.equals("cleanup-failure") && index != null && Arrays.asList(arguments).contains("write-tree")) {
+                    try {
+                        ownedIndex[0] = index;
+                        Files.setAttribute(index, "dos:readonly", true);
+                    } catch (java.io.IOException failure) { throw new AssertionError(failure); }
+                }
+                return result;
+            }
+        };
+        var rejection = assertThrows(ConfirmedExecutionFailureException.class, () -> failing.applyCandidate(authorized));
+        var failure = rejection.result();
+        if (fault.equals("cleanup-failure")) {
+            try {
+                assertTrue(failure.diagnostic().contains("ARTIFACT_CLEANUP_NOT_CONFIRMED"));
+                assertTrue(Files.exists(ownedIndex[0]));
+            } finally {
+                Files.setAttribute(ownedIndex[0], "dos:readonly", false);
+            }
+        }
+        assertEquals("PUBLISH", failure.phase());
+        assertEquals(baseline, failure.observedRevision());
+        assertEquals(baseline, headRevision(copy));
+        assertTrue(failure.diffComplete());
+        assertFalse(failure.diff().isEmpty());
+        assertTrue(failure.diff().stream().anyMatch(entry -> entry.path().equals("Report.java")));
+        assertNull(plan.step(stepId).executionResult());
+        plan.failStepExecution(stepId, workingCopy, failure);
+        assertEquals(EvolutionStepStatus.ROLLING_BACK, plan.copy().step(stepId).status());
+        assertNull(plan.step(stepId).rollbackAuthorization());
+        if (fault.equals("extra")) { Files.writeString(copy.resolve("user.txt"), "KEEP USER FILE"); }
+        if (fault.equals("index-lock")) { Files.writeString(copy.resolve(".git/index.lock"), "KEEP LOCK"); }
+        if (fault.startsWith("filter-")) {
+            String driver = fault.substring("filter-".length());
+            Files.createDirectories(copy.resolve(".git/info"));
+            Files.writeString(copy.resolve(".git/info/attributes"), "* filter=" + driver + "\n");
+            runGit(copy, "config", "filter." + driver + ".clean", "echo FILTER-RAN > .git/filter-ran");
+            runGit(copy, "config", "filter." + driver + ".smudge", "echo FILTER-RAN > .git/filter-ran");
+        }
+        var rollback = AuthorizedStepRollback.fromExecutionFailure(plan, stepId, workingCopy,
+                new WorkspaceRef(source.toString()));
+        if (fault.equals("normal") || fault.equals("addition-deletion") || fault.equals("cleanup-failure")) {
+            var restored = git.restoreBaseline(rollback);
+            plan.finishAutomaticStepRollback(stepId, workingCopy, new AutomaticRollbackResult(failure.id(), baseline,
+                    restored.revision(), true, "EXACT_BASELINE_CONFIRMED", restored.restoredAt()));
+            assertEquals(EvolutionStepStatus.FAILED, plan.copy().step(stepId).status());
+            assertEquals(baseline, workingCopy.currentRevision());
+            assertEquals(originalPhysical, Files.readString(copy.resolve("Report.java")));
+            git.requireTrustedState(new WorkspaceRef(copy.toString()), new WorkspaceRef(source.toString()), baseline);
+            if (fault.equals("addition-deletion")) {
+                assertFalse(Files.exists(copy.resolve("new.txt")));
+                assertEquals("obsolete\n", Files.readString(copy.resolve("obsolete.txt")).replace("\r\n", "\n"));
+                assertEquals("safe\n", Files.readString(copy.resolve("untouched.txt")).replace("\r\n", "\n"));
+            }
+        } else {
+            var blocked = assertThrows(WorkingCopyRollbackException.class, () -> git.restoreBaseline(rollback));
+            plan.finishAutomaticStepRollback(stepId, workingCopy, new AutomaticRollbackResult(failure.id(), baseline,
+                    blocked.observedRevision(), false, blocked.phase(), java.time.Instant.now()));
+            assertEquals(EvolutionStepStatus.RECOVERY_REQUIRED, plan.copy().step(stepId).status());
+            assertEquals(WorkingCopyStatus.RECOVERY_REQUIRED, workingCopy.status());
+            if (fault.equals("extra")) { assertEquals("KEEP USER FILE", Files.readString(copy.resolve("user.txt"))); }
+            if (fault.equals("tracked-tamper")) { assertEquals("USER MODIFICATION\n", Files.readString(copy.resolve("Report.java"))); }
+        }
+        assertFalse(Files.exists(copy.resolve(".git/filter-ran")));
+        assertEquals(baseline, workingCopy.lastVerifiedRevision());
+        assertNull(plan.step(stepId).executionResult());
+        assertNull(plan.step(stepId).verificationResult());
+        assertEquals(failure, plan.copy().step(stepId).executionFailureResult());
+        assertEquals(baseline, headRevision(source));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"unset,clean", "unspecified,clean", "unset,process", "unspecified,process"})
+    void mutableExternalAttributeSourceCannotRunDuringAutomaticRestore(String driver, String kind) throws Exception {
+        AuthorizedStepExecution authorized = fixture(false, 1, false, "", false, driver);
+        GitWorkspaceAdapter rejected = new GitWorkspaceAdapter(repositories.directory("managed")) {
+            @Override
+            protected WorkspaceCommandRunner.Result mutationGitResult(Path directory, Path index, String... arguments) {
+                if (Arrays.asList(arguments).contains("update-ref")) {
+                    return new WorkspaceCommandRunner.Result(128, "fatal: controlled publication rejection");
+                }
+                return super.mutationGitResult(directory, index, arguments);
+            }
+        };
+        ExecutionFailureResult failure = assertThrows(ConfirmedExecutionFailureException.class,
+                () -> rejected.applyCandidate(authorized)).result();
+        assertEquals("PUBLISH", failure.phase());
+        assertTrue(failure.diffComplete());
+        plan.failStepExecution(stepId, workingCopy, failure);
+        AuthorizedStepRollback rollback = AuthorizedStepRollback.fromExecutionFailure(plan, stepId, workingCopy,
+                new WorkspaceRef(source.toString()));
+        runGit(copy, "config", "core.attributesFile", copy.resolve("rules.txt").toString());
+        runGit(copy, "config", "filter." + driver + "." + kind, kind.equals("clean")
+                ? "printf hit >> .git/filter-ran; cat" : "printf hit >> .git/filter-ran; exit 1");
+        String rulesBefore = Files.readString(copy.resolve("rules.txt"));
+        assertAll(
+                () -> assertThrows(WorkingCopyRollbackException.class, () -> git.restoreBaseline(rollback)),
+                () -> assertFalse(Files.exists(copy.resolve(".git/filter-ran"))),
+                () -> assertEquals(rulesBefore, Files.readString(copy.resolve("rules.txt"))),
+                () -> assertTrue(Files.readString(copy.resolve("Report.java")).contains("return 1")),
+                () -> assertEquals(baseline, headRevision(copy)),
+                () -> assertNull(plan.step(stepId).executionResult()),
+                () -> assertEquals(baseline, workingCopy.lastVerifiedRevision()));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"APPLY,137", "APPLY,139", "APPLY,-1073741819", "APPLY,128",
+            "PUBLISH,137", "PUBLISH,139", "PUBLISH,-1073741819", "PUBLISH,128"})
+    void unrecognizedProcessExitCannotBecomeConfirmedExecutionFailure(String phase, int exit) throws Exception {
+        AuthorizedStepExecution authorized = fixture(false, 1, false);
+        boolean[] reached = new boolean[4];
+        GitWorkspaceAdapter unknown = new GitWorkspaceAdapter(repositories.directory("managed")) {
+            @Override
+            protected WorkspaceCommandRunner.Result mutationGitResult(Path directory, Path index, String... arguments) {
+                List<String> args = Arrays.asList(arguments);
+                if (index != null && args.contains("write-tree")) {
+                    reached[0] = true;
+                }
+                if (index == null && args.contains("apply") && args.contains("--check")) {
+                    reached[1] = true;
+                }
+                boolean apply = index == null && args.contains("apply") && !args.contains("--check");
+                boolean publish = args.contains("update-ref");
+                if (apply) {
+                    reached[2] = true;
+                }
+                if ((phase.equals("APPLY") && apply) || (phase.equals("PUBLISH") && publish)) {
+                    assertTrue(reached[0], "Expected tree preflight completed");
+                    assertTrue(reached[1], "Apply check preflight completed");
+                    assertTrue(reached[2], "Real apply stage reached");
+                    reached[3] = true;
+                    if (apply) {
+                        // 模拟真实 APPLY 完成但结果丢失；物理修改不能被推断为已确认失败或 Candidate。
+                        assertTrue(super.mutationGitResult(directory, index, arguments).succeeded());
+                    }
+                    return new WorkspaceCommandRunner.Result(exit, "process result lost");
+                }
+                return super.mutationGitResult(directory, index, arguments);
+            }
+
+            @Override
+            public RestoredBaseline restoreBaseline(AuthorizedStepRollback rollback) {
+                fail("UNKNOWN must not start automatic restoration");
+                return null;
+            }
+        };
+        RuntimeException failure = assertThrows(WorkspaceException.class, () -> unknown.applyCandidate(authorized));
+        assertFalse(failure instanceof ConfirmedExecutionFailureException);
+        assertTrue(reached[3], "Unknown result was injected only at " + phase);
+        assertEquals(EvolutionStepStatus.EXECUTING, plan.step(stepId).status());
+        assertNull(plan.step(stepId).executionFailureResult());
+        assertNull(plan.step(stepId).executionResult());
+        assertNull(plan.step(stepId).automaticRollbackResult());
+        assertEquals(baseline, workingCopy.lastVerifiedRevision());
+        assertEquals(baseline, headRevision(copy));
+        assertTrue(Files.readString(copy.resolve("Report.java")).contains("return 1"));
+        assertEquals(baseline, headRevision(source));
     }
 
     private CandidateVerification request(String candidate, CodingProposal.Action... actions) {
@@ -243,6 +457,8 @@ class GitEvolutionExecutionIntegrationTest {
         VerificationFacts facts = verification.verify(request(candidate.revision(), CodingProposal.Action.TEST, CodingProposal.Action.DIFF_CHECK));
         assertFalse(facts.checks().getFirst().passed());
         assertFalse(facts.checks().getLast().passed());
+        assertEquals(VerificationResult.Outcome.FAILED, facts.checks().getFirst().outcome());
+        assertEquals(VerificationResult.Outcome.NOT_RUN, facts.checks().getLast().outcome());
         assertEquals(candidate.revision(), headRevision(copy));
         assertEquals(baseline, workingCopy.lastVerifiedRevision());
     }
@@ -286,6 +502,7 @@ class GitEvolutionExecutionIntegrationTest {
         Map<String, String> original = snapshot(source);
         VerificationFacts facts = verification.verify(request(candidate.revision(), CodingProposal.Action.TEST));
         assertFalse(facts.checks().getFirst().passed(), facts.toString());
+        assertEquals(VerificationResult.Outcome.INCONCLUSIVE, facts.checks().getFirst().outcome());
         assertTrue(facts.checks().getFirst().summary().contains("effective Maven inputs"), facts.toString());
         assertEquals(baseline, workingCopy.lastVerifiedRevision());
         assertEquals(candidate.revision(), headRevision(copy));
@@ -368,4 +585,87 @@ class GitEvolutionExecutionIntegrationTest {
         assertThrows(WorkingCopyBasisChangedException.class, () -> git.applyCandidate(wrong));
         assertEquals(before, snapshot(source));
     }
+
+    @ParameterizedTest
+    @CsvSource({".gitattributes,clean,false", ".gitattributes,process,false", ".gitattributes,smudge,false",
+            "area/.gitattributes,clean,false", "area/.gitattributes,process,false", "area/.gitattributes,smudge,false",
+            ".gitattributes,clean,true", ".gitattributes,process,true", ".gitattributes,smudge,true",
+            "area/.gitattributes,clean,true", "area/.gitattributes,process,true", "area/.gitattributes,smudge,true"})
+    void bomProposalIsRejectedBeforeAnyActualApplyOrPublication(String attributes, String kind, boolean repair)
+            throws Exception {
+        AuthorizedStepExecution initial = fixture(false, 1);
+        String starting = baseline;
+        String repairId = null;
+        if (repair) {
+            CandidateMutationResult result = git.applyCandidate(initial);
+            starting = result.revision();
+            ExecutionResult execution = new ExecutionResult(starting, result.changes(), result.changedPaths(),
+                    result.warnings(), List.of(), result.executedAt());
+            VerificationResult failed = new VerificationResult(starting, List.of(new VerificationResult.Check(
+                    "DIFF_CHECK", "", List.of(1), VerificationResult.Outcome.FAILED, "Fixture failure")),
+                    false, List.of("Fixture failure"), "Fixture failure", Instant.now());
+            // Port 夹具还原既有失败事实；目标调用仍使用真实 Git 与本次独立 Repair capability。
+            EvolutionStep step = EvolutionStep.reconstitute(stepId, planId, "goal", "scope", List.of("change"),
+                    List.of(VerificationCriterion.technical(VerificationCriterion.Kind.DIFF_CHECK_PASSES)),
+                    EvolutionStepStatus.VERIFICATION_FAILED, baseline, execution, failed);
+            plan = EvolutionPlan.reconstitute(planId, plan.productDirectionId(), assetId, plan.baseRepositoryProfileId(),
+                    plan.currentState(), plan.targetState(), plan.reusableCapabilities(), plan.changes(), List.of(step),
+                    plan.risks(), plan.evidence(), workingCopy.id(), EvolutionPlanStatus.ACTIVE);
+            workingCopy = WorkingCopy.reconstitute(workingCopy.id(), assetId, baseline, copy.toString(), starting,
+                    baseline, WorkingCopyStatus.EVOLVING);
+            repairId = UUID.randomUUID().toString();
+            plan.authorizeStepRepair(stepId, workingCopy, new StepExecutionPolicy(), repairId, starting, Instant.now());
+        }
+        String original = "public class Report { static int value() { return " + (repair ? 1 : 0) + "; } }\n";
+        String patch = "--- a/Report.java\n+++ b/Report.java\n@@ -1 +1 @@\n-" + original
+                + "+" + original.replace("return " + (repair ? 1 : 0), "return 2")
+                + "--- /dev/null\n+++ b/" + attributes + "\n@@ -0,0 +1 @@\n+\ufeff\"*.java\"filter=unset\n";
+        CodingProposal proposal = new CodingProposal(starting, "change", List.of("Report.java", attributes), patch,
+                List.of(new CodingProposal.VerificationAction(CodingProposal.Action.DIFF_CHECK, "", List.of(1))));
+        ValidatedExecutionProposal validated = new CodingProposalValidator(new DeterministicRepositorySecretPolicy(), git,
+                new ExecutionPreparationLimits(2,24,48,65536,524288,786432,262144,16,16)).validate(proposal,
+                new ExecutionPreparationBasis(planId, stepId, workingCopy.id(), starting, repairId), plan.step(stepId),
+                new WorkspaceRef(copy.toString()), Map.of("Report.java", original), Set.of(), Set.of("Report.java"));
+        AuthorizedStepExecution authorized = repair
+                ? AuthorizedStepExecution.fromRepair(plan, stepId, workingCopy, new WorkspaceRef(source.toString()), validated)
+                : AuthorizedStepExecution.from(plan, stepId, workingCopy, new WorkspaceRef(source.toString()), validated);
+        boolean[] reached = {false, false, false, false};
+        GitWorkspaceAdapter observed = new GitWorkspaceAdapter(repositories.directory("managed")) {
+            @Override
+            protected WorkspaceCommandRunner.Result mutationGitResult(Path directory, Path index, String... arguments) {
+                List<String> args = Arrays.asList(arguments);
+                if (index != null && args.contains("write-tree")) {
+                    reached[3] = true;
+                }
+                if (args.contains("apply") && args.contains("--check")) {
+                    reached[0] = true;
+                }
+                if (args.contains("apply") && !args.contains("--check") && !args.contains("--cached")) {
+                    reached[1] = true;
+                }
+                if (args.contains("update-ref")) {
+                    reached[2] = true;
+                }
+                return super.mutationGitResult(directory, index, arguments);
+            }
+        };
+        runGit(copy, "config", "filter.unset." + kind, kind.equals("process")
+                ? "printf hit >> .git/filter-ran; exit 1" : "printf hit >> .git/filter-ran; cat");
+        String before = Files.readString(copy.resolve("Report.java"));
+        String expected = starting;
+        assertAll(
+                () -> assertThrows(WorkingCopyBasisChangedException.class, () -> observed.applyCandidate(authorized)),
+                () -> assertTrue(reached[3], "Expected tree must be built before its attributes are rejected"),
+                () -> assertFalse(reached[0], "Actual apply check must not be reached"),
+                () -> assertFalse(reached[1], "Actual apply must not be reached"),
+                () -> assertFalse(reached[2], "Publication must not be reached"),
+                () -> assertFalse(Files.exists(copy.resolve(".git/filter-ran")), "FILTER_SIDE_EFFECT"),
+                () -> assertFalse(Files.exists(copy.resolve(attributes))),
+                () -> assertEquals(expected, headRevision(copy)),
+                () -> assertEquals(before, Files.readString(copy.resolve("Report.java"))),
+                () -> assertEquals(baseline, headRevision(source)));
+        assertEquals(EvolutionStepStatus.EXECUTING, plan.step(stepId).status());
+        assertEquals(baseline, workingCopy.lastVerifiedRevision());
+    }
+
 }

@@ -89,8 +89,12 @@ public final class WorkingCopy {
 
     /** 接受完整执行产生的 Candidate，仅更新当前版本，不提升信任。 */
     void recordCandidate(String baseline, String candidate) {
-        requireCheckpoint(baseline, baseline);
-        if (baseline.equals(candidate)) {
+        recordCandidate(baseline, baseline, candidate);
+    }
+
+    void recordCandidate(String baseline, String startingRevision, String candidate) {
+        requireCheckpoint(baseline, startingRevision);
+        if (baseline.equals(candidate) || startingRevision.equals(candidate)) {
             throw new EvolutionPlanStateException("Candidate must differ from baseline");
         }
         currentRevision = candidate;
@@ -104,6 +108,16 @@ public final class WorkingCopy {
 
     public SoftwareAssetId sourceAssetId() {
         return sourceAssetId;
+    }
+
+    void finishRollback(String baseline, String candidate, boolean restored) {
+        requireCheckpoint(baseline, candidate);
+        if (restored) {
+            currentRevision = baseline;
+        } else {
+            // 未确认恢复时保留最后已记录 revision；它不宣称物理现场仍精确位于 Candidate。
+            status = WorkingCopyStatus.RECOVERY_REQUIRED;
+        }
     }
 
     public String sourceRevision() {

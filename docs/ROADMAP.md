@@ -3,7 +3,7 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-10-12
+**Last Updated:** 2026-10-17
 
 ---
 
@@ -11,13 +11,21 @@
 
 当前最重要目标：
 
-> M0–M4 核心闭环与 Task D–F 后续 correctness 修复已完成。Task G UI / UX Polish 已完成、由用户接受并冻结；本地 main 已整合 G1/G2。后端业务开发继续停止，M5 暂缓。
+> M0–M4 核心闭环与 Task G 保持完成 / 冻结。feature/m5-lab 的 M5-A～E 及其修复已实现并通过独立审查，进入阶段性收尾；完整 M5 尚未完成。Recovery 写入能力正式延期。
+
+本实验不改变已发布 v0.1.0 或 main，不 Push / 合并；不用真实业务数据或付费 Provider。
+F1/F1b 原型及实验记录均已通过独立审查，但隔离技术 Gate 均为 NO-GO；用户已决定停止当前候选研究。
+2026-10-17 独立最终验收完成，结论为 **M5 PARTIAL READY FOR LOCAL MERGE**；仅表示有限范围本地集成就绪，完整 M5 保持 PARTIAL。
+完整回归、隔离升级、打包重启、真实 Edge 证据及剩余边界见 [M5 最终验收](validation/m5-final-acceptance-20261017.md)。
+报告完成后停止，等待用户安排；不自动合并、发布或开始 Recovery。
+完成范围、证据与发布前 Gate 见 [M5 阶段性收尾](validation/m5-partial-closeout.md)；
+延期决策见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md) 的 2026-10-16 refinement。
 
 业务阶段关闭、两次历史 Verified Evolution、Pre-UI 时点 1474 / 85 项确定性回归及尚未重跑的付费 E2E
 见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。
 Task G 当前发行版 UI 的最终结果与 123 项前端回归见 [最终关闭记录](validation/task-g-final-frontend-closeout.md)。
 2026-10-12 用户单独授权的 M4 执行前能力预检与安全错误分类修复见
-[correctness 修复记录](validation/m4-execution-preflight-correctness-fix.md)；冻结边界与 M5 暂缓不变。
+[correctness 修复记录](validation/m4-execution-preflight-correctness-fix.md)；M0–M4 冻结边界不变，M5 仅按本实验 Slice 的单独授权推进。
 UI 接受不代表最新代码的完整付费 E2E、部署或发布验收；M6 仍为 TODO，不自动开始后续工作。
 实施前的技术结构与冻结边界保留在 [历史 UI 交接](UI_TASK_G_HANDOFF.md)；
 干净数据库切换由用户按 [本地数据环境说明](LOCAL_DATA_ENVIRONMENTS.md) 决定，不自动清理旧库或副本。
@@ -621,53 +629,84 @@ M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整�
 
 ### M5 — Failure Safety & Recovery
 
-**Status:** DEFERRED（2026-10-10）— 本轮后端交付结束后暂缓，不开始实现。
+**Status:** PARTIAL（阶段性收尾；M5-A～E 及修复独立审查 PASS；Recovery DEFERRED；2026-10-16）。
+仅实验分支，尚未合并／发布；不是完整 M5 DONE。F1/F1b 的审查 PASS 不改变技术 NO-GO。
+
+M5-A 实现范围：同一 Candidate 的明确 Verification FAIL → 保存 VerificationResult →
+VERIFICATION_FAILED；Candidate 与 baseline 保留、lastVerifiedRevision 不推进、后续 Step 被阻止。
+异常 / 未知结果仍 fail closed；M5-A 时点没有 Repair / Retry / Rollback / Recovery 入口。
+实施与回归证据见 [M5-A 验证报告](validation/m5-a-verification-failure-handling.md)。
+
+M5-B 范围：新 Repair 授权 → 保留旧失败快照 → 原 Step / baseline 上从当前 Candidate 修复 →
+完整 Verification；再次 FAIL 保留最新 Candidate，异常保持检查点。实施证据见
+[M5-B 报告](validation/m5-b-candidate-repair.md)。不实现 User Rollback、FAILED Retry、Recovery 或后台任务。
+
+M5-C 范围：独立授权当前 VERIFICATION_FAILED 的 User Rollback，精确恢复原 Step 的首次 baseline，
+保留失败及 Repair 历史；恢复未确认则阻塞，不清理额外用户文件。重启残留 ROLLING_BACK 按用户
+裁定保留检查点且不重放。见 [M5-C 报告](validation/m5-c-user-rollback.md)；不实现自动回滚、Retry 或 Recovery。
+
+M5-D 范围：明确的受控 Execution Failure → 保存诊断与实际 Diff identity → 系统 Rollback，
+精确恢复后 FAILED，未确认恢复则 RECOVERY_REQUIRED。未发布完整补丁需证明整树和归属；
+未知执行结果和重启未决检查点不重放。见 [M5-D 报告](validation/m5-d-execution-failure-handling.md)。
+不实现 FAILED Retry、Recovery 或 Verification 重构。
+
+M5-E 范围：精确恢复的 FAILED → 独立授权 / 历史快照 → READY，随后显式携带 Retry 身份复用
+Execution / Candidate / 全量 Criteria Verification；首次 baseline 不变，历史不覆盖。重复请求、
+并发授权、撤权、旧轮次同 baseline CAS 与未知检查点继续阻塞。见
+[M5-E 报告](validation/m5-e-failed-retry.md)。不实现 Recovery、Verification 重构或测试性能优化。
+
+Recovery 当前不开放写入：旧写者停止或失去写能力尚无可接受证明；F1 的 Job + Mutex 存在 WMI 逃逸，
+F1b 的受限 Token、同 SID ACL 与 staging 原型未形成安全隔离。RECOVERY_REQUIRED 与遗留 UNKNOWN
+继续阻塞，不接管、不重放、不伪造可信状态。重新开放须另经安全架构设计、OS 实证和独立审查。
 
 **Goal**
 
+以下完整 M5 领域目标保留；延期不等于已验收。
 补齐 Evolution Execution 的主要异常路径，使一次失败的代码修改不会破坏后续演化的可信基础。
 
 **Deliverables**
 
 #### Execution Failure
 
-- [ ] 保存 Execution Failure 的诊断信息。
-- [ ] 保存必要 Diff / Execution Result。
-- [ ] 自动进入 Rollback。
-- [ ] Rollback 成功后恢复 baselineRevision。
-- [ ] Step 进入 `FAILED`。
-- [ ] 支持用户明确 Retry。
+- [x] 保存 Execution Failure 的诊断信息。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
+- [x] 保存必要 Diff / Execution Result。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
+- [x] 自动进入 Rollback。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
+- [x] Rollback 成功后恢复 baselineRevision。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
+- [x] Step 进入 `FAILED`。（M5-D 已确认失败的有限适配；未知结果继续阻塞）
+- [x] 支持用户明确 Retry（M5-E；仅精确恢复的 FAILED，独立持久化授权）。
 
 #### Verification Failure
 
-- [ ] Verification Failure 后进入 `VERIFICATION_FAILED`。
-- [ ] 保留 Candidate State。
-- [ ] 不更新 lastVerifiedRevision。
-- [ ] 阻止后续 Evolution Step 执行。
-- [ ] 支持用户明确选择 Repair。
-- [ ] Repair 后重新 Verification。
-- [ ] 支持用户明确选择 Rollback。
-- [ ] Rollback 成功后进入 `FAILED`。
+- [x] 明确完成的 Verification Failure 后进入 `VERIFICATION_FAILED`（M5-A）。
+- [x] 保留 Candidate State（M5-A）。
+- [x] 不更新 lastVerifiedRevision（M5-A）。
+- [x] 阻止后续 Evolution Step 执行（M5-A）。
+- [x] 支持用户明确选择 Repair（M5-B 独立授权）。
+- [x] Repair 后重新 Verification（M5-B 全部标准及原软件状态）。
+- [x] 支持用户明确选择 Rollback（M5-C 独立授权）。
+- [x] Rollback 成功后进入 `FAILED`（M5-C 精确恢复并确认后）。
 
 #### Recovery
 
-- [ ] Rollback Failure 后进入 `RECOVERY_REQUIRED`。
-- [ ] 阻止新的 Execution / Repair / Retry。
-- [ ] 支持尝试恢复 baselineRevision。
-- [ ] Recovery Success 后恢复可重试状态。
-- [ ] 无法精确恢复 baselineRevision 时标记 Working Copy 为 `UNRECOVERABLE`。
-- [ ] UNRECOVERABLE 时禁止当前 Evolution Plan 继续执行。
+- [x] 正常调用中的 Rollback Failure / 未确认结果后进入 `RECOVERY_REQUIRED`（M5-C）；数据库不可写与重启未决边界见报告。
+- [x] RECOVERY_REQUIRED 阻止新的 Execution / Repair / Retry（现有资格守卫；不代表实现 Recovery）。
+- [ ] 支持尝试恢复 baselineRevision（DEFERRED；无写入口）。
+- [ ] Recovery Success 后恢复可重试状态（DEFERRED）。
+- [ ] 无法精确恢复 baselineRevision 时标记 Working Copy 为 `UNRECOVERABLE`（Recovery 判定／写入 DEFERRED）。
+- [x] 已存在 UNRECOVERABLE 状态时禁止后续 Step（防御性资格守卫；本版不通过 Recovery 产生该状态）。
 
 #### Audit / Traceability
 
-- [ ] 保存重要用户授权事实。
-- [ ] 保存重要 Step Execution / Verification 事件。
-- [ ] 保存 Rollback / Recovery 结果。
-- [ ] 重要历史事件不得被后续状态变化覆盖。
+- [x] 保存本 Slice 的 Repair / User Rollback / Retry 独立授权事实。
+- [x] 保存当前 Execution / Verification 结果及 Repair / Retry 前轮失败快照。
+- [x] 保存 User / Automatic Rollback 结果。
+- [x] 已实现的授权及失败历史在后续动作中保留（Step 内值对象；非完整事件流或 Attempt 框架）。
+- [ ] Recovery 授权、结果及相关审计（DEFERRED；完整审计目标不据上述有限能力标为完成）。
 
 **Acceptance Criteria**
 
-至少通过自动化测试或可重复场景证明以下路径成立：
+以下为完整 M5 的验收目标。前三条已有 A～E 实现及回归，最后的 Recovery / UNRECOVERABLE 路径延期，
+因此不能宣布完整 M5 或完整 MVP 失败恢复能力已完成。
 
 ```text
 Execution Failure
@@ -698,11 +737,11 @@ Rollback Failure
 
 并保证：
 
-- [ ] 未验证 Candidate State 永远不会成为后续 Step 的执行基线。
-- [ ] `lastVerifiedRevision` 只有 Verification Success 才能推进。
-- [ ] FAILED 后 Retry 需要新的用户确认。
-- [ ] VERIFICATION_FAILED 后 Repair 需要新的用户确认。
-- [ ] Recovery 失败不会被系统静默忽略。
+- [x] 未验证 Candidate 不获得后续 Step 基线资格（A～E 生命周期／真实内容守卫；不声称 OS 沙箱）。
+- [x] `lastVerifiedRevision` 只有 Verification Success 才能推进（现有 M4 / M5 回归）。
+- [x] FAILED 后 Retry 需要新的用户确认（M5-E，原 baseline 与全部历史保留）。
+- [x] VERIFICATION_FAILED 后 Repair 需要新的用户确认（M5-B）。
+- [ ] Recovery 失败不会被系统静默忽略（Recovery 调用及结果处理 DEFERRED；原 Rollback 阻塞事实已实现）。
 
 ---
 
@@ -790,7 +829,7 @@ Step SUCCEEDED
 | M2 | Product Direction Discovery | DONE |
 | M3 | Evolution Planning & Working Copy | DONE |
 | M4 | First Verified Evolution Step | DONE / FROZEN |
-| M5 | Failure Safety & Recovery | DEFERRED |
+| M5 | Failure Safety & Recovery | IN_PROGRESS（仅 M5-A / M5-B / M5-C 实验） |
 | M6 | MVP End-to-End Validation | TODO |
 
 统一状态：
@@ -836,16 +875,30 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 ```text
 M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
 M4 — First Verified Evolution Step：DONE / FROZEN（2026-10-10）
-M5 — Failure Safety & Recovery：DEFERRED
+M5 — Failure Safety & Recovery：IN_PROGRESS（仅 feature/m5-lab 的 M5-A / M5-B / M5-C）
 Task D–F / F-Fix / 软删除 / Final Planning Fix：DONE
 Task G — UI / UX Polish：DONE / ACCEPTED / FROZEN（2026-10-12，当前发行版 UI）
-后端业务开发停止；不追加 M4 优化或开始 M5。
+本轮只实现 M5-C；其余失败恢复 Slice 不自动开始。
 真实 Provider E2E、部署与发布接受尚未完成；不自动启动。
 ```
 
 M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
 
 ### Current
+
+**M5-C User Rollback：DONE / 本地待审查（2026-10-13）。** 独立授权、原始 baseline 精确恢复、
+保留证据与失败阻塞；重启未知判定留给后续 Recovery Slice。最终后端 1,563 项、前端 145 项、
+typecheck / build PASS。实施、开发期间失败与未测试场景见 [M5-C 报告](validation/m5-c-user-rollback.md)。
+本轮结束后停止，不自动开始下一 Slice。
+
+**M5-B Candidate Repair：DONE / 本地待审查（2026-10-13）。** 仅授权修复当前失败 Candidate，
+保留原 Step / baseline、失败快照与授权事实；未知 / in-flight 状态不重放。最终后端 1,532 项、
+前端 141 项、typecheck / build PASS；证据与未测试场景见 [M5-B 报告](validation/m5-b-candidate-repair.md)。
+M5 整体不标为 DONE，本轮结束后停止。
+
+**M5-A 独立实验：DONE / 本地待审查（2026-10-13）。** 本轮实现明确 FAIL 的保存与阻塞语义，复用既有 M4 检查点、
+授权、隔离、预检和并发控制；未知 / in-flight 结果仍保持原 fail-closed。M5 整体不得标为 DONE。
+以下冻结记录保留其历史时点含义，本轮单独授权不修改已发布发行版。
 
 **Task G 已关闭并冻结（2026-10-12）。** Graphite + Indigo、项目工作台和五工作流页面已由用户接受，
 少量视觉不足有意延后。本地 main 快进整合 G1/G2；最终前端 123 项测试、typecheck / build PASS。
