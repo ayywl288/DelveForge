@@ -2,7 +2,8 @@
 
 > 第 1～5 节保留 2026-10-16 首轮 Minor 修复及其当时自验记录。该版本随后被独立复审发现
 > JSON `null` 筛选绕过 Important，不能据首轮自验宣称独立复审 PASS。
-> 2026-10-17 的修复、红绿证据与本轮实际验证见第 6 节；当前等待独立复审。
+> 第 6 节记录 JSON `null` 筛选修复。该修复保留；随后发现的尾随 token 解析 Important 及当前
+> 红绿证据见第 7 节。各轮自验不能替代独立复审；当前等待独立复审。
 
 日期：2026-10-16（Asia/Shanghai）。Worktree：`E:\develop\DelveForge-worktrees\m5-lab`。
 分支：`feature/m5-lab`；本轮基线：`73bf6b88e7eb47ba25d83d8e0109e9080d5e6d6e`。
@@ -232,3 +233,109 @@ OS 崩溃或生产升级。现有 Domain 能解释的合法 null 表示可在完
 `tools/spikes/m5-f1/__pycache__/ownership_spike.cpython-311.pyc` 保留，不清理、不提交。
 main、其它 Worktree、Release Tag、真实数据不改；不 Push、不合并、不开始发布验收。
 最终 Commit SHA 由 Git 与交付消息给出，提交后停止等待独立复审。
+
+## 7. 2026-10-17 Important 复审修复：检查点 JSON 尾随 token
+
+本轮基线：`150f3558cedbfc6966a61fe4caaa2af8e66751a1`，同一 E 盘 Worktree / feature/m5-lab。
+本轮状态：实现者定向测试 PASS，等待独立复审；不进入发布验收。
+
+### 7.1 根因与两个独立 API 红色证据
+
+核对 StepResultJson.read、其全部生产调用方 SqliteEvolutionPlanRepository.findById、
+EvolutionStep.reconstitute，以及当前 Project Mapper／Repository／API 测试与相关领域契约。
+上轮按 FAILED 状态统一选取 Plan 的修复正确保留，但 StepResultJson 原来直接使用
+`MAPPER.readValue(value, type)`，默认未要求读完输入；对象后的第二个 JSON token 可以被忽略。
+Domain 重建因此得到的是合法前缀，而非完整的持久化事实。
+
+在生产代码仍为基线时，新增并运行两个独立 `@Test` 的真实 Spring MVC DELETE 回归：
+
+- `trailingTokenAfterExecutionFailureBlocksDeletion`：只在完整 execution_failure_result 对象后追加 ` false`。
+- `trailingTokenAfterAutomaticRollbackBlocksDeletion`：只在完整 automatic_rollback_result 对象后追加 ` false`。
+
+夹具先证明完整检查点可重建为 FAILED，副本 current / lastVerified 均为原 baseline；
+其余诊断、恢复、绑定事实均保持。分别覆盖旧 Plan 和已登记 Project 导航身份。
+每例都断言目标字段的 SQLite `json_valid=0`，预期 `409 PROJECT_DELETION_BLOCKED`。
+旧实现实际两例均返回 200 并进入删除成功路径：**2 tests / 2 failures / 0 errors / 0 skipped，退出 1**。
+`red-api.log` 与 `red-api.xml` 保存原反例；没有用解析失败或未到达 DELETE 冒充红色复现。
+
+### 7.2 局部严格读取
+
+唯一生产修改为
+[StepResultJson](../../backend/delveforge-infrastructure/src/main/java/com/ayywl/delveforge/infrastructure/persistence/evolutionplan/StepResultJson.java)：
+通过该类私有 Mapper 创建当前类型的 ObjectReader，并在本次读取启用
+`DeserializationFeature.FAIL_ON_TRAILING_TOKENS`。返回前必须确认非 NULL 输入只有一个完整 JSON 值；
+合法值之后的第二个值或非法内容触发既有 JsonProcessingException 包装，不返回合法前缀供 Step 重建。
+
+SQL NULL 仍表示没有检查点；单个 JSON null、完整对象／数组及合法前后空白保持原解释。
+没有修改 Spring 全局 ObjectMapper、StepResultJson.write、Provider／REST 解析配置或 Domain。
+严格读取统一作用于该 Repository 现有八类检查点读取：ExecutionResult、VerificationResult、
+RepairAuthorization 数组、RollbackAuthorization、RollbackResult、ExecutionFailureResult、
+AutomaticRollbackResult、RetryAuthorization 数组，不增加另一套 SQL／JSON 成功规则。
+
+ProjectContextMapper 和 SqliteProjectContextRepository 本轮均无修改。
+读取异常沿既有不可读事实处理路径拒绝删除；同 flow 其它轮次仍在原 SQLite 写锁内重建并在导航 CAS 前拒绝。
+上轮全 FAILED 筛选、资产／baseline／current／lastVerified 绑定校验、未决状态和独立授权守卫全部保留。
+不重写损坏 JSON，不补造 ExecutionResult，不改 schema／migration、API contract 或 Recovery。
+
+### 7.3 本轮回归及拒绝后的事实保留
+
+新增 API 执行用例 6 项，整类共 72 项：两个原反例转绿；两个同 flow 其它轮次的尾随字段测试，
+确保当前导航没有 Plan 时也在事务内拒绝；两个合法完整对象前后带 CR/LF/空格/Tab 的成功删除测试。
+拒绝测试逐项核对导航 version=0、deletedAt 为空、全部 Step 和 WorkingCopy 列不变，
+并分别再次核对 execution_failure_result 与 automatic_rollback_result 的完整原文，未被替换或正规化。
+合法空白成功用例同样保留原 JSON 文本。
+
+StepResultJsonCompatibilityTest 共 21 项（保留原 M4 成功与未分类负值兼容 2 项，新增 19 项）：
+
+- 完整对象后的 false / null / 对象 / 数组 / 数字 / 字符串 / true / 换行 token / 非法尾部全部拒绝。
+- `null false`、`null null`、`[] []`、`[] false` 不能只返回合法前缀。
+- 五组允许的前后空白组合可读取完整历史对象、JSON null 和空数组；SQL NULL 保持空值语义。
+
+原 API 中的正常 Automatic / User Rollback 删除、JSON null 筛选反例、SQL NULL、其它异常表示、
+损坏历史、缺失／矛盾恢复事实、资产／baseline 不符和所有未决状态回归均保留并通过。
+Project SQLite 11 项也全部运行，包括独立事务拒绝无残留、并发导航 CAS 和同 flow 阻塞。
+这些是合成检查点下真实 MVC／SQLite 集成证据，不是物理 Git 恢复或真实用户数据验证。
+
+### 7.4 实际命令与本轮结果
+
+本轮资料根：`E:\develop\DelveForge-worktrees\m5-lab-artifacts\deletion-guard-trailing-token-20261017`。
+TEMP、TMP、java.io.tmpdir 均为其 `tmp` 子目录；MAVEN_OPTS=`-Xmx512m`。
+移除测试 shell 的 Provider key／SPRING_APPLICATION_JSON，沿用 UUID 测试数据库与 Mock/Fake。
+
+从 Worktree 根执行红色复现：
+
+```powershell
+.\mvnw.cmd -o '-Djava.io.tmpdir=E:\develop\DelveForge-worktrees\m5-lab-artifacts\deletion-guard-trailing-token-20261017\tmp' -pl backend/delveforge-app -am '-Dtest=ProjectWorkspaceIntegrationTest#trailingTokenAfter*' '-Dsurefire.failIfNoSpecifiedTests=false' test
+```
+
+最终定向回归：
+
+```powershell
+.\mvnw.cmd -o '-Djava.io.tmpdir=E:\develop\DelveForge-worktrees\m5-lab-artifacts\deletion-guard-trailing-token-20261017\tmp' -pl backend/delveforge-app -am '-Dtest=StepResultJsonCompatibilityTest,ProjectWorkspaceIntegrationTest,ProjectContextPersistenceTest,ProjectDirectionScopeIntegrationTest,StepExecutionLifecycleTest,StepExecutionPolicyTest,ExecuteEvolutionStepUseCaseTest,SqliteEvolutionPlanRepositoryIntegrationTest,ExecutionFailureMigrationTest,RollbackMigrationTest,RetryAuthorizationMigrationTest,EvolutionFlowScopeMigrationTest' '-Dsurefire.failIfNoSpecifiedTests=false' test
+```
+
+`targeted-test.log`：**BUILD SUCCESS，原生退出码 0，23.426 s，2026-10-17 12:12:35 +08:00 完成**。
+这是 test 阶段的编译／测试结果，不是完整 verify、打包或发布证据。
+只汇总该次新生成的 12 份 Surefire XML，均核对文件时间，归档到 `final-surefire/`；
+`validation-summary.json` 记录计数／时间／哈希，两个 `*-exit.txt` 记录红色与绿色的原生退出码。
+
+| 模块 | XML | Tests | Failures / Errors / Skipped |
+| --- | ---: | ---: | --- |
+| Domain | 2 | 37 | 0 / 0 / 0 |
+| Application | 1 | 29 | 0 / 0 / 0 |
+| Infrastructure | 7 | 47 | 0 / 0 / 0 |
+| App | 2 | 83 | 0 / 0 / 0 |
+| 本轮合计 | 12 | 196 | 0 / 0 / 0 |
+
+其中解析兼容性 21 项、删除 API 72 项、Project SQLite 11 项；其余为必要的作用域、领域、编排与持久化回归。
+未把此前 151／171／1,814 项计作本次覆盖。`git diff --check` 通过。
+按任务边界未运行完整 verify、前端测试／typecheck／build、Provider E2E、物理 Git 恢复或发布验收。
+
+### 7.5 风险与停止边界
+
+合法历史结构和语义保留；原先只因忽略尾部而可读的损坏记录现在会不可读并阻塞，这是本轮修复目标，
+不提供自动修补／覆盖或恢复入口。不声称新增了完整 JSON 规范化或其它解析策略。
+本轮不新增领域决策，Decision Required 无。
+
+只提交一个生产读取修复、两个测试文件及本报告。原有 `.pyc`、main、Tag、其它 Worktree 和真实数据保留。
+不 Push、不合并、不发布，不进入其它 M5 功能；最终 Commit SHA 由 Git 和交付消息提供，提交后停止等待复审。

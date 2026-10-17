@@ -556,6 +556,79 @@ class ProjectWorkspaceIntegrationTest {
         verifyNoInteractions(ai);
     }
 
+    @Test
+    void trailingTokenAfterExecutionFailureBlocksDeletion() throws Exception {
+        assertTrailingCheckpointBlocksDeletion("execution_failure_result", "plan");
+    }
+
+    @Test
+    void trailingTokenAfterAutomaticRollbackBlocksDeletion() throws Exception {
+        assertTrailingCheckpointBlocksDeletion("automatic_rollback_result", "project");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"execution_failure_result", "automatic_rollback_result"})
+    void anotherRoundWithTrailingCheckpointStillBlocksDeletion(String column) throws Exception {
+        assertTrailingCheckpointBlocksDeletion(column, "other-round");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"execution_failure_result", "automatic_rollback_result"})
+    void whitespaceAroundCompleteAutomaticRollbackCheckpointStillAllowsDeletion(String column) throws Exception {
+        String id = "whitespace-checkpoint";
+        seedAutomaticRollback(id);
+        String original = jdbc.queryForObject("SELECT " + column + " FROM evolution_step WHERE id=?",
+                String.class, id + "-step-1");
+        String padded = "\r\n \t" + original + "\t \r\n";
+        jdbc.update("UPDATE evolution_step SET " + column + "=? WHERE id=?", padded, id + "-step-1");
+        assertEquals(EvolutionStepStatus.FAILED,
+                plans.findById(new EvolutionPlanId(id)).orElseThrow().steps().getFirst().status());
+        deleteAndAssertFactsRetained(id, "plan:" + id);
+        assertEquals(padded, jdbc.queryForObject("SELECT " + column + " FROM evolution_step WHERE id=?",
+                String.class, id + "-step-1"));
+    }
+
+    private void assertTrailingCheckpointBlocksDeletion(String column, String navigation) throws Exception {
+        String id = "trailing-checkpoint";
+        String key;
+        if (navigation.equals("other-round")) {
+            JsonNode context = create("其它轮次损坏检查点", "shared-user");
+            seedAutomaticRollback(id, context.path("flowId").asText());
+            key = "project:" + context.path("id").asText();
+        } else {
+            seedAutomaticRollback(id);
+            key = deletionKey(id, navigation.equals("project"));
+        }
+        assertEquals(EvolutionStepStatus.FAILED,
+                plans.findById(new EvolutionPlanId(id)).orElseThrow().steps().getFirst().status());
+        String original = jdbc.queryForObject("SELECT " + column + " FROM evolution_step WHERE id=?",
+                String.class, id + "-step-1");
+        jdbc.update("UPDATE evolution_step SET " + column + "=? WHERE id=?", original + " false", id + "-step-1");
+        assertEquals(0, jdbc.queryForObject("SELECT json_valid(" + column + ") FROM evolution_step WHERE id=?",
+                Integer.class, id + "-step-1"));
+        var steps = jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id);
+        var copy = jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id);
+        assertEquals("e38e4a1", copy.get("current_revision"));
+        assertEquals(copy.get("current_revision"), copy.get("last_verified_revision"));
+        String failure = jdbc.queryForObject("SELECT execution_failure_result FROM evolution_step WHERE id=?",
+                String.class, id + "-step-1");
+        String rollback = jdbc.queryForObject("SELECT automatic_rollback_result FROM evolution_step WHERE id=?",
+                String.class, id + "-step-1");
+        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":0}"))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
+        mvc.perform(get("/api/projects/{key}", key)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.visibility.version").value(0))
+                .andExpect(jsonPath("$.visibility.deletedAt").doesNotExist());
+        assertEquals(steps, jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id));
+        assertEquals(copy, jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id));
+        assertEquals(failure, jdbc.queryForObject("SELECT execution_failure_result FROM evolution_step WHERE id=?",
+                String.class, id + "-step-1"));
+        assertEquals(rollback, jdbc.queryForObject("SELECT automatic_rollback_result FROM evolution_step WHERE id=?",
+                String.class, id + "-step-1"));
+        verifyNoInteractions(ai);
+    }
+
     private void mutateCheckpoint(String id, String column, String field, Object value) throws Exception {
         ObjectNode checkpoint = (ObjectNode) json.readTree(jdbc.queryForObject(
                 "SELECT " + column + " FROM evolution_step WHERE id=?", String.class, id + "-step-1"));
