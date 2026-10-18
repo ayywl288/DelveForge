@@ -182,7 +182,7 @@ function Assert-DfPortsFree {
 function Assert-DfDatabaseAvailable {
     param([string] $Root, [hashtable] $Configuration)
 
-    $path = './data/m4-local/delveforge.db'
+    $path = './data/delveforge.db'
     if ($Configuration.ContainsKey('DELVEFORGE_PERSISTENCE_DATABASE_FILE')) {
         $path = $Configuration.DELVEFORGE_PERSISTENCE_DATABASE_FILE
     }
@@ -342,7 +342,7 @@ function Invoke-DfSetup {
         try {
             $dependencies = Get-DfDependencies $Root
             Set-DfEnvironment 'JAVA_HOME' $dependencies.JavaHome
-            Write-Host 'Using m4-local: high token budgets may incur substantial API costs. Startup makes no AI requests.'
+            Write-Host 'Using application defaults: high token budgets may incur substantial API costs. Startup makes no AI requests.'
             Write-Host 'Inherited application overrides are ignored for this run; this terminal will be restored afterward.'
             $secret = Read-DfKey
             $configuration = Read-DfConfiguration
@@ -363,7 +363,7 @@ function Invoke-DfSetup {
             $backendCommand = @'
 $Host.UI.RawUI.WindowTitle = 'DelveForge Backend'
 Set-Location -LiteralPath {0}
-& {1} '-jar' {2} '--spring.profiles.active=m4-local' '--spring.config.location=classpath:/application.yml'
+& {1} '-jar' {2} '--spring.config.location=classpath:/application.yml'
 Write-Host ('Backend exited (code ' + $LASTEXITCODE + '). Inspect the output above.')
 Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
 '@

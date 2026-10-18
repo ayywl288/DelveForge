@@ -12,32 +12,58 @@ Python 命名提示是首次案例修改的业务内容；这不等于已有 Pyt
 
 **Windows 宿主边界：** WorkingCopy 路径、Git revision、净化禁写和进程环境筛选不能隔离 Maven 插件、测试与 Git 本机程序对宿主文件系统的访问。本地后端没有面向公网的认证部署方案；本 profile 绑定 `127.0.0.1`，仅用于受控本机使用。不要把未知或不可信仓库送入执行流程。这是功能验证，不是 OS 沙箱或安全认证。
 
-## 2. 默认配置与显式成功配置
+## 2. 统一默认配置与预算
 
-[`application.yml`](../backend/delveforge-app/src/main/resources/application.yml) 保留普通默认值；[`application-m4-local.yml`](../backend/delveforge-app/src/main/resources/application-m4-local.yml) 通过 `--spring.profiles.active=m4-local` 显式启用首次 PASS 使用的预算。
+[`application.yml`](../backend/delveforge-app/src/main/resources/application.yml) 现直接采用日常使用的流式、响应与 Verification 预算，不再需要 `--spring.profiles.active=m4-local`；旧 Profile 已移除。历史报告中的 Profile 名称与成功时点仍原样保留，不代表本轮重新执行了付费 Provider 验收。
 
-| 项目 | 默认配置 | `m4-local` |
-|---|---|---|
-| 内部 Provider SSE | false | true |
-| connect / 非流式读期限 / SSE idle | 60s | connect / idle 90s |
-| SSE absolute total | 300s（SSE 未启用） | 300s |
-| Provider `max_tokens` | 16,384 | 98,304 |
-| 原始 HTTP 响应上限 | 8 MiB | 32 MiB |
-| 单 SSE 事件上限 | 64 KiB | 64 KiB |
-| Verification 单动作 / 整次调用 | 120s / 300s | 900s / 1200s |
-| Verification 输出 / XML 报告上限 | 1 MiB / 100 | 8 MiB / 160 |
-| Verification 最大动作数 | 16 | 16（继承） |
-| SQLite | `./data/delveforge.db` | `./data/m4-local/delveforge.db` |
-| Workspace | `${user.home}/.delveforge/workspaces` | `${user.home}/.delveforge/m4-local/workspaces` |
-| 文件日志 | 未配置 | `./logs/m4-local/delveforge.log` |
+| 项目 | 当前默认值 |
+| --- | --- |
+| 模型 | `deepseek-flash` |
+| streaming | true |
+| 连接 / SSE idle | 90s |
+| SSE absolute total | 300s |
+| Provider `max_tokens` | 98,304 |
+| 原始 HTTP 响应 / 单事件上限 | 32 MiB / 64 KiB |
+| Verification 单动作 / 整次调用 | 900s / 1200s |
+| Verification 输出 / XML 报告上限 | 8 MiB / 160 |
+| Verification 最大动作数 | 16 |
+| SQLite | `./data/delveforge.db` |
+| Workspace | `${user.home}/.delveforge/workspaces`，保留普通配置原值 |
+| 文件日志 | `./logs/delveforge.log`，可用 `DELVEFORGE_LOG_DIR` 覆盖目录 |
+| 监听地址 | `127.0.0.1` |
 
-`timeout` 在当前装配中同时设置连接期限与 SSE 字节空闲期限；`stream-timeout` 由 JDK request factory 约束绝对读取期限，增量或 keep-alive 不能延长它。SSE 仅在完整 `stop` 和 `[DONE]` 后向 Application 返回完整文本，REST 业务接口本身不提供流式返回。超时、截断、预算耗尽都会拒绝响应，不应用部分提案。
+`timeout` 同时约束连接与 SSE 字节空闲期限；`stream-timeout` 约束绝对读取期限，增量或 keep-alive 不能延长它。SSE 仅在完整 `stop` 和 `[DONE]` 后向 Application 返回完整文本，REST 业务接口本身不提供流式返回。超时、截断、预算耗尽都会拒绝响应，不应用部分提案。
 
-当前只有一个 Gateway 配置，`AiRequest` 没有阶段预算字段，**启用 profile 后 User Discovery、Repository Analysis、Direction、Planning、CodingProposal 都使用这套 Provider 上限**。98,304 是总生成上限，包含 reasoning，不表示每次必然用完。它有较高成本和延迟；首次成功的 execute 请求实际耗时约 702 秒，包含多次 AI 调用与 Maven，不能用 300 秒当整个 API 的期限。HTTP 调用方应能等待这一量级的同步请求；客户端断开不能当作服务端已取消，也不能因此重发 execute。
+全部 AI 阶段共用这一套 Provider 上限。98,304 包含 reasoning，不表示每次都会用满；较高上限可能增加费用和延迟。首次历史成功 execute 曾耗时约 702 秒，不能把 Provider 单次期限当成整个同步 API 的期限。客户端断开不等于取消，不能自动重发。
 
-成功预算不是已证明最优默认值；默认非流式配置尚未取得同等真实 M4 成功验证。可以在服务空闲、停止后切换 profile，并保持同一对 DB / Workspace 路径；不要在执行中换配置或开第二个实例。本文不增加阶段路由、自动网络重试或新的恢复行为。
+这是当前运行选择，不是任意仓库成功承诺或最优预算证明。本文不增加阶段路由、网络重试或 Recovery 行为，也不搬动旧 Workspace。
 
 ## 3. 配置并从全新数据环境启动
+
+### 日常启动：固定的手动测试库
+
+在仓库根目录运行 `./setup-delveforge.ps1`，输入 Key 后其余配置回车即可。脚本构建最新后端，
+并固定从仓库根目录启动前后端；不必设置 `DELVEFORGE_PERSISTENCE_DATABASE_FILE`。
+正常默认配置指向 `./data/delveforge.db`；首次为空库时由 Flyway
+初始化到 V21，之后重启保留这份库。原 `data/m4-local/delveforge.db` 与所有旧副本不作删除、
+复制或迁移。这个新库不继承旧项目，也不取消旧环境的未决操作。
+
+若手动分开启动，在仓库根目录先构建一次，然后运行后端；配置改动后不能继续用旧 JAR；本次维护会另行保留并移走旧 Profile 的编译资源，避免残留进入新产物，不清理整个 target：
+
+```powershell
+.\mvnw.cmd -DskipTests package
+java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar
+```
+
+另一个终端进入 `frontend` 后运行 `pnpm dev`。无 Key 可检查空工作台；真实 AI 操作前按下方
+方式安全提供 Key。建议新环境使用独立的 Edge 配置文件访问 `http://127.0.0.1:5173`，保留旧窗口的
+project/session ID 和未知 receipt；详细隔离规则见 [本地数据环境切换](LOCAL_DATA_ENVIRONMENTS.md)。
+
+命令行属性、JVM/System 属性、环境变量以及额外配置文件仍可能覆盖 YAML。手动启动若有遗留覆盖项，
+必须核对后移除或明确选择；一键脚本会临时隔离继承覆盖项，并在退出后恢复调用终端，不修改用户／系统环境。
+相对数据库路径以进程工作目录解析，手动运行也应从仓库根目录开始。
+
+### 可选：自定义另一份隔离环境
 
 以下为 PowerShell 7（Windows）。运行目录由用户选择，避免直接复用历史 Smoke 路径。第一次启动请选择尚不存在的数据库文件；已有数据继续使用时保留它，不能为了得到“干净环境”删库。
 Task G 的旧库一致备份、独立新库、E 盘 Root 与浏览器 ID 隔离步骤见
@@ -47,7 +73,7 @@ Task G 的旧库一致备份、独立新库、E 盘 Root 与浏览器 ID 隔离�
 # 仓库根目录；已有最终 verify 产物时可跳过 package。
 .\mvnw.cmd -DskipTests package
 
-$localRunRoot = Join-Path $env:LOCALAPPDATA 'DelveForge\m4-local'
+$localRunRoot = Join-Path $env:LOCALAPPDATA 'DelveForge\custom-local'
 $env:DELVEFORGE_PERSISTENCE_DATABASE_FILE = Join-Path $localRunRoot 'data\delveforge.db'
 $env:DELVEFORGE_WORKSPACE_ROOT = Join-Path $localRunRoot 'workspaces'
 $env:DELVEFORGE_LOG_DIR = Join-Path $localRunRoot 'logs'
@@ -59,8 +85,7 @@ $env:DEEPSEEK_API_KEY = Read-Host 'DeepSeek API Key' -MaskInput
 $env:DELVEFORGE_AI_DEEPSEEK_BASEURL = 'https://api.deepseek.com'
 $env:DELVEFORGE_AI_DEEPSEEK_MODEL = 'deepseek-flash'
 
-java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar `
-    --spring.profiles.active=m4-local
+java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar
 ```
 
 Endpoint 与 model 是现有默认配置示例，不保证 Provider 将来保持该型号或接口；应使用自己账号实际可用的配置。也可通过 `--delveforge.ai.deepseek.base-url=...`、`--delveforge.ai.deepseek.model=...` 覆盖。预算同样可用各自的配置字段覆盖，但改过的预算不能冒称已真实验证。API Key 不应放在启动参数中。
@@ -77,15 +102,15 @@ Invoke-RestMethod http://127.0.0.1:8080/api/system/connectivity
 
 ### WorkingCopy 存储位置
 
-无需改变 Prepare 请求体。默认 `m4-local` Root 为用户目录下
-`.delveforge/m4-local/workspaces`；不启用该 profile 时为 `.delveforge/workspaces`。
-两者都接受 `DELVEFORGE_WORKSPACE_ROOT`，或命令行
+无需改变 Prepare 请求体。默认 Root 保持普通配置的用户目录 `.delveforge/workspaces`。
+旧 `.delveforge/m4-local/workspaces` 等目录原地保留，不会自动搬迁或加入新库绑定。
+可通过 `DELVEFORGE_WORKSPACE_ROOT`，或命令行
 `--delveforge.workspace.root=<绝对目录>`。选择有写入权限、与所有源仓库分离的专用目录：
 
 ```powershell
 $env:DELVEFORGE_WORKSPACE_ROOT = 'E:\df-workspaces' # 独立存储目录，不能与原仓库重叠
 $env:DELVEFORGE_WORKSPACE_EXISTING_ROOTS = Join-Path $env:USERPROFILE '.delveforge\m4-local\workspaces'
-java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar --spring.profiles.active=m4-local
+java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar
 Invoke-RestMethod http://127.0.0.1:8080/api/system/workspace-configuration
 ```
 
@@ -205,7 +230,7 @@ Direction Discovery 请求：
 
 ## 5. 选材与提案预算保持不变
 
-`m4-local` 只覆盖传输、Verification 和运行位置，不扩大源码读取或提案许可：
+统一默认配置只调整传输和 Verification 预算，不扩大源码读取或提案许可：
 
 | 既有预算 | 上限 |
 |---|---|

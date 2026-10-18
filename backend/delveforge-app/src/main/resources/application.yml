@@ -1,8 +1,17 @@
+server:
+  address: 127.0.0.1
+
 delveforge:
   workspace:
     root: ${DELVEFORGE_WORKSPACE_ROOT:${user.home}/.delveforge/workspaces}
     # 切换 root 后仍需使用的旧副本根目录；只接纳已有副本，不在这些目录中新建。
     existing-roots: ${DELVEFORGE_WORKSPACE_EXISTING_ROOTS:}
+    verification:
+      # 沿用已使用的本地验证预算；不扩大动作权限或改变验证语义。
+      action-timeout: 900s
+      invocation-timeout: 1200s
+      max-output-bytes: 8388608
+      max-test-reports: 160
   # Repository Analysis 的运行时上限。
   #
   # 这些是**操作调参值**，不是领域规则：它们决定一次分析能读到多少内容，改变它们
@@ -102,7 +111,7 @@ delveforge:
     #   环境变量：DELVEFORGE_PERSISTENCE_DATABASE_FILE
     #
     # 相对路径相对于进程工作目录，缺失的父目录会在启动时创建。
-    database-file: ./data/delveforge.db
+    database-file: ${DELVEFORGE_PERSISTENCE_DATABASE_FILE:./data/delveforge.db}
 
   ai:
     deepseek:
@@ -118,14 +127,15 @@ delveforge:
       api-key: ${DEEPSEEK_API_KEY:}
 
       # 连接期限；非流式为总读取期限，流式为无字节进展的空闲期限。
-      timeout: 60s
+      timeout: 90s
       # SSE 仅是 Adapter 内部传输；Application 仍接收完整文本并执行原有严格校验。
-      streaming: false
+      streaming: true
       # 流式绝对期限与 timeout 的连接 / 空闲期限独立；任何增量均不能延长它。
       stream-timeout: 300s
       # 显式限制总生成量（含思考），不接受因 length 截断的结果。
-      max-tokens: 16384
-      max-response-bytes: 8388608
+      # 全部 AI 阶段共用此预算；提高上限可能增加费用，并非每次都会用满。
+      max-tokens: 98304
+      max-response-bytes: 33554432
       max-event-bytes: 65536
 
 spring:
@@ -147,6 +157,8 @@ spring:
     locations: classpath:db/migration
 
 logging:
+  file:
+    name: ${DELVEFORGE_LOG_DIR:./logs}/delveforge.log
   level:
     root: INFO
 

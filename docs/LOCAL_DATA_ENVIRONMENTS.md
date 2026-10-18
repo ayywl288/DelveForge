@@ -5,6 +5,21 @@
 以下 PowerShell 7 示例从 `E:\develop\DelveForge` 运行；E 盘路径是可替换示例，
 不要选原始 SoftwareAsset 仓库或源码目录作为 Workspace Root。
 
+## 当前日常默认：一份 application.yml
+
+正常启动直接使用 `application.yml`，不再激活 `m4-local`。默认数据库为
+`./data/delveforge.db`；在本机仓库根目录启动，实际路径为
+`E:\develop\DelveForge\data\delveforge.db`。空库首次初始化到 V21，之后固定复用；正常启动不负责清库或搬走旧文件。
+
+本次本机维护会先用 SQLite backup API 保存并验证旧默认库的一致归档，再单独受控移走旧 DB 及存在的 WAL/SHM，最后创建新的默认库。归档位置与逐项结果记录在本次维护报告中。
+其它历史库，尤其 `data/m4-local/delveforge.db`，以及旧 WorkingCopy 不随此步骤变化。八份原配置草稿也先保存副本；不会用 Git reset 覆盖它们。
+
+日常从仓库根目录运行 `.\setup-delveforge.ps1`，不必每次设置数据库路径。脚本临时隔离继承的应用覆盖项，退出时恢复调用终端；选择自定义路径仍有效。手动 JAR 启动则受命令行、JVM 属性、环境变量、额外 Spring 配置及工作目录影响；不能把旧进程或旧 JAR 误认为新配置已经生效。
+
+普通配置的 Workspace Root `${user.home}/.delveforge/workspaces` 保持原样；旧 m4-local Root 和所有副本原地保留。恢复旧历史需要显式核对对应 DB 与实际 Root，不会自动改写位置。
+
+切换前按第 1 节确认旧请求结束并正常停止旧后端。保留原浏览器配置文件中的 project/session ID 与 execution receipt；新环境推荐专用的独立 Edge 配置文件，不要求登录或创建系统账户。独立配置文件也不能取消或恢复旧请求，未知 receipt 不清除，旧状态不改写。
+
 ## 1. 先确认没有未决操作，再停止后端
 
 1. 停止提交新的对话、分析、规划或 execute；核对所有标签页的等待和未决执行提示。
@@ -12,7 +27,7 @@
    EXECUTING / VERIFYING、current 不等于 lastVerified、结果未知都不能当作正常完成。
    **READY 也不能证明提案准备请求已经结束**。单纯没有端口流量或页面已关闭并不足够。
 3. 等待服务器处理完长请求；不能确定时保留原环境定位，不用关进程、换库或删浏览器标记
-   来取消任务或制造可重试状态。M5 恢复能力尚未实现。
+   来取消任务或制造可重试状态。M5 Recovery 写入正式延期。
 4. 在手动启动后端的终端按 Ctrl+C，等待进程完全退出；停止其它使用同一数据库的实例、
    SQLite 编辑器及查询连接。不批量强杀 Java 进程。
 
@@ -90,7 +105,7 @@ $archiveManifest = [ordered]@{
     backupDatabase = $backupDb
     sha256 = (Get-FileHash -LiteralPath $backupDb -Algorithm SHA256).Hash
     codeRevision = (git rev-parse HEAD)
-    profile = 'm4-local'
+    sourceProfile = 'm4-local (historical)'
     newWorkspaceRoot = 'E:\df-workspaces'
     savedAt = (Get-Date).ToString('o')
 }
@@ -123,13 +138,12 @@ Remove-Item Env:DELVEFORGE_WORKSPACE_EXISTING_ROOTS -ErrorAction SilentlyContinu
 # 离线 UI / 启动检查可不配置 Key；用户主动进行真实 AI 验收时才安全注入。
 Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
 # $env:DEEPSEEK_API_KEY = Read-Host 'DeepSeek API Key' -MaskInput
-java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar `
-    --spring.profiles.active=m4-local
+java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar
 ```
 
 缺失的数据库父目录由 `SqliteDataSourceConfiguration` 创建；Flyway 在新库从 V1 顺序初始化
-至当前 V17。日志目录按 `DELVEFORGE_LOG_DIR` 写入。当前已有最新 verify 打包产物，不需要
-为了切库重新构建。环境变量只影响从该终端启动的后端；更改 DB / Root 需要停机并重启。
+至当前 V21。日志目录按 `DELVEFORGE_LOG_DIR` 写入。只有确认 JAR 已包含当前配置时才可复用
+已有产物；默认路径调整后先重新打包，一键脚本会自动构建。环境变量只影响从该终端启动的后端；更改 DB / Root 需要停机并重启。
 
 在另一个终端只读核对连通、实际 Root 和空工作台：
 
@@ -150,7 +164,7 @@ Invoke-RestMethod 'http://127.0.0.1:8080/api/projects?offset=0&limit=50'
 `delveforge.execution.v1`（planId / stepId / startedAt 未决执行标记）。它们不包含数据库身份。
 新库不能解析旧 ID；切库不会把旧项目迁移过来。
 
-**推荐：**关闭旧环境页面，保留其普通浏览器存储；新环境使用独立浏览器配置文件或新的
+**推荐：**关闭旧环境页面，保留其普通浏览器存储；新环境优先使用独立 Edge 配置文件；也可使用新的
 InPrivate / 无痕会话打开 Vite 页面。不要同时保留能向同一端口提交操作的新旧页面。
 前端仍可按 `frontend/README.md` 正常启动，既有 `/api` Proxy 无需改变。
 
@@ -186,8 +200,7 @@ $env:DELVEFORGE_LOG_DIR = Join-Path $replayRoot 'logs'
 # 仅在确实需要访问该历史 Root 时设置；其它历史根按原 location 逐一核对。
 $env:DELVEFORGE_WORKSPACE_EXISTING_ROOTS = Join-Path $env:USERPROFILE '.delveforge\m4-local\workspaces'
 Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
-java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar `
-    --spring.profiles.active=m4-local
+java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar
 ```
 
 `Join-Path` 只拼接目录字符串，不移动文件。existingRoots 允许检查已有副本，不在其中新建；

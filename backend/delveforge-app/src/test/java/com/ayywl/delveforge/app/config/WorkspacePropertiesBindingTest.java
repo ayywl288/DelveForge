@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 class WorkspacePropertiesBindingTest {
 
@@ -36,18 +37,15 @@ class WorkspacePropertiesBindingTest {
     }
 
     @Test
-    void localProfileUsesItsOwnDefault() {
-        runner.withPropertyValues("spring.profiles.active=m4-local").run(context -> assertEquals(
-                Path.of(System.getProperty("user.home"), ".delveforge", "m4-local", "workspaces"),
-                context.getBean(WorkspaceProperties.class).root()));
+    void historicalProfileIsNotPackaged() {
+        assertNull(getClass().getResource("/application-m4-local.yml"));
     }
 
     @Test
-    void environmentOverridesLocalDefaultAndKeepsExplicitExistingRoots() {
+    void environmentOverridesDefaultAndKeepsExplicitExistingRoots() {
         Path custom = Path.of("target", "storage-new").toAbsolutePath();
         Path old = Path.of("target", "storage-old").toAbsolutePath();
-        runner.withPropertyValues("spring.profiles.active=m4-local",
-                "DELVEFORGE_WORKSPACE_ROOT=" + custom,
+        runner.withPropertyValues("DELVEFORGE_WORKSPACE_ROOT=" + custom,
                 "DELVEFORGE_WORKSPACE_EXISTING_ROOTS=" + old)
                 .run(context -> {
                     WorkspaceProperties properties = context.getBean(WorkspaceProperties.class);

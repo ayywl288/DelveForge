@@ -101,6 +101,7 @@ function Set-StartupDoubles {
             Command = $command; Root = $WorkingDirectory; Key = $env:DEEPSEEK_API_KEY
             Port = $env:SERVER_PORT; Proxy = $env:BACKEND_DEV_URL; Model = $env:DELVEFORGE_AI_DEEPSEEK_MODEL
             Database = $env:DELVEFORGE_PERSISTENCE_DATABASE_FILE; Existing = $env:DELVEFORGE_WORKSPACE_EXISTING_ROOTS
+            Profile = $env:SPRING_PROFILES_ACTIVE
             KeyPresent = [Environment]::GetEnvironmentVariables('Process').Contains('DEEPSEEK_API_KEY')
             ModelPresent = [Environment]::GetEnvironmentVariables('Process').Contains('DELVEFORGE_AI_DEEPSEEK_MODEL')
         }
@@ -125,13 +126,13 @@ Test-Case 'default ignores inherited overrides, isolates key, preserves database
     Set-StartupDoubles
     Set-Answers @('launcher-test-canary-not-a-provider-key', '')
     $names = @('DEEPSEEK_API_KEY', 'SERVER_PORT', 'BACKEND_DEV_URL', 'DELVEFORGE_AI_DEEPSEEK_MODEL',
-        'DELVEFORGE_PERSISTENCE_DATABASE_FILE', 'SPRING_APPLICATION_JSON', 'JAVA_TOOL_OPTIONS')
+        'DELVEFORGE_PERSISTENCE_DATABASE_FILE', 'SPRING_PROFILES_ACTIVE', 'SPRING_APPLICATION_JSON', 'JAVA_TOOL_OPTIONS')
     $saved = @{}
     foreach ($name in $names) {
         $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
         [Environment]::SetEnvironmentVariable($name, 'inherited-test-canary', 'Process')
     }
-    $db = Join-Path $fixture 'data/m4-local/delveforge.db'
+    $db = Join-Path $fixture 'data/delveforge.db'
     $null = [IO.Directory]::CreateDirectory((Split-Path $db -Parent))
     [IO.File]::WriteAllText($db, 'existing-database-canary')
     $before = (Get-FileHash -LiteralPath $db).Hash
@@ -144,6 +145,8 @@ Test-Case 'default ignores inherited overrides, isolates key, preserves database
         Assert-True (-not $script:launches[1].KeyPresent -and -not $script:launches[0].ModelPresent)
         Assert-True (-not $script:launches[0].Port -and -not $script:launches[0].Model)
         Assert-True (-not $script:launches[0].Database)
+        Assert-True (-not $script:launches[0].Profile)
+        Assert-True ($script:launches[0].Command -notmatch 'spring.profiles.active')
         Assert-True ($script:launches[1].Proxy -eq 'http://127.0.0.1:8080')
         Assert-True (($script:checkedPorts -join ',') -eq '8080,5173')
         Assert-True ((Get-FileHash -LiteralPath $db).Hash -eq $before)
@@ -232,6 +235,17 @@ Test-Case 'unavailable database rejected without mutation' {
         $handle.Dispose()
     }
     Assert-True ([IO.File]::ReadAllText($db) -eq 'locked-canary')
+}
+
+Test-Case 'default preflight checks the application default database' {
+    $db = Join-Path $fixture 'data/delveforge.db'
+    $handle = [IO.File]::Open($db, 'Open', 'Read', 'None')
+    try {
+        Assert-Rejected { Assert-DfDatabaseAvailable $fixture @{} } 'The selected database*'
+    } finally {
+        $handle.Dispose()
+    }
+    Assert-True ([IO.File]::ReadAllText($db) -eq 'existing-database-canary')
 }
 
 Test-Case 'build failure starts nothing and restores environment' {
