@@ -87,6 +87,7 @@ final class UnifiedDiffValidator {
                 }
                 int seenOld = 0;
                 int seenNew = 0;
+                boolean endsWithContext = false;
                 resultLines.addAll(oldLines.subList(oldEnd, oldOffset));
                 while (seenOld < oldCount || seenNew < newCount) {
                     if (i >= lines.length || lines[i].isEmpty()) {
@@ -120,6 +121,7 @@ final class UnifiedDiffValidator {
                         throw invalid();
                     }
                     changed |= kind == '-' || kind == '+';
+                    endsWithContext = kind == ' ';
                     boolean marker = i < lines.length && lines[i].equals("\\ No newline at end of file");
                     if (kind != '+' && oldOffset + seenOld == oldLines.size()
                             && !originals.get(path).endsWith("\n") && !marker) {
@@ -139,10 +141,19 @@ final class UnifiedDiffValidator {
                         i++;
                     }
                 }
+                // 受控 Git 未启用宽松补丁选项；无尾部上下文的已有文件 hunk 会按文件尾匹配。
+                if (oldPath != null && newPath != null && !endsWithContext
+                        && oldOffset + oldCount != oldLines.size()) {
+                    throw new AiGatewayException("Existing-file hunk without trailing context must reach end of file");
+                }
                 oldEnd = oldOffset + oldCount;
                 newEnd = newOffset + newCount;
                 delta += newCount - oldCount;
                 hunks++;
+            }
+            // 受控 Git 要求新建和整文件删除由单个 hunk 表达；已有文件修改仍可使用多个 hunk。
+            if ((oldPath == null || newPath == null) && hunks != 1) {
+                throw new AiGatewayException("File creation and complete deletion require exactly one hunk");
             }
             if (hunks == 0 || !changed || (oldPath == null && oldEnd != 0)
                     || (newPath == null && oldLines.size() + delta != 0)

@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.application.evolution.preparation;
 
+import com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase;
 import com.ayywl.delveforge.application.port.ai.*;
 import com.ayywl.delveforge.application.port.persistence.*;
 import com.ayywl.delveforge.application.port.workspace.*;
@@ -16,7 +17,11 @@ import com.fasterxml.jackson.databind.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ExecutionPreparationUseCaseTest {
@@ -509,6 +514,69 @@ class ExecutionPreparationUseCaseTest {
         return String.join("\n", lines) + (file.path("endsWithLf").asBoolean() ? "\n" : "");
     }
 
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("multipleFileLifecycleHunks")
+    void rejectsInvalidLifecyclePatchBeforeBaselineAndExecutingCheckpoint(
+            String name, String original, String patch) {
+        Fixture f = new Fixture();
+        if (original != null) {
+            f.workspace.files.put("src/A.java", original);
+        }
+        f.confirm();
+        String target = original == null ? "src/New.java" : "src/A.java";
+        f.gateway.coding.add(proposal(patch, List.of(target)));
+        EvolutionPlan beforePlan = f.store.plan;
+        WorkingCopy beforeCopy = f.store.copy;
+        Map<String, String> beforeFiles = Map.copyOf(f.workspace.files);
+        int[] commits = {0};
+        StepExecutionCommitPort checkpoints = (expectedPlan, id, expectedCopy, asset, updatedPlan, updatedCopy) -> {
+            commits[0]++;
+            throw new AssertionError("Invalid proposal must not persist EXECUTING");
+        };
+        WorkspaceVerificationPort verification = new WorkspaceVerificationPort() {
+            public void requireSupported(CandidateVerification request) {
+                throw new AssertionError("Invalid proposal must stop in preparation");
+            }
+
+            public VerificationFacts verify(CandidateVerification request) {
+                throw new AssertionError("Invalid proposal must not verify");
+            }
+        };
+        ExecuteEvolutionStepUseCase execution = new ExecuteEvolutionStepUseCase(f.useCase(), f.state,
+                new StepExecutionPolicy(), checkpoints,
+                capability -> { throw new AssertionError("Invalid proposal must not mutate"); }, verification,
+                authorization -> { throw new AssertionError("Invalid proposal must not roll back"); });
+
+        ExecutionPreparationException failure = assertThrows(ExecutionPreparationException.class,
+                () -> execution.execute(PLAN, STEP));
+
+        assertEquals(ExecutionPreparationException.Phase.PROPOSAL_VALIDATION, failure.phase());
+        assertEquals(0, commits[0]);
+        assertSame(beforePlan, f.store.plan);
+        assertSame(beforeCopy, f.store.copy);
+        assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+        assertNull(f.store.plan.step(STEP).baselineRevision());
+        assertNull(f.store.plan.step(STEP).executionResult());
+        assertNull(f.store.plan.step(STEP).verificationResult());
+        assertEquals(WorkingCopyStatus.EVOLVING, f.store.copy.status());
+        assertEquals("trusted", f.store.copy.currentRevision());
+        assertEquals("trusted", f.store.copy.lastVerifiedRevision());
+        assertEquals("trusted", f.workspace.head);
+        assertEquals(beforeFiles, f.workspace.files);
+        assertEquals(2, f.gateway.requests.size());
+        assertTrue(f.gateway.coding.isEmpty());
+    }
+
+    static Stream<Arguments> multipleFileLifecycleHunks() {
+        return Stream.of("\n", "\r\n").flatMap(newline -> Stream.of(
+                Arguments.of("creation newline " + newline.length(), null,
+                        "--- /dev/null\n+++ b/src/New.java\n@@ -0,0 +1 @@\n+one" + newline
+                                + "@@ -0,0 +2 @@\n+two" + newline),
+                Arguments.of("deletion newline " + newline.length(), "one" + newline + "two" + newline,
+                        "--- a/src/A.java\n+++ /dev/null\n@@ -1 +0,0 @@\n-one" + newline
+                                + "@@ -2 +0,0 @@\n-two" + newline)));
+    }
+
     @Test
     void numberedMaterialRepresentsEmptyFilesAndTrailingBlankLinesExactly() {
         for (String original : List.of("", "\n", "first\n\n")) {
@@ -537,11 +605,29 @@ class ExecutionPreparationUseCaseTest {
     }
 
     @Test
+    void rejectsUnsupportedContextBeforeReturningAPreparedProposal() {
+        Fixture f = new Fixture();
+        String original = "old\nunchanged\n";
+        f.workspace.files.put("src/A.java", original);
+        f.confirm();
+        f.gateway.coding.add(proposal(PATCH, List.of("src/A.java")));
+
+        assertThrows(AiGatewayException.class, () -> f.useCase().prepare(PLAN, STEP));
+        assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+        assertNull(f.store.plan.step(STEP).baselineRevision());
+        assertNull(f.store.plan.step(STEP).executionResult());
+        assertEquals("trusted", f.store.copy.currentRevision());
+        assertEquals("trusted", f.store.copy.lastVerifiedRevision());
+        assertEquals(original, f.workspace.files.get("src/A.java"));
+    }
+
+    @Test
     void numberedMaterialStillFailsClosedAtTheExistingRequestBudget() {
         Fixture accepted = new Fixture();
         accepted.workspace.files.put("src/A.java", "old\n" + "line\n".repeat(200));
         accepted.confirm();
-        accepted.gateway.coding.add(proposal(PATCH, List.of("src/A.java")));
+        String patch = "--- a/src/A.java\n+++ b/src/A.java\n@@ -1,2 +1,2 @@\n-old\n+new\n line\n";
+        accepted.gateway.coding.add(proposal(patch, List.of("src/A.java")));
         assertNotNull(accepted.useCase().prepare(PLAN, STEP));
         AiRequest request = accepted.gateway.requests.getLast();
         int bytes = request.messages().stream()
@@ -551,7 +637,7 @@ class ExecutionPreparationUseCaseTest {
         Fixture rejected = new Fixture(reduced, 65536);
         rejected.workspace.files.put("src/A.java", accepted.workspace.files.get("src/A.java"));
         rejected.confirm();
-        rejected.gateway.coding.add(proposal(PATCH, List.of("src/A.java")));
+        rejected.gateway.coding.add(proposal(patch, List.of("src/A.java")));
         assertThrows(ExecutionPreparationBudgetExceededException.class,
                 () -> rejected.useCase().prepare(PLAN, STEP));
         assertEquals(1, rejected.gateway.coding.size());

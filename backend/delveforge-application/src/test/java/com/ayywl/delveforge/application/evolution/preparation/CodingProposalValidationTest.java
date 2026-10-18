@@ -87,7 +87,7 @@ class CodingProposalValidationTest {
     }
 
     @Test void validatesMultipleHunksWithNewLineOffsetsAndExactContext() {
-        String patch = "--- a/src/A\n+++ b/src/A\n@@ -1 +1,2 @@\n-one\n+first\n+extra\n"
+        String patch = "--- a/src/A\n+++ b/src/A\n@@ -1,2 +1,3 @@\n-one\n+first\n+extra\n two\n"
                 + "@@ -3 +4 @@\n-three\n+third\n";
         assertEquals(List.of("src/A"), new UnifiedDiffValidator(paths).validate(patch,
                 Map.of("src/A", "one\ntwo\nthree\n"), Set.of("src/A")));
