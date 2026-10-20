@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkspacePropertiesBindingTest {
 
@@ -31,7 +32,8 @@ class WorkspacePropertiesBindingTest {
     void bindsDefaultWithoutCreatingDirectories() {
         runner.run(context -> {
             WorkspaceProperties properties = context.getBean(WorkspaceProperties.class);
-            assertEquals(Path.of(System.getProperty("user.home"), ".delveforge", "workspaces"), properties.root());
+            assertEquals(Path.of(System.getProperty("user.dir"), "data", "workspaces"), properties.root());
+            assertTrue(properties.root().isAbsolute());
             assertEquals(List.of(), properties.existingRoots());
         });
     }

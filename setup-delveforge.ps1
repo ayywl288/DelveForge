@@ -124,7 +124,7 @@ function Read-DfConfiguration {
         DELVEFORGE_AI_DEEPSEEK_MODEL = 'DeepSeek model'
         DELVEFORGE_AI_DEEPSEEK_BASEURL = 'DeepSeek base URL'
         DELVEFORGE_PERSISTENCE_DATABASE_FILE = 'SQLite database file'
-        DELVEFORGE_WORKSPACE_ROOT = 'WorkingCopy root (absolute path)'
+        DELVEFORGE_WORKSPACE_ROOT = 'WorkingCopy root (absolute path; default: project-root/data/workspaces)'
         DELVEFORGE_LOG_DIR = 'Log directory'
         DELVEFORGE_WORKSPACE_EXISTING_ROOTS = 'Historical WorkingCopy roots (comma-separated absolute paths)'
     }
@@ -346,6 +346,9 @@ function Invoke-DfSetup {
             Write-Host 'Inherited application overrides are ignored for this run; this terminal will be restored afterward.'
             $secret = Read-DfKey
             $configuration = Read-DfConfiguration
+            if (-not $configuration.ContainsKey('DELVEFORGE_WORKSPACE_ROOT')) {
+                $configuration.DELVEFORGE_WORKSPACE_ROOT = [IO.Path]::GetFullPath((Join-Path $Root 'data/workspaces'))
+            }
             $backendPort = 8080
             if ($configuration.ContainsKey('SERVER_PORT')) {
                 $backendPort = [int] $configuration.SERVER_PORT

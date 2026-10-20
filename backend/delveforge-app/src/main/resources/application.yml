@@ -3,7 +3,8 @@ server:
 
 delveforge:
   workspace:
-    root: ${DELVEFORGE_WORKSPACE_ROOT:${user.home}/.delveforge/workspaces}
+    # 默认随启动工作目录放入 data；启动脚本固定从项目根目录运行。
+    root: ${DELVEFORGE_WORKSPACE_ROOT:${user.dir}/data/workspaces}
     # 切换 root 后仍需使用的旧副本根目录；只接纳已有副本，不在这些目录中新建。
     existing-roots: ${DELVEFORGE_WORKSPACE_EXISTING_ROOTS:}
     verification:

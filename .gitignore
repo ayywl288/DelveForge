@@ -27,7 +27,7 @@ dist-ssr/
 .vite/
 
 ### Local runtime data ###
-# SQLite 数据库文件目录（delveforge.persistence.database-file 默认位置）
+# 本地 SQLite、WorkingCopy（data/workspaces）及独立验收数据，不进入版本库。
 data/
 
 ### Logs ###

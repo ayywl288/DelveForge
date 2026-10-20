@@ -101,6 +101,7 @@ function Set-StartupDoubles {
             Command = $command; Root = $WorkingDirectory; Key = $env:DEEPSEEK_API_KEY
             Port = $env:SERVER_PORT; Proxy = $env:BACKEND_DEV_URL; Model = $env:DELVEFORGE_AI_DEEPSEEK_MODEL
             Database = $env:DELVEFORGE_PERSISTENCE_DATABASE_FILE; Existing = $env:DELVEFORGE_WORKSPACE_EXISTING_ROOTS
+            Workspace = $env:DELVEFORGE_WORKSPACE_ROOT
             Profile = $env:SPRING_PROFILES_ACTIVE
             KeyPresent = [Environment]::GetEnvironmentVariables('Process').Contains('DEEPSEEK_API_KEY')
             ModelPresent = [Environment]::GetEnvironmentVariables('Process').Contains('DELVEFORGE_AI_DEEPSEEK_MODEL')
@@ -126,7 +127,8 @@ Test-Case 'default ignores inherited overrides, isolates key, preserves database
     Set-StartupDoubles
     Set-Answers @('launcher-test-canary-not-a-provider-key', '')
     $names = @('DEEPSEEK_API_KEY', 'SERVER_PORT', 'BACKEND_DEV_URL', 'DELVEFORGE_AI_DEEPSEEK_MODEL',
-        'DELVEFORGE_PERSISTENCE_DATABASE_FILE', 'SPRING_PROFILES_ACTIVE', 'SPRING_APPLICATION_JSON', 'JAVA_TOOL_OPTIONS')
+        'DELVEFORGE_PERSISTENCE_DATABASE_FILE', 'DELVEFORGE_WORKSPACE_ROOT',
+        'SPRING_PROFILES_ACTIVE', 'SPRING_APPLICATION_JSON', 'JAVA_TOOL_OPTIONS')
     $saved = @{}
     foreach ($name in $names) {
         $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
@@ -145,6 +147,8 @@ Test-Case 'default ignores inherited overrides, isolates key, preserves database
         Assert-True (-not $script:launches[1].KeyPresent -and -not $script:launches[0].ModelPresent)
         Assert-True (-not $script:launches[0].Port -and -not $script:launches[0].Model)
         Assert-True (-not $script:launches[0].Database)
+        Assert-True ($script:launches[0].Workspace -eq [IO.Path]::GetFullPath((Join-Path $fixture 'data/workspaces')))
+        Assert-True (-not $script:launches[1].Workspace)
         Assert-True (-not $script:launches[0].Profile)
         Assert-True ($script:launches[0].Command -notmatch 'spring.profiles.active')
         Assert-True ($script:launches[1].Proxy -eq 'http://127.0.0.1:8080')
@@ -176,6 +180,7 @@ Test-Case 'custom port/model/paths and proxy agree' {
     Invoke-DfSetup $fixture
     Assert-True ($script:launches[0].Port -eq '18080' -and $script:launches[0].Model -eq 'test-model')
     Assert-True ($script:launches[0].Existing -eq 'C:\Old one,C:\Old two')
+    Assert-True ($script:launches[0].Workspace -eq 'C:\Workspace with spaces & $data')
     Assert-True ($script:launches[1].Proxy -eq 'http://127.0.0.1:18080' -and -not $script:launches[1].Key)
     Assert-True (($script:checkedPorts -join ',') -eq '18080,5173')
 }

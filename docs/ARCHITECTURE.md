@@ -1029,6 +1029,8 @@ Application 加载 Plan、Direction、Base Asset 与 Base Profile，经 PlanActi
 Git Adapter 在 `delveforge.workspace.root` 下创建独立 Local Clone，使用完整 commit ID detached checkout，
 并核对源 HEAD 未偏离分析基线、目标实际 HEAD 相符、checkout 干净。源仓库未提交内容不进入克隆。
 根目录必须为绝对路径，可由 `DELVEFORGE_WORKSPACE_ROOT` 覆盖；默认位置见 app 的 application.yml。
+本地默认取 `${user.dir}/data/workspaces`；启动脚本从项目根目录运行，并显式传入该根目录下的
+绝对路径。只改变新副本的默认存储位置，不迁移已有副本或改写历史 location；`data/` 不进入 Git。
 Adapter 拒绝源仓库与托管根目录重叠、已有目标目录和不安全的目录名称。
 
 Task E 保留配置入口；`delveforge.workspace.existing-roots`（环境变量

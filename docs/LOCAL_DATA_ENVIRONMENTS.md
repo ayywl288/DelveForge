@@ -16,7 +16,13 @@
 
 日常从仓库根目录运行 `.\setup-delveforge.ps1`，不必每次设置数据库路径。脚本临时隔离继承的应用覆盖项，退出时恢复调用终端；选择自定义路径仍有效。手动 JAR 启动则受命令行、JVM 属性、环境变量、额外 Spring 配置及工作目录影响；不能把旧进程或旧 JAR 误认为新配置已经生效。
 
-普通配置的 Workspace Root `${user.home}/.delveforge/workspaces` 保持原样；旧 m4-local Root 和所有副本原地保留。恢复旧历史需要显式核对对应 DB 与实际 Root，不会自动改写位置。
+WorkingCopy 默认 Root 为 `${user.dir}/data/workspaces`；从本机项目根目录启动时为
+`E:\develop\DelveForge\data\workspaces`。启动脚本也显式使用所选项目根目录下的该绝对路径，
+自定义 `DELVEFORGE_WORKSPACE_ROOT` 仍优先。手动运行 JAR 时，相对位置以进程工作目录为准，
+因此应从项目根目录启动。整个 `data/` 已由 `.gitignore` 排除。
+旧用户目录 `${user.home}/.delveforge/workspaces`、m4-local Root 和所有历史副本原地保留，
+不自动迁移或改写数据库中的 `location`。需要访问旧副本时，在启动脚本的 Historical WorkingCopy roots
+中显式填写对应旧根目录，或设置 `DELVEFORGE_WORKSPACE_EXISTING_ROOTS`。
 
 切换前按第 1 节确认旧请求结束并正常停止旧后端。保留原浏览器配置文件中的 project/session ID 与 execution receipt；新环境推荐专用的独立 Edge 配置文件，不要求登录或创建系统账户。独立配置文件也不能取消或恢复旧请求，未知 receipt 不清除，旧状态不改写。
 
