@@ -8,6 +8,7 @@ import com.ayywl.delveforge.application.evolution.preparation.CodingProposalVali
 import com.ayywl.delveforge.application.evolution.preparation.ConfirmEvolutionStepUseCase;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationLimits;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
+import com.ayywl.delveforge.application.evolution.preparation.ExecutionProposalReviewPort;
 import com.ayywl.delveforge.application.evolution.preparation.PrepareEvolutionStepUseCase;
 import com.ayywl.delveforge.application.evolution.preparation.StepRepositoryUnderstanding;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
@@ -25,16 +26,27 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceRollbackPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceVerificationPort;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
+import com.ayywl.delveforge.infrastructure.workspace.LoopbackExecutionProposalReviewAdapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.net.URI;
 
 /** 装配 M4 用例与能力 Port；运行预算在此映射，不承担执行或信任决策。 */
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(ExecutionPreparationProperties.class)
 public class ExecutionPreparationUseCaseConfiguration {
+
+    @Bean
+    public ExecutionProposalReviewPort executionProposalReviewPort(ObjectMapper mapper,
+            @Value("${delveforge.execution.proposal-review-url:}") String endpoint) {
+        return endpoint.isBlank() ? ExecutionProposalReviewPort.NONE
+                : new LoopbackExecutionProposalReviewAdapter(URI.create(endpoint), mapper);
+    }
 
     @Bean
     public GetStepFinalChangesUseCase getStepFinalChangesUseCase(EvolutionPlanRepository plans,
@@ -94,9 +106,10 @@ public class ExecutionPreparationUseCaseConfiguration {
     @Bean
     public PrepareEvolutionStepUseCase prepareEvolutionStepUseCase(ExecutionPreparationState state,
             StepRepositoryUnderstanding understanding, ObjectMapper mapper, RepositorySecretPolicy secrets,
-            WorkingCopyInspectionPort inspection, ExecutionPreparationProperties properties) {
+            WorkingCopyInspectionPort inspection, ExecutionPreparationProperties properties,
+            ExecutionProposalReviewPort review) {
         ExecutionPreparationLimits limits = properties.toLimits();
         return new PrepareEvolutionStepUseCase(state, understanding, new CodingProposalParser(mapper, limits),
-                new CodingProposalValidator(secrets, inspection, limits), mapper, limits);
+                new CodingProposalValidator(secrets, inspection, limits), mapper, limits, review);
     }
 }

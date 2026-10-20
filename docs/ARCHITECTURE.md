@@ -1131,6 +1131,11 @@ Task 1 不应用补丁、不生成 Candidate、不推进 revision、不开始执
 客户端不能通过回传准备响应来制造 `ValidatedExecutionProposal` 或新的 Proposal approval。
 内部编排也可消费由 Application 校验器构造的调用内提案，但必须重新核对其完整依据。
 
+Reliability Hardening 可显式启用调用内的只读宿主机提案审查 Port（ADR-0011）：Provider
+完整返回并严格校验后才能审查，审查前后均重新核对资格；默认关闭。它只能额外否决，
+不替代用户确认、Domain/Workspace/Verification，不跨调用保存或回传可信提案，不新增
+领域 approval 状态，也不改变 Provider 超时或旧未决执行的安全边界。
+
 mutation 接收 `AuthorizedStepExecution`，绑定 EXECUTING 检查点、WorkingCopy、原资产位置、
 可信基线和校验补丁。GitWorkspaceAdapter 只在托管副本中检查并应用该补丁，独立检查实际
 路径与完整修改，再通过 `commit-tree` / `update-ref` 创建一个本地 Candidate B；不运行提交
@@ -1150,7 +1155,11 @@ Maven 测试还要求本次产生非空、无失败的 Surefire 报告；旧报�
 完整 stdout / stderr、报告正文或源码。Domain 要求同一 B、所有检查通过以及全部既有 Criteria 的
 可信对应事实。M3 规划 / API / M4 输入中的 VerificationCriterion 均包含 kind 与 description：
 kind 是 WHAT，有限 action 是 HOW，具体测试 target 只由 M4 在本次源码理解后选择。
-技术说明按 DOMAIN_MODEL §8.11 的当前受控含义验证，业务或历史未分类文本保留为 UNSUPPORTED。
+技术说明按 DOMAIN_MODEL §8.11 的当前受控含义验证，Step 内业务或历史未分类标准保留为 UNSUPPORTED。
+ADR-0010 将新计划的技术验证与独立产品业务验收分层：M3 保留全部业务意图，M4 技术
+Criteria / 可信 revision 规则不变；独立验收工具在编码前冻结合同，最终从精确 Verified Revision
+启动并执行 HTTP / 数据断言。两层均通过才可交付。业务合同当前不持久化为新的领域结果，
+也不提供回写 Step 成功的接口；产品内部仍只返回既有技术生命周期事实。
 索引映射由 AI 提议，领域按 kind 的证据适配独立核对
 动作 / target；执行准备先复用 Criterion 的能力规则，在任何 Scout / Coding AI 调用及状态变更前拒绝
 无法适配的标准（`EXECUTION_CRITERIA_UNSUPPORTED`）。提案与 Workspace 的完整证据检查仍在 mutation 前保留。

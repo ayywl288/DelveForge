@@ -2436,7 +2436,13 @@ criterionIndexes 仅为 AI 提议的对应关系，覆盖索引不构成业务�
 
 kind 是必须显式提供的语义类别，不从英文或中文 prose 推断。当前技术 description 使用表中固定
 中文说明，防止夹带该 kind 无法证明的额外承诺；这是本版保守校验选择，不是通用语义分类器。
-业务效果或额外条件必须保留为 UNSUPPORTED，不能删掉业务要求改成技术标准。
+业务效果或额外条件若属于 Step 内正式 Criterion，必须保留为 UNSUPPORTED，不能删掉业务要求改成技术标准。
+2026-10-19 Reliability Hardening 采用明确授权的双层验收（ADR-0010）：新计划完整保留
+Direction → TargetState → Step Goals / scope / plannedChanges 的业务意图，技术 Criteria 仅证明
+技术事实；产品交付还必须通过独立、执行前冻结且绑定最终 Verified Revision 的业务合同。
+该合同由独立验收方维护，当前不进入 Step Aggregate，也不改变 Plan / Step 的状态机。
+Step / Plan 技术成功不代表业务成功或产品可用。若要求业务效果进入 Step 的正式 Criterion，
+仍保留 UNSUPPORTED 并拒绝自动执行；历史 Criterion、Plan、结果与 revision 不迁移或改写。
 SELECTED_TESTS_PASS 仅承诺实际选择的测试通过，不证明测试完整覆盖业务语义；目标在 M4 获得源码后选择，
 M3 不提供类 / 方法名称。FULL_TEST_SUITE_PASSES 不能用单个定向测试替代。
 构建必须实际成功；测试须在本次报告中实际执行、无失败。定向测试独立核对类与逻辑方法身份，

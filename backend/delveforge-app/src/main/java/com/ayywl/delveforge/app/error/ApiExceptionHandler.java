@@ -5,6 +5,7 @@ import com.ayywl.delveforge.application.evolution.planning.EvolutionPlanNotFound
 import com.ayywl.delveforge.application.evolution.planning.PlanningExtractionException;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationBudgetExceededException;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationException;
+import com.ayywl.delveforge.application.evolution.preparation.ExecutionProposalReviewException;
 import com.ayywl.delveforge.application.evolution.preparation.UnsupportedVerificationCriteriaException;
 import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDirectionNotFoundException;
@@ -392,6 +393,17 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 new ApiErrorResponse(code, messageFor(code), request.getRequestURI(), Instant.now()));
     }
 
+    @ExceptionHandler(ExecutionProposalReviewException.class)
+    public ResponseEntity<ApiErrorResponse> handleExecutionProposalReviewFailure(
+            ExecutionProposalReviewException exception, HttpServletRequest request) {
+        boolean rejected = exception.reason() == ExecutionProposalReviewException.Reason.REJECTED;
+        ApiErrorCode code = rejected ? ApiErrorCode.EXECUTION_PROPOSAL_REVIEW_REJECTED
+                : ApiErrorCode.EXECUTION_PROPOSAL_REVIEW_UNAVAILABLE;
+        return ResponseEntity.status(rejected ? HttpStatus.CONFLICT : HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new ApiErrorResponse(code, messageFor(code),
+                        request.getRequestURI(), Instant.now()));
+    }
+
     /** 其它业务的 AI Gateway 失败；规划与执行准备的阶段由独立分支分类。 */
     @ExceptionHandler(AiGatewayException.class)
     @ResponseStatus(HttpStatus.BAD_GATEWAY)
@@ -546,6 +558,10 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                     "执行准备的 AI 调用或 Provider 响应处理失败，尚未开始代码变更；请查询当前状态，不会自动重试";
             case CODING_PROPOSAL_INVALID ->
                     "Provider 已返回内容，但代码提案未通过解析或契约校验，尚未开始代码变更；请查询当前状态，重复执行不保证解决";
+            case EXECUTION_PROPOSAL_REVIEW_REJECTED ->
+                    "宿主机提案审查已拒绝，未开始本次代码变更；请查询当前状态，不会自动重试";
+            case EXECUTION_PROPOSAL_REVIEW_UNAVAILABLE ->
+                    "宿主机提案审查不可用或证据不匹配，未开始本次代码变更；请查询当前状态，不会自动重试";
             case PLANNING_AI_FAILED -> "规划的 AI 调用或 Provider 响应处理失败，本次未保存计划；可核对后明确重新请求，可能再次计费";
             case PLANNING_PROPOSAL_INVALID -> "AI 规划内容未满足结构契约，本次未保存计划；可明确重新请求，可能再次计费";
             case PLANNING_EVIDENCE_INVALID -> "AI 规划引用了输入中不存在的依据，本次未保存计划；可明确重新请求，可能再次计费";

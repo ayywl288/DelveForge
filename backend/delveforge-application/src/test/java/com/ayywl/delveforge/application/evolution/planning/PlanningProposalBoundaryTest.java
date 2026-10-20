@@ -110,4 +110,29 @@ class PlanningProposalBoundaryTest {
             assertThrows(AiGatewayException.class, () -> parser.parse(invalid));
         }
     }
+
+    @Test
+    void technicalLayerPreservesBusinessIntentAndDoesNotConvertUnsupportedHistory() {
+        String technical = JSON.replace("\"kind\":\"UNSUPPORTED\",\"description\":\"Reports run on schedule\"",
+                "\"kind\":\"SELECTED_TESTS_PASS\",\"description\":\"本步骤选择的自动化测试通过\"");
+        PlanningProposal resolved = resolver.resolve(parser.parse(technical), Map.of("R-E1", basis));
+        assertEquals("Scheduled reports", resolved.targetState().targetProduct());
+        assertEquals("Schedule reports", resolved.steps().getFirst().goal());
+        assertEquals(List.of("Add scheduling"), resolved.steps().getFirst().plannedChanges());
+        assertEquals(com.ayywl.delveforge.domain.evolution.VerificationCriterion.Kind.SELECTED_TESTS_PASS,
+                resolved.steps().getFirst().verificationCriteria().getFirst().kind());
+        var historical = resolver.resolve(parser.parse(JSON), Map.of("R-E1", basis))
+                .steps().getFirst().verificationCriteria().getFirst();
+        assertEquals("Reports run on schedule", historical.description());
+        assertFalse(historical.supportedBy("TEST", ""));
+    }
+
+    @Test
+    void historicalIllegalEnumRemainsRejectedInsteadOfReceivingAnAlias() {
+        String invalid = JSON.replace("\"kind\":\"UNSUPPORTED\",\"description\":\"Reports run on schedule\"",
+                "\"kind\":\"SELECTED_TESTS_PASSES\",\"description\":\"本步骤选择的自动化测试通过\"");
+        PlanningExtractionException failure = assertThrows(PlanningExtractionException.class,
+                () -> parser.parse(invalid));
+        assertEquals(PlanningExtractionException.Phase.PROPOSAL_PARSE, failure.phase());
+    }
 }

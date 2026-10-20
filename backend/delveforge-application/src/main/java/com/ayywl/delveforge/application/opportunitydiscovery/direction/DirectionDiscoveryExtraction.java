@@ -107,6 +107,11 @@ public final class DirectionDiscoveryExtraction {
             - 提出 3 到 5 个明显不同的方向: 它们在目标产品、解决的问题或所依赖的资产上应当有实质差别,
               不要把一个方向换几种说法重复输出。
             - 只依据输入中已确认的事实。不要臆测输入里没有的信息, 也不要为了填满字段而编造内容。
+            - limitations 与 risks 中的负向事实也是当前能力边界：尚未实现、缺失、仅为占位的功能
+              不能作为已存在的可复用能力。若方向需要它，必须明确从现有能力新增该功能。
+            - 区分「当前已有能力」与「目标新增能力」。先核对用户明确目标与仓库边界，至少提出一个
+              在真实资产上增量实现该目标的候选；不能让全部候选都越过用户目标、依赖尚不存在的功能。
+              用户未提出具体目标时不虚构目标，仍根据其已确认需求给出不同候选。
             - 不要输出 id、status、userProfileId、userProfileRevision、repositoryProfileIds,
               也不要为任何依据给出 confidence 或 confirmed: 这些不是由你决定的。
             - evidence 的每条引用只能使用输入中该条 Evidence 旁边的 reference 值,

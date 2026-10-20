@@ -213,12 +213,16 @@ class ExecutionPreparationUseCaseTest {
         }
 
         private PrepareEvolutionStepUseCase useCase() {
+            return useCase(ExecutionProposalReviewPort.NONE);
+        }
+
+        private PrepareEvolutionStepUseCase useCase(ExecutionProposalReviewPort review) {
             RepositoryMaterialBudget budget = new RepositoryMaterialBudget(12, 65536, 262144);
             return new PrepareEvolutionStepUseCase(state,
                     new StepRepositoryUnderstanding(workspace, gateway, MAPPER, secrets, limits, budget, budget,
                             new RegionNavigationLimits(65536, 4), new RegionRecursionBudget(8, 12), catalogBytes),
                     new CodingProposalParser(MAPPER, limits),
-                    new CodingProposalValidator(secrets, workspace, limits), MAPPER, limits);
+                    new CodingProposalValidator(secrets, workspace, limits), MAPPER, limits, review);
         }
 
         private void assertReady() {
@@ -362,6 +366,80 @@ class ExecutionPreparationUseCaseTest {
             ExecutionPreparationException failure = assertThrows(ExecutionPreparationException.class,
                     () -> f.useCase().prepare(PLAN, STEP));
             assertEquals(ExecutionPreparationException.Phase.PROPOSAL_PARSE, failure.phase());
+            f.assertReady();
+        }
+    }
+
+    @Test
+    void distinctFocusedTargetsReachExecutionPreflightWithoutCombiningTargets() throws Exception {
+        Fixture f = new Fixture();
+        f.store.plan = plan(List.of(
+                VerificationCriterion.technical(VerificationCriterion.Kind.SELECTED_TESTS_PASS)));
+        f.confirm();
+        var response = (com.fasterxml.jackson.databind.node.ObjectNode)
+                MAPPER.readTree(proposal(PATCH, List.of("src/A.java")));
+        response.set("verificationStrategy", MAPPER.valueToTree(List.of(
+                Map.of("action", "FOCUSED_TEST", "target", "example.FirstTest", "criterionIndexes", List.of(1)),
+                Map.of("action", "FOCUSED_TEST", "target", "example.SecondTest#checksInput",
+                        "criterionIndexes", List.of(1)))));
+        f.gateway.coding.add(MAPPER.writeValueAsString(response));
+        int[] preflights = {0};
+        RuntimeException stopBeforeClaim = new RuntimeException("test stops before checkpoint");
+        WorkspaceVerificationPort verification = new WorkspaceVerificationPort() {
+            public void requireSupported(CandidateVerification request) {
+                preflights[0]++;
+                assertEquals(List.of("example.FirstTest", "example.SecondTest#checksInput"),
+                        request.strategy().stream().map(CodingProposal.VerificationAction::target).toList());
+            }
+
+            public VerificationFacts verify(CandidateVerification request) {
+                throw new AssertionError("No mutation was authorized in this test");
+            }
+        };
+        ExecuteEvolutionStepUseCase execution = new ExecuteEvolutionStepUseCase(f.useCase(), f.state,
+                new StepExecutionPolicy(), (before, id, copy, asset, next, nextCopy) -> {
+                    throw stopBeforeClaim;
+                }, capability -> { throw new AssertionError("No mutation expected"); }, verification,
+                authorization -> { throw new AssertionError("No rollback expected"); });
+
+        assertSame(stopBeforeClaim, assertThrows(RuntimeException.class, () -> execution.execute(PLAN, STEP)));
+        assertEquals(1, preflights[0]);
+        assertEquals(2, f.gateway.requests.size());
+        f.assertReady();
+    }
+
+    @Test
+    void invalidFocusedTargetCannotClaimExecutionOrTriggerAnyWriteOrRetry() throws Exception {
+        for (String target : List.of("example.FirstTest, example.SecondTest", "example.FirstTest,example.SecondTest",
+                "example.Test;whoami", "example.Test -DskipTests", "example.Test$Nested")) {
+            Fixture f = new Fixture();
+            f.store.plan = plan(List.of(
+                    VerificationCriterion.technical(VerificationCriterion.Kind.SELECTED_TESTS_PASS)));
+            f.confirm();
+            var response = (com.fasterxml.jackson.databind.node.ObjectNode)
+                    MAPPER.readTree(proposal(PATCH, List.of("src/A.java")));
+            response.set("verificationStrategy", MAPPER.valueToTree(List.of(
+                    Map.of("action", "FOCUSED_TEST", "target", target, "criterionIndexes", List.of(1)))));
+            f.gateway.coding.add(MAPPER.writeValueAsString(response));
+            WorkspaceVerificationPort verification = new WorkspaceVerificationPort() {
+                public void requireSupported(CandidateVerification request) {
+                    throw new AssertionError("Invalid target must stop before Workspace verification");
+                }
+
+                public VerificationFacts verify(CandidateVerification request) {
+                    throw new AssertionError("Invalid target cannot verify");
+                }
+            };
+            ExecuteEvolutionStepUseCase execution = new ExecuteEvolutionStepUseCase(f.useCase(), f.state,
+                    new StepExecutionPolicy(), (before, id, copy, asset, next, nextCopy) -> {
+                        throw new AssertionError("Invalid target cannot save EXECUTING or baseline");
+                    }, capability -> { throw new AssertionError("Invalid target cannot mutate"); }, verification,
+                    authorization -> { throw new AssertionError("Invalid target cannot roll back"); });
+
+            assertThrows(ExecutionPreparationException.class, () -> execution.execute(PLAN, STEP));
+            assertEquals(2, f.gateway.requests.size(), "One Scout and one Coding call, no implicit paid retry");
+            assertTrue(f.gateway.coding.isEmpty());
+            assertEquals("trusted", f.workspace.head);
             f.assertReady();
         }
     }
@@ -512,6 +590,119 @@ class ExecutionPreparationUseCaseTest {
         List<String> lines = new ArrayList<>();
         file.path("numberedLines").elements().forEachRemaining(line -> lines.add(line.asText()));
         return String.join("\n", lines) + (file.path("endsWithLf").asBoolean() ? "\n" : "");
+    }
+
+    @Test
+    void mixedLineEndingHintsExposeCrContextAndStillRejectDroppedCr() {
+        String original = "old\n}\r\n";
+        Fixture accepted = new Fixture();
+        accepted.workspace.files.put("src/A.java", original);
+        accepted.confirm();
+        accepted.gateway.coding.add(proposal(
+                "--- a/src/A.java\n+++ b/src/A.java\n@@ -1,2 +1,2 @@\n-old\n+new\n }\r\n",
+                List.of("src/A.java")));
+        assertNotNull(accepted.useCase().prepare(PLAN, STEP));
+        AiRequest request = accepted.gateway.requests.getLast();
+        JsonNode input = json(request.messages().stream().filter(message -> message.role() == AiRole.USER)
+                .findFirst().orElseThrow().content());
+        JsonNode file = java.util.stream.StreamSupport.stream(input.path("sourceFiles").spliterator(), false)
+                .filter(value -> value.path("relativePath").asText().equals("src/A.java")).findFirst().orElseThrow();
+        assertEquals(MAPPER.valueToTree(List.of(2)), file.path("crTerminatedLines"));
+        assertEquals(original, reconstruct(file));
+        assertTrue(request.messages().getFirst().content().contains("crTerminatedLines"));
+
+        Fixture rejected = new Fixture();
+        rejected.workspace.files.put("src/A.java", original);
+        rejected.confirm();
+        rejected.gateway.coding.add(proposal(
+                "--- a/src/A.java\n+++ b/src/A.java\n@@ -1,2 +1,2 @@\n-old\n+new\n }\n",
+                List.of("src/A.java")));
+        assertThrows(ExecutionPreparationException.class, () -> rejected.useCase().prepare(PLAN, STEP));
+        assertEquals(original, rejected.workspace.files.get("src/A.java"));
+        assertEquals(EvolutionStepStatus.READY, rejected.store.plan.step(STEP).status());
+        assertNull(rejected.store.plan.step(STEP).baselineRevision());
+        assertEquals("trusted", rejected.store.copy.lastVerifiedRevision());
+    }
+
+    @Test
+    void codingContractRequiresRawInputTypesAndNegativeStateAssertions() {
+        Fixture f = new Fixture();
+        f.confirm();
+        f.gateway.coding.add(proposal(PATCH, List.of("src/A.java")));
+        assertNotNull(f.useCase().prepare(PLAN, STEP));
+        String instruction = f.gateway.requests.getLast().messages().getFirst().content();
+        assertTrue(instruction.contains("不能把框架隐式类型转换当成输入校验"));
+        assertTrue(instruction.contains("数字、字符串、null 和缺失"));
+        assertTrue(instruction.contains("拒绝后已保存的数据必须保持不变"));
+        assertTrue(MAPPER.valueToTree(Map.of("value", true)).path("value").isBoolean());
+        assertFalse(MAPPER.valueToTree(Map.of("value", 7)).path("value").isBoolean());
+        assertFalse(MAPPER.valueToTree(Map.of("value", "true")).path("value").isBoolean());
+    }
+
+    @Test
+    void codingKeepsCrInOldContextButRequestsLfForNewLinesUnderStrictDiffCheck() {
+        Fixture f = new Fixture();
+        String original = "one\r\ntwo\r\nthree\r\n";
+        f.workspace.files.put("src/A.java", original);
+        f.confirm();
+        String patch = "--- a/src/A.java\n+++ b/src/A.java\n@@ -1,3 +1,3 @@\n"
+                + " one\r\n-two\r\n+second\n three\r\n";
+        f.gateway.coding.add(proposal(patch, List.of("src/A.java")));
+
+        assertNotNull(f.useCase().prepare(PLAN, STEP));
+
+        String instruction = f.gateway.requests.getLast().messages().getFirst().content();
+        assertTrue(instruction.contains("新增行统一以 LF 结束"));
+        assertTrue(instruction.contains("context 和删除行仍逐字保留旧 CR"));
+        assertEquals(original, f.workspace.files.get("src/A.java"));
+        assertEquals(EvolutionPlanStatus.ACTIVE, f.store.plan.status());
+        assertEquals(EvolutionStepStatus.READY, f.store.plan.step(STEP).status());
+        assertNull(f.store.plan.step(STEP).baselineRevision());
+        assertNull(f.store.plan.step(STEP).executionResult());
+        assertNull(f.store.plan.step(STEP).verificationResult());
+        assertEquals(WorkingCopyStatus.EVOLVING, f.store.copy.status());
+        assertEquals("trusted", f.store.copy.currentRevision());
+        assertEquals("trusted", f.store.copy.lastVerifiedRevision());
+    }
+
+    @Test
+    void hostReviewRunsAfterCompleteValidatedProposalAndBeforeAnyExecutionFacts() {
+        Fixture f = new Fixture();
+        f.confirm();
+        f.gateway.coding.add(proposal(PATCH, List.of("src/A.java")));
+        List<ValidatedExecutionProposal> inspected = new ArrayList<>();
+        ValidatedExecutionProposal result = f.useCase(value -> {
+            f.assertReady();
+            assertEquals(PATCH, value.proposal().unifiedDiff());
+            assertEquals("trusted", value.basis().expectedRevision());
+            assertFalse(f.gateway.requests.isEmpty());
+            inspected.add(value);
+        }).prepare(PLAN, STEP);
+
+        assertEquals(List.of(result), inspected);
+        f.assertReady();
+    }
+
+    @Test
+    void hostRejectionCannotCreateBaselineExecutionOrVerificationFacts() {
+        Fixture f = new Fixture();
+        f.confirm();
+        f.gateway.coding.add(proposal(PATCH, List.of("src/A.java")));
+        ExecutionProposalReviewException refusal = new ExecutionProposalReviewException(
+                ExecutionProposalReviewException.Reason.REJECTED);
+        assertSame(refusal, assertThrows(ExecutionProposalReviewException.class,
+                () -> f.useCase(value -> { throw refusal; }).prepare(PLAN, STEP)));
+        f.assertReady();
+    }
+
+    @Test
+    void successfulHostReviewCannotOverrideRevisionChangesDuringReview() {
+        Fixture f = new Fixture();
+        f.confirm();
+        f.gateway.coding.add(proposal(PATCH, List.of("src/A.java")));
+        assertThrows(WorkingCopyBasisChangedException.class,
+                () -> f.useCase(value -> f.workspace.head = "changed").prepare(PLAN, STEP));
+        f.assertReady();
     }
 
     @ParameterizedTest(name = "{0}")

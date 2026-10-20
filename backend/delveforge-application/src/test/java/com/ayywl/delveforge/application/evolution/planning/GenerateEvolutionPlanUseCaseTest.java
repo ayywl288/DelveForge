@@ -314,6 +314,58 @@ class GenerateEvolutionPlanUseCaseTest {
     }
 
     @Test
+    void layeredTechnicalPlanRetainsBusinessRequirementsAndDoesNotCreateExecutionFacts() {
+        seed();
+        response = JSON.replace("\"kind\":\"UNSUPPORTED\",\"description\":\"Reports run on schedule\"",
+                "\"kind\":\"SELECTED_TESTS_PASS\",\"description\":\"本步骤选择的自动化测试通过\"");
+
+        EvolutionPlan plan = useCase().generate(request());
+
+        assertEquals("Scheduled reports", plan.targetState().targetProduct());
+        assertEquals("Schedule reports", plan.steps().getFirst().goal());
+        assertEquals(List.of("Add scheduling"), plan.steps().getFirst().plannedChanges());
+        assertEquals(VerificationCriterion.Kind.SELECTED_TESTS_PASS,
+                plan.steps().getFirst().verificationCriteria().getFirst().kind());
+        assertEquals(EvolutionPlanStatus.PROPOSED, plan.status());
+        assertNull(plan.workingCopyId());
+        assertNull(plan.steps().getFirst().executionResult());
+        assertNull(plan.steps().getFirst().verificationResult());
+        assertEquals(1, calls.get());
+        assertEquals(1, plans.values.size());
+    }
+
+    @Test
+    void invalidPluralCriterionCannotPersistAPlanOrTriggerAnImplicitRetry() {
+        seed();
+        response = JSON.replace("\"kind\":\"UNSUPPORTED\",\"description\":\"Reports run on schedule\"",
+                "\"kind\":\"SELECTED_TESTS_PASSES\",\"description\":\"本步骤选择的自动化测试通过\"");
+
+        assertThrows(PlanningExtractionException.class, () -> useCase().generate(request()));
+
+        assertEquals(1, calls.get());
+        assertTrue(plans.values.isEmpty());
+        assertEquals(0, provisionCalls);
+    }
+
+    @Test
+    void planningDistinguishesMandatoryDeliveryAcceptanceFromExplicitStepProof() {
+        seed();
+        useCase().generate(request());
+
+        // 固定正反例的层次边界；不把提示断言冒充真实模型遵从性证明。
+        String instruction = sent.messages().getFirst().content();
+        assertTrue(instruction.contains("最终启动报表服务，通过 HTTP 核对汇总数据"));
+        assertTrue(instruction.contains("不得为该独立关卡额外追加 UNSUPPORTED"));
+        assertTrue(instruction.contains("每个 Step 的正式 Criterion 必须直接证明真实外部邮件送达"));
+        assertTrue(instruction.contains("不能以独立合同代替用户明确指定的该项 Step Criterion"));
+        assertTrue(instruction.contains("既有 UNSUPPORTED 和历史计划不得转换或重写"));
+        assertEquals(VerificationCriterion.Kind.UNSUPPORTED,
+                plans.values.values().iterator().next().steps().getFirst().verificationCriteria().getFirst().kind());
+        assertEquals(1, calls.get());
+        assertEquals(0, provisionCalls);
+    }
+
+    @Test
     void rejectsMissingAndIneligibleBasisBeforeCallingAi() {
         assertThrows(ProductDirectionNotFoundException.class, () -> useCase().generate(request()));
         directions.values.put(new ProductDirectionId("direction"), direction(true));

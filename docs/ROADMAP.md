@@ -9,6 +9,13 @@
 
 ## 1. Current Goal
 
+2026-10-19 用户另行授权 **M4/M5 Reliability Hardening — Full Evolution Closure**：在本轮
+独立环境及累计人民币 10 元预算内，按 Spring REST → TodoList → ExpenseTracker 诊断、最小
+修复、回归与真实多 Step 重验。技术 Verification 与独立业务验收均为强制成功条件，见
+ADR-0010；完成前不提升里程碑状态。允许证据驱动的相关修复及明确安全的有界重试，
+不启动 Recovery 写入、不绕过 UNKNOWN 或未决写入者、不自动发布或扩大权限。
+下文停止指令与“不用付费 Provider”描述保留为此前实验范围，不撤销此次独立授权。
+
 当前最重要目标：
 
 > M0–M4 核心闭环与 Task G 保持完成 / 冻结。feature/m5-lab 的 M5-A～E 及其修复已实现并通过独立审查，进入阶段性收尾；完整 M5 尚未完成。Recovery 写入能力正式延期。

@@ -267,6 +267,12 @@ SELECTED Direction；共享画像或仓库的不同项目互不废弃方向。�
 
 ## 5. MVP Scope
 
+2026-10-19 Reliability Hardening 的产品交付采用双层强制验收：Step / Plan 的技术成功
+与独立业务验收分别报告，二者均通过且最终版本实际可运行，才可声明产品交付成功。
+业务要求保留于所选 ProductDirection、TargetState 与 Step Goals；独立验收方在编码前冻结
+业务合同，并绑定最终 Verified Revision 执行真实用户操作。技术检查或模型生成测试通过
+不能替代业务正确性。历史 UNSUPPORTED 不删除或转换；领域边界见 ADR-0010。
+
 ### P0
 
 | 功能           | 验收标准                                                     |

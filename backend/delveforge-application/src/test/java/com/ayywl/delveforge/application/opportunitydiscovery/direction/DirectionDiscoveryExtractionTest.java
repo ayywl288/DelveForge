@@ -126,6 +126,25 @@ class DirectionDiscoveryExtractionTest {
         assertTrue(userMessage.contains("software-asset-2"), "第二个资产的身份");
     }
 
+    @Test
+    void negativeCapabilitiesRemainSeparateFromReusableCapabilitiesInTheActualRequest() throws Exception {
+        aiGateway.respond(VALID_RESPONSE);
+        extraction.extract(INPUTS);
+
+        var request = aiGateway.lastRequest();
+        var payload = new ObjectMapper().readTree(request.messages().get(1).content());
+        var accounting = payload.path("repositoryProfiles").get(0);
+        var reporting = payload.path("repositoryProfiles").get(1);
+        assertEquals("没有自动化测试", accounting.path("limitations").get(0).asText());
+        assertEquals("没有导出能力", reporting.path("limitations").get(0).asText());
+        assertFalse(accounting.path("capabilities").toString().contains("自动化测试"));
+        assertFalse(reporting.path("capabilities").toString().contains("导出能力"));
+        assertEquals(List.of(DirectionDiscoveryFixtures.ACCOUNTING_BASIS_2),
+                extraction.extract(INPUTS).getFirst().evidenceSupport().reusableCapability());
+        assertTrue(request.messages().getFirst().content().contains("负向事实"));
+        // 这里只证明请求契约与引用隔离；候选业务合理性仍由独立真实验收核查。
+    }
+
     /**
      * 已有 Evidence 与它们的临时引用必须一起给出：模型只能引用这里出现过的条目。
      */
