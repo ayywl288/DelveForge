@@ -106,6 +106,18 @@ export interface ExecutionResult {
   errors: string[];
   executedAt: string;
 }
+export interface StepFinalChanges {
+  planId: string;
+  stepId: string;
+  baselineRevision: string | null;
+  verifiedRevision: string | null;
+  availability: "AVAILABLE" | "NOT_APPLICABLE" | "UNAVAILABLE";
+  reason: string | null;
+  baselineTree: string | null;
+  verifiedTree: string | null;
+  files: { path: string; changeType: "ADDED" | "MODIFIED" | "DELETED" }[] | null;
+  counts: { added: number; modified: number; deleted: number } | null;
+}
 export interface VerificationResult {
   candidateRevision: string;
   passed: boolean;

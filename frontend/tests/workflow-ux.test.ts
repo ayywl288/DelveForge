@@ -193,7 +193,7 @@ describe("G2 路线与执行分区", () => {
         const s = session(); s.plan = plan(); s.copy = copy(); s.plan.steps[0]!.status = "PENDING_CONFIRMATION";
         const planning = vi.fn(); const execute = vi.spyOn(s, "execute"); const confirm = vi.spyOn(s, "confirmStep");
         const root = mount(EvolutionView, s, { onPlanning: planning });
-        expect(root.querySelector("#execution-goal")?.textContent).toContain("尚未授权");
+        expect(root.querySelector(".execution-action")?.textContent).toContain("尚未授权");
         expect(root.querySelector(".step-prerequisites")?.textContent).toContain("当前是第一步");
         expect(button(root, "审阅风险并执行")).toBeUndefined();
         button(root, "前往规划页").click(); await nextTick();
@@ -205,7 +205,9 @@ describe("G2 路线与执行分区", () => {
         s.plan.steps[0]!.status = "VERIFYING"; s.plan.steps[0]!.verificationResult = null;
         s.copy = { ...copy(), currentRevision: "b".repeat(40) };
         const root = mount(EvolutionView, s);
+        button(root, "完整历史").click(); await nextTick();
         expect(root.querySelector("#execution-result")?.textContent).toContain("b".repeat(40));
+        button(root, "验证详情").click(); await nextTick();
         expect(root.querySelector("#verification-result")?.textContent).toContain("a".repeat(40));
         expect(root.querySelector("#verification-result")?.textContent).toContain("尚无 VerificationResult");
         expect(root.querySelector(".success-note")).toBeNull();
@@ -225,6 +227,7 @@ describe("G2 路线与执行分区", () => {
         expect(root.querySelector(".execution-detail > .panel-header")?.textContent).toContain("下一个步骤");
         button(root.querySelector(".execution-steps")!, "支持周期调度").click(); await nextTick();
         expect(root.querySelector(".execution-detail > .panel-header")?.textContent).toContain("SUCCEEDED");
+        button(root, "验证详情").click(); await nextTick();
         expect(root.querySelector("#verification-result")?.textContent).toContain("合成测试验证结果");
         expect(root.querySelector(".execution-action")?.textContent).toContain("不再执行");
         expect(execute).not.toHaveBeenCalled(); expect(s.plan.steps[1]?.status).toBe("PENDING_CONFIRMATION");
@@ -243,6 +246,7 @@ describe("G2 路线与执行分区", () => {
         ];
         const execute = vi.spyOn(s, "execute");
         const root = mount(EvolutionView, s);
+        button(root, "验证详情").click(); await nextTick();
         expect(root.querySelector("#verification-result")?.textContent).toContain("FAIL");
         expect([...root.querySelectorAll(".check-outcome")].map(item => item.textContent)).toEqual(["FAIL", "未执行"]);
         expect(root.querySelector(".execution-action")?.textContent).toContain("Candidate 保留");

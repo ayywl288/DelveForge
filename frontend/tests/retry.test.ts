@@ -176,6 +176,7 @@ describe("M5-E FAILED Retry", () => {
     expect(retry).toHaveBeenCalledExactlyOnceWith("step-1", failureId, baseline);
     expect(execute).not.toHaveBeenCalled();
     const saved = authorizedPlan(f.get(), "retry-history-id"); s.plan = saved; await nextTick();
+    root.querySelector<HTMLButtonElement>("#step-tab-history")!.click(); await nextTick();
     expect(root.querySelector("#retry-history")?.textContent).toContain("retry-history-id");
     expect(root.querySelector("#retry-history")?.textContent).toContain(failureId);
     expect(root.querySelector("#retry-history")?.textContent).toContain("EXACT_BASELINE_CONFIRMED");

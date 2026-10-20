@@ -348,11 +348,13 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     const execute = vi.spyOn(s, "execute");
     const root = mount(EvolutionView, s);
     expect(root.textContent).toContain("TEST");
-    expect(root.textContent).toContain("src/ReportService.java");
     expect(root.textContent).toContain(
       "SUCCEEDED · 此 Step 验证通过",
     );
     expect(root.querySelector(".success-note")?.textContent).toContain("b".repeat(40));
+    root.querySelector<HTMLButtonElement>("#step-tab-history")!.click(); await nextTick();
+    expect(root.textContent).toContain("src/ReportService.java");
+    expect(root.textContent).toContain("<img src=x onerror=alert(1)>");
     expect(root.querySelector("img")).toBeNull();
     expect(execute).not.toHaveBeenCalled();
     expect(button(root, "审阅风险并执行此 Step")).toBeUndefined();
@@ -373,6 +375,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
       const execute = vi.spyOn(s, "execute"); const rollback = vi.spyOn(s, "rollback");
       const root = mount(EvolutionView, s); await settle();
       expect(root.textContent).toContain("执行已确认失败，未形成合法 Candidate");
+      root.querySelector<HTMLButtonElement>("#step-tab-history")!.click(); await settle();
       expect(root.textContent).toContain("src/ReportService.java");
       expect(root.textContent).toContain(status === "ROLLING_BACK" ? "尚无最终恢复结果"
         : status === "FAILED" ? "已确认精确恢复原始基线" : "完整恢复未确认，禁止继续修改");

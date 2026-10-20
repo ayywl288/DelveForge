@@ -1103,6 +1103,22 @@ declaredAffectedPaths / unifiedDiff / verificationStrategy。必要生产和测�
 当前只接受普通文本统一补丁的新建、修改、删除；不接受 rename、二进制和 mode 变更。
 校验结果为调用内 `ValidatedExecutionProposal`，不会触达 WorkspaceMutationPort。
 
+**Step 最终差异只读查询（2026-10-18）：**
+`GET /api/evolution-plans/{planId}/steps/{stepId}/final-changes` 不接受查询参数。
+Application 从 SUCCEEDED Step 的 baseline 与匹配的成功 Execution / Verification Candidate 确定端点，
+核对 Plan / WorkingCopy / Asset 绑定及读取许可；不要求历史 Step 等于副本最新 revision。
+独立 `WorkingCopyTreeDiffPort` 仅枚举两个固定 Git Tree 的普通文件 mode / blob 身份，返回增改删路径及数量；
+重命名按删除与新增表达，不读源码正文、不合并 affectedPaths、不运行工作树 diff 或 mutation。
+Infrastructure 复用受控进程预算与环境隔离，禁用替换对象、懒加载获取及可选锁；检查托管根、凭据与 metadata 链接，
+不 checkout / fetch / 修改 index 或配置。当前每条 Git 命令最多 3 秒、输出最多 1 MiB，
+metadata 和每端 Tree 各最多 10,000 条；不能完整安全读取时返回 UNAVAILABLE，files / counts 为 null。
+AVAILABLE 的空列表才表示真实零净变化；非成功 Step 返回 NOT_APPLICABLE。
+权限失败和结果矛盾不被包装为空结果。该查询不授予执行或 Recovery 能力。
+
+验证演化页的轨迹仅投影既有结果及 Repair / Retry / Rollback 快照，按归属而非时间排序；
+授权时间不冒充执行开始时间，缺失的事件和状态切换时间不补造。
+最终差异请求独立于执行 receipt，不参与清除或核对 UNKNOWN；历史成功展示依据 Step 自身 Verification。
+
 Verification strategy 只描述 HOW，动作限定 BUILD / TEST / FOCUSED_TEST / DIFF_CHECK，
 测试 target 是有界名称而非命令；criterionIndexes 从 1 开始并覆盖所有既有标准。
 这只是结构与引用覆盖校验，不能证明语义 scope、外部依赖或 Verification Criteria 已满足。

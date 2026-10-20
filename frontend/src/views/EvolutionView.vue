@@ -3,6 +3,8 @@ import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted,
 import type { WorkspaceSession } from "../state/session";
 import type { EvolutionStep, VerificationResult } from "../api/types";
 import StatusBadge from "../components/StatusBadge.vue";
+import StepFinalChanges from "../components/StepFinalChanges.vue";
+import StepEvolutionTrace from "../components/StepEvolutionTrace.vue";
 import ContentList from "../components/ContentList.vue";
 import RevisionText from "../components/RevisionText.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
@@ -70,6 +72,37 @@ async function viewStep(id: string) {
   await nextTick();
   if (window.innerWidth <= 960) document.getElementById("execution-detail")?.focus();
 }
+const tabs = [
+  { id: "current", label: "当前状态" },
+  { id: "changes", label: "最终变更" },
+  { id: "trace", label: "演化轨迹" },
+  { id: "verification", label: "验证详情" },
+  { id: "history", label: "完整历史" },
+] as const;
+type StepTab = typeof tabs[number]["id"];
+const selectedTab = ref<StepTab>("current");
+const tabPanel = ref<HTMLElement | null>(null);
+async function selectTab(id: StepTab) {
+  selectedTab.value = id;
+  await nextTick();
+  if (tabPanel.value) tabPanel.value.scrollTop = 0;
+}
+function navigateTabs(event: KeyboardEvent, index: number) {
+  let destination: number;
+  if (event.key === "ArrowRight") destination = (index + 1) % tabs.length;
+  else if (event.key === "ArrowLeft") destination = (index + tabs.length - 1) % tabs.length;
+  else if (event.key === "Home") destination = 0;
+  else if (event.key === "End") destination = tabs.length - 1;
+  else return;
+  event.preventDefault();
+  const tab = tabs[destination]!;
+  void selectTab(tab.id);
+  document.getElementById(`step-tab-${tab.id}`)?.focus();
+}
+// 只在对象身份变化时重置；同一 Step 的只读刷新保留当前栏目。
+watch([() => props.s.plan?.id, () => chosen.value?.id], () => {
+  void selectTab("current");
+});
 const executeOpen = ref(false);
 const acknowledged = ref(false);
 const dialogStep = ref<EvolutionStep | null>(null);
@@ -340,11 +373,6 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
           <h2>{{ chosen.goal }}</h2>
           <StatusBadge :status="chosen.status" />
         </div>
-        <nav class="section-links" aria-label="当前步骤分区">
-          <a href="#execution-goal"><NavigationIcon name="lock" />目标与授权</a><a href="#execution-result"><NavigationIcon name="code" />执行状态</a><a href="#verification-result"><NavigationIcon name="evolution" />验证结果</a>
-        </nav>
-        <section id="execution-goal" class="execution-section">
-          <h3 class="section-heading"><NavigationIcon name="lock" />目标与授权</h3>
           <div class="execution-action" :class="{ 'inline-note': recoveryBlocked }" :data-status="chosen.status">
             <p role="status">{{ actionReason }}</p>
             <button v-if="chosen.status === 'PENDING_CONFIRMATION' || !s.copy" @click="emit('planning')"><NavigationIcon name="lock" />前往规划页核对与授权</button>
@@ -352,6 +380,29 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
             <button v-if="chosen.status === 'READY'" :disabled="!canExecute" @click="openExecute"><NavigationIcon name="play" />审阅风险并执行此 Step</button>
             <button v-if="chosen.status === 'VERIFICATION_FAILED'" :disabled="!canRepair" @click="openRepair"><NavigationIcon name="play" />审阅并授权本次修复</button>
             <button v-if="chosen.status === 'VERIFICATION_FAILED'" class="secondary" :disabled="!canRepair" @click="openRollback"><NavigationIcon name="lock" />审阅并授权回滚</button>
+          </div>
+          <div v-if="chosen.executionFailureResult || chosen.rollbackAuthorization" class="execution-action inline-note" role="status">
+            <strong>{{ chosen.executionFailureResult ? '执行已确认失败，未形成合法 Candidate。' : '此轮 Candidate 已申请用户回滚。' }}</strong>
+            <p v-if="chosen.automaticRollbackResult || chosen.rollbackResult">{{ (chosen.automaticRollbackResult ?? chosen.rollbackResult)?.restored ? '已确认精确恢复原始基线。此步骤未成功，后续操作仍需独立授权。' : '完整恢复未确认，禁止继续修改。' }}</p>
+            <p v-else>尚无最终恢复结果。不会自动重放执行或回滚。</p>
+          </div>
+        <div class="step-tabs" role="tablist" aria-label="当前步骤分区">
+          <button v-for="(tab, index) in tabs" :id="`step-tab-${tab.id}`" :key="tab.id"
+            type="button" role="tab" :aria-selected="selectedTab === tab.id"
+            :tabindex="selectedTab === tab.id ? 0 : -1" :aria-controls="`step-panel-${tab.id}`"
+            @click="selectTab(tab.id)" @keydown="navigateTabs($event, index)">{{ tab.label }}</button>
+        </div>
+        <div :id="`step-panel-${selectedTab}`" :key="`${s.plan.id}:${chosen.id}:${selectedTab}`"
+          ref="tabPanel" class="execution-tab-panel" role="tabpanel" tabindex="0"
+          :aria-labelledby="`step-tab-${selectedTab}`">
+        <section v-if="selectedTab === 'current'" id="execution-goal" class="execution-section">
+          <h3 class="section-heading"><NavigationIcon name="lock" />当前 Step 状态与操作</h3>
+          <div v-if="chosen.status === 'SUCCEEDED' && chosen.verificationResult?.passed && chosen.verificationResult.candidateRevision === chosen.executionResult?.candidateRevision" class="success-note step-outcome">
+            <strong>SUCCEEDED · 此 Step 验证通过</strong>
+            <p class="meta">基于此 Step 自身保存的验证事实；后续 Step 推进不会改变此结果。</p>
+            <RevisionText label="此 Step 的 Verified Revision" :value="chosen.verificationResult.candidateRevision" />
+            <p class="meta">验证完成：{{ new Date(chosen.verificationResult.verifiedAt).toLocaleString('zh-CN') }} · {{ chosen.verificationResult.checks.length }} 项已保存检查</p>
+            <p class="meta">{{ chosen.verificationResult.checks.map(check => `${check.action}：${checkOutcome(check)}`).join(' · ') }}</p>
           </div>
           <details :key="chosen.id" class="reading-disclosure" :open="!chosen.executionResult && !chosen.baselineRevision">
             <summary>目标、范围与操作前提</summary>
@@ -364,118 +415,9 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
           </details>
           <p v-if="chosen.status === 'READY'" class="meta">READY 表示已授权的就绪状态；准备提案期间也可能保持 READY，不能据此判断请求已结束。</p>
         </section>
-        <section v-if="chosen.executionFailureResult" class="execution-section">
-          <h3>执行失败与自动回滚</h3>
-          <p>执行已确认失败，未形成合法 Candidate。</p>
-          <p class="meta">阶段：{{ chosen.executionFailureResult.phase }} · {{ chosen.executionFailureResult.diagnostic }}</p>
-          <RevisionText label="原始可信基线" :value="chosen.executionFailureResult.baselineRevision" />
-          <p v-if="chosen.automaticRollbackResult">{{ chosen.automaticRollbackResult.restored
-            ? '已确认精确恢复原始基线。此步骤未成功，等待后续明确操作。'
-            : '完整恢复未确认，禁止继续修改。' }}</p>
-          <p v-else>尚无最终恢复结果。不会自动重放执行或回滚。</p>
-          <details class="reading-disclosure">
-            <summary>失败现场的文件证据</summary>
-            <p v-if="!chosen.executionFailureResult.diffComplete">现场证据未完整读取，不能据此确认恢复范围。</p>
-            <p v-else-if="!chosen.executionFailureResult.diff.length">已核对的现场没有相对基线的字节差异。</p>
-            <p v-for="entry in chosen.executionFailureResult.diff" :key="entry.path">{{ entry.path }}</p>
-          </details>
-        </section>
-        <section v-if="chosen.rollbackAuthorization" class="execution-section">
-          <h3>回滚授权与恢复结果</h3>
-          <p class="meta">授权 ID：{{ chosen.rollbackAuthorization.id }}</p>
-          <RevisionText label="放弃的 Candidate" :value="chosen.rollbackAuthorization.candidateRevision" />
-          <RevisionText label="原始基线" :value="chosen.rollbackAuthorization.baselineRevision" />
-          <p v-if="chosen.rollbackResult">{{ chosen.rollbackResult.restored ? '已确认精确恢复原始基线' : '完整恢复未确认，禁止继续修改' }}</p>
-          <p v-if="chosen.rollbackResult" class="meta">{{ chosen.rollbackResult.diagnostic }}</p>
-          <p v-else>尚无最终结果。不会自动重放回滚。</p>
-        </section>
-        <section v-if="chosen.repairAuthorizations?.length" id="repair-history" class="execution-section">
-          <h3>修复授权与此前失败记录</h3>
-          <details v-for="authorization in chosen.repairAuthorizations" :key="authorization.id" class="reading-disclosure">
-            <summary>修复授权 · {{ new Date(authorization.authorizedAt).toLocaleString('zh-CN') }}</summary>
-            <p class="meta">授权 ID：{{ authorization.id }}</p>
-            <RevisionText label="本次授权的失败 Candidate" :value="authorization.candidateRevision" />
-            <ContentList title="此前执行的文件" :items="authorization.previousExecution.affectedPaths" />
-            <p>{{ authorization.previousVerification.summary }}</p>
-            <p v-for="(check, index) in authorization.previousVerification.checks" :key="index">
-              {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ checkOutcome(check) }} · {{ check.summary }}
-            </p>
-            <ContentList title="此前失败事实" :items="authorization.previousVerification.failures" />
-          </details>
-        </section>
-        <section v-if="chosen.retryAuthorizations?.length" id="retry-history" class="execution-section">
-          <h3>完整重试授权与此前失败历史</h3>
-          <details v-for="authorization in chosen.retryAuthorizations" :key="authorization.id" class="reading-disclosure">
-            <summary>完整重试授权 · {{ new Date(authorization.authorizedAt).toLocaleString('zh-CN') }}</summary>
-            <p class="meta">授权 ID：{{ authorization.id }} · 此前失败 ID：{{ authorization.failedCheckpointId }}</p>
-            <RevisionText label="原始可信基线" :value="authorization.baselineRevision" />
-            <ContentList v-if="authorization.previousExecution" title="此前 Candidate 的文件" :items="authorization.previousExecution.affectedPaths" />
-            <template v-if="authorization.previousExecutionFailure">
-              <p>此前执行失败阶段：{{ authorization.previousExecutionFailure.phase }} · {{ authorization.previousExecutionFailure.diagnostic }}</p>
-              <ContentList title="失败现场差异路径" :items="authorization.previousExecutionFailure.diff.map(item => item.path)" />
-            </template>
-            <template v-if="authorization.previousVerification">
-              <p>{{ authorization.previousVerification.summary }}</p>
-              <p v-for="(check, index) in authorization.previousVerification.checks" :key="index">
-                {{ check.action }} {{ check.target }}：{{ checkOutcome(check) }} · {{ check.summary }}
-              </p>
-            </template>
-            <details v-for="repair in authorization.previousRepairs" :key="repair.id" class="reading-disclosure">
-              <summary>此前修复授权 · {{ new Date(repair.authorizedAt).toLocaleString('zh-CN') }}</summary>
-              <p class="meta">授权 ID：{{ repair.id }}</p>
-              <RevisionText label="此前失败 Candidate" :value="repair.candidateRevision" />
-              <ContentList title="此前执行的文件" :items="repair.previousExecution.affectedPaths" />
-              <p v-for="(check, index) in repair.previousVerification.checks" :key="index">
-                {{ check.action }} {{ check.target }}：{{ checkOutcome(check) }} · {{ check.summary }}
-              </p>
-            </details>
-            <p v-if="authorization.previousRollbackAuthorization" class="meta">用户回滚授权 ID：{{ authorization.previousRollbackAuthorization.id }}</p>
-            <p v-if="authorization.previousRollbackResult">用户回滚：{{ authorization.previousRollbackResult.diagnostic }}</p>
-            <p v-if="authorization.previousAutomaticRollback">系统回滚：{{ authorization.previousAutomaticRollback.diagnostic }}</p>
-          </details>
-        </section>
-        <section id="execution-result" class="execution-section">
-        <div class="section-row"><h3 class="section-heading"><NavigationIcon name="code" />执行状态与 Candidate</h3><StatusBadge :status="chosen.status" /></div>
-        <RevisionText v-if="chosen.baselineRevision" label="baselineRevision · 执行基线" :value="chosen.baselineRevision" />
-        <template v-if="chosen.executionResult"
-          ><div class="result-heading">
-            <h4>执行结果 <span class="meta">ExecutionResult</span></h4>
-            <time>{{
-              new Date(chosen.executionResult.executedAt).toLocaleString(
-                "zh-CN",
-              )
-            }}</time>
-          </div>
-          <RevisionText
-            label="Candidate · 已保存的候选代码版本"
-            :value="chosen.executionResult.candidateRevision"
-          /><ContentList
-            title="实际变更说明"
-            :items="chosen.executionResult.changes"
-          /><ContentList
-            title="受影响文件"
-            variant="modules" icon="file"
-            :items="chosen.executionResult.affectedPaths"
-          /><ContentList
-            v-if="chosen.executionResult.warnings.length"
-            title="执行警告"
-            :items="chosen.executionResult.warnings"
-          /><ContentList
-            v-if="chosen.executionResult.errors.length"
-            title="执行错误"
-            :items="chosen.executionResult.errors"
-          />
-          <p class="meta">
-            这些条目来自持久化结果。现有 API 不提供源码、unifiedDiff 或已接受
-            CodingProposal 的历史查询。
-          </p></template
-        >
-        <p v-else class="context-note">
-          尚无 ExecutionResult。<span v-if="chosen.status === 'READY'">代码是否已开始准备，不能仅从 READY 判断。</span>
-        </p>
-        <p v-if="chosen.executionResult" class="meta">Candidate 是执行产生的代码版本；出现 Candidate 不表示验证通过。</p>
-        </section>
-        <section id="verification-result" class="execution-section">
+        <StepFinalChanges v-else-if="selectedTab === 'changes'" :plan-id="s.plan.id" :step="chosen" />
+        <StepEvolutionTrace v-else-if="selectedTab === 'trace'" :step="chosen" />
+        <section v-else-if="selectedTab === 'verification'" id="verification-result" class="execution-section">
         <h3 class="section-heading"><NavigationIcon name="evolution" />验证结果与可信版本</h3>
         <template v-if="chosen.verificationResult"
           ><div class="result-heading">
@@ -528,22 +470,126 @@ function checkOutcome(check: VerificationResult["checks"][number]) {
         <p v-if="s.copy && s.copy.currentRevision !== s.copy.lastVerifiedRevision" class="inline-note">
           隔离副本当前代码与最近验证版本不一致，不能继续执行下一步。请保留当前状态与证据。
         </p>
-        <div
-          v-if="
-            chosen.status === 'SUCCEEDED' &&
-            s.copy?.lastVerifiedRevision ===
-              chosen.executionResult?.candidateRevision
-          "
-          class="success-note"
-        >
-          <strong class="section-heading"><NavigationIcon name="evolution" />SUCCEEDED · 此 Step 验证通过</strong>
-          <RevisionText label="lastVerifiedRevision" :value="s.copy?.lastVerifiedRevision" />
-          <p v-for="(check, index) in chosen.verificationResult?.checks ?? []" :key="index">
-            {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ checkOutcome(check) }}
-          </p>
-          <p class="meta">状态、revision 与检查结果均来自后端；不会自动执行下一 Step。</p>
-        </div>
         </section>
+        <section v-else-if="selectedTab === 'history'" id="step-complete-history" class="execution-section complete-history">
+          <h3>完整历史与本轮记录</h3>
+          <details :key="chosen.id" class="reading-disclosure">
+            <summary>展开完整记录 · {{ chosen.repairAuthorizations?.length ?? 0 }} 次修复授权 · {{ chosen.retryAuthorizations?.length ?? 0 }} 次完整重试授权</summary>
+        <section v-if="chosen.executionFailureResult" class="execution-section">
+          <h3>执行失败与自动回滚</h3>
+          <p>执行已确认失败，未形成合法 Candidate。</p>
+          <p class="meta">阶段：{{ chosen.executionFailureResult.phase }} · {{ chosen.executionFailureResult.diagnostic }}</p>
+          <RevisionText label="原始可信基线" :value="chosen.executionFailureResult.baselineRevision" />
+          <p v-if="chosen.automaticRollbackResult">{{ chosen.automaticRollbackResult.restored
+            ? '已确认精确恢复原始基线。此步骤未成功，等待后续明确操作。'
+            : '完整恢复未确认，禁止继续修改。' }}</p>
+          <p v-else>尚无最终恢复结果。不会自动重放执行或回滚。</p>
+          <details class="reading-disclosure">
+            <summary>失败现场的文件证据</summary>
+            <p v-if="!chosen.executionFailureResult.diffComplete">现场证据未完整读取，不能据此确认恢复范围。</p>
+            <p v-else-if="!chosen.executionFailureResult.diff.length">已核对的现场没有相对基线的字节差异。</p>
+            <p v-for="entry in chosen.executionFailureResult.diff" :key="entry.path">{{ entry.path }}</p>
+          </details>
+        </section>
+        <section v-if="chosen.rollbackAuthorization" class="execution-section">
+          <h3>回滚授权与恢复结果</h3>
+          <p class="meta">授权 ID：{{ chosen.rollbackAuthorization.id }}</p>
+          <RevisionText label="放弃的 Candidate" :value="chosen.rollbackAuthorization.candidateRevision" />
+          <RevisionText label="原始基线" :value="chosen.rollbackAuthorization.baselineRevision" />
+          <p v-if="chosen.rollbackResult">{{ chosen.rollbackResult.restored ? '已确认精确恢复原始基线' : '完整恢复未确认，禁止继续修改' }}</p>
+          <p v-if="chosen.rollbackResult" class="meta">{{ chosen.rollbackResult.diagnostic }}</p>
+          <p v-else>尚无最终结果。不会自动重放回滚。</p>
+        </section>
+        <section id="execution-result" class="execution-section">
+        <div class="section-row"><h3 class="section-heading"><NavigationIcon name="code" />本轮 Execution／Repair 记录</h3><StatusBadge :status="chosen.status" /></div>
+        <p class="meta">此处仅记录最近一次执行或 Repair，文件范围不是整个 Step 的最终累计差异。</p>
+        <RevisionText v-if="chosen.baselineRevision" label="Step 原始 baseline" :value="chosen.baselineRevision" />
+        <template v-if="chosen.executionResult"
+          ><RevisionText label="本轮起点（Repair 时为此前失败 Candidate）" :value="chosen.repairAuthorizations?.at(-1)?.candidateRevision ?? chosen.baselineRevision" /><div class="result-heading">
+            <h4>本轮执行结果 <span class="meta">ExecutionResult</span></h4>
+            <time>{{
+              new Date(chosen.executionResult.executedAt).toLocaleString(
+                "zh-CN",
+              )
+            }}</time>
+          </div>
+          <RevisionText
+            label="Candidate · 已保存的候选代码版本"
+            :value="chosen.executionResult.candidateRevision"
+          /><ContentList
+            class="round-statistics" title="本轮原始变更统计／说明"
+            :items="chosen.executionResult.changes"
+          /><ContentList
+            title="本轮受影响文件"
+            variant="modules" icon="file"
+            :items="chosen.executionResult.affectedPaths"
+          /><ContentList
+            v-if="chosen.executionResult.warnings.length"
+            title="执行警告"
+            :items="chosen.executionResult.warnings"
+          /><ContentList
+            v-if="chosen.executionResult.errors.length"
+            title="执行错误"
+            :items="chosen.executionResult.errors"
+          />
+          <p class="meta">
+            这些条目来自持久化结果。现有 API 不提供源码、unifiedDiff 或已接受
+            CodingProposal 的历史查询。
+          </p></template
+        >
+        <p v-else class="context-note">
+          尚无 ExecutionResult。<span v-if="chosen.status === 'READY'">代码是否已开始准备，不能仅从 READY 判断。</span>
+        </p>
+        <p v-if="chosen.executionResult" class="meta">Candidate 是执行产生的代码版本；出现 Candidate 不表示验证通过。</p>
+        </section>
+        <section v-if="chosen.repairAuthorizations?.length" id="repair-history" class="execution-section">
+          <h3>修复授权与此前失败记录</h3>
+          <details v-for="authorization in chosen.repairAuthorizations" :key="authorization.id" class="reading-disclosure">
+            <summary>修复授权 · {{ new Date(authorization.authorizedAt).toLocaleString('zh-CN') }}</summary>
+            <p class="meta">授权 ID：{{ authorization.id }}</p>
+            <RevisionText label="本次授权的失败 Candidate" :value="authorization.candidateRevision" />
+            <ContentList title="此前执行的文件" :items="authorization.previousExecution.affectedPaths" />
+            <p>{{ authorization.previousVerification.summary }}</p>
+            <p v-for="(check, index) in authorization.previousVerification.checks" :key="index">
+              {{ check.action }}{{ check.target ? ` · ${check.target}` : '' }}：{{ checkOutcome(check) }} · {{ check.summary }}
+            </p>
+            <ContentList title="此前失败事实" :items="authorization.previousVerification.failures" />
+          </details>
+        </section>
+        <section v-if="chosen.retryAuthorizations?.length" id="retry-history" class="execution-section">
+          <h3>完整重试授权与此前失败历史</h3>
+          <details v-for="authorization in chosen.retryAuthorizations" :key="authorization.id" class="reading-disclosure">
+            <summary>完整重试授权 · {{ new Date(authorization.authorizedAt).toLocaleString('zh-CN') }}</summary>
+            <p class="meta">授权 ID：{{ authorization.id }} · 此前失败 ID：{{ authorization.failedCheckpointId }}</p>
+            <RevisionText label="原始可信基线" :value="authorization.baselineRevision" />
+            <ContentList v-if="authorization.previousExecution" title="此前 Candidate 的文件" :items="authorization.previousExecution.affectedPaths" />
+            <template v-if="authorization.previousExecutionFailure">
+              <p>此前执行失败阶段：{{ authorization.previousExecutionFailure.phase }} · {{ authorization.previousExecutionFailure.diagnostic }}</p>
+              <ContentList title="失败现场差异路径" :items="authorization.previousExecutionFailure.diff.map(item => item.path)" />
+            </template>
+            <template v-if="authorization.previousVerification">
+              <p>{{ authorization.previousVerification.summary }}</p>
+              <p v-for="(check, index) in authorization.previousVerification.checks" :key="index">
+                {{ check.action }} {{ check.target }}：{{ checkOutcome(check) }} · {{ check.summary }}
+              </p>
+            </template>
+            <article v-for="repair in authorization.previousRepairs" :key="repair.id" class="archived-repair">
+              <h4>此前修复授权 · {{ new Date(repair.authorizedAt).toLocaleString('zh-CN') }}</h4>
+              <p class="meta">授权 ID：{{ repair.id }}</p>
+              <RevisionText label="此前失败 Candidate" :value="repair.candidateRevision" />
+              <ContentList title="此前执行的文件" :items="repair.previousExecution.affectedPaths" />
+              <p v-for="(check, index) in repair.previousVerification.checks" :key="index">
+                {{ check.action }} {{ check.target }}：{{ checkOutcome(check) }} · {{ check.summary }}
+              </p>
+            </article>
+            <p v-if="authorization.previousRollbackAuthorization" class="meta">用户回滚授权 ID：{{ authorization.previousRollbackAuthorization.id }}</p>
+            <p v-if="authorization.previousRollbackResult">用户回滚：{{ authorization.previousRollbackResult.diagnostic }}</p>
+            <p v-if="authorization.previousAutomaticRollback">系统回滚：{{ authorization.previousAutomaticRollback.diagnostic }}</p>
+          </details>
+        </section>
+          </details>
+        </section>
+        </div>
         <p
           v-if="
             ![

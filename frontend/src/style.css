@@ -1760,6 +1760,50 @@ button .navigation-icon { width: 18px; height: 18px; }
 .success-note .revision > code { background: #ffffff80; }
 .success-note .section-heading > .navigation-icon { color: var(--success); }
 
+/* 验证演化的只读结果与轨迹；不改变其它页面的通用列表样式。 */
+.execution-detail .section-links a { flex: 1 1 auto; padding: 8px; }
+.execution-detail .execution-section { padding: 18px 0; }
+.execution-detail .step-outcome { padding: 12px 16px; margin-top: 12px; }
+.execution-detail .step-outcome .revision { padding: 6px 0; }
+.execution-detail .compact-button { padding: 7px 10px; font-size: 13px; }
+.execution-detail .change-counts { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; }
+.execution-detail .change-counts span { color: var(--muted); font-size: 14px; }
+.execution-detail .final-file-list { list-style: none; padding: 0; margin: 12px 0; }
+.execution-detail .final-file-list li { display: flex; align-items: flex-start; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.execution-detail .final-file-list code { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 13px; line-height: 1.6; }
+.file-change-type { flex-shrink: 0; font-size: 12px; padding: 2px 7px; border-radius: 5px; background: var(--canvas); color: var(--muted); }
+.file-change-type[data-type="ADDED"] { background: var(--success-bg); color: var(--success); }
+.file-change-type[data-type="DELETED"] { background: var(--danger-bg); color: var(--danger); }
+.execution-detail .technical-details > summary { padding: 10px 0; font-size: 13px; }
+.trace-round { margin-top: 14px; }
+.trace-round > h4 { font-size: 13px; color: var(--muted); margin: 0 0 9px; }
+.step-trace { display: flex; flex-wrap: wrap; gap: 10px 22px; list-style: none; padding: 0; margin: 0; }
+.trace-node { position: relative; flex: 0 1 190px; min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas); padding: 10px 12px; line-height: 1.4; }
+.trace-node:not(:last-child)::after { content: "→"; position: absolute; right: -18px; top: 22px; color: var(--muted); }
+.trace-node > strong, .trace-result, .trace-node > time, .trace-node > .meta { display: block; overflow-wrap: anywhere; }
+.trace-node > strong { font-size: 13px; }
+.trace-result { font-size: 13px; line-height: 1.5; margin: 5px 0; }
+.trace-node > time, .trace-node > .meta { font-size: 11px; color: var(--muted); }
+.trace-node[data-tone="success"] { border-color: #bcd9c6; background: var(--success-bg); }
+.trace-node[data-tone="danger"] { border-color: #edbbc7; background: var(--danger-bg); }
+.trace-details { margin-top: 7px; font-size: 12px; }
+.trace-details > summary { color: var(--muted); cursor: pointer; padding: 2px 0; min-height: 24px; font-size: 12px; }
+.execution-detail .trace-details p { font-size: 12px; line-height: 1.6; margin: 7px 0 0; overflow-wrap: anywhere; }
+.execution-detail .complete-history .content-list { margin: 12px 0; }
+.execution-detail .complete-history .content-list li { padding: 7px 0; }
+.execution-detail .complete-history .content-list li span { overflow-wrap: anywhere; font-size: 13px; }
+.execution-detail .round-statistics li span { font-family: Consolas, monospace; tab-size: 4; }
+.execution-detail .archived-repair { padding: 10px 12px; margin: 8px 0; border-left: 2px solid var(--line); }
+.execution-detail .complete-history .revision { padding: 7px 0; }
+.execution-detail .complete-history .execution-section { padding: 12px 0; }
+.execution-detail .revision > code { overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 600px) {
+  .step-trace { display: block; padding-left: 8px; }
+  .trace-node { margin: 0 0 18px; }
+  .trace-node:not(:last-child)::after { content: "↓"; top: auto; right: auto; left: 14px; bottom: -18px; }
+  .step-final-changes > .section-row { align-items: flex-start; gap: 8px; flex-wrap: wrap; }
+}
+
 @media (max-width: 1200px) {
     .project-row-main { grid-template-columns: minmax(180px, 1fr) 110px minmax(190px, .8fr); }
     .project-actions { grid-column: 3; grid-row: 2; }
@@ -1835,4 +1879,17 @@ button .navigation-icon { width: 18px; height: 18px; }
     .section-links a { flex: 1 1 100%; justify-content: flex-start; padding: 10px; }
     .section-links .navigation-icon { width: 18px; height: 18px; }
     .evidence-pagination { justify-content: flex-start; }
+}
+
+/* Step 栏目只展示一个主体，安全提示与操作始终保留在上方。 */
+.step-tabs { display: flex; gap: 4px; padding: 5px; margin: 16px 0 0; background: var(--canvas); border: 1px solid var(--line); border-radius: 9px; }
+.step-tabs [role="tab"] { flex: 1; min-width: 0; padding: 10px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: #586383; font-size: 14px; box-shadow: none; }
+.step-tabs [role="tab"][aria-selected="true"] { background: var(--surface); color: var(--accent-hover); border-color: var(--line); font-weight: 700; }
+.step-tabs [role="tab"]:focus-visible { outline: 2px solid var(--accent-hover); outline-offset: 2px; }
+.execution-tab-panel { min-width: 0; max-height: 70vh; overflow-y: auto; overflow-wrap: anywhere; scrollbar-gutter: stable; }
+.execution-tab-panel > .execution-section { border-top: 0; }
+@media (max-width: 640px) {
+    .step-tabs { flex-wrap: wrap; }
+    .step-tabs [role="tab"] { flex: 1 1 28%; padding: 9px 5px; }
+    .execution-tab-panel { max-height: none; overflow-y: visible; }
 }

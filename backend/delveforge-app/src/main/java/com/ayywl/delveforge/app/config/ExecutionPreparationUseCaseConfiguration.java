@@ -2,6 +2,7 @@ package com.ayywl.delveforge.app.config;
 
 import com.ayywl.delveforge.application.evolution.execution.RetryEvolutionStepUseCase;
 import com.ayywl.delveforge.application.evolution.execution.RollbackEvolutionStepUseCase;
+import com.ayywl.delveforge.application.evolution.query.GetStepFinalChangesUseCase;
 import com.ayywl.delveforge.application.evolution.preparation.CodingProposalParser;
 import com.ayywl.delveforge.application.evolution.preparation.CodingProposalValidator;
 import com.ayywl.delveforge.application.evolution.preparation.ConfirmEvolutionStepUseCase;
@@ -17,6 +18,7 @@ import com.ayywl.delveforge.application.port.persistence.StepConfirmationCommitP
 import com.ayywl.delveforge.application.port.persistence.StepExecutionCommitPort;
 import com.ayywl.delveforge.application.port.persistence.WorkingCopyRepository;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
+import com.ayywl.delveforge.application.port.workspace.WorkingCopyTreeDiffPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRollbackPort;
@@ -33,6 +35,12 @@ import org.springframework.context.annotation.Configuration;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(ExecutionPreparationProperties.class)
 public class ExecutionPreparationUseCaseConfiguration {
+
+    @Bean
+    public GetStepFinalChangesUseCase getStepFinalChangesUseCase(EvolutionPlanRepository plans,
+            WorkingCopyRepository copies, SoftwareAssetRepository assets, WorkingCopyTreeDiffPort trees) {
+        return new GetStepFinalChangesUseCase(plans, copies, assets, trees);
+    }
 
     @Bean
     public com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase executeEvolutionStepUseCase(

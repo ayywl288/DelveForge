@@ -175,7 +175,7 @@ describe("E3 真实等待和持久化结果", () => {
     resolve(success); await pending; await nextTick();
     expect(root.querySelector(".waiting-duration")).toBeNull();
     const result = root.querySelector(".success-note")!.textContent!;
-    for (const value of ["SUCCEEDED", "lastVerifiedRevision", "b".repeat(40), "TEST：PASS", "BUILD：PASS"]) expect(result).toContain(value);
+    for (const value of ["SUCCEEDED", "此 Step 的 Verified Revision", "b".repeat(40), "TEST：PASS", "BUILD：PASS"]) expect(result).toContain(value);
     expect(execute).toHaveBeenCalledTimes(1);
   });
   it("暂停、离开缓存页面、卸载停止轮询；返回页面仅恢复 GET，不重发 execute", async () => {

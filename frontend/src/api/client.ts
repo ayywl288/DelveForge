@@ -5,6 +5,7 @@ import type {
   DiscoveryTurn,
   DiscoveryQuestion,
   EvolutionPlan,
+  StepFinalChanges,
   ProductDirection,
   ProfilePatch,
   RepositoryProfile,
@@ -210,6 +211,8 @@ export const api = {
       ...(context ? { project: { contextId: context.id, expectedVersion: context.version } } : {}),
     }),
   plan: (value: string) => request<EvolutionPlan>(plan(value)),
+  finalChanges: (value: string, step: string) =>
+    request<StepFinalChanges>(`${plan(value)}/steps/${id(step)}/final-changes`),
   prepare: (value: string) =>
     request<EvolutionPlan>(`${plan(value)}/prepare`, "POST"),
   confirmStep: (value: string, step: string) =>
