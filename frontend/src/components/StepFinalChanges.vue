@@ -25,8 +25,7 @@ async function load() {
   loading.value = false;
   const step = props.step;
   if (step.status !== "SUCCEEDED") return;
-  if (!step.baselineRevision || !step.verificationResult?.passed
-      || step.executionResult?.candidateRevision !== step.verificationResult.candidateRevision) {
+  if (!step.baselineRevision || !step.deliveryRevision) {
     error.value = "保存的成功结果与版本不一致，不能展示最终差异。";
     return;
   }
@@ -36,7 +35,7 @@ async function load() {
     if (own !== generation) return;
     if (response.planId !== props.planId || response.stepId !== step.id
         || response.baselineRevision !== step.baselineRevision
-        || response.verifiedRevision !== step.verificationResult.candidateRevision
+        || response.verifiedRevision !== step.deliveryRevision
         || !["AVAILABLE", "NOT_APPLICABLE", "UNAVAILABLE"].includes(response.availability)
         || (response.availability === "AVAILABLE" && (!Array.isArray(response.files) || !response.counts))) {
       throw new Error("只读结果与当前 Step 的保存版本不一致，请重新查询。");
@@ -53,8 +52,7 @@ async function load() {
   }
 }
 watch(() => [props.planId, props.step.id, props.step.status, props.step.baselineRevision,
-  props.step.executionResult?.candidateRevision, props.step.verificationResult?.candidateRevision,
-  props.step.verificationResult?.passed], load, { immediate: true });
+  props.step.deliveryRevision], load, { immediate: true });
 onBeforeUnmount(() => { generation++; });
 const typeLabels = { ADDED: "新增", MODIFIED: "修改", DELETED: "删除" };
 </script>
@@ -63,7 +61,7 @@ const typeLabels = { ADDED: "新增", MODIFIED: "修改", DELETED: "删除" };
     <div class="section-row"><h3>本 Step 最终累计变更</h3>
       <button v-if="step.status === 'SUCCEEDED'" class="secondary compact-button" :disabled="loading" @click="load">重新查询差异</button>
     </div>
-    <p class="meta">比较原始 baseline → 此 Step 自身验证通过的版本；不合并各轮受影响文件。</p>
+    <p class="meta">比较此 Step 的可信起点与正式接受版本，展示完整交付差异。</p>
     <p v-if="step.status !== 'SUCCEEDED'" class="context-note">此 Step 尚未成功，没有最终 Verified Revision。下方轨迹与历史仍可查看。</p>
     <p v-else-if="loading" role="status">正在只读查询固定 Git Tree…</p>
     <p v-else-if="error" role="alert" class="field-error">最终差异不可用：{{ error }}</p>

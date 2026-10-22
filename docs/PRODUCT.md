@@ -1,14 +1,17 @@
 # PRODUCT.md
 
-> **2026-10-21 Task 1 授权更新：** 当前实现目标为单个已确认 EvolutionStep 的自主 Coding Agent。
-> Agent 在一次性 Docker 沙箱中探索、编辑、测试与修复，保存经过 Git tree 重放验证的不可变 Candidate。
-> 正式 WorkingCopy 保持不变；Run 成功不代表 Step 已接受或业务正确。Delivery、完整前端与 SSE 留给 Task 2。
-> 下文 M4/M5 一次性提案与独立 Repair 流程保留为旧路径背景，不是新 Agent 的前置条件。
+**2026-10-22 Task 2 当前产品流程：** 用户逐 Step 确认并启动 Agent。Agent 在一次性 Docker
+沙箱中探索、修改和检查，冻结 Candidate；系统随后自动执行确定性 Delivery，接受正式 Git commit 后
+才把 Step 标为 SUCCEEDED。失败的 Run 可由用户启动新尝试，不恢复旧对话，也不执行后续 Step。
+用户可查看真实工具与 Maven 活动、冻结差异和独立交付状态；刷新和重连读取持久化事件。
+NOT_TESTED 不等于测试通过，已知未解决检查失败不能被接受。普通 Java/Maven 兼容范围仍受 Task 1
+JDK、文件、公开 Central 依赖及隔离限制约束。实现验收见 [Task 2 验收](validation/task2-autonomous-evolution.md)。
+下文旧 M4/M5 一次性提案、独立 Repair/Retry/Rollback 是历史背景，已退出当前产品流程。
 
 > 本文档回答：为什么做这个产品、给谁使用、解决什么问题，以及第一版到底做到哪里。
 
 **Status:** Exploring
-**Last Updated:** 2026-10-21
+**Last Updated:** 2026-10-22
 
 ## 1. Product Vision
 

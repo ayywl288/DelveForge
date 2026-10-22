@@ -1,83 +1,26 @@
 package com.ayywl.delveforge.app.config;
 
-import com.ayywl.delveforge.application.evolution.execution.RetryEvolutionStepUseCase;
-import com.ayywl.delveforge.application.evolution.execution.RollbackEvolutionStepUseCase;
-import com.ayywl.delveforge.application.evolution.query.GetStepFinalChangesUseCase;
-import com.ayywl.delveforge.application.evolution.preparation.CodingProposalParser;
-import com.ayywl.delveforge.application.evolution.preparation.CodingProposalValidator;
 import com.ayywl.delveforge.application.evolution.preparation.ConfirmEvolutionStepUseCase;
-import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationLimits;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
-import com.ayywl.delveforge.application.evolution.preparation.ExecutionProposalReviewPort;
-import com.ayywl.delveforge.application.evolution.preparation.PrepareEvolutionStepUseCase;
-import com.ayywl.delveforge.application.evolution.preparation.StepRepositoryUnderstanding;
-import com.ayywl.delveforge.application.port.ai.AiGateway;
+import com.ayywl.delveforge.application.evolution.query.GetStepFinalChangesUseCase;
 import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.application.port.persistence.SoftwareAssetRepository;
 import com.ayywl.delveforge.application.port.persistence.StepConfirmationCommitPort;
-import com.ayywl.delveforge.application.port.persistence.StepExecutionCommitPort;
 import com.ayywl.delveforge.application.port.persistence.WorkingCopyRepository;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyTreeDiffPort;
-import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
-import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
-import com.ayywl.delveforge.application.port.workspace.WorkspaceRollbackPort;
-import com.ayywl.delveforge.application.port.workspace.WorkspaceVerificationPort;
-import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
-import com.ayywl.delveforge.infrastructure.workspace.LoopbackExecutionProposalReviewAdapter;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-import java.net.URI;
-
-/** 装配 M4 用例与能力 Port；运行预算在此映射，不承担执行或信任决策。 */
+/** 装配明确确认与只读资格；编码和 Delivery 由 CodingAgentConfiguration 组合。 */
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(ExecutionPreparationProperties.class)
 public class ExecutionPreparationUseCaseConfiguration {
-
-    @Bean
-    public ExecutionProposalReviewPort executionProposalReviewPort(ObjectMapper mapper,
-            @Value("${delveforge.execution.proposal-review-url:}") String endpoint) {
-        return endpoint.isBlank() ? ExecutionProposalReviewPort.NONE
-                : new LoopbackExecutionProposalReviewAdapter(URI.create(endpoint), mapper);
-    }
-
-    @Bean
-    public GetStepFinalChangesUseCase getStepFinalChangesUseCase(EvolutionPlanRepository plans,
-            WorkingCopyRepository copies, SoftwareAssetRepository assets, WorkingCopyTreeDiffPort trees) {
-        return new GetStepFinalChangesUseCase(plans, copies, assets, trees);
-    }
-
-    @Bean
-    public com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase executeEvolutionStepUseCase(
-            PrepareEvolutionStepUseCase preparation, ExecutionPreparationState state, StepExecutionPolicy policy,
-            StepExecutionCommitPort commits, WorkspaceMutationPort mutation, WorkspaceVerificationPort verification,
-            WorkspaceRollbackPort rollback) {
-        return new com.ayywl.delveforge.application.evolution.execution.ExecuteEvolutionStepUseCase(
-                preparation, state, policy, commits, mutation, verification, rollback);
-    }
-
-    @Bean
-    public RetryEvolutionStepUseCase retryEvolutionStepUseCase(
-            ExecutionPreparationState state, StepExecutionPolicy policy, StepExecutionCommitPort commits) {
-        return new RetryEvolutionStepUseCase(state, policy, commits);
-    }
-
     @Bean
     public StepExecutionPolicy stepExecutionPolicy() {
         return new StepExecutionPolicy();
-    }
-
-    @Bean
-    public RollbackEvolutionStepUseCase rollbackEvolutionStepUseCase(ExecutionPreparationState state,
-            StepExecutionPolicy policy, StepExecutionCommitPort commits, WorkspaceRollbackPort rollback) {
-        return new RollbackEvolutionStepUseCase(state, policy, commits, rollback);
     }
 
     @Bean
@@ -94,22 +37,8 @@ public class ExecutionPreparationUseCaseConfiguration {
     }
 
     @Bean
-    public StepRepositoryUnderstanding stepRepositoryUnderstanding(WorkspaceReadPort read, AiGateway ai,
-            ObjectMapper mapper, RepositorySecretPolicy secrets, ExecutionPreparationProperties preparation,
-            RepositoryAnalysisProperties repository) {
-        return new StepRepositoryUnderstanding(read, ai, mapper, secrets, preparation.toLimits(),
-                repository.foundation().toBudget(), repository.targetedSource().toBudget(),
-                repository.region().toLimits(), repository.region().toRecursionBudget(),
-                repository.scout().maxCatalogBytes());
-    }
-
-    @Bean
-    public PrepareEvolutionStepUseCase prepareEvolutionStepUseCase(ExecutionPreparationState state,
-            StepRepositoryUnderstanding understanding, ObjectMapper mapper, RepositorySecretPolicy secrets,
-            WorkingCopyInspectionPort inspection, ExecutionPreparationProperties properties,
-            ExecutionProposalReviewPort review) {
-        ExecutionPreparationLimits limits = properties.toLimits();
-        return new PrepareEvolutionStepUseCase(state, understanding, new CodingProposalParser(mapper, limits),
-                new CodingProposalValidator(secrets, inspection, limits), mapper, limits, review);
+    public GetStepFinalChangesUseCase getStepFinalChangesUseCase(EvolutionPlanRepository plans,
+            WorkingCopyRepository copies, SoftwareAssetRepository assets, WorkingCopyTreeDiffPort trees) {
+        return new GetStepFinalChangesUseCase(plans, copies, assets, trees);
     }
 }

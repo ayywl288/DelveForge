@@ -1,12 +1,7 @@
 package com.ayywl.delveforge.app.error;
 
-import com.ayywl.delveforge.application.evolution.execution.EvolutionExecutionException;
 import com.ayywl.delveforge.application.evolution.planning.EvolutionPlanNotFoundException;
 import com.ayywl.delveforge.application.evolution.planning.PlanningExtractionException;
-import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationBudgetExceededException;
-import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationException;
-import com.ayywl.delveforge.application.evolution.preparation.ExecutionProposalReviewException;
-import com.ayywl.delveforge.application.evolution.preparation.UnsupportedVerificationCriteriaException;
 import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.ProductDirectionNotFoundException;
 import com.ayywl.delveforge.application.opportunitydiscovery.direction.StaleUserProfileRevisionException;
@@ -19,7 +14,6 @@ import com.ayywl.delveforge.application.port.persistence.ProductDirectionSelecti
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionStatusConflictException;
 import com.ayywl.delveforge.application.port.persistence.SoftwareAssetAlreadyRegisteredException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
-import com.ayywl.delveforge.application.port.workspace.WorkingCopyTextNotExactException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceStorageUnavailableException;
 import com.ayywl.delveforge.application.project.EvolutionFlowScopeException;
@@ -287,8 +281,7 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
             UserProfileNotConfirmedException.class, EvolutionPlanningPreconditionException.class,
             EvolutionPlanAlreadyExistsException.class,
             EvolutionPlanStateException.class, EvolutionLifecycleConflictException.class, WorkingCopyBasisChangedException.class,
-            EvolutionExecutionException.class,
-            ExecutionPreparationBudgetExceededException.class, WorkingCopyTextNotExactException.class})
+            WorkingCopyBasisChangedException.class})
     @ResponseStatus(HttpStatus.CONFLICT)
     public ApiErrorResponse handleDiscoveryPreconditionConflict(
             RuntimeException exception, HttpServletRequest request) {
@@ -369,39 +362,6 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 DIRECTION_DISCOVERY_REJECTED_MESSAGE,
                 request.getRequestURI(),
                 Instant.now());
-    }
-
-    @ExceptionHandler(UnsupportedVerificationCriteriaException.class)
-    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
-    public ApiErrorResponse handleUnsupportedExecutionCriteria(
-            UnsupportedVerificationCriteriaException exception, HttpServletRequest request) {
-        ApiErrorCode code = ApiErrorCode.EXECUTION_CRITERIA_UNSUPPORTED;
-        log.warn("operation=evolution.execution path={} phase=PREFLIGHT code={} criterionIndexes={} exception={}",
-                loggedRoute(request), code, exception.criterionIndexes(), describe(exception));
-        return new ApiErrorResponse(code, messageFor(code), request.getRequestURI(), Instant.now());
-    }
-
-    @ExceptionHandler(ExecutionPreparationException.class)
-    public ResponseEntity<ApiErrorResponse> handleExecutionPreparationFailure(
-            ExecutionPreparationException exception, HttpServletRequest request) {
-        boolean providerFailure = exception.phase() == ExecutionPreparationException.Phase.PROVIDER_CALL;
-        ApiErrorCode code = providerFailure ? ApiErrorCode.EXECUTION_AI_FAILED : ApiErrorCode.CODING_PROPOSAL_INVALID;
-        HttpStatus status = providerFailure ? HttpStatus.BAD_GATEWAY : HttpStatus.UNPROCESSABLE_ENTITY;
-        log.error("operation=evolution.execution path={} phase={} code={} exception={}",
-                loggedRoute(request), exception.phase(), code, describe(exception));
-        return ResponseEntity.status(status).body(
-                new ApiErrorResponse(code, messageFor(code), request.getRequestURI(), Instant.now()));
-    }
-
-    @ExceptionHandler(ExecutionProposalReviewException.class)
-    public ResponseEntity<ApiErrorResponse> handleExecutionProposalReviewFailure(
-            ExecutionProposalReviewException exception, HttpServletRequest request) {
-        boolean rejected = exception.reason() == ExecutionProposalReviewException.Reason.REJECTED;
-        ApiErrorCode code = rejected ? ApiErrorCode.EXECUTION_PROPOSAL_REVIEW_REJECTED
-                : ApiErrorCode.EXECUTION_PROPOSAL_REVIEW_UNAVAILABLE;
-        return ResponseEntity.status(rejected ? HttpStatus.CONFLICT : HttpStatus.SERVICE_UNAVAILABLE)
-                .body(new ApiErrorResponse(code, messageFor(code),
-                        request.getRequestURI(), Instant.now()));
     }
 
     /** 其它业务的 AI Gateway 失败；规划与执行准备的阶段由独立分支分类。 */

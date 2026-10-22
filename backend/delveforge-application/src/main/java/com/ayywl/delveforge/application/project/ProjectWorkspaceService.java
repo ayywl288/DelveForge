@@ -349,8 +349,7 @@ public final class ProjectWorkspaceService {
                     }
                 }
             }
-            if (plan.steps().stream().anyMatch(step -> step.status() == EvolutionStepStatus.EXECUTING
-                    || step.status() == EvolutionStepStatus.VERIFYING)) {
+            if (plan.steps().stream().anyMatch(step -> step.status() == EvolutionStepStatus.RECOVERY_REQUIRED)) {
                 issues.add("EXECUTION_IN_PROGRESS_OR_UNRESOLVED");
             }
         }

@@ -29,27 +29,6 @@ function projects() {
     return saved;
 }
 
-it("Inspector 完整展示警告和原值，Escape 关闭后回到项目详情入口，不触发业务请求", async () => {
-    const saved = projects(), s = session();
-    const execute = vi.spyOn(api, "execute"), prepare = vi.spyOn(api, "prepare"), remove = vi.spyOn(s, "deleteProject");
-    const root = mount(ProjectsView, { s }); await settle();
-    const trigger = button(root, "项目详情"); trigger.focus(); trigger.click(); await settle();
-    const panel = root.querySelector<HTMLDialogElement>(".detail-panel")!;
-    expect(panel.open).toBe(true);
-    for (const value of [saved.key, saved.planId, saved.workingCopyId, saved.currentRevision, saved.lastVerifiedRevision]) {
-        expect(panel.textContent).toContain(value);
-    }
-    for (const repo of saved.repositories) {
-        expect(panel.textContent).toContain(repo.assetId); expect(panel.textContent).toContain(repo.location);
-    }
-    expect(panel.querySelector(".inspector-warnings")?.textContent).toContain("PROFILE_BASIS_CHANGED");
-    expect(panel.querySelector(".project-management")).toBeTruthy();
-    expect(root.querySelector(".project-row .project-metadata")).toBeNull();
-    panel.dispatchEvent(new Event("cancel", { cancelable: true })); await settle();
-    expect(panel.open).toBe(false); expect(document.activeElement).toBe(trigger);
-    for (const spy of [execute, prepare, remove]) expect(spy).not.toHaveBeenCalled();
-});
-
 it("Inspector 删除先退出阅读面板，仅单独确认后提交；取消回到项目入口", async () => {
     projects(); const s = session(), remove = vi.spyOn(s, "deleteProject").mockResolvedValue(false);
     const root = mount(ProjectsView, { s }); await settle();
@@ -65,18 +44,6 @@ it("Inspector 删除先退出阅读面板，仅单独确认后提交；取消回
     trigger.click(); await settle(); button(root.querySelector(".detail-panel")!, "删除项目").click(); await settle();
     button(root.querySelector("dialog[open]")!, "确认删除项目").click(); await settle();
     expect(remove).toHaveBeenCalledOnce(); expect(remove.mock.calls[0]?.[0].key).toBe("project:long-content");
-});
-
-it("READY 或未验证版本阻止 Inspector 删除，必需提示在列表和面板均可读", async () => {
-    const saved = projects(); saved.currentRevision = "c".repeat(40);
-    saved.stepCounts = { SUCCEEDED: 1, READY: 1, PENDING_CONFIRMATION: 1 };
-    const s = session(), root = mount(ProjectsView, { s }); await settle();
-    expect(root.querySelector(".project-row .deletion-blocked")?.textContent).toContain("不要重复 execute");
-    button(root, "项目详情").click(); await settle();
-    const panel = root.querySelector(".detail-panel")!;
-    expect(button(panel, "删除项目").disabled).toBe(true);
-    expect(panel.querySelector(".project-management .deletion-blocked")?.textContent).toContain("未决执行");
-    expect(panel.querySelector(".project-meta-grid")?.textContent).toContain("c".repeat(40));
 });
 
 it("刷新失去项目时关闭 Inspector；保留同身份时显示更新数据，不复用旧元数据", async () => {

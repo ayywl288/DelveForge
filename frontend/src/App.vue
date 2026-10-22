@@ -29,11 +29,6 @@ function projectOpened(value: number) {
   authorizationTargetId.value = "";
   stage.value = value;
 }
-async function inspectPendingProject() {
-  if (!s.receipt) return;
-  const result = await s.openProject("plan:" + s.receipt.planId);
-  if (result) projectOpened(stageIndex(result));
-}
 const stages: { title: string; en: string; icon: NavigationIconName; description: string }[] = [
   {
     title: "需求探索",
@@ -57,13 +52,13 @@ const stages: { title: string; en: string; icon: NavigationIconName; description
     title: "演化规划",
     en: "Evolution Planning",
     icon: "planning",
-    description: "复用已有能力，把目标拆成有范围、有验收标准的步骤。",
+    description: "复用已有能力，把目标拆成范围明确、可逐步授权的步骤。",
   },
   {
-    title: "验证演化",
-    en: "Verified Evolution",
+    title: "实施演化",
+    en: "Autonomous Evolution",
     icon: "evolution",
-    description: "观察代码变更与真实验证，只有通过验证才推进可信 revision。",
+    description: "查看 Agent 活动、检查证据与自动交付，接受正式提交后推进可信版本。",
   },
 ];
 const done = computed(() => [
@@ -108,7 +103,7 @@ function restoreIds() {
 onMounted(async () => {
   const restored = await s.initialize();
   if (restored) stage.value = stageIndex(restored);
-  else if (s.plan || s.receipt) stage.value = 4;
+  else if (s.plan) stage.value = 4;
   else if (s.selected) stage.value = 3;
   else if (s.directions.length) stage.value = 2;
   else if (s.profile?.status === "CONFIRMED") stage.value = 1;
@@ -161,12 +156,12 @@ onUnmounted(s.dispose);
         </p>
         <details class="advanced-recovery"><summary>高级调试</summary><button
           class="sidebar-button"
-          :disabled="!!s.busy || !!s.receipt"
+          :disabled="!!s.busy"
           @click="openRestore"
         >
           恢复已知对象
         </button></details>
-        <p class="meta">M0–M4 · 本地受控运行<br />M5 暂缓</p>
+        <p class="meta">本地 Coding Agent<br />隔离编码 · 自动交付</p>
       </div>
     </aside>
     <main id="main-content" class="main-content" tabindex="-1">
@@ -198,10 +193,7 @@ onUnmounted(s.dispose);
         <span class="request-dot" aria-hidden="true" />{{ s.busy }} ·
         等待实际响应，未自动重试
       </div>
-      <div v-if="s.receipt && s.receipt.planId !== s.plan?.id" class="inline-note" role="status">
-        另一个 Plan 的执行结果仍待核对。切换项目没有取消后端执行，新的 execute 暂停提交。
-        <button class="text-button" :disabled="!!s.busy" @click="inspectPendingProject">查询上次执行项目</button>
-      </div>
+
       <details v-if="stage !== -1 && s.projectIssues.length" class="panel project-issues" open>
         <summary>恢复到已保存结果，还有以下问题需要核对</summary>
         <p v-for="issue in s.projectIssues" :key="issue">{{ projectIssueText(issue) }}</p>

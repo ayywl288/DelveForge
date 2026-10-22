@@ -11,6 +11,10 @@ public interface AgentStore {
 
     AgentProtocol.Run get(String id);
 
+    default List<AgentProtocol.Run> runs(String planId, String stepId, String before, int limit) {
+        throw new UnsupportedOperationException("Run history is unavailable");
+    }
+
     List<AgentProtocol.Run> abandoned();
 
     /** 进入 FINALIZING 时原子保存保留意图；失败终态保持，确认 NO_CHANGES 时才可解除。 */

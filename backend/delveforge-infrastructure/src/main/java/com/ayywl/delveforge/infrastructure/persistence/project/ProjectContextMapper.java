@@ -47,33 +47,26 @@ public interface ProjectContextMapper {
     int legacyVisibilityUpdate(@Param("id") String id, @Param("version") long version,
             @Param("deleted") boolean deleted, @Param("deletedAt") String deletedAt);
 
-    // READY 也可能有尚未持久化 ExecutionResult 的 Proposal 请求，不能当作空闲。
+    // 预约来自持久化 Run / Delivery；未知状态与不完整接受事实继续阻止删除。
     @Select("""
             SELECT CASE WHEN #{planId} IS NOT NULL AND NOT EXISTS
-                (SELECT 1 FROM evolution_plan WHERE id = #{planId}) THEN 1 ELSE 0 END
-                + (SELECT COUNT(*) FROM evolution_plan p
-                WHERE (p.id = #{planId} OR (#{flowId} IS NOT NULL AND p.flow_id = #{flowId})) AND (
-                    p.status NOT IN ('PROPOSED','ACTIVE','COMPLETED','ABANDONED','SUPERSEDED')
-                    OR EXISTS (SELECT 1 FROM evolution_step s WHERE s.plan_id = p.id
-                        AND (s.status NOT IN ('PENDING_CONFIRMATION','SUCCEEDED','FAILED','CANCELLED')
-                            OR (s.status = 'SUCCEEDED' AND
-                                (s.execution_result IS NULL OR s.verification_result IS NULL))
-                            OR (s.execution_result IS NOT NULL AND NOT json_valid(s.execution_result))
-                            OR (s.verification_result IS NOT NULL AND NOT json_valid(s.verification_result))))
-                    OR (p.working_copy_id IS NOT NULL AND NOT EXISTS
-                        (SELECT 1 FROM working_copy w WHERE w.id = p.working_copy_id
-                            AND w.current_revision = w.last_verified_revision
-                            AND w.status IN ('READY','EVOLVING','CLOSED')))))
+                (SELECT 1 FROM evolution_plan WHERE id=#{planId}) THEN 1 ELSE 0 END
+            + (SELECT COUNT(*) FROM evolution_plan p
+               WHERE (p.id=#{planId} OR (#{flowId} IS NOT NULL AND p.flow_id=#{flowId})) AND (
+                   p.status NOT IN ('PROPOSED','ACTIVE','COMPLETED','ABANDONED','SUPERSEDED')
+                   OR EXISTS (SELECT 1 FROM evolution_step s WHERE s.plan_id=p.id AND (
+                       s.status NOT IN ('PENDING_CONFIRMATION','SUCCEEDED','CANCELLED')
+                       OR (s.status='SUCCEEDED' AND (s.delivery_revision IS NULL
+                           OR length(s.delivery_revision)<>40 OR s.delivery_revision GLOB '*[^0-9a-f]*'
+                           OR s.baseline_revision IS NULL))))
+                   OR EXISTS (SELECT 1 FROM agent_run r WHERE r.plan_id=p.id AND r.occupied=1)
+                   OR EXISTS (SELECT 1 FROM candidate_delivery d WHERE d.plan_id=p.id AND d.occupied=1)
+                   OR (p.working_copy_id IS NOT NULL AND NOT EXISTS (
+                       SELECT 1 FROM working_copy w WHERE w.id=p.working_copy_id
+                       AND w.current_revision=w.last_verified_revision
+                       AND w.status IN ('READY','EVOLVING','CLOSED')))))
             """)
     int unsafeExecutionCount(@Param("planId") String planId, @Param("flowId") String flowId);
-
-    // 所有 FAILED 均在同一写锁事务内交由领域重建校验，不能以原始 JSON 表示决定是否需要检查。
-    @Select("""
-            SELECT DISTINCT p.id FROM evolution_plan p JOIN evolution_step s ON s.plan_id = p.id
-            WHERE (p.id = #{planId} OR (#{flowId} IS NOT NULL AND p.flow_id = #{flowId}))
-                AND s.status = 'FAILED'
-            """)
-    List<String> failedPlanIds(@Param("planId") String planId, @Param("flowId") String flowId);
 
     @Select("SELECT * FROM project_flow_context WHERE id = #{id}")
     ProjectContextRow find(String id);

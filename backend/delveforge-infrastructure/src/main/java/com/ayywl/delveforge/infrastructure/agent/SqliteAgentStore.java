@@ -29,11 +29,11 @@ public final class SqliteAgentStore implements AgentStore {
     }
 
     @FunctionalInterface
-    private interface Operation<T> {
+    interface Operation<T> {
         T apply(Connection connection) throws Exception;
     }
 
-    private <T> T transaction(Operation<T> operation) {
+    <T> T transaction(Operation<T> operation) {
         try (Connection connection = source.getConnection()) {
             try (var statement = connection.createStatement()) {
                 statement.execute("PRAGMA busy_timeout=5000");
@@ -54,21 +54,21 @@ public final class SqliteAgentStore implements AgentStore {
                 if (failure instanceof AgentException classified) {
                     throw classified;
                 }
-                throw new AgentException("PERSISTENCE_FAILURE", "Agent transaction was not committed", failure);
+                throw new AgentException("PERSISTENCE_FAILURE", "Transaction outcome requires durable readback", failure);
             }
         } catch (SQLException failure) {
             throw new AgentException("PERSISTENCE_FAILURE", "Agent database is unavailable", failure);
         }
     }
 
-    private static int update(Connection connection, String sql, Object... values) throws SQLException {
+    static int update(Connection connection, String sql, Object... values) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             bind(statement, values);
             return statement.executeUpdate();
         }
     }
 
-    private static void bind(PreparedStatement statement, Object... values) throws SQLException {
+    static void bind(PreparedStatement statement, Object... values) throws SQLException {
         for (int i = 0; i < values.length; i++) {
             statement.setObject(i + 1, values[i]);
         }
@@ -153,6 +153,28 @@ public final class SqliteAgentStore implements AgentStore {
     }
 
     @Override
+    public List<AgentProtocol.Run> runs(String planId, String stepId, String before, int limit) {
+        if (limit < 1 || limit > 100) {
+            throw new AgentException("INVALID_REQUEST", "Invalid Run history page size");
+        }
+        try (Connection connection = source.getConnection(); var statement = connection.prepareStatement("""
+                SELECT * FROM agent_run WHERE plan_id=? AND step_id=?
+                AND (? IS NULL OR rowid < (SELECT rowid FROM agent_run WHERE id=?)) ORDER BY rowid DESC LIMIT ?
+                """)) {
+            bind(statement, planId, stepId, before, before, limit);
+            try (ResultSet rows = statement.executeQuery()) {
+                List<AgentProtocol.Run> result = new ArrayList<>();
+                while (rows.next()) {
+                    result.add(readRun(rows));
+                }
+                return result;
+            }
+        } catch (SQLException failure) {
+            throw new AgentException("PERSISTENCE_FAILURE", "Cannot read Run history", failure);
+        }
+    }
+
+    @Override
     public void advance(String id, AgentRunState expected, AgentRunState next, String reason) {
         if (!expected.canAdvanceTo(next) || next == AgentRunState.SUCCEEDED) {
             throw new AgentException("RUN_CONFLICT", "Illegal Run transition; success requires atomic Candidate freeze");
@@ -172,7 +194,7 @@ public final class SqliteAgentStore implements AgentStore {
         });
     }
 
-    private static void addEvent(Connection connection, String id, String kind, String summary) throws SQLException {
+    static void addEvent(Connection connection, String id, String kind, String summary) throws SQLException {
         if (summary.length() > 24000 || kind.length() > 80) {
             throw new AgentException("EVENT_LIMIT", "Agent event exceeds its budget");
         }

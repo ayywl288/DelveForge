@@ -35,7 +35,8 @@ class RepairAuthorizationMigrationTest {
                 insert.executeUpdate();
             }
         }
-        Flyway.configure().dataSource(url, "", "").locations("classpath:db/migration").load().migrate();
+        // 历史迁移的字节保留合同只检查该版本；V25 的主动退役另由 DeliveryMigrationTest 验证。
+        Flyway.configure().dataSource(url, "", "").locations("classpath:db/migration").target("18").load().migrate();
         try (var connection = DriverManager.getConnection(url); var sql = connection.createStatement();
                 var rows = sql.executeQuery("SELECT * FROM evolution_step ORDER BY position")) {
             for (int index = 0; index < states.size(); index++) {

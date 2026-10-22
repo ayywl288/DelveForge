@@ -1,14 +1,13 @@
-import { createApp, defineComponent, h, KeepAlive, nextTick, reactive, ref, type Component } from "vue";
+import { createApp, nextTick, reactive, type Component } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App.vue";
 import AssetAuthorizationForm from "../src/components/AssetAuthorizationForm.vue";
 import PlanView from "../src/views/PlanView.vue";
-import EvolutionView from "../src/views/EvolutionView.vue";
 import RepositoryView from "../src/views/RepositoryView.vue";
 import { api, ApiError } from "../src/api/client";
-import { createSession, executionKey, sessionKey } from "../src/state/session";
+import { createSession, sessionKey } from "../src/state/session";
 import { validLicenseDeclaration } from "../src/state/licenseDeclaration";
-import { asset, copy, direction, plan, profile, repository, successfulPlan } from "./fixtures";
+import { asset, direction, plan, profile, repository} from "./fixtures";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { cleanup.splice(0).forEach(fn => fn()); vi.restoreAllMocks(); });
@@ -39,12 +38,6 @@ async function input(field: HTMLTextAreaElement | HTMLInputElement, value: strin
 async function acknowledge(root: HTMLElement) {
   const field = root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[1]!;
   field.checked = true; field.dispatchEvent(new Event("change", { bubbles: true })); await nextTick();
-}
-function ready() {
-  const s = session(); s.plan = plan(); s.copy = copy(); s.ids.planId = "plan-1";
-  vi.spyOn(api, "plan").mockResolvedValue(plan());
-  vi.spyOn(api, "workingCopy").mockResolvedValue(copy());
-  return s;
 }
 function planning() {
   const s = session(); s.profile = { ...profile(), revision: 2, status: "CONFIRMED" };
@@ -155,69 +148,7 @@ describe("E2 精确授权导航", () => {
   });
 });
 
-describe("E3 真实等待和持久化结果", () => {
-  it("702 秒只有一次 execute；READY 与前端等待分开显示，成功突出 revision 和实际检查", async () => {
-    vi.useFakeTimers(); const s = ready(); const root = mount(EvolutionView, { s });
-    let resolve!: (value: ReturnType<typeof plan>) => void;
-    const execute = vi.spyOn(api, "execute").mockImplementation(() => new Promise(r => { resolve = r; }));
-    const pending = s.execute("step-1"); await settle();
-    expect(root.textContent).toContain("执行请求已提交，正在等待后端结果");
-    expect(root.querySelector(".waiting-duration")?.textContent).toContain("0 秒");
-    await vi.advanceTimersByTimeAsync(702_000); await s.execute("step-1"); await nextTick();
-    expect(root.querySelector(".waiting-duration")?.textContent).toContain("11 分 42 秒");
-    expect(root.querySelector(".observed-execution")?.textContent).toContain("READY");
-    expect(root.querySelector(".observed-execution")?.textContent).not.toMatch(/Candidate|TEST|BUILD|PREPARING|%/);
-    expect(execute).toHaveBeenCalledTimes(1); expect(api.plan).toHaveBeenCalled();
-    const success = successfulPlan(); success.steps[0]!.verificationResult!.checks.push({ action: "BUILD", target: "",
-      passed: true, criterionIndexes: [0], summary: "合成构建结果" });
-    vi.mocked(api.plan).mockResolvedValue(success); vi.mocked(api.workingCopy).mockResolvedValue({ ...copy(),
-      currentRevision: "b".repeat(40), lastVerifiedRevision: "b".repeat(40) });
-    resolve(success); await pending; await nextTick();
-    expect(root.querySelector(".waiting-duration")).toBeNull();
-    const result = root.querySelector(".success-note")!.textContent!;
-    for (const value of ["SUCCEEDED", "此 Step 的 Verified Revision", "b".repeat(40), "TEST：PASS", "BUILD：PASS"]) expect(result).toContain(value);
-    expect(execute).toHaveBeenCalledTimes(1);
-  });
-  it("暂停、离开缓存页面、卸载停止轮询；返回页面仅恢复 GET，不重发 execute", async () => {
-    vi.useFakeTimers(); const s = ready();
-    s.receipt = { planId: "plan-1", stepId: "step-1", startedAt: new Date().toISOString() };
-    const execute = vi.spyOn(api, "execute"); const visible = ref(true);
-    const Other = defineComponent({ render: () => h("p", "其他页面") });
-    const root = mount(defineComponent({ render: () => h(KeepAlive, null, { default: () => visible.value
-      ? h(EvolutionView, { s }) : h(Other) }) }));
-    await vi.advanceTimersByTimeAsync(3_000); const first = vi.mocked(api.plan).mock.calls.length;
-    expect(first).toBe(1); button(root, "暂停状态刷新").click(); await nextTick();
-    await vi.advanceTimersByTimeAsync(9_000); expect(api.plan).toHaveBeenCalledTimes(first);
-    button(root, "恢复只读刷新").click(); await vi.advanceTimersByTimeAsync(3_000);
-    visible.value = false; await nextTick(); const beforeLeave = vi.mocked(api.plan).mock.calls.length;
-    await vi.advanceTimersByTimeAsync(9_000); expect(api.plan).toHaveBeenCalledTimes(beforeLeave);
-    visible.value = true; await nextTick(); await vi.advanceTimersByTimeAsync(3_000);
-    expect(api.plan).toHaveBeenCalledTimes(beforeLeave + 1); expect(execute).not.toHaveBeenCalled();
-  });
-  it("断线与状态未知保留标记，只读刷新失败不伪造 Candidate 或自动重试", async () => {
-    vi.useFakeTimers(); const s = ready();
-    const execute = vi.spyOn(api, "execute").mockRejectedValue(new ApiError(0, "CONNECTION_LOST"));
-    await s.execute("step-1"); const root = mount(EvolutionView, { s });
-    expect(root.textContent).toContain("执行结果待核对，仅查询状态");
-    expect(root.querySelector(".waiting-duration")).toBeNull();
-    expect(button(root, "审阅风险并执行").disabled).toBe(true);
-    vi.mocked(api.plan).mockRejectedValue(new ApiError(0, "CONNECTION_LOST"));
-    await vi.advanceTimersByTimeAsync(60_000); await s.execute("step-1"); await nextTick();
-    expect(root.textContent).toContain("状态查询失败"); expect(s.receipt).not.toBeNull();
-    expect(localStorage.getItem(executionKey)).toContain("step-1"); expect(execute).toHaveBeenCalledTimes(1);
-    s.plan = null; await nextTick(); expect(root.textContent).toContain("执行状态尚未读取");
-    expect(button(root, "查询当前状态")).toBeTruthy(); expect(button(root, "审阅风险并执行")).toBeUndefined();
-  });
-  it("只展示 GET 已保存的 VERIFYING、Candidate 和完成检查，不编造其余检查", async () => {
-    const s = ready(); s.receipt = { planId: "plan-1", stepId: "step-1", startedAt: new Date().toISOString() };
-    const observed = successfulPlan(); observed.status = "ACTIVE"; observed.steps[0]!.status = "VERIFYING";
-    observed.steps[0]!.verificationResult!.checks = [{ action: "BUILD", target: "", criterionIndexes: [0], passed: true, summary: "合成已完成检查" }];
-    vi.mocked(api.plan).mockResolvedValue(observed); const root = mount(EvolutionView, { s }); await s.refreshPlan(); await nextTick();
-    const result = root.querySelector(".observed-execution")!.textContent!;
-    expect(result).toContain("VERIFYING"); expect(result).toContain("b".repeat(40)); expect(result).toContain("BUILD：PASS");
-    expect(result).not.toContain("TEST"); expect(root.querySelector(".success-note")).toBeNull();
-  });
-});
+
 
 it("E4 Prepare 前展示后端配置，浏览器不提交任意目录，也不自动 Prepare", async () => {
   const s = planning(); s.plan = { ...plan(), status: "PROPOSED", workingCopyId: null };

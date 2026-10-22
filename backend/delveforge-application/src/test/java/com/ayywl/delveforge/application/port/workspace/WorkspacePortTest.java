@@ -17,8 +17,8 @@ class WorkspacePortTest {
     @Test void provisioningDoesNotGrantReadOrStepMutationCapabilities() {
         assertFalse(WorkspaceReadPort.class.isAssignableFrom(WorkingCopyProvisioningPort.class));
         assertFalse(WorkingCopyProvisioningPort.class.isAssignableFrom(WorkspaceReadPort.class));
-        assertFalse(WorkspaceMutationPort.class.isAssignableFrom(WorkingCopyProvisioningPort.class));
-        assertFalse(WorkingCopyProvisioningPort.class.isAssignableFrom(WorkspaceMutationPort.class));
+        assertFalse(CandidateDeliveryPort.class.isAssignableFrom(WorkingCopyProvisioningPort.class));
+        assertFalse(WorkingCopyProvisioningPort.class.isAssignableFrom(CandidateDeliveryPort.class));
     }
 
     private static final WorkspaceRef WORKSPACE = new WorkspaceRef("workspace-1");
@@ -90,14 +90,12 @@ class WorkspacePortTest {
 
     @Test
     void mutationRequiresAnAuthorizedExecutionInsteadOfArbitraryFileWrites() throws Exception {
-        assertEquals(CandidateMutationResult.class, WorkspaceMutationPort.class
-                .getMethod("applyCandidate", AuthorizedStepExecution.class).getReturnType());
-        assertThrows(NoSuchMethodException.class, () -> WorkspaceMutationPort.class
+        assertEquals(void.class, CandidateDeliveryPort.class.getMethod("apply",
+                com.ayywl.delveforge.application.agent.Delivery.class,
+                com.ayywl.delveforge.domain.agent.Candidate.class).getReturnType());
+        assertThrows(NoSuchMethodException.class, () -> CandidateDeliveryPort.class
                 .getMethod("writeFile", WorkspaceRef.class, String.class, String.class));
-        for (Class<?> other : List.of(WorkspaceReadPort.class, WorkingCopyProvisioningPort.class, WorkspaceMutationPort.class)) {
-            assertFalse(other.isAssignableFrom(WorkspaceVerificationPort.class));
-            assertFalse(WorkspaceVerificationPort.class.isAssignableFrom(other));
-        }
+
     }
 
     /**
@@ -106,8 +104,8 @@ class WorkspacePortTest {
      */
     @Test
     void readAndMutationCapabilitiesAreSeparateTypes() {
-        assertFalse(WorkspaceReadPort.class.isAssignableFrom(WorkspaceMutationPort.class));
-        assertFalse(WorkspaceMutationPort.class.isAssignableFrom(WorkspaceReadPort.class));
+        assertFalse(WorkspaceReadPort.class.isAssignableFrom(CandidateDeliveryPort.class));
+        assertFalse(CandidateDeliveryPort.class.isAssignableFrom(WorkspaceReadPort.class));
     }
 
     @Test

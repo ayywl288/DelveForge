@@ -1,16 +1,21 @@
 # ARCHITECTURE.md
 
-> **2026-10-21 Task 1：** 新 Agent 路径采用 [ADR-0012](decisions/0012-autonomous-agent-sandbox-and-frozen-candidate.md)。
-> Application 拥有多轮原生 Tool Calling；Infrastructure 使用 Spring AI **1.1.8** 并关闭内部工具执行。
-> 旧文本 AiGateway 继续服务 M1–M3。新路径不使用 CodingProposal、RepositoryMap 或旧 VerificationStrategy Gate。
-> Workspace 通过独立 Docker 源副本、离线 Maven 与受控 Central 准备环境实施读写；正式 WorkingCopy 不挂载到容器。
-> 最终 A→B diff 经独立 Git index 重放后，Candidate 与 Run 成功状态在同一 SQLite 事务冻结。
-> 下文直接修改 WorkingCopy 的旧执行结构和“不引入 Spring AI”仅适用于旧路径。
+**2026-10-22 Task 2 当前架构：** [ADR-0012](decisions/0012-autonomous-agent-sandbox-and-frozen-candidate.md)
+规定沙箱与冻结合同；[ADR-0013](decisions/0013-frozen-candidate-delivery.md) 规定正式交付与 Git/SQLite 协调。
+Application 拥有 CodingAgentService 和 CandidateDeliveryService；Infrastructure 实现 Spring AI 1.1.8、
+Docker、SQLite DeliveryStore 和 Workspace 的 CandidateDeliveryPort。Domain 不依赖这些技术。
+Agent 的五个工具只改独立沙箱；Delivery 不调用模型、不依赖存活沙箱、不生成第二份源包。
+持久化意图先于正式 Git 修改；独立 index 重放 D/A→B，核对实际文件/index，创建 parent=A/tree=B 的 C，
+以 update-ref CAS 发布，再在短事务接受 Step、WorkingCopy 两个 revision、完成事件和预约释放。
+启动检查实际 A/B/C 与数据库，不把异常当作事务未提交的证明；不明确的现场保留占用。
+SSE 只读取有界持久化事件页，共享 Agent/Delivery 游标，不做内存 replay/live 交接。
+M1–M3 文本 AiGateway 保留；M3 Step 定义只要求 goal/scope/plannedChanges，不要求旧 VerificationStrategy。
+下文旧 M4/M5 编排、接口与执行合同仅作历史设计记录；对应代码及入口已经退役。
 
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-10-21
+**Last Updated:** 2026-10-22
 
 ## 1. Architecture Goals
 
@@ -42,19 +47,20 @@
 ### 2.2 Technology Constraints
 
 - **Core Language / Runtime:** Java 21。MVP 核心业务、Application、Domain、AI Gateway、Workspace Gateway 与 Persistence 均以 Java 实现。
-- **Optional Tool Language:** Python 不属于 MVP 必需 Runtime。未来只有在特定 Analyzer / Tool 明确依赖 Python 生态时，才允许作为独立 Tool Process 引入。
+- **Optional Tool Language:** 宿主机不需要 Python。受控 Agent 工具镜像内使用 Python 实现文件与 Maven 工具，业务逻辑仍由 Java Application 编排。
 - **Application Framework:** Spring Boot 3.5.16。
 - **Build Tool:** Maven + Maven Wrapper。
 - **Root Java Package:** `com.ayywl.delveforge`。
 - **Repository Strategy:** Monorepo。
 - **Backend Module Structure:** Maven Multi-Module，初始拆分为 `delveforge-domain`、`delveforge-application`、`delveforge-infrastructure`、`delveforge-app`。
 - **Code Organization:** Maven Module 负责主要 Architecture Layer Boundary，各 Module 内部优先按照 Feature / Domain Concept 组织代码。
-- **AI / Agent Integration:** 业务模块只能依赖内部 AI Gateway 抽象；首个真实 Adapter 直接调用 DeepSeek 的 OpenAI 兼容 HTTP API，**不引入 Spring AI / Spring AI Alibaba**（[ADR-0003](decisions/0003-first-ai-adapter-uses-deepseek-http-api.md)）。
+- **M1–M3 Text AI Integration:** 业务模块只能依赖内部 AI Gateway 抽象；既有文本 Adapter 直接调用 DeepSeek 的 OpenAI 兼容 HTTP API，该文本路径不使用 Spring AI（[ADR-0003](decisions/0003-first-ai-adapter-uses-deepseek-http-api.md)）。
   - Adapter 使用 `RestClient`（`spring-web`）与 Jackson；两者本来就通过 `delveforge-app` 的 `spring-boot-starter-web` 存在于本项目，只是显式声明到真正使用它们的模块。
   - 不引入 AI Framework 的依据是当前需求与框架能力不匹配：业务只需要一次 `messages → 完整 completion`，Tool Calling、多模型路由、业务流式接口与通用 Agent 能力不在当前实现范围。M4 在 Provider Adapter 内可选地消费有界 SSE，Port 仍只返回完整文本（ADR-0003）。
   - **该选择被 AI Gateway Port 隔离**：更换 Provider 或改用 AI Framework 都只影响 Infrastructure 内的 Adapter。
   - 重新评估的条件见 ADR-0003：出现 Tool Calling / 多 Provider / Agent 需求，或升级到 Spring Boot 4.x 时。
   - 无论走哪条路线，业务模块都不得直接依赖具体 Provider SDK、Provider 专有 API 类型或 Spring AI Alibaba 实现类型。
+- **Coding Agent Integration:** Infrastructure 使用 Spring AI 1.1.8 实现 AgentModelPort；Application 自行拥有多轮与工具调度，关闭框架自动执行工具。Docker 隔离项目代码，正式 Git 写入只通过 CandidateDeliveryPort，见 ADR-0012/0013。
 - **Architecture Style:** Modular Monolith。
 - **Database:** SQLite。
 - **Persistence Access:** MyBatis-Plus。
@@ -1011,7 +1017,7 @@ GET /api/evolution-plans/{id}
   differentiation）、reusableCapabilities / changes / steps / risks / evidence / status。
   evidence 复用 EvidenceBasisPayload，保留真实依据、确认状态和出处，不暴露 AI 临时引用。
 - 初始 status 为 PROPOSED，workingCopyId 为空；steps 保留顺序、id / planId、goal / scope /
-  plannedChanges / verificationCriteria，status 为 PENDING_CONFIRMATION，
+  plannedChanges，status 为 PENDING_CONFIRMATION，
   baselineRevision 为空。它们只表达规划和待确认事实，不产生代码操作或执行授权。
 
 ---

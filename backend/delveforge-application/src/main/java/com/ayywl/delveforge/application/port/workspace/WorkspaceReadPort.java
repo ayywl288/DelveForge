@@ -7,7 +7,7 @@ import java.util.List;
  *
  * <p>只读流程（如 Repository Analysis）只能依赖本接口，不得获得任何代码修改能力
  * （RULE-ARCH-010）。该约束通过 Port 拆分在类型层面保证：只读流程的依赖中
- * 不存在 {@link WorkspaceMutationPort}。
+ * 不存在 {@code CandidateDeliveryPort}。
  *
  * <p>所有路径参数都是相对于 Workspace 根目录的相对路径，且不得越过根目录。
  *

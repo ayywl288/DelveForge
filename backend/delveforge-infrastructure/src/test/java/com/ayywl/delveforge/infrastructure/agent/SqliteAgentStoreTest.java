@@ -148,8 +148,8 @@ class SqliteAgentStoreTest {
             statement.execute("INSERT INTO agent_event(run_id,kind,summary,at) "
                     + "VALUES('empty','FINALIZING','historical','2026-10-22T00:00:00Z')");
         }
-        assertEquals(1, Flyway.configure().dataSource(legacy).load().migrate().migrationsExecuted);
-        assertEquals(0, Flyway.configure().dataSource(legacy).load().migrate().migrationsExecuted);
+        assertEquals(1, Flyway.configure().dataSource(legacy).target("23").load().migrate().migrationsExecuted);
+        assertEquals(0, Flyway.configure().dataSource(legacy).target("23").load().migrate().migrationsExecuted);
         SqliteAgentStore upgraded = new SqliteAgentStore(legacy);
         for (String state : List.of("FINALIZING", "FAILED", "INTERRUPTED", "CANCELLED")) {
             assertTrue(upgraded.get(state).retained(), state);

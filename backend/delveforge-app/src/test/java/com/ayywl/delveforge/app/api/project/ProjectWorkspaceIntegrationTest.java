@@ -18,15 +18,8 @@ import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
-import com.ayywl.delveforge.domain.evolution.AutomaticRollbackResult;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
-import com.ayywl.delveforge.domain.evolution.ExecutionFailureResult;
-import com.ayywl.delveforge.domain.evolution.ExecutionResult;
-import com.ayywl.delveforge.domain.evolution.RollbackAuthorization;
-import com.ayywl.delveforge.domain.evolution.RollbackResult;
-import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
-import com.ayywl.delveforge.domain.evolution.VerificationResult;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfile;
@@ -220,25 +213,14 @@ class ProjectWorkspaceIntegrationTest {
                 assetId.value(), DB.getParent().resolve("workspaces/copy-" + id).toAbsolutePath().toString(),
                 succeeded ? "c822cc3" : "e38e4a1", succeeded ? "c822cc3" : "e38e4a1");
         for (int i = 1; i <= 4; i++) {
-            jdbc.update("INSERT INTO evolution_step(id, plan_id, position, goal, scope, status, baseline_revision, "
-                    + "execution_result, verification_result) VALUES(?, ?, ?, '新增 REST 行为', 'src', ?, ?, ?, ?)",
-                    id + "-step-" + i, id, i - 1, i == 1 && succeeded ? "SUCCEEDED" : "PENDING_CONFIRMATION",
-                    i == 1 && succeeded ? "e38e4a1" : null,
-                    i == 1 && succeeded ? json.writeValueAsString(new ExecutionResult("c822cc3", List.of("REST"),
-                            List.of("src/Main.java"), List.of(), List.of(), Instant.parse("2026-10-10T00:00:00Z"))) : null,
-                    i == 1 && succeeded ? json.writeValueAsString(new VerificationResult("c822cc3", List.of(
-                            new VerificationResult.Check("BUILD", "", List.of(1), true, "BUILD PASS"),
-                            new VerificationResult.Check("FOCUSED_TEST", "RestTest", List.of(2), true, "10 tests PASS")),
-                            true, List.of(), "合成检查事实", Instant.parse("2026-10-10T00:01:00Z"))) : null);
+            jdbc.update("INSERT INTO evolution_step(id,plan_id,position,goal,scope,status,baseline_revision,delivery_revision) "
+                    + "VALUES(?,?,?,'新增 REST 行为','src',?,?,?)", id + "-step-" + i, id, i - 1,
+                    i == 1 && succeeded ? "SUCCEEDED" : "PENDING_CONFIRMATION",
+                    i == 1 && succeeded ? "a".repeat(40) : null,
+                    i == 1 && succeeded ? "c".repeat(40) : null);
             jdbc.update("INSERT INTO evolution_step_section_item(step_id, section, position, value) "
                     + "VALUES(?, 'plannedChanges', 0, '新增 REST 行为')", id + "-step-" + i);
-            for (int c = 0; c < 2; c++) {
-                jdbc.update("INSERT INTO evolution_step_section_item(step_id, section, position, value, criterion_kind) "
-                        + "VALUES(?, 'verificationCriteria', ?, ?, ?)", id + "-step-" + i, c,
-                        c == 0 ? VerificationCriterion.Kind.BUILD_SUCCEEDS.description()
-                                : VerificationCriterion.Kind.SELECTED_TESTS_PASS.description(),
-                        c == 0 ? "BUILD_SUCCEEDS" : "SELECTED_TESTS_PASS");
-            }
+
         }
     }
 
@@ -252,7 +234,7 @@ class ProjectWorkspaceIntegrationTest {
         mvc.perform(get("/api/projects/{key}", "plan:gs")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.legacy").value(true)).andExpect(jsonPath("$.context").doesNotExist())
                 .andExpect(jsonPath("$.plan.steps[0].status").value("SUCCEEDED"))
-                .andExpect(jsonPath("$.plan.steps[0].verificationResult.checks[1].summary").value("10 tests PASS"))
+                .andExpect(jsonPath("$.plan.steps[0].deliveryRevision").value("c".repeat(40)))
                 .andExpect(jsonPath("$.issues").isArray());
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM project_flow_context", Integer.class));
         verifyNoInteractions(ai);
@@ -344,352 +326,6 @@ class ProjectWorkspaceIntegrationTest {
         verifyNoInteractions(ai);
     }
 
-    private void seedAutomaticRollback(String id) throws Exception {
-        seedAutomaticRollback(id, "standalone");
-    }
-
-    private void seedAutomaticRollback(String id, String flowId) throws Exception {
-        seedHistoricalPlan(id, "one", false, flowId);
-        Instant now = Instant.parse("2026-10-16T00:00:00Z");
-        var failure = new ExecutionFailureResult("failure-" + id, "e38e4a1", "e38e4a1", "PUBLISH", 128,
-                "Confirmed Git rejection", "e38e4a1", "expected-tree", true,
-                List.of(new ExecutionFailureResult.DiffEntry("src/Main.java", "baseline-blob",
-                        "index-entry", "working-blob")), now);
-        var result = new AutomaticRollbackResult(failure.id(), "e38e4a1", "e38e4a1", true,
-                "Exact baseline restored", now.plusSeconds(1));
-        jdbc.update("UPDATE evolution_step SET status='FAILED', baseline_revision='e38e4a1', "
-                + "execution_failure_result=?, automatic_rollback_result=? WHERE id=?",
-                json.writeValueAsString(failure), json.writeValueAsString(result), id + "-step-1");
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void exactAutomaticRollbackAllowsDeletionWithoutManufacturingExecutionResult(boolean known) throws Exception {
-        String id = "automatic-deletion";
-        seedAutomaticRollback(id);
-        assertEquals(EvolutionStepStatus.FAILED,
-                plans.findById(new EvolutionPlanId(id)).orElseThrow().steps().getFirst().status());
-        deleteAndAssertFactsRetained(id, deletionKey(id, known));
-        assertNull(jdbc.queryForObject("SELECT execution_result FROM evolution_step WHERE id=?",
-                String.class, id + "-step-1"));
-    }
-
-    private String deletionKey(String id, boolean known) throws Exception {
-        if (!known) {
-            return "plan:" + id;
-        }
-        JsonNode adopted = json.readTree(mvc.perform(post("/api/projects/legacy-plans/{id}/resume", id))
-                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        return "project:" + adopted.path("id").asText();
-    }
-
-    private void deleteAndAssertFactsRetained(String id, String key) throws Exception {
-        var steps = jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id);
-        var copy = jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id);
-        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":0}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.version").value(1))
-                .andExpect(jsonPath("$.deletedAt").isString());
-        mvc.perform(get("/api/projects/{key}", key)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.plan.steps[0].status").value("FAILED"))
-                .andExpect(jsonPath("$.workingCopy.currentRevision").value("e38e4a1"))
-                .andExpect(jsonPath("$.workingCopy.lastVerifiedRevision").value("e38e4a1"));
-        assertEquals(steps, jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id));
-        assertEquals(copy, jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id));
-        verifyNoInteractions(ai);
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void exactUserRollbackStillAllowsDeletion(boolean known) throws Exception {
-        String id = "user-rollback-deletion";
-        seedHistoricalPlan(id, "one", true);
-        Instant now = Instant.parse("2026-10-16T00:00:00Z");
-        var verification = new VerificationResult("c822cc3", List.of(
-                new VerificationResult.Check("BUILD", "", List.of(1), VerificationResult.Outcome.FAILED, "BUILD FAIL"),
-                new VerificationResult.Check("FOCUSED_TEST", "RestTest", List.of(2),
-                        VerificationResult.Outcome.NOT_RUN, "Not run after failure")),
-                false, List.of("BUILD failed"), "Confirmed Verification Failure", now);
-        var authorization = new RollbackAuthorization("rollback-" + id, "c822cc3", "e38e4a1", now);
-        var result = new RollbackResult(authorization.id(), "e38e4a1", "e38e4a1", true,
-                "Exact baseline restored", now.plusSeconds(1));
-        jdbc.update("UPDATE evolution_step SET status='FAILED', verification_result=?, "
-                + "rollback_authorization=?, rollback_result=? WHERE id=?", json.writeValueAsString(verification),
-                json.writeValueAsString(authorization), json.writeValueAsString(result), id + "-step-1");
-        jdbc.update("UPDATE working_copy SET current_revision='e38e4a1', last_verified_revision='e38e4a1' WHERE id=?",
-                "copy-" + id);
-        assertEquals(EvolutionStepStatus.FAILED,
-                plans.findById(new EvolutionPlanId(id)).orElseThrow().steps().getFirst().status());
-        deleteAndAssertFactsRetained(id, deletionKey(id, known));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"missing-failure", "missing-result", "missing-both", "corrupt-failure", "corrupt-result",
-            "empty-failure", "empty-result", "failure-id", "failure-baseline", "failure-start", "failure-exit",
-            "failure-diagnostic", "failure-time", "result-baseline", "result-observed", "result-time",
-            "result-diagnostic", "result-false", "result-inconclusive", "current-revision", "trusted-revision",
-            "both-revisions", "unbound-copy", "missing-copy", "copy-asset", "copy-recovery"})
-    void failedWithoutCompleteMatchingAutomaticRollbackRemainsBlocked(String fault) throws Exception {
-        String id = "invalid-automatic";
-        seedAutomaticRollback(id);
-        switch (fault) {
-            case "missing-failure" -> jdbc.update(
-                    "UPDATE evolution_step SET execution_failure_result=NULL WHERE plan_id=?", id);
-            case "missing-result" -> jdbc.update(
-                    "UPDATE evolution_step SET automatic_rollback_result=NULL WHERE plan_id=?", id);
-            case "missing-both" -> jdbc.update("UPDATE evolution_step SET execution_failure_result=NULL, "
-                    + "automatic_rollback_result=NULL WHERE plan_id=?", id);
-            case "corrupt-failure", "empty-failure", "corrupt-result", "empty-result" -> {
-                String column = fault.endsWith("failure") ? "execution_failure_result" : "automatic_rollback_result";
-                jdbc.update("UPDATE evolution_step SET " + column + "=? WHERE id=?",
-                        fault.startsWith("corrupt") ? "not-json" : "{}", id + "-step-1");
-            }
-            case "failure-id" -> mutateCheckpoint(id, "automatic_rollback_result", "failureId", "another-failure");
-            case "failure-baseline" -> mutateCheckpoint(id, "execution_failure_result", "baselineRevision", "other");
-            case "failure-start" -> mutateCheckpoint(id, "execution_failure_result", "startingRevision", "other");
-            case "failure-exit" -> mutateCheckpoint(id, "execution_failure_result", "exitCode", 0);
-            case "failure-diagnostic" -> mutateCheckpoint(id, "execution_failure_result", "diagnostic", " ");
-            case "failure-time" -> mutateCheckpoint(id, "execution_failure_result", "failedAt", null);
-            case "result-baseline" -> mutateCheckpoint(id, "automatic_rollback_result", "baselineRevision", "other");
-            case "result-observed" -> mutateCheckpoint(id, "automatic_rollback_result", "observedRevision", "other");
-            case "result-time" -> mutateCheckpoint(id, "automatic_rollback_result", "completedAt", null);
-            case "result-diagnostic" -> mutateCheckpoint(id, "automatic_rollback_result", "diagnostic", " ");
-            case "result-false" -> mutateCheckpoint(id, "automatic_rollback_result", "restored", false);
-            case "result-inconclusive" -> {
-                mutateCheckpoint(id, "automatic_rollback_result", "restored", false);
-                mutateCheckpoint(id, "automatic_rollback_result", "observedRevision", null);
-                mutateCheckpoint(id, "automatic_rollback_result", "diagnostic", "INCONCLUSIVE");
-            }
-            case "current-revision" -> jdbc.update("UPDATE working_copy SET current_revision='other' WHERE id=?",
-                    "copy-" + id);
-            case "trusted-revision" -> jdbc.update("UPDATE working_copy SET last_verified_revision='other' WHERE id=?",
-                    "copy-" + id);
-            case "both-revisions" -> jdbc.update("UPDATE working_copy SET current_revision='other', "
-                    + "last_verified_revision='other' WHERE id=?", "copy-" + id);
-            case "unbound-copy" -> jdbc.update("UPDATE evolution_plan SET working_copy_id=NULL WHERE id=?", id);
-            case "missing-copy" -> jdbc.update("DELETE FROM working_copy WHERE id=?", "copy-" + id);
-            case "copy-asset" -> jdbc.update("UPDATE working_copy SET source_asset_id='asset-two' WHERE id=?",
-                    "copy-" + id);
-            case "copy-recovery" -> jdbc.update("UPDATE working_copy SET status='RECOVERY_REQUIRED' WHERE id=?",
-                    "copy-" + id);
-            default -> throw new AssertionError("Unhandled test fault: " + fault);
-        }
-        var steps = jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id);
-        mvc.perform(delete("/api/projects/{key}", "plan:" + id).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":0}"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
-        assertEquals(steps, jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id));
-        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM project_legacy_visibility WHERE deleted_at IS NOT NULL",
-                Integer.class));
-        verifyNoInteractions(ai);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"baseline-revision", "copy-asset", "other-round"})
-    void jsonNullExecutionCannotBypassFailedCheckpointOrWorkingCopyBinding(String fault) throws Exception {
-        String id = "json-null-failed";
-        String key;
-        if (fault.equals("other-round")) {
-            JsonNode context = create("JSON null 同流程", "shared-user");
-            seedAutomaticRollback(id, context.path("flowId").asText());
-            jdbc.update("UPDATE evolution_step SET automatic_rollback_result=NULL WHERE id=?", id + "-step-1");
-            key = "project:" + context.path("id").asText();
-        } else {
-            seedAutomaticRollback(id);
-            key = "plan:" + id;
-            if (fault.equals("baseline-revision")) {
-                jdbc.update("UPDATE working_copy SET current_revision='other', last_verified_revision='other' WHERE id=?",
-                        "copy-" + id);
-            } else {
-                jdbc.update("UPDATE working_copy SET source_asset_id='asset-two' WHERE id=?", "copy-" + id);
-            }
-        }
-        jdbc.update("UPDATE evolution_step SET execution_result='null' WHERE id=?", id + "-step-1");
-        assertEquals("null", jdbc.queryForObject("SELECT execution_result FROM evolution_step WHERE id=?",
-                String.class, id + "-step-1"));
-        var steps = jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id);
-        var copy = jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id);
-        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":0}"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
-        assertEquals(steps, jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id));
-        assertEquals(copy, jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id));
-        mvc.perform(get("/api/projects/{key}", key)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.visibility.version").value(0))
-                .andExpect(jsonPath("$.visibility.deletedAt").doesNotExist());
-        verifyNoInteractions(ai);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"null", " \nnull\t"})
-    void exactAutomaticRollbackWithJsonNullExecutionStillAllowsDeletion(String execution) throws Exception {
-        String id = "valid-json-null";
-        seedAutomaticRollback(id);
-        jdbc.update("UPDATE evolution_step SET execution_result=? WHERE id=?", execution, id + "-step-1");
-        assertNull(plans.findById(new EvolutionPlanId(id)).orElseThrow().steps().getFirst().executionResult());
-        deleteAndAssertFactsRetained(id, "plan:" + id);
-        assertEquals(execution, jdbc.queryForObject("SELECT execution_result FROM evolution_step WHERE id=?",
-                String.class, id + "-step-1"));
-    }
-
-    @ParameterizedTest
-    @NullSource
-    @ValueSource(strings = {"null", " \nnull\t", "{}", "[]", "[null]", "false", "0", "\"null\"", "", "not-json", "null null"})
-    void everyFailedRepresentationInAnotherRoundStillRequiresReconstructionAndBinding(String execution) throws Exception {
-        JsonNode context = create("同流程持久化表示", "shared-user");
-        String id = "failed-representation";
-        seedAutomaticRollback(id, context.path("flowId").asText());
-        jdbc.update("UPDATE evolution_step SET execution_result=? WHERE id=?", execution, id + "-step-1");
-        jdbc.update("UPDATE working_copy SET current_revision='other', last_verified_revision='other' WHERE id=?",
-                "copy-" + id);
-        var steps = jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id);
-        var copy = jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id);
-        String key = "project:" + context.path("id").asText();
-        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":0}"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
-        mvc.perform(get("/api/projects/{key}", key)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.visibility.version").value(0))
-                .andExpect(jsonPath("$.visibility.deletedAt").doesNotExist());
-        assertEquals(steps, jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id));
-        assertEquals(copy, jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id));
-        verifyNoInteractions(ai);
-    }
-
-    @Test
-    void trailingTokenAfterExecutionFailureBlocksDeletion() throws Exception {
-        assertTrailingCheckpointBlocksDeletion("execution_failure_result", "plan");
-    }
-
-    @Test
-    void trailingTokenAfterAutomaticRollbackBlocksDeletion() throws Exception {
-        assertTrailingCheckpointBlocksDeletion("automatic_rollback_result", "project");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"execution_failure_result", "automatic_rollback_result"})
-    void anotherRoundWithTrailingCheckpointStillBlocksDeletion(String column) throws Exception {
-        assertTrailingCheckpointBlocksDeletion(column, "other-round");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"execution_failure_result", "automatic_rollback_result"})
-    void whitespaceAroundCompleteAutomaticRollbackCheckpointStillAllowsDeletion(String column) throws Exception {
-        String id = "whitespace-checkpoint";
-        seedAutomaticRollback(id);
-        String original = jdbc.queryForObject("SELECT " + column + " FROM evolution_step WHERE id=?",
-                String.class, id + "-step-1");
-        String padded = "\r\n \t" + original + "\t \r\n";
-        jdbc.update("UPDATE evolution_step SET " + column + "=? WHERE id=?", padded, id + "-step-1");
-        assertEquals(EvolutionStepStatus.FAILED,
-                plans.findById(new EvolutionPlanId(id)).orElseThrow().steps().getFirst().status());
-        deleteAndAssertFactsRetained(id, "plan:" + id);
-        assertEquals(padded, jdbc.queryForObject("SELECT " + column + " FROM evolution_step WHERE id=?",
-                String.class, id + "-step-1"));
-    }
-
-    private void assertTrailingCheckpointBlocksDeletion(String column, String navigation) throws Exception {
-        String id = "trailing-checkpoint";
-        String key;
-        if (navigation.equals("other-round")) {
-            JsonNode context = create("其它轮次损坏检查点", "shared-user");
-            seedAutomaticRollback(id, context.path("flowId").asText());
-            key = "project:" + context.path("id").asText();
-        } else {
-            seedAutomaticRollback(id);
-            key = deletionKey(id, navigation.equals("project"));
-        }
-        assertEquals(EvolutionStepStatus.FAILED,
-                plans.findById(new EvolutionPlanId(id)).orElseThrow().steps().getFirst().status());
-        String original = jdbc.queryForObject("SELECT " + column + " FROM evolution_step WHERE id=?",
-                String.class, id + "-step-1");
-        jdbc.update("UPDATE evolution_step SET " + column + "=? WHERE id=?", original + " false", id + "-step-1");
-        assertEquals(0, jdbc.queryForObject("SELECT json_valid(" + column + ") FROM evolution_step WHERE id=?",
-                Integer.class, id + "-step-1"));
-        var steps = jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id);
-        var copy = jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id);
-        assertEquals("e38e4a1", copy.get("current_revision"));
-        assertEquals(copy.get("current_revision"), copy.get("last_verified_revision"));
-        String failure = jdbc.queryForObject("SELECT execution_failure_result FROM evolution_step WHERE id=?",
-                String.class, id + "-step-1");
-        String rollback = jdbc.queryForObject("SELECT automatic_rollback_result FROM evolution_step WHERE id=?",
-                String.class, id + "-step-1");
-        mvc.perform(delete("/api/projects/{key}", key).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":0}"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
-        mvc.perform(get("/api/projects/{key}", key)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.visibility.version").value(0))
-                .andExpect(jsonPath("$.visibility.deletedAt").doesNotExist());
-        assertEquals(steps, jdbc.queryForList("SELECT * FROM evolution_step WHERE plan_id=? ORDER BY position", id));
-        assertEquals(copy, jdbc.queryForMap("SELECT * FROM working_copy WHERE id=?", "copy-" + id));
-        assertEquals(failure, jdbc.queryForObject("SELECT execution_failure_result FROM evolution_step WHERE id=?",
-                String.class, id + "-step-1"));
-        assertEquals(rollback, jdbc.queryForObject("SELECT automatic_rollback_result FROM evolution_step WHERE id=?",
-                String.class, id + "-step-1"));
-        verifyNoInteractions(ai);
-    }
-
-    private void mutateCheckpoint(String id, String column, String field, Object value) throws Exception {
-        ObjectNode checkpoint = (ObjectNode) json.readTree(jdbc.queryForObject(
-                "SELECT " + column + " FROM evolution_step WHERE id=?", String.class, id + "-step-1"));
-        checkpoint.set(field, json.valueToTree(value));
-        jdbc.update("UPDATE evolution_step SET " + column + "=? WHERE id=?", checkpoint.toString(), id + "-step-1");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"EXECUTING", "VERIFYING", "ROLLING_BACK", "RECOVERY_REQUIRED", "UNKNOWN"})
-    void unresolvedExecutionAndRollbackCheckpointsStillBlockDeletion(String stepStatus) throws Exception {
-        String id = "unresolved-automatic";
-        seedAutomaticRollback(id);
-        switch (stepStatus) {
-            case "EXECUTING", "VERIFYING" -> {
-                jdbc.update("UPDATE evolution_step SET execution_failure_result=NULL, automatic_rollback_result=NULL "
-                        + "WHERE id=?", id + "-step-1");
-                if (stepStatus.equals("VERIFYING")) {
-                    var execution = new ExecutionResult("c822cc3", List.of("REST"), List.of("src/Main.java"),
-                            List.of(), List.of(), Instant.parse("2026-10-16T00:00:00Z"));
-                    jdbc.update("UPDATE evolution_step SET execution_result=? WHERE id=?",
-                            json.writeValueAsString(execution), id + "-step-1");
-                    jdbc.update("UPDATE working_copy SET current_revision='c822cc3' WHERE id=?", "copy-" + id);
-                }
-            }
-            case "ROLLING_BACK" -> jdbc.update("UPDATE evolution_step SET automatic_rollback_result=NULL WHERE id=?",
-                    id + "-step-1");
-            case "RECOVERY_REQUIRED" -> {
-                mutateCheckpoint(id, "automatic_rollback_result", "restored", false);
-                mutateCheckpoint(id, "automatic_rollback_result", "observedRevision", null);
-                mutateCheckpoint(id, "automatic_rollback_result", "diagnostic", "INCONCLUSIVE");
-                jdbc.update("UPDATE working_copy SET status='RECOVERY_REQUIRED' WHERE id=?", "copy-" + id);
-            }
-            case "UNKNOWN" -> { }
-            default -> throw new AssertionError("Unhandled checkpoint: " + stepStatus);
-        }
-        jdbc.update("UPDATE evolution_step SET status=? WHERE id=?", stepStatus, id + "-step-1");
-        if (!stepStatus.equals("UNKNOWN")) {
-            // 使用可重建的真实检查点形状，避免只靠无效夹具的读取错误证明阻塞。
-            assertEquals(EvolutionStepStatus.valueOf(stepStatus),
-                    plans.findById(new EvolutionPlanId(id)).orElseThrow().steps().getFirst().status());
-        }
-        mvc.perform(delete("/api/projects/{key}", "plan:unresolved-automatic").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"expectedVersion\":0}"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
-        verifyNoInteractions(ai);
-    }
-
-    @Test
-    void unreadableAutomaticRollbackInAnotherRoundStillBlocksWholeFlowDeletion() throws Exception {
-        JsonNode context = create("同一流程", "shared-user");
-        seedAutomaticRollback("other-round", context.path("flowId").asText());
-        jdbc.update("UPDATE evolution_step SET automatic_rollback_result=NULL WHERE id='other-round-step-1'");
-        mvc.perform(delete("/api/projects/{key}", "project:" + context.path("id").asText())
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":0}"))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));
-        mvc.perform(get("/api/projects/{key}", "project:" + context.path("id").asText()))
-                .andExpect(jsonPath("$.visibility.version").value(0))
-                .andExpect(jsonPath("$.visibility.deletedAt").doesNotExist());
-        verifyNoInteractions(ai);
-    }
-
     @Test
     void deletedKnownProjectRemainsHiddenDespitePlanProjectionAndRetainsSupersededTerminalState() throws Exception {
         seedHistoricalPlan("known-gs", "one", true);
@@ -715,7 +351,7 @@ class ProjectWorkspaceIntegrationTest {
     @Test
     void unreadablePersistedExecutionResultCannotBeHiddenAsACompletedProject() throws Exception {
         seedHistoricalPlan("corrupt-result", "one", true);
-        jdbc.update("UPDATE evolution_step SET execution_result='{}' WHERE id='corrupt-result-step-1'");
+        jdbc.update("UPDATE evolution_step SET delivery_revision=NULL WHERE id='corrupt-result-step-1'");
         mvc.perform(delete("/api/projects/{key}", "plan:corrupt-result").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"expectedVersion\":0}"))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("PROJECT_DELETION_BLOCKED"));

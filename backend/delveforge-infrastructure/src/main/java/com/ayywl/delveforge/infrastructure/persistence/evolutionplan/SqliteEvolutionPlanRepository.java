@@ -24,11 +24,7 @@ import com.ayywl.delveforge.domain.evolution.EvolutionPlanningPreconditionExcept
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
-import com.ayywl.delveforge.domain.evolution.ExecutionResult;
-import com.ayywl.delveforge.domain.evolution.RepairAuthorization;
 import com.ayywl.delveforge.domain.evolution.TargetState;
-import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
-import com.ayywl.delveforge.domain.evolution.VerificationResult;
 import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
@@ -149,21 +145,8 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
             Map<String, List<String>> stepSections = loadStepSections(step.getId());
             steps.add(EvolutionStep.reconstitute(new EvolutionStepId(step.getId()),
                     new EvolutionPlanId(step.getPlanId()), step.getGoal(), step.getScope(),
-                    values(stepSections, "plannedChanges"),
-                    loadCriteria(step.getId()), EvolutionStepStatus.valueOf(step.getStatus()),
-                    step.getBaselineRevision(), StepResultJson.read(step.getExecutionResult(), ExecutionResult.class),
-                    StepResultJson.read(step.getVerificationResult(), VerificationResult.class),
-                    List.of(StepResultJson.read(step.getRepairAuthorizations(), RepairAuthorization[].class)),
-                    StepResultJson.read(step.getRollbackAuthorization(),
-                            com.ayywl.delveforge.domain.evolution.RollbackAuthorization.class),
-                    StepResultJson.read(step.getRollbackResult(),
-                            com.ayywl.delveforge.domain.evolution.RollbackResult.class),
-                    StepResultJson.read(step.getExecutionFailureResult(),
-                            com.ayywl.delveforge.domain.evolution.ExecutionFailureResult.class),
-                    StepResultJson.read(step.getAutomaticRollbackResult(),
-                            com.ayywl.delveforge.domain.evolution.AutomaticRollbackResult.class),
-                    List.of(StepResultJson.read(step.getRetryAuthorizations(),
-                            com.ayywl.delveforge.domain.evolution.RetryAuthorization[].class))));
+                    values(stepSections, "plannedChanges"), EvolutionStepStatus.valueOf(step.getStatus()),
+                    step.getBaselineRevision(), step.getDeliveryRevision()));
         }
 
         // 已保存的是被接受的领域事实；读取时直接重建正式值，不重新制造 AI 提案。
@@ -206,20 +189,8 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         row.setScope(step.scope());
         row.setStatus(step.status().name());
         row.setBaselineRevision(step.baselineRevision());
-        row.setRepairAuthorizations(StepResultJson.write(step.repairAuthorizations()));
-        row.setRetryAuthorizations(StepResultJson.write(step.retryAuthorizations()));
         stepMapper.insert(row);
         insertStepSection(step.id().value(), "plannedChanges", step.plannedChanges());
-        for (int index = 0; index < step.verificationCriteria().size(); index++) {
-            VerificationCriterion criterion = step.verificationCriteria().get(index);
-            var item = new EvolutionStepSectionItemDO();
-            item.setStepId(step.id().value());
-            item.setSection("verificationCriteria");
-            item.setPosition(index);
-            item.setValue(criterion.description());
-            item.setCriterionKind(criterion.kind().name());
-            stepSectionMapper.insert(item);
-        }
     }
 
     private void insertStepSection(String stepId, String section, List<String> values) {
@@ -276,14 +247,6 @@ public class SqliteEvolutionPlanRepository implements EvolutionPlanRepository {
         return result;
     }
 
-    private List<VerificationCriterion> loadCriteria(String stepId) {
-        return stepSectionMapper.selectList(new LambdaQueryWrapper<EvolutionStepSectionItemDO>()
-                .eq(EvolutionStepSectionItemDO::getStepId, stepId)
-                .eq(EvolutionStepSectionItemDO::getSection, "verificationCriteria")
-                .orderByAsc(EvolutionStepSectionItemDO::getPosition)).stream()
-                .map(row -> new VerificationCriterion(VerificationCriterion.Kind.valueOf(row.getCriterionKind()), row.getValue()))
-                .toList();
-    }
 
     private List<EvidenceBasis> loadEvidence(String id) {
         List<EvolutionPlanEvidenceDO> rows = evidenceMapper.selectList(new LambdaQueryWrapper<EvolutionPlanEvidenceDO>()

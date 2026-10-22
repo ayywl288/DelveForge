@@ -4,7 +4,6 @@ import DiscoveryView from "../src/views/DiscoveryView.vue";
 import DirectionsView from "../src/views/DirectionsView.vue";
 import PlanView from "../src/views/PlanView.vue";
 import RepositoryView from "../src/views/RepositoryView.vue";
-import EvolutionView from "../src/views/EvolutionView.vue";
 import { createSession, type WorkspaceSession } from "../src/state/session";
 import {
   copy,
@@ -13,7 +12,6 @@ import {
   plan,
   profile,
   repository,
-  successfulPlan,
 } from "./fixtures";
 const cleanup: (() => void)[] = [];
 function mount(component: Component, s: WorkspaceSession) {
@@ -274,7 +272,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     const confirm = vi.spyOn(s, "confirmStep").mockResolvedValue();
     const root = mount(PlanView, s);
     expect(root.textContent).toContain("新增调度配置");
-    expect(root.textContent).toContain("调度测试通过");
+    expect(root.textContent).toContain("检查范围");
     expect(button(root, "准备隔离副本").disabled).toBe(true);
     expect(button(root, "审阅并授权此 Step").disabled).toBe(true);
     const review = root.querySelector(".prepare-box input") as HTMLInputElement;
@@ -305,81 +303,4 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
         .at(-1)?.disabled,
     ).toBe(true);
   });
-  it("风险确认前不会 execute，断线 READY 展示待核对并保持禁用", async () => {
-    const s = session();
-    s.plan = plan();
-    s.copy = copy();
-    const execute = vi.spyOn(s, "execute").mockResolvedValue();
-    const root = mount(EvolutionView, s);
-    button(root, "审阅风险并执行此 Step").click();
-    await nextTick();
-    const confirm = button(root, "执行当前 Step");
-    expect(confirm.disabled).toBe(true);
-    expect(execute).not.toHaveBeenCalled();
-    const check = root.querySelector("dialog input") as HTMLInputElement;
-    check.checked = true;
-    check.dispatchEvent(new Event("change", { bubbles: true }));
-    await nextTick();
-    confirm.click();
-    await settle();
-    expect(execute).toHaveBeenCalledWith("step-1");
-    s.receipt = {
-      planId: "plan-1",
-      stepId: "step-1",
-      startedAt: "2026-10-10T00:00:00Z",
-    };
-    await nextTick();
-    expect(root.textContent).toContain("执行结果待核对");
-    expect(root.textContent).toContain("READY");
-    expect(root.textContent).not.toContain("PREPARING");
-    expect(button(root, "审阅风险并执行此 Step").disabled).toBe(true);
-  });
-  it("显示保存的 Verification 动作与 Candidate，不执行下一 Step，不解析 HTML", async () => {
-    const s = session();
-    s.plan = successfulPlan();
-    s.plan.steps[0]!.executionResult!.changes = [
-      "<img src=x onerror=alert(1)>",
-    ];
-    s.copy = {
-      ...copy(),
-      currentRevision: "b".repeat(40),
-      lastVerifiedRevision: "b".repeat(40),
-    };
-    const execute = vi.spyOn(s, "execute");
-    const root = mount(EvolutionView, s);
-    expect(root.textContent).toContain("TEST");
-    expect(root.textContent).toContain(
-      "SUCCEEDED · 此 Step 验证通过",
-    );
-    expect(root.querySelector(".success-note")?.textContent).toContain("b".repeat(40));
-    root.querySelector<HTMLButtonElement>("#step-tab-history")!.click(); await nextTick();
-    expect(root.textContent).toContain("src/ReportService.java");
-    expect(root.textContent).toContain("<img src=x onerror=alert(1)>");
-    expect(root.querySelector("img")).toBeNull();
-    expect(execute).not.toHaveBeenCalled();
-    expect(button(root, "审阅风险并执行此 Step")).toBeUndefined();
-  });
-  it.each(["ROLLING_BACK", "FAILED", "RECOVERY_REQUIRED"] as const)(
-    "执行失败 %s 展示真实恢复结果，不制造 Candidate 或自动重发", async (status) => {
-      const s = session(); s.plan = plan(); s.copy = { ...copy(), status: status === "RECOVERY_REQUIRED" ? "RECOVERY_REQUIRED" : "EVOLVING" };
-      const step = s.plan.steps[0]!; step.status = status; step.baselineRevision = "a".repeat(40);
-      step.executionFailureResult = { id: "failure", baselineRevision: "a".repeat(40), startingRevision: "a".repeat(40),
-        phase: "PUBLISH", exitCode: 128, diagnostic: "CONFIRMED_GIT_REJECTION", observedRevision: "a".repeat(40),
-        expectedTree: "c".repeat(40), diffComplete: true,
-        diff: [{ path: "src/ReportService.java", baselineBlob: "old", indexEntry: "new", workingBlob: "new" }],
-        failedAt: "2026-10-14T10:00:00Z" };
-      if (status !== "ROLLING_BACK") {
-        step.automaticRollbackResult = { failureId: "failure", baselineRevision: "a".repeat(40), observedRevision: status === "FAILED" ? "a".repeat(40) : null,
-          restored: status === "FAILED", diagnostic: "RESULT", completedAt: "2026-10-14T10:01:00Z" };
-      }
-      const execute = vi.spyOn(s, "execute"); const rollback = vi.spyOn(s, "rollback");
-      const root = mount(EvolutionView, s); await settle();
-      expect(root.textContent).toContain("执行已确认失败，未形成合法 Candidate");
-      root.querySelector<HTMLButtonElement>("#step-tab-history")!.click(); await settle();
-      expect(root.textContent).toContain("src/ReportService.java");
-      expect(root.textContent).toContain(status === "ROLLING_BACK" ? "尚无最终恢复结果"
-        : status === "FAILED" ? "已确认精确恢复原始基线" : "完整恢复未确认，禁止继续修改");
-      expect(root.querySelector(".success-note")).toBeNull();
-      expect(execute).not.toHaveBeenCalled(); expect(rollback).not.toHaveBeenCalled();
-    });
 });

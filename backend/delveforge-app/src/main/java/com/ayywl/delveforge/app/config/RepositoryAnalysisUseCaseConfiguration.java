@@ -30,7 +30,7 @@ import org.springframework.context.annotation.Configuration;
  * 完成（RULE-ARCH-005）。
  *
  * <p>本流程只需要只读能力：注入的是 {@link WorkspaceReadPort}，不是
- * {@code WorkspaceMutationPort}（RULE-ARCH-010、ADR-0001）。写入能力在这个流程里
+ * {@code CandidateDeliveryPort}（RULE-ARCH-010、ADR-0001）。写入能力在这个流程里
  * 于类型层面就不存在。
  *
  * <h2>分析链路（ADR-0004 / ADR-0005）</h2>

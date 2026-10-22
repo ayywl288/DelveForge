@@ -1,22 +1,32 @@
 # DOMAIN_MODEL.md
 
-> **2026-10-21 Task 1 语义更新：** 新 Agent 以 ACTIVE Plan、READY Step、绑定的可用 WorkingCopy、
-> 先前 Step 已成功、当前 revision=lastVerifiedRevision、资产授权仍有效作为启动边界。
-> 一次 Step 确认允许此 Step 内自主工具调用与普通修复；失败/取消/中断后可显式启动全新的 Run。
-> 不复用旧 M5 RepairAuthorization/RetryAuthorization。重启不恢复对话。
->
-> **AgentRun**：CREATED→PREPARING→RUNNING→FINALIZING→SUCCEEDED；FAILED/CANCELLED/INTERRUPTED 为替代终态。
-> SUCCEEDED 当且仅当经过重放验证的不可变 Candidate 已与该状态事务一致地持久化。
-> 资源未证实停止时保留持久化占用，不推断旧写入者消失。单 WorkingCopy 不允许冲突执行。
-> 2026-10-22 验收修正：同 Step / baseline 已有成功冻结结果时拒绝再次编码，失败/取消/中断仍可合法重试。
-> FINALIZING 前持久化材料保留意图；失败终态和重启不能抹除，仅成功冻结或确认 NO_CHANGES 时解除。
->
-> **Candidate（新冻结结果）**：绑定 Run、可信 commit A、预期 tree B、完整 diff D、SHA-256、变化路径及
-> snapshot 关联的测试证据。必须证明 apply(D,A)=B，覆盖实际新增/修改/删除与支持的 file mode。
-> 这不同于旧流程中 WorkingCopy 当前未验证 revision 的“Candidate State”。
-> Task 1 不修改正式 WorkingCopy、Step 状态或信任 revision，不创建正式 commit。
-> 后续 Step 仍要求正式接受与可信基线推进，该 Delivery 行为属于 Task 2。
-> 旧执行生命周期下文保留为历史兼容路径，不能作为绕过上述边界的依据。
+**2026-10-22 Task 2 现行语义（替代下文旧执行生命周期）：**
+
+- EvolutionStep：PENDING_CONFIRMATION→READY→SUCCEEDED；只有用户确认可进入 READY，只有接受正式
+  Delivery 可成功。CANCELLED 与 RECOVERY_REQUIRED 保留为明确阻塞/历史表示。Step 不再承载旧
+  ExecutionResult、VerificationResult、RepairAuthorization、RetryAuthorization 或 RollbackAuthorization。
+- AgentRun：CREATED→PREPARING→RUNNING→FINALIZING→SUCCEEDED；FAILED/CANCELLED/INTERRUPTED 是替代终态。
+  Run 失败保留 Step 的确认；新尝试使用新 Run/沙箱。成功只证明不可变 Candidate 已事务冻结。
+- Candidate：不可变 id/runId/baseline A/diff D/expectedTree B/SHA-256/changedPaths/testEvidence/createdAt。
+  正式交付重新证明 D 在 A 上重放得到 B，不重跑模型，不改写 Candidate。
+- Delivery：INTENT→APPLIED→COMMIT_READY→PUBLISHED→COMPLETED。应用或发布后的日志落盘中断可从
+  实际 Git 事实恢复，允许跳过已经证明完成的阶段。DELIVERY_BLOCKED 表示明确阻塞；RECOVERY_REQUIRED
+  表示安全现场不能证明，继续保留独占预约。不自动硬重置、清理、重打补丁或推进信任。
+- 正式 C 必须 parent=A 且 tree(C)=B。成功接受在同一 SQLite 事务保存 Step.baselineRevision=A、
+  Step.deliveryRevision=C、WorkingCopy.currentRevision=lastVerifiedRevision=C，并完成 Delivery/事件/预约。
+  后续 Step 从 C 出发，仍须另行确认和启动；此前 Step 的 A 保留其历史意义。
+- 测试证据保持实际范围、snapshot、stale 和 NOT_TESTED；没有测试不伪装为 PASSED。已知未解决失败阻止
+  交付，冻结或交付成功不承诺未测试的业务效果。
+- 资产授权、SELECTED Direction、ACTIVE Plan、WorkingCopy 隔离、先前 Step 成功与可信基线在危险转换前
+  重查。持久化预约及 Workspace 原生锁排除冲突写入，未知结果不释放占用。
+- 重启先协调 Task 1 残留资源，再恢复 Delivery 或发现未交付冻结结果。Agent 对话始终不恢复。
+- V24 增加独立交付日志；V25 把旧 M4/M5 原始 Step 行归档到 legacy_evolution_execution，相关 Plan 标为
+  SUPERSEDED，Step 标为 CANCELLED；不迁移成新成功事实，不删除原始资产、WorkingCopy 文件或 Candidate。
+  未进入旧执行的 M1–M3/READY 规划保持原值。V22/V23 历史迁移不改写。
+
+详见 [运行合同](AUTONOMOUS_AGENT.md) 和 [ADR-0013](decisions/0013-frozen-candidate-delivery.md)。
+下文的旧执行状态图、M4/M5 Domain Operations 与相应 INV 说明为历史模型；其确认、隔离、授权、
+可信版本和历史可追溯的安全目的由以上新合同继续保持，不再作为新 Agent 的前置执行协议。
 
 > 本文档回答：DelveForge 内部有哪些核心业务概念，这些概念分别代表什么，以及它们之间如何协作。
 
@@ -39,9 +49,9 @@ DelveForge 所处理的核心领域是：
 
 原始 Software Asset 原则上作为分析和复用来源，不直接承载 DelveForge 的演化修改。进入实际演化阶段时，系统基于选定 Software Asset 的确定状态创建独立的 `Working Copy`，后续 Evolution Step 对代码产生的修改均限制在该 Working Copy 中。
 
-Evolution Plan 由多个可独立执行和验证的 `Evolution Step` 组成。用户确认某个 Evolution Step 后，系统才允许在 Working Copy 中执行对应的软件修改，并产生 `Execution Result`。
+Evolution Plan 由有序、范围明确的 `Evolution Step` 组成。用户确认并启动某个 Step 后，AgentRun 才允许在一次性沙箱中编码；成功尝试冻结不可变 Candidate，尚不改变正式 WorkingCopy。
 
-执行完成后进入验证流程，通过 Build、Test、Diff 或其他验证手段形成 `Verification Result`，用于判断该步骤是否达到预期目标以及是否明显破坏已有能力。
+Candidate 保存实际 Maven 检查证据。Delivery 独立证明冻结差异、Git tree 与正式提交一致，再以短事务接受 WorkingCopy revision 和 Step 成功；未运行测试保持 NOT_TESTED，已知未决失败阻止接受。
 
 因此，领域的核心关系可以概括为：
 
@@ -58,13 +68,13 @@ Evolution Plan
         ↓
 Working Copy
         ↓
-Evolution Step
+Confirmed Evolution Step
         ↓
-Execution
+AgentRun (isolated sandbox)
         ↓
-Execution Result
+Frozen Candidate + test evidence
         ↓
-Verification Result
+Delivery → accepted WorkingCopy revision
 ```
 
 其中，Software Asset / Repository 代表可分析和利用的原始软件资产；Working Copy 代表某次演化过程中实际允许被修改的隔离副本。
@@ -91,10 +101,11 @@ LLM Provider、Prompt 调用、Workspace Gateway、文件系统、Git 命令、S
 | **Current State**              | 生成 Evolution Plan 时，相关 Software Asset 已经具备的能力、结构和限制 | 不是对整个 Repository Profile 的简单复制                     |
 | **Target State**               | Selected Product Direction 对应的目标产品状态，用于与 Current State 比较并发现演化差距 | 不代表产品最终形态永远不会继续变化                           |
 | **Evolution Step**             | Evolution Plan 中一个范围受限、能够独立执行并验证的增量改造步骤 | 不是整个 Evolution Plan，也不应代表一次无限范围的大规模重构  |
-| **Execution**                  | 在用户确认 Evolution Step 后，在对应 Working Copy 上执行实际软件改造的领域行为 | 不代表系统可以自主执行未确认的其他步骤                       |
-| **Candidate State**            | 某个 Evolution Step 的一次 Execution 完整结束后、尚未通过 Verification 的 Working Copy 暂定软件状态。Verification Failure 后可以暂时保留，以供继续修复或用户选择回滚 | 不是 Evolution Step 的状态机状态，不是已验证的软件状态，也不能作为后续 Evolution Step 的执行基线 |
-| **Execution Result**           | 一次 Evolution Step 执行后形成的结构化结果，用于描述实际发生的修改及执行过程中产生的问题 | 不等同于 Verification Result，也不意味着该步骤已经验证成功   |
-| **Verification Result**        | Evolution Step 执行后，通过 Build、Test、Diff 或其他验证手段产生的结果，用于判断本次改造是否满足预定义验证要求 | 不等同于“代码成功写入”，也不等同于 Execution Result          |
+| **AgentRun** | 用户启动的一次独立隔离编码尝试，拥有实际事件、预算、检查与终态 | 成功冻结不等于正式 Step 成功 |
+| **Candidate** | 成功 Run 冻结的不可变 A/D/B、完整性与测试证据 | 不是正式 WorkingCopy，也不授予模型 Git 发布权 |
+| **Delivery** | 对已有 Candidate 的确定性交付身份与可恢复日志 | 不重跑模型，不改写 Candidate，不自动执行后续 Step |
+| **Accepted Revision** | Delivery 证明 parent=A/tree=B 并由 SQLite 接受的正式 Git commit C | 不把 NOT_TESTED 或未覆盖的业务目标解释成测试通过 |
+| **Legacy Execution / Verification Result** | 旧 M4/M5 执行快照，由 V25 归档并停用相关计划 | 不再是当前 Agent/Delivery 的执行合同 |
 
 ---
 

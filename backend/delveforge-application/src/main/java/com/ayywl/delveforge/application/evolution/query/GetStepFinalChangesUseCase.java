@@ -39,13 +39,10 @@ public final class GetStepFinalChangesUseCase {
             return new Result(planId.value(), stepId.value(), baseline, null, "NOT_APPLICABLE",
                     "STEP_NOT_SUCCEEDED", null, null, null, null);
         }
-        var execution = step.executionResult();
-        var verification = step.verificationResult();
-        if (baseline == null || execution == null || verification == null || !verification.passed()
-                || !execution.candidateRevision().equals(verification.candidateRevision())) {
-            throw new EvolutionPlanStateException("Successful Step has contradictory stored results");
+        String verified = step.deliveryRevision();
+        if (baseline == null || verified == null) {
+            throw new EvolutionPlanStateException("Successful Step has no accepted Delivery identity");
         }
-        String verified = verification.candidateRevision();
         var asset = assets.findById(plan.baseAssetId())
                 .orElseThrow(() -> new SoftwareAssetNotFoundException(plan.baseAssetId()));
         asset.requireAnalysisAllowed();

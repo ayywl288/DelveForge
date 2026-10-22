@@ -2,7 +2,6 @@ package com.ayywl.delveforge.app.config;
 
 import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
 import com.ayywl.delveforge.infrastructure.persistence.PersistenceProperties;
-import com.ayywl.delveforge.infrastructure.workspace.VerificationProperties;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -39,7 +38,7 @@ class PersistencePropertiesBindingTest {
     static class PropertiesConfiguration {
     }
 
-    @EnableConfigurationProperties({DeepSeekProperties.class, VerificationProperties.class})
+    @EnableConfigurationProperties(DeepSeekProperties.class)
     static class BudgetConfiguration {
     }
 
@@ -64,12 +63,6 @@ class PersistencePropertiesBindingTest {
             assertEquals(33554432, ai.maxResponseBytes());
             assertEquals(65536, ai.maxEventBytes());
 
-            VerificationProperties verification = context.getBean(VerificationProperties.class);
-            assertEquals(Duration.ofSeconds(900), verification.actionTimeout());
-            assertEquals(Duration.ofSeconds(1200), verification.invocationTimeout());
-            assertEquals(8388608, verification.maxOutputBytes());
-            assertEquals(160, verification.maxTestReports());
-            assertEquals(16, verification.maxActions());
             assertEquals("127.0.0.1", context.getEnvironment().getProperty("server.address"));
         });
     }

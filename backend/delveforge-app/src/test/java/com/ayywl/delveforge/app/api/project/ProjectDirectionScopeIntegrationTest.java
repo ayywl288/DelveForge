@@ -67,8 +67,7 @@ class ProjectDirectionScopeIntegrationTest {
             {"currentState":{"summary":"REST","capabilities":["GET"],"modules":["rest"],"limitations":[]},
             "targetState":{"problem":"业务请求","targetProduct":"扩展 REST","differentiation":"本地"},
             "reusableCapabilities":["controller"],"changes":["新增 REST 行为"],
-            "steps":[{"goal":"新增 REST 行为","scope":"src","plannedChanges":["新增端点"],
-            "verificationCriteria":[{"kind":"UNSUPPORTED","description":"检查业务行为"}]}],
+            "steps":[{"goal":"新增 REST 行为","scope":"src","plannedChanges":["新增端点"]}],
             "risks":[],"evidence":["R-E1","D-E1"]}
             """;
 

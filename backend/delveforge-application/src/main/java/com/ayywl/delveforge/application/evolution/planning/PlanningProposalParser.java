@@ -4,7 +4,6 @@ import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
 import com.ayywl.delveforge.domain.evolution.CurrentState;
 import com.ayywl.delveforge.domain.evolution.TargetState;
-import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -43,8 +42,7 @@ public final class PlanningProposalParser {
                 throw new AiGatewayException("Step preconditions are not supported; regenerate the planning proposal");
             }
             steps.add(new AiPlanningStepProposal(text(step, "goal"), text(step, "scope"),
-                    requiredSection(step, "plannedChanges"),
-                    criteria(step)));
+                    requiredSection(step, "plannedChanges")));
         }
 
         return new AiPlanningProposal(
@@ -61,21 +59,6 @@ public final class PlanningProposalParser {
             throw new AiGatewayException("Planning object required: " + field);
         }
         return value;
-    }
-
-    private static List<VerificationCriterion> criteria(JsonNode step) {
-        List<VerificationCriterion> result = new ArrayList<>();
-        for (JsonNode criterion : array(step, "verificationCriteria")) {
-            if (!criterion.isObject()) {
-                throw new AiGatewayException("Verification criterion must contain kind and description");
-            }
-            result.add(new VerificationCriterion(VerificationCriterion.Kind.valueOf(text(criterion, "kind")),
-                    text(criterion, "description")));
-        }
-        if (result.isEmpty()) {
-            throw new AiGatewayException("Verification criteria must not be empty");
-        }
-        return List.copyOf(result);
     }
 
     private static JsonNode array(JsonNode node, String field) {

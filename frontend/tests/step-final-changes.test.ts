@@ -1,11 +1,9 @@
 import { createApp, defineComponent, h, nextTick, reactive } from "vue";
 import { afterEach, expect, it, vi } from "vitest";
 import StepFinalChanges from "../src/components/StepFinalChanges.vue";
-import EvolutionView from "../src/views/EvolutionView.vue";
 import { api, ApiError } from "../src/api/client";
 import type { StepFinalChanges as Result } from "../src/api/types";
-import { createSession } from "../src/state/session";
-import { copy, successfulPlan } from "./fixtures";
+import { successfulPlan } from "./fixtures";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { cleanups.splice(0).forEach(fn => fn()); vi.restoreAllMocks(); });
@@ -66,25 +64,6 @@ it("rejects a response for a different saved Verified Revision", async () => {
   const { root } = mount(); await settle();
   expect(root.textContent).toContain("保存版本不一致");
   expect(root.textContent).not.toContain("whole-step.java");
-});
-it("history success is independent of the WorkingCopy latest revision and Tabs are exclusive", async () => {
-  vi.spyOn(api, "finalChanges").mockResolvedValue(response());
-  const s = reactive(createSession()); s.plan = successfulPlan();
-  s.copy = { ...copy(), currentRevision: "d".repeat(40), lastVerifiedRevision: "d".repeat(40) };
-  const execute = vi.spyOn(s, "execute"); const retry = vi.spyOn(s, "retry");
-  const root = document.createElement("div"); document.body.append(root);
-  const app = createApp(EvolutionView, { s }); app.mount(root);
-  cleanups.push(() => { app.unmount(); s.dispose(); root.remove(); }); await settle();
-  expect(root.querySelector(".success-note")?.textContent).toContain("此 Step 验证通过");
-  expect(root.querySelector(".success-note")?.textContent).toContain("b".repeat(40));
-  const tabs = [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
-  expect(tabs.map(tab => tab.textContent)).toEqual(["当前状态", "最终变更", "演化轨迹", "验证详情", "完整历史"]);
-  expect(root.querySelectorAll('[role="tabpanel"]')).toHaveLength(1);
-  expect(root.querySelector('#step-final-changes')).toBeNull();
-  tabs[4]!.click(); await settle();
-  expect(root.querySelector('#execution-goal')).toBeNull();
-  root.querySelector<HTMLDetailsElement>("#step-complete-history > details")!.open = true;
-  await settle(); expect(execute).not.toHaveBeenCalled(); expect(retry).not.toHaveBeenCalled();
 });
 
 it("an old backend 404 is explained without claiming the request fields are invalid", async () => {

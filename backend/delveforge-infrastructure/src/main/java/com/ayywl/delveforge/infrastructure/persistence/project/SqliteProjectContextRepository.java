@@ -146,8 +146,7 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
             planId = row.planId();
             flowId = row.flowId();
         }
-        if (deleted && (mapper.unsafeExecutionCount(planId, flowId) != 0
-                || unresolvedFailedExecution(planId, flowId))) {
+        if (deleted && (mapper.unsafeExecutionCount(planId, flowId) != 0)) {
             throw new ProjectDeletionBlockedException();
         }
         String deletedAt = deleted ? now.toString() : null;
@@ -157,34 +156,6 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
             throw new ProjectContextConflictException();
         }
         return new ProjectVisibility(key, Math.addExact(expectedVersion, 1), deleted ? now : null);
-    }
-
-    private boolean unresolvedFailedExecution(String planId, String flowId) {
-        for (String id : mapper.failedPlanIds(planId, flowId)) {
-            EvolutionPlan plan;
-            WorkingCopy copy;
-            try {
-                // 复用完整检查点重建：确认失败诊断、恢复结果、授权历史和原 baseline 必须一致。
-                plan = plans.findById(new EvolutionPlanId(id)).orElseThrow();
-                if (plan.workingCopyId() == null) {
-                    return true;
-                }
-                copy = copies.findById(new WorkingCopyId(plan.workingCopyId())).orElseThrow();
-            } catch (RuntimeException unreadable) {
-                return true;
-            }
-            if (!plan.baseAssetId().equals(copy.sourceAssetId())) {
-                return true;
-            }
-            for (EvolutionStep step : plan.steps()) {
-                if (step.status() == EvolutionStepStatus.FAILED
-                        && (!step.baselineRevision().equals(copy.currentRevision())
-                                || !step.baselineRevision().equals(copy.lastVerifiedRevision()))) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     @Override

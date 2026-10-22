@@ -3,9 +3,14 @@ package com.ayywl.delveforge.app.agent;
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.CodingAgentService;
+import com.ayywl.delveforge.application.agent.AgentStore;
+import com.ayywl.delveforge.application.agent.CandidateDeliveryService;
+import com.ayywl.delveforge.application.agent.Delivery;
 import com.ayywl.delveforge.domain.agent.Candidate;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.event.ContextClosedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,19 +18,63 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
 
-/** 本机开发调用面；不提供 Candidate Delivery 或任意命令入口。 */
+/** 本机开发调用面；提供受控 Agent、冻结结果与确定性交付入口。 */
 @RestController
 @ConditionalOnProperty(name = "delveforge.agent.enabled", havingValue = "true", matchIfMissing = true)
 public class CodingAgentController {
     private final CodingAgentService service;
+    private final AgentStore store;
+    private final CandidateDeliveryService delivery;
+    private final AgentEventStream streams;
 
-    public CodingAgentController(CodingAgentService service) {
+    public CodingAgentController(CodingAgentService service, AgentStore store, CandidateDeliveryService delivery) {
         this.service = service;
+        this.store = store;
+        this.delivery = delivery;
+        this.streams = new AgentEventStream(store);
+    }
+
+    @EventListener(ContextClosedEvent.class)
+    public void closeStreams() {
+        streams.close();
+    }
+
+    @GetMapping("/api/evolution-plans/{planId}/steps/{stepId}/agent-runs")
+    public List<AgentProtocol.Run> history(@PathVariable String planId, @PathVariable String stepId,
+            @RequestParam(required = false) String before, @RequestParam(defaultValue = "50") int limit) {
+        return store.runs(planId, stepId, before, limit);
+    }
+
+    @GetMapping(value = "/api/agent-runs/{id}/stream", produces = "text/event-stream")
+    public ResponseEntity<SseEmitter> stream(@PathVariable String id, @RequestParam(defaultValue = "0") long after,
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId) {
+        long cursor = after;
+        if (lastEventId != null) {
+            try {
+                cursor = Math.max(cursor, Long.parseLong(lastEventId));
+            } catch (NumberFormatException failure) {
+                throw new AgentException("INVALID_REQUEST", "Invalid event cursor");
+            }
+        }
+        return ResponseEntity.ok().header("Cache-Control", "no-store").header("X-Accel-Buffering", "no")
+                .body(streams.open(id, cursor));
+    }
+
+    @GetMapping("/api/agent-candidates/{id}/delivery")
+    public Delivery delivery(@PathVariable String id) {
+        return delivery.get(id);
+    }
+
+    @PostMapping("/api/agent-candidates/{id}/delivery")
+    public ResponseEntity<Delivery> deliver(@PathVariable String id) {
+        return ResponseEntity.accepted().body(delivery.submit(id));
     }
 
     public record StartRequest(Integer targetJdk) {
@@ -72,7 +121,7 @@ public class CodingAgentController {
         int status = switch (failure.code()) {
             case "NOT_FOUND" -> 404;
             case "INVALID_REQUEST", "INVALID_ARGUMENTS" -> 400;
-            case "RUN_CONFLICT", "INSTANCE_CONFLICT" -> 409;
+            case "RUN_CONFLICT", "INSTANCE_CONFLICT", "DELIVERY_CONFLICT", "BASELINE_MISMATCH" -> 409;
             default -> 503;
         };
         return ResponseEntity.status(status).body(Map.of("code", failure.code(), "message", "Agent operation could not complete"));

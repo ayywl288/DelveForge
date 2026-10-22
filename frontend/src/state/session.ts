@@ -19,8 +19,6 @@ import type {
 } from "../api/types";
 
 export const sessionKey = "delveforge.session.v1";
-export const executionKey = "delveforge.execution.v1";
-const receiptLockName = "delveforge.execution-receipt";
 export const projectKey = "delveforge.project.v1";
 export interface SessionIds {
   profileId: string;
@@ -28,19 +26,6 @@ export interface SessionIds {
   repositoryIds: string[];
   directionIds: string[];
   planId: string;
-}
-export interface ExecutionReceipt {
-  // 新请求独立生成；兼容旧标记时仍比较完整内容，不能借用父 Retry 身份。
-  requestId?: string;
-  planId: string;
-  stepId: string;
-  startedAt: string;
-  operation?: "REPAIR" | "ROLLBACK" | "RETRY";
-  retryAuthorizationId?: string;
-  failedCheckpointId?: string;
-  authorizationId?: string;
-  candidateRevision?: string;
-  baselineRevision?: string;
 }
 interface AdoptedPlanSnapshot {
   version: number;
@@ -76,26 +61,6 @@ function readIds(): SessionIds {
     return emptyIds();
   }
 }
-function parseReceipt(raw: string | null): ExecutionReceipt | null {
-  try {
-    const saved = JSON.parse(raw ?? "null") as ExecutionReceipt | null;
-    return saved && validId(saved.planId) && validId(saved.stepId) && typeof saved.startedAt === "string"
-      ? saved : null;
-  } catch {
-    return null;
-  }
-}
-function readReceipt(): ExecutionReceipt | null {
-  try {
-    return parseReceipt(localStorage.getItem(executionKey));
-  } catch {
-    return null;
-  }
-}
-function sameReceipt(actual: ExecutionReceipt | null, expected: ExecutionReceipt | null) {
-  return actual !== null && expected !== null && actual.requestId === expected.requestId
-    && JSON.stringify(actual) === JSON.stringify(expected);
-}
 export function createSession() {
   const ids = reactive(readIds());
   const profile = ref<UserProfile | null>(null);
@@ -129,10 +94,7 @@ export function createSession() {
   const error = ref("");
   const notice = ref("");
   const connected = ref(false);
-  const executionPending = ref(false);
-  const executionRequest = ref<ExecutionReceipt | null>(null);
   const planningAuthorizationIssue = ref<{ assetId: string; code: string } | null>(null);
-  const receipt = ref(readReceipt());
   const lastChecked = ref("");
   const pollError = ref("");
   const projectContext = ref<ProjectContext | null>(null);
@@ -148,9 +110,6 @@ export function createSession() {
   const projectSyncError = ref(false);
   const contextEpoch = ref(0);
   let historyRequest = 0;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let observingExecution = false;
-  let polling = false;
   let disposed = false;
   let planVersion = 0;
   const selected = computed(
@@ -226,99 +185,19 @@ export function createSession() {
   }
   // 请求完成不等于采纳；调用方只有拿到仍有效的快照，才能据此结束等待或发送明确操作。
   async function refreshPlan(): Promise<AdoptedPlanSnapshot | null> {
-    const value = ids.planId || (!projectContext.value ? receipt.value?.planId : "");
+    const value = ids.planId;
     if (!value) return null;
-    // GET 只可证明它开始查询时的请求；storage 事件不能替换本次清理依据。
-    const pending = receipt.value ? { ...receipt.value } : null;
     const version = ++planVersion;
     const result = await api.plan(value);
-    const wc = result.workingCopyId
-      ? await api.workingCopy(result.workingCopyId)
-      : null;
+    const wc = result.workingCopyId ? await api.workingCopy(result.workingCopyId) : null;
     if (version !== planVersion || disposed) return null;
     plan.value = result;
     copy.value = wc;
-    const snapshot = { version, plan: plan.value, copy: copy.value };
     ids.planId = result.id;
     remember();
     lastChecked.value = new Date().toLocaleTimeString("zh-CN");
     pollError.value = "";
-    // 同步观察者也可能更新查询依据；清理前再次核对本次采纳仍有效。
-    if (!currentSnapshot(snapshot)) return null;
-    // READY 只可确认已持久化的 Retry 授权，不能证明外部执行或准备已结束。
-    let completed = false;
-    if (pending?.planId === result.id) {
-      const step = result.steps.find(item => item.id === pending.stepId);
-      if (step) {
-        const terminal = ["SUCCEEDED", "FAILED", "CANCELLED", "RECOVERY_REQUIRED",
-          "VERIFICATION_FAILED"].includes(step.status);
-        const retrySaved = pending.operation === "RETRY"
-          && step.retryAuthorizations?.some(item => item.id === pending.authorizationId
-            && item.failedCheckpointId === pending.failedCheckpointId
-            && item.baselineRevision === pending.baselineRevision);
-        const retryReady = step.status === "READY" && wc?.status === "EVOLVING"
-          && wc.currentRevision === pending.baselineRevision
-          && wc.lastVerifiedRevision === pending.baselineRevision;
-        const executionMatches = !pending.operation
-          && step.retryAuthorizations?.at(-1)?.id === pending.retryAuthorizationId;
-        const repairMatches = pending.operation === "REPAIR"
-          && step.repairAuthorizations?.some(item => item.id === pending.authorizationId);
-        const rollbackMatches = pending.operation === "ROLLBACK"
-          && step.rollbackAuthorization?.id === pending.authorizationId && !!step.rollbackResult
-          && ["FAILED", "RECOVERY_REQUIRED"].includes(step.status);
-        completed = !!(retrySaved && (terminal || retryReady)
-          || terminal && (executionMatches || repairMatches || rollbackMatches));
-      }
-    }
-    await reconcileReceipt(pending, () => completed && currentSnapshot(snapshot));
-    return currentSnapshot(snapshot) ? snapshot : null;
-  }
-  function currentSnapshot(snapshot: AdoptedPlanSnapshot | null) {
-    return snapshot !== null && !disposed && snapshot.version === planVersion
-      && plan.value === snapshot.plan && copy.value === snapshot.copy;
-  }
-  // 与发送路径共用短时锁；锁内不等待 GET / POST，避免重入长期执行锁。
-  async function reconcileReceipt(expected: ExecutionReceipt | null, canClear: () => boolean) {
-    if (disposed) return;
-    if (!navigator.locks) {
-      notice.value = "浏览器无法核对跨标签页等待标记，保留阻塞状态。";
-      return;
-    }
-    try {
-      await navigator.locks.request(receiptLockName, {}, lock => {
-        if (!lock) throw new Error("receipt lock unavailable");
-        if (disposed) return;
-        const raw = localStorage.getItem(executionKey);
-        const actual = parseReceipt(raw);
-        // 即使父 Retry 相同，后续请求也不是本次 GET / 拒绝检查所证明的请求。
-        if (sameReceipt(actual, expected) && canClear()) {
-          localStorage.removeItem(executionKey);
-          receipt.value = null;
-        } else if (actual) {
-          receipt.value = actual;
-        } else if (raw === null) {
-          // 存储暂时缺失不能证明本标签的 UNKNOWN 已结束；清理内存也须匹配原请求与结果。
-          if (sameReceipt(receipt.value, expected) && canClear()) receipt.value = null;
-        } else {
-          notice.value = "持久化等待标记无法读取，保留标记并阻止新请求。";
-        }
-      });
-    } catch {
-      notice.value = "无法核对或清除本浏览器的等待标记，保留阻塞状态。";
-    }
-  }
-  async function writeReceipt(marker: ExecutionReceipt, snapshot: AdoptedPlanSnapshot) {
-    await navigator.locks.request(receiptLockName, {}, lock => {
-      if (!lock || !currentSnapshot(snapshot)) throw new ApiError(409, "CONFLICT");
-      const raw = localStorage.getItem(executionKey);
-      if (raw !== null) {
-        const actual = parseReceipt(raw);
-        if (actual) receipt.value = actual;
-        throw new Error("execution receipt already exists");
-      }
-      localStorage.setItem(executionKey, JSON.stringify(marker));
-      receipt.value = marker;
-    });
+    return { version, plan: result, copy: wc };
   }
   async function run(label: string, operation: () => Promise<void>, saveContext = true) {
     if (busy.value) return;
@@ -409,251 +288,6 @@ export function createSession() {
       if (failures.length)
         error.value = `无法恢复：${failures.join("、")}。请核对对象 ID、后端数据库及连接，已保存 ID 保留。`;
     }, false);
-    schedulePoll();
-  }
-  function schedulePoll() {
-    clearTimeout(timer);
-    if (disposed || !observingExecution || polling) return;
-    const observingReceipt = receipt.value && (!projectContext.value || receipt.value.planId === ids.planId);
-    if (!observingReceipt && !executionPending.value && !plan.value?.steps.some(step =>
-      ["EXECUTING", "VERIFYING"].includes(step.status))) return;
-    timer = setTimeout(async () => {
-      if (disposed || !observingExecution) return;
-      polling = true;
-      try {
-        await refreshPlan();
-      } catch {
-        pollError.value = "状态查询失败，稍后继续只读查询；不会重复 execute。";
-      } finally {
-        polling = false;
-        schedulePoll();
-      }
-    }, 3_000);
-  }
-  function observeExecution(active: boolean) {
-    observingExecution = active;
-    if (active) schedulePoll();
-    else clearTimeout(timer);
-  }
-  function storageChanged(event: StorageEvent) {
-    if (event.key === executionKey || event.key === null) {
-      receipt.value = readReceipt();
-      schedulePoll();
-    }
-  }
-  window.addEventListener("storage", storageChanged);
-  async function execute(stepId: string, retryAuthorizationId?: string) {
-    return performStep(stepId, undefined, undefined, retryAuthorizationId);
-  }
-  async function repair(stepId: string, candidateRevision: string, retryAuthorizationId?: string) {
-    return performStep(stepId, candidateRevision, undefined, retryAuthorizationId);
-  }
-  async function rollback(stepId: string, candidateRevision: string, baselineRevision: string, retryAuthorizationId?: string) {
-    return performStep(stepId, candidateRevision, baselineRevision, retryAuthorizationId);
-  }
-  async function performStep(stepId: string, repairCandidate?: string, rollbackBaseline?: string,
-    retryAuthorizationId?: string) {
-    const rollingBack = rollbackBaseline !== undefined;
-    const repairing = repairCandidate !== undefined && !rollingBack;
-    const handlingFailure = repairing || rollingBack;
-    if (busy.value || receipt.value || !navigator.locks) {
-      error.value =
-        "已有执行等待核对，或浏览器不支持跨标签页执行锁。请使用本机现代浏览器并先查询状态。";
-      return;
-    }
-    await run(rollingBack ? "回滚当前失败 Candidate" : repairing ? "修复当前失败 Candidate" : "执行当前 Step", async () => {
-      await navigator.locks.request(
-        "delveforge.execute",
-        { ifAvailable: true },
-        async (lock) => {
-          if (!lock || readReceipt()) throw new Error("execution locked");
-          const prepared = await refreshPlan();
-          if (!currentSnapshot(prepared)) throw new ApiError(409, "CONFLICT");
-          const current = plan.value;
-          const index =
-            current?.steps.findIndex((step) => step.id === stepId) ?? -1;
-          if (
-            !current ||
-            index < 0 ||
-            current.status !== "ACTIVE" ||
-            current.steps[index]?.retryAuthorizations?.at(-1)?.id !== retryAuthorizationId ||
-            current.steps[index]?.status !== (handlingFailure ? "VERIFICATION_FAILED" : "READY") ||
-            current.steps
-              .slice(0, index)
-              .some((step) => step.status !== "SUCCEEDED") ||
-            !copy.value ||
-            !["READY", "EVOLVING"].includes(copy.value.status) ||
-            (handlingFailure ? copy.value.status !== "EVOLVING"
-              || copy.value.currentRevision !== repairCandidate
-              || copy.value.lastVerifiedRevision !== current.steps[index]?.baselineRevision
-              || current.steps[index]?.executionResult?.candidateRevision !== repairCandidate
-              || current.steps[index]?.verificationResult?.passed !== false
-              || rollingBack && current.steps[index]?.baselineRevision !== rollbackBaseline
-              : copy.value.currentRevision !== copy.value.lastVerifiedRevision)
-          ) {
-            throw new ApiError(409, "CONFLICT");
-          }
-          const marker: ExecutionReceipt = {
-            requestId: crypto.randomUUID(),
-            planId: current.id,
-            stepId,
-            startedAt: new Date().toISOString(),
-            ...(retryAuthorizationId ? { retryAuthorizationId } : {}),
-            ...(handlingFailure ? { operation: rollingBack ? "ROLLBACK" as const : "REPAIR" as const,
-              authorizationId: crypto.randomUUID(), candidateRevision: repairCandidate,
-              ...(rollingBack ? { baselineRevision: rollbackBaseline } : {}) } : {}),
-          };
-          // 写入失败时停止发送；刷新后只恢复 ID 与等待标记，不重放任何命令。
-          await writeReceipt(marker, prepared!);
-          executionRequest.value = marker;
-          executionPending.value = true;
-          schedulePoll();
-          try {
-            const result = rollingBack
-              ? retryAuthorizationId
-                ? await api.rollback(current.id, stepId, repairCandidate!, rollbackBaseline!, marker.authorizationId!, retryAuthorizationId)
-                : await api.rollback(current.id, stepId, repairCandidate!, rollbackBaseline!, marker.authorizationId!)
-              : repairing
-              ? retryAuthorizationId
-                ? await api.repair(current.id, stepId, repairCandidate!, marker.authorizationId!, retryAuthorizationId)
-                : await api.repair(current.id, stepId, repairCandidate!, marker.authorizationId!)
-              : retryAuthorizationId ? await api.execute(current.id, stepId, retryAuthorizationId)
-                : await api.execute(current.id, stepId);
-            if (repairing && !result.steps.find(step => step.id === stepId)?.repairAuthorizations
-              ?.some(item => item.id === marker.authorizationId)) throw new ApiError(0, "RESPONSE_UNREADABLE");
-            if (rollingBack) {
-              const step = result.steps.find(item => item.id === stepId);
-              if (!step || step.rollbackAuthorization?.id !== marker.authorizationId || !step.rollbackResult
-                || !["FAILED", "RECOVERY_REQUIRED"].includes(step.status)) throw new ApiError(0, "RESPONSE_UNREADABLE");
-            }
-            setPlan(result);
-            await refreshPlan();
-          } catch (failure) {
-            let checked: AdoptedPlanSnapshot | null = null;
-            try {
-              checked = await refreshPlan();
-            } catch {
-              pollError.value = "执行结果及当前状态均未能读取，保留等待标记。";
-            }
-            // 后端明确返回业务错误且查询证实仍未产生 Candidate，才允许下一次显式操作。
-            if (
-              currentSnapshot(checked) &&
-              failure instanceof ApiError &&
-              failure.status > 0 &&
-              failure.code in
-                {
-                  INVALID_REQUEST: 1,
-                  NOT_FOUND: 1,
-                  CONFLICT: 1,
-                  EXTERNAL_CAPABILITY_UNAVAILABLE: 1,
-                  EXECUTION_CRITERIA_UNSUPPORTED: 1,
-                  EXECUTION_AI_FAILED: 1,
-                  CODING_PROPOSAL_INVALID: 1,
-                  INTERNAL_ERROR: 1,
-                  ASSET_TYPE_UNSUPPORTED: 1,
-                  ASSET_READ_PERMISSION_REQUIRED: 1,
-                  ASSET_USAGE_AUTHORIZATION_REQUIRED: 1,
-                  ASSET_LICENSE_INFORMATION_REQUIRED: 1,
-                  ASSET_AUTHORIZATION_CONFLICT: 1,
-                } &&
-              !handlingFailure && plan.value?.steps.find(step => step.id === stepId)?.retryAuthorizations?.at(-1)?.id === retryAuthorizationId
-              && plan.value?.steps.find((step) => step.id === stepId)?.status === "READY" &&
-              !plan.value.steps.find((step) => step.id === stepId)
-                ?.executionResult &&
-              copy.value && ["READY", "EVOLVING"].includes(copy.value.status) &&
-              copy.value.currentRevision === copy.value.lastVerifiedRevision
-            ) {
-              await reconcileReceipt(marker, () => currentSnapshot(checked));
-            }
-            if (handlingFailure && currentSnapshot(checked) && failure instanceof ApiError && failure.status > 0
-              && ["INVALID_REQUEST", "CONFLICT", "EXECUTION_CRITERIA_UNSUPPORTED", "ASSET_TYPE_UNSUPPORTED",
-                "ASSET_READ_PERMISSION_REQUIRED", "ASSET_USAGE_AUTHORIZATION_REQUIRED", "ASSET_LICENSE_INFORMATION_REQUIRED",
-                "ASSET_AUTHORIZATION_CONFLICT"].includes(failure.code)) {
-              const step = plan.value?.steps.find(item => item.id === stepId);
-              // 明确拒绝仍需 GET 证实同一失败 Candidate / baseline 与本次授权未保存；未知状态不能清除等待。
-              if (step?.status === "VERIFICATION_FAILED" && step.retryAuthorizations?.at(-1)?.id === retryAuthorizationId
-                && copy.value?.status === "EVOLVING"
-                && copy.value.currentRevision === repairCandidate && copy.value.lastVerifiedRevision === step.baselineRevision
-                && step.executionResult?.candidateRevision === repairCandidate
-                && step.verificationResult?.candidateRevision === repairCandidate && step.verificationResult.passed === false
-                && (rollingBack ? step.baselineRevision === rollbackBaseline && !step.rollbackAuthorization
-                  : Array.isArray(step.repairAuthorizations)
-                    && !step.repairAuthorizations.some(item => item.id === marker.authorizationId))) {
-                await reconcileReceipt(marker, () => currentSnapshot(checked));
-              }
-            }
-            throw failure;
-          } finally {
-            executionPending.value = false;
-            executionRequest.value = null;
-            schedulePoll();
-          }
-        },
-      );
-    });
-  }
-  async function retry(stepId: string, failedCheckpointId: string, baselineRevision: string) {
-    if (busy.value || receipt.value || !navigator.locks) {
-      error.value = "已有请求待核对，或浏览器不支持跨标签页执行锁。请先查询状态。";
-      return;
-    }
-    await run("独立授权完整重试（不调用 AI）", async () => {
-      await navigator.locks.request("delveforge.execute", { ifAvailable: true }, async lock => {
-        if (!lock || readReceipt()) throw new Error("execution locked");
-        const snapshot = await refreshPlan();
-        if (!currentSnapshot(snapshot)) throw new ApiError(409, "CONFLICT");
-        const current = plan.value;
-        const step = current?.steps.find(item => item.id === stepId);
-        const failureId = step?.executionFailureResult?.id ?? step?.rollbackAuthorization?.id;
-        if (!current || current.status !== "ACTIVE" || !step || step.status !== "FAILED"
-          || failureId !== failedCheckpointId || step.baselineRevision !== baselineRevision
-          || !copy.value || copy.value.status !== "EVOLVING"
-          || copy.value.currentRevision !== baselineRevision || copy.value.lastVerifiedRevision !== baselineRevision
-          || !(step.automaticRollbackResult?.restored || step.rollbackResult?.restored)
-          || current.steps.slice(0, current.steps.indexOf(step)).some(item => item.status !== "SUCCEEDED")) {
-          throw new ApiError(409, "CONFLICT");
-        }
-        const marker: ExecutionReceipt = {
-          requestId: crypto.randomUUID(), planId: current.id, stepId, operation: "RETRY",
-          startedAt: new Date().toISOString(), authorizationId: crypto.randomUUID(), failedCheckpointId, baselineRevision,
-        };
-        await writeReceipt(marker, snapshot!);
-        executionRequest.value = marker;
-        executionPending.value = true;
-        schedulePoll();
-        try {
-          const result = await api.retry(current.id, stepId, failedCheckpointId, baselineRevision, marker.authorizationId!);
-          const saved = result.steps.find(item => item.id === stepId);
-          if (saved?.status !== "READY" || !saved.retryAuthorizations?.some(item => item.id === marker.authorizationId
-            && item.failedCheckpointId === failedCheckpointId && item.baselineRevision === baselineRevision)) {
-            throw new ApiError(0, "RESPONSE_UNREADABLE");
-          }
-          setPlan(result);
-          await refreshPlan();
-        } catch (failure) {
-          let checked: AdoptedPlanSnapshot | null = null;
-          try { checked = await refreshPlan(); } catch { pollError.value = "重试授权及当前状态未能核实，保留等待标记。"; }
-          if (currentSnapshot(checked) && failure instanceof ApiError && failure.status > 0
-            && ["INVALID_REQUEST", "CONFLICT", "EXECUTION_CRITERIA_UNSUPPORTED", "ASSET_TYPE_UNSUPPORTED",
-              "ASSET_READ_PERMISSION_REQUIRED", "ASSET_USAGE_AUTHORIZATION_REQUIRED", "ASSET_LICENSE_INFORMATION_REQUIRED",
-              "ASSET_AUTHORIZATION_CONFLICT"].includes(failure.code)) {
-            const actual = plan.value?.steps.find(item => item.id === stepId);
-            if (actual?.status === "FAILED" && actual.baselineRevision === baselineRevision
-              && (actual.executionFailureResult?.id ?? actual.rollbackAuthorization?.id) === failedCheckpointId
-              && copy.value?.status === "EVOLVING" && copy.value.currentRevision === baselineRevision
-              && copy.value.lastVerifiedRevision === baselineRevision && Array.isArray(actual.retryAuthorizations)
-              && !actual.retryAuthorizations.some(item => item.id === marker.authorizationId)) {
-              await reconcileReceipt(marker, () => currentSnapshot(checked));
-            }
-          }
-          throw failure;
-        } finally {
-          executionPending.value = false;
-          executionRequest.value = null;
-          schedulePoll();
-        }
-      });
-    });
   }
   async function loadProjects(more = false, deleted = showingDeletedProjects.value) {
     if (historyLoading.value && deleted === showingDeletedProjects.value) return;
@@ -684,7 +318,6 @@ export function createSession() {
       : ids.planId ? "plan:" + ids.planId : "";
     const switching = previousKey !== workspace.key;
     planVersion++;
-    clearTimeout(timer);
     if (switching) contextEpoch.value++;
     projectContext.value = workspace.context;
     planningRounds.value = [];
@@ -720,7 +353,6 @@ export function createSession() {
     } catch {
       notice.value = "浏览器无法保存项目 ID；刷新后请从项目工作台重新打开。";
     }
-    schedulePoll();
   }
   async function openProject(key: string, adopt = true) {
     let stage: string | null = null;
@@ -779,7 +411,6 @@ export function createSession() {
   function clearNavigation() {
     contextEpoch.value++;
     planVersion++;
-    clearTimeout(timer);
     projectContext.value = null;
     projectIssues.value = [];
     boundProfileRevision.value = null;
@@ -802,15 +433,10 @@ export function createSession() {
     try { localStorage.removeItem(projectKey); } catch {
       notice.value = "浏览器无法清除导航 ID；刷新后仍须核对已删除状态，未决执行标记保留。";
     }
-    // 未决 execute 标记不是导航数据；不删除 executionKey，不把切换视为取消。
   }
 
   function deletionBlocked(project: ProjectSummary) {
-    const marker = readReceipt() ?? receipt.value;
-    return !!marker && (marker.planId === project.planId ||
-      planningRounds.value.some(round => round.key === project.key) &&
-      planningRounds.value.some(round => round.planId === marker.planId)) ||
-      Object.entries(project.stepCounts).some(([status, count]) => count > 0 &&
+    return Object.entries(project.stepCounts).some(([status, count]) => count > 0 &&
         !["PENDING_CONFIRMATION", "SUCCEEDED", "FAILED", "CANCELLED"].includes(status)) ||
       !!project.currentRevision && project.currentRevision !== project.lastVerifiedRevision;
   }
@@ -854,10 +480,7 @@ export function createSession() {
     notice,
     connected,
     selected,
-    executionPending,
-    executionRequest,
     planningAuthorizationIssue,
-    receipt,
     lastChecked,
     pollError,
     projectContext,
@@ -920,18 +543,11 @@ export function createSession() {
     run,
     restore,
     refreshPlan,
-    observeExecution,
-    execute,
-    retry,
-    repair,
-    rollback,
     dispose() {
       disposed = true;
-      clearTimeout(timer);
-      window.removeEventListener("storage", storageChanged);
-    },
+      },
     async importIds(value: SessionIds) {
-      if (busy.value || receipt.value) return;
+      if (busy.value) return;
       const all = [
         value.profileId,
         value.planId,
@@ -1205,7 +821,7 @@ export function createSession() {
     },
     async beginReplanning() {
       const context = projectContext.value;
-      if (!context || receipt.value) return false;
+      if (!context) return false;
       let opened = false;
       await run("建立下一轮规划（不调用 AI）", async () => {
         const successor = await api.beginPlanningRound(context);

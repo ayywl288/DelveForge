@@ -5,10 +5,8 @@ import com.ayywl.delveforge.domain.evolution.CurrentState;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
-import com.ayywl.delveforge.domain.evolution.RepairAuthorization;
 import com.ayywl.delveforge.domain.evolution.TargetState;
 import java.util.List;
-import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
 
 public record EvolutionPlanResponse(String id, String productDirectionId, String baseAssetId,
         String baseRepositoryProfileId, String workingCopyId, CurrentStatePayload currentState,
@@ -23,23 +21,12 @@ public record EvolutionPlanResponse(String id, String productDirectionId, String
                 new TargetStatePayload(target.problem(), target.targetProduct(), target.differentiation()),
                 plan.reusableCapabilities(), plan.changes(), plan.steps().stream().map(step -> new StepPayload(
                         step.id().value(), step.planId().value(), step.goal(), step.scope(), step.plannedChanges(),
-                        step.verificationCriteria(), step.status(), step.baselineRevision(),
-                        step.executionResult(), step.verificationResult(), step.repairAuthorizations(),
-                        step.rollbackAuthorization(), step.rollbackResult(), step.executionFailureResult(),
-                        step.automaticRollbackResult(), step.retryAuthorizations())).toList(),
+                        step.status(), step.baselineRevision(), step.deliveryRevision())).toList(),
                 plan.risks(), plan.evidence().stream().map(EvidenceBasisPayload::from).toList(), plan.status());
     }
 
     public record CurrentStatePayload(String summary, List<String> capabilities, List<String> modules, List<String> limitations) {}
     public record TargetStatePayload(String problem, String targetProduct, String differentiation) {}
     public record StepPayload(String id, String planId, String goal, String scope, List<String> plannedChanges,
-            List<VerificationCriterion> verificationCriteria, EvolutionStepStatus status, String baselineRevision,
-            com.ayywl.delveforge.domain.evolution.ExecutionResult executionResult,
-            com.ayywl.delveforge.domain.evolution.VerificationResult verificationResult,
-            List<RepairAuthorization> repairAuthorizations,
-            com.ayywl.delveforge.domain.evolution.RollbackAuthorization rollbackAuthorization,
-            com.ayywl.delveforge.domain.evolution.RollbackResult rollbackResult,
-            com.ayywl.delveforge.domain.evolution.ExecutionFailureResult executionFailureResult,
-            com.ayywl.delveforge.domain.evolution.AutomaticRollbackResult automaticRollbackResult,
-            List<com.ayywl.delveforge.domain.evolution.RetryAuthorization> retryAuthorizations) {}
+            EvolutionStepStatus status, String baselineRevision, String deliveryRevision) {}
 }

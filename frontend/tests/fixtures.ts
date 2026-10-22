@@ -88,13 +88,9 @@ export const plan = (): EvolutionPlan => ({
       goal: "支持周期调度",
       scope: "reports",
       plannedChanges: ["新增调度配置"],
-      verificationCriteria: [
-        { kind: "TESTS_PASS", description: "调度测试通过" },
-      ],
       status: "READY",
       baselineRevision: null,
-      executionResult: null,
-      verificationResult: null,
+      deliveryRevision: null,
     },
   ],
 });
@@ -112,29 +108,6 @@ export function successfulPlan(): EvolutionPlan {
   result.status = "COMPLETED";
   result.steps[0]!.status = "SUCCEEDED";
   result.steps[0]!.baselineRevision = "a".repeat(40);
-  result.steps[0]!.executionResult = {
-    candidateRevision: "b".repeat(40),
-    changes: ["新增调度配置"],
-    affectedPaths: ["src/ReportService.java"],
-    warnings: [],
-    errors: [],
-    executedAt: "2026-10-10T00:00:00Z",
-  };
-  result.steps[0]!.verificationResult = {
-    candidateRevision: "b".repeat(40),
-    passed: true,
-    failures: [],
-    summary: "合成测试验证结果",
-    verifiedAt: "2026-10-10T00:01:00Z",
-    checks: [
-      {
-        action: "TEST",
-        target: "",
-        criterionIndexes: [1],
-        passed: true,
-        summary: "合成测试通过",
-      },
-    ],
-  };
+  result.steps[0]!.deliveryRevision = "b".repeat(40);
   return result;
 }

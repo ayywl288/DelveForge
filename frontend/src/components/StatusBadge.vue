@@ -18,7 +18,7 @@ const labels: Record<string, string> = {
   READY: "就绪",
   EXECUTING: "正在执行",
   VERIFYING: "正在验证",
-  SUCCEEDED: "验证通过",
+  SUCCEEDED: "交付成功",
   FAILED: "失败",
   VERIFICATION_FAILED: "验证失败",
   RECOVERY_REQUIRED: "需要恢复",

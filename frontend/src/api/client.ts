@@ -20,8 +20,13 @@ import type {
   ResourceKind,
   ResourceSummary,
 } from "./types";
+import type { AgentRun, AgentCandidate, Delivery } from "./agentTypes";
 
 const messages: Record<string, string> = {
+  RUN_CONFLICT: "已有 Agent 正在运行或已冻结结果，请刷新运行记录。",
+  DELIVERY_CONFLICT: "交付占用或授权已变化，请刷新交付状态。",
+  BASELINE_MISMATCH: "冻结结果与当前可信版本不一致，交付已停止。",
+  CANDIDATE_INTEGRITY: "冻结结果完整性校验失败，不能交付。",
   PROJECT_DELETION_BLOCKED: "项目有已授权、执行中或尚未核对的结果，不能删除。READY 也可能正在准备提案；请查询真实状态。",
   EVOLUTION_FLOW_SCOPE_CONFLICT: "流程归属缺失、矛盾或不允许此操作。历史结果仍可查看；不能按路径或画像猜测归属，也不能自动恢复旧计划。",
   PROJECT_CONTEXT_CONFLICT: "项目关联或版本已变化；没有覆盖原项目。请重新打开项目核对，不要重做 AI 调用。",
@@ -217,23 +222,15 @@ export const api = {
     request<EvolutionPlan>(`${plan(value)}/prepare`, "POST"),
   confirmStep: (value: string, step: string) =>
     request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/confirm`, "POST"),
-  execute: (value: string, step: string, retryAuthorizationId?: string) =>
-    request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/execute`, "POST",
-      retryAuthorizationId ? { retryAuthorizationId } : undefined),
-  retry: (value: string, step: string, expectedFailureId: string, expectedBaselineRevision: string,
-    authorizationId: string) => request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/retry`, "POST", {
-      expectedFailureId, expectedBaselineRevision, authorizationId,
-    }),
-  repair: (value: string, step: string, expectedCandidateRevision: string, authorizationId: string, retryAuthorizationId?: string) =>
-    request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/repair`, "POST", {
-      expectedCandidateRevision, authorizationId, ...(retryAuthorizationId ? { retryAuthorizationId } : {}),
-    }),
-  rollback: (value: string, step: string, expectedCandidateRevision: string,
-    expectedBaselineRevision: string, authorizationId: string, retryAuthorizationId?: string) =>
-    request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/rollback`, "POST", {
-      expectedCandidateRevision, expectedBaselineRevision, authorizationId,
-      ...(retryAuthorizationId ? { retryAuthorizationId } : {}),
-    }),
   workingCopy: (value: string) =>
     request<WorkingCopy>(`/working-copies/${id(value)}`),
+  agentRuns: (value: string, step: string, before?: string) =>
+    request<AgentRun[]>(`${plan(value)}/steps/${id(step)}/agent-runs?limit=50${before ? `&before=${id(before)}` : ""}`),
+  startAgent: (value: string, step: string, targetJdk?: number) =>
+    request<AgentRun>(`${plan(value)}/steps/${id(step)}/agent-runs`, "POST", targetJdk ? { targetJdk } : undefined),
+  agentRun: (value: string) => request<AgentRun>(`/agent-runs/${id(value)}`),
+  cancelAgent: (value: string) => request<AgentRun>(`/agent-runs/${id(value)}/cancel`, "POST"),
+  candidate: (value: string) => request<AgentCandidate>(`/agent-candidates/${id(value)}`),
+  delivery: (value: string) => request<Delivery | null>(`/agent-candidates/${id(value)}/delivery`),
+  deliver: (value: string) => request<Delivery>(`/agent-candidates/${id(value)}/delivery`, "POST"),
 };

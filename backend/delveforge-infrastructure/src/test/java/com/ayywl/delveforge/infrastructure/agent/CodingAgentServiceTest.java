@@ -35,7 +35,6 @@ import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
 import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
 import com.ayywl.delveforge.domain.evolution.TargetState;
-import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
 import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
 import com.ayywl.delveforge.domain.evolution.WorkingCopyStatus;
@@ -76,6 +75,11 @@ class CodingAgentServiceTest {
     AgentSandboxPort sandbox;
 
     static ExecutionPreparationState eligibility(String baseline, Path official, WorkingCopyInspectionPort inspection) {
+        return eligibility(baseline, official, inspection, official.getParent().resolve("original"));
+    }
+
+    static ExecutionPreparationState eligibility(String baseline, Path official, WorkingCopyInspectionPort inspection,
+            Path original) {
         var assetId = new SoftwareAssetId("asset");
         var profileId = new RepositoryProfileId("profile");
         var planId = new EvolutionPlanId("plan");
@@ -88,12 +92,11 @@ class CodingAgentServiceTest {
                 List.of(), List.of("修复递增逻辑"), List.of(EvolutionStep.reconstitute(stepId, planId,
                         "先运行现有测试观察失败，再修复 Counter.next(n) 返回 n+1，新增边界测试并重跑完整测试", "Counter",
                         List.of("发现实际文件并修改", "增加独立的边界测试类", "运行完整Maven测试"),
-                        List.of(VerificationCriterion.technical(VerificationCriterion.Kind.FULL_TEST_SUITE_PASSES)),
                         EvolutionStepStatus.READY)), List.of(), List.of(evidence), copyId, EvolutionPlanStatus.ACTIVE);
         WorkingCopy copy = WorkingCopy.reconstitute(copyId, assetId, baseline, official.toString(), baseline,
                 baseline, WorkingCopyStatus.READY);
         SoftwareAsset asset = SoftwareAsset.create(assetId, SoftwareAssetType.GIT_REPOSITORY,
-                SoftwareAssetSource.USER_SPECIFIED, official.getParent().resolve("original").toString(), true,
+                SoftwareAssetSource.USER_SPECIFIED, original.toString(), true,
                 "MIT", UsageAuthorization.ALLOWED);
         ProductDirection direction = ProductDirection.create(new ProductDirectionId("direction"), new UserProfileId("user"),
                 1, List.of(profileId), "title", "problem", "target", "match", List.of(assetId), "difference", "value", "small",
@@ -189,6 +192,29 @@ class CodingAgentServiceTest {
             assertEquals(AgentRunState.FAILED, terminal.state());
             assertEquals("REPLAY_MISMATCH", terminal.reason());
             assertEquals(null, terminal.candidateId());
+        }
+    }
+
+    @Test
+    void failedAttemptCanStartFreshAndFreezeWithoutChangingConfirmedStep() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AgentModelPort model = (history, tools) -> {
+            if (requests.incrementAndGet() == 1) {
+                throw new AgentException("PROVIDER_UNAVAILABLE", "injected");
+            }
+            return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), null);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String failed = service.start("plan", "step", null).id();
+            assertEquals(AgentRunState.FAILED, awaitTerminal(service, failed, 10).state());
+            String retry = service.start("plan", "step", null).id();
+            assertNotEquals(failed, retry);
+            assertEquals(AgentRunState.SUCCEEDED, awaitTerminal(service, retry, 10).state());
+            var loaded = eligibility.loadDeliveryMetadata(new EvolutionPlanId("plan"), new EvolutionStepId("step"));
+            assertEquals(EvolutionStepStatus.READY, loaded.plan().step(new EvolutionStepId("step")).status());
+            assertEquals("a".repeat(40), loaded.copy().lastVerifiedRevision());
+            verify(sandbox, times(2)).prepare(any(), any(), any());
         }
     }
 

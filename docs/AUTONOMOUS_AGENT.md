@@ -1,7 +1,7 @@
-# Autonomous Coding Agent — Task 1
+# Autonomous Coding Agent and Delivery
 
 本路径以 [ADR-0012](decisions/0012-autonomous-agent-sandbox-and-frozen-candidate.md) 为设计依据。
-运行证据独立记录在 [验收报告](validation/task1-autonomous-agent.md)。Candidate 冻结不等于正式 Delivery。
+运行证据独立记录在 [验收报告](validation/task1-autonomous-agent.md)。Candidate 冻结不等于正式 Delivery。正式交付依据 [ADR-0013](decisions/0013-frozen-candidate-delivery.md)。
 
 ## Ownership and invocation
 
@@ -170,6 +170,54 @@ V22 已用于本地运行与独立验收，保持原迁移校验和；V23 为仍
 排除已冻结成功与明确 NO_CHANGES。迁移不能恢复已被旧版本删除的文件；本轮只在测试数据库执行迁移。
 重启不续接对话、不覆盖成功 Candidate。
 
-Task 2 通过 AgentStore.candidate(id) 或候选 API 消费上述冻结合同，不必重新调用模型或依赖存活沙箱。
-Delivery 应重新核对正式 WorkingCopy 精确位于 A，校验 diff hash，并独立应用/比较 B。
-正式 commit、WorkingCopy 信任推进、Step 成功、完整 Git/SQLite Delivery 恢复和前端 SSE 尚未实现。
+## Deterministic Delivery (Task 2)
+
+成功 Run 清理并释放其预约后，系统发现冻结 Candidate，自动交给独立 CandidateDeliveryService。
+同 Candidate 只有一个持久化 Delivery 身份，不重跑模型，也不需要沙箱继续存在。
+INTENT 在任何正式 Git 写入前提交，候选 diff 在独立 index 重放；实际 index、完整 tracked 内容、
+额外文件、路径、attributes 与 Git 安全现场均检查。普通 text/EOL 转换允许经过独立字节等价证明；
+不执行项目自定义 filter、hook 或任意命令。commit-tree 使用 DelveForge 系统身份，parent=A/tree=B；
+保存 C 后 update-ref 以 A 作旧值 CAS 发布。发布后重新证明 C 与文件，短 SQLite 事务才接受 Step。
+此事务同时写 Step SUCCEEDED/baseline A/delivery C、WorkingCopy 两个 revision C、Delivery COMPLETED、
+完成事件和释放预约。Candidate 不修改，NOT_TESTED 原样显示。
+
+重启先协调 Agent 占用与材料，再处理交付日志和未交付 Candidate：
+
+| 实际现场 | 行为 |
+| --- | --- |
+| INTENT + 干净 A | 重新核对授权、重放并继续 |
+| HEAD=A，index/文件完整等于 B | 不再次应用；创建/复用已记录 C 后发布 |
+| HEAD=已记录 C，parent=A/tree=B，文件完整 | 接受尚未提交的 SQLite 事实 |
+| SQLite 已是 COMPLETED | 返回相同结果，不新增 commit |
+| 干净 A 上的确定拒绝 | DELIVERY_BLOCKED，保留身份，用户可请求重新核对 |
+| 部分 index/文件、额外外部修改、未知 ref/数据库 | RECOVERY_REQUIRED，保留现场和预约，不自动 reset/clean |
+
+已知 Git 结果但 SQLite 暂不可用时保留可恢复检查点与 DELIVERY_PENDING 事件；异常后先读回是否已经提交。
+冻结结果的首次发现若不能预约，记录阻塞事件，本进程不无限自动重试该结果；明确请求仍会重新校验。
+新 Step 的 goal/scope/plannedChanges 不再要求 M4/M5 VerificationStrategy 或精确文件/命令。
+旧 execute、execution-preparation、repair、retry、rollback 路由及其编排已删除。
+V25 归档旧执行行并停用相关 Plan；生产迁移应先备份数据库，现有代码副本不会由迁移删除或覆盖。
+
+## API and persisted progress
+
+新增接口：
+
+```text
+GET  /api/evolution-plans/{planId}/steps/{stepId}/agent-runs?limit=50&before={runId}
+GET  /api/agent-runs/{runId}/stream?after=0
+GET  /api/agent-candidates/{candidateId}/delivery
+POST /api/agent-candidates/{candidateId}/delivery
+```
+
+显式交付请求只消费现有冻结结果，可重复调用。历史 Run 每页最多 100。
+SSE 的 activity 事件 ID 是 SQLite 全局递增 sequence，查询仍按 Run 隔离；after/Last-Event-ID 为严格排除游标。
+历史与后续事件始终来自相同有界数据库查询，每页 100，避免 replay/live 切换窗口。
+心跳检测断开的连接，订阅结束释放资源；同应用最多 64 个订阅。
+前端按事件 ID 去重，页面重开从持久化历史恢复；不估算百分比、思维过程或未知 token。
+默认仅监听 loopback；开发接口不应暴露到不受信任网络。
+
+Vue 实施页分别显示 Step、Run 与 Delivery；可明确开始、取消或启动新的失败尝试。
+已有成功 Candidate 时不提供重复编码；可查看检查证据、changedPaths、冻结 diff 和正式结果文件列表。
+恢复要求原始位置仍可读、托管根仍在配置许可内；不能用挪动路径或猜测来源绕过边界。
+
+实际验收和限制见 [Task 2 验收](validation/task2-autonomous-evolution.md)。

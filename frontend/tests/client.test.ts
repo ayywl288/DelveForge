@@ -4,9 +4,9 @@ import { api, ApiError, request } from "../src/api/client";
 describe("真实 DTO 请求契约", () => {
   it("区分执行预检、Provider 与代码提案错误，不展示原始响应且不自动重试", async () => {
     const cases = [
-      [422, "EXECUTION_CRITERIA_UNSUPPORTED", "重复点击执行不会解决"],
-      [502, "EXECUTION_AI_FAILED", "Provider 响应处理失败"],
-      [422, "CODING_PROPOSAL_INVALID", "未通过解析或契约校验"],
+      [422, "RUN_CONFLICT", "已有 Agent"],
+      [502, "DELIVERY_CONFLICT", "交付占用"],
+      [422, "CANDIDATE_INTEGRITY", "完整性校验失败"],
     ] as const;
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
@@ -14,7 +14,7 @@ describe("真实 DTO 请求契约", () => {
       fetcher.mockResolvedValueOnce(new Response(
         JSON.stringify({ code, message: "PRIVATE_PROMPT_PROVIDER_CREDENTIAL" }), { status },
       ));
-      await expect(api.execute("plan", "step")).rejects.toThrow(text);
+      await expect(api.startAgent("plan", "step")).rejects.toThrow(text);
       expect(new ApiError(status, code).message).not.toContain("PRIVATE_PROMPT_PROVIDER_CREDENTIAL");
       expect(new ApiError(status, code).message).not.toContain("重试即可");
     }
@@ -60,7 +60,7 @@ describe("真实 DTO 请求契约", () => {
     await api.decideDirection("d", "reject");
     await api.prepare("plan");
     await api.confirmStep("plan", "step");
-    await api.execute("plan", "step");
+    await api.startAgent("plan", "step");
     expect(
       fetcher.mock.calls.map(([url, options]) => [
         url,
@@ -102,7 +102,7 @@ describe("真实 DTO 请求契约", () => {
       ["/api/product-directions/d/reject", "POST", undefined],
       ["/api/evolution-plans/plan/prepare", "POST", undefined],
       ["/api/evolution-plans/plan/steps/step/confirm", "POST", undefined],
-      ["/api/evolution-plans/plan/steps/step/execute", "POST", undefined],
+      ["/api/evolution-plans/plan/steps/step/agent-runs", "POST", undefined],
     ]);
     expect(
       fetcher.mock.calls.every(([, options]) => options.signal === undefined),

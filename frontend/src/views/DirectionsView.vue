@@ -78,7 +78,7 @@ function decide() {
       生成方向需要已确认的 UserProfile。
     </p>
     <button
-      :disabled="!!s.busy || !eligible || !!s.receipt"
+      :disabled="!!s.busy || !eligible"
       @click="s.discover(repositoryIds)"
     >
       生成候选方向（调用 AI）
@@ -115,7 +115,7 @@ function decide() {
       <div v-if="viewed.status === 'CANDIDATE' || viewed.status === 'SELECTED'" class="direction-decision">
         <div v-if="viewed.status === 'CANDIDATE'" class="actions detail-actions">
           <button
-            :disabled="!!s.busy || stale(viewed) || !!s.receipt"
+            :disabled="!!s.busy || stale(viewed)"
             @click="decision = { direction: viewed, action: 'select' }"
           >
             <NavigationIcon name="check" />选择此方向

@@ -65,7 +65,7 @@ import java.util.UUID;
  *
  * <h2>只读能力边界</h2>
  *
- * <p>本类只依赖 {@link WorkspaceReadPort}：它没有 {@code WorkspaceMutationPort} 的引用，
+ * <p>本类只依赖 {@link WorkspaceReadPort}：它没有 {@code CandidateDeliveryPort} 的引用，
  * 也不直接执行 Git / Shell / 文件系统操作（RULE-ARCH-009、RULE-ARCH-010）。
  * Repository Analysis 对原始软件资产保持只读（RULE-DOM-005）。
  *

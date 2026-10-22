@@ -1,7 +1,7 @@
 import type { ProjectStage } from "../api/types";
 
 export const stageLabels: Record<ProjectStage, string> = {
-  DISCOVERY: "需求探索", REPOSITORY: "理解仓库", DIRECTION: "产品方向", PLANNING: "演化规划", EVOLUTION: "验证演化",
+  DISCOVERY: "需求探索", REPOSITORY: "理解仓库", DIRECTION: "产品方向", PLANNING: "演化规划", EVOLUTION: "实施演化",
 };
 export function stageIndex(stage: string | null): number {
   return ["DISCOVERY", "REPOSITORY", "DIRECTION", "PLANNING", "EVOLUTION"].indexOf(stage ?? "");

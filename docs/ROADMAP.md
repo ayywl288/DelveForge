@@ -9,15 +9,15 @@
 
 ## 1. Current Goal
 
-**2026-10-22：Task 1 — Autonomous Coding Agent Core 独立验收修复及 Git 交接完成，READY；Task 2 未启动。**
-以 [ADR-0012](decisions/0012-autonomous-agent-sandbox-and-frozen-candidate.md) 和本次任务验收条件为准：
-真实多轮工具调用、一次性 Docker 沙箱、普通 Maven 工程与有界 JDK 环境、受限依赖准备、
-事件/取消/重试，以及经过 Git tree 重放的 SQLite Candidate。M1–M3 保留。
-本次授权替代下文旧实验的停止/冻结指令；不授权正式 WorkingCopy Delivery、后续 Step 自动执行或发布。
-验收证据见 [Task 1 验收](validation/task1-autonomous-agent.md)。2026-10-22 独立审查的 FAIL 保留为历史：
-FTP 代理隔离、崩溃后材料保留、成功冻结后的重复预约已修复、实际回归并纳入专用 Git checkpoint。
-本轮聚焦 25 项通过；冻结输入的完整后端 verify 为 2042 tests / 2040 passed / 2 Provider skips，
-0 failures/errors，全部模块 BUILD SUCCESS。专用 Git checkpoint 与最终交接状态见验收报告。
+**2026-10-22：Task 2 已完成本轮实现与验收，Readiness：READY。起点为 Task 1 检查点 c8fa923。**
+本轮明确授权完成单 Step Agent→Candidate→自动 Delivery→正式可信 commit 的完整流程，
+同时替代冲突的旧执行路径、调整 M3 Step 合同并提供持久化 SSE 和 Vue 活动时间线。
+该授权包含交付恢复；不包含后续 Step 自动执行、Push、发布或真实数据库重置。
+完整后端 verify 实际执行 1,434 项，0 失败，22 项 gated 跳过；真实 Docker 19 项另行通过，真实模型
+两 Step 自动交付通过，五种新进程恢复通过。前端 97 项及类型/构建通过；最终包浏览器回放、断线重连
+与活动 SSE 停机补验通过。证据范围与不支持的情形保留在验收报告，不把跳过算作通过。
+当前结果见 [Task 2 验收](validation/task2-autonomous-evolution.md)。
+下文旧里程碑与实验状态保留历史背景，不撤销本轮 Task 2 授权。
 
 2026-10-19 用户另行授权 **M4/M5 Reliability Hardening — Full Evolution Closure**：在本轮
 独立环境及累计人民币 10 元预算内，按 Spring REST → TodoList → ExpenseTracker 诊断、最小

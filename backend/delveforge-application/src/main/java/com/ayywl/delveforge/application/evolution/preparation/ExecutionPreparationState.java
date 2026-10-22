@@ -81,40 +81,11 @@ public final class ExecutionPreparationState {
         return new Loaded(plan, copy, asset);
     }
 
-    public Loaded loadRepairCandidate(EvolutionPlanId id, EvolutionStepId stepId) {
+    /** Delivery 恢复期间物理 Git 可能已到 C；这里只检查授权与数据库可信基线。 */
+    public Loaded loadDeliveryMetadata(EvolutionPlanId id, EvolutionStepId stepId) {
         Loaded loaded = loadObjects(id, stepId);
-        policy.requireRepairAllowed(loaded.plan(), stepId, loaded.copy());
-        inspection.requireTrustedState(new WorkspaceRef(loaded.copy().location()),
-                new WorkspaceRef(loaded.asset().location()), loaded.copy().currentRevision());
+        policy.requireExecutionAllowed(loaded.plan(), stepId, loaded.copy());
         return loaded;
-    }
-
-    /** 回滚授权前只读核对已失败 Candidate，不清理或接受额外用户修改。 */
-    public Loaded loadRollbackCandidate(EvolutionPlanId planId, EvolutionStepId stepId) {
-        Loaded loaded = loadObjects(planId, stepId);
-        policy.requireRollbackAllowed(loaded.plan(), stepId, loaded.copy());
-        inspection.requireTrustedState(new WorkspaceRef(loaded.copy().location()),
-                new WorkspaceRef(loaded.asset().location()), loaded.copy().currentRevision());
-        return loaded;
-    }
-
-    /** Retry 授权前重新证明原 baseline；FAILED 元数据本身不能替代真实文件证明。 */
-    public Loaded loadRetryFailure(EvolutionPlanId id, EvolutionStepId stepId) {
-        Loaded loaded = loadObjects(id, stepId);
-        policy.requireRetryAllowed(loaded.plan(), stepId, loaded.copy());
-        inspection.requireTrustedState(new WorkspaceRef(loaded.copy().location()),
-                new WorkspaceRef(loaded.asset().location()), loaded.plan().step(stepId).baselineRevision());
-        return loaded;
-    }
-
-    /** 只供新授权调用内的准备使用；REST 不提供重启后重放此检查点的入口。 */
-    public Loaded revalidateRepair(Loaded expected, EvolutionStepId stepId) {
-        EvolutionStep step = expected.plan().step(stepId);
-        if (step.status() != EvolutionStepStatus.EXECUTING || step.repairAuthorizations().isEmpty()
-                || step.executionResult() != null || step.verificationResult() != null) {
-            throw new EvolutionPlanStateException("Repair preparation requires its uncompleted authorization checkpoint");
-        }
-        return requireCheckpoint(expected, stepId, step.executionStartRevision());
     }
 
     public Loaded revalidate(Loaded expected, EvolutionStepId stepId, boolean confirmation) {
@@ -122,73 +93,12 @@ public final class ExecutionPreparationState {
         if (!actual.copy().id().equals(expected.copy().id())
                 || !actual.copy().lastVerifiedRevision().equals(expected.copy().lastVerifiedRevision())
                 || !actual.copy().location().equals(expected.copy().location())
-                || !actual.asset().location().equals(expected.asset().location())
-                || !actual.plan().step(stepId).retryAuthorizations()
-                        .equals(expected.plan().step(stepId).retryAuthorizations())) {
-            throw new EvolutionPlanStateException("Execution preparation basis changed");
+                || !actual.asset().location().equals(expected.asset().location())) {
+            throw new EvolutionPlanStateException("Step confirmation basis changed");
         }
         return actual;
-    }
-
-    /**
-     * 核对持久化检查点和指定的物理 revision。mutation 后、记录 Candidate 前，数据库仍可保留 A，
-     * 因此物理 revision 由编排明确传入，不能直接用 currentRevision 替代。
-     */
-    public Loaded requireCheckpoint(Loaded expected, EvolutionStepId stepId, String physicalRevision) {
-        Loaded actual = requireCheckpointMetadata(expected, stepId);
-        inspection.requireTrustedState(new WorkspaceRef(actual.copy().location()),
-                new WorkspaceRef(actual.asset().location()), physicalRevision);
-        return actual;
-    }
-
-    /** 失败现场可能有未发布写入；此入口只核对保存的资格，不赋予物理现场可信性。 */
-    public Loaded requireCheckpointMetadata(Loaded expected, EvolutionStepId stepId) {
-        EvolutionPlan plan = plans.findById(expected.plan().id())
-                .orElseThrow(() -> new EvolutionPlanNotFoundException(expected.plan().id()));
-        plans.requireFlowBinding(plan);
-        WorkingCopy copy = copies.findById(expected.copy().id())
-                .orElseThrow(() -> new WorkingCopyNotFoundException(expected.copy().id()));
-        SoftwareAsset asset = assets.findById(plan.baseAssetId())
-                .orElseThrow(() -> new SoftwareAssetNotFoundException(plan.baseAssetId()));
-        EvolutionStep step = plan.step(stepId);
-        EvolutionStep previous = expected.plan().step(stepId);
-        new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
-        if (plan.status() != EvolutionPlanStatus.ACTIVE
-                || !Objects.equals(plan.workingCopyId(), expected.plan().workingCopyId())
-                || directions.findById(plan.productDirectionId()).orElseThrow().status()
-                        != ProductDirectionStatus.SELECTED
-                || step.status() != previous.status() || !Objects.equals(step.baselineRevision(),
-                        previous.baselineRevision())
-                || !Objects.equals(step.executionResult(), previous.executionResult())
-                || !Objects.equals(step.verificationResult(), previous.verificationResult())
-                || !step.repairAuthorizations().equals(previous.repairAuthorizations())
-                || !step.retryAuthorizations().equals(previous.retryAuthorizations())
-                || !Objects.equals(step.rollbackAuthorization(), previous.rollbackAuthorization())
-                || !Objects.equals(step.rollbackResult(), previous.rollbackResult())
-                || !Objects.equals(step.executionFailureResult(), previous.executionFailureResult())
-                || !Objects.equals(step.automaticRollbackResult(), previous.automaticRollbackResult())
-                || !step.goal().equals(previous.goal()) || !step.scope().equals(previous.scope())
-                || !step.plannedChanges().equals(previous.plannedChanges())
-                || !step.verificationCriteria().equals(previous.verificationCriteria())
-                || copy.status() != expected.copy().status()
-                || !Objects.equals(copy.currentRevision(), expected.copy().currentRevision())
-                || !Objects.equals(copy.lastVerifiedRevision(), expected.copy().lastVerifiedRevision())
-                || !copy.location().equals(expected.copy().location())
-                || !asset.location().equals(expected.asset().location())) {
-            throw new EvolutionPlanStateException("Execution checkpoint changed");
-        }
-        return new Loaded(plan, copy, asset);
-    }
-
-    /** 仅回读已保存事实，不检查或授予新的执行资格。 */
-    public EvolutionPlan readStoredPlan(EvolutionPlanId id) {
-        return plans.findById(id).orElseThrow(() -> new EvolutionPlanNotFoundException(id));
     }
 
     public record Loaded(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset asset) {
-        public ExecutionPreparationBasis basis(EvolutionStepId id) {
-            return new ExecutionPreparationBasis(plan.id(), id, copy.id(), copy.lastVerifiedRevision(), null,
-                    plan.step(id).retryAuthorizationId());
-        }
     }
 }

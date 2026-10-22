@@ -2,9 +2,8 @@ package com.ayywl.delveforge.app.api.evolutionplan;
 
 import com.ayywl.delveforge.application.port.ai.*;
 import com.ayywl.delveforge.application.port.persistence.*;
-import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
+import com.ayywl.delveforge.application.port.workspace.CandidateDeliveryPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
-import com.ayywl.delveforge.application.port.workspace.WorkspaceRollbackPort;
 import com.ayywl.delveforge.domain.asset.*;
 import com.ayywl.delveforge.domain.direction.*;
 import com.ayywl.delveforge.domain.evidence.*;
@@ -47,7 +46,7 @@ class EvolutionPlanningApiIntegrationTest {
 {"currentState":{"summary":"Existing exports","capabilities":["Export"],"modules":["reports"],"limitations":["No scheduling"]},
 "targetState":{"problem":"Manual exports","targetProduct":"Scheduled reports","differentiation":"Personal schedule"},
 "reusableCapabilities":["Render"],"changes":["Add scheduling"],
-"steps":[{"goal":"Schedule reports","scope":"Reporting scheduling","plannedChanges":["Add scheduling"],"verificationCriteria":[{"kind":"UNSUPPORTED","description":"Reports run on schedule"}]}],
+"steps":[{"goal":"Schedule reports","scope":"Reporting scheduling","plannedChanges":["Add scheduling"]}],
 "risks":[],"evidence":["R-E1","D-E1"]}
             """;
     private static final String REQUEST = """
@@ -66,9 +65,9 @@ class EvolutionPlanningApiIntegrationTest {
     @MockitoBean AiGateway ai;
     @MockitoBean(extraInterfaces = {
             com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort.class,
-            com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort.class, WorkspaceRollbackPort.class})
+            com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort.class})
     WorkspaceReadPort reads;
-    @MockitoBean WorkspaceMutationPort mutations;
+    @MockitoBean CandidateDeliveryPort mutations;
     private static final SoftwareAssetId ASSET = new SoftwareAssetId("asset");
     private static final RepositoryProfileId PROFILE = new RepositoryProfileId("profile");
     private static final Evidence FACT = new Evidence(EvidenceSourceType.REPOSITORY, "src/report", "Existing report exports", 0.8, true);
@@ -100,9 +99,9 @@ class EvolutionPlanningApiIntegrationTest {
                 new TargetState("Manual exports", "Scheduled reports", "Personal schedule"),
                 List.of("Render", "Export"), List.of("Add scheduling"),
                 List.of(new PlanningStepProposal("Schedule reports", "Reporting scheduling",
-                        List.of("Add scheduling capability"), List.of(VerificationCriterion.unsupported("Reports run at the user-selected time"))),
+                        List.of("Add scheduling capability")),
                         new PlanningStepProposal("Expose schedule management", "Personal schedule controls",
-                        List.of("Manage schedules"), List.of(VerificationCriterion.unsupported("Users can change schedules")))),
+                        List.of("Manage schedules"))),
                 List.of("Missed reports"), List.of(BASIS));
     }
 

@@ -131,9 +131,9 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
           </div>
           <div class="project-stage"><span class="meta">当前阶段</span><span>{{ stageLabels[project.stage] }}</span></div>
           <div class="project-activity">
-            <p v-if="project.planId && project.totalSteps" class="project-progress"><strong>{{ project.succeededSteps }}/{{ project.totalSteps }}</strong> 个 Step 已验证通过</p>
+            <p v-if="project.planId && project.totalSteps" class="project-progress"><strong>{{ project.succeededSteps }}/{{ project.totalSteps }}</strong> 个 Step 已完成交付</p>
             <progress v-if="project.planId && project.totalSteps" :max="project.totalSteps" :value="project.succeededSteps"
-              :aria-label="`${project.name}：${project.succeededSteps}/${project.totalSteps} 个 Step 已验证通过`" />
+              :aria-label="`${project.name}：${project.succeededSteps}/${project.totalSteps} 个 Step 已完成交付`" />
             <p v-else class="meta">{{ project.planId ? '计划尚无步骤' : '尚未生成计划' }}</p>
             <p class="meta">{{ project.lastActivity ? '最近保存 ' : '未保存活动时间' }}<time v-if="project.lastActivity" :datetime="project.lastActivity">{{ new Date(project.lastActivity).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' }) }}</time></p>
           </div>
@@ -150,7 +150,7 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
             <NavigationIcon name="warning" />{{ project.issues.length }} 项需要核对
           </button>
           <p v-if="!project.deletedAt && s.deletionBlocked(project)" class="meta deletion-blocked">
-            已授权或未决执行期间不能删除；请查询真实状态，不要重复 execute。
+            已授权或未决执行期间不能删除；请先核对运行与交付状态。
           </p>
         </div>
       </article>
@@ -197,7 +197,7 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
         <h3>工作台管理</h3>
         <p class="meta">仅管理导航记录；业务结果、本地代码与验证版本保留。</p>
         <template v-if="!inspected.deletedAt">
-          <p v-if="s.deletionBlocked(inspected)" class="deletion-blocked">已授权或未决执行期间不能删除；请查询真实状态，不要重复 execute。</p>
+          <p v-if="s.deletionBlocked(inspected)" class="deletion-blocked">已授权或未决执行期间不能删除；请先核对运行与交付状态。</p>
           <button class="secondary project-delete" :disabled="!!s.busy || s.deletionBlocked(inspected)" @click="requestDelete(inspected)">删除项目</button>
         </template>
         <button v-else class="secondary" :disabled="!!s.busy" @click="s.restoreProject(inspected)">恢复到工作台</button>

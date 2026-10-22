@@ -20,7 +20,7 @@ DelveForge 是一个面向开发者的个性化项目探索与演化 Agent。
 
 它通过 AI 对话理解用户的兴趣、痛点、技术能力和项目目标，分析已有 Git 仓库的功能与可复用资产，再提出个性化产品方向和演化计划。
 
-在此基础上，DelveForge 还尝试通过 Agent 修改独立 WorkingCopy 中的代码，并使用构建、测试与 Git 检查验证结果。
+在此基础上，用户可逐步授权 Coding Agent 在 Docker 沙箱中编码与检查。冻结 Candidate 后，系统自动校验并交付到独立 WorkingCopy，接受正式 Git commit 后才将 Step 标记成功。
 
 **目前更适合体验需求探索、仓库理解、方向发现与演化规划。代码自动演化仍处于实验性阶段，不能保证稳定完成。**
 
@@ -34,8 +34,8 @@ DelveForge 提供项目工作台，以及从需求探索到代码验证的五个
 | 💬 **User Discovery** | 通过多轮 AI 对话探索需求，生成六维用户画像，由用户审阅、纠正并确认 |
 | 🔍 **Repository Understanding** | 只读分析本地 Git 仓库，识别模块、技术栈、已有能力、可复用资产、限制和风险 |
 | 💡 **Product Direction** | 结合用户需求与已有代码，生成个性化产品方向，展示依据与风险，由用户选择 |
-| 📋 **Evolution Planning** | 为选定方向生成演化计划，拆分步骤、修改范围和验收标准 |
-| 🧪 **Verified Evolution（实验性）** | 经用户授权后，尝试在独立 WorkingCopy 中修改代码并执行验证；提案或验证失败时可能无法完成 Step |
+| 📋 **Evolution Planning** | 为选定方向生成演化计划，拆分目标、范围和计划变更 |
+| 🧪 **Autonomous Evolution（实验性）** | 经逐 Step 授权后，在隔离沙箱中多轮编码与 Maven 检查；冻结结果自动交付，展示真实活动与交付状态 |
 
 ### 🧭 Workflow
 
@@ -50,16 +50,16 @@ Plan Incremental Evolution
         ↓
 Review & Confirm Steps
         ↓
-Attempt Code Evolution
+Run Coding Agent in Docker
         ↓
-Verify Candidate Changes
+Freeze Candidate → Deliver & Accept Git Revision
 ```
 
 DelveForge 不会自动替用户决定产品方向，也不会在选择方向后直接修改代码。
 
 **AI Proposes, Domain Decides.**
 
-AI 提出建议，系统检查结构、依据、授权和状态。代码修改只有满足相应验证要求后，才能成为可信的 Verified Revision。
+AI 提出建议，系统检查结构、依据、授权和状态。正式可信版本来自确定性交付；测试证据单独记录，NOT_TESTED 不会冒充测试通过。
 
 ## 🖼️ Screenshots
 
@@ -93,11 +93,11 @@ Git 仓库分析、功能模块与可复用资产。
 
 ![Evolution Planning](docs/images/evolution-planning.png)
 
-### 🧪 Verified Evolution
+### 🧪 Autonomous Evolution
 
 查看 Step、WorkingCopy、代码修改与实际验证结果。
 
-![Verified Evolution](docs/images/verified-evolution.png)
+![Autonomous Evolution](docs/images/autonomous-evolution.png)
 
 ## 🚀 Quick Start
 
@@ -110,6 +110,7 @@ Git 仓库分析、功能模块与可复用资产。
 - **Node.js**：`^20.19.0` 或 `>=22.12.0`
 - **pnpm 12.9.1**
 - **DeepSeek API Key**
+- 运行 Coding Agent 还需 **Linux Docker Engine API 1.48+** 和本地可信工具镜像，准备方式见 [Agent 运行说明](docs/AUTONOMOUS_AGENT.md#environment)。
 
 Maven Wrapper 已内置，SQLite 无需单独安装数据库服务。
 
@@ -126,7 +127,7 @@ cd DelveForge
 根据提示输入 **DeepSeek API Key**，其余配置直接回车即可使用默认值。
 
 从仓库根目录启动时，SQLite 默认固定为 `data/delveforge.db`，不需要每次设置数据库环境变量。
-空库首次启动由 Flyway 初始化至 V21；之后重启复用同一份库，不会每次清空。正常启动不会替你归档或清空已有数据库。原 `data/m4-local`、其它旧库及 WorkingCopy 均保留。
+当前代码由 Flyway 向前迁移至 V25，正常重启复用原库。V25 会归档旧 M4/M5 执行行并停用相关计划，保留原代码副本与其他业务数据；升级前请备份原库。开发验收使用独立数据库，不覆盖默认数据。迁移与恢复说明见 [Agent 运行说明](docs/AUTONOMOUS_AGENT.md)。
 切换到此新环境前先确认旧请求结束并正常停止旧服务；保留原浏览器存储，使用独立的 Edge 配置文件访问页面，不能清除未知执行标记来绕过等待。
 
 脚本会自动检查环境、构建后端、安装前端依赖，并启动 Spring Boot 和 Vite。首次运行需要联网下载相关依赖。
@@ -211,9 +212,9 @@ cd gs-rest-service
 4. 运行仓库分析，查看已有功能、结构和可复用能力。
 5. 在 **Product Direction** 中生成并选择感兴趣的方向。
 6. 通过 **Evolution Planning** 生成并审阅演化计划。
-7. 如果愿意继续实验，可以准备 WorkingCopy、确认 Step，并尝试执行代码演化。
+7. 准备 WorkingCopy、确认一个 Step，进入实施页启动 Agent。查看工具活动、检查证据和自动 Delivery；后续 Step 仍需分别确认、启动。
 
-**推荐先体验前六步。** 第七步对仓库、执行环境、模型提案和验收标准要求更高，目前不保证成功。
+代码演化仍受模型、项目依赖和运行环境影响；失败尝试可从可信版本重新开始，已有冻结结果则重新核对交付。
 
 三个 Demo 均经过各自的基线构建验证，但 **BUILD_READY 不代表 AI 演化已经成功**。
 
@@ -237,9 +238,7 @@ DelveForge 曾完成过两次真实 Provider 驱动的受控代码演化：
 
 **这些都是特定版本、特定 Step 的历史成功案例，并不代表现在能够稳定复现。**
 
-实际测试表明，即使仓库满足基本运行条件，模型生成的 CodingProposal 仍可能不符合领域契约，或者 Step 包含当前执行器无法自动验证的验收标准。
-
-系统会对提案与执行条件进行校验，拒绝不满足约束的操作，但这种安全拒绝并不等于成功完成演化。
+当前 Task 2 已替换上述历史版本的一次性 CodingProposal、独立 Repair / Rollback 路径。Agent 成功、Candidate 冻结与 Step 交付成功分别记录；实际执行和恢复证据见 [Task 2 验收](docs/validation/task2-autonomous-evolution.md)。
 
 因此，目前代码演化主要用于实验与工程验证，**不应被视为可靠的通用 AI Coding 工具**。
 
@@ -249,20 +248,20 @@ DelveForge 曾完成过两次真实 Provider 驱动的受控代码演化：
 - **Bounded Understanding**：仓库分析受材料预算、模型输出和代码覆盖范围限制，无法保证充分理解大型或复杂项目。
 - **Analysis First**：需求探索、仓库分析、方向发现与规划是当前推荐体验的核心能力，但这些 AI 阶段也可能因领域校验失败而中断。
 - **Experimental Evolution**：代码修改与验证主要针对受信任的小型 Java/Maven 仓库，即使是 Demo 或历史成功过的仓库也不保证再次演化成功。
-- **Limited Verification**：当前主要支持 Maven 构建、Java 测试及 Git Diff 检查；无法自动验证的验收标准会阻止对应 Step 执行。
-- **No OS Sandbox**：WorkingCopy 与原始仓库分离，但本机 Maven 构建和测试不是操作系统级沙箱。请仅使用可信仓库与测试数据。
-- **M5 PARTIAL**：已实现明确 Verification Failure、独立授权 Repair / User Rollback、受控 Automatic Rollback 与 FAILED Retry；Recovery 写入正式延期。`RECOVERY_REQUIRED` 与遗留 UNKNOWN 继续阻塞，刷新或重启不保证解除。支持范围、Git 输入拒绝、备份及降级限制见 [M5 PARTIAL 本地说明](docs/M5_PARTIAL_LOCAL_USAGE.md)。
+- **Limited Verification**：支持受控 Maven 检查和 JDK 17/21；仅支持公开 Central 依赖，不承诺私库、外部服务或任意构建工具。NOT_TESTED 保留实际含义，已知未解决失败会阻止接受。
+- **Docker Required**：项目构建在无网络、非 root 的受限 Docker 容器中执行；正式 Git 交付由系统控制，原始仓库保持只读。
+- **Conservative Recovery**：已知 A/B/C 截面可恢复交付；部分写入、外部改动或未知现场保留为 RECOVERY_REQUIRED，不自动清理或覆盖。
 
 ## 🛠️ Tech Stack
 
 | Layer | Technologies |
 | --- | --- |
 | Backend | Java 21 · Spring Boot 3.5 · Maven |
-| AI Gateway | DeepSeek HTTP API · Spring RestClient |
+| AI Gateway | Spring AI 1.1.8 Coding Agent · M1–M3 Text Gateway |
 | Persistence | SQLite · Flyway · MyBatis-Plus |
 | Frontend | Vue 3 · TypeScript · Vite · pnpm |
 | Repository | Git CLI · Revision-pinned Analysis |
-| Evolution | Isolated WorkingCopy · Maven/Git Verification |
+| Evolution | Docker Sandbox · Frozen Candidate · Git/SQLite Delivery |
 
 DelveForge 使用 Maven 多模块架构，将领域规则、应用编排和外部基础设施实现分离。
 

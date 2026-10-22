@@ -4,7 +4,7 @@ import com.ayywl.delveforge.domain.asset.SoftwareAssetId;
 
 /**
  * 独立 Aggregate 只保存元数据，不承担 Git 或文件系统操作。
- * Execution 与 Verification 保持当前 revision 和可信 revision 的区别。
+ * 正式交付接受后同时记录当前 revision 与可信 revision。
  */
 public final class WorkingCopy {
     private final WorkingCopyId id;
@@ -12,9 +12,9 @@ public final class WorkingCopy {
     private final String sourceRevision;
     private final String location;
 
-    // 已完成执行的当前版本；在 VERIFYING 检查点可指向尚未受信的 Candidate。
+    // 正式副本的已接受版本；沙箱 Candidate 不写入这里。
     private String currentRevision;
-    // 只有 Domain 接受 Verification 后才推进，后续 Step 必须从这个版本出发。
+    // 只有 Domain 接受 Delivery 后才推进，后续 Step 必须从这个版本出发。
     private String lastVerifiedRevision;
     private WorkingCopyStatus status;
 
@@ -72,52 +72,21 @@ public final class WorkingCopy {
         return reconstitute(id, sourceAssetId, sourceRevision, location, currentRevision, lastVerifiedRevision, status);
     }
 
-    void startEvolution() {
+    /** 仅正式交付接受同时推进当前与可信 revision；不保存中间沙箱状态。 */
+    void acceptDelivery(String baseline, String revision) {
         if ((status != WorkingCopyStatus.READY && status != WorkingCopyStatus.EVOLVING)
-                || currentRevision == null || !currentRevision.equals(lastVerifiedRevision)) {
-            throw new EvolutionPlanStateException("Evolution requires a trusted Working Copy");
+                || baseline == null || !baseline.matches("[0-9a-f]{40}")
+                || !baseline.equals(currentRevision) || !baseline.equals(lastVerifiedRevision)
+                || revision == null || !revision.matches("[0-9a-f]{40}") || baseline.equals(revision)) {
+            throw new EvolutionPlanStateException("Delivery requires the unchanged trusted WorkingCopy baseline");
         }
+        currentRevision = revision;
+        lastVerifiedRevision = revision;
         status = WorkingCopyStatus.EVOLVING;
-    }
-
-    void requireCheckpoint(String baseline, String current) {
-        if (status != WorkingCopyStatus.EVOLVING || !baseline.equals(lastVerifiedRevision)
-                || !current.equals(currentRevision)) {
-            throw new EvolutionPlanStateException("Working Copy does not match the Step checkpoint");
-        }
-    }
-
-    /** 接受完整执行产生的 Candidate，仅更新当前版本，不提升信任。 */
-    void recordCandidate(String baseline, String candidate) {
-        recordCandidate(baseline, baseline, candidate);
-    }
-
-    void recordCandidate(String baseline, String startingRevision, String candidate) {
-        requireCheckpoint(baseline, startingRevision);
-        if (baseline.equals(candidate) || startingRevision.equals(candidate)) {
-            throw new EvolutionPlanStateException("Candidate must differ from baseline");
-        }
-        currentRevision = candidate;
-    }
-
-    /** 由 Plan 在 Step 验证已被接受后调用；不创建第二个软件 revision。 */
-    void trustCandidate(String baseline, String candidate) {
-        requireCheckpoint(baseline, candidate);
-        lastVerifiedRevision = candidate;
     }
 
     public SoftwareAssetId sourceAssetId() {
         return sourceAssetId;
-    }
-
-    void finishRollback(String baseline, String candidate, boolean restored) {
-        requireCheckpoint(baseline, candidate);
-        if (restored) {
-            currentRevision = baseline;
-        } else {
-            // 未确认恢复时保留最后已记录 revision；它不宣称物理现场仍精确位于 Candidate。
-            status = WorkingCopyStatus.RECOVERY_REQUIRED;
-        }
     }
 
     public String sourceRevision() {

@@ -5,6 +5,9 @@ import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.agent.AgentStore;
 import com.ayywl.delveforge.application.agent.CodingAgentService;
+import com.ayywl.delveforge.application.agent.CandidateDeliveryService;
+import com.ayywl.delveforge.application.agent.DeliveryStore;
+import com.ayywl.delveforge.application.port.workspace.CandidateDeliveryPort;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.infrastructure.agent.AgentInstanceLock;
@@ -12,6 +15,7 @@ import com.ayywl.delveforge.infrastructure.agent.AgentSandboxProperties;
 import com.ayywl.delveforge.infrastructure.agent.DockerAgentSandbox;
 import com.ayywl.delveforge.infrastructure.agent.SpringAiAgentModel;
 import com.ayywl.delveforge.infrastructure.agent.SqliteAgentStore;
+import com.ayywl.delveforge.infrastructure.agent.SqliteDeliveryStore;
 import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
 import com.ayywl.delveforge.infrastructure.persistence.PersistenceProperties;
 
@@ -24,7 +28,7 @@ import org.springframework.core.env.Environment;
 
 import javax.sql.DataSource;
 
-/** 新 Agent 独立装配；旧 M1–M3 文本 Gateway 与旧执行接口仍可编译。 */
+/** 装配 Agent 与确定性交付；M1–M3 继续使用既有文本 Gateway。 */
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(name = "delveforge.agent.enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(AgentSandboxProperties.class)
@@ -75,7 +79,21 @@ public class CodingAgentConfiguration {
     }
 
     @Bean
-    public ApplicationRunner reconcileAgentRuns(CodingAgentService agent) {
-        return arguments -> agent.reconcile();
+    public DeliveryStore deliveryStore(DataSource source, ExecutionPreparationState eligibility) {
+        return new SqliteDeliveryStore(source, eligibility);
+    }
+
+    @Bean
+    public CandidateDeliveryService candidateDeliveryService(AgentStore agents, DeliveryStore store,
+            CandidateDeliveryPort workspace, ExecutionPreparationState eligibility, AgentInstanceLock instanceLock) {
+        return new CandidateDeliveryService(agents, store, workspace, eligibility);
+    }
+
+    @Bean
+    public ApplicationRunner reconcileAgentRuns(CodingAgentService agent, CandidateDeliveryService delivery) {
+        return arguments -> {
+            agent.reconcile();
+            delivery.start();
+        };
     }
 }

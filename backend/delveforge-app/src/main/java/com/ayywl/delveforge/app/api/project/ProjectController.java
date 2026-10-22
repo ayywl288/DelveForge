@@ -130,14 +130,7 @@ public class ProjectController {
         if (workspace.plan() != null) {
             counts = workspace.plan().steps().stream().collect(Collectors.groupingBy(step -> step.status().name(),
                     Collectors.counting()));
-            workspace.plan().steps().forEach(step -> {
-                if (step.executionResult() != null) {
-                    activities.add(step.executionResult().executedAt());
-                }
-                if (step.verificationResult() != null) {
-                    activities.add(step.verificationResult().verifiedAt());
-                }
-            });
+
         }
         String direction = workspace.directions().stream()
                 .filter(item -> workspace.plan() == null ? item.status() == ProductDirectionStatus.SELECTED

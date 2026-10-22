@@ -2,7 +2,6 @@ package com.ayywl.delveforge.application.repositoryanalysis.workflow;
 
 import com.ayywl.delveforge.application.port.workspace.WorkspaceEntry;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
-import com.ayywl.delveforge.application.port.workspace.WorkspaceMutationPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import java.nio.charset.StandardCharsets;
@@ -21,7 +20,7 @@ import java.util.Map;
  * 「分析期间源 Repository 又产生了新提交」这一情形：若调用方在读取时重新解析 HEAD，
  * 拿到的就会是另一个 revision 的内容，测试据此可以发现混用 revision 的问题。
  */
-final class RecordingWorkspace implements WorkspaceReadPort, WorkspaceMutationPort {
+final class RecordingWorkspace implements WorkspaceReadPort {
 
     private final Map<String, Map<String, String>> filesByRevision = new LinkedHashMap<>();
 
@@ -142,12 +141,7 @@ final class RecordingWorkspace implements WorkspaceReadPort, WorkspaceMutationPo
         return content;
     }
 
-    @Override
-    public com.ayywl.delveforge.application.port.workspace.CandidateMutationResult applyCandidate(
-            com.ayywl.delveforge.application.port.workspace.AuthorizedStepExecution execution) {
-        mutationCalls++;
-        throw new AssertionError("Repository Analysis must not request mutation");
-    }
+
 
     private Map<String, String> filesOf(String revision) {
         Map<String, String> files = filesByRevision.get(revision);

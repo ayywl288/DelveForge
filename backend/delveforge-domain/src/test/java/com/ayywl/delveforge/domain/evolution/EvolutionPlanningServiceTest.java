@@ -43,9 +43,9 @@ class EvolutionPlanningServiceTest {
                 new TargetState("Manual exports", "Scheduled reports", "Personal schedule"),
                 List.of("Render", "Export"), List.of("Add scheduling"),
                 List.of(new PlanningStepProposal("Schedule reports", "Reporting scheduling",
-                        List.of("Add scheduling capability"), List.of(VerificationCriterion.unsupported("Reports run at the user-selected time"))),
+                        List.of("Add scheduling capability")),
                         new PlanningStepProposal("Expose schedule management", "Personal schedule controls",
-                        List.of("Manage schedules"), List.of(VerificationCriterion.unsupported("Users can change schedules")))),
+                        List.of("Manage schedules"))),
                 List.of("Missed reports"), List.of(BASIS));
     }
 
@@ -276,7 +276,7 @@ class EvolutionPlanningServiceTest {
             assertEquals(proposed.goal(), accepted.goal());
             assertEquals(proposed.scope(), accepted.scope());
             assertEquals(proposed.plannedChanges(), accepted.plannedChanges());
-            assertEquals(proposed.verificationCriteria(), accepted.verificationCriteria());
+            assertNull(accepted.deliveryRevision());
             assertThrows(UnsupportedOperationException.class, () -> accepted.plannedChanges().clear());
         }
 
@@ -299,7 +299,7 @@ class EvolutionPlanningServiceTest {
                 profile(), proposal());
         EvolutionStep first = original.steps().getFirst();
         EvolutionStep restoredStep = EvolutionStep.reconstitute(first.id(), original.id(), first.goal(), first.scope(),
-                first.plannedChanges(), first.verificationCriteria());
+                first.plannedChanges());
         EvolutionPlan restored = EvolutionPlan.reconstitute(original.id(), original.productDirectionId(),
                 original.baseAssetId(), original.baseRepositoryProfileId(), original.currentState(), original.targetState(),
                 original.reusableCapabilities(), original.changes(), List.of(restoredStep), original.risks(),
@@ -314,7 +314,7 @@ class EvolutionPlanningServiceTest {
         assertNull(restoredStep.baselineRevision());
 
         EvolutionStep foreignStep = EvolutionStep.reconstitute(first.id(), new EvolutionPlanId("foreign"),
-                first.goal(), first.scope(), first.plannedChanges(), first.verificationCriteria());
+                first.goal(), first.scope(), first.plannedChanges());
         assertThrows(IllegalArgumentException.class, () -> EvolutionPlan.reconstitute(original.id(),
                 original.productDirectionId(), original.baseAssetId(), original.baseRepositoryProfileId(),
                 original.currentState(), original.targetState(), original.reusableCapabilities(), original.changes(),
@@ -347,10 +347,10 @@ class EvolutionPlanningServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> service.plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), proposal()));
         assertThrows(IllegalArgumentException.class, () -> new PlanningStepProposal("Goal", " ",
-                List.of("Change"), List.of(VerificationCriterion.unsupported("Criterion"))));
+                List.of("Change")));
         assertThrows(IllegalArgumentException.class, () -> new PlanningStepProposal("Goal", "Scope",
-                List.of(), List.of(VerificationCriterion.unsupported("Criterion"))));
-        assertThrows(IllegalArgumentException.class, () -> new PlanningStepProposal("Goal", "Scope",
-                List.of("Change"), List.of()));
+                List.of()));
+        assertThrows(IllegalArgumentException.class, () -> new PlanningStepProposal("", "Scope",
+                List.of("Change")));
     }
 }

@@ -1,15 +1,8 @@
 /**
- * Workspace Gateway 的本地能力 Adapter：Git、Filesystem、Shell、Build / Test。
+ * Workspace 端口的 Git 与文件系统实现。
  *
- * <pre>
- * GitWorkspaceAdapter    WorkspaceReadPort 的本地 Git 实现（只读）
- * </pre>
- *
- * <p>所有本地代码操作必须经过此边界（RULE-ARCH-009）。
- *
- * <p>只读能力与代码修改能力在 Application 层是两个独立 Port（ADR-0001）。
- * 本包当前只实现只读的 {@code WorkspaceReadPort}——Repository Analysis 需要的就是它；
- * {@code WorkspaceMutationPort} 的实现等 Evolution Execution（M3 / M4）出现真实调用方时再补，
- * 不提前为它建立没有调用方的实现。
+ * <p>GitWorkspaceAdapter 实现只读 Repository Analysis、独立 WorkingCopy 准备与 inspection，
+ * 并通过 CandidateDeliveryPort 实现确定性冻结结果交付。Application 通过各自能力端口访问，
+ * 不把交付写能力提供给只读分析流程（RULE-ARCH-010 / RULE-ARCH-011）。
  */
 package com.ayywl.delveforge.infrastructure.workspace;

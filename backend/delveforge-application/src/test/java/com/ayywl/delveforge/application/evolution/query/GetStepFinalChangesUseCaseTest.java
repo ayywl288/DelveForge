@@ -23,10 +23,7 @@ import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
-import com.ayywl.delveforge.domain.evolution.ExecutionResult;
 import com.ayywl.delveforge.domain.evolution.TargetState;
-import com.ayywl.delveforge.domain.evolution.VerificationCriterion;
-import com.ayywl.delveforge.domain.evolution.VerificationResult;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
 import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
 import com.ayywl.delveforge.domain.evolution.WorkingCopyStatus;
@@ -51,15 +48,9 @@ class GetStepFinalChangesUseCaseTest {
     private static final String C = "c".repeat(40);
 
     private static EvolutionPlan plan(boolean succeeded) {
-        var criterion = VerificationCriterion.technical(VerificationCriterion.Kind.DIFF_CHECK_PASSES);
-        var execution = new ExecutionResult(C, List.of("last repair"), List.of("last.java"),
-                List.of(), List.of(), Instant.EPOCH);
-        var verification = new VerificationResult(C, List.of(new VerificationResult.Check(
-                "DIFF_CHECK", "", List.of(1), true, "passed")), true, List.of(), "passed", Instant.EPOCH);
-        var step = succeeded ? EvolutionStep.reconstitute(STEP, PLAN, "goal", "scope", List.of("change"),
-                List.of(criterion), EvolutionStepStatus.SUCCEEDED, A, execution, verification)
-                : EvolutionStep.reconstitute(STEP, PLAN, "goal", "scope", List.of("change"), List.of(criterion),
-                        EvolutionStepStatus.READY, null, null, null);
+        var step = EvolutionStep.reconstitute(STEP, PLAN, "goal", "scope", List.of("change"),
+                succeeded ? EvolutionStepStatus.SUCCEEDED : EvolutionStepStatus.READY,
+                succeeded ? A : null, succeeded ? C : null);
         return EvolutionPlan.reconstitute(PLAN, new ProductDirectionId("direction"), ASSET,
                 new RepositoryProfileId("profile"), new CurrentState("current", List.of(), List.of(), List.of()),
                 new TargetState("problem", "target", "difference"), List.of(), List.of("change"),

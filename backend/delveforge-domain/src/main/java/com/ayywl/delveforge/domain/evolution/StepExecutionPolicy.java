@@ -7,9 +7,7 @@ import java.util.Set;
  * 本策略不会设置 baselineRevision，也不会开始 Execution。
  */
 public final class StepExecutionPolicy {
-    private static final Set<EvolutionStepStatus> OCCUPIED = Set.of(EvolutionStepStatus.EXECUTING,
-            EvolutionStepStatus.VERIFYING, EvolutionStepStatus.VERIFICATION_FAILED,
-            EvolutionStepStatus.ROLLING_BACK, EvolutionStepStatus.RECOVERY_REQUIRED);
+    private static final Set<EvolutionStepStatus> OCCUPIED = Set.of(EvolutionStepStatus.RECOVERY_REQUIRED);
 
     public void requireConfirmationAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy) {
         requireAllowed(plan, id, copy, EvolutionStepStatus.PENDING_CONFIRMATION);
@@ -17,65 +15,6 @@ public final class StepExecutionPolicy {
 
     public void requireExecutionAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy) {
         requireAllowed(plan, id, copy, EvolutionStepStatus.READY);
-    }
-
-    /** 允许修复当前失败 Candidate；仅此入口允许 current 与 lastVerified 不同。 */
-    public void requireRepairAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy) {
-        EvolutionStep step = plan.step(id);
-        if (plan.status() != EvolutionPlanStatus.ACTIVE || step.status() != EvolutionStepStatus.VERIFICATION_FAILED
-                || copy == null || copy.status() != WorkingCopyStatus.EVOLVING
-                || !copy.id().value().equals(plan.workingCopyId()) || !copy.sourceAssetId().equals(plan.baseAssetId())
-                || !step.baselineRevision().equals(copy.lastVerifiedRevision())
-                || !step.executionResult().candidateRevision().equals(copy.currentRevision())
-                || !step.verificationResult().confirmsFailure(step.verificationCriteria())) {
-            throw new EvolutionPlanStateException("Repair requires the bound failed Candidate and unchanged trusted baseline");
-        }
-        for (EvolutionStep preceding : plan.steps()) {
-            if (preceding.id().equals(id)) {
-                break;
-            }
-            if (preceding.status() != EvolutionStepStatus.SUCCEEDED) {
-                throw new EvolutionPlanStateException("Every preceding required Step must have succeeded");
-            }
-        }
-        if (plan.steps().stream().anyMatch(other -> !other.id().equals(id) && OCCUPIED.contains(other.status()))) {
-            throw new EvolutionPlanStateException("Working Copy has another unresolved Step flow");
-        }
-    }
-
-    /** Rollback 不请求新的标准证据；只丢弃已明确失败的当前 Candidate，恢复固定可信基线。 */
-    public void requireRollbackAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy) {
-        EvolutionStep step = plan.step(id);
-        if (plan.status() != EvolutionPlanStatus.ACTIVE || step.status() != EvolutionStepStatus.VERIFICATION_FAILED
-                || copy == null || copy.status() != WorkingCopyStatus.EVOLVING
-                || !copy.id().value().equals(plan.workingCopyId()) || !copy.sourceAssetId().equals(plan.baseAssetId())
-                || !step.baselineRevision().equals(copy.lastVerifiedRevision())
-                || !step.executionResult().candidateRevision().equals(copy.currentRevision())
-                || !step.verificationResult().recordsFailedCoverage(step.verificationCriteria().size())) {
-            throw new EvolutionPlanStateException("Rollback requires the bound failure and original trusted baseline");
-        }
-        for (EvolutionStep preceding : plan.steps()) {
-            if (preceding.id().equals(id)) {
-                break;
-            }
-            if (preceding.status() != EvolutionStepStatus.SUCCEEDED) {
-                throw new EvolutionPlanStateException("Every preceding required Step must have succeeded");
-            }
-        }
-        if (plan.steps().stream().anyMatch(other -> !other.id().equals(id) && OCCUPIED.contains(other.status()))) {
-            throw new EvolutionPlanStateException("Working Copy has another unresolved Step flow");
-        }
-    }
-
-    /** FAILED 只接受已恢复的首次可信基线，不能把任意安全 Revision 作为替代。 */
-    public void requireRetryAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy) {
-        requireAllowed(plan, id, copy, EvolutionStepStatus.FAILED);
-        EvolutionStep step = plan.step(id);
-        if (copy.status() != WorkingCopyStatus.EVOLVING || step.baselineRevision() == null
-                || !step.baselineRevision().equals(copy.currentRevision())
-                || !step.baselineRevision().equals(copy.lastVerifiedRevision())) {
-            throw new EvolutionPlanStateException("Retry requires the restored original trusted baseline");
-        }
     }
 
     private void requireAllowed(EvolutionPlan plan, EvolutionStepId id, WorkingCopy copy,

@@ -106,9 +106,9 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
                 new TargetState("Manual exports", "Scheduled reports", "Personal schedule"),
                 List.of("Render", "Export"), List.of("Add scheduling"),
                 List.of(new PlanningStepProposal("Schedule reports", "Reporting scheduling",
-                        List.of("Add scheduling capability"), List.of(VerificationCriterion.unsupported("Reports run at the user-selected time"))),
+                        List.of("Add scheduling capability")),
                         new PlanningStepProposal("Expose schedule management", "Personal schedule controls",
-                        List.of("Manage schedules"), List.of(VerificationCriterion.unsupported("Users can change schedules")))),
+                        List.of("Manage schedules"))),
                 List.of("Missed reports"), List.of(BASIS));
     }
 
@@ -137,21 +137,21 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
                 .plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), proposal());
     }
 
-    @Test void structuredCriterionKindsAndDescriptionsSurviveAtomicSaveAndRestoration() {
+    @Test void agentStepDefinitionSurvivesAtomicSaveWithoutLegacyCriteria() {
         PlanningProposal original = proposal();
         PlanningProposal technical = new PlanningProposal(original.currentState(), original.targetState(),
                 original.reusableCapabilities(), original.changes(), List.of(new PlanningStepProposal("保持工程可构建", "报表工程",
-                        List.of("调整工程代码"), List.of(
-                                VerificationCriterion.technical(VerificationCriterion.Kind.BUILD_SUCCEEDS),
-                                VerificationCriterion.technical(VerificationCriterion.Kind.SELECTED_TESTS_PASS)))),
+                        List.of("调整工程代码"))),
                 original.risks(), original.evidence());
         EvolutionPlan plan = new EvolutionPlanningService(new AssetUsagePolicy(), () -> new EvolutionPlanId("technical"),
                 () -> new EvolutionStepId("technical-step")).plan(direction(true), asset(true, "MIT", UsageAuthorization.ALLOWED), profile(), technical);
         plans.save(plan);
         EvolutionPlan restored = plans.findById(plan.id()).orElseThrow();
-        assertEquals(plan.steps().getFirst().verificationCriteria(), restored.steps().getFirst().verificationCriteria());
-        assertEquals("BUILD_SUCCEEDS", jdbc.queryForObject("SELECT criterion_kind FROM evolution_step_section_item WHERE step_id='technical-step' AND section='verificationCriteria' AND position=0", String.class));
-        assertEquals("项目构建成功", jdbc.queryForObject("SELECT value FROM evolution_step_section_item WHERE step_id='technical-step' AND section='verificationCriteria' AND position=0", String.class));
+        assertEquals(plan.steps().getFirst().plannedChanges(), restored.steps().getFirst().plannedChanges());
+        assertEquals(plan.steps().getFirst().goal(), restored.steps().getFirst().goal());
+        assertEquals(plan.steps().getFirst().scope(), restored.steps().getFirst().scope());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM evolution_step_section_item "
+                + "WHERE step_id='technical-step' AND section='verificationCriteria'", Integer.class));
     }
 
     private WorkingCopy ready(String id) {
@@ -308,10 +308,10 @@ class SqliteEvolutionPlanRepositoryIntegrationTest {
             assertEquals(before.goal(), after.goal());
             assertEquals(before.scope(), after.scope());
             assertEquals(before.plannedChanges(), after.plannedChanges());
-            assertEquals(before.verificationCriteria(), after.verificationCriteria());
+            assertNull(after.deliveryRevision());
             assertEquals(EvolutionStepStatus.PENDING_CONFIRMATION, after.status());
             assertNull(after.baselineRevision());
-            assertThrows(UnsupportedOperationException.class, () -> after.verificationCriteria().clear());
+            assertThrows(UnsupportedOperationException.class, () -> after.plannedChanges().clear());
         }
         assertThrows(UnsupportedOperationException.class, () -> loaded.changes().clear());
         assertThrows(EvolutionPlanAlreadyExistsException.class, () -> plans.save(plan));

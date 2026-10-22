@@ -55,9 +55,9 @@ class GenerateEvolutionPlanUseCaseTest {
                 new TargetState("Manual exports", "Scheduled reports", "Personal schedule"),
                 List.of("Render", "Export"), List.of("Add scheduling"),
                 List.of(new PlanningStepProposal("Schedule reports", "Reporting scheduling",
-                        List.of("Add scheduling capability"), List.of(VerificationCriterion.unsupported("Reports run at the user-selected time"))),
+                        List.of("Add scheduling capability")),
                         new PlanningStepProposal("Expose schedule management", "Personal schedule controls",
-                        List.of("Manage schedules"), List.of(VerificationCriterion.unsupported("Users can change schedules")))),
+                        List.of("Manage schedules"))),
                 List.of("Missed reports"), List.of(BASIS));
     }
 
@@ -304,8 +304,7 @@ class GenerateEvolutionPlanUseCaseTest {
                   "currentState": {"summary":"...", "capabilities":[], "modules":[], "limitations":[]},
                   "targetState": {"problem":"...", "targetProduct":"...", "differentiation":"..."},
                   "reusableCapabilities":[], "changes":["..."],
-                  "steps":[{"goal":"...", "scope":"...", "plannedChanges":["..."],
-                             "verificationCriteria":[{"kind":"BUILD_SUCCEEDS","description":"项目构建成功"}]}],
+                  "steps":[{"goal":"...", "scope":"...", "plannedChanges":["..."]}],
                   "risks":[], "evidence":["..."]
                 }
                 """;
@@ -324,45 +323,12 @@ class GenerateEvolutionPlanUseCaseTest {
         assertEquals("Scheduled reports", plan.targetState().targetProduct());
         assertEquals("Schedule reports", plan.steps().getFirst().goal());
         assertEquals(List.of("Add scheduling"), plan.steps().getFirst().plannedChanges());
-        assertEquals(VerificationCriterion.Kind.SELECTED_TESTS_PASS,
-                plan.steps().getFirst().verificationCriteria().getFirst().kind());
+        assertNull(plan.steps().getFirst().deliveryRevision());
         assertEquals(EvolutionPlanStatus.PROPOSED, plan.status());
         assertNull(plan.workingCopyId());
-        assertNull(plan.steps().getFirst().executionResult());
-        assertNull(plan.steps().getFirst().verificationResult());
+        assertNull(plan.steps().getFirst().baselineRevision());
         assertEquals(1, calls.get());
         assertEquals(1, plans.values.size());
-    }
-
-    @Test
-    void invalidPluralCriterionCannotPersistAPlanOrTriggerAnImplicitRetry() {
-        seed();
-        response = JSON.replace("\"kind\":\"UNSUPPORTED\",\"description\":\"Reports run on schedule\"",
-                "\"kind\":\"SELECTED_TESTS_PASSES\",\"description\":\"本步骤选择的自动化测试通过\"");
-
-        assertThrows(PlanningExtractionException.class, () -> useCase().generate(request()));
-
-        assertEquals(1, calls.get());
-        assertTrue(plans.values.isEmpty());
-        assertEquals(0, provisionCalls);
-    }
-
-    @Test
-    void planningDistinguishesMandatoryDeliveryAcceptanceFromExplicitStepProof() {
-        seed();
-        useCase().generate(request());
-
-        // 固定正反例的层次边界；不把提示断言冒充真实模型遵从性证明。
-        String instruction = sent.messages().getFirst().content();
-        assertTrue(instruction.contains("最终启动报表服务，通过 HTTP 核对汇总数据"));
-        assertTrue(instruction.contains("不得为该独立关卡额外追加 UNSUPPORTED"));
-        assertTrue(instruction.contains("每个 Step 的正式 Criterion 必须直接证明真实外部邮件送达"));
-        assertTrue(instruction.contains("不能以独立合同代替用户明确指定的该项 Step Criterion"));
-        assertTrue(instruction.contains("既有 UNSUPPORTED 和历史计划不得转换或重写"));
-        assertEquals(VerificationCriterion.Kind.UNSUPPORTED,
-                plans.values.values().iterator().next().steps().getFirst().verificationCriteria().getFirst().kind());
-        assertEquals(1, calls.get());
-        assertEquals(0, provisionCalls);
     }
 
     @Test

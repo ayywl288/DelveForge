@@ -77,7 +77,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
       <h3>当前选中方向：{{ s.selected.title }}</h3><p>{{ s.selected.targetProduct }}</p>
     </template>
     <p v-else>当前流程没有 SELECTED 方向。旧 SUPERSEDED 方向不会自动恢复；可在新轮次中明确选择候选，或主动生成新方向。</p>
-    <button :disabled="!!s.busy || !!s.receipt || !s.projectContext || s.projectIssues.includes('FLOW_OWNERSHIP_UNKNOWN')"
+    <button :disabled="!!s.busy || !s.projectContext || s.projectIssues.includes('FLOW_OWNERSHIP_UNKNOWN')"
       @click="s.beginReplanning">{{ s.selected ? '基于当前方向重新规划' : '建立新规划轮次' }}</button>
     <p class="meta">这一步只建立关联轮次，不调用 AI。随后需重新选择合法基础仓库快照，显式生成计划。不会用旧副本 B 代替源仓库分析。</p>
   </section>
@@ -111,7 +111,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
           <button type="button" class="secondary" :disabled="!!s.busy || !baseAssetId"
             @click="baseAssetId && emit('authorize', baseAssetId)">前往补充许可证与授权</button>
         </div>
-        <button :disabled="!!s.busy || !base || !authorizationReady || !currentBasis || !!s.receipt">
+        <button :disabled="!!s.busy || !base || !authorizationReady || !currentBasis">
           生成演化计划（调用 AI）
         </button>
       </form>
@@ -127,7 +127,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
         </div>
         <StatusBadge :status="s.plan.status" />
       </div>
-      <p class="meta">以下是保存的规划输入与目标。实现和验证结果请在「验证演化」查看。</p>
+      <p class="meta">以下是保存的规划输入与目标。实现和验证结果请在「实施演化」查看。</p>
       <div class="state-comparison">
         <section>
           <span class="summary-label"><NavigationIcon name="layers" />规划时的现状</span>
@@ -163,16 +163,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
           <p class="scope">{{ step.scope }}</p>
           <ContentList title="计划改动" :items="step.plannedChanges" icon="code" />
           <StepPrerequisites :plan="s.plan" :step="step" :copy="s.copy" />
-          <h3 class="section-heading"><NavigationIcon name="evolution" />验收标准</h3>
-          <ol class="criteria">
-            <li
-              v-for="(criterion, criterionIndex) in step.verificationCriteria"
-              :key="criterionIndex"
-            >
-              <p>{{ criterion.description }}</p>
-              <code>{{ criterion.kind }}</code>
-            </li>
-          </ol>
+          <p>Agent 会根据实际源码选择检查；冻结结果及检查范围会在实施页显示。</p>
           <p class="meta">
             顺序 {{ index + 1 }} · Step <code>{{ step.id }}</code>
           </p>
@@ -185,7 +176,6 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
             class="step-authorize"
             :disabled="
               !!s.busy ||
-              !!s.receipt ||
               s.plan.status !== 'ACTIVE' ||
               !s.copy || !['READY', 'EVOLVING'].includes(s.copy.status) ||
               s.plan.steps
@@ -225,7 +215,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
           :disabled="!!s.busy"
         />我已审阅目标、范围、步骤与验收标准</label
       ><button
-        :disabled="!!s.busy || !reviewed || !!s.receipt"
+        :disabled="!!s.busy || !reviewed"
         @click="prepareOpen = true"
       >
         准备隔离副本

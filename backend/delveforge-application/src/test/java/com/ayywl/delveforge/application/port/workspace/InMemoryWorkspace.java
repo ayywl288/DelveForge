@@ -15,7 +15,7 @@ import java.util.Map;
  * 给出的那个 revision，其他值一律拒绝。这样替身不会比真实 Adapter 宽松——
  * 真实 Adapter 同样只接受已解析的完整 commit id，不接受可移动的引用名。
  */
-final class InMemoryWorkspace implements WorkspaceReadPort, WorkspaceMutationPort {
+final class InMemoryWorkspace implements WorkspaceReadPort {
 
     private final Map<String, String> files = new LinkedHashMap<>();
 
@@ -99,10 +99,7 @@ final class InMemoryWorkspace implements WorkspaceReadPort, WorkspaceMutationPor
         }
     }
 
-    @Override
-    public CandidateMutationResult applyCandidate(AuthorizedStepExecution execution) {
-        throw new UnsupportedOperationException("Read fixture cannot manufacture authorized evolution");
-    }
+
 
     /** 内容的字节数，与真实 Adapter 由 git 给出的 blob 大小口径一致。 */
     private static int utf8Length(String content) {

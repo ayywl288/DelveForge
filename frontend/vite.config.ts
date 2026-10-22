@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: env.BACKEND_DEV_URL ?? "http://127.0.0.1:8080",
           changeOrigin: true,
-          // execute 是同步长请求；代理不人为中断或重试。
+          // SSE 是长连接；代理不人为中断或重试。
           timeout: 0,
           proxyTimeout: 0,
         },
