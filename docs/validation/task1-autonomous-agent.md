@@ -2,7 +2,7 @@
 
 Date: 2026-10-22 (Asia/Shanghai)
 
-Status: **All three corrections verified; Git checkpoint pending. Task 2 not started.**
+Status: **READY — all three corrections verified and committed. Task 2 not started.**
 
 ## 2026-10-22 independent findings and focused corrections
 
@@ -47,7 +47,12 @@ Docker 回归结束后的检查无测试容器、网络或私有卷残留，仅�
 本轮证据保存在忽略目录 `data/task1-remediation-evidence/`：`focused-final/`、`full-final/`、
 `complete-verify.log`、`complete-verify.exit`、`source-manifest.json`、`drift.json`、
 `docker-resource-audit.json`；不提交数据库、凭据、测试输出或缓存。
-Git checkpoint 建立后在此记录实际 identity；原独立 FAIL 报告保持不变。
+Git 实现 checkpoint 已实际提交：分支 `feature/autonomous-agent-task1`，
+commit `29cb79d716263f470476858fae8c9d3b82526744`。
+该提交包含原 42 个 Task 1 路径及新增 V23、两份真实 Docker 回归，共 45 个路径；
+后续文档提交仅记录这个已验证的实现 identity 和 READY 结论，不改变运行代码。
+`main` 仍为 `e18d1486475899a185fae85d4301150b8615d867`；未推送，未开始 Task 2。
+无关 `frontend/design/`、`grilling/` 的 8 个原文件仍未跟踪且内容不变；原独立 FAIL 报告保持不变。
 
 ## Historical 2026-10-21 implementation evidence
 
