@@ -1,9 +1,27 @@
 # DOMAIN_MODEL.md
 
+> **2026-10-21 Task 1 语义更新：** 新 Agent 以 ACTIVE Plan、READY Step、绑定的可用 WorkingCopy、
+> 先前 Step 已成功、当前 revision=lastVerifiedRevision、资产授权仍有效作为启动边界。
+> 一次 Step 确认允许此 Step 内自主工具调用与普通修复；失败/取消/中断后可显式启动全新的 Run。
+> 不复用旧 M5 RepairAuthorization/RetryAuthorization。重启不恢复对话。
+>
+> **AgentRun**：CREATED→PREPARING→RUNNING→FINALIZING→SUCCEEDED；FAILED/CANCELLED/INTERRUPTED 为替代终态。
+> SUCCEEDED 当且仅当经过重放验证的不可变 Candidate 已与该状态事务一致地持久化。
+> 资源未证实停止时保留持久化占用，不推断旧写入者消失。单 WorkingCopy 不允许冲突执行。
+> 2026-10-22 验收修正：同 Step / baseline 已有成功冻结结果时拒绝再次编码，失败/取消/中断仍可合法重试。
+> FINALIZING 前持久化材料保留意图；失败终态和重启不能抹除，仅成功冻结或确认 NO_CHANGES 时解除。
+>
+> **Candidate（新冻结结果）**：绑定 Run、可信 commit A、预期 tree B、完整 diff D、SHA-256、变化路径及
+> snapshot 关联的测试证据。必须证明 apply(D,A)=B，覆盖实际新增/修改/删除与支持的 file mode。
+> 这不同于旧流程中 WorkingCopy 当前未验证 revision 的“Candidate State”。
+> Task 1 不修改正式 WorkingCopy、Step 状态或信任 revision，不创建正式 commit。
+> 后续 Step 仍要求正式接受与可信基线推进，该 Delivery 行为属于 Task 2。
+> 旧执行生命周期下文保留为历史兼容路径，不能作为绕过上述边界的依据。
+
 > 本文档回答：DelveForge 内部有哪些核心业务概念，这些概念分别代表什么，以及它们之间如何协作。
 
 **Status:** Stable
-**Last Updated:** 2026-10-16
+**Last Updated:** 2026-10-22
 
 ## 1. Domain Overview
 

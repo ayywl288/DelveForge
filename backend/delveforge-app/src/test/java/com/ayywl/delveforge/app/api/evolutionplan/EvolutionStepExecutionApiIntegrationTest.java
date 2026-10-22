@@ -36,6 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 class EvolutionStepExecutionApiIntegrationTest {
+    // 辅助重载上下文只读取旧流程状态，关闭 Agent；主上下文保留新 Agent 的排他实例所有权。
     private static final Path BASE = Path.of("target", "step-execution-api", UUID.randomUUID().toString()).toAbsolutePath();
     private static final SoftwareAssetId ASSET = new SoftwareAssetId("asset");
     private static final RepositoryProfileId PROFILE = new RepositoryProfileId("profile");
@@ -697,6 +698,7 @@ class EvolutionStepExecutionApiIntegrationTest {
         try (var restarted = new org.springframework.boot.builder.SpringApplicationBuilder(
                 com.ayywl.delveforge.app.DelveForgeApplication.class)
                 .web(org.springframework.boot.WebApplicationType.NONE).run(
+                        "--delveforge.agent.enabled=false",
                         "--delveforge.persistence.database-file=" + BASE.resolve("state.db"),
                         "--delveforge.workspace.root=" + BASE.resolve("managed"),
                         "--delveforge.ai.deepseek.api-key=", "--spring.profiles.active=m5d-restart-test")) {
@@ -1443,7 +1445,8 @@ class EvolutionStepExecutionApiIntegrationTest {
         // 新上下文与连接回读，不宣称实际强杀了 OS 进程；启动没有补偿或 Git 重放。
         try (var restarted = new org.springframework.boot.builder.SpringApplicationBuilder(
                 com.ayywl.delveforge.app.DelveForgeApplication.class).web(org.springframework.boot.WebApplicationType.NONE)
-                .run("--delveforge.persistence.database-file=" + BASE.resolve("state.db"),
+                .run("--delveforge.agent.enabled=false",
+                        "--delveforge.persistence.database-file=" + BASE.resolve("state.db"),
                         "--delveforge.workspace.root=" + BASE.resolve("managed"),
                         "--delveforge.ai.deepseek.base-url=http://127.0.0.1:1", "--delveforge.ai.deepseek.api-key=",
                         "--spring.profiles.active=m5c-restart-test")) {
@@ -1691,6 +1694,7 @@ class EvolutionStepExecutionApiIntegrationTest {
             try (var restarted = new org.springframework.boot.builder.SpringApplicationBuilder(
                     com.ayywl.delveforge.app.DelveForgeApplication.class)
                     .web(org.springframework.boot.WebApplicationType.NONE).run(
+                            "--delveforge.agent.enabled=false",
                             "--delveforge.persistence.database-file=" + BASE.resolve("state.db"),
                             "--delveforge.workspace.root=" + BASE.resolve("managed"),
                             "--delveforge.ai.deepseek.base-url=http://127.0.0.1:1",
@@ -1958,7 +1962,8 @@ class EvolutionStepExecutionApiIntegrationTest {
         WorkingCopy before = persistedCopy();
         try (var restarted = new org.springframework.boot.builder.SpringApplicationBuilder(
                 com.ayywl.delveforge.app.DelveForgeApplication.class).web(org.springframework.boot.WebApplicationType.NONE)
-                .run("--delveforge.persistence.database-file=" + BASE.resolve("state.db"),
+                .run("--delveforge.agent.enabled=false",
+                        "--delveforge.persistence.database-file=" + BASE.resolve("state.db"),
                         "--delveforge.workspace.root=" + BASE.resolve("managed"),
                         "--delveforge.ai.deepseek.api-key=", "--spring.profiles.active=m5e-restart-test")) {
             EvolutionStep actual = restarted.getBean(EvolutionPlanRepository.class).findById(new EvolutionPlanId(planId))

@@ -17,6 +17,12 @@
     <description>DeepSeek、Persistence、Git、Filesystem、Shell、Build / Test 等外部能力 Adapter</description>
 
     <dependencies>
+        <!-- Task 1 原生工具调用；仅 Infrastructure 接触 Spring AI，旧文本 Gateway 保留。 -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-deepseek</artifactId>
+            <version>1.1.8</version>
+        </dependency>
         <!--
             Infrastructure 实现 Application 定义的 Outbound Port（RULE-ARCH-004）。
             domain 由 application 传递引入，此处仍显式声明，
@@ -63,8 +69,8 @@
             两个库都已经通过 delveforge-app 的 spring-boot-starter-web 存在于本项目，
             这里只是把依赖显式声明到真正使用它的模块。
 
-            不引入 Spring AI / Spring AI Alibaba：当前 Gate 只需要一次
-            messages → JSON completion，框架能力用不到。
+            M1–M3 文本 Gateway 仍直接使用 RestClient / Jackson。
+            Task 1 的 Spring AI 原生工具调用由独立 Agent Adapter 实现，不重构这些文本用例。
 
             注意只引入 spring-web，不引入 spring-boot-starter-web，
             避免把 Servlet 容器带进 Infrastructure。

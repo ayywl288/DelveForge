@@ -1,9 +1,14 @@
 # PRODUCT.md
 
+> **2026-10-21 Task 1 授权更新：** 当前实现目标为单个已确认 EvolutionStep 的自主 Coding Agent。
+> Agent 在一次性 Docker 沙箱中探索、编辑、测试与修复，保存经过 Git tree 重放验证的不可变 Candidate。
+> 正式 WorkingCopy 保持不变；Run 成功不代表 Step 已接受或业务正确。Delivery、完整前端与 SSE 留给 Task 2。
+> 下文 M4/M5 一次性提案与独立 Repair 流程保留为旧路径背景，不是新 Agent 的前置条件。
+
 > 本文档回答：为什么做这个产品、给谁使用、解决什么问题，以及第一版到底做到哪里。
 
 **Status:** Exploring
-**Last Updated:** 2026-10-11
+**Last Updated:** 2026-10-21
 
 ## 1. Product Vision
 

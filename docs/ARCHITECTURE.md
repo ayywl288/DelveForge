@@ -1,9 +1,16 @@
 # ARCHITECTURE.md
 
+> **2026-10-21 Task 1：** 新 Agent 路径采用 [ADR-0012](decisions/0012-autonomous-agent-sandbox-and-frozen-candidate.md)。
+> Application 拥有多轮原生 Tool Calling；Infrastructure 使用 Spring AI **1.1.8** 并关闭内部工具执行。
+> 旧文本 AiGateway 继续服务 M1–M3。新路径不使用 CodingProposal、RepositoryMap 或旧 VerificationStrategy Gate。
+> Workspace 通过独立 Docker 源副本、离线 Maven 与受控 Central 准备环境实施读写；正式 WorkingCopy 不挂载到容器。
+> 最终 A→B diff 经独立 Git index 重放后，Candidate 与 Run 成功状态在同一 SQLite 事务冻结。
+> 下文直接修改 WorkingCopy 的旧执行结构和“不引入 Spring AI”仅适用于旧路径。
+
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-10-16
+**Last Updated:** 2026-10-21
 
 ## 1. Architecture Goals
 

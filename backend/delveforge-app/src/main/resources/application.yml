@@ -2,6 +2,21 @@ server:
   address: 127.0.0.1
 
 delveforge:
+  agent:
+    enabled: true
+    response-tokens: 8192
+    sandbox:
+      root: ${DELVEFORGE_AGENT_ROOT:${user.dir}/data/agent-runs}
+      docker: ${DELVEFORGE_DOCKER:docker}
+      default-jdk: 21
+      images:
+        21: delveforge-agent:task1-jdk21
+        17: delveforge-agent:task1-jdk17
+      owner: ${DELVEFORGE_AGENT_OWNER:delveforge-local-agent}
+      cache-volume: ${DELVEFORGE_MAVEN_CACHE:delveforge-maven-central-cache}
+      memory: 2g
+      cpus: '2'
+      pids: 256
   workspace:
     # 默认随启动工作目录放入 data；启动脚本固定从项目根目录运行。
     root: ${DELVEFORGE_WORKSPACE_ROOT:${user.dir}/data/workspaces}
@@ -173,6 +188,7 @@ logging:
     # 该包打开 DEBUG 会让 MyBatis 打印 SQL 与绑定参数值，
     # 其中可能包含 User Profile 等用户数据。排查结束后必须恢复。
     com.ayywl.delveforge: INFO
+    org.springframework.ai: INFO
 
     # 以下框架包在 DEBUG 下会打印未经筛选的原始文本，其中可能包含凭据，
     # 因此固定为 INFO，不随 root 级别变化：
