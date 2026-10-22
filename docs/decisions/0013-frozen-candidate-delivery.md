@@ -36,6 +36,52 @@ NOT_TESTED remains evidence, not PASSED; unresolved failures prohibit acceptance
 Persisted Agent events also carry Delivery events, sharing a monotonic per-query cursor.
 SSE repeatedly reads bounded persisted pages, eliminating a separate replay/live handoff.
 
+### 2026-10-23: non-destructive mutation boundary
+
+Independent review demonstrated that `read-tree -m -u` overwrites a newly created ignored
+destination. `git apply --index` is also insufficient as a mutation primitive: its creation
+fallback can rename with replacement, and modifications remove the old pathname first.
+Official Delivery therefore renders only changed B files in disposable Git metadata, then
+uses a narrow native filesystem boundary; Git never checks out official source paths.
+
+JNA 5.17.0 is an Infrastructure-only dependency for OS handles and no-replace operations.
+Java 21 does not expose Windows directory pinning or handle-based deletion; Git does not
+provide the required no-replace contract. A new shell/native executable and a general
+filesystem transaction library were rejected. The cost is a native runtime library and
+explicit platform compatibility checks, with no change to module direction or storage.
+JNA is dual-licensed Apache-2.0 / LGPL-2.1-or-later; no native executable or library is vendored.
+
+Windows pins canonical, non-reparse directories without delete sharing, opens existing
+files exclusively without truncation, compares their exact proven baseline bytes, creates
+additions with CREATE_NEW, and deletes only through the verified open handle. Linux x86-64 uses
+openat with O_NOFOLLOW, exclusive creation, and renameat2(RENAME_NOREPLACE) to capture old
+entries before replacing them; captured bytes are checked and retained in Git metadata.
+An unexpected captured entry is restored only with no-replace, or retained for inspection
+if the original path has already been occupied. These are recovery artifacts, not another
+WorkingCopy or Candidate bundle. Other platforms or missing native capabilities fail closed.
+The native boundary also checks the official index bytes but never rewrites the index in
+place. After source mutation succeeds, `git apply --cached` applies the frozen D using Git's
+own index.lock and atomic index publication, with no worktree write. Failure at this point
+retains the incomplete marker and cannot advance trust.
+
+An on-disk incomplete-mutation marker is created before any official file/index mutation.
+It is removed after full B/index/content proof, or when the native boundary proves that
+no official file/index mutation started. Its remaining presence always yields UNKNOWN,
+including restart after a partial write that happens to resemble B. No automatic reset,
+cleanup, or acceptance bypasses this marker. Completed apply followed by a missing SQLite
+checkpoint remains recoverable through the existing A/B/C protocol.
+An untouched rejection records MUTATION_NOT_STARTED. If external material made inspection
+UNKNOWN, the reservation stays RECOVERY_REQUIRED. Only an explicit retry, fresh authorization
+and a fully proven clean A may resume that specific rejection after the external conflict is
+resolved. Other regressed or incomplete mutations remain blocked; startup does not retry
+RECOVERY_REQUIRED.
+
+These protections address pathname replacement, ignored/untracked collisions and changed
+tracked bytes at the mutation boundary. They are not a universal transaction against hostile
+writers with pre-existing descriptors, writable mappings, direct filesystem access or changes
+after the handles close. Linux captures preserve displaced bytes; Windows sharing excludes
+ordinary concurrent opens. Unprovable content, index or path identity remains RECOVERY_REQUIRED.
+
 ## Alternatives and trade-offs
 
 Keeping legacy execution would create two competing authorities. An in-memory lock or a

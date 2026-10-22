@@ -26,6 +26,7 @@ const connection = ref("尚未连接");
 const jdk = ref("");
 let active = false;
 let epoch = 0;
+let actionId = 0;
 let stream: EventSource | undefined;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 const terminal = (item: AgentRun) => ["SUCCEEDED", "FAILED", "CANCELLED", "INTERRUPTED"].includes(item.state);
@@ -46,29 +47,46 @@ function stop() {
   stream = undefined;
   clearTimeout(refreshTimer);
 }
+function selection() {
+  return { version: epoch, planId: props.s.plan?.id, stepId: step.value?.id,
+    runId: run.value?.id, candidateId: candidate.value?.id };
+}
+type Selection = ReturnType<typeof selection>;
+function current(selected: Selection) {
+  return active && selected.version === epoch && selected.planId === props.s.plan?.id
+    && selected.stepId === step.value?.id && selected.runId === run.value?.id
+    && selected.candidateId === candidate.value?.id;
+}
 async function updateStatus(version: number) {
   const selected = run.value;
   if (!selected) return;
+  const scope = selection();
+  const belongs = () => active && version === epoch && scope.planId === props.s.plan?.id
+    && scope.stepId === step.value?.id && selected.id === run.value?.id;
   try {
     const actual = await api.agentRun(selected.id);
-    if (version !== epoch) return;
+    if (!belongs()) return;
     run.value = actual;
     runs.value = runs.value.map(item => item.id === actual.id ? actual : item);
     if (actual.candidateId) {
       const [frozen, accepted] = await Promise.all([api.candidate(actual.candidateId), api.delivery(actual.candidateId)]);
-      if (version !== epoch) return;
+      if (!belongs()) return;
       candidate.value = frozen;
       delivery.value = accepted;
       if (accepted?.state === "COMPLETED" && step.value?.status !== "SUCCEEDED") await props.s.refreshPlan();
     }
-    if (version === epoch) syncError.value = "";
+    if (belongs()) syncError.value = "";
   } catch (failure) {
-    if (version === epoch) syncError.value = String(failure);
+    if (belongs()) syncError.value = String(failure);
   }
 }
 async function selectRun(selected: AgentRun) {
   stop();
   const version = ++epoch;
+  ++actionId;
+  pending.value = false;
+  error.value = "";
+  syncError.value = "";
   run.value = selected;
   candidate.value = null;
   delivery.value = null;
@@ -110,41 +128,61 @@ async function loadRuns(older = false) {
   const plan = props.s.plan;
   const chosen = step.value;
   if (!plan || !chosen) return;
-  const version = epoch;
+  const scope = selection();
   try {
     const result = await api.agentRuns(plan.id, chosen.id, older ? runs.value.at(-1)?.id : undefined);
-    if (version !== epoch) return;
+    if (!current(scope)) return;
     runs.value = older ? [...runs.value, ...result.filter(item => !runs.value.some(old => old.id === item.id))] : result;
     syncError.value = "";
     if (!older && result[0]) await selectRun(result[0]);
   } catch (failure) {
-    if (version === epoch) syncError.value = String(failure);
+    if (current(scope)) syncError.value = String(failure);
   }
 }
-async function action(operation: () => Promise<unknown>) {
+async function action<T>(operation: (selected: Selection) => Promise<T>,
+  accept?: (result: T) => void | Promise<void>) {
+  const scope = selection();
+  if (pending.value) return;
+  const owner = ++actionId;
   pending.value = true;
   error.value = "";
-  try { await operation(); } catch (failure) { error.value = String(failure); }
-  finally { pending.value = false; }
+  try {
+    const result = await operation(scope);
+    if (current(scope)) await accept?.(result);
+  } catch (failure) {
+    if (current(scope)) error.value = String(failure);
+  } finally {
+    if (owner === actionId) pending.value = false;
+  }
 }
 async function startRun() {
   if (!canStart.value || !props.s.plan || !step.value) return;
-  await action(async () => {
-    const started = await api.startAgent(props.s.plan!.id, step.value!.id, jdk.value ? Number(jdk.value) : undefined);
+  const selectedJdk = jdk.value ? Number(jdk.value) : undefined;
+  await action(selected => api.startAgent(selected.planId!, selected.stepId!, selectedJdk), async started => {
     runs.value = [started, ...runs.value];
     await selectRun(started);
   });
 }
+async function cancelRun() {
+  if (!run.value) return;
+  await action(selected => api.cancelAgent(selected.runId!), actual => { run.value = actual; });
+}
+async function deliverCandidate() {
+  if (!candidate.value) return;
+  await action(selected => api.deliver(selected.candidateId!), actual => { delivery.value = actual; });
+}
+async function confirmStep() {
+  await action(selected => props.s.confirmStep(selected.stepId!, () => current(selected)));
+}
 async function loadDiff() {
   const id = candidate.value?.id;
   if (!id) return;
-  const version = epoch;
-  await action(async () => {
+  await action(async selected => {
     const response = await fetch(`/api/agent-candidates/${encodeURIComponent(id)}/diff`, { cache: "no-store" });
+    if (!current(selected)) return "";
     if (!response.ok) throw new Error("最终差异读取失败");
-    const text = await response.text();
-    if (version === epoch) diff.value = text;
-  });
+    return response.text();
+  }, text => { diff.value = text; });
 }
 function summary(event: AgentEvent) {
   try {
@@ -159,10 +197,12 @@ function activate() {
   stepId.value = step.value?.id ?? "";
   void loadRuns();
 }
-function deactivate() { active = false; ++epoch; stop(); }
+function deactivate() { active = false; ++epoch; ++actionId; pending.value = false; stop(); }
 watch([() => props.s.plan?.id, () => step.value?.id], async () => {
-  ++epoch;
+  const version = ++epoch;
+  ++actionId;
   stop();
+  pending.value = false;
   runs.value = [];
   run.value = null;
   events.value = [];
@@ -172,6 +212,7 @@ watch([() => props.s.plan?.id, () => step.value?.id], async () => {
   error.value = "";
   syncError.value = "";
   await nextTick();
+  if (version !== epoch) return;
   stepId.value = step.value?.id ?? "";
   if (active) void loadRuns();
 });
@@ -196,7 +237,7 @@ onUnmounted(deactivate);
         <h3>{{ step.goal }}</h3><StatusBadge :status="step.status" /><p>{{ step.scope }}</p>
         <ContentList title="计划变更" :items="step.plannedChanges" />
         <button v-if="step.status === 'PENDING_CONFIRMATION'" :disabled="pending || !!s.busy"
-          @click="action(() => s.confirmStep(step!.id))">确认此步骤</button>
+          @click="confirmStep">确认此步骤</button>
         <template v-if="step.status === 'READY'">
           <label for="agent-jdk">运行环境</label>
           <select id="agent-jdk" v-model="jdk"><option value="">自动选择 JDK</option><option value="17">JDK 17</option><option value="21">JDK 21</option></select>
@@ -216,7 +257,7 @@ onUnmounted(deactivate);
         <p class="meta">模型调用 {{ run.modelCalls }} 次 · 工具调用 {{ run.toolCalls }} 次<span v-if="run.tokens !== null"> · {{ run.tokens }} tokens</span></p>
         <RevisionText label="起点" :value="run.baseline" />
         <button v-if="!terminal(run)" :disabled="pending || run.cancelRequested"
-          @click="action(async () => { run = await api.cancelAgent(run!.id); })">{{ run.cancelRequested ? '正在取消' : '取消运行' }}</button>
+          @click="cancelRun">{{ run.cancelRequested ? '正在取消' : '取消运行' }}</button>
         <p v-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)">本次编码未交付。当前步骤仍保留确认，可从可信版本启动全新的运行。</p>
         <p v-if="run.retained && terminal(run)">最终化材料已保留，请核对失败原因。</p>
       </template>
@@ -225,11 +266,13 @@ onUnmounted(deactivate);
       <h3>冻结结果与交付</h3>
       <p>Candidate 已冻结 · {{ candidate.diffBytes }} bytes</p>
       <p>Delivery：{{ delivery ? label(delivery.state) : '等待自动交付' }}</p>
-      <p v-if="delivery?.reason">{{ delivery.reason }}</p>
+      <p v-if="delivery?.reason">{{ delivery.reason === 'MUTATION_NOT_STARTED'
+        ? '本次未写入正式副本。请核对外部文件或运行环境，处理后可重新交付已有结果。' : delivery.reason }}</p>
       <p v-if="delivery?.state === 'RECOVERY_REQUIRED'" role="alert">正式副本状态无法证明安全，已保留现场并阻止后续执行。请核对文件、Git 与交付日志。</p>
       <RevisionText v-if="delivery?.revision" label="正式提交" :value="delivery.revision" />
-      <button v-if="!delivery || ['DELIVERY_BLOCKED', 'PUBLISHED', 'COMMIT_READY', 'APPLIED'].includes(delivery.state)" :disabled="pending"
-        @click="action(async () => { delivery = await api.deliver(candidate!.id); })">重新核对并交付已有结果</button>
+      <button v-if="!delivery || ['DELIVERY_BLOCKED', 'PUBLISHED', 'COMMIT_READY', 'APPLIED'].includes(delivery.state)
+        || delivery.state === 'RECOVERY_REQUIRED' && delivery.reason === 'MUTATION_NOT_STARTED'" :disabled="pending"
+        @click="deliverCandidate">重新核对并交付已有结果</button>
       <ContentList title="变化文件" :items="candidate.changedPaths" />
       <details><summary>实际检查证据</summary><pre class="agent-output">{{ candidate.testEvidence }}</pre></details>
       <button :disabled="pending" @click="loadDiff">读取最终差异</button>

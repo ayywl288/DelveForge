@@ -17,6 +17,12 @@
     <description>DeepSeek、Persistence、Git、Filesystem、Shell、Build / Test 等外部能力 Adapter</description>
 
     <dependencies>
+        <!-- 正式 Delivery 的 no-replace / 目录句柄能力；选择与替代方案见 ADR-0013。 -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.17.0</version>
+        </dependency>
         <!-- Task 1 原生工具调用；仅 Infrastructure 接触 Spring AI，旧文本 Gateway 保留。 -->
         <dependency>
             <groupId>org.springframework.ai</groupId>

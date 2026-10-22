@@ -235,6 +235,9 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     public Position inspect(Delivery delivery) {
         try {
             Path target = deliveryTarget(delivery);
+            if (Files.exists(target.resolve(".git/delveforge-delivery-incomplete"), LinkOption.NOFOLLOW_LINKS)) {
+                return Position.UNKNOWN;
+            }
             WorkspaceRef copy = new WorkspaceRef(delivery.location());
             WorkspaceRef original = new WorkspaceRef(delivery.originalLocation());
             String head = headRevision(copy);
@@ -322,14 +325,127 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         requireTrustedState(new WorkspaceRef(delivery.location()), new WorkspaceRef(delivery.originalLocation()),
                 delivery.baseline());
         requireSafeTreeAttributes(target, delivery.expectedTree());
-        // 二树合并拒绝覆盖额外修改；不用 reset --hard，也不依赖模型生成第二份补丁。
-        deliveryGit(target, null, "--attr-source=" + delivery.expectedTree(),
-                "-c", "core.safecrlf=false", "read-tree", "-m", "-u",
-                delivery.baseline(), delivery.expectedTree());
-        if (inspect(delivery) != Position.APPLIED) {
-            throw new AgentException("TREE_MISMATCH", "Actual official index or worktree differs from Candidate");
+        Path material = null;
+        Path index = null;
+        Path indexLock = target.resolve(".git/index.lock");
+        Path incomplete = target.resolve(".git/delveforge-delivery-incomplete");
+        boolean locked = false;
+        try {
+            material = Files.createTempDirectory(target.resolve(".git"), "delveforge-render-");
+            index = target.resolve(".git/delveforge-index-" + UUID.randomUUID() + ".delivery");
+            Path rendered = Files.createDirectory(material.resolve("files"));
+            deliveryGit(target, index, "read-tree", delivery.expectedTree());
+            Map<String, String[]> baseline = deliveryEntries(target, delivery.baseline());
+            Map<String, String[]> next = deliveryEntries(target, delivery.expectedTree());
+            List<String> oldPaths = candidate.changedPaths().stream().filter(baseline::containsKey).toList();
+            Map<String, String> eol = oldPaths.isEmpty() ? Map.of() : trackedEolFacts(target, delivery.baseline(), oldPaths);
+            String autocrlf = contentGit(target, delivery.baseline(), "config", "--default=false", "--get", "core.autocrlf")
+                    .strip().toLowerCase(Locale.ROOT);
+            List<DeliveryFiles.Change> changes = new ArrayList<>();
+            for (String path : candidate.changedPaths()) {
+                byte[] before = baseline.containsKey(path) ? boundedDeliveryBytes(target.resolve(path)) : null;
+                if (before != null && !blobIdentity(before).equals(baseline.get(path)[2])
+                        && !lineEndingEquivalent(before, baseline.get(path)[2], eol.get(path), autocrlf)) {
+                    throw new WorkingCopyBasisChangedException("Delivery snapshot differs from proven baseline bytes");
+                }
+                byte[] after = null;
+                if (next.containsKey(path)) {
+                    // Git 只渲染自有临时目录，保留版本属性 / autocrlf 的转换；不写正式源码。
+                    deliveryGit(target, index, "--attr-source=" + delivery.expectedTree(), "-c", "core.safecrlf=false",
+                            "checkout-index", "--prefix=" + rendered.toString().replace('\\', '/') + "/", "--", path);
+                    after = boundedDeliveryBytes(rendered.resolve(path));
+                }
+                changes.add(new DeliveryFiles.Change(path, before, after, next.containsKey(path) ? next.get(path)[0] : "100644"));
+            }
+            byte[] originalIndex = boundedDeliveryBytes(target.resolve(".git/index"));
+            // 正式 index 在原生边界内只核对身份，不原地覆写，保留 Git 的原子 index 发布。
+            changes.add(new DeliveryFiles.Change(".git/index", originalIndex, originalIndex, "100644"));
+            Path patch = material.resolve("candidate.diff");
+            Files.writeString(patch, candidate.diff(), StandardCharsets.UTF_8);
+            requireTrustedState(new WorkspaceRef(delivery.location()), new WorkspaceRef(delivery.originalLocation()),
+                    delivery.baseline());
+            Files.writeString(indexLock, candidate.id(), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            locked = true;
+            String capture = "delveforge-captured-" + UUID.randomUUID();
+            Files.writeString(incomplete, candidate.id() + "\n" + capture + "\n", StandardOpenOption.CREATE_NEW);
+            beforeDeliveryMutation(target);
+            try {
+                DeliveryFiles.apply(target, changes, capture);
+            } catch (DeliveryFiles.NotStarted failure) {
+                // 原生边界证明尚未动过正式文件/index，外部冲突仍由 inspect 决定是否需要恢复。
+                Files.delete(incomplete);
+                throw new AgentException("MUTATION_NOT_STARTED", "Official file/index mutation never started", failure);
+            }
+            Files.delete(indexLock);
+            locked = false;
+            // 只有源码写入成功后才更新 index；--cached 不接触正式工作树，并由 Git 自己持有 index.lock。
+            beforeDeliveryIndexPublication(target);
+            deliveryGit(target, null, "--attr-source=" + delivery.expectedTree(), "-c", "core.safecrlf=false",
+                    "apply", "--cached", "--whitespace=nowarn", "--", patch.toString());
+            requireDeliveryTree(new WorkspaceRef(delivery.location()), new WorkspaceRef(delivery.originalLocation()),
+                    delivery.baseline(), delivery.expectedTree());
+            // 只有实际 B/index 全部证明后才移除此标记；任何失败/崩溃均不允许按 B 自动接受。
+            Files.delete(incomplete);
+        } catch (IOException failure) {
+            throw new WorkspaceException("Non-destructive Candidate mutation did not complete; scene retained", failure);
+        } finally {
+            try {
+                if (locked) {
+                    Files.delete(indexLock);
+                }
+                if (index != null) {
+                    Files.deleteIfExists(index);
+                }
+                if (material != null) {
+                    // 仅删除本次渲染材料；Linux 捕获目录与 incomplete 标记不属于清理范围。
+                    try (var files = Files.walk(material)) {
+                        for (Path path : files.sorted(Comparator.reverseOrder()).toList()) {
+                            Files.delete(path);
+                        }
+                    }
+                }
+            } catch (IOException failure) {
+                throw new WorkspaceException("Cannot release owned Delivery render material", failure);
+            }
         }
     }
+
+    private Map<String, String[]> deliveryEntries(Path target, String revision) {
+        Map<String, String[]> entries = new LinkedHashMap<>();
+        for (String entry : contentGit(target, revision, "ls-tree", "-r", "-z", revision).split("\0")) {
+            if (!entry.isEmpty()) {
+                int separator = entry.indexOf('\t');
+                entries.put(entry.substring(separator + 1), entry.substring(0, separator).split(" "));
+            }
+        }
+        return entries;
+    }
+
+    private static byte[] boundedDeliveryBytes(Path path) throws IOException {
+        try (var input = Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS)) {
+            byte[] bytes = input.readNBytes(1048577);
+            if (bytes.length > 1048576) {
+                throw new IOException("Delivery file/index exceeds its byte budget");
+            }
+            return bytes;
+        }
+    }
+
+    private static String blobIdentity(byte[] bytes) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-1");
+            digest.update(("blob " + bytes.length + "\0").getBytes(StandardCharsets.US_ASCII));
+            return HexFormat.of().formatHex(digest.digest(bytes));
+        } catch (NoSuchAlgorithmException failure) {
+            throw new WorkspaceException("Cannot prove Delivery blob bytes", failure);
+        }
+    }
+
+    /** 确定性故障注入边界；生产实现不改变文件，真实写入紧随其后。 */
+    protected void beforeDeliveryMutation(Path target) { }
+
+    /** 源码已写入、Git 原子发布 index 前的故障注入边界。 */
+    protected void beforeDeliveryIndexPublication(Path target) { }
 
     @Override
     public String createCommit(Delivery delivery) {
@@ -475,6 +591,17 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
 
     /** 仅使用 Git 的只读 EOL 描述和本地字节转换，不调用任何 Git clean / smudge / process。 */
     private boolean lineEndingEquivalent(Path target, String path, String expected, String eol, String autocrlf) {
+        try {
+            return lineEndingEquivalent(boundedDeliveryBytes(target.resolve(path)), expected, eol, autocrlf);
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot prove tracked EOL bytes", failure);
+        }
+    }
+
+    private boolean lineEndingEquivalent(byte[] actual, String expected, String eol, String autocrlf) {
+        if (eol == null) {
+            return false;
+        }
         String[] facts = eol.trim().split("\\s+", 3);
         if (facts.length != 3 || !facts[0].equals("i/lf")
                 || (!facts[1].equals("w/crlf") && !facts[1].equals("w/mixed"))) {
@@ -489,12 +616,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         if (!text) {
             return false;
         }
-        try (var input = Files.newInputStream(target.resolve(path))) {
-            // 只有需要 EOL 等价证明的文件才读取有界快照；超限不截断、不改写源码。
-            byte[] actual = input.readNBytes(1048577);
-            if (actual.length > 1048576) {
-                throw new WorkspaceException("Tracked EOL proof exceeds its byte budget");
-            }
+        try {
             byte[] normalized = new byte[actual.length];
             int length = 0;
             for (int index = 0; index < actual.length; index++) {
@@ -509,7 +631,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             digest.update(("blob " + length + "\0").getBytes(StandardCharsets.US_ASCII));
             digest.update(normalized, 0, length);
             return HexFormat.of().formatHex(digest.digest()).equals(expected);
-        } catch (IOException | NoSuchAlgorithmException failure) {
+        } catch (NoSuchAlgorithmException failure) {
             throw new WorkspaceException("Cannot prove tracked EOL bytes", failure);
         }
     }

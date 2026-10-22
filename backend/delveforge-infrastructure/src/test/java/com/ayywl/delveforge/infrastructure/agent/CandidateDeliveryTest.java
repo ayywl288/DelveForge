@@ -11,10 +11,13 @@ import com.ayywl.delveforge.domain.agent.AgentRunState;
 import com.ayywl.delveforge.domain.agent.Candidate;
 import com.ayywl.delveforge.infrastructure.workspace.GitWorkspaceAdapter;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.charset.StandardCharsets;
@@ -22,10 +25,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -117,6 +122,279 @@ class CandidateDeliveryTest {
 
     private Delivery intent() {
         return deliveries.reserve(candidate, agents.get(candidate.runId()), copy.toString(), original.toString());
+    }
+
+    private void withAddedFile(String path) throws Exception {
+        Path result = temporary.resolve("result");
+        Files.createDirectories(result.resolve(path).getParent());
+        Files.writeString(result.resolve(path), "class Added {}\n");
+        refreshCandidate();
+    }
+
+    private void refreshCandidate() throws Exception {
+        Path result = temporary.resolve("result");
+        git(result, "add", ".");
+        String diff = git(result, "diff", "--cached", "--full-index", "--no-ext-diff", "--no-renames", baseline);
+        String paths = new ObjectMapper().writeValueAsString(
+                git(result, "diff", "--cached", "--name-only", "--no-renames", baseline).lines().toList());
+        String immutableGuard = scalar("SELECT sql FROM sqlite_master WHERE name='agent_candidate_immutable_update'");
+        sql("DROP TRIGGER agent_candidate_immutable_update");
+        try {
+            // 仅构造一致的冻结夹具；正式交付前恢复生产不可变约束。
+            sql("UPDATE agent_candidate SET expected_tree='" + git(result, "write-tree").strip()
+                    + "',diff=X'" + HexFormat.of().formatHex(diff.getBytes(StandardCharsets.UTF_8)) + "',sha256='"
+                    + Candidate.digest(diff) + "',changed_paths='" + escape(paths) + "'");
+        } finally {
+            sql(immutableGuard);
+        }
+        candidate = agents.candidate(candidate.id());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void fileAppearingAtMutationBoundaryIsNeverOverwrittenOrAccepted(boolean ignored) throws Exception {
+        withAddedFile("Added.java");
+        if (ignored) {
+            Files.createDirectories(copy.resolve(".git/info"));
+            Files.writeString(copy.resolve(".git/info/exclude"), "Added.java\n");
+        }
+        Delivery reserved = intent();
+        byte[] external = new byte[] {0, 1, 2, '\r', '\n', (byte) 0xff};
+        GitWorkspaceAdapter racing = new GitWorkspaceAdapter(managed) {
+            @Override
+            protected void beforeDeliveryMutation(Path target) {
+                try {
+                    Files.write(target.resolve("Added.java"), external);
+                } catch (Exception failure) {
+                    throw new AssertionError(failure);
+                }
+            }
+        };
+        try (var service = new CandidateDeliveryService(agents, deliveries, racing, eligibility)) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertArrayEquals(external, Files.readAllBytes(copy.resolve("Added.java")));
+        assertEquals("READY", scalar("SELECT status FROM evolution_step"));
+        assertEquals(baseline, scalar("SELECT last_verified_revision FROM working_copy"));
+        assertEquals(baseline, scalar("SELECT current_revision FROM working_copy"));
+        assertEquals(baseline, git(copy, "rev-parse", "HEAD").strip());
+        assertEquals(candidate, agents.candidate(candidate.id()));
+        assertEquals(reserved.candidateId(), deliveries.get(candidate.id()).candidateId());
+        assertEquals("1", scalar("SELECT occupied FROM candidate_delivery"));
+        assertEquals("MUTATION_NOT_STARTED", deliveries.get(candidate.id()).reason());
+        assertFalse(Files.exists(copy.resolve(".git/delveforge-delivery-incomplete")));
+        try (var service = service()) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertEquals("MUTATION_NOT_STARTED", deliveries.get(candidate.id()).reason());
+        // 冲突材料由测试用户显式移走；重新证明 A 后交付同一 Candidate，不重新编码。
+        Files.move(copy.resolve("Added.java"), temporary.resolve("saved-external"));
+        try (var service = service()) {
+            assertAccepted(service.deliver(candidate.id()));
+        }
+        assertArrayEquals(external, Files.readAllBytes(temporary.resolve("saved-external")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void changedTrackedBytesAtWriteBoundaryArePreservedIncludingDeletion(boolean deletion) throws Exception {
+        if (deletion) {
+            withAddedFile("Added.java");
+            Files.delete(temporary.resolve("result/Counter.java"));
+            refreshCandidate();
+        }
+        byte[] external = "new external tracked draft\r\n".getBytes(StandardCharsets.UTF_8);
+        GitWorkspaceAdapter racing = new GitWorkspaceAdapter(managed) {
+            @Override
+            protected void beforeDeliveryMutation(Path target) {
+                try {
+                    Files.write(target.resolve("Counter.java"), external);
+                } catch (Exception failure) {
+                    throw new AssertionError(failure);
+                }
+            }
+        };
+        try (var service = new CandidateDeliveryService(agents, deliveries, racing, eligibility)) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertArrayEquals(external, Files.readAllBytes(copy.resolve("Counter.java")));
+        assertEquals("READY", scalar("SELECT status FROM evolution_step"));
+        assertEquals(baseline, scalar("SELECT last_verified_revision FROM working_copy"));
+        assertFalse(Files.exists(copy.resolve("Added.java")));
+    }
+
+    @Test
+    void parentReplacedWithJunctionOrSymlinkCannotWriteOutsideOfficialCopy() throws Exception {
+        withAddedFile("nested/Added.java");
+        Path outside = Files.createDirectory(temporary.resolve("outside"));
+        Files.writeString(outside.resolve("Added.java"), "outside bytes\r\n");
+        GitWorkspaceAdapter racing = new GitWorkspaceAdapter(managed) {
+            @Override
+            protected void beforeDeliveryMutation(Path target) {
+                try {
+                    Path link = target.resolve("nested");
+                    if (System.getProperty("os.name").startsWith("Windows")) {
+                        Process process = new ProcessBuilder("cmd", "/c", "mklink", "/J", link.toString(), outside.toString())
+                                .redirectErrorStream(true).start();
+                        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+                        assertEquals(0, process.waitFor(), output);
+                    } else {
+                        Files.createSymbolicLink(link, outside);
+                    }
+                } catch (Exception failure) {
+                    throw new AssertionError(failure);
+                }
+            }
+        };
+        try {
+            try (var service = new CandidateDeliveryService(agents, deliveries, racing, eligibility)) {
+                assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+            }
+            assertEquals("outside bytes\r\n", Files.readString(outside.resolve("Added.java")));
+            assertEquals(baseline, scalar("SELECT last_verified_revision FROM working_copy"));
+            assertEquals("READY", scalar("SELECT status FROM evolution_step"));
+        } finally {
+            Files.deleteIfExists(copy.resolve("nested"));
+        }
+    }
+
+    @Test
+    void changedIndexAtBoundaryIsPreservedWithoutAcceptingCandidate() throws Exception {
+        GitWorkspaceAdapter racing = new GitWorkspaceAdapter(managed) {
+            @Override
+            protected void beforeDeliveryMutation(Path target) {
+                try {
+                    // 模拟不遵守 index.lock 的外部写入者；真实 index 随后必须按字节冲突拒绝。
+                    Path foreign = temporary.resolve("foreign-index");
+                    Files.write(foreign, new byte[] {1, 2, 3});
+                    Files.write(target.resolve(".git/index"), Files.readAllBytes(foreign));
+                } catch (Exception failure) {
+                    throw new AssertionError(failure);
+                }
+            }
+        };
+        try (var service = new CandidateDeliveryService(agents, deliveries, racing, eligibility)) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertArrayEquals(new byte[] {1, 2, 3}, Files.readAllBytes(copy.resolve(".git/index")));
+        assertEquals(baseline, scalar("SELECT last_verified_revision FROM working_copy"));
+        assertEquals("class Counter { int next(int n) { return n; } }\n", Files.readString(copy.resolve("Counter.java"))
+                .replace("\r\n", "\n"));
+    }
+
+    @Test
+    void partialCreationRetainsMarkerEvenWhenForeignWorkLaterMakesTreeLookLikeB() throws Exception {
+        withAddedFile("Added.java");
+        withAddedFile("Second.java");
+        byte[] oldIndex = Files.readAllBytes(copy.resolve(".git/index"));
+        GitWorkspaceAdapter racing = new GitWorkspaceAdapter(managed) {
+            @Override
+            protected void beforeDeliveryMutation(Path target) {
+                try {
+                    Files.writeString(target.resolve("Second.java"), "external second file");
+                } catch (Exception failure) {
+                    throw new AssertionError(failure);
+                }
+            }
+        };
+        try (var service = new CandidateDeliveryService(agents, deliveries, racing, eligibility)) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertTrue(Files.exists(copy.resolve(".git/delveforge-delivery-incomplete")));
+        assertEquals("external second file", Files.readString(copy.resolve("Second.java")));
+        assertArrayEquals(oldIndex, Files.readAllBytes(copy.resolve(".git/index")));
+        assertEquals("READY", scalar("SELECT status FROM evolution_step"));
+        Files.writeString(copy.resolve("Added.java"), "class Added {}\n");
+        Files.writeString(copy.resolve("Second.java"), "class Added {}\n");
+        Files.writeString(copy.resolve("Counter.java"), "class Counter { int next(int n) { return n + 1; } }\n");
+        git(copy, "read-tree", candidate.expectedTree());
+        try (var service = service()) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertEquals(baseline, scalar("SELECT last_verified_revision FROM working_copy"));
+        assertEquals(candidate, agents.candidate(candidate.id()));
+    }
+
+    @Test
+    void indexFailureAfterSourceMutationKeepsForeignIndexAndIncompleteMarker() throws Exception {
+        byte[] externalIndex = new byte[] {1, 2, 3};
+        GitWorkspaceAdapter racing = new GitWorkspaceAdapter(managed) {
+            @Override
+            protected void beforeDeliveryIndexPublication(Path target) {
+                try {
+                    Files.write(target.resolve(".git/index"), externalIndex);
+                } catch (Exception failure) {
+                    throw new AssertionError(failure);
+                }
+            }
+        };
+        try (var service = new CandidateDeliveryService(agents, deliveries, racing, eligibility)) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertArrayEquals(externalIndex, Files.readAllBytes(copy.resolve(".git/index")));
+        assertTrue(Files.exists(copy.resolve(".git/delveforge-delivery-incomplete")));
+        assertEquals("READY", scalar("SELECT status FROM evolution_step"));
+        assertEquals(baseline, scalar("SELECT last_verified_revision FROM working_copy"));
+        assertEquals(candidate, agents.candidate(candidate.id()));
+    }
+
+    @Test
+    void rejectedForeignTreeEqualToBIsNotAcceptedAsOurCompletedMutation() throws Exception {
+        GitWorkspaceAdapter racing = new GitWorkspaceAdapter(managed) {
+            @Override
+            protected void beforeDeliveryMutation(Path target) {
+                try {
+                    Files.writeString(target.resolve("Counter.java"), "class Counter { int next(int n) { return n + 1; } }\n");
+                    try (var indexes = Files.newDirectoryStream(target.resolve(".git"), "delveforge-index-*.delivery")) {
+                        Path renderedIndex = indexes.iterator().next();
+                        Files.write(target.resolve(".git/index"), Files.readAllBytes(renderedIndex));
+                    }
+                } catch (Exception failure) {
+                    throw new AssertionError(failure);
+                }
+            }
+        };
+        try (var service = new CandidateDeliveryService(agents, deliveries, racing, eligibility)) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertEquals("MUTATION_NOT_STARTED", deliveries.get(candidate.id()).reason());
+        try (var service = service()) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertEquals("READY", scalar("SELECT status FROM evolution_step"));
+        assertEquals(baseline, scalar("SELECT last_verified_revision FROM working_copy"));
+    }
+
+    @Test
+    void normalAdditionAndDeletionDeliverWithExactTreeAndParent() throws Exception {
+        withAddedFile("nested/Added.java");
+        Files.delete(temporary.resolve("result/Counter.java"));
+        refreshCandidate();
+        try (var service = service()) {
+            assertAccepted(service.deliver(candidate.id()));
+        }
+        assertFalse(Files.exists(copy.resolve("Counter.java")));
+        assertEquals("class Added {}\n", Files.readString(copy.resolve("nested/Added.java")).replace("\r\n", "\n"));
+    }
+
+    @Test
+    void additionOnlyCandidateDoesNotRequireAnyChangedBaselineFile() throws Exception {
+        Files.writeString(temporary.resolve("result/Counter.java"), Files.readString(original.resolve("Counter.java")));
+        withAddedFile("Added.java");
+        assertEquals(List.of("Added.java"), candidate.changedPaths());
+        try (var service = service()) {
+            assertAccepted(service.deliver(candidate.id()));
+        }
+    }
+
+    @Test
+    void renderedCandidatePreservesVersionedCrLfConversion() throws Exception {
+        Files.writeString(temporary.resolve("result/.gitattributes"), "*.java text eol=crlf\n");
+        refreshCandidate();
+        try (var service = service()) {
+            assertAccepted(service.deliver(candidate.id()));
+        }
+        assertTrue(Files.readString(copy.resolve("Counter.java")).endsWith("\r\n"));
     }
 
     private CandidateDeliveryService service() {

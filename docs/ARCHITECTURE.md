@@ -9,13 +9,16 @@ Agent 的五个工具只改独立沙箱；Delivery 不调用模型、不依赖�
 以 update-ref CAS 发布，再在短事务接受 Step、WorkingCopy 两个 revision、完成事件和预约释放。
 启动检查实际 A/B/C 与数据库，不把异常当作事务未提交的证明；不明确的现场保留占用。
 SSE 只读取有界持久化事件页，共享 Agent/Delivery 游标，不做内存 replay/live 交接。
+2026-10-23 审查修复：正式源码不再由 Git checkout/read-tree 写入。Workspace 内的 JNA 5.17.0
+边界使用 Windows 目录/独占文件句柄，或 Linux x86-64 openat/renameat2 no-replace；新增文件原子排他创建，
+旧文件核对后写入或捕获保留。未完成标记阻止未知部分写入被当作 B 接受，具体限制见 ADR-0013。
 M1–M3 文本 AiGateway 保留；M3 Step 定义只要求 goal/scope/plannedChanges，不要求旧 VerificationStrategy。
 下文旧 M4/M5 编排、接口与执行合同仅作历史设计记录；对应代码及入口已经退役。
 
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-10-22
+**Last Updated:** 2026-10-23
 
 ## 1. Architecture Goals
 

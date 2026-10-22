@@ -2,7 +2,8 @@ import { createApp, h, nextTick, reactive } from "vue";
 import { afterEach, expect, it, vi } from "vitest";
 import EvolutionView from "../src/views/EvolutionView.vue";
 import { api } from "../src/api/client";
-import type { AgentRun } from "../src/api/agentTypes";
+import type { AgentCandidate, AgentRun, Delivery } from "../src/api/agentTypes";
+import type { EvolutionPlan } from "../src/api/types";
 import { createSession } from "../src/state/session";
 import { copy, plan } from "./fixtures";
 
@@ -37,6 +38,25 @@ function mount(history: AgentRun[] = []) {
 }
 function button(root: Element, label: string) {
   return [...root.querySelectorAll("button")].find(item => item.textContent?.trim() === label)!;
+}
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+function chooseStep(root: Element, id: string) {
+  const selector = root.querySelector<HTMLSelectElement>("#agent-step")!;
+  selector.value = id;
+  selector.dispatchEvent(new Event("change", { bubbles: true }));
+}
+function chooseRun(root: Element, index: number) {
+  root.querySelectorAll<HTMLButtonElement>(".text-button")[index]!.click();
+}
+function savedCandidate(id = "candidate-1", runId = "run-1"): AgentCandidate {
+  return { id, runId, baseline: "a".repeat(40), expectedTree: "b".repeat(40), sha256: "f".repeat(64),
+    changedPaths: [id + ".java"], diffBytes: 120, testEvidence: '{"status":"NOT_TESTED"}',
+    createdAt: running().startedAt };
 }
 
 it("only an explicit start sends the request; real tool events are ordered and deduplicated", async () => {
@@ -111,4 +131,161 @@ it("refresh reloads saved Run history and the event stream without issuing a bus
   expect(Events.instances[0]?.closed).toBe(true);
   expect(api.agentRuns).toHaveBeenCalledTimes(2);
   expect(start).not.toHaveBeenCalled();
+});
+
+it("ignores a late Start after a Step switch and reloads its persisted Run on return", async () => {
+  const response = deferred<AgentRun>();
+  const start = vi.spyOn(api, "startAgent").mockReturnValue(response.promise);
+  const { root, s } = mount(); await settle();
+  s.plan!.steps.push({ ...s.plan!.steps[0]!, id: "step-2", goal: "second selected step", status: "PENDING_CONFIRMATION" });
+  button(root, "开始 Agent").click(); button(root, "开始 Agent").click(); await settle();
+  chooseStep(root, "step-2"); await settle();
+  response.resolve(running()); await settle();
+  expect(root.querySelector<HTMLSelectElement>("#agent-step")!.value).toBe("step-2");
+  expect(root.textContent).not.toContain("Agent：编码中");
+  expect(Events.instances).toHaveLength(0);
+  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", undefined);
+  expect(button(root, "确认此步骤").disabled).toBe(false);
+  vi.mocked(api.agentRuns).mockResolvedValue([running()]);
+  chooseStep(root, "step-1"); await settle();
+  expect(root.textContent).toContain("Agent：编码中");
+  expect(Events.instances.at(-1)?.url).toContain("run-1");
+  expect(start).toHaveBeenCalledTimes(1);
+});
+
+it("a late Cancel cannot replace another Run or its active subscription", async () => {
+  const response = deferred<AgentRun>();
+  const cancel = vi.spyOn(api, "cancelAgent").mockReturnValue(response.promise);
+  const second: AgentRun = { ...running(), id: "run-2", state: "FAILED", reason: "selected-run-two" };
+  const { root } = mount([running(), second]); await settle();
+  vi.mocked(api.agentRun).mockImplementation(async id => id === second.id ? second : running());
+  button(root, "取消运行").click(); await settle();
+  chooseRun(root, 1); await settle();
+  const currentStream = Events.instances.at(-1)!;
+  response.resolve({ ...running(), cancelRequested: true }); await settle();
+  expect(root.textContent).toContain("selected-run-two");
+  expect(root.querySelectorAll(".text-button")[1]!.getAttribute("aria-pressed")).toBe("true");
+  expect(currentStream.url).toContain("run-2");
+  expect(Events.instances.at(-1)).toBe(currentStream);
+  expect(cancel).toHaveBeenCalledExactlyOnceWith("run-1");
+});
+
+it("a stale action error cannot clear the new selection's pending action or error", async () => {
+  const old = deferred<AgentRun>();
+  const fresh = deferred<AgentRun>();
+  const second: AgentRun = { ...running(), id: "run-2" };
+  vi.spyOn(api, "cancelAgent").mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
+  const { root } = mount([running(), second]); await settle();
+  vi.mocked(api.agentRun).mockImplementation(async id => id === second.id ? second : running());
+  button(root, "取消运行").click(); await settle();
+  chooseRun(root, 1); await settle();
+  expect(button(root, "取消运行").disabled).toBe(false);
+  button(root, "取消运行").click(); await settle();
+  old.reject(new Error("stale failure")); await settle();
+  expect(root.textContent).not.toContain("stale failure");
+  expect(button(root, "取消运行").disabled).toBe(true);
+  fresh.reject(new Error("current failure")); await settle();
+  expect(root.textContent).toContain("current failure");
+  expect(button(root, "取消运行").disabled).toBe(false);
+});
+
+it("a late Delivery cannot replace the selected Candidate or its Delivery", async () => {
+  const response = deferred<Delivery>();
+  const first: AgentRun = { ...running(), state: "SUCCEEDED", candidateId: "candidate-1" };
+  const second: AgentRun = { ...first, id: "run-2", candidateId: "candidate-2" };
+  vi.spyOn(api, "candidate").mockImplementation(async id => savedCandidate(id, id === "candidate-1" ? "run-1" : "run-2"));
+  vi.spyOn(api, "delivery").mockImplementation(async candidateId => ({ candidateId, state: "DELIVERY_BLOCKED",
+    revision: null, reason: candidateId + " blocked" }));
+  const deliver = vi.spyOn(api, "deliver").mockReturnValue(response.promise);
+  const { root } = mount([first, second]); await settle();
+  vi.mocked(api.agentRun).mockImplementation(async id => id === second.id ? second : first);
+  button(root, "重新核对并交付已有结果").click(); await settle();
+  chooseRun(root, 1); await settle();
+  response.resolve({ candidateId: "candidate-1", state: "COMPLETED", revision: "c".repeat(40), reason: null });
+  await settle();
+  expect(root.textContent).toContain("candidate-2 blocked");
+  expect(root.textContent).toContain("candidate-2.java");
+  expect(root.textContent).not.toContain("Delivery：交付完成");
+  expect(button(root, "重新核对并交付已有结果").disabled).toBe(false);
+  expect(deliver).toHaveBeenCalledExactlyOnceWith("candidate-1");
+});
+
+it("current Delivery responses and errors remain visible and release pending controls", async () => {
+  const first: AgentRun = { ...running(), state: "SUCCEEDED", candidateId: "candidate-1" };
+  vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
+  vi.spyOn(api, "delivery").mockResolvedValue(null);
+  const response = deferred<Delivery>();
+  const deliver = vi.spyOn(api, "deliver").mockReturnValueOnce(response.promise)
+    .mockRejectedValueOnce(new Error("delivery unavailable"));
+  const { root } = mount([first]); await settle();
+  button(root, "重新核对并交付已有结果").click(); await settle();
+  expect(button(root, "重新核对并交付已有结果").disabled).toBe(true);
+  response.resolve({ candidateId: "candidate-1", state: "DELIVERY_BLOCKED", revision: null, reason: "exact conflict" });
+  await settle();
+  expect(root.textContent).toContain("exact conflict");
+  expect(button(root, "重新核对并交付已有结果").disabled).toBe(false);
+  button(root, "重新核对并交付已有结果").click(); await settle();
+  expect(root.textContent).toContain("delivery unavailable");
+  expect(button(root, "重新核对并交付已有结果").disabled).toBe(false);
+  expect(deliver).toHaveBeenCalledTimes(2);
+});
+
+it("background Candidate arrival invalidates an old Cancel result without stranding pending controls", async () => {
+  const response = deferred<AgentRun>();
+  vi.spyOn(api, "cancelAgent").mockReturnValue(response.promise);
+  vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
+  vi.spyOn(api, "delivery").mockResolvedValue(null);
+  const { root } = mount([running()]); await settle();
+  button(root, "取消运行").click(); await settle();
+  vi.mocked(api.agentRun).mockResolvedValue({ ...running(), state: "SUCCEEDED", candidateId: "candidate-1" });
+  Events.instances.at(-1)!.onopen?.(); await settle();
+  expect(root.textContent).toContain("Agent：Candidate 已冻结");
+  response.resolve({ ...running(), cancelRequested: true }); await settle();
+  expect(root.textContent).toContain("Agent：Candidate 已冻结");
+  expect(button(root, "重新核对并交付已有结果").disabled).toBe(false);
+});
+
+it.each(["MUTATION_NOT_STARTED", "DELIVERY_FAILURE"])("recovery retry is offered only for a proven untouched rejection (%s)", async reason => {
+  const frozen: AgentRun = { ...running(), state: "SUCCEEDED", candidateId: "candidate-1" };
+  vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
+  vi.spyOn(api, "delivery").mockResolvedValue({ candidateId: "candidate-1", state: "RECOVERY_REQUIRED", revision: null, reason });
+  const { root } = mount([frozen]); await settle();
+  expect(Boolean(button(root, "重新核对并交付已有结果"))).toBe(reason === "MUTATION_NOT_STARTED");
+});
+
+it("ignores a stale diff body and its pending cleanup after selecting another Run", async () => {
+  const body = deferred<string>();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => body.promise }));
+  const first: AgentRun = { ...running(), state: "SUCCEEDED", candidateId: "candidate-1" };
+  const second: AgentRun = { ...running(), id: "run-2", state: "FAILED", reason: "selected-run-two" };
+  vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
+  vi.spyOn(api, "delivery").mockResolvedValue(null);
+  const { root } = mount([first, second]); await settle();
+  vi.mocked(api.agentRun).mockImplementation(async id => id === second.id ? second : first);
+  button(root, "读取最终差异").click(); await settle();
+  chooseRun(root, 1); await settle();
+  body.reject(new Error("old diff failure")); await settle();
+  expect(root.textContent).toContain("selected-run-two");
+  expect(root.textContent).not.toContain("old diff failure");
+  expect(button(root, "刷新记录").disabled).toBe(false);
+});
+
+it.each([false, true])("confirmation does not adopt a response or error after selection changes (failure=%s)", async failure => {
+  const response = deferred<EvolutionPlan>();
+  vi.spyOn(api, "confirmStep").mockReturnValue(response.promise);
+  const refresh = vi.spyOn(api, "plan");
+  const { root, s } = mount(); await settle();
+  s.plan!.steps[0]!.status = "PENDING_CONFIRMATION";
+  s.plan!.steps.push({ ...s.plan!.steps[0]!, id: "step-2", goal: "second step" });
+  await settle();
+  button(root, "确认此步骤").click(); await settle();
+  chooseStep(root, "step-2"); await settle();
+  if (failure) response.reject(new Error("stale confirmation"));
+  else response.resolve({ ...plan(), id: "stale-plan" });
+  await settle();
+  expect(s.plan!.id).toBe("plan-1");
+  expect(s.error).toBe("");
+  expect(root.querySelector<HTMLSelectElement>("#agent-step")!.value).toBe("step-2");
+  expect(button(root, "确认此步骤").disabled).toBe(false);
+  expect(refresh).not.toHaveBeenCalled();
 });

@@ -116,10 +116,20 @@ public final class CandidateDeliveryService implements AutoCloseable {
                 CandidateDeliveryPort.Position position = workspace.inspect(delivery);
                 if (position == CandidateDeliveryPort.Position.UNKNOWN) {
                     return store.advance(delivery, Delivery.State.RECOVERY_REQUIRED, delivery.revision(),
-                            "Official Git/index/content cannot be proven; preserved for inspection");
+                            "MUTATION_NOT_STARTED".equals(delivery.reason()) ? delivery.reason()
+                                    : "Official Git/index/content cannot be proven; preserved for inspection");
+                }
+                if (delivery.state() == Delivery.State.RECOVERY_REQUIRED
+                        && "MUTATION_NOT_STARTED".equals(delivery.reason())
+                        && position != CandidateDeliveryPort.Position.BASELINE) {
+                    // 已记录的外部冲突不能因现场后来碰巧等于 B 而变成一次成功写入。
+                    return delivery;
                 }
                 if (position == CandidateDeliveryPort.Position.BASELINE) {
-                    if (delivery.state() != Delivery.State.INTENT && delivery.state() != Delivery.State.DELIVERY_BLOCKED) {
+                    boolean rejectedBeforeMutation = delivery.state() == Delivery.State.RECOVERY_REQUIRED
+                            && "MUTATION_NOT_STARTED".equals(delivery.reason());
+                    if (delivery.state() != Delivery.State.INTENT && delivery.state() != Delivery.State.DELIVERY_BLOCKED
+                            && !rejectedBeforeMutation) {
                         return store.advance(delivery, Delivery.State.RECOVERY_REQUIRED, delivery.revision(),
                                 "Official state regressed after a proven mutation");
                     }
@@ -161,6 +171,10 @@ public final class CandidateDeliveryService implements AutoCloseable {
                 }
                 CandidateDeliveryPort.Position position = workspace.inspect(actual);
                 String code = failure instanceof AgentException classified ? classified.code() : "DELIVERY_FAILURE";
+                if (code.equals("MUTATION_NOT_STARTED")) {
+                    return store.advance(actual, position == CandidateDeliveryPort.Position.BASELINE
+                            ? Delivery.State.DELIVERY_BLOCKED : Delivery.State.RECOVERY_REQUIRED, actual.revision(), code);
+                }
                 if (position == CandidateDeliveryPort.Position.APPLIED || position == CandidateDeliveryPort.Position.PUBLISHED) {
                     agents.event(actual.runId(), "DELIVERY_PENDING", code + "; durable checkpoint retained for reconciliation");
                     return actual;

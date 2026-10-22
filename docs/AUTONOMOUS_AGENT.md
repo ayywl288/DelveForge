@@ -181,16 +181,23 @@ INTENT 在任何正式 Git 写入前提交，候选 diff 在独立 index 重放�
 此事务同时写 Step SUCCEEDED/baseline A/delivery C、WorkingCopy 两个 revision C、Delivery COMPLETED、
 完成事件和释放预约。Candidate 不修改，NOT_TESTED 原样显示。
 
+2026-10-23 安全修复后，Git 只在自有临时目录渲染 B，不 checkout 正式源码。正式写入需要
+Windows 的目录/独占文件句柄，或 Linux x86-64 的 openat/statx/renameat2 能力；JNA 随应用打包，
+能力不可用时拒绝写入。新增目标排他创建，旧内容在写入/删除边界再次核对，Linux 捕获旧条目保留
+在 `.git/delveforge-captured-*`，`paths` 对应编号文件。源文件成功后才由 Git 原子发布 index。
+未完成标记 `.git/delveforge-delivery-incomplete` 留存时，不允许仅凭 B 的外观接受成功；不自动清理。
+
 重启先协调 Agent 占用与材料，再处理交付日志和未交付 Candidate：
 
 | 实际现场 | 行为 |
 | --- | --- |
 | INTENT + 干净 A | 重新核对授权、重放并继续 |
-| HEAD=A，index/文件完整等于 B | 不再次应用；创建/复用已记录 C 后发布 |
+| HEAD=A，index/文件完整等于 B，且无未完成标记或已记录的外部冲突 | 不再次应用；创建/复用已记录 C 后发布 |
 | HEAD=已记录 C，parent=A/tree=B，文件完整 | 接受尚未提交的 SQLite 事实 |
 | SQLite 已是 COMPLETED | 返回相同结果，不新增 commit |
 | 干净 A 上的确定拒绝 | DELIVERY_BLOCKED，保留身份，用户可请求重新核对 |
 | 部分 index/文件、额外外部修改、未知 ref/数据库 | RECOVERY_REQUIRED，保留现场和预约，不自动 reset/clean |
+| MUTATION_NOT_STARTED 冲突已由用户处理，且显式重试重新完整证明干净 A | 重新核对授权后消费同一冻结 Candidate；不重新编码 |
 
 已知 Git 结果但 SQLite 暂不可用时保留可恢复检查点与 DELIVERY_PENDING 事件；异常后先读回是否已经提交。
 冻结结果的首次发现若不能预约，记录阻塞事件，本进程不无限自动重试该结果；明确请求仍会重新校验。

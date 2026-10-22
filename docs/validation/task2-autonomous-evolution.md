@@ -3,6 +3,131 @@
 Date: 2026-10-22. Branch: `feature/autonomous-agent-task2`.
 Starting checkpoint: `c8fa9234e2e129424fdeb1551be7e04c63d2d659`.
 
+## 2026-10-23 independent-review remediation
+
+Remediation starts at `ddb5edda437fcca5c29a83f3da67414f58e74d58` on
+`feature/autonomous-agent-task2`. The original independent **FAIL** report and its probes
+remain unchanged at `data/t2r/task2-independent-review.md`. The sections below this
+remediation record describe the 2026-10-22 implementation and its historical evidence.
+
+Fresh before-fix reproduction used only a new `data/t2fix/before-race` Git/SQLite fixture.
+The real Delivery overwrote the externally created ignored Added.java and returned
+COMPLETED / Step SUCCEEDED / trusted C (`data/t2fix/before-race.log`). The independent
+Vue deferred-response probe failed both Start and Cancel assertions, with its other six
+tests passing (`data/t2fix/before-ui.log`). The permanent ignored-file regression also
+failed against the old mutation, expecting RECOVERY_REQUIRED but observing COMPLETED
+(`data/t2fix/regression-red-final.log`). Early command/fixture setup failures are retained
+separately; they are not counted as reproductions.
+
+### Corrections
+
+F1 was caused by read-tree's worktree overwrite behavior after preflight. Official source
+mutation now uses the narrow Workspace-native boundary described in
+[ADR-0013](../decisions/0013-frozen-candidate-delivery.md): Windows canonical directory
+handles exclude delete sharing; verified existing files are opened exclusively, additions
+use CREATE_NEW, and deletion uses the verified handle. Linux x86-64 uses directory-relative
+O_NOFOLLOW / O_EXCL and no-replace capture of old entries. Captured bytes and their path
+manifest remain in Git metadata for inspection. No replace fallback writes official source.
+
+Only changed B files are rendered in disposable Git metadata, retaining supported Git EOL
+conversion and modes. Index bytes are checked in the same native boundary, then the frozen
+patch is applied with --cached using Git's atomic index publication. No source checkout is
+performed by Git. An incomplete marker survives partial source/index failure and prevents
+automatic acceptance even if the visible tree later equals B. Only a proven no-write rejection
+records MUTATION_NOT_STARTED; after the external conflict is resolved, explicit retry still
+requires fresh authorization and a complete clean-A proof. Frozen Candidate, durable reservation,
+parent(C)=A, tree(C)=B, reference CAS and atomic SQLite acceptance remain unchanged.
+
+JNA 5.17.0 is the only new dependency, isolated to Infrastructure. Supported native mutation
+targets are Windows and Linux x86-64 with the documented APIs; unavailable capabilities fail
+closed. Source/index snapshots are bounded to 1 MiB per file. This does not claim a universal
+transaction against hostile pre-existing descriptors, writable mappings or writers acting
+after the handles close. No automatic reset, source cleanup or ambiguous-state repair is added.
+
+F2 was caused by unguarded action continuations and global pending/error cleanup. EvolutionView
+captures epoch plus Plan/Step/Run/Candidate identity for each action and checks it after awaits.
+The existing epoch also protects history and status reads; an action owner scopes pending cleanup
+when selection changes or a Candidate arrives in the background. Start, Cancel, Delivery, diff
+and Step confirmation ignore obsolete UI results while backend work continues. Returning to a
+Step reloads its saved truth. No global workflow/state framework is introduced.
+
+### Permanent regressions
+
+`CandidateDeliveryTest` retains its original 17 Git/SQLite cases and adds 12 executions:
+
+| Test | Executions / obligation |
+| --- | --- |
+| fileAppearingAtMutationBoundaryIsNeverOverwrittenOrAccepted | 2: ignored/untracked Added.java injected after preflight; exact binary bytes, journal/Candidate/trust and explicit safe recovery |
+| changedTrackedBytesAtWriteBoundaryArePreservedIncludingDeletion | 2: modification and deletion reject new tracked bytes |
+| parentReplacedWithJunctionOrSymlinkCannotWriteOutsideOfficialCopy | 1: real Windows junction / Linux symlink at the final mutation boundary |
+| changedIndexAtBoundaryIsPreservedWithoutAcceptingCandidate | 1: foreign index survives the native boundary |
+| partialCreationRetainsMarkerEvenWhenForeignWorkLaterMakesTreeLookLikeB | 1: partial creation retains original index and prevents acceptance of a later B lookalike |
+| rejectedForeignTreeEqualToBIsNotAcceptedAsOurCompletedMutation | 1: a recorded no-write conflict cannot be adopted as our successful mutation |
+| indexFailureAfterSourceMutationKeepsForeignIndexAndIncompleteMarker | 1: source/index publication boundary failure remains recoverable and unaccepted |
+| normalAdditionAndDeletionDeliverWithExactTreeAndParent | 1: nested addition and deletion reach valid C |
+| additionOnlyCandidateDoesNotRequireAnyChangedBaselineFile | 1: a pure addition does not accidentally enumerate all baseline EOL records |
+| renderedCandidatePreservesVersionedCrLfConversion | 1: supported versioned EOL conversion survives rendering |
+
+`frontend/tests/agent-workflow.test.ts` retains the six existing Start/cancel/SSE/history tests
+and adds nine executions using deferred promises: Step-switch Start and return/readback,
+Run-switch Cancel, stale error versus new pending/error, Run-switch Delivery, current Delivery
+success/error, deferred diff-body failure, two confirmation-response variants, and background
+Candidate arrival while Cancel is pending. Two additional cases restrict recovery retry to
+proven untouched rejections. The complete frontend suite has 108 tests.
+
+Fixture variants restore the production immutable-Candidate trigger before invoking Delivery.
+
+### Executed verification
+
+| Scope | Result | Local evidence |
+| --- | --- | --- |
+| Final complete Windows backend `mvnw.cmd verify`, finished 2026-10-23 01:18:03 +08:00 | 1,469 discovered; **1,447 executed, 0 failures/errors, 22 gated skips**; all four modules and application packaging succeeded | `data/t2fix/backend-verify-final-guarded.log`, `final-backend-results.json` |
+| Actual Windows Delivery matrix | **29 passed**, including all 12 new executions and the original 17 Git/SQLite cases | `data/t2fix/final-key-reports/TEST-com.ayywl.delveforge.infrastructure.agent.CandidateDeliveryTest.xml` |
+| Restart / HTTP / migration | **5 fresh-process recovery cases, 3 HTTP/SSE cases, 1 migration case passed**, included in the complete run | `data/t2fix/final-key-reports/` |
+| Linux x86-64 supplementary Delivery matrix | **29 passed**, real Git/SQLite/native operations in a new disposable container | `data/t2fix/linux-matrix-final-guarded.log` |
+| Fresh Task 1 Docker security / retention | **17 passed**: Sandbox 12, proxy isolation 1, retention/recovery 4 | `data/t2fix/backend-verify.log`, `data/t2fix/docker-reports/` |
+| Final frontend | **108 passed across 12 files**; declared typecheck and production build succeeded | `data/t2fix/frontend-tests-final.log`, `frontend-typecheck-final.log`, `frontend-build-final.log` |
+
+The final backend totals are Domain 203, Application 726, Infrastructure 338 (21 skipped),
+and App 202 (1 skipped). The packaged application includes `BOOT-INF/lib/jna-5.17.0.jar`.
+The 22 gates comprise 17 Docker cases, 2 optional public-repository compatibility cases,
+and 3 live Provider cases. The 17 Docker cases were executed separately in the preceding
+complete run; their Sandbox implementations are unchanged by the final Delivery index
+refinement. The two optional compatibility and three live Provider cases were not rerun.
+The preceding full run is retained as intermediate evidence, not substituted for the final
+complete run. No paid Provider was used for this remediation.
+
+The Linux supplement invokes the same permanent test methods with a fresh fixture for each
+execution through `data/t2fix/DeliveryLinuxRunner.java`, using already compiled classes in a
+network-disabled, read-only-root container and disposable `/tmp` Git/SQLite data. This is a
+scoped Linux supplement; the complete Maven verification above ran on Windows.
+
+The final matrix covers normal and duplicate A/D/B/C delivery, SQLite failure after Git
+publication, frozen Candidate discovery, all five restart checkpoints, concurrent reservations,
+external changes and ambiguous/partial states. Full Candidate diff/hash/tree/parent and trust
+assertions remain active. Existing application databases, managed WorkingCopies, review evidence,
+and unrelated `frontend/design/` / `grilling/` were not modified.
+
+### Historical intermittent failure investigation
+
+The original review's unrestricted matrix had 16/17 passing and one normal Delivery returning
+RECOVERY_REQUIRED after 79.50 seconds, followed by temporary-directory cleanup failure. Its
+isolated repeat passed. Those failures remain in `data/t2r/focused-verify-unrestricted.log`.
+
+The normal case passed in the final complete matrix in **13.235 seconds**. Three subsequent
+independent wrapper invocations each executed that one case successfully: **13.466, 13.676,
+13.729 seconds**, zero failures/errors, with successful cleanup. Exact results are retained in
+`data/t2fix/normal-repeats.json` and `normal-repeat-1.log` through `normal-repeat-3.log`.
+Inspection of the existing bounded process termination and occupation paths, plus these fresh
+matrix/repeat runs, did not reproduce a concurrency or isolation defect. The historical cause
+remains unidentified; the passing repeats do not establish its cause or erase its occurrence.
+
+**Readiness: READY for the F1/F2 remediation described above.** The coherent local remediation
+commit contains this record and the 13 scoped implementation/test/documentation files. No push,
+merge or subsequent milestone work is included.
+
+---
+
 ## Scope and implementation
 
 The active flow is confirmed Step → isolated AgentRun → immutable Candidate → automatic deterministic Delivery.

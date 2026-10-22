@@ -12,6 +12,9 @@
 - Delivery：INTENT→APPLIED→COMMIT_READY→PUBLISHED→COMPLETED。应用或发布后的日志落盘中断可从
   实际 Git 事实恢复，允许跳过已经证明完成的阶段。DELIVERY_BLOCKED 表示明确阻塞；RECOVERY_REQUIRED
   表示安全现场不能证明，继续保留独占预约。不自动硬重置、清理、重打补丁或推进信任。
+  2026-10-23：只有原生边界已证明未开始正式文件/index 写入的冲突，才允许在外部冲突处理后、
+  再次完整证明干净 A 且重新核对授权的显式 Delivery 重试中恢复。部分写入标记或碰巧等于 B
+  不能绕过已记录的冲突；RECOVERY_REQUIRED 不由启动协调自动重试。
 - 正式 C 必须 parent=A 且 tree(C)=B。成功接受在同一 SQLite 事务保存 Step.baselineRevision=A、
   Step.deliveryRevision=C、WorkingCopy.currentRevision=lastVerifiedRevision=C，并完成 Delivery/事件/预约。
   后续 Step 从 C 出发，仍须另行确认和启动；此前 Step 的 A 保留其历史意义。
@@ -31,7 +34,7 @@
 > 本文档回答：DelveForge 内部有哪些核心业务概念，这些概念分别代表什么，以及它们之间如何协作。
 
 **Status:** Stable
-**Last Updated:** 2026-10-22
+**Last Updated:** 2026-10-23
 
 ## 1. Domain Overview
 

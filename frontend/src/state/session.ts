@@ -841,12 +841,21 @@ export function createSession() {
           await refreshPlan();
         });
     },
-    async confirmStep(value: string) {
-      if (plan.value)
-        await run("授权当前 Step", async () => {
-          setPlan(await api.confirmStep(plan.value!.id, value));
+    async confirmStep(value: string, stillSelected: () => boolean = () => true) {
+      const planId = plan.value?.id;
+      const epoch = contextEpoch.value;
+      const current = () => !disposed && contextEpoch.value === epoch && plan.value?.id === planId && stillSelected();
+      if (!planId) return;
+      await run("授权当前 Step", async () => {
+        try {
+          const result = await api.confirmStep(planId, value);
+          if (!current()) return;
+          setPlan(result);
           await refreshPlan();
-        });
+        } catch (failure) {
+          if (current()) throw failure;
+        }
+      });
     },
   };
 }
