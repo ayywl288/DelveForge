@@ -53,3 +53,29 @@ it("a terminal Run never animates a trailing start event and cancel intent is no
     props.run.cancelRequested = false; props.run.state = "INTERRUPTED"; await settle();
     expect(root.querySelectorAll(".is-active")).toHaveLength(0);
 });
+
+it("keeps ordered readable event titles and all diagnostic values in initially collapsed technical details", async () => {
+    const { root, props } = mount();
+    const fullIdentifier = "diagnostic-identifier-".repeat(30);
+    props.events = [fact(10, "PREPARING"), fact(11, "TOOL_FINISHED", JSON.stringify({ tool: "run_checks",
+        ok: false, classification: "BUILD_FAILED", tests: 0, empty: "", optional: null,
+        nested: { fullIdentifier } })), fact(12, "CLEANUP_BLOCKED", "Owned resources require reconciliation: one")];
+    props.run.state = "FAILED"; await settle();
+    expect([...root.querySelectorAll("li")].map(node => node.getAttribute("data-sequence"))).toEqual(["10", "11", "12"]);
+    const event = root.querySelector('[data-sequence="11"]')!;
+    expect(event.querySelector("strong")?.textContent).toBe("工具执行失败 · 运行 Maven 检查");
+    const details = event.querySelector("details")!;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")?.textContent).toContain("TOOL_FINISHED");
+    const technical = details.querySelector("pre")!.textContent!;
+    for (const value of ["ok: false", "classification: BUILD_FAILED", "tests: 0", 'empty: ""', "optional: null", fullIdentifier]) {
+        expect(technical).toContain(value);
+    }
+    details.querySelector("summary")!.click(); await settle();
+    expect(details.open).toBe(true);
+    expect(event.querySelector("time")?.getAttribute("datetime")).toBe(props.events[1]!.at);
+    const warning = root.querySelector('[data-sequence="12"] .timeline-warning')!;
+    expect(warning.closest("details")).toBeNull();
+    expect(warning.textContent).toContain("完成资源协调后再判断能否重试");
+    expect(root.querySelectorAll(".is-active")).toHaveLength(0);
+});

@@ -291,10 +291,19 @@ onUnmounted(deactivate);
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
         <p v-if="resourceBlocked" class="resource-warning" role="alert"><NavigationIcon name="warning" />资源协调待核对：所属资源或保留材料尚未完成核对。请先检查 Docker 与后端安全诊断，再判断能否重新运行。</p>
         <p v-if="run.retained && terminal(run)" class="meta">最终化材料已保留，请核对失败原因。</p>
-        <details class="run-metadata"><summary>运行身份与诊断<span v-if="run.reason"> · {{ run.reason }}</span></summary>
-          <p>Run <code>{{ run.id }}</code> · {{ run.state }}</p><p v-if="run.reason">原因：{{ run.reason }}</p>
-          <p>开始：{{ new Date(run.startedAt).toLocaleString() }}<span v-if="run.endedAt"> · 结束：{{ new Date(run.endedAt).toLocaleString() }}</span></p>
-          <RevisionText label="起点" :value="run.baseline" /></details>
+        <details class="run-metadata"><summary>运行诊断</summary>
+          <dl class="run-diagnostic-fields">
+            <div><dt>运行状态</dt><dd><code>{{ run.state }}</code></dd></div>
+            <div><dt>失败原因</dt><dd><code v-if="run.reason">{{ run.reason }}</code><span v-else>未记录</span></dd></div>
+            <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
+            <div><dt>结束时间</dt><dd><time v-if="run.endedAt" :datetime="run.endedAt">{{ new Date(run.endedAt).toLocaleString() }}</time><span v-else>未记录</span></dd></div>
+          </dl>
+          <div class="run-technical-identity" role="group" aria-labelledby="run-technical-title">
+            <h4 id="run-technical-title">技术身份</h4>
+            <dl><div><dt>Run ID</dt><dd><code>{{ run.id }}</code></dd></div>
+              <div><dt>Baseline revision</dt><dd><code>{{ run.baseline }}</code></dd></div></dl>
+          </div>
+        </details>
         <AgentTimeline :key="run.id" :events="events" :run="run" :connection="connection" />
       </template>
       </div></div>
@@ -338,47 +347,57 @@ onUnmounted(deactivate);
 .workbench-heading, .workbench-heading > .meta { display: flex; align-items: center; gap: 10px; }
 .workbench-heading { justify-content: space-between; flex-wrap: wrap; }
 .workbench-heading h2 { margin: 0; font-size: 19px; }
-.workbench-eyebrow { font-size: 10px; letter-spacing: .08em; color: var(--muted); margin: 0 0 6px; }
-.workbench-intro { font-size: 13px; margin: 12px 0 24px; }
+.workbench-eyebrow { font-size: 12px; letter-spacing: .06em; color: var(--muted); margin: 0 0 6px; }
+.workbench-intro { font-size: 14px; line-height: 1.65; margin: 12px 0 22px; }
 .step-configuration { max-width: 780px; }
-.step-configuration > label, .jdk-field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.step-configuration > label, .jdk-field label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
 .selected-step-summary { display: flex; align-items: baseline; gap: 12px; margin: 14px 0; }
-.selected-step-summary p { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
-.planned-changes { margin-top: 12px; font-size: 13px; }
+.selected-step-summary p { margin: 0; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+.planned-changes { margin-top: 12px; font-size: 14px; }
 .planned-changes summary { cursor: pointer; }
-.planned-changes summary span { margin-left: 12px; font-size: 11px; color: var(--muted); }
+.planned-changes summary span { margin-left: 12px; font-size: 12px; color: var(--muted); }
 .execution-action-area { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 20px 32px; margin-top: 24px; }
 .execution-action-area:empty { display: none; }
 .jdk-field { width: 220px; max-width: 100%; }
 .start-action { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.start-action p { margin: 0; font-size: 11px; }
+.start-action p { margin: 0; font-size: 13px; }
 .agent-run-panel > .section-row { margin-bottom: 20px; }
-.agent-run-panel h3, .agent-changes h3 { margin: 0; font-size: 15px; }
-.run-workspace { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 24px; }
+.agent-run-panel h3, .agent-changes h3 { margin: 0; font-size: 17px; line-height: 1.5; }
+.run-workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; }
 .run-history { min-width: 0; border-right: 1px solid var(--line); padding-right: 20px; }
 .run-history ul { list-style: none; padding: 0; margin: 10px 0; max-height: 34rem; overflow: auto; }
-.run-history .run-choice { width: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 5px; padding: 10px; text-align: left; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+.run-history .run-choice { width: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 5px; padding: 10px; text-align: left; color: var(--muted); font-size: 12px; line-height: 1.5; margin-bottom: 4px; }
 .run-choice-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-.run-choice-heading strong { font-size: 12px; color: var(--ink); }
-.run-choice-heading small { font-size: 10px; font-weight: 400; }
+.run-choice-heading strong { font-size: 14px; color: var(--ink); }
+.run-choice-heading small { font-size: 12px; font-weight: 400; }
 .run-history .run-choice:hover:not(:disabled) { background: var(--canvas); }
 .run-history .run-choice[aria-pressed="true"] { background: var(--selection); color: var(--accent-hover); }
 .selected-run { min-width: 0; }
 .run-status[data-state="FAILED"] { color: var(--danger); }
 .run-status[data-state="INTERRUPTED"], .run-status[data-state="CANCELLED"] { color: var(--muted); }
 .run-status[data-state="SUCCEEDED"] { color: var(--success); }
-.run-metadata { margin: 14px 0 24px; font-size: 12px; overflow-wrap: anywhere; }
-.run-metadata summary { cursor: pointer; color: var(--muted); }
-.run-failure { color: var(--danger); font-size: 13px; }
-.resource-warning { display: flex; align-items: flex-start; gap: 10px; color: var(--warning); border-left: 2px solid var(--warning); padding: 8px 12px; font-size: 12px; }
+.run-metadata { margin: 16px 0 22px; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.run-metadata summary { cursor: pointer; color: var(--ink); font-weight: 600; }
+.run-diagnostic-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; margin: 16px 0; }
+.run-metadata dl > div { min-width: 0; }
+.run-metadata dt { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+.run-metadata dd { margin: 0; }
+.run-metadata code { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.run-technical-identity { padding-top: 14px; border-top: 1px solid var(--line); }
+.run-technical-identity h4 { font-size: 13px; color: var(--muted); font-weight: 500; margin: 0 0 10px; }
+.run-technical-identity dl { display: grid; gap: 10px; margin: 0; }
+.run-technical-identity dl > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; }
+.run-technical-identity dt { margin: 0; }
+.run-failure { color: var(--danger); font-size: 14px; line-height: 1.65; }
+.resource-warning { display: flex; align-items: flex-start; gap: 10px; color: var(--warning); border-left: 2px solid var(--warning); padding: 8px 12px; font-size: 14px; line-height: 1.65; }
 .resource-warning .navigation-icon { flex-shrink: 0; }
-.workbench-empty { font-size: 13px; color: var(--muted); padding: 12px 0; }
+.workbench-empty { font-size: 14px; line-height: 1.65; color: var(--muted); padding: 12px 0; }
 .candidate-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; margin: 20px 0; }
 .candidate-overview > div { min-width: 0; overflow-wrap: anywhere; }
-.candidate-overview h4 { font-size: 13px; margin: 0 0 12px; }
-.candidate-overview p { font-size: 13px; }
+.candidate-overview h4 { font-size: 15px; margin: 0 0 12px; }
+.candidate-overview p { font-size: 14px; }
 .delivery-overview { border-left: 1px solid var(--line); padding-left: 28px; }
-.candidate-evidence { margin: 16px 0; font-size: 12px; }
+.candidate-evidence { margin: 16px 0; font-size: 13px; }
 .candidate-evidence summary { cursor: pointer; }
 .agent-changes :deep(.step-final-changes) { border-top: 1px solid var(--line); padding-top: 20px; }
 select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
@@ -386,15 +405,17 @@ select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
   .run-workspace { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .run-history { border-right: 0; padding-right: 0; }
   .run-history ul { display: flex; gap: 8px; max-height: none; }
-  .run-history li { flex: 0 0 190px; }
+  .run-history li { flex: 0 0 210px; }
 }
 @media (max-width: 640px) {
-  .workbench-heading > .meta { font-size: 11px; }
+  .workbench-heading > .meta { font-size: 12px; }
   .execution-action-area { gap: 18px; align-items: stretch; }
   .jdk-field { width: 100%; }
   .start-action { width: 100%; }
   .candidate-overview { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .delivery-overview { border-left: 0; padding-left: 0; }
   .selected-step-summary { align-items: flex-start; }
+  .run-diagnostic-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .run-technical-identity dl > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
 }
 </style>

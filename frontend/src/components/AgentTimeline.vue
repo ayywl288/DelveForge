@@ -39,8 +39,8 @@ function description(event: AgentEvent) {
 }
 function detail(event: AgentEvent) {
     const data = fields(event);
-    return Object.keys(data).length ? Object.entries(data).filter(([, value]) => value !== "" && value !== null)
-        .map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : value}`).join("\n")
+    return Object.keys(data).length ? Object.entries(data)
+        .map(([key, value]) => `${key}: ${typeof value === "object" || value === "" ? JSON.stringify(value) : value}`).join("\n")
         : event.summary;
 }
 function tone(event: AgentEvent) {
@@ -116,29 +116,32 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 </template>
 
 <style scoped>
-.activity-section { min-width: 0; }
-.stream-status { font-size: 12px; color: var(--muted); margin: 0; }
+.activity-section { min-width: 0; line-height: 1.6; }
+.activity-section h3 { font-size: 17px; line-height: 1.5; margin: 0; }
+.activity-section > .section-row { margin-bottom: 12px; }
+.stream-status { font-size: 13px; color: var(--muted); margin: 0; }
 .timeline-viewport { max-height: 34rem; overflow: auto; scrollbar-width: thin; overflow-anchor: none; padding: 6px 4px; }
 .agent-timeline { list-style: none; margin: 0; padding: 0; }
-.agent-timeline li { position: relative; display: flex; gap: 12px; padding: 0 0 20px; min-width: 0; }
+.agent-timeline li { position: relative; display: flex; gap: 12px; padding: 0 0 12px; margin: 0; min-width: 0; }
 .agent-timeline li:not(:last-child)::before { content: ""; position: absolute; left: 13px; top: 28px; bottom: 0; width: 1px; background: var(--line); }
 .timeline-node { flex: 0 0 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--canvas); color: var(--muted); }
 .timeline-node .navigation-icon { width: 15px; height: 15px; }
 .timeline-body { min-width: 0; flex: 1; padding-top: 3px; overflow-wrap: anywhere; }
-.timeline-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 12px; }
-.timeline-heading strong { font-size: 13px; font-weight: 600; }
-time, .activity-current { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.timeline-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.timeline-heading strong { font-size: 14px; font-weight: 600; line-height: 1.6; }
+time, .activity-current { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 details { margin-top: 4px; }
-summary { color: var(--muted); font-size: 11px; cursor: pointer; }
-pre { font-size: 12px; max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 10px; border-radius: 6px; }
+summary { color: var(--muted); font-size: 12px; cursor: pointer; overflow-wrap: anywhere; padding: 4px 0; min-height: 28px; }
+pre { width: fit-content; max-width: 100%; font-size: 13px; line-height: 1.55; max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 8px 10px; border-radius: 6px; margin: 6px 0 0; }
 [data-tone="failed"] .timeline-node { color: var(--danger); background: var(--danger-bg); }
 [data-tone="blocked"] .timeline-node, [data-tone="retained"] .timeline-node { color: var(--warning); background: var(--warning-bg); }
 [data-tone="completed"] .timeline-node { color: var(--success); }
 [data-tone="interrupted"] .timeline-node { color: var(--muted); border: 1px dashed var(--muted); }
 .is-active .timeline-node { color: var(--accent); background: var(--selection); animation: activity-pulse 1.8s ease-in-out infinite; }
 .activity-current { color: var(--accent); }
-.timeline-warning { font-size: 12px; color: var(--warning); margin: 6px 0; }
+.timeline-warning { font-size: 14px; line-height: 1.6; color: var(--warning); margin: 6px 0; }
 .latest-activity { margin: 8px 0; }
 @keyframes activity-pulse { 50% { box-shadow: 0 0 0 4px var(--selection); } }
+@media (max-width: 640px) { summary { min-height: 44px; padding: 10px 0; } }
 @media (prefers-reduced-motion: reduce) { .is-active .timeline-node { animation: none; } }
 </style>

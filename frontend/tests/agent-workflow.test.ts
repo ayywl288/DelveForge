@@ -323,6 +323,10 @@ it("explains failed Docker preparation and resource reconciliation without inven
   stream.fact(3, "CLEANUP_BLOCKED", "Owned resources require reconciliation: run-1"); await settle();
   expect(root.textContent).toContain("Docker 沙箱准备失败，尚未开始编码");
   expect(root.querySelector(".resource-warning[role='alert']")?.textContent).toContain("资源协调待核对");
+  expect(root.querySelector(".resource-warning")?.closest("details")).toBeNull();
+  expect(root.querySelector<HTMLDetailsElement>(".run-metadata")!.open).toBe(false);
+  expect(root.querySelector(".run-diagnostic-fields")?.textContent).toContain("DOCKER_FAILURE");
+  expect(root.querySelector(".run-status[role='status']")?.textContent).toContain("编码失败");
   expect(root.querySelector(".agent-changes")?.textContent).toContain("此 Run 尚无冻结 Candidate");
   expect(root.querySelector('[data-sequence="3"]')?.getAttribute("data-tone")).toBe("blocked");
   expect(root.querySelectorAll(".is-active")).toHaveLength(0);
@@ -331,6 +335,42 @@ it("explains failed Docker preparation and resource reconciliation without inven
   vi.spyOn(api, "startAgent").mockResolvedValue({ ...running(), id: "new-run" });
   button(root, "重新开始编码").click(); await settle();
   expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", undefined);
+});
+
+it("presents diagnostic label/value fields and full technical identity separately inside a disclosure", async () => {
+  const failed: AgentRun = { ...running(), id: "run-with-a-long-identity-".repeat(8), state: "FAILED",
+    reason: "DOCKER_FAILURE", modelCalls: 0, toolCalls: 0, baseline: "0123456789abcdef".repeat(4),
+    endedAt: "2026-10-22T01:02:03Z" };
+  const { root } = mount([failed]); await settle();
+  const disclosure = root.querySelector<HTMLDetailsElement>(".run-metadata")!;
+  expect(disclosure.open).toBe(false);
+  expect(disclosure.querySelector("summary")?.textContent).toBe("运行诊断");
+  const value = (label: string) => [...disclosure.querySelectorAll("dt")]
+    .find(node => node.textContent === label)?.nextElementSibling;
+  expect(value("运行状态")?.tagName).toBe("DD");
+  expect(value("运行状态")?.textContent).toBe("FAILED");
+  expect(value("失败原因")?.textContent).toBe("DOCKER_FAILURE");
+  expect(value("开始时间")?.querySelector("time")?.getAttribute("datetime")).toBe(failed.startedAt);
+  expect(value("结束时间")?.querySelector("time")?.getAttribute("datetime")).toBe(failed.endedAt);
+  expect(value("开始时间")?.textContent).toBe(new Date(failed.startedAt).toLocaleString());
+  expect(value("Run ID")?.textContent).toBe(failed.id);
+  expect(value("Baseline revision")?.textContent).toBe(failed.baseline);
+  expect(value("Run ID")?.closest('[aria-labelledby="run-technical-title"]')).not.toBeNull();
+  expect(disclosure.querySelector("#run-technical-title")?.textContent).toBe("技术身份");
+  disclosure.querySelector("summary")!.click(); await settle();
+  expect(disclosure.open).toBe(true);
+  expect(root.querySelector(".run-failure")?.closest("details")).toBeNull();
+});
+
+it("missing diagnostic values remain honest and do not imply that a running Run has ended", async () => {
+  const { root } = mount([running()]); await settle();
+  const fields = root.querySelector(".run-diagnostic-fields")!;
+  expect([...fields.querySelectorAll("dt")].map(node => node.textContent))
+    .toEqual(["运行状态", "失败原因", "开始时间", "结束时间"]);
+  expect(fields.querySelectorAll("dd")[1]?.textContent).toBe("未记录");
+  expect(fields.querySelectorAll("dd")[3]?.textContent).toBe("未记录");
+  expect(fields.querySelectorAll("time")).toHaveLength(1);
+  expect(root.querySelector(".run-status")?.textContent).toContain("编码中");
 });
 
 it("shows active persisted activity independently of SSE connectivity and keeps completed tools static", async () => {
