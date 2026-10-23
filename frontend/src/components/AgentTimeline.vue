@@ -2,6 +2,8 @@
 import { computed, nextTick, ref, watch } from "vue";
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import NavigationIcon, { type NavigationIconName } from "./NavigationIcon.vue";
+import AgentEventDetails from "./AgentEventDetails.vue";
+import { eventMetadata, recordedTool, summaryFields } from "./agentEventPresentation";
 
 const props = defineProps<{ events: AgentEvent[]; run: AgentRun; connection: string }>();
 const viewport = ref<HTMLElement>();
@@ -24,28 +26,18 @@ const tools: Record<string, string> = {
     list_files: "浏览文件", read_file: "读取文件", search_code: "搜索代码", apply_patch: "应用代码修改",
     run_checks: "运行 Maven 检查",
 };
-function fields(event: AgentEvent): Record<string, unknown> {
-    try {
-        const value: unknown = JSON.parse(event.summary);
-        if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
-    } catch { /* 非 JSON 事件保留原始诊断文本。 */ }
-    return {};
-}
 function description(event: AgentEvent) {
-    const data = fields(event);
-    const tool = typeof data.tool === "string" ? data.tool : event.summary.match(/^tool=([^;]+)/)?.[1];
-    const title = event.kind === "TOOL_FINISHED" && data.ok === false ? "工具执行失败" : names[event.kind] ?? "运行活动";
-    return tool ? `${title} · ${tools[tool] ?? tool}` : title;
-}
-function detail(event: AgentEvent) {
-    const data = fields(event);
-    return Object.keys(data).length ? Object.entries(data)
-        .map(([key, value]) => `${key}: ${typeof value === "object" || value === "" ? JSON.stringify(value) : value}`).join("\n")
-        : event.summary;
+    const data = summaryFields(event);
+    const tool = recordedTool(event);
+    if (tool && event.kind === "TOOL_STARTED") return `${tools[tool] ?? tool} · 开始`;
+    if (tool && event.kind === "TOOL_FINISHED") {
+        return `${tools[tool] ?? tool} · ${data.ok === false ? "失败" : data.ok === true ? "完成" : "已结束"}`;
+    }
+    return names[event.kind] ?? "运行活动";
 }
 function tone(event: AgentEvent) {
     if (event.kind.includes("BLOCKED") || event.kind.includes("RECOVERY_REQUIRED") || event.kind === "DELIVERY_PENDING") return "blocked";
-    if (event.kind === "FAILED" || fields(event).ok === false) return "failed";
+    if (event.kind === "FAILED" || summaryFields(event).ok === false) return "failed";
     if (["INTERRUPTED", "CANCELLED"].includes(event.kind)) return "interrupted";
     if (event.kind === "MATERIAL_RETAINED") return "retained";
     if (["TOOL_FINISHED", "MODEL_COMPLETED", "SANDBOX_READY", "SUCCEEDED", "DELIVERY_INTENT", "DELIVERY_APPLIED",
@@ -104,8 +96,11 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
                     <div class="timeline-body"><div class="timeline-heading"><strong>{{ description(event) }}</strong>
                         <time :datetime="event.at" :title="new Date(event.at).toLocaleString()">{{ new Date(event.at).toLocaleTimeString() }}</time>
                         <span v-if="activeSequence === event.sequence" class="activity-current">进行中</span></div>
+                        <dl v-if="eventMetadata(event).primary.length" class="event-highlights">
+                            <div v-for="field in eventMetadata(event).primary" :key="field.label"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></div>
+                        </dl>
                         <p v-if="event.kind === 'CLEANUP_BLOCKED'" class="timeline-warning">需核对所属资源与保留材料，完成资源协调后再判断能否重试。</p>
-                        <details><summary>技术详情 · {{ event.kind }}</summary><pre>{{ detail(event) }}</pre></details>
+                        <AgentEventDetails :event="event" />
                     </div>
                 </li>
             </ol>
@@ -130,9 +125,10 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .timeline-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
 .timeline-heading strong { font-size: 14px; font-weight: 600; line-height: 1.6; }
 time, .activity-current { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-details { margin-top: 4px; }
-summary { color: var(--muted); font-size: 12px; cursor: pointer; overflow-wrap: anywhere; padding: 4px 0; min-height: 28px; }
-pre { width: fit-content; max-width: 100%; font-size: 13px; line-height: 1.55; max-height: 18rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--canvas); padding: 8px 10px; border-radius: 6px; margin: 6px 0 0; }
+.event-highlights { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0; }
+.event-highlights > div { display: flex; gap: 6px; min-width: 0; align-items: baseline; }
+.event-highlights dt { font-size: 12px; color: var(--muted); flex-shrink: 0; }
+.event-highlights dd { font-size: 12px; color: var(--ink); margin: 0; min-width: 0; overflow-wrap: anywhere; }
 [data-tone="failed"] .timeline-node { color: var(--danger); background: var(--danger-bg); }
 [data-tone="blocked"] .timeline-node, [data-tone="retained"] .timeline-node { color: var(--warning); background: var(--warning-bg); }
 [data-tone="completed"] .timeline-node { color: var(--success); }
@@ -142,6 +138,5 @@ pre { width: fit-content; max-width: 100%; font-size: 13px; line-height: 1.55; m
 .timeline-warning { font-size: 14px; line-height: 1.6; color: var(--warning); margin: 6px 0; }
 .latest-activity { margin: 8px 0; }
 @keyframes activity-pulse { 50% { box-shadow: 0 0 0 4px var(--selection); } }
-@media (max-width: 640px) { summary { min-height: 44px; padding: 10px 0; } }
 @media (prefers-reduced-motion: reduce) { .is-active .timeline-node { animation: none; } }
 </style>

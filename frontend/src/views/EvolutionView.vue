@@ -9,6 +9,7 @@ import StatusBadge from "../components/StatusBadge.vue";
 import StepFinalChanges from "../components/StepFinalChanges.vue";
 import AgentTimeline from "../components/AgentTimeline.vue";
 import NavigationIcon from "../components/NavigationIcon.vue";
+import type { NavigationIconName } from "../components/NavigationIcon.vue";
 import { stepPrerequisiteIssue } from "../state/stepPrerequisite";
 
 const props = defineProps<{ s: WorkspaceSession }>();
@@ -61,6 +62,13 @@ const labels: Record<string, string> = {
   TOOL_STARTED: "工具开始", TOOL_FINISHED: "工具结果", SANDBOX_READY: "沙箱已就绪", DELIVERY_PENDING: "交付等待协调",
 };
 function label(value: string) { return labels[value] ?? labels[value.replace(/^DELIVERY_/, "")] ?? value; }
+function runIcon(state: AgentRun["state"]): NavigationIconName {
+  if (state === "FAILED") return "warning";
+  if (state === "SUCCEEDED") return "check";
+  if (["INTERRUPTED", "CANCELLED"].includes(state)) return "close";
+  return "activity";
+}
+const numberText = (value: number) => value.toLocaleString("zh-CN");
 function stop() {
   stream?.close();
   stream = undefined;
@@ -249,8 +257,8 @@ onUnmounted(deactivate);
       </select>
       <template v-if="step">
         <div class="selected-step-summary"><StatusBadge :status="step.status" /><p>{{ step.scope }}</p></div>
-        <details class="planned-changes"><summary>计划变更 · {{ step.plannedChanges.length }} 项 <span>展开查看</span></summary>
-          <ContentList title="本步骤计划" :items="step.plannedChanges" /></details>
+        <details class="planned-changes"><summary>计划变更 · {{ step.plannedChanges.length }} 项</summary>
+          <ul class="planned-change-list"><li v-for="(change, index) in step.plannedChanges" :key="index">{{ change }}</li></ul></details>
       </template></div>
       <template v-if="step">
         <div v-if="prerequisiteIssue" class="step-lock-reason">
@@ -283,18 +291,25 @@ onUnmounted(deactivate);
       </aside>
       <div class="selected-run">
       <template v-if="run">
-        <div class="section-row run-status-row"><h3 class="run-status" :data-state="run.state" role="status">Agent：{{ label(run.state) }}</h3>
+        <div class="run-summary" :data-state="run.state">
+        <div class="section-row run-status-row"><h3 class="run-status" :data-state="run.state" role="status"><NavigationIcon :name="runIcon(run.state)" />Agent：{{ label(run.state) }}</h3>
           <button v-if="!terminal(run)" class="secondary compact-button" :disabled="pending || run.cancelRequested"
             @click="cancelRun">{{ run.cancelRequested ? '正在取消' : '取消运行' }}</button></div>
-        <p class="meta">模型调用 {{ run.modelCalls }} 次 · 工具调用 {{ run.toolCalls }} 次<span v-if="run.tokens !== null"> · {{ run.tokens }} tokens</span></p>
+        <dl class="run-statistics" aria-label="已保存运行统计">
+          <div><dt>模型调用</dt><dd>{{ numberText(run.modelCalls) }} <span>次</span></dd></div>
+          <div><dt>工具调用</dt><dd>{{ numberText(run.toolCalls) }} <span>次</span></dd></div>
+          <div><dt>累计 tokens</dt><dd>{{ run.tokens === null ? '未报告' : numberText(run.tokens) }}</dd></div>
+        </dl>
         <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
+        <p v-else-if="run.state === 'SUCCEEDED'" class="meta">本次运行已冻结 Candidate；正式接受状态以交付结果为准。</p>
+        </div>
         <p v-if="resourceBlocked" class="resource-warning" role="alert"><NavigationIcon name="warning" />资源协调待核对：所属资源或保留材料尚未完成核对。请先检查 Docker 与后端安全诊断，再判断能否重新运行。</p>
         <p v-if="run.retained && terminal(run)" class="meta">最终化材料已保留，请核对失败原因。</p>
         <details class="run-metadata"><summary>运行诊断</summary>
           <dl class="run-diagnostic-fields">
-            <div><dt>运行状态</dt><dd><code>{{ run.state }}</code></dd></div>
-            <div><dt>失败原因</dt><dd><code v-if="run.reason">{{ run.reason }}</code><span v-else>未记录</span></dd></div>
+            <div><dt>运行状态</dt><dd class="diagnostic-state" :data-state="run.state"><NavigationIcon :name="runIcon(run.state)" /><code>{{ run.state }}</code></dd></div>
+            <div><dt>失败原因</dt><dd><code v-if="run.reason" class="diagnostic-reason">{{ run.reason }}</code><span v-else>未记录</span></dd></div>
             <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
             <div><dt>结束时间</dt><dd><time v-if="run.endedAt" :datetime="run.endedAt">{{ new Date(run.endedAt).toLocaleString() }}</time><span v-else>未记录</span></dd></div>
           </dl>
@@ -355,7 +370,9 @@ onUnmounted(deactivate);
 .selected-step-summary p { margin: 0; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
 .planned-changes { margin-top: 12px; font-size: 14px; }
 .planned-changes summary { cursor: pointer; }
-.planned-changes summary span { margin-left: 12px; font-size: 12px; color: var(--muted); }
+.planned-change-list { margin: 4px 0 12px; padding: 0 0 0 20px; }
+.planned-change-list li { padding: 9px 0; margin: 0; font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.planned-change-list li + li { border-top: 1px solid var(--line); }
 .execution-action-area { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 20px 32px; margin-top: 24px; }
 .execution-action-area:empty { display: none; }
 .jdk-field { width: 220px; max-width: 100%; }
@@ -373,6 +390,19 @@ onUnmounted(deactivate);
 .run-history .run-choice:hover:not(:disabled) { background: var(--canvas); }
 .run-history .run-choice[aria-pressed="true"] { background: var(--selection); color: var(--accent-hover); }
 .selected-run { min-width: 0; }
+.run-summary { margin-bottom: 14px; }
+.run-status { display: flex; align-items: center; gap: 8px; }
+.run-status .navigation-icon { width: 20px; height: 20px; flex-shrink: 0; }
+.run-statistics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 18px 0 14px; }
+.run-statistics > div { min-width: 0; }
+.run-statistics dt { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.run-statistics dd { margin: 0; font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.run-statistics dd span { font-size: 12px; font-weight: 400; color: var(--muted); }
+.diagnostic-state { display: flex; gap: 7px; align-items: center; }
+.diagnostic-state .navigation-icon { width: 15px; height: 15px; }
+.diagnostic-state[data-state="FAILED"] { color: var(--danger); }
+.diagnostic-state[data-state="SUCCEEDED"] { color: var(--success); }
+.diagnostic-reason { border-left: 2px solid var(--line); padding-left: 8px; }
 .run-status[data-state="FAILED"] { color: var(--danger); }
 .run-status[data-state="INTERRUPTED"], .run-status[data-state="CANCELLED"] { color: var(--muted); }
 .run-status[data-state="SUCCEEDED"] { color: var(--success); }
@@ -417,5 +447,7 @@ select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
   .selected-step-summary { align-items: flex-start; }
   .run-diagnostic-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .run-technical-identity dl > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .run-statistics { gap: 10px; }
+  .run-statistics dd { font-size: 17px; }
 }
 </style>

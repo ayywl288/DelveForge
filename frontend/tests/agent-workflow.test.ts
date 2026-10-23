@@ -373,6 +373,63 @@ it("missing diagnostic values remain honest and do not imply that a running Run 
   expect(root.querySelector(".run-status")?.textContent).toContain("编码中");
 });
 
+it.each(["CREATED", "PREPARING", "RUNNING", "FINALIZING", "FAILED", "CANCELLED", "INTERRUPTED", "SUCCEEDED"] as const)
+  ("uses real Run state in the status summary without implying Delivery acceptance (%s)", async state => {
+    const actual: AgentRun = { ...running(), state, candidateId: state === "SUCCEEDED" ? "candidate-1" : null };
+    vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
+    vi.spyOn(api, "delivery").mockResolvedValue(null);
+    const start = vi.spyOn(api, "startAgent");
+    const { root } = mount([actual]); await settle();
+    const summary = root.querySelector(".run-summary")!;
+    expect(summary.getAttribute("data-state")).toBe(state);
+    expect(summary.querySelector('[role="status"]')?.getAttribute("data-state")).toBe(state);
+    expect(summary.querySelector('.navigation-icon[aria-hidden="true"]')).not.toBeNull();
+    expect(summary.textContent).not.toContain("交付完成");
+    if (state === "SUCCEEDED") expect(summary.textContent).toContain("正式接受状态以交付结果为准");
+    if (["FAILED", "CANCELLED", "INTERRUPTED"].includes(state)) expect(summary.textContent).toContain("本次编码未交付");
+    expect(start).not.toHaveBeenCalled();
+  });
+
+it.each([null, 0, 1234567])("separates actual usage statistics and honestly formats reported tokens (%s)", async tokens => {
+  const { root } = mount([{ ...running(), tokens }]); await settle();
+  const statistics = root.querySelector('.run-statistics[aria-label="已保存运行统计"]')!;
+  expect([...statistics.querySelectorAll("dt")].map(node => node.textContent)).toEqual(["模型调用", "工具调用", "累计 tokens"]);
+  expect([...statistics.querySelectorAll("dd")].map(node => node.textContent?.trim())).toEqual([
+    "2 次", "3 次", tokens === null ? "未报告" : tokens.toLocaleString("zh-CN"),
+  ]);
+  expect(statistics.textContent).not.toContain("%");
+});
+
+it("updates reported tokens only from the existing SSE-triggered status read", async () => {
+  vi.useFakeTimers();
+  const { root } = mount([{ ...running(), tokens: 1200 }]); await settle();
+  const tokens = () => root.querySelectorAll(".run-statistics dd")[2]!.textContent;
+  expect(tokens()).toBe("1,200");
+  vi.mocked(api.agentRun).mockResolvedValue({ ...running(), tokens: 15234 });
+  Events.instances.at(-1)!.fact(1, "MODEL_COMPLETED"); await settle();
+  expect(tokens()).toBe("1,200");
+  await vi.advanceTimersByTimeAsync(200); await settle();
+  expect(tokens()).toBe("15,234");
+  vi.mocked(api.agentRun).mockResolvedValue({ ...running(), tokens: null });
+  Events.instances.at(-1)!.fact(2, "MODEL_REQUEST");
+  await vi.advanceTimersByTimeAsync(200); await settle();
+  expect(tokens()).toBe("未报告");
+});
+
+it("expands the complete planned changes in order without a nested heading or modifying the Step", async () => {
+  const { root, s } = mount(); await settle();
+  const changes = ["保留现有实现，补充完整的中文配置说明。".repeat(20), "增加测试\n保留多行内容", "更新文档"];
+  s.plan!.steps[0]!.plannedChanges = changes; await settle();
+  const disclosure = root.querySelector<HTMLDetailsElement>(".planned-changes")!;
+  expect(disclosure.open).toBe(false);
+  expect(disclosure.querySelector("summary")?.textContent).toContain("计划变更 · 3 项");
+  expect(disclosure.querySelectorAll("h3, h4, .content-list")).toHaveLength(0);
+  disclosure.querySelector("summary")!.click(); await settle();
+  expect(disclosure.open).toBe(true);
+  expect([...disclosure.querySelectorAll("li")].map(node => node.textContent)).toEqual(changes);
+  expect(s.plan!.steps[0]!.plannedChanges).toEqual(changes);
+});
+
 it("shows active persisted activity independently of SSE connectivity and keeps completed tools static", async () => {
   const { root } = mount([running()]); await settle();
   const stream = Events.instances.at(-1)!;

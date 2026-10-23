@@ -63,7 +63,7 @@ it("keeps ordered readable event titles and all diagnostic values in initially c
     props.run.state = "FAILED"; await settle();
     expect([...root.querySelectorAll("li")].map(node => node.getAttribute("data-sequence"))).toEqual(["10", "11", "12"]);
     const event = root.querySelector('[data-sequence="11"]')!;
-    expect(event.querySelector("strong")?.textContent).toBe("工具执行失败 · 运行 Maven 检查");
+    expect(event.querySelector("strong")?.textContent).toBe("运行 Maven 检查 · 失败");
     const details = event.querySelector("details")!;
     expect(details.open).toBe(false);
     expect(details.querySelector("summary")?.textContent).toContain("TOOL_FINISHED");
@@ -79,3 +79,70 @@ it("keeps ordered readable event titles and all diagnostic values in initially c
     expect(warning.textContent).toContain("完成资源协调后再判断能否重试");
     expect(root.querySelectorAll(".is-active")).toHaveLength(0);
 });
+
+it("layers real tool results, classification and targets above complete advanced diagnostics", async () => {
+    const { root, props } = mount();
+    props.events = [fact(1, "TOOL_FINISHED", JSON.stringify({ tool: "run_checks", ok: true,
+        classification: "TESTS_PASSED", durationMs: 1240, executedTests: 12, tests: 14, skipped: 2, failures: 0,
+        errors: 0, module: "reports", directory: ".", goal: "test", selectedTest: "ScheduleTest", snapshot: "f".repeat(64) }))];
+    await settle();
+    const highlights = root.querySelector(".event-highlights")!;
+    expect(highlights.textContent).toContain("TESTS_PASSED");
+    expect(highlights.textContent).toContain("1,240 ms");
+    expect(highlights.textContent).toContain("reports");
+    const details = root.querySelector<HTMLDetailsElement>(".event-details")!;
+    const fields = details.querySelector(".event-fields")!;
+    expect(fields.textContent).toContain("工具结果成功");
+    expect(fields.textContent).toContain("实际执行测试12");
+    expect(fields.textContent).toContain("跳过2");
+    expect(fields.textContent).not.toContain("错误0");
+    const advanced = details.querySelector<HTMLDetailsElement>(".advanced-event-details")!;
+    expect(details.open).toBe(false); expect(advanced.open).toBe(false);
+    details.querySelector("summary")!.click(); await settle();
+    expect(details.open).toBe(true); expect(advanced.open).toBe(false);
+    advanced.querySelector("summary")!.click(); await settle();
+    expect(advanced.open).toBe(true);
+    expect(advanced.textContent).toContain("errors: 0");
+    expect(advanced.textContent).toContain("f".repeat(64));
+});
+
+it("organizes saved sandbox constraints while hiding identities in the advanced disclosure", async () => {
+    const { root, props } = mount();
+    props.events = [fact(1, "SANDBOX_READY", JSON.stringify({ containerId: "container-full-id", imageId: "sha256:" + "a".repeat(64),
+        targetJdk: 21, memoryBytes: 2147483648, nanoCpus: 2000000000, pidsLimit: 256, networkMode: "none", readOnlyRoot: true }))];
+    await settle();
+    const fields = root.querySelector(".event-fields")!;
+    for (const value of ["JDK21", "内存2,048 MiB", "CPU2 核", "PID 上限256", "网络none", "只读根文件系统是"]) {
+        expect(fields.textContent).toContain(value);
+    }
+    expect(fields.textContent).not.toContain("container-full-id");
+    expect(fields.textContent).not.toContain("sha256:");
+    expect(root.querySelector(".advanced-event-details")?.textContent).toContain("container-full-id");
+    expect(root.querySelector(".advanced-event-details")?.textContent).toContain("sha256:" + "a".repeat(64));
+});
+
+it("does not guess paths or cross-correlate legacy tool starts and finishes", async () => {
+    const { root, props } = mount();
+    props.events = [fact(1, "TOOL_STARTED", "tool=read_file; id=tool-one"),
+        fact(2, "TOOL_FINISHED", '{"tool":"read_file","ok":true,"classification":"RESULT","durationMs":0,"tests":0}'),
+        fact(3, "TOOL_FINISHED", '{"tool":"read_file","path":"src/OnlyRecorded.java","durationMs":10}')];
+    await settle();
+    const first = root.querySelector('[data-sequence="1"]')!;
+    const second = root.querySelector('[data-sequence="2"]')!;
+    expect(first.querySelector("strong")?.textContent).toContain("读取文件");
+    expect(first.querySelector(".event-highlights")).toBeNull();
+    expect(second.querySelector(".event-highlights")?.textContent).toContain("0 ms");
+    expect(second.textContent).not.toContain("src/OnlyRecorded.java");
+    expect(second.querySelector(".event-fields")?.textContent).not.toContain("测试");
+    expect(root.querySelector('[data-sequence="3"] .event-highlights')?.textContent).toContain("src/OnlyRecorded.java");
+});
+
+it.each(["legacy plain text", '{"tool":', 'null', '["unknown"]', '{"unrecognized":"recorded-value"}'])
+    ("preserves malformed, legacy or unknown summaries without manufacturing metadata (%s)", async summary => {
+        const { root, props } = mount();
+        props.events = [fact(1, "UNKNOWN_KIND", summary)]; await settle();
+        expect(root.querySelector(".event-highlights")).toBeNull();
+        expect(root.querySelector(".event-fields")).toBeNull();
+        expect(root.querySelector("pre")?.textContent).toContain(summary.startsWith('{"unrecognized"') ? "recorded-value" : summary);
+        expect(root.querySelector("strong")?.textContent).toBe("运行活动");
+    });
