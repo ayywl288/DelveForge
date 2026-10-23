@@ -36,6 +36,11 @@ function mount(history: AgentRun[] = []) {
   cleanup.push(() => { app.unmount(); s.dispose(); root.remove(); });
   return { root, s, app };
 }
+async function expandExploration(root: Element) {
+  const summary = root.querySelector<HTMLDetailsElement>(".exploration-summary")!;
+  if (!summary.open) summary.querySelector<HTMLElement>("summary")!.click();
+  await settle();
+}
 function button(root: Element, label: string) {
   return [...root.querySelectorAll("button")].find(item => item.textContent?.trim() === label)!;
 }
@@ -68,7 +73,8 @@ it("only an explicit start sends the request; real tool events are ordered and d
   const stream = Events.instances.at(-1)!;
   expect(stream.url).toContain("/agent-runs/run-1/stream?after=0");
   stream.fact(3); stream.fact(3); stream.fact(2); stream.fact(4); await settle();
-  expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(2);
+  await expandExploration(root);
+  expect(root.querySelectorAll(".exploration-operations li")).toHaveLength(2);
   expect(root.textContent).toContain("src/Counter.java");
   expect([...root.querySelectorAll(".activity-duration")].map(node => node.textContent)).toEqual(["内部 12 ms", "内部 12 ms"]);
   expect(root.querySelector(".agent-timeline pre")).toBeNull();
@@ -81,14 +87,19 @@ it("correlated SSE activity updates in place and replay never duplicates a compl
   const metadata = { metadataVersion: 1, toolCallId: "9d52e412-e03d-4419-a2fb-56322848b598",
     tool: "read_file", path: "src/Counter.java" };
   stream.fact(1, "TOOL_STARTED", JSON.stringify(metadata)); await settle();
-  const row = root.querySelector(".agent-timeline li")!;
+  await expandExploration(root);
+  const summary = root.querySelector(".exploration-summary")!;
+  expect(summary.querySelector(".exploration-count")?.textContent).toContain("1 次文件操作");
+  const row = root.querySelector(".exploration-operations li")!;
   expect(row.querySelector('[role="status"]')?.textContent).toBe("进行中");
   const result = JSON.stringify({ ...metadata, ok: true, durationMs: 0, invocationDurationNs: 15000000, classification: "RESULT" });
   stream.fact(2, "TOOL_FINISHED", result); await settle();
   stream.onerror?.(); stream.onopen?.();
   stream.fact(1, "TOOL_STARTED", JSON.stringify(metadata)); stream.fact(2, "TOOL_FINISHED", result); await settle();
-  expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(1);
-  expect(root.querySelector(".agent-timeline li")).toBe(row);
+  expect(root.querySelectorAll(".exploration-operations li")).toHaveLength(1);
+  expect(root.querySelector(".exploration-operations li")).toBe(row);
+  expect(root.querySelector(".exploration-summary")).toBe(summary);
+  expect(root.querySelector(".agent-timeline li")).toBeNull();
   expect(row.getAttribute("data-tone")).toBe("completed");
   expect(row.querySelector(".activity-duration")?.textContent).toBe("15 ms");
   expect(row.querySelector(".activity-target")?.textContent).toBe("src/Counter.java");
@@ -132,7 +143,8 @@ it("disconnect and reconnect preserve visible events; changing pages closes the 
   stream.onerror?.(); await settle();
   expect(root.textContent).toContain("正在重连并补齐事件");
   stream.onopen?.(); stream.fact(1); stream.fact(2); await settle();
-  expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(2);
+  await expandExploration(root);
+  expect(root.querySelectorAll(".exploration-operations li")).toHaveLength(2);
   app.unmount();
   expect(stream.closed).toBe(true);
 });
@@ -494,12 +506,14 @@ it("keeps the latest 1000 persisted events ordered and deduplicated across repla
   const stream = Events.instances.at(-1)!;
   for (let i = 1; i <= 1002; i++) stream.fact(i);
   stream.onerror?.(); stream.onopen?.(); stream.fact(1001); stream.fact(1002); await settle();
-  expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(40);
-  expect(root.querySelector(".agent-timeline li")?.getAttribute("data-sequence")).toBe("963");
-  while (root.querySelector(".earlier-activity")) {
-    root.querySelector<HTMLButtonElement>(".earlier-activity")!.click(); await settle();
+  expect(root.querySelector(".exploration-count")?.textContent).toContain("1000 次文件操作");
+  await expandExploration(root);
+  expect(root.querySelectorAll(".exploration-operations li")).toHaveLength(40);
+  expect(root.querySelector(".exploration-operations li")?.getAttribute("data-sequence")).toBe("3");
+  while (root.querySelector(".more-exploration")) {
+    root.querySelector<HTMLButtonElement>(".more-exploration")!.click(); await settle();
   }
-  const rows = root.querySelectorAll(".agent-timeline li");
+  const rows = root.querySelectorAll(".exploration-operations li");
   expect(rows).toHaveLength(1000);
   expect(rows[0]?.getAttribute("data-sequence")).toBe("3");
   expect(rows[999]?.getAttribute("data-sequence")).toBe("1002");

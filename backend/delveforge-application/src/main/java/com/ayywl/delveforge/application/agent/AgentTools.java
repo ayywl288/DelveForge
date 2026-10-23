@@ -76,7 +76,8 @@ public final class AgentTools {
                 if (!Set.of("compile", "test", "package", "verify").contains(args.path("goal").asText("test"))
                         || args.has("module") && !args.path("module").asText().matches("[A-Za-z0-9_./-]{1,200}")
                         || args.has("test") && !args.path("test").asText().matches("[A-Za-z0-9_.$*#,+-]{1,200}")) {
-                    throw new AgentException("POLICY_REJECTED", "Unsupported Maven options");
+                    throw new AgentPolicyRejection(AgentPolicyRejection.Rule.MAVEN_OPTIONS,
+                            AgentPolicyRejection.Stage.ARGUMENTS);
                 }
             }
         } catch (IOException failure) {

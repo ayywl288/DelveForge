@@ -24,6 +24,13 @@ const activeKinds: Partial<Record<AgentRun["state"], string[]>> = {
     FINALIZING: ["FINALIZING"],
 };
 const protectedParts = new Set([".git", ".hg", ".svn", ".ssh", ".aws", ".gnupg", ".m2", ".npmrc", ".netrc", ".pypirc"]);
+const policyRules = new Set(["STORAGE_LOCATION", "PATH_FORMAT", "PROTECTED_CREDENTIAL_PATH", "FORBIDDEN_PATH", "SYMLINK_PATH",
+    "AMBIGUOUS_GENERATED_PATH", "SOURCE_ENTRY_TYPE", "SOURCE_PROTECTED_ENTRY", "SOURCE_CASE_CONFLICT", "SOURCE_ENTRY_LIMIT",
+    "SOURCE_FILE_LIMIT", "SOURCE_CAPTURE_LIMIT", "PATCH_SIZE", "PATCH_TYPE", "PATCH_DIFF_PATHS", "PATCH_FILE_MODE", "PATCH_PATH_FORMAT",
+    "GENERATED_PATH", "SOURCE_CREDENTIALS", "PATCH_CREDENTIALS", "COMMAND_BUDGET", "REPORT_COUNT_LIMIT", "UNSAFE_REPORT", "REPORT_COUNTS",
+    "MAVEN_OPTIONS", "UNSAFE_REPORT_DIRECTORY", "CHECK_MUTATED_SOURCE", "BASELINE_FILE_LIMIT", "BASELINE_FILE_TYPE", "UNKNOWN_TOOL", "UNCLASSIFIED_POLICY"]);
+const policyStages = new Set(["ARGUMENTS", "STORAGE", "PATH_VALIDATION", "PATCH_INSPECTION", "PATCH_SOURCE", "PATCH_CONTENT",
+    "PATCH_APPLICATION", "SOURCE_CAPTURE", "TOOL_EXECUTION"]);
 const credentialShape = /\b(?:(?:AKIA|ASIA)[0-9A-Z]{16}|(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|ya29\.[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b/;
 
 export function summaryFields(event: AgentEvent): Record<string, unknown> {
@@ -157,38 +164,32 @@ export interface ExplorationGroup {
     activities: AgentActivity[];
     count: number;
     previews: string[];
+    counts: { read_file: number; list_files: number; search_code: number };
+    failed: number;
+    uncertain: number;
 }
-export function groupExploration(activities: AgentActivity[]): (AgentActivity | ExplorationGroup)[] {
-    const rows: (AgentActivity | ExplorationGroup)[] = [];
-    const exploration = (activity: AgentActivity) => !!activity.tool
-        && ["read_file", "list_files", "search_code"].includes(activity.tool) && activity.outcome === "completed";
-    for (let index = 0; index < activities.length;) {
-        const batch: AgentActivity[] = [];
-        let count = 0;
-        let cursor = index;
-        // 最后一项保持独立，刚完成的活动不会在原位转换时被立即收进分组。
-        while (cursor < activities.length - 1 && batch.length < 16 && count < 8) {
-            const activity = activities[cursor]!;
-            const modelBetween = activity.event.kind === "MODEL_REQUEST" && !activity.active
-                && cursor + 1 < activities.length - 1 && exploration(activities[cursor + 1]!);
-            if (activity.active || !(exploration(activity) || count > 0 && modelBetween)) break;
-            batch.push(activity);
-            if (exploration(activity)) count++;
-            cursor++;
-        }
-        if (count >= 3) {
-            rows.push({ key: `exploration:${batch[0]!.key}`, activities: batch, count,
-                previews: [...new Set(batch.flatMap(activity => activity.target ? [activity.target] : []))].slice(0, 2) });
-            index = cursor;
-        } else rows.push(activities[index++]!);
-    }
-    return rows;
+export function isExploration(activity: AgentActivity) {
+    return !!activity.tool && ["read_file", "list_files", "search_code"].includes(activity.tool)
+        && activity.classification !== "POLICY_REJECTED" && activity.outcome !== "blocked";
+}
+export function explorationSummary(activities: AgentActivity[], runId: string): ExplorationGroup {
+    const files = activities.filter(isExploration);
+    const counts = { read_file: 0, list_files: 0, search_code: 0 };
+    for (const activity of files) counts[activity.tool as keyof typeof counts]++;
+    return { key: `exploration:${runId}`, activities: files, count: files.length, counts,
+        failed: files.filter(activity => activity.outcome === "failed").length,
+        uncertain: files.filter(activity => activity.outcome === "unknown").length,
+        previews: [...new Set([...files].reverse().flatMap(activity => activity.target ? [activity.target] : []))].slice(0, 4).reverse() };
 }
 
 export function activityFacts(activity: AgentActivity): { label: string; value: string }[] {
     const event = activity.finish ?? activity.event;
     const data = summaryFields(event);
     const rows: { label: string; value: string }[] = [];
+    if (activity.classification === "POLICY_REJECTED") {
+        if (typeof data.policyRule === "string" && policyRules.has(data.policyRule)) rows.push({ label: "拒绝规则", value: data.policyRule });
+        if (typeof data.policyStage === "string" && policyStages.has(data.policyStage)) rows.push({ label: "拒绝阶段", value: data.policyStage });
+    }
     const addNumber = (key: string, label: string, suffix = "", scale = 1) => {
         const value = numeric(data, key);
         if (value !== undefined) rows.push({ label, value: `${(value / scale).toLocaleString("zh-CN")}${suffix}` });

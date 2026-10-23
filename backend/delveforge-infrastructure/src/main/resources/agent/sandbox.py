@@ -23,7 +23,10 @@ GENERATED = {'target'}
 
 
 class PolicyError(Exception):
-    pass
+    def __init__(self, rule, message):
+        super().__init__(message)
+        self.rule = rule
+        self.stage = None
 
 
 class CheckArgumentError(ValueError):
@@ -41,24 +44,24 @@ def credential_path(value):
 
 def path_for(value, allow_root=False):
     if not isinstance(value, str) or '\\' in value or '\x00' in value or len(value) > 512:
-        raise PolicyError('Invalid relative path')
+        raise PolicyError('PATH_FORMAT', 'Invalid relative path')
     if value in ('', '.') and allow_root:
         return ROOT
     if credential_path(value):
-        raise PolicyError('Protected credential path')
+        raise PolicyError('PROTECTED_CREDENTIAL_PATH', 'Protected credential path')
     parts = value.split('/')
     if any(part in ('', '.', '..') or ':' in part or part.endswith((' ', '.'))
            or re.fullmatch(r'(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?', part)
            or part.casefold() in PROTECTED
            or part.casefold().startswith('.env') for part in parts) or value.startswith('/'):
-        raise PolicyError('Forbidden path')
+        raise PolicyError('FORBIDDEN_PATH', 'Forbidden path')
     if any(part.lower().endswith(('.pem', '.key', '.p12', '.pfx', '.jks', '.keystore')) for part in parts):
-        raise PolicyError('Protected credential path')
+        raise PolicyError('PROTECTED_CREDENTIAL_PATH', 'Protected credential path')
     path = ROOT
     for part in parts:
         path = path / part
         if path.is_symlink():
-            raise PolicyError('Symlinks are unsupported')
+            raise PolicyError('SYMLINK_PATH', 'Symlinks are unsupported')
     return path
 
 
@@ -79,7 +82,7 @@ def build_output(relative):
         child = parent / part
         if part in GENERATED and (parent / 'pom.xml').is_file():
             if (child / 'pom.xml').exists():
-                raise PolicyError('Ambiguous target module/build directory')
+                raise PolicyError('AMBIGUOUS_GENERATED_PATH', 'Ambiguous target module/build directory')
             return True
         parent = child
     return False
@@ -94,20 +97,20 @@ def all_files():
             path = parent / name
             relative = path.relative_to(ROOT).as_posix()
             if path.is_symlink() or not (path.is_file() or path.is_dir()):
-                raise PolicyError('Unsupported symlink or special file')
+                raise PolicyError('SOURCE_ENTRY_TYPE', 'Unsupported symlink or special file')
             if name.casefold() in PROTECTED:
-                raise PolicyError('Nested metadata or credential directory')
+                raise PolicyError('SOURCE_PROTECTED_ENTRY', 'Nested metadata or credential directory')
             if relative.casefold() in names:
-                raise PolicyError('Case-conflicting paths')
+                raise PolicyError('SOURCE_CASE_CONFLICT', 'Case-conflicting paths')
             names.add(relative.casefold())
             if len(names) > FILES_LIMIT * 4:
-                raise PolicyError('Directory and file entry limit exceeded')
+                raise PolicyError('SOURCE_ENTRY_LIMIT', 'Directory and file entry limit exceeded')
         dirs[:] = sorted(d for d in dirs if not build_output((parent / d).relative_to(ROOT).as_posix()))
         for name in sorted(filenames):
             path = parent / name
             files.append(path.relative_to(ROOT).as_posix())
             if len(files) > FILES_LIMIT:
-                raise PolicyError('File count exceeded')
+                raise PolicyError('SOURCE_FILE_LIMIT', 'File count exceeded')
     return sorted(files)
 
 
@@ -119,7 +122,7 @@ def snapshot(include_content=False):
         size = path.stat().st_size
         total += size
         if size > FILE_LIMIT or total > TOTAL_LIMIT:
-            raise PolicyError('Source capture size limit exceeded')
+            raise PolicyError('SOURCE_CAPTURE_LIMIT', 'Source capture size limit exceeded')
         raw = path.read_bytes()
         mode = '100755' if path.stat().st_mode & stat.S_IXUSR else '100644'
         entry = {'path': relative, 'mode': mode, 'sha256': hashlib.sha256(raw).hexdigest()}
@@ -133,35 +136,54 @@ def snapshot(include_content=False):
 
 def patch_paths(patch):
     paths = set()
+    old_remaining = new_remaining = 0
     if len(patch.encode('utf-8')) > int(os.environ.get('DF_PATCH_BYTES', '131072')):
-        raise PolicyError('Patch size limit exceeded')
+        raise PolicyError('PATCH_SIZE', 'Patch size limit exceeded')
     if any(line.startswith(('GIT binary patch', 'Binary files ', 'new file mode 120', 'old mode 120',
                             'new file mode 160', 'rename from ', 'rename to ', 'copy from ', 'copy to '))
            for line in patch.splitlines()):
-        raise PolicyError('Unsupported patch type')
+        raise PolicyError('PATCH_TYPE', 'Unsupported patch type')
     for line in patch.splitlines():
+        # hunk 正文中的 ---/+++ 是删除/新增内容；只有正文之外才是文件头。
+        if old_remaining or new_remaining:
+            if line.startswith('\\ No newline at end of file'):
+                continue
+            if not line or line[0] not in (' ', '-', '+'):
+                raise ValueError('Invalid unified diff hunk')
+            old_remaining -= line[0] in (' ', '-')
+            new_remaining -= line[0] in (' ', '+')
+            if old_remaining < 0 or new_remaining < 0:
+                raise ValueError('Invalid unified diff hunk counts')
+            continue
+        if line.startswith('@@'):
+            hunk = re.match(r'^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@', line)
+            if not hunk:
+                raise ValueError('Invalid unified diff hunk header')
+            old_remaining = int(hunk.group(1) or '1')
+            new_remaining = int(hunk.group(2) or '1')
+            continue
         if line.startswith('diff --git '):
             values = shlex.split(line[11:])
             if len(values) != 2 or not values[0].startswith('a/') or not values[1].startswith('b/'):
-                raise PolicyError('Unsupported diff paths')
+                raise PolicyError('PATCH_DIFF_PATHS', 'Unsupported diff paths')
             for value in values:
                 path_for(value[2:])
                 paths.add(value[2:])
         if line.startswith(('new mode ', 'old mode ', 'new file mode ', 'deleted file mode ')):
             if line.split()[-1] not in ('100644', '100755'):
-                raise PolicyError('Unsupported file mode')
+                raise PolicyError('PATCH_FILE_MODE', 'Unsupported file mode')
         if line.startswith(('--- ', '+++ ')):
             value = line[4:]
             if value == '/dev/null':
                 continue
             if not value.startswith(('a/', 'b/')) or '\t' in value or '"' in value:
-                raise PolicyError('Expected plain a/ and b/ patch paths')
+                raise PolicyError('PATCH_PATH_FORMAT', 'Expected plain a/ and b/ patch paths')
             relative = value[2:]
             path_for(relative)
             if build_output(relative):
-                raise PolicyError('Generated paths are not editable')
+                raise PolicyError('GENERATED_PATH', 'Generated paths are not editable')
             paths.add(relative)
-    if not paths or len(paths) > 64:
+    if old_remaining or new_remaining or not paths or len(paths) > 64:
         raise ValueError('Invalid or oversized unified diff')
     return sorted(paths)
 
@@ -179,10 +201,10 @@ def run_bounded(command, input_bytes=None, timeout=180, maximum=1048576, cwd=ROO
             deadline = time.monotonic() + timeout
             while process.poll() is None:
                 if output.tell() > maximum or time.monotonic() > deadline:
-                    raise PolicyError('Command time or output budget exhausted')
+                    raise PolicyError('COMMAND_BUDGET', 'Command time or output budget exhausted')
                 time.sleep(0.05)
             if output.tell() > maximum:
-                raise PolicyError('Command output budget exhausted')
+                raise PolicyError('COMMAND_BUDGET', 'Command output budget exhausted')
             output.seek(0)
             return process.returncode, output.read(maximum).decode('utf-8', errors='replace')
         finally:
@@ -202,10 +224,10 @@ def report():
             if name.startswith('TEST-') and name.endswith('.xml'):
                 reports += 1
                 if reports > 1000:
-                    raise PolicyError('Test report count limit exceeded')
+                    raise PolicyError('REPORT_COUNT_LIMIT', 'Test report count limit exceeded')
                 path = pathlib.Path(directory) / name
                 if path.is_symlink() or path.stat().st_size > 2097152:
-                    raise PolicyError('Unsafe test report')
+                    raise PolicyError('UNSAFE_REPORT', 'Unsafe test report')
                 node = ET.fromstring(path.read_bytes())
                 for suite in ([node] if node.tag == 'testsuite' else node.findall('testsuite')):
                     total += int(suite.get('tests', '0'))
@@ -213,7 +235,7 @@ def report():
                     errors += int(suite.get('errors', '0'))
                     skipped += int(suite.get('skipped', '0'))
     if min(total, failures, errors, skipped) < 0 or failures + errors + skipped > total:
-        raise PolicyError('Contradictory test report counts')
+        raise PolicyError('REPORT_COUNTS', 'Contradictory test report counts')
     return {'reports': reports, 'tests': total, 'executedTests': total - skipped,
             'failures': failures, 'errors': errors, 'skipped': skipped}
 
@@ -221,7 +243,7 @@ def report():
 def checks(args):
     goal = args.get('goal', 'test')
     if goal not in ('compile', 'test', 'package', 'verify'):
-        raise PolicyError('Unsupported Maven goal')
+        raise PolicyError('MAVEN_OPTIONS', 'Unsupported Maven goal')
     command = ['mvn', '-B', '-ntp', '-o', '-s', '/opt/delveforge/offline-settings.xml',
                '-Dmaven.repo.local=/m2', '-Dstyle.color=never']
     directory = args.get('directory', '.')
@@ -234,12 +256,12 @@ def checks(args):
     if module:
         path_for(module)
         if not re.fullmatch(r'[A-Za-z0-9_./-]+', module):
-            raise PolicyError('Invalid module selector')
+            raise PolicyError('MAVEN_OPTIONS', 'Invalid module selector')
         command += ['-pl', module, '-am']
     selected = args.get('test')
     if selected:
         if not re.fullmatch(r'[A-Za-z0-9_.$*#,+-]{1,200}', selected) or goal != 'test':
-            raise PolicyError('Invalid test selector')
+            raise PolicyError('MAVEN_OPTIONS', 'Invalid test selector')
         command += ['-Dtest=' + selected, '-Dsurefire.failIfNoSpecifiedTests=false']
     before = snapshot()['snapshot']
     # 清除旧报告，避免未运行的模块或跳过测试沿用早前结果。
@@ -248,13 +270,13 @@ def checks(args):
             for name in files:
                 path = pathlib.Path(report_directory) / name
                 if path.is_symlink():
-                    raise PolicyError('Unsafe report directory')
+                    raise PolicyError('UNSAFE_REPORT_DIRECTORY', 'Unsafe report directory')
                 path.unlink()
     code, output = run_bounded(command + [goal], timeout=int(os.environ.get('DF_CHECK_SECONDS', '180')))
     after = snapshot()['snapshot']
     result = report()
     if before != after:
-        raise PolicyError('Build mutated source; results cannot attest the requested snapshot')
+        raise PolicyError('CHECK_MUTATED_SOURCE', 'Build mutated source; results cannot attest the requested snapshot')
     if re.search(r'release version .* not supported|invalid target release|UnsupportedClassVersionError', output):
         classification = 'JDK_ENVIRONMENT_MISMATCH'
     elif result['failures'] or result['errors']:
@@ -283,11 +305,11 @@ def dispatch(name, args):
                 elif entry.isfile():
                     path.parent.mkdir(parents=True, exist_ok=True)
                     if entry.size > FILE_LIMIT:
-                        raise PolicyError('Baseline file limit exceeded')
+                        raise PolicyError('BASELINE_FILE_LIMIT', 'Baseline file limit exceeded')
                     path.write_bytes(archive.extractfile(entry).read(FILE_LIMIT + 1))
                     path.chmod(0o755 if entry.mode & 0o100 else 0o644)
                 else:
-                    raise PolicyError('Unsupported baseline file type')
+                    raise PolicyError('BASELINE_FILE_TYPE', 'Unsupported baseline file type')
         return snapshot()
     if name == 'snapshot':
         return snapshot(args.get('content', False))
@@ -352,11 +374,16 @@ def dispatch(name, args):
         code, output = run_bounded(command + ['--check', '-'], patch.encode(), 10, 16000)
         if code == 0:
             code, output = run_bounded(command + ['-'], patch.encode(), 10, 16000)
+        try:
+            captured = snapshot()['snapshot']
+        except PolicyError as error:
+            error.stage = 'SOURCE_CAPTURE'
+            raise
         return {'classification': 'PATCH_APPLIED' if code == 0 else 'PATCH_CONFLICT',
-                'paths': paths, 'output': output, 'snapshot': snapshot()['snapshot']}
+                'paths': paths, 'output': output, 'snapshot': captured}
     if name == 'run_checks':
         return checks(args)
-    raise PolicyError('Unknown tool')
+    raise PolicyError('UNKNOWN_TOOL', 'Unknown tool')
 
 
 if __name__ == '__main__':
@@ -369,6 +396,7 @@ if __name__ == '__main__':
     except CheckArgumentError as error:
         print(json.dumps({'ok': False, 'classification': 'INVALID_ARGUMENTS', 'checkStarted': False, 'reason': str(error)}))
     except PolicyError as error:
-        print(json.dumps({'ok': False, 'classification': 'POLICY_REJECTED', 'reason': str(error)}))
+        print(json.dumps({'ok': False, 'classification': 'POLICY_REJECTED',
+                          'policyRule': error.rule, 'policyStage': error.stage}))
     except (ValueError, OSError, UnicodeError, ET.ParseError) as error:
         print(json.dumps({'ok': False, 'classification': 'TOOL_ERROR', 'reason': type(error).__name__ + ': ' + str(error)[:300]}))

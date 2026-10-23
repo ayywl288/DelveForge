@@ -2,6 +2,7 @@ package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentException;
+import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.agent.CodingAgentService;
@@ -150,7 +151,8 @@ class CodingAgentServiceTest {
 
     @Test
     void policyRejectedToolRecordsTimedCorrelatedUnknownResultAndStillFailsClosed() throws Exception {
-        when(sandbox.tool(anyString(), any(), any())).thenThrow(new AgentException("POLICY_REJECTED", "private patch must not leak"));
+        when(sandbox.tool(anyString(), any(), any())).thenThrow(new AgentPolicyRejection(
+                AgentPolicyRejection.Rule.SOURCE_CREDENTIALS, AgentPolicyRejection.Stage.PATCH_SOURCE));
         AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(
                 new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private patch must not leak\"}")), 12L);
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
@@ -168,6 +170,8 @@ class CodingAgentServiceTest {
             var result = json.readTree(finish.summary());
             assertEquals(json.readTree(start.summary()).path("toolCallId"), result.path("toolCallId"));
             assertEquals("POLICY_REJECTED", result.path("classification").asText());
+            assertEquals("SOURCE_CREDENTIALS", result.path("policyRule").asText());
+            assertEquals("PATCH_SOURCE", result.path("policyStage").asText());
             assertEquals(false, result.path("resultRecorded").asBoolean());
             assertTrue(result.path("invocationDurationNs").asLong() > 0);
             assertTrue(finish.sequence() < events.stream().filter(event -> event.kind().equals("FAILED")).findFirst().orElseThrow().sequence());

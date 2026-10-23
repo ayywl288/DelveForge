@@ -25,6 +25,25 @@ class AgentToolActivityTest {
     }
 
     @Test
+    void onlyTypedRuleAndStageArePersistedAndLegacyPolicyMessagesRemainPrivate() throws Exception {
+        var patch = call("apply_patch", Map.of("patch", "private-patch"));
+        JsonNode typed = json.readTree(activity.failed(patch, identity, new AgentPolicyRejection(
+                AgentPolicyRejection.Rule.PATCH_CREDENTIALS, AgentPolicyRejection.Stage.PATCH_CONTENT), 12L));
+        assertEquals("PATCH_CREDENTIALS", typed.path("policyRule").asText());
+        assertEquals("PATCH_CONTENT", typed.path("policyStage").asText());
+        assertEquals(identity, typed.path("toolCallId").asText());
+        JsonNode legacy = json.readTree(activity.failed(patch, identity,
+                new AgentException("POLICY_REJECTED", "private-exception-message"), 12L));
+        assertEquals("UNCLASSIFIED_POLICY", legacy.path("policyRule").asText());
+        assertEquals("TOOL_EXECUTION", legacy.path("policyStage").asText());
+        String unknown = activity.failed(patch, identity, new IllegalStateException("private-exception-message"), null);
+        assertFalse(typed.toString().contains("private"));
+        assertFalse(legacy.toString().contains("private"));
+        assertFalse(unknown.contains("private"));
+        assertFalse(json.readTree(unknown).has("policyRule"));
+    }
+
+    @Test
     void invocationTimingIsSeparateFromInternalTimingAndUnavailableValuesAreNotInvented() throws Exception {
         var read = call("read_file", Map.of("path", "src/A.java"));
         for (long nanos : new long[]{0, 500000, 12000000}) {

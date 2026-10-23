@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentException;
+import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
@@ -97,7 +98,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
         Path directory = root.resolve(runId).normalize();
         if (!directory.getParent().equals(root) || Files.isSymbolicLink(root) || Files.isSymbolicLink(directory)) {
-            throw new AgentException("POLICY_REJECTED", "Unsafe Agent storage location");
+            throw new AgentPolicyRejection(AgentPolicyRejection.Rule.STORAGE_LOCATION, AgentPolicyRejection.Stage.STORAGE);
         }
         try {
             if (Files.exists(directory, LinkOption.NOFOLLOW_LINKS) && !directory.toRealPath().equals(directory)) {
@@ -311,13 +312,16 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (path == null || path.isBlank() || path.startsWith("/") || path.contains("\\") || path.length() > 512
                 || path.contains(":") || path.contains("\n") || path.contains("\r") || path.contains("\t")
                 || path.contains("\"") || secrets.excludes(path)) {
-            throw new AgentException("POLICY_REJECTED", "Unsupported or protected source path");
+            throw new AgentPolicyRejection(secrets.excludes(path == null ? "" : path)
+                    ? AgentPolicyRejection.Rule.PROTECTED_CREDENTIAL_PATH : AgentPolicyRejection.Rule.PATH_FORMAT,
+                    AgentPolicyRejection.Stage.PATH_VALIDATION);
         }
         for (String part : path.split("/")) {
             if (part.isEmpty() || part.equals(".") || part.equals("..") || part.equalsIgnoreCase(".git")
                     || part.equalsIgnoreCase(".hg") || part.equalsIgnoreCase(".svn") || part.endsWith(" ") || part.endsWith(".")
                     || part.matches("(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?")) {
-                throw new AgentException("POLICY_REJECTED", "Source path escapes authorized scope");
+                throw new AgentPolicyRejection(AgentPolicyRejection.Rule.FORBIDDEN_PATH,
+                        AgentPolicyRejection.Stage.PATH_VALIDATION);
             }
         }
     }
@@ -405,8 +409,47 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
 
     private static void requireToolSuccess(JsonNode response) {
         if (!response.path("ok").asBoolean()) {
+            rejectPolicy(response, AgentPolicyRejection.Stage.TOOL_EXECUTION);
             throw new AgentException(response.path("classification").asText("TOOL_ERROR"),
                     "Controlled sandbox operation rejected: " + response.path("reason").asText());
+        }
+    }
+
+    static void rejectPolicy(JsonNode response, AgentPolicyRejection.Stage stage) {
+        if (!response.path("classification").asText().equals("POLICY_REJECTED")) {
+            return;
+        }
+        AgentPolicyRejection.Rule rule;
+        try {
+            rule = AgentPolicyRejection.Rule.valueOf(response.path("policyRule").asText());
+        } catch (IllegalArgumentException unknown) {
+            rule = AgentPolicyRejection.Rule.UNCLASSIFIED_POLICY;
+        }
+        // 阶段由受控调用点决定；只有工具的应用后捕获阶段允许额外细分。
+        if (stage == AgentPolicyRejection.Stage.PATCH_APPLICATION
+                && response.path("policyStage").asText().equals("SOURCE_CAPTURE")) {
+            stage = AgentPolicyRejection.Stage.SOURCE_CAPTURE;
+        }
+        throw new AgentPolicyRejection(rule, stage);
+    }
+
+    void requirePatchContent(JsonNode inspection, JsonNode arguments) {
+        rejectPolicy(inspection, AgentPolicyRejection.Stage.PATCH_INSPECTION);
+        if (!inspection.path("ok").asBoolean()) {
+            return;
+        }
+        var paths = inspection.path("result").fields();
+        while (paths.hasNext()) {
+            var field = paths.next();
+            requirePath(field.getKey());
+            if (!field.getValue().asText().equals(sanitize(field.getValue().asText()))) {
+                throw new AgentPolicyRejection(AgentPolicyRejection.Rule.SOURCE_CREDENTIALS,
+                        AgentPolicyRejection.Stage.PATCH_SOURCE);
+            }
+        }
+        if (!arguments.path("patch").asText().equals(sanitize(arguments.path("patch").asText()))) {
+            throw new AgentPolicyRejection(AgentPolicyRejection.Rule.PATCH_CREDENTIALS,
+                    AgentPolicyRejection.Stage.PATCH_CONTENT);
         }
     }
 
@@ -427,19 +470,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
         if (call.name().equals("apply_patch")) {
             JsonNode inspection = invoke(session, "inspect_patch", arguments, cancelled);
-            if (inspection.path("ok").asBoolean()) {
-                var paths = inspection.path("result").fields();
-                while (paths.hasNext()) {
-                    var field = paths.next();
-                    requirePath(field.getKey());
-                    if (!field.getValue().asText().equals(sanitize(field.getValue().asText()))) {
-                        throw new AgentException("POLICY_REJECTED", "Cannot edit source containing sanitized credentials");
-                    }
-                }
-                if (!arguments.path("patch").asText().equals(sanitize(arguments.path("patch").asText()))) {
-                    throw new AgentException("POLICY_REJECTED", "Patch contains credential material or protected placeholders");
-                }
-            }
+            requirePatchContent(inspection, arguments);
         }
         JsonNode response = invoke(session, call.name(), arguments, cancelled);
         if (call.name().equals("run_checks")) {
@@ -475,9 +506,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 session.checks.add(missing);
             }
         }
-        if (response.path("classification").asText().equals("POLICY_REJECTED")) {
-            throw new AgentException("POLICY_REJECTED", response.path("reason").asText());
-        }
+        rejectPolicy(response, call.name().equals("apply_patch") ? AgentPolicyRejection.Stage.PATCH_APPLICATION
+                : AgentPolicyRejection.Stage.TOOL_EXECUTION);
         String safe = sanitizeNode(response).toString();
         if (safe.getBytes(StandardCharsets.UTF_8).length > session.limits.maxOutputBytes()) {
             return "{\"ok\":false,\"classification\":\"OUTPUT_LIMIT\",\"reason\":\"Request a smaller range\"}";

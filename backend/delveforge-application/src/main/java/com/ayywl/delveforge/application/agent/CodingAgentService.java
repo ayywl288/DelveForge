@@ -280,9 +280,8 @@ public final class CodingAgentService implements AutoCloseable {
                         completed.put(call.id(), result);
                         store.event(task.runId(), "TOOL_FINISHED", activity.finished(call, activityId, result, invocationDurationNs));
                     } catch (RuntimeException failure) {
-                        String code = failure instanceof AgentException classified ? classified.code() : "INTERNAL_FAILURE";
                         try {
-                            store.event(task.runId(), "TOOL_FINISHED", activity.failed(call, activityId, code, invocationDurationNs));
+                            store.event(task.runId(), "TOOL_FINISHED", activity.failed(call, activityId, failure, invocationDurationNs));
                         } catch (RuntimeException recordingFailure) {
                             failure.addSuppressed(recordingFailure);
                         }

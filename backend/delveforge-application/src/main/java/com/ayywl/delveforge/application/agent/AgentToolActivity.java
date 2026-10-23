@@ -80,6 +80,17 @@ public final class AgentToolActivity {
     }
 
     public String failed(AgentProtocol.ToolCall call, String identity, String classification, Long invocationDurationNs) {
+        return failed(call, identity, classification, invocationDurationNs, null);
+    }
+
+    public String failed(AgentProtocol.ToolCall call, String identity, RuntimeException failure, Long invocationDurationNs) {
+        String classification = failure instanceof AgentException classified ? classified.code() : "INTERNAL_FAILURE";
+        return failed(call, identity, classification, invocationDurationNs,
+                failure instanceof AgentPolicyRejection rejection ? rejection : null);
+    }
+
+    private String failed(AgentProtocol.ToolCall call, String identity, String classification, Long invocationDurationNs,
+            AgentPolicyRejection rejection) {
         Map<String, Object> summary = base(call, identity);
         summary.put("ok", false);
         // 未收到完整返回不能证明工具没有产生修改；原异常仍由执行路径终止 Run。
@@ -88,6 +99,10 @@ public final class AgentToolActivity {
             summary.put("classification", classification);
         }
         timing(summary, invocationDurationNs);
+        if (classification.equals("POLICY_REJECTED")) {
+            summary.put("policyRule", rejection == null ? "UNCLASSIFIED_POLICY" : rejection.rule().name());
+            summary.put("policyStage", rejection == null ? "TOOL_EXECUTION" : rejection.stage().name());
+        }
         return encode(summary);
     }
 
