@@ -37,6 +37,10 @@ const base = ref("");
 const reviewed = ref(false);
 const prepareOpen = ref(false);
 const stepToConfirm = ref<EvolutionStep | null>(null);
+const stepToConfirmLabel = computed(() => {
+  const index = props.s.plan?.steps.findIndex(step => step.id === stepToConfirm.value?.id) ?? -1;
+  return index >= 0 ? `Step ${String(index + 1).padStart(2, '0')}` : "";
+});
 const detail = ref<"current" | "target" | "basis" | null>(null);
 const expandedStepId = ref(props.s.plan?.steps.find(step => step.status !== "SUCCEEDED")?.id
   ?? props.s.plan?.steps[0]?.id ?? "");
@@ -306,15 +310,75 @@ function confirmSelectedStep() {
     </p></ConfirmDialog
   >
   <ConfirmDialog
+    class="step-authorization-dialog"
     :open="!!stepToConfirm"
     :disabled="!!s.busy || !stepToConfirm || !!stepIssue(stepToConfirm)"
-    title="授权此 Step？"
-    confirm-label="明确授权 Step"
+    title="确认授权此步骤？"
+    cancel-label="返回审阅"
+    confirm-label="确认授权"
     @close="stepToConfirm = null"
     @confirm="confirmSelectedStep"
-    ><h3>{{ stepToConfirm?.goal }}</h3>
-    <p>{{ stepToConfirm?.scope }}</p>
+    >
+    <p class="step-authorization-identity">{{ stepToConfirmLabel }}</p>
+    <section class="step-authorization-scope" aria-label="本次授权范围">
+      <h3>本次授权范围</h3>
+      <p class="step-authorization-scope-text" tabindex="0">{{ stepToConfirm?.scope }}</p>
+    </section>
     <p v-if="stepToConfirm && stepIssue(stepToConfirm)" class="step-lock-reason">{{ stepIssue(stepToConfirm) }}</p>
-    <p>授权仅覆盖当前 Step，不会自动执行或授权后续步骤。</p></ConfirmDialog
-  >
+    <p class="step-authorization-note">仅授权当前步骤，不会立即运行 Agent，也不会授权后续步骤。</p>
+  </ConfirmDialog>
 </template>
+
+<style scoped>
+.step-authorization-dialog {
+  width: min(440px, calc(100% - 32px));
+  padding: 24px;
+}
+.step-authorization-dialog :deep(h2) {
+  margin: 0 0 16px;
+  font-size: 20px;
+}
+.step-authorization-identity {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.step-authorization-scope {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--canvas);
+}
+.step-authorization-scope h3 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.step-authorization-scope-text {
+  max-height: 36vh;
+  margin: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.65;
+}
+.step-authorization-note {
+  margin: 16px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.step-authorization-dialog :deep(.actions) {
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+@media (max-width: 480px) {
+  .step-authorization-dialog { padding: 20px; }
+  .step-authorization-dialog :deep(.actions) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+}
+</style>

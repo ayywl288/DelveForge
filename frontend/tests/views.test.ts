@@ -291,7 +291,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     await nextTick();
     button(root, "审阅并授权此 Step").click();
     await nextTick();
-    button(root, "明确授权 Step").click();
+    button(root, "确认授权").click();
     await settle();
     expect(confirm).toHaveBeenCalledWith("step-1");
     s.plan.steps.push({ ...s.plan.steps[0]!, id: "step-2" });
