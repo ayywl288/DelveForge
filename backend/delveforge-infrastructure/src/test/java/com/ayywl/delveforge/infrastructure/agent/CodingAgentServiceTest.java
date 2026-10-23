@@ -62,6 +62,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -69,6 +70,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.spy;
 
 class CodingAgentServiceTest {
     @TempDir
@@ -144,6 +146,107 @@ class CodingAgentServiceTest {
             Thread.sleep(50);
         }
         throw new AssertionError("Run did not finish: " + service.get(id));
+    }
+
+    @Test
+    void policyRejectedToolRecordsTimedCorrelatedUnknownResultAndStillFailsClosed() throws Exception {
+        when(sandbox.tool(anyString(), any(), any())).thenThrow(new AgentException("POLICY_REJECTED", "private patch must not leak"));
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(
+                new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private patch must not leak\"}")), 12L);
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.FAILED, run.state());
+            assertEquals("POLICY_REJECTED", run.reason());
+            assertEquals(null, run.candidateId());
+            assertEquals(1, run.modelCalls());
+            assertEquals(1, run.toolCalls());
+            var events = service.events(id, 0, 100);
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            var start = events.stream().filter(event -> event.kind().equals("TOOL_STARTED")).findFirst().orElseThrow();
+            var finish = events.stream().filter(event -> event.kind().equals("TOOL_FINISHED")).findFirst().orElseThrow();
+            var result = json.readTree(finish.summary());
+            assertEquals(json.readTree(start.summary()).path("toolCallId"), result.path("toolCallId"));
+            assertEquals("POLICY_REJECTED", result.path("classification").asText());
+            assertEquals(false, result.path("resultRecorded").asBoolean());
+            assertTrue(result.path("invocationDurationNs").asLong() > 0);
+            assertTrue(finish.sequence() < events.stream().filter(event -> event.kind().equals("FAILED")).findFirst().orElseThrow().sequence());
+            assertTrue(events.stream().noneMatch(event -> event.summary().contains("private patch")));
+            verify(sandbox, never()).finish(anyString(), any());
+            verify(sandbox).cleanup(id);
+            assertTrue(database.store.abandoned().isEmpty());
+        }
+    }
+
+    @Test
+    void failedActivityPersistenceCannotReplaceOriginalPolicyRejection() throws Exception {
+        var failingStore = spy(database.store);
+        doThrow(new AgentException("PERSISTENCE_FAILURE", "private diagnostic"))
+                .when(failingStore).event(anyString(), eq("TOOL_FINISHED"), anyString());
+        when(sandbox.tool(anyString(), any(), any())).thenThrow(new AgentException("POLICY_REJECTED", "private rejection"));
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(
+                new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private\"}")), 1L);
+        try (var service = new CodingAgentService(eligibility, failingStore, model, sandbox,
+                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
+            verify(sandbox, never()).finish(anyString(), any());
+            verify(sandbox).cleanup(id);
+        }
+    }
+
+    @Test
+    void cancellationDuringToolKeepsCancelledRunAndRecordsUncertainCorrelatedResult() throws Exception {
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            database.store.requestCancel(invocation.getArgument(0));
+            throw new AgentException("CANCELLED", "private cancellation detail");
+        });
+        try (var service = service((history, tools) -> new AgentProtocol.Reply("", List.of(
+                new AgentProtocol.ToolCall("call", "read_file", "{\"path\":\"src/A.java\"}")), 1L), AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals(AgentRunState.CANCELLED, awaitTerminal(service, id, 10).state());
+            var finish = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).findFirst().orElseThrow();
+            var result = new com.fasterxml.jackson.databind.ObjectMapper().readTree(finish.summary());
+            assertEquals("CANCELLED", result.path("classification").asText());
+            assertEquals(false, result.path("resultRecorded").asBoolean());
+            assertTrue(result.path("invocationDurationNs").asLong() > 0);
+            assertEquals(1, service.get(id).toolCalls());
+            verify(sandbox, never()).finish(anyString(), any());
+            verify(sandbox).cleanup(id);
+        }
+    }
+
+    @Test
+    void unsupportedMavenPolicyStillRejectsBeforeSandboxAndDoesNotInventInvocationTiming() throws Exception {
+        try (var service = service((history, tools) -> new AgentProtocol.Reply("", List.of(
+                new AgentProtocol.ToolCall("call", "run_checks", "{\"goal\":\"clean\"}")), 1L), AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
+            var finish = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).findFirst().orElseThrow();
+            var data = new com.fasterxml.jackson.databind.ObjectMapper().readTree(finish.summary());
+            assertEquals("POLICY_REJECTED", data.path("classification").asText());
+            assertEquals(false, data.has("invocationDurationNs"));
+            verify(sandbox, never()).tool(anyString(), any(), any());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
+    }
+
+    @Test
+    void returnedInvalidArgumentsAreRecoverableButRealInvocationTimingRemainsSeparate() throws Exception {
+        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\",\"durationMs\":0}");
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AtomicInteger requests = new AtomicInteger();
+        try (var service = service((history, tools) -> requests.incrementAndGet() == 1
+                ? new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "read_file", "{\"path\":\"src/A.java\"}")), 1L)
+                : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L), AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals(AgentRunState.SUCCEEDED, awaitTerminal(service, id, 10).state());
+            var finish = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).findFirst().orElseThrow();
+            var data = new com.fasterxml.jackson.databind.ObjectMapper().readTree(finish.summary());
+            assertEquals(0, data.path("durationMs").asLong());
+            assertTrue(data.path("invocationDurationNs").asLong() > 0);
+            assertEquals("INVALID_ARGUMENTS", data.path("classification").asText());
+        }
     }
 
     @Test

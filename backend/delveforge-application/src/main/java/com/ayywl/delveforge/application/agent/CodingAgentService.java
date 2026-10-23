@@ -230,13 +230,17 @@ public final class CodingAgentService implements AutoCloseable {
             for (AgentProtocol.ToolCall call : reply.calls()) {
                 requireCurrent(task, cancelled);
                 String argumentFailure = null;
+                AgentException argumentRejection = null;
                 try {
                     AgentTools.validate(call, limits);
                 } catch (AgentException failure) {
-                    if (!failure.code().equals("INVALID_ARGUMENTS")) {
+                    if (failure.code().equals("POLICY_REJECTED")) {
+                        argumentRejection = failure;
+                    } else if (!failure.code().equals("INVALID_ARGUMENTS")) {
                         throw failure;
+                    } else {
+                        argumentFailure = "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
                     }
-                    argumentFailure = "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
                 }
                 AgentProtocol.ToolCall previous = identities.putIfAbsent(call.id(), call);
                 if (previous != null && !previous.equals(call)) {
@@ -249,21 +253,41 @@ public final class CodingAgentService implements AutoCloseable {
                     }
                     String activityId = UUID.randomUUID().toString();
                     store.event(task.runId(), "TOOL_STARTED", activity.started(call, activityId));
-                    try {
-                        result = argumentFailure == null ? sandbox.tool(task.runId(), call, cancelled) : argumentFailure;
-                    } catch (AgentException failure) {
-                        if (!failure.code().equals("INVALID_ARGUMENTS")) {
-                            throw failure;
-                        }
-                        result = "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
-                    }
-                    result = safe(result);
-                    if (result.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > limits.maxOutputBytes()) {
-                        throw new AgentException("OUTPUT_LIMIT", "Tool response exceeded its budget");
-                    }
-                    completed.put(call.id(), result);
-                    store.event(task.runId(), "TOOL_FINISHED", activity.finished(call, activityId, result));
                     store.usage(task.runId(), request, toolCalls, unknownUsage ? null : tokens);
+                    Long invocationDurationNs = null;
+                    long invocationStarted = System.nanoTime();
+                    try {
+                        try {
+                            if (argumentRejection != null) {
+                                throw argumentRejection;
+                            }
+                            result = argumentFailure == null ? sandbox.tool(task.runId(), call, cancelled) : argumentFailure;
+                        } catch (AgentException failure) {
+                            if (!failure.code().equals("INVALID_ARGUMENTS")) {
+                                throw failure;
+                            }
+                            result = "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
+                        } finally {
+                            // 只测实际 Java→沙箱调用，包含检查/往返；不混入模型、持久化或输出净化耗时。
+                            if (argumentFailure == null && argumentRejection == null) {
+                                invocationDurationNs = System.nanoTime() - invocationStarted;
+                            }
+                        }
+                        result = safe(result);
+                        if (result.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > limits.maxOutputBytes()) {
+                            throw new AgentException("OUTPUT_LIMIT", "Tool response exceeded its budget");
+                        }
+                        completed.put(call.id(), result);
+                        store.event(task.runId(), "TOOL_FINISHED", activity.finished(call, activityId, result, invocationDurationNs));
+                    } catch (RuntimeException failure) {
+                        String code = failure instanceof AgentException classified ? classified.code() : "INTERNAL_FAILURE";
+                        try {
+                            store.event(task.runId(), "TOOL_FINISHED", activity.failed(call, activityId, code, invocationDurationNs));
+                        } catch (RuntimeException recordingFailure) {
+                            failure.addSuppressed(recordingFailure);
+                        }
+                        throw failure;
+                    }
                 }
                 history.add(new AgentProtocol.Message("tool", result, List.of(), call.id(), call.name()));
             }

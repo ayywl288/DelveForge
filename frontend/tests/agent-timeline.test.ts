@@ -2,6 +2,7 @@ import { createApp, h, nextTick, reactive } from "vue";
 import { afterEach, expect, it } from "vitest";
 import AgentTimeline from "../src/components/AgentTimeline.vue";
 import type { AgentEvent, AgentRun } from "../src/api/agentTypes";
+import { readFileSync } from "node:fs";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach(fn => fn()));
@@ -91,7 +92,7 @@ it("shows actual Maven scope, result, duration once and compact recorded test co
     expect(root.querySelector(".activity-target")?.textContent).toBe("reports");
     expect(root.querySelector(".activity-result")?.textContent).toContain("TESTS_PASSED");
     expect(root.querySelectorAll(".activity-duration")).toHaveLength(1);
-    expect(root.querySelector(".activity-duration")?.textContent).toBe("1,240 ms");
+    expect(root.querySelector(".activity-duration")?.textContent).toBe("内部 1,240 ms");
     expect(root.querySelector(".activity-facts")?.textContent).toContain("已执行测试12");
     expect(root.querySelector(".activity-facts")?.textContent).toContain("失败0");
     expect(root.querySelector(".activity-facts")?.textContent).toContain("跳过2");
@@ -122,7 +123,7 @@ it("does not guess paths or correlate legacy tool events by proximity", async ()
     expect(root.querySelector('[data-sequence="1"] strong')?.textContent).toBe("读取文件");
     expect(root.querySelector('[data-sequence="1"] .activity-target')).toBeNull();
     const second = root.querySelector('[data-sequence="2"]')!;
-    expect(second.querySelector(".activity-duration")?.textContent).toBe("0 ms");
+    expect(second.querySelector(".activity-duration")?.textContent).toBe("内部 <1 ms");
     expect(second.textContent).not.toContain("src/OnlyRecorded.java");
     expect(second.querySelector(".activity-facts")).toBeNull();
     expect(root.querySelector('[data-sequence="3"] .activity-target')?.textContent).toBe("src/OnlyRecorded.java");
@@ -149,7 +150,7 @@ it("transitions a reliably correlated operation in place while preserving standa
     expect(row.getAttribute("data-tone")).toBe("completed");
     expect(row.querySelector(".activity-target")?.textContent).toBe("src/Counter.java");
     expect(row.querySelectorAll(".activity-duration")).toHaveLength(1);
-    expect(row.querySelector(".activity-duration")?.textContent).toBe("12 ms");
+    expect(row.querySelector(".activity-duration")?.textContent).toBe("内部 12 ms");
     expect(row.textContent).not.toContain("RESULT");
     expect(root.querySelectorAll(".is-active")).toHaveLength(0);
     expect(props.events.map(event => event.sequence)).toEqual([1, 2, 3]);
@@ -224,4 +225,118 @@ it("renders forty recent activities, reveals older loaded history, preserves rea
     expect(root.querySelectorAll("li")).toHaveLength(40);
     expect(root.querySelector("li")?.getAttribute("data-sequence")).toBe("11");
     expect(root.querySelector(".latest-activity")).toBeNull();
+});
+
+it("uses persisted request activity when the Run snapshot is behind, independently of SSE connection", async () => {
+    const { root, props } = mount();
+    props.run.state = "PREPARING";
+    props.connection = "连接中断，正在重连";
+    props.events = [fact(1, "PREPARING"), fact(2, "MODEL_REQUEST")]; await settle();
+    expect(root.querySelector('.model-waiting[aria-hidden="true"]')?.children).toHaveLength(3);
+    expect(root.querySelector('[data-sequence="2"] [role="status"]')?.textContent).toBe("等待模型响应");
+    expect(root.querySelector(".snapshot-note")?.textContent).toContain("运行概览待同步");
+    props.events.push(fact(3, "FAILED", "POLICY_REJECTED")); await settle();
+    expect(root.querySelector(".model-waiting, .is-active")).toBeNull();
+    expect(root.querySelector('[data-sequence="3"] code')?.textContent).toBe("POLICY_REJECTED");
+    props.run.state = "FAILED"; await settle();
+    expect(root.querySelector(".snapshot-note")).toBeNull();
+});
+it("does not animate historical requests when a snapshot already reached finalization or cancellation", async () => {
+    const { root, props } = mount();
+    props.events = [fact(1, "MODEL_REQUEST")]; props.run.state = "FINALIZING"; await settle();
+    expect(root.querySelector(".model-waiting, .is-active")).toBeNull();
+    props.run.state = "RUNNING"; props.run.cancelRequested = true; await settle();
+    expect(root.querySelector(".model-waiting, .is-active")).toBeNull();
+});
+it("keeps readable status and supplies reduced-motion overrides for every active and entry animation", async () => {
+    const { root, props } = mount();
+    props.events = [fact(1, "MODEL_REQUEST")]; await settle();
+    expect(root.querySelector('[role="status"]')?.textContent).toContain("事件连接");
+    expect(root.querySelector('.activity-result [role="status"]')?.textContent).toBe("等待模型响应");
+    const rowStyles = readFileSync("src/components/AgentActivityRow.vue", "utf8");
+    const timelineStyles = readFileSync("src/components/AgentTimeline.vue", "utf8");
+    expect(rowStyles).toMatch(/prefers-reduced-motion: reduce[^}]+\.model-waiting i[^}]+animation: none/s);
+    expect(timelineStyles).toMatch(/prefers-reduced-motion: reduce[^}]+transition: none/s);
+    expect(timelineStyles).toContain("transform 220ms");
+});
+it.each([[0, "<1 ms"], [500000, "<1 ms"], [1250000, "1.25 ms"], [12000000, "12 ms"]] as const)
+    ("prefers actual invocation timing and distinguishes internal duration (%s)", async (invocationDurationNs, text) => {
+        const { root, props } = mount();
+        props.events = [tool(1, "TOOL_FINISHED", { ok: true, invocationDurationNs, durationMs: 0 })]; await settle();
+        const duration = root.querySelector(".activity-duration")!;
+        expect(duration.textContent).toBe(text);
+        expect(duration.getAttribute("data-source")).toBe("invocation");
+        expect(duration.getAttribute("title")).toContain("调用总耗时");
+        props.events = [tool(1, "TOOL_FINISHED", { ok: true })]; await settle();
+        expect(root.querySelector(".activity-duration")).toBeNull();
+    });
+it("a thrown policy rejection closes its correlated activity without claiming no mutation", async () => {
+    const { root, props } = mount();
+    props.events = [tool(1, "TOOL_STARTED", { tool: "apply_patch", path: undefined }),
+        tool(2, "TOOL_FINISHED", { tool: "apply_patch", path: undefined, ok: false, resultRecorded: false,
+            classification: "POLICY_REJECTED", invocationDurationNs: 1250000 }), fact(3, "FAILED", "POLICY_REJECTED")];
+    await settle();
+    expect(root.querySelectorAll("li")).toHaveLength(2);
+    expect(root.querySelector('[data-sequence="1"]')?.getAttribute("data-tone")).toBe("blocked");
+    expect(root.querySelector('[data-sequence="1"] .activity-uncertain')?.textContent).toContain("修改情况需核对");
+    expect(root.querySelector('[data-sequence="1"] .activity-duration')?.textContent).toBe("1.25 ms");
+    expect(root.querySelector(".is-active")).toBeNull();
+});
+it("groups bounded successful exploration with interleaved model events in their original order", async () => {
+    const { root, props } = mount();
+    props.events = [tool(1, "TOOL_FINISHED", { ok: true, path: "src/A.java" }), fact(2, "MODEL_REQUEST"),
+        tool(3, "TOOL_FINISHED", { ok: true, path: "src/B.java" }), fact(4, "MODEL_REQUEST"),
+        tool(5, "TOOL_FINISHED", { ok: true, tool: "list_files", path: ".github" }), fact(6, "MODEL_REQUEST")];
+    await settle();
+    const group = root.querySelector<HTMLDetailsElement>(".exploration-group details")!;
+    expect(group.open).toBe(false);
+    expect(group.querySelector("summary")?.textContent).toContain("探索仓库文件");
+    expect(group.querySelector("summary")?.textContent).toContain("3 次文件操作");
+    expect(group.querySelector("summary")?.textContent).toContain("src/A.java · src/B.java");
+    expect(group.querySelector("li")).toBeNull();
+    expect(root.querySelector('[data-sequence="6"] .model-waiting')).not.toBeNull();
+    group.querySelector("summary")!.click(); await settle();
+    expect(group.open).toBe(true);
+    expect([...root.querySelectorAll("li[data-sequence]")].map(row => row.getAttribute("data-sequence")))
+        .toEqual(["1", "2", "3", "4", "5", "6"]);
+    expect(group.querySelector(".is-active")).toBeNull();
+    expect(props.events.map(event => event.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
+});
+it("keeps patch, checks, failed and incomplete calls outside ordinary exploration groups", async () => {
+    const { root, props } = mount();
+    const reads = (from: number) => [0, 1, 2].map(offset => tool(from + offset, "TOOL_FINISHED", { ok: true }));
+    props.events = [...reads(1), tool(4, "TOOL_FINISHED", { tool: "apply_patch", ok: true, classification: "PATCH_CONFLICT" }),
+        ...reads(5), tool(8, "TOOL_FINISHED", { tool: "run_checks", ok: false, classification: "TESTS_FAILED" }),
+        ...reads(9), tool(12, "TOOL_FINISHED", { ok: false, classification: "TOOL_ERROR" }), tool(13, "TOOL_STARTED")];
+    await settle();
+    expect(root.querySelectorAll(".exploration-group")).toHaveLength(3);
+    for (const sequence of [4, 8, 12, 13]) {
+        expect(root.querySelector(`[data-sequence="${sequence}"]`)?.closest(".exploration-group")).toBeNull();
+    }
+    expect(root.querySelector('[data-sequence="13"]')?.classList.contains("is-active")).toBe(true);
+});
+it("caps each exploration group and keeps the newest completed row independent", async () => {
+    const { root, props } = mount();
+    props.events = Array.from({ length: 100 }, (_, index) => tool(index + 1, "TOOL_FINISHED", { ok: true })); await settle();
+    expect(root.querySelectorAll(".agent-timeline > li").length).toBeLessThan(12);
+    expect(root.querySelector('[data-sequence="100"]')).not.toBeNull();
+    for (const summary of root.querySelectorAll(".exploration-group summary")) {
+        expect(summary.textContent).toMatch(/[3-8] 次文件操作/);
+    }
+    for (const summary of root.querySelectorAll<HTMLElement>(".exploration-group summary")) summary.click();
+    await settle();
+    expect(root.querySelectorAll("li[data-sequence]")).toHaveLength(40);
+});
+it.each([".github/workflows/build.yml", ".gitignore", "src/Order Service.java"])
+    ("shows permitted relative targets instead of hiding every dot path (%s)", async path => {
+        const { root, props } = mount(); props.events = [tool(1, "TOOL_STARTED", { path })]; await settle();
+        expect(root.querySelector(".activity-target")?.textContent).toBe(path);
+    });
+it("distinguishes withheld targets from absent legacy metadata without exposing protected names", async () => {
+    const { root, props } = mount();
+    props.events = [tool(1, "TOOL_FINISHED", { path: undefined, ok: true, targetState: "withheld" }),
+        fact(2, "TOOL_FINISHED", '{"tool":"read_file","ok":true}')]; await settle();
+    expect(root.querySelector('[data-sequence="1"] .target-note')?.textContent).toBe("目标已隐藏");
+    expect(root.querySelector('[data-sequence="2"] .target-note')?.textContent).toBe("目标未记录");
+    expect(root.textContent).not.toContain(".env");
 });

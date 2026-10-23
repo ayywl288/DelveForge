@@ -70,7 +70,7 @@ it("only an explicit start sends the request; real tool events are ordered and d
   stream.fact(3); stream.fact(3); stream.fact(2); stream.fact(4); await settle();
   expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(2);
   expect(root.textContent).toContain("src/Counter.java");
-  expect([...root.querySelectorAll(".activity-duration")].map(node => node.textContent)).toEqual(["12 ms", "12 ms"]);
+  expect([...root.querySelectorAll(".activity-duration")].map(node => node.textContent)).toEqual(["内部 12 ms", "内部 12 ms"]);
   expect(root.querySelector(".agent-timeline pre")).toBeNull();
   expect(root.textContent).not.toMatch(/\d+%/);
 });
@@ -83,7 +83,7 @@ it("correlated SSE activity updates in place and replay never duplicates a compl
   stream.fact(1, "TOOL_STARTED", JSON.stringify(metadata)); await settle();
   const row = root.querySelector(".agent-timeline li")!;
   expect(row.querySelector('[role="status"]')?.textContent).toBe("进行中");
-  const result = JSON.stringify({ ...metadata, ok: true, durationMs: 15, classification: "RESULT" });
+  const result = JSON.stringify({ ...metadata, ok: true, durationMs: 0, invocationDurationNs: 15000000, classification: "RESULT" });
   stream.fact(2, "TOOL_FINISHED", result); await settle();
   stream.onerror?.(); stream.onopen?.();
   stream.fact(1, "TOOL_STARTED", JSON.stringify(metadata)); stream.fact(2, "TOOL_FINISHED", result); await settle();
@@ -94,6 +94,19 @@ it("correlated SSE activity updates in place and replay never duplicates a compl
   expect(row.querySelector(".activity-target")?.textContent).toBe("src/Counter.java");
   expect(root.querySelector(".agent-usage-notice")?.textContent).toContain("取消不是暂停");
   expect(row.textContent).not.toContain("RESULT");
+});
+
+it("persisted live and failed events override activity animation while the Run overview awaits synchronization", async () => {
+  const { root } = mount([{ ...running(), state: "PREPARING" }]); await settle();
+  const stream = Events.instances.at(-1)!;
+  stream.fact(1, "MODEL_REQUEST", "request=1"); await settle();
+  expect(root.querySelector(".run-status")?.textContent).toContain("准备沙箱");
+  expect(root.querySelector(".model-waiting")).not.toBeNull();
+  expect(root.querySelector(".snapshot-note")?.textContent).toContain("运行概览待同步");
+  stream.fact(2, "FAILED", "POLICY_REJECTED"); await settle();
+  expect(root.querySelector(".is-active, .model-waiting")).toBeNull();
+  expect(root.querySelector('[data-sequence="2"] code')?.textContent).toBe("POLICY_REJECTED");
+  expect(root.querySelector(".agent-changes")?.textContent).toContain("此 Run 尚无冻结 Candidate");
 });
 
 it("a saved Candidate is displayed with honest NOT_TESTED evidence and never starts coding again", async () => {

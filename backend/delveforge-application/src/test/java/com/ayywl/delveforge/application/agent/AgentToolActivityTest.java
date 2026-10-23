@@ -25,6 +25,41 @@ class AgentToolActivityTest {
     }
 
     @Test
+    void invocationTimingIsSeparateFromInternalTimingAndUnavailableValuesAreNotInvented() throws Exception {
+        var read = call("read_file", Map.of("path", "src/A.java"));
+        for (long nanos : new long[]{0, 500000, 12000000}) {
+            JsonNode result = json.readTree(activity.finished(read, identity, "{\"ok\":true,\"durationMs\":0}", nanos));
+            assertEquals(nanos, result.path("invocationDurationNs").asLong());
+            assertEquals(0, result.path("durationMs").asLong());
+        }
+        assertFalse(json.readTree(activity.finished(read, identity, "{\"ok\":true}")).has("invocationDurationNs"));
+        assertFalse(json.readTree(activity.finished(read, identity, "{\"ok\":true}", -1L)).has("invocationDurationNs"));
+        JsonNode failed = json.readTree(activity.failed(read, identity, "POLICY_REJECTED", 123L));
+        assertEquals(identity, failed.path("toolCallId").asText());
+        assertEquals(123L, failed.path("invocationDurationNs").asLong());
+        assertFalse(failed.path("ok").asBoolean());
+        assertFalse(failed.path("resultRecorded").asBoolean());
+        assertFalse(failed.has("reason"));
+        assertFalse(failed.has("durationMs"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {".github/workflows/build.yml", ".gitignore", ".mvn/wrapper/maven-wrapper.properties", "src/Order Service.java"})
+    void permittedDotDirectoriesAndSpacesRemainVisible(String path) throws Exception {
+        assertEquals(path, json.readTree(activity.started(call("read_file", Map.of("path", path)), identity)).path("path").asText());
+    }
+
+    @Test
+    void withheldTargetsAreDistinguishedWithoutEchoingProtectedNames() throws Exception {
+        JsonNode start = json.readTree(activity.started(call("read_file", Map.of("path", ".env")), identity));
+        assertEquals("withheld", start.path("targetState").asText());
+        assertFalse(start.toString().contains(".env"));
+        JsonNode invalid = json.readTree(activity.started(new AgentProtocol.ToolCall("call", "read_file", "{}"), identity));
+        assertFalse(invalid.has("targetState"));
+        assertFalse(invalid.has("path"));
+    }
+
+    @Test
     void stableServerIdentityAndAllowlistedTargetsOnly() throws Exception {
         var call = call("search_code", Map.of("path", "src/中文.java", "query", "private-search-text"));
         JsonNode start = json.readTree(activity.started(call, identity));

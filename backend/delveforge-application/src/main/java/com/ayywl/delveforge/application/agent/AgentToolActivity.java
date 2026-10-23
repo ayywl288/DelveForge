@@ -31,7 +31,12 @@ public final class AgentToolActivity {
     }
 
     public String finished(AgentProtocol.ToolCall call, String identity, String result) {
+        return finished(call, identity, result, null);
+    }
+
+    public String finished(AgentProtocol.ToolCall call, String identity, String result, Long invocationDurationNs) {
         Map<String, Object> summary = base(call, identity);
+        timing(summary, invocationDurationNs);
         try {
             JsonNode response = json.readTree(result);
             if (response == null || !response.isObject()) {
@@ -63,11 +68,32 @@ public final class AgentToolActivity {
                 }
                 if (!values.isEmpty()) {
                     summary.put("paths", values);
+                    summary.put("targetState", "available");
+                } else if (!paths.isEmpty()) {
+                    summary.put("targetState", "withheld");
                 }
             }
             return encode(summary);
         } catch (IOException failure) {
             throw new AgentException("TOOL_PROTOCOL", "Cannot encode tool activity metadata", failure);
+        }
+    }
+
+    public String failed(AgentProtocol.ToolCall call, String identity, String classification, Long invocationDurationNs) {
+        Map<String, Object> summary = base(call, identity);
+        summary.put("ok", false);
+        // 未收到完整返回不能证明工具没有产生修改；原异常仍由执行路径终止 Run。
+        summary.put("resultRecorded", false);
+        if (classification.matches("[A-Z][A-Z0-9_]{0,63}") && unchanged(classification)) {
+            summary.put("classification", classification);
+        }
+        timing(summary, invocationDurationNs);
+        return encode(summary);
+    }
+
+    private void timing(Map<String, Object> summary, Long invocationDurationNs) {
+        if (invocationDurationNs != null && invocationDurationNs >= 0) {
+            summary.put("invocationDurationNs", invocationDurationNs);
         }
     }
 
@@ -83,6 +109,8 @@ public final class AgentToolActivity {
                 String path = args.path("path").asText(".");
                 if (displayPath(path, !call.name().equals("read_file"))) {
                     summary.put("path", path);
+                } else {
+                    summary.put("targetState", "withheld");
                 }
             } else if (call.name().equals("run_checks")) {
                 summary.put("goal", args.path("goal").asText("test"));
@@ -90,6 +118,8 @@ public final class AgentToolActivity {
                     String path = args.path(key).asText(key.equals("directory") ? "." : "");
                     if (displayPath(path, true)) {
                         summary.put(key, path);
+                    } else if (!path.isEmpty()) {
+                        summary.put("targetState", "withheld");
                     }
                 }
             }
@@ -104,13 +134,13 @@ public final class AgentToolActivity {
             return true;
         }
         // 展示接受沙箱路径规则的保守子集；实际访问仍由沙箱校验符号链接和文件系统边界。
-        if (path.isEmpty() || path.length() > 256 || !path.matches("[\\p{L}\\p{N}._/-]+")
+        if (path.isEmpty() || path.length() > 256 || !path.matches("[\\p{L}\\p{N}._/ -]+")
                 || path.startsWith("/") || secrets.excludes(path) || !unchanged(path)) {
             return false;
         }
         for (String part : path.split("/", -1)) {
             String lower = part.toLowerCase(Locale.ROOT);
-            if (part.isEmpty() || part.equals(".") || part.equals("..") || part.endsWith(".")
+            if (part.isEmpty() || part.equals(".") || part.equals("..") || part.endsWith(".") || part.endsWith(" ")
                     || PROTECTED.contains(lower) || lower.startsWith(".env") || secrets.excludes(part)
                     || part.matches("(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?")) {
                 return false;
