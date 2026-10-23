@@ -7,6 +7,7 @@ import ContentList from "../components/ContentList.vue";
 import RevisionText from "../components/RevisionText.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import StepFinalChanges from "../components/StepFinalChanges.vue";
+import { stepPrerequisiteIssue } from "../state/stepPrerequisite";
 
 const props = defineProps<{ s: WorkspaceSession }>();
 const emit = defineEmits<{ planning: [] }>();
@@ -31,7 +32,12 @@ let stream: EventSource | undefined;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 const terminal = (item: AgentRun) => ["SUCCEEDED", "FAILED", "CANCELLED", "INTERRUPTED"].includes(item.state);
 const latest = computed(() => runs.value[0]);
+const prerequisiteIssue = computed(() => props.s.plan && step.value
+  ? stepPrerequisiteIssue(props.s.plan, step.value, props.s.copy) : "请先读取计划与步骤。");
+const canConfirm = computed(() => step.value?.status === "PENDING_CONFIRMATION" && !prerequisiteIssue.value
+  && !pending.value && !props.s.busy);
 const canStart = computed(() => props.s.plan?.status === "ACTIVE" && step.value?.status === "READY"
+  && !prerequisiteIssue.value
   && !pending.value && !props.s.busy && (!latest.value || terminal(latest.value) && !latest.value.candidateId)
   && props.s.plan.steps.slice(0, props.s.plan.steps.indexOf(step.value)).every(item => item.status === "SUCCEEDED"));
 const labels: Record<string, string> = {
@@ -172,6 +178,7 @@ async function deliverCandidate() {
   await action(selected => api.deliver(selected.candidateId!), actual => { delivery.value = actual; });
 }
 async function confirmStep() {
+  if (!canConfirm.value) return;
   await action(selected => props.s.confirmStep(selected.stepId!, () => current(selected)));
 }
 async function loadDiff() {
@@ -234,9 +241,13 @@ onUnmounted(deactivate);
         <option v-for="item in s.plan.steps" :key="item.id" :value="item.id">{{ item.goal }} · {{ item.status }}</option>
       </select>
       <template v-if="step">
-        <h3>{{ step.goal }}</h3><StatusBadge :status="step.status" /><p>{{ step.scope }}</p>
+        <div class="selected-step-summary"><StatusBadge :status="step.status" /><p>{{ step.scope }}</p></div>
         <ContentList title="计划变更" :items="step.plannedChanges" />
-        <button v-if="step.status === 'PENDING_CONFIRMATION'" :disabled="pending || !!s.busy"
+        <div v-if="prerequisiteIssue" class="step-lock-reason">
+          <p>{{ prerequisiteIssue }}</p>
+          <button class="text-button" @click="emit('planning')">前往演化规划核对准备与授权</button>
+        </div>
+        <button v-if="step.status === 'PENDING_CONFIRMATION' && !prerequisiteIssue" :disabled="!canConfirm"
           @click="confirmStep">确认此步骤</button>
         <template v-if="step.status === 'READY'">
           <label for="agent-jdk">运行环境</label>

@@ -145,7 +145,8 @@ it("ignores a late Start after a Step switch and reloads its persisted Run on re
   expect(root.textContent).not.toContain("Agent：编码中");
   expect(Events.instances).toHaveLength(0);
   expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", undefined);
-  expect(button(root, "确认此步骤").disabled).toBe(false);
+  expect(button(root, "确认此步骤")).toBeUndefined();
+  expect(root.querySelector(".step-lock-reason")?.textContent).toContain("前序 Step");
   vi.mocked(api.agentRuns).mockResolvedValue([running()]);
   chooseStep(root, "step-1"); await settle();
   expect(root.textContent).toContain("Agent：编码中");
@@ -286,6 +287,7 @@ it.each([false, true])("confirmation does not adopt a response or error after se
   expect(s.plan!.id).toBe("plan-1");
   expect(s.error).toBe("");
   expect(root.querySelector<HTMLSelectElement>("#agent-step")!.value).toBe("step-2");
-  expect(button(root, "确认此步骤").disabled).toBe(false);
+  expect(button(root, "确认此步骤")).toBeUndefined();
+  expect(root.querySelector(".step-lock-reason")?.textContent).toContain("前序 Step");
   expect(refresh).not.toHaveBeenCalled();
 });

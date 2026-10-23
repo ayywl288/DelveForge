@@ -12,6 +12,8 @@ import NavigationIcon, { type NavigationIconName } from "./components/Navigation
 import { stageIndex, projectIssueText } from "./state/projectPresentation";
 const s = reactive(createSession());
 const stage = ref(-1);
+const activityStages = { discovery: 0, repository: 1, directions: 2, planning: 3 };
+const localBusyVisible = computed(() => s.aiActivity && activityStages[s.aiActivity.kind] === stage.value);
 const authorizationTargetId = ref("");
 async function openAuthorization(assetId: string) {
   // 先按精确身份读取当前授权；找不到时保留原页和明确错误，不改选同路径记录。
@@ -189,7 +191,7 @@ onUnmounted(s.dispose);
       <div v-if="s.notice" class="inline-note" role="status">
         {{ s.notice }}
       </div>
-      <div v-if="s.busy" class="global-request" role="status">
+      <div v-if="s.busy && !localBusyVisible" class="global-request" role="status">
         <span class="request-dot" aria-hidden="true" />{{ s.busy }} ·
         等待实际响应，未自动重试
       </div>

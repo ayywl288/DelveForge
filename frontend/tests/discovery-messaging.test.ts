@@ -72,7 +72,9 @@ describe("Discovery 消息反馈与请求边界", () => {
     expect(composer.value).toBe("正在写的下一条草稿");
     expect(root.querySelector(".assistant-waiting")).toBeNull();
     expect(root.querySelector(".message.user")?.getAttribute("data-state")).toBe("accepted");
-    expect(root.querySelector(".message.user")?.textContent).toContain("本轮已接受");
+    expect(root.querySelector(".accepted-state")?.getAttribute("aria-label")).toContain("服务端接受");
+    expect(root.querySelector(".accepted-state svg")).not.toBeNull();
+    expect(root.querySelector(".message.user")?.textContent).not.toContain("本轮已接受");
     expect(root.querySelector(".message.agent")?.textContent).toContain(result().nextQuestion);
     expect(s.profile?.projectGoals).toEqual(["真实服务端目标"]);
     expect(s.sufficiency?.missingAreas).toEqual(["场景"]);

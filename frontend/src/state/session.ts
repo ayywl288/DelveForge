@@ -34,6 +34,11 @@ interface DiscoveryMessage {
   profileId?: string;
   failed?: boolean;
 }
+type AiActivity =
+  | { kind: "discovery"; profileId: string }
+  | { kind: "repository"; assetId: string }
+  | { kind: "directions" }
+  | { kind: "planning" };
 interface AdoptedPlanSnapshot {
   version: number;
   plan: EvolutionPlan;
@@ -95,7 +100,14 @@ export function createSession() {
       ? activeQuestion.value.text : null,
   );
   const messages = ref<DiscoveryMessage[]>([]);
-  const discoveryPending = computed(() => messages.value.some(message => message.state === "pending"));
+  const activeAiActivity = ref<(AiActivity & { epoch: number }) | null>(null);
+  const aiActivity = computed(() => {
+    const current = activeAiActivity.value;
+    if (!current || current.epoch !== contextEpoch.value) return null;
+    if (current.kind === "discovery" && current.profileId !== profile.value?.id) return null;
+    return current;
+  });
+  const discoveryPending = computed(() => aiActivity.value?.kind === "discovery");
   const discoveryUncertain = computed(() => messages.value.some(message =>
     message.state === "uncertain" && message.profileId === profile.value?.id));
   const busy = ref("");
@@ -171,10 +183,12 @@ export function createSession() {
   }
   async function askQuestion() {
     const current = profile.value;
+    const epoch = contextEpoch.value;
+    const belongs = () => !disposed && contextEpoch.value === epoch && profile.value?.id === current?.id;
     if (!current || current.status !== "EXPLORING") return;
     try {
       const result = await api.discoveryQuestion(current.id, current.revision, previousQuestions());
-      if (disposed) return;
+      if (!belongs()) return;
       if (profile.value?.id !== current.id || profile.value?.revision !== result.revision ||
         profile.value?.status !== "EXPLORING") {
         notice.value = "下一问所依据的画像版本或状态已经变化，未加入聊天。请核对当前画像。";
@@ -183,6 +197,7 @@ export function createSession() {
       acceptSufficiency(result);
       appendQuestion(result.nextQuestion);
     } catch (failure) {
+      if (!belongs()) return;
       await refreshProfileAfterFailure();
       throw failure;
     }
@@ -210,7 +225,7 @@ export function createSession() {
     pollError.value = "";
     return { version, plan: result, copy: wc };
   }
-  async function run(label: string, operation: () => Promise<void>, saveContext = true) {
+  async function run(label: string, operation: () => Promise<void>, saveContext = true, activity?: AiActivity) {
     if (busy.value) return;
     if (saveContext && projectSyncError.value) {
       error.value = "上次业务对象已保存，但项目关联尚未确认。请重新打开项目核对，不要重复 AI 或执行请求。";
@@ -223,11 +238,13 @@ export function createSession() {
       return;
     }
     busy.value = label;
+    activeAiActivity.value = activity ? { ...activity, epoch: contextEpoch.value } : null;
     const epoch = contextEpoch.value;
     error.value = "";
     notice.value = "";
     try {
       await operation();
+      activeAiActivity.value = null;
       if (disposed || saveContext && contextEpoch.value !== epoch) return;
       if (saveContext && projectContext.value) {
         try {
@@ -246,6 +263,7 @@ export function createSession() {
           ? failure.message
           : "操作未完成。请查询当前状态，不要重复提交未知结果的请求。";
     } finally {
+      activeAiActivity.value = null;
       busy.value = "";
     }
   }
@@ -487,6 +505,7 @@ export function createSession() {
     dismissReviewChoice() { reviewChoicePending.value = false; },
     nextQuestion,
     messages,
+    aiActivity,
     discoveryPending,
     discoveryUncertain,
     busy,
@@ -638,7 +657,7 @@ export function createSession() {
           await refreshProfileAfterFailure();
           throw failure;
         }
-      });
+      }, true, { kind: "discovery", profileId: profile.value.id });
     },
     async checkDiscoveryStatus() {
       const current = profile.value;
@@ -705,22 +724,31 @@ export function createSession() {
         });
     },
     async resumeDiscovery() {
-      if (profile.value && profile.value.status !== "EXPLORING")
+      const current = profile.value;
+      const epoch = contextEpoch.value;
+      const belongs = () => !disposed && contextEpoch.value === epoch && profile.value?.id === current?.id;
+      if (current && current.status !== "EXPLORING")
         await run("重新进入探索", async () => {
           try {
-            profile.value = await api.resumeDiscovery(
-              profile.value!.id,
-              profile.value!.status === "CONFIRMED",
-            );
+            const resumed = await api.resumeDiscovery(current.id, current.status === "CONFIRMED");
+            if (!belongs()) return;
+            profile.value = resumed;
             sufficiency.value = null;
             activeQuestion.value = null;
           } catch (failure) {
+            if (!belongs()) return;
             await refreshProfileAfterFailure();
             throw failure;
           }
           // 用户主动返回探索后才索取一次问题；问题失败不撤销已完成的合法状态转换。
-          await askQuestion();
-        });
+          try {
+            await askQuestion();
+          } catch (failure) {
+            if (!belongs()) return;
+            notice.value = "返回探索已获成功响应；下一问未取得可用响应，请核对当前画像后再决定是否提问。";
+            throw failure;
+          }
+        }, true, { kind: "discovery", profileId: current.id });
     },
     async continueExploring() {
       if (busy.value || !profile.value || profile.value.status !== "EXPLORING") return;
@@ -728,7 +756,7 @@ export function createSession() {
         notice.value = "请直接回答聊天区的下一轮问题，可以连续探索。";
         return;
       }
-      await run("生成下一轮探索问题", askQuestion);
+      await run("生成下一轮探索问题", askQuestion, true, { kind: "discovery", profileId: profile.value.id });
     },
     async register(input: AssetInput) {
       await run("注册仓库授权", async () => {
@@ -785,7 +813,7 @@ export function createSession() {
         repositories.value.push(result);
         ids.repositoryIds.push(result.id);
         remember();
-      });
+      }, true, { kind: "repository", assetId: value });
     },
     async discover(repositoryIds: string[]) {
       if (profile.value)
@@ -799,7 +827,7 @@ export function createSession() {
           directions.value.push(...result.directions);
           ids.directionIds.push(...result.directions.map((item) => item.id));
           remember();
-        });
+        }, true, { kind: "directions" });
     },
     async decide(value: string, decision: "select" | "reject") {
       await run("保存方向决定", async () => {
@@ -838,7 +866,9 @@ export function createSession() {
               result.baseRepositoryProfileId !== repository.id) throw new ApiError(0, "RESPONSE_UNREADABLE");
             setPlan(result);
             accepted = true;
+            activeAiActivity.value = null;
             if (context) {
+              busy.value = "核对项目关联";
               // 规划与 planId 关联由后端原子保存；回读版本后再保存导航集合。
               const workspace = await api.project("project:" + context.id);
               if (!current()) return;
@@ -866,7 +896,7 @@ export function createSession() {
             throw failure;
           }
           copy.value = null;
-        });
+        }, true, { kind: "planning" });
     },
     async beginReplanning() {
       const context = projectContext.value;

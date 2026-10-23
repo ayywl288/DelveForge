@@ -11,6 +11,8 @@ import RevisionText from "../components/RevisionText.vue";
 import StepPrerequisites from "../components/StepPrerequisites.vue";
 import NavigationIcon from "../components/NavigationIcon.vue";
 import DetailPanel from "../components/DetailPanel.vue";
+import InlineBusy from "../components/InlineBusy.vue";
+import { stepPrerequisiteIssue } from "../state/stepPrerequisite";
 const props = defineProps<{ s: WorkspaceSession }>();
 const workspaceConfiguration = ref<WorkspaceConfiguration | null>(null);
 const workspaceConfigurationError = ref("");
@@ -68,6 +70,16 @@ const baseAssetId = computed(() => bases.value.find(repository => repository.id 
 const asset = computed(() => props.s.assets.find(item => item.id === baseAssetId.value));
 const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &&
   asset.value.usageAuthorization === "ALLOWED" && !!asset.value.licenseInfo?.trim());
+function stepIssue(step: EvolutionStep) {
+  return props.s.plan ? stepPrerequisiteIssue(props.s.plan, step, props.s.copy) : "请先读取计划。";
+}
+function confirmSelectedStep() {
+  const current = props.s.plan?.steps.find(step => step.id === stepToConfirm.value?.id);
+  if (current?.status === "PENDING_CONFIRMATION" && !props.s.busy && !stepIssue(current)) {
+    void props.s.confirmStep(current.id);
+  }
+  stepToConfirm.value = null;
+}
 </script>
 <template>
   <section v-if="s.plan?.status === 'SUPERSEDED'" class="panel inline-note">
@@ -114,6 +126,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
         <button :disabled="!!s.busy || !base || !authorizationReady || !currentBasis">
           生成演化计划（调用 AI）
         </button>
+        <InlineBusy v-if="s.aiActivity?.kind === 'planning'" label="正在生成演化计划…" />
       </form>
     </template>
     <div v-else class="empty"><p>请先明确选择一个产品方向。</p>
@@ -141,6 +154,35 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
         </section>
       </div>
       <button class="text-button plan-more" @click="detail = 'basis'">规划改动、风险、依据与基础绑定 <NavigationIcon name="arrow" /></button>
+    </section>
+    <section v-if="['PROPOSED', 'ACTIVE'].includes(s.plan.status)" id="prepare-working-copy"
+      class="panel prepare-box" aria-labelledby="prepare-heading">
+      <div class="panel-header">
+        <h2 id="prepare-heading">审阅计划与准备隔离环境</h2>
+        <StatusBadge v-if="s.copy" :status="s.copy.status" :show-code="false" />
+      </div>
+      <p class="meta">先审阅目标与路线，再明确准备隔离副本，最后逐个授权 Step。</p>
+      <template v-if="s.plan.status === 'PROPOSED'">
+        <div class="workspace-configuration">
+          <p class="meta">新 WorkingCopy 存储根目录：<code>{{ workspaceConfiguration?.root ?? '尚未读取' }}</code></p>
+          <p v-if="workspaceConfigurationError" role="alert">{{ workspaceConfigurationError }}</p>
+          <details><summary>存储配置与准备边界</summary>
+            <p>如需换盘，在启动后端的终端设置 <code>DELVEFORGE_WORKSPACE_ROOT</code> 并重启后端，再回到本页核对。此处不接受任意目录输入；准备时仍会校验实际路径与权限。</p>
+            <p v-if="workspaceConfiguration?.existingRoots.length">仅接纳旧副本的根目录：{{ workspaceConfiguration.existingRoots.join('；') }}</p>
+            <p>已创建的副本不会移动；实际位置以准备成功后的 WorkingCopy 为准。</p>
+            <button class="secondary" type="button" @click="loadConfiguration">重新读取存储配置</button>
+          </details>
+        </div>
+        <label class="check"><input v-model="reviewed" type="checkbox" :disabled="!!s.busy" />
+          我已审阅目标、范围、步骤与验收标准</label>
+        <button :disabled="!!s.busy || !reviewed" @click="prepareOpen = true">准备隔离副本</button>
+        <p class="meta">准备通过后激活计划、创建隔离副本；不会自动授权或执行任何 Step。</p>
+      </template>
+      <template v-else>
+        <p v-if="s.copy" class="path">当前隔离副本：{{ s.copy.location }}</p>
+        <p v-else class="inline-note">尚未读取隔离副本，请重新查询计划与副本状态。</p>
+        <p class="meta">计划已激活。请在下方核对各 Step 的操作前提，再明确授权。</p>
+      </template>
     </section>
     <section class="panel roadmap" aria-labelledby="roadmap-heading">
     <div class="panel-header"><h2 id="roadmap-heading" class="section-heading"><NavigationIcon name="planning" />演化路线</h2><span class="meta">{{ s.plan.steps.length }} 个步骤 · 按顺序验证</span></div>
@@ -176,16 +218,16 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
             class="step-authorize"
             :disabled="
               !!s.busy ||
-              s.plan.status !== 'ACTIVE' ||
-              !s.copy || !['READY', 'EVOLVING'].includes(s.copy.status) ||
-              s.plan.steps
-                .slice(0, index)
-                .some((item) => item.status !== 'SUCCEEDED')
+              !!stepIssue(step)
             "
             @click="stepToConfirm = step"
           >
             <NavigationIcon name="lock" />审阅并授权此 Step
           </button>
+          <p v-if="step.status === 'PENDING_CONFIRMATION' && stepIssue(step)" class="step-lock-reason">
+            {{ stepIssue(step) }}
+            <a v-if="s.plan.status === 'PROPOSED'" href="#prepare-working-copy">查看上方准备入口 ↑</a>
+          </p>
           <p v-if="step.status === 'READY'" class="inline-note">
             此 Step 已授权；执行仍需在下一阶段单独点击确认。
           </p>
@@ -193,35 +235,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
       </li>
     </ol>
     </section>
-    <section v-if="s.plan.status === 'PROPOSED'" class="panel prepare-box">
-      <h2>审阅计划，然后准备隔离环境</h2>
-      <div class="workspace-configuration inline-note">
-        <p>新 WorkingCopy 存储根目录：<code>{{ workspaceConfiguration?.root ?? '尚未读取' }}</code></p>
-        <p v-if="workspaceConfigurationError" role="alert">{{ workspaceConfigurationError }}</p>
-        <details><summary>存储配置与准备边界</summary>
-        <p>如需换盘，在启动后端的终端设置 <code>DELVEFORGE_WORKSPACE_ROOT</code> 并重启后端，再回到本页核对。此处不接受任意目录输入；准备时仍会校验实际路径与权限。</p>
-        <p v-if="workspaceConfiguration?.existingRoots.length">仅接纳旧副本的根目录：{{ workspaceConfiguration.existingRoots.join('；') }}</p>
-        <p>已创建的副本不会移动；实际位置以准备成功后的 WorkingCopy 为准。</p>
-        <button class="secondary" type="button" @click="loadConfiguration">重新读取存储配置</button>
-        </details>
-      </div>
-      <p>
-        勾选表示你已在本页审阅计划。准备操作通过后端校验后激活计划、创建隔离副本；各 Step 仍需独立授权。
-      </p>
-      <label class="check"
-        ><input
-          v-model="reviewed"
-          type="checkbox"
-          :disabled="!!s.busy"
-        />我已审阅目标、范围、步骤与验收标准</label
-      ><button
-        :disabled="!!s.busy || !reviewed"
-        @click="prepareOpen = true"
-      >
-        准备隔离副本
-      </button>
-    </section>
-    <div v-else-if="s.plan.status === 'ACTIVE'" class="stage-footer">
+    <div v-if="s.plan.status === 'ACTIVE'" class="stage-footer">
       <p>
         准备与授权是不同的决定。查看实际 WorkingCopy，再手动执行一个 READY
         Step。
@@ -278,6 +292,7 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
   </DetailPanel>
   <ConfirmDialog
     :open="prepareOpen"
+    :disabled="!!s.busy || !reviewed || s.plan?.status !== 'PROPOSED'"
     title="准备独立 WorkingCopy？"
     confirm-label="准备 WorkingCopy"
     @close="prepareOpen = false"
@@ -292,15 +307,14 @@ const authorizationReady = computed(() => !!asset.value?.readPermissionAllowed &
   >
   <ConfirmDialog
     :open="!!stepToConfirm"
+    :disabled="!!s.busy || !stepToConfirm || !!stepIssue(stepToConfirm)"
     title="授权此 Step？"
     confirm-label="明确授权 Step"
     @close="stepToConfirm = null"
-    @confirm="
-      s.confirmStep(stepToConfirm!.id);
-      stepToConfirm = null;
-    "
+    @confirm="confirmSelectedStep"
     ><h3>{{ stepToConfirm?.goal }}</h3>
     <p>{{ stepToConfirm?.scope }}</p>
+    <p v-if="stepToConfirm && stepIssue(stepToConfirm)" class="step-lock-reason">{{ stepIssue(stepToConfirm) }}</p>
     <p>授权仅覆盖当前 Step，不会自动执行或授权后续步骤。</p></ConfirmDialog
   >
 </template>

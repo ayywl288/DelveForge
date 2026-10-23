@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InlineBusy from "../components/InlineBusy.vue";
 import { computed, nextTick, ref } from "vue";
 import type { WorkspaceSession } from "../state/session";
 import type { ProductDirection } from "../api/types";
@@ -48,7 +49,7 @@ function decide() {
 }
 </script>
 <template>
-  <details class="panel direction-input" :open="!s.directions.length">
+  <details class="panel direction-input" :open="!s.directions.length || s.aiActivity?.kind === 'directions'">
     <summary>生成候选方向 <span class="meta">选择已保存的仓库分析</span></summary>
     <div>
       <p class="muted">
@@ -83,6 +84,7 @@ function decide() {
     >
       生成候选方向（调用 AI）
     </button>
+    <InlineBusy v-if="s.aiActivity?.kind === 'directions'" label="正在生成产品方向…" />
   </details>
   <div v-if="!s.directions.length" class="empty panel">
     尚无候选。选定分析快照后，开始发现。

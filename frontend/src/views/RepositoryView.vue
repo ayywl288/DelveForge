@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import InlineBusy from "../components/InlineBusy.vue";
 import { computed, ref, watch } from "vue";
 import type { WorkspaceSession } from "../state/session";
 import type { AssetAuthorizationInput, UsageAuthorization } from "../api/types";
@@ -115,7 +116,7 @@ function viewSection(id: string) {
     </div>
   </section>
   <ProjectResourcePicker :s="s" />
-  <details class="panel repository-setup" :open="!s.repositories.length || !!authorizationTargetId">
+  <details class="panel repository-setup" :open="!s.repositories.length || !!authorizationTargetId || s.aiActivity?.kind === 'repository'">
     <summary>{{ s.repositories.length ? '仓库登记与授权' : '连接仓库并明确授权' }} <span class="meta">{{ s.assets.length }} 个已登记资产</span></summary>
   <div class="two-column">
     <section>
@@ -212,6 +213,8 @@ function viewSection(id: string) {
         >
           分析仓库（调用 AI）
         </button>
+        <InlineBusy v-if="s.aiActivity?.kind === 'repository' && s.aiActivity.assetId === asset.id"
+          label="正在分析仓库…" />
         <details class="object-id">
           <summary>资产 ID</summary>
           <code>{{ asset.id }}</code>

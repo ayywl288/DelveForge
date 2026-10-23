@@ -29,6 +29,11 @@ watch(() => props.s.profile?.status, (status, previous) => {
   if (status === "CONFIRMED") activeTab.value = "confirmed";
   if (status === "EXPLORING" && previous !== "EXPLORING") activeTab.value = "chat";
 });
+watch(() => props.s.discoveryPending, (pending) => {
+  if (pending) activeTab.value = "chat";
+  else if (props.s.profile?.status === "CONFIRMED") activeTab.value = "confirmed";
+  else if (props.s.profile?.status === "REVIEWING") activeTab.value = "review";
+});
 async function enterReview() {
   props.s.dismissReviewChoice();
   await props.s.assess();
@@ -131,13 +136,13 @@ async function save() {
         v-show="activeTab === 'chat'"
         ref="chat"
         class="chat-log"
-        :class="{ 'empty-conversation': !s.messages.length }"
+        :class="{ 'empty-conversation': !s.messages.length && !s.discoveryPending }"
         tabindex="0"
         role="log"
         aria-label="本次页面会话的探索对话"
         aria-live="polite"
       >
-        <div v-if="!s.messages.length" class="chat-intro">
+        <div v-if="!s.messages.length && !s.discoveryPending" class="chat-intro">
           <span class="feature-symbol"><NavigationIcon name="discovery" /></span>
           <h3>从一个想改善的事情说起</h3>
           <p>
@@ -155,15 +160,16 @@ async function save() {
           :class="[message.role, message.state]"
           :data-state="message.state"
         >
-          <span class="message-author">{{
-            message.role === "user" ? "你" : "DelveForge"
+          <span class="message-author sr-only">{{
+            message.role === "user" ? "你说：" : "DelveForge："
           }}</span>
           <p>{{ message.text }}</p>
-          <span v-if="message.state === 'pending'" class="message-state" role="status">
+          <span v-if="message.state === 'pending'" class="message-state">
             <span class="message-spinner" aria-hidden="true"></span>正在提交
           </span>
-          <span v-else-if="message.state === 'accepted'" class="message-state" title="本轮接口已成功返回；不表示已读回执">
-            <span aria-hidden="true">✓</span> 本轮已接受
+          <span v-else-if="message.state === 'accepted'" class="message-state accepted-state" role="img"
+            aria-label="本轮请求已获服务端接受，不表示送达或已读回执" title="服务端已接受本轮请求">
+            <svg viewBox="0 0 24 16" aria-hidden="true"><path d="m1 8 4 4L15 2M10 9l3 3L23 2" /></svg>
           </span>
           <div v-else-if="message.failed" class="message-error">
             <p>{{ message.state === 'failed'
@@ -172,9 +178,9 @@ async function save() {
             <button type="button" class="text-button" :disabled="!!s.busy" @click="s.checkDiscoveryStatus">查询画像状态</button>
           </div>
         </article>
-        <div v-if="s.discoveryPending" class="message agent assistant-waiting" role="status">
-          <span class="message-author">DelveForge</span>
-          <p><span class="waiting-dots" aria-hidden="true"><i></i><i></i><i></i></span>DelveForge 正在整理你的想法…</p>
+        <div v-if="s.discoveryPending" class="message agent assistant-waiting">
+          <span class="sr-only">DelveForge 正在整理你的想法…</span>
+          <span class="waiting-dots" aria-hidden="true"><i></i><i></i><i></i></span>
         </div>
         <p v-else-if="s.busy" class="request-note" role="status">
           {{ s.busy }}… 正在等待实际响应。

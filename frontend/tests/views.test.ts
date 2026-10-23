@@ -287,6 +287,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     expect(confirm).not.toHaveBeenCalled();
     s.plan.status = "ACTIVE";
     s.copy = copy();
+    s.plan.workingCopyId = s.copy.id;
     await nextTick();
     button(root, "审阅并授权此 Step").click();
     await nextTick();
