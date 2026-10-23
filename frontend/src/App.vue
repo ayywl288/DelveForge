@@ -14,6 +14,7 @@ const s = reactive(createSession());
 const stage = ref(-1);
 const activityStages = { discovery: 0, repository: 1, directions: 2, planning: 3 };
 const localBusyVisible = computed(() => s.aiActivity && activityStages[s.aiActivity.kind] === stage.value);
+const currentProjectName = computed(() => s.projectContext?.name ?? s.plan?.targetState.targetProduct ?? "尚未打开项目");
 const authorizationTargetId = ref("");
 async function openAuthorization(assetId: string) {
   // 先按精确身份读取当前授权；找不到时保留原页和明确错误，不改选同路径记录。
@@ -131,9 +132,10 @@ onUnmounted(s.dispose);
           <NavigationIcon name="projects" /><span>项目工作台</span>
         </button>
       </nav>
-      <div class="project-navigation-heading">
-        <span class="nav-label">当前项目</span>
-        <p class="sidebar-project">{{ s.projectContext?.name ?? s.plan?.targetState.targetProduct ?? '尚未打开项目' }}</p>
+      <div class="project-navigation-heading" aria-labelledby="current-project-name">
+        <span class="sidebar-project-icon"><NavigationIcon name="repository" /></span>
+        <div class="sidebar-project-identity"><span class="nav-label">当前项目</span>
+          <p id="current-project-name" class="sidebar-project" :title="currentProjectName" tabindex="0">{{ currentProjectName }}</p></div>
       </div>
       <nav class="workflow-navigation" aria-label="演化阶段">
         <button

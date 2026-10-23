@@ -15,9 +15,9 @@ class Events extends EventTarget {
   readonly url: string;
   constructor(url: string) { super(); this.url = url; Events.instances.push(this); }
   close() { this.closed = true; }
-  fact(sequence: number, kind = "TOOL_FINISHED") {
+  fact(sequence: number, kind = "TOOL_FINISHED", summary = '{"tool":"read_file","path":"src/Counter.java","durationMs":12}') {
     this.dispatchEvent(new MessageEvent("activity", { data: JSON.stringify({ sequence, runId: "run-1", kind,
-      summary: '{"tool":"read_file","path":"src/Counter.java","durationMs":12}', at: "2026-10-22T01:00:00Z" }) }));
+      summary, at: "2026-10-22T01:00:00Z" }) }));
   }
 }
 const running = (): AgentRun => ({ id: "run-1", planId: "plan-1", stepId: "step-1", workingCopyId: "copy-1",
@@ -290,4 +290,103 @@ it.each([false, true])("confirmation does not adopt a response or error after se
   expect(button(root, "确认此步骤")).toBeUndefined();
   expect(root.querySelector(".step-lock-reason")?.textContent).toContain("前序 Step");
   expect(refresh).not.toHaveBeenCalled();
+});
+
+it("separates Step configuration, expandable changes, JDK selection and explicit action", async () => {
+  const response = deferred<AgentRun>();
+  const start = vi.spyOn(api, "startAgent").mockReturnValue(response.promise);
+  const { root, s } = mount(); await settle();
+  expect(root.querySelector(".step-configuration #agent-step")).not.toBeNull();
+  expect(root.querySelector<HTMLDetailsElement>(".planned-changes")!.open).toBe(false);
+  expect(root.querySelector(".planned-changes")!.textContent).toContain(s.plan!.steps[0]!.plannedChanges[0]);
+  expect(root.querySelector(".jdk-field #agent-jdk")).not.toBeNull();
+  expect(root.querySelector(".start-action button")!.textContent).toBe("开始 Agent");
+  expect(root.querySelector(".selected-step-summary")!.textContent).not.toContain(s.plan!.steps[0]!.goal);
+  const jdk = root.querySelector<HTMLSelectElement>("#agent-jdk")!;
+  jdk.value = "21"; jdk.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+  button(root, "开始 Agent").click(); button(root, "开始 Agent").click(); await settle();
+  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", 21);
+  expect(button(root, "开始 Agent").disabled).toBe(true);
+  response.resolve(running()); await settle();
+  expect(button(root, "重新开始编码").disabled).toBe(true);
+});
+
+it("explains failed Docker preparation and resource reconciliation without inventing a Candidate", async () => {
+  const failed: AgentRun = { ...running(), state: "FAILED", reason: "DOCKER_FAILURE", modelCalls: 0, toolCalls: 0 };
+  const start = vi.spyOn(api, "startAgent");
+  const candidate = vi.spyOn(api, "candidate");
+  const final = vi.spyOn(api, "finalChanges");
+  const { root } = mount([failed]); await settle();
+  const stream = Events.instances.at(-1)!;
+  stream.fact(1, "PREPARING", "PREPARING");
+  stream.fact(2, "FAILED", "DOCKER_FAILURE");
+  stream.fact(3, "CLEANUP_BLOCKED", "Owned resources require reconciliation: run-1"); await settle();
+  expect(root.textContent).toContain("Docker 沙箱准备失败，尚未开始编码");
+  expect(root.querySelector(".resource-warning[role='alert']")?.textContent).toContain("资源协调待核对");
+  expect(root.querySelector(".agent-changes")?.textContent).toContain("此 Run 尚无冻结 Candidate");
+  expect(root.querySelector('[data-sequence="3"]')?.getAttribute("data-tone")).toBe("blocked");
+  expect(root.querySelectorAll(".is-active")).toHaveLength(0);
+  expect(start).not.toHaveBeenCalled(); expect(candidate).not.toHaveBeenCalled(); expect(final).not.toHaveBeenCalled();
+  expect(button(root, "重新开始编码").disabled).toBe(false);
+  vi.spyOn(api, "startAgent").mockResolvedValue({ ...running(), id: "new-run" });
+  button(root, "重新开始编码").click(); await settle();
+  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", undefined);
+});
+
+it("shows active persisted activity independently of SSE connectivity and keeps completed tools static", async () => {
+  const { root } = mount([running()]); await settle();
+  const stream = Events.instances.at(-1)!;
+  stream.fact(1, "MODEL_REQUEST", "request=1"); await settle();
+  expect(root.querySelector(".is-active")?.getAttribute("data-sequence")).toBe("1");
+  stream.onerror?.(); await settle();
+  expect(root.querySelector(".run-status")?.textContent).toContain("编码中");
+  expect(root.querySelector(".stream-status")?.textContent).toContain("正在重连");
+  stream.fact(2, "TOOL_FINISHED", '{"tool":"run_checks","ok":false,"classification":"BUILD_FAILED","durationMs":12}'); await settle();
+  expect(root.querySelectorAll(".is-active")).toHaveLength(0);
+  expect(root.querySelector('[data-sequence="2"]')?.getAttribute("data-tone")).toBe("failed");
+  expect(root.querySelector('[data-sequence="2"] strong')?.textContent).toContain("运行 Maven 检查");
+  expect(root.querySelector('[data-sequence="2"] details')?.textContent).toContain("BUILD_FAILED");
+  expect(root.querySelector('[data-sequence="2"] strong')?.textContent).not.toContain("durationMs");
+});
+
+it("does not describe an unreadable saved Candidate as absent", async () => {
+  const frozen: AgentRun = { ...running(), state: "SUCCEEDED", candidateId: "candidate-1" };
+  vi.spyOn(api, "candidate").mockRejectedValue(new Error("candidate unavailable"));
+  vi.spyOn(api, "delivery").mockResolvedValue(null);
+  const { root } = mount([frozen]); await settle();
+  expect(root.querySelector(".agent-changes")?.textContent).toContain("已记录冻结 Candidate，但详情尚未读回");
+  expect(root.querySelector(".agent-changes")?.textContent).not.toContain("尚无冻结 Candidate");
+  expect(root.querySelector('[role="alert"]')?.textContent).toContain("candidate unavailable");
+});
+
+it("keeps the latest 1000 persisted events ordered and deduplicated across replay", async () => {
+  const { root } = mount([running()]); await settle();
+  const stream = Events.instances.at(-1)!;
+  for (let i = 1; i <= 1002; i++) stream.fact(i);
+  stream.onerror?.(); stream.onopen?.(); stream.fact(1001); stream.fact(1002); await settle();
+  const rows = root.querySelectorAll(".agent-timeline li");
+  expect(rows).toHaveLength(1000);
+  expect(rows[0]?.getAttribute("data-sequence")).toBe("3");
+  expect(rows[999]?.getAttribute("data-sequence")).toBe("1002");
+  expect(root.textContent).toContain("显示最近 1000 条事件");
+});
+
+it.each(["AVAILABLE", "UNAVAILABLE"] as const)("completed Delivery retains read-only cumulative final changes (%s)", async availability => {
+  const frozen: AgentRun = { ...running(), state: "SUCCEEDED", candidateId: "candidate-1" };
+  vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
+  vi.spyOn(api, "delivery").mockResolvedValue({ candidateId: "candidate-1", state: "COMPLETED", revision: "b".repeat(40), reason: null });
+  const final = vi.spyOn(api, "finalChanges").mockResolvedValue({ planId: "plan-1", stepId: "step-1",
+    baselineRevision: "a".repeat(40), verifiedRevision: "b".repeat(40), baselineTree: "tree-a", verifiedTree: "tree-b",
+    availability, reason: availability === "UNAVAILABLE" ? "HISTORICAL_OBJECT_MISSING" : null,
+    files: availability === "AVAILABLE" ? [{ path: "cumulative.java", changeType: "MODIFIED" }] : null,
+    counts: availability === "AVAILABLE" ? { added: 0, modified: 1, deleted: 0 } : null });
+  const { root, s } = mount([frozen]);
+  s.plan!.steps[0] = { ...s.plan!.steps[0]!, status: "SUCCEEDED", baselineRevision: "a".repeat(40), deliveryRevision: "b".repeat(40) };
+  await settle();
+  expect(root.querySelector(".candidate-overview")?.textContent).toContain("candidate-1.java");
+  expect(root.querySelector(".candidate-evidence summary")?.textContent).toContain("NOT_TESTED");
+  expect(root.querySelector("#step-final-changes")?.textContent).toContain(availability === "AVAILABLE" ? "cumulative.java" : "历史 Git 对象已不可用");
+  expect(root.textContent).toContain("正式接受的变更");
+  expect(final).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1");
+  expect(button(root, "重新核对并交付已有结果")).toBeUndefined();
 });

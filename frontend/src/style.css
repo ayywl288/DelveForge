@@ -360,6 +360,7 @@ summary {
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overflow-x: hidden;
   z-index: 10;
 }
 .brand {
@@ -389,10 +390,17 @@ summary {
   margin-top: 32px;
 }
 .project-navigation-heading {
-  border-top: 1px solid #343641;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #343641;
+  border-radius: 8px;
+  background: #242631;
   margin-top: 20px;
-  padding: 22px 10px 10px;
+  padding: 12px 10px;
 }
+.sidebar-project-icon { display: grid; place-items: center; flex: 0 0 28px; height: 28px; color: #b6bcdd; margin-top: 2px; }
+.sidebar-project-identity { min-width: 0; flex: 1; }
 .nav-label {
   font-size: 11px;
   color: #a1a6b9;
@@ -400,7 +408,12 @@ summary {
 .sidebar-project {
   color: #edeef6;
   font-size: 13px;
-  margin: 7px 0 0;
+  margin: 4px 0 0;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   overflow-wrap: anywhere;
 }
 .nav-stage {
@@ -1354,7 +1367,7 @@ dialog.detail-panel {
   }
   .app-navigation { margin-top: 16px; }
   .project-entry { width: 100%; }
-  .project-navigation-heading { margin-top: 10px; padding: 12px 0 0; }
+  .project-navigation-heading { margin-top: 10px; padding: 10px 12px; }
   .sidebar-project { margin-top: 4px; }
   .sidebar-bottom {
     padding: 10px 0 0;
