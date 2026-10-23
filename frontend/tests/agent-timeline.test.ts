@@ -10,6 +10,7 @@ const fact = (sequence: number, kind: string, summary = kind): AgentEvent => ({ 
 const identity = "9d52e412-e03d-4419-a2fb-56322848b598";
 const tool = (sequence: number, kind: string, fields: Record<string, unknown> = {}) => fact(sequence, kind,
     JSON.stringify({ metadataVersion: 1, toolCallId: identity, tool: "read_file", path: "src/Counter.java", ...fields }));
+const important = (sequence: number) => fact(sequence, "TOOL_FINISHED", '{"tool":"run_checks","ok":true,"classification":"TESTS_PASSED"}');
 async function settle() { await nextTick(); await nextTick(); }
 function mount(expandFiles = true) {
     const props = reactive({ events: [] as AgentEvent[], connection: "已连接", run: {
@@ -43,8 +44,9 @@ it("uses distinct static states without exposing unknown or generic raw diagnost
     props.events = [fact(1, "TOOL_FINISHED", '{"tool":"read_file","ok":true,"classification":"RESULT"}'),
         fact(2, "FAILED"), fact(3, "INTERRUPTED"), fact(4, "CLEANUP_BLOCKED"), fact(5, "FUTURE_KIND", "opaque-classification")];
     props.run.state = "FAILED"; await settle();
-    expect([...root.querySelectorAll("li")].map(node => node.getAttribute("data-tone")))
-        .toEqual(["completed", "failed", "interrupted", "blocked", "recorded"]);
+    expect([...root.querySelectorAll(".agent-timeline li")].map(node => node.getAttribute("data-tone")))
+        .toEqual(["failed", "interrupted", "blocked", "recorded"]);
+    expect(root.querySelector('.exploration-operations li')?.getAttribute('data-tone')).toBe('completed');
     expect(root.querySelectorAll(".is-active")).toHaveLength(0);
     expect(root.querySelector('[data-sequence="5"] strong')?.textContent).toBe("历史运行活动");
     expect(root.textContent).not.toContain("opaque-classification");
@@ -55,7 +57,7 @@ it("uses distinct static states without exposing unknown or generic raw diagnost
 it("a terminal Run never animates a trailing start event and cancellation is not progress", async () => {
     const { root, props } = mount();
     props.events = [fact(1, "MODEL_REQUEST")]; await settle();
-    expect(root.querySelectorAll(".is-active")).toHaveLength(1);
+    expect(root.querySelector('.current-activity')?.getAttribute('data-active')).toBe('true');
     props.run.cancelRequested = true; await settle();
     expect(root.querySelectorAll(".is-active")).toHaveLength(0);
     props.run.cancelRequested = false; props.run.state = "INTERRUPTED";
@@ -148,7 +150,7 @@ it("transitions a reliably correlated operation in place while preserving standa
     props.events.push(fact(2, "MODEL_REQUEST"), tool(3, "TOOL_FINISHED", { ok: true, durationMs: 12, classification: "RESULT" }));
     await settle();
     expect(root.querySelector("li")).toBe(row);
-    expect([...root.querySelectorAll("li")].map(node => node.getAttribute("data-sequence"))).toEqual(["1", "2"]);
+    expect([...root.querySelectorAll("li")].map(node => node.getAttribute("data-sequence"))).toEqual(["1"]);
     expect(row.getAttribute("data-tone")).toBe("completed");
     expect(row.querySelector(".activity-target")?.textContent).toBe("src/Counter.java");
     expect(row.querySelectorAll(".activity-duration")).toHaveLength(1);
@@ -207,13 +209,13 @@ it("does not expose credential-shaped legacy classification strings", async () =
 });
 it("renders forty recent activities, reveals older loaded history, preserves reading and resets on Run switch", async () => {
     const { root, props } = mount();
-    props.events = Array.from({ length: 95 }, (_, index) => fact(index + 1, "MODEL_REQUEST")); await settle();
+    props.events = Array.from({ length: 95 }, (_, index) => important(index + 1)); await settle();
     expect(root.querySelectorAll("li")).toHaveLength(40);
     expect(root.querySelector("li")?.getAttribute("data-sequence")).toBe("56");
     root.querySelector<HTMLButtonElement>(".earlier-activity")!.click(); await settle();
     expect(root.querySelectorAll("li")).toHaveLength(80);
     expect(root.querySelector("li")?.getAttribute("data-sequence")).toBe("16");
-    props.events.push(fact(96, "MODEL_REQUEST")); await settle();
+    props.events.push(important(96)); await settle();
     expect(root.querySelector("li")?.getAttribute("data-sequence")).toBe("16");
     expect(root.querySelector(".latest-activity")?.textContent).toContain("有新活动");
     root.querySelector<HTMLButtonElement>(".earlier-activity")!.click(); await settle();
@@ -222,7 +224,7 @@ it("renders forty recent activities, reveals older loaded history, preserves rea
     root.querySelector<HTMLButtonElement>(".latest-activity")!.click(); await settle();
     expect(root.querySelectorAll("li")).toHaveLength(40);
     props.run.id = "two";
-    props.events = Array.from({ length: 50 }, (_, index) => ({ ...fact(index + 1, "MODEL_REQUEST"), runId: "two" }));
+    props.events = Array.from({ length: 50 }, (_, index) => ({ ...important(index + 1), runId: "two" }));
     await settle();
     expect(root.querySelectorAll("li")).toHaveLength(40);
     expect(root.querySelector("li")?.getAttribute("data-sequence")).toBe("11");
@@ -235,7 +237,7 @@ it("uses persisted request activity when the Run snapshot is behind, independent
     props.connection = "连接中断，正在重连";
     props.events = [fact(1, "PREPARING"), fact(2, "MODEL_REQUEST")]; await settle();
     expect(root.querySelector('.model-waiting[aria-hidden="true"]')?.children).toHaveLength(3);
-    expect(root.querySelector('[data-sequence="2"] [role="status"]')?.textContent).toBe("等待模型响应");
+    expect(root.querySelector('.current-activity')?.textContent).toContain("等待模型响应");
     expect(root.querySelector(".snapshot-note")?.textContent).toContain("运行概览待同步");
     props.events.push(fact(3, "FAILED", "POLICY_REJECTED")); await settle();
     expect(root.querySelector(".model-waiting, .is-active")).toBeNull();
@@ -254,11 +256,12 @@ it("keeps readable status and supplies reduced-motion overrides for every active
     const { root, props } = mount();
     props.events = [fact(1, "MODEL_REQUEST")]; await settle();
     expect(root.querySelector('[role="status"]')?.textContent).toContain("事件连接");
-    expect(root.querySelector('.activity-result [role="status"]')?.textContent).toBe("等待模型响应");
+    expect(root.querySelector('.current-activity[role="status"]')?.textContent).toContain("等待模型响应");
     const rowStyles = readFileSync("src/components/AgentActivityRow.vue", "utf8");
     const timelineStyles = readFileSync("src/components/AgentTimeline.vue", "utf8");
-    expect(rowStyles).toMatch(/prefers-reduced-motion: reduce[^}]+\.model-waiting i[^}]+animation: none/s);
-    expect(timelineStyles).toMatch(/prefers-reduced-motion: reduce[^}]+transition: none/s);
+    expect(rowStyles).toMatch(/prefers-reduced-motion: reduce[^}]+animation: none/s);
+    expect(timelineStyles).toMatch(/prefers-reduced-motion: reduce[^}]+\.model-waiting i[^}]+animation: none/s);
+    expect(timelineStyles).toMatch(/prefers-reduced-motion: reduce.*\.activity-entry-enter-active\s*\{\s*transition: none/s);
     expect(timelineStyles).toContain("transform 220ms");
 });
 it.each([[0, "<1 ms"], [500000, "<1 ms"], [1250000, "1.25 ms"], [12000000, "12 ms"]] as const)
@@ -284,7 +287,7 @@ it("a thrown policy rejection closes its correlated activity without claiming no
     expect(root.querySelector('[data-sequence="1"] .activity-duration')?.textContent).toBe("1.25 ms");
     expect(root.querySelector(".is-active")).toBeNull();
 });
-it("keeps model requests chronological and separate from a stable Run-wide exploration aggregate", async () => {
+it("aggregates model requests into statistics and keeps the active request separate from file history", async () => {
     const { root, props } = mount(false);
     props.events = [tool(1, "TOOL_FINISHED", { ok: true, path: "src/A.java" }), fact(2, "MODEL_REQUEST"),
         tool(3, "TOOL_FINISHED", { ok: true, path: "src/B.java" }), fact(4, "MODEL_REQUEST"),
@@ -296,13 +299,13 @@ it("keeps model requests chronological and separate from a stable Run-wide explo
     expect(group.querySelector("summary")?.textContent).toContain("3 次文件操作");
     expect(group.querySelector("summary")?.textContent).toContain("src/A.java · src/B.java · .github");
     expect(group.querySelector("li")).toBeNull();
-    expect(root.querySelector('[data-sequence="6"] .model-waiting')).not.toBeNull();
+    expect(root.querySelector('.current-activity .model-waiting')).not.toBeNull();
     group.querySelector("summary")!.click(); await settle();
     expect(group.open).toBe(true);
     expect([...group.querySelectorAll("li[data-sequence]")].map(row => row.getAttribute("data-sequence")))
         .toEqual(["1", "3", "5"]);
     expect([...root.querySelectorAll(".agent-timeline li")].map(row => row.getAttribute("data-sequence")))
-        .toEqual(["2", "4", "6"]);
+        .toEqual([]);
     expect(group.querySelector(".is-active")).toBeNull();
     expect(props.events.map(event => event.sequence)).toEqual([1, 2, 3, 4, 5, 6]);
 });
@@ -364,13 +367,13 @@ it("more than thirty mixed operations update the same summary and rows never rel
     expect(row.getAttribute("data-tone")).toBe("completed");
     expect(root.querySelector(".exploration-summary")).toBe(summary);
     expect(summary.querySelector(".exploration-count")?.textContent).toContain("37 次文件操作");
-    expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(37);
+    expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(0);
     expect(props.events.at(-1)?.sequence).toBe(75);
 });
 
 it("exploration expansion is independent of chronological history and resets when selecting another Run", async () => {
     const { root, props } = mount(false);
-    props.events = Array.from({ length: 80 }, (_, index) => fact(index + 1, "MODEL_REQUEST"));
+    props.events = Array.from({ length: 80 }, (_, index) => important(index + 1));
     props.events.push(tool(81, "TOOL_FINISHED", { ok: true })); await settle();
     const summary = root.querySelector<HTMLDetailsElement>(".exploration-summary")!;
     summary.querySelector("summary")!.click(); await settle();
@@ -410,4 +413,68 @@ it("distinguishes withheld targets from absent legacy metadata without exposing 
     expect(root.querySelector('[data-sequence="1"] .target-note')?.textContent).toBe("目标已隐藏");
     expect(root.querySelector('[data-sequence="2"] .target-note')?.textContent).toBe("目标未记录");
     expect(root.textContent).not.toContain(".env");
+});
+
+it("updates one persistent current surface through real requests, file work and terminal state", async () => {
+    const { root, props } = mount(false);
+    const surface = root.querySelector('.current-activity')!;
+    props.run.modelCalls = 10;
+    props.events = Array.from({ length: 10 }, (_, index) => fact(index + 1, "MODEL_REQUEST", `request=${index + 1}`));
+    props.events.push(fact(11, "MODEL_REQUEST", "request=11")); await settle();
+    expect(root.querySelector('.current-activity')).toBe(surface);
+    expect(surface.textContent).toContain("正在请求模型 · 第 11 次调用");
+    expect(root.querySelectorAll('.model-waiting')).toHaveLength(1);
+    expect(root.querySelectorAll('.agent-timeline [data-kind="MODEL_REQUEST"]')).toHaveLength(0);
+    expect(root.querySelector('.model-statistics')?.textContent).toBe("模型调用 10 次");
+    props.events.push(tool(12, "TOOL_STARTED")); await settle();
+    expect(root.querySelector('.current-activity')).toBe(surface);
+    expect(surface.textContent).toContain("正在读取文件");
+    expect(surface.textContent).toContain("src/Counter.java");
+    expect(root.querySelector('.model-waiting')).toBeNull();
+    expect(root.querySelector('.exploration-current')?.textContent).toContain("读取文件进行中");
+    props.events.push(tool(13, "TOOL_FINISHED", { ok: true }), fact(14, "FINALIZING"));
+    props.run.state = "FINALIZING"; await settle();
+    expect(surface.textContent).toContain("正在冻结 Candidate");
+    props.run.state = "SUCCEEDED"; props.events.push(fact(15, "SUCCEEDED")); await settle();
+    expect(surface.getAttribute('data-active')).toBe('false');
+    expect(surface.textContent).toContain("Candidate 已冻结");
+    expect(root.querySelector('.model-waiting, .is-active')).toBeNull();
+    expect(props.events).toHaveLength(15);
+});
+
+it("keeps important milestones chronological and explains a known pre-mutation refusal without claiming success", async () => {
+    const { root, props } = mount(false);
+    props.events = [fact(1, "SANDBOX_READY"), fact(2, "MODEL_REQUEST"),
+        tool(3, "TOOL_STARTED", { tool: "apply_patch", path: undefined }),
+        tool(4, "TOOL_FINISHED", { tool: "apply_patch", path: undefined, ok: false, classification: "POLICY_REJECTED",
+            policyRule: "SOURCE_CREDENTIALS", policyStage: "PATCH_SOURCE", resultRecorded: true, mutationNotStarted: true, alternativeAllowed: true })];
+    await settle();
+    expect(root.querySelector('.current-title')?.textContent).toContain("代码修改被安全策略拒绝");
+    const refusal = root.querySelector('.agent-timeline [data-sequence="3"]')!;
+    expect(refusal.getAttribute('data-tone')).toBe('blocked');
+    expect(refusal.textContent).toContain("源码修改未开始");
+    expect(refusal.textContent).toContain("允许一次另选方案");
+    expect(refusal.querySelector('.activity-uncertain')).toBeNull();
+    expect(root.querySelector('.exploration-count')?.textContent).toContain("0 次文件操作");
+    props.events.push(fact(5, "MODEL_REQUEST", "request=2"), important(6), fact(7, "FINALIZING"), fact(8, "FAILED", "POLICY_REJECTED"));
+    props.run.state = "FAILED"; props.run.reason = "POLICY_REJECTED"; await settle();
+    expect([...root.querySelectorAll('.agent-timeline li')].map(row => row.getAttribute('data-sequence'))).toEqual(['1', '3', '6', '7', '8']);
+    expect(root.querySelector('.current-activity')?.textContent).toContain("运行失败");
+    expect(root.querySelector('.model-waiting, .is-active')).toBeNull();
+});
+
+it("only labels a known pre-mutation source refusal as unmodified, including terminal budget exhaustion", async () => {
+    const { root, props } = mount(false);
+    props.events = [tool(1, "TOOL_FINISHED", { tool: "apply_patch", ok: false, resultRecorded: false,
+        classification: "POLICY_REJECTED", policyRule: "SOURCE_CREDENTIALS", policyStage: "PATCH_SOURCE", mutationNotStarted: true })];
+    await settle();
+    expect(root.querySelector('.activity-facts')?.textContent).toContain("源码修改未开始");
+    expect(root.querySelector('.activity-uncertain')).toBeNull();
+    expect(root.textContent).not.toContain("允许一次另选方案");
+    props.events = [tool(1, "TOOL_FINISHED", { tool: "apply_patch", ok: false, resultRecorded: false,
+        classification: "POLICY_REJECTED", policyRule: "SOURCE_CAPTURE_LIMIT", policyStage: "SOURCE_CAPTURE", mutationNotStarted: true })];
+    await settle();
+    expect(root.querySelector('.activity-uncertain')).not.toBeNull();
+    expect(root.querySelector('.current-detail')?.textContent).not.toContain("未修改源码");
+    expect(root.querySelector('.activity-facts')?.textContent).not.toContain("源码修改未开始");
 });

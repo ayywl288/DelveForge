@@ -58,6 +58,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -196,6 +197,141 @@ class CodingAgentServiceTest {
             assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
             verify(sandbox, never()).finish(anyString(), any());
             verify(sandbox).cleanup(id);
+        }
+    }
+
+    @Test
+    void preMutationSourceRefusalIsCachedAndAllowsOneDifferentSafeOperationWithoutPretendingPatchSucceeded() throws Exception {
+        var rejected = new AgentProtocol.ToolCall("protected", "apply_patch", "{\"patch\":\"private patch\"}");
+        var safeAlternative = new AgentProtocol.ToolCall("other", "apply_patch", "{\"patch\":\"different safe edit\"}");
+        when(sandbox.tool(anyString(), eq(rejected), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
+        when(sandbox.tool(anyString(), eq(safeAlternative), any())).thenReturn("{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\"}}");
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AtomicInteger requests = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> {
+            int request = requests.incrementAndGet();
+            if (request > 1) {
+                var response = history.stream().filter(message -> message.role().equals("tool")).findFirst().orElseThrow();
+                assertEquals("protected", response.callId());
+                assertTrue(response.text().contains("\"ok\":false"));
+                assertTrue(response.text().contains("SOURCE_CREDENTIALS"));
+                assertFalse(response.text().contains("private patch"));
+            }
+            return request <= 2 ? new AgentProtocol.Reply("", List.of(rejected), 1L)
+                    : request == 3 ? new AgentProtocol.Reply("", List.of(safeAlternative), 1L)
+                    : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.SUCCEEDED, run.state());
+            assertEquals(2, run.toolCalls());
+            verify(sandbox, times(1)).tool(anyString(), eq(rejected), any());
+            verify(sandbox, times(1)).tool(anyString(), eq(safeAlternative), any());
+            var events = service.events(id, 0, 100);
+            var finishes = events.stream().filter(event -> event.kind().equals("TOOL_FINISHED")).toList();
+            assertEquals(2, finishes.size());
+            var json = new com.fasterxml.jackson.databind.ObjectMapper();
+            var refused = json.readTree(finishes.getFirst().summary());
+            assertEquals(false, refused.path("ok").asBoolean());
+            assertEquals(true, refused.path("resultRecorded").asBoolean());
+            assertEquals(true, refused.path("mutationNotStarted").asBoolean());
+            assertEquals(true, refused.path("alternativeAllowed").asBoolean());
+            assertEquals("SOURCE_CREDENTIALS", refused.path("policyRule").asText());
+            var starts = events.stream().filter(event -> event.kind().equals("TOOL_STARTED")).toList();
+            assertEquals(json.readTree(starts.getFirst().summary()).path("toolCallId"), refused.path("toolCallId"));
+            assertTrue(events.stream().noneMatch(event -> event.summary().contains("private patch")));
+        }
+    }
+
+    @Test
+    void aSecondDistinctPreMutationRefusalTerminatesRunAndCannotFreezeCandidate() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall(
+                "call-" + requests.incrementAndGet(), "apply_patch", "{\"patch\":\"private\"}")), 1L);
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.FAILED, run.state());
+            assertEquals("POLICY_REJECTED", run.reason());
+            assertEquals(null, run.candidateId());
+            assertEquals(2, run.modelCalls());
+            assertEquals(2, run.toolCalls());
+            verify(sandbox, never()).finish(anyString(), any());
+            verify(sandbox).cleanup(id);
+            var lastResult = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).toList().getLast();
+            var data = new com.fasterxml.jackson.databind.ObjectMapper().readTree(lastResult.summary());
+            assertTrue(data.path("mutationNotStarted").asBoolean());
+            assertFalse(data.path("resultRecorded").asBoolean());
+            assertFalse(data.has("alternativeAllowed"));
+            assertTrue(service.events(id, 0, 100).stream().noneMatch(event -> event.kind().startsWith("DELIVERY")));
+        }
+    }
+
+    @Test
+    void postMutationOrUncertainPolicyRejectionNeverAllowsAlternative() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenThrow(new AgentPolicyRejection(
+                AgentPolicyRejection.Rule.SOURCE_CAPTURE_LIMIT, AgentPolicyRejection.Stage.SOURCE_CAPTURE));
+        AgentModelPort model = (history, tools) -> {
+            requests.incrementAndGet();
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private\"}")), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
+            assertEquals(1, requests.get());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
+    }
+
+    @Test
+    void failureToRecordSafeRefusalPreservesOriginalPolicyAndStopsBeforeAnotherModelRequest() throws Exception {
+        var failingStore = spy(database.store);
+        doThrow(new AgentException("PERSISTENCE_FAILURE", "private diagnostic"))
+                .when(failingStore).event(anyString(), eq("TOOL_FINISHED"), anyString());
+        when(sandbox.tool(anyString(), any(), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
+        try (var service = new CodingAgentService(eligibility, failingStore,
+                (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private\"}")), 1L),
+                sandbox, new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals("POLICY_REJECTED", run.reason());
+            assertEquals(1, run.modelCalls());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
+    }
+
+    @Test
+    void refusalDoesNotCreateAChangeOrPermitCandidateWhenModelClaimsCompletion() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
+        when(sandbox.finish(anyString(), any())).thenThrow(new AgentException("NO_CHANGES", "No candidate changes"));
+        AgentModelPort model = (history, tools) -> requests.incrementAndGet() == 1
+                ? new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private\"}")), 1L)
+                : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.FAILED, run.state());
+            assertEquals("NO_CHANGES", run.reason());
+            assertEquals(null, run.candidateId());
+            assertTrue(service.events(id, 0, 100).stream().noneMatch(event -> event.kind().equals("SUCCEEDED") || event.kind().startsWith("DELIVERY")));
+        }
+    }
+
+    @Test
+    void changedArgumentsCannotReuseRejectedToolIdentity() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("same", "apply_patch",
+                requests.incrementAndGet() == 1 ? "{\"patch\":\"first\"}" : "{\"patch\":\"changed\"}")), 1L);
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("TOOL_ID_CONFLICT", awaitTerminal(service, id, 10).reason());
+            verify(sandbox, times(1)).tool(anyString(), any(), any());
+            verify(sandbox, never()).finish(anyString(), any());
         }
     }
 

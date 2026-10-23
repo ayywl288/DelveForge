@@ -129,6 +129,17 @@ class SandboxPolicyTest(unittest.TestCase):
         self.assertIs(failure, caught)
         self.assertEqual('SOURCE_CAPTURE', caught.stage)
 
+    def test_inspect_patch_only_reads_original_source_and_never_executes_or_mutates(self):
+        original = 'password="synthetic-private-value"\nordinary=1\n'
+        target = self.root / 'Config.txt'
+        target.write_text(original, encoding='utf-8', newline='\n')
+        diff = '--- a/Config.txt\n+++ b/Config.txt\n@@ -2 +2 @@\n-ordinary=1\n+ordinary=2\n'
+        with patch.object(sandbox, 'run_bounded') as execute:
+            inspected = sandbox.dispatch('inspect_patch', {'patch': diff})
+            execute.assert_not_called()
+        self.assertEqual(original, inspected['Config.txt'])
+        self.assertEqual(original, target.read_text(encoding='utf-8'))
+
     def test_source_entry_type_and_protected_entries(self):
         (self.root / 'safe.txt').write_text('content', encoding='utf-8')
         with patch.object(pathlib.Path, 'is_symlink', return_value=True):

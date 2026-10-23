@@ -167,4 +167,26 @@ class AgentToolActivityTest {
                 "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\",\"paths\":" + ninePaths + "}}"))
                 .has("paths"));
     }
+
+    @Test
+    void provenSourceRefusalMetadataIsBoundedAndDistinctFromUnknownMutation() throws Exception {
+        var patch = call("apply_patch", Map.of("patch", "private-patch-body"));
+        var proven = json.readTree(activity.failed(patch, identity, AgentPolicyRejection.sourceEditRejectedBeforeApply(), 12L));
+        assertTrue(proven.path("mutationNotStarted").asBoolean());
+        assertFalse(proven.path("resultRecorded").asBoolean());
+        assertFalse(proven.has("alternativeAllowed"));
+        var unknown = json.readTree(activity.failed(patch, identity, new AgentPolicyRejection(
+                AgentPolicyRejection.Rule.SOURCE_CAPTURE_LIMIT, AgentPolicyRejection.Stage.SOURCE_CAPTURE), 12L));
+        assertFalse(unknown.has("mutationNotStarted"));
+        var response = "{\"ok\":false,\"classification\":\"POLICY_REJECTED\",\"policyRule\":\"SOURCE_CREDENTIALS\","
+                + "\"policyStage\":\"PATCH_SOURCE\",\"mutationNotStarted\":true,\"alternativeAllowed\":true,"
+                + "\"instruction\":\"private response\",\"paths\":[\"protected/private\"]}";
+        var recorded = json.readTree(activity.finished(patch, identity, response, 12L));
+        assertTrue(recorded.path("resultRecorded").asBoolean());
+        assertTrue(recorded.path("alternativeAllowed").asBoolean());
+        assertFalse(recorded.toString().contains("private"));
+        var invalid = json.readTree(activity.finished(patch, identity, response.replace("PATCH_SOURCE", "SOURCE_CAPTURE"), 12L));
+        assertFalse(invalid.has("mutationNotStarted"));
+        assertFalse(invalid.has("alternativeAllowed"));
+    }
 }

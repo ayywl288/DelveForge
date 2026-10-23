@@ -19,12 +19,25 @@ public final class AgentPolicyRejection extends AgentException {
 
     private final Rule rule;
     private final Stage stage;
+    private final boolean sourceEditRejectedBeforeMutation;
 
     public AgentPolicyRejection(Rule rule, Stage stage) {
+        this(rule, stage, false);
+    }
+
+    private AgentPolicyRejection(Rule rule, Stage stage, boolean sourceEditRejectedBeforeMutation) {
         super("POLICY_REJECTED", "Controlled policy rejection: " + rule.name() + "/" + stage.name());
         this.rule = rule;
         this.stage = stage;
+        this.sourceEditRejectedBeforeMutation = sourceEditRejectedBeforeMutation;
     }
+
+    /** 只供已完成只读检查、尚未调用 apply_patch 的受控适配器使用。 */
+    public static AgentPolicyRejection sourceEditRejectedBeforeApply() {
+        return new AgentPolicyRejection(Rule.SOURCE_CREDENTIALS, Stage.PATCH_SOURCE, true);
+    }
+
+    public boolean sourceEditRejectedBeforeMutation() { return sourceEditRejectedBeforeMutation; }
 
     public Rule rule() { return rule; }
 

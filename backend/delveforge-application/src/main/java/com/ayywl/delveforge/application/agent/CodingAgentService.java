@@ -182,6 +182,7 @@ public final class CodingAgentService implements AutoCloseable {
         Long tokens = null;
         boolean unknownUsage = false;
         int completionCorrections = 0;
+        int sourceEditRejections = 0;
         for (int request = 1; request <= limits.maxModelCalls(); request++) {
             requireCurrent(task, cancelled);
             compress(history);
@@ -255,6 +256,7 @@ public final class CodingAgentService implements AutoCloseable {
                     store.event(task.runId(), "TOOL_STARTED", activity.started(call, activityId));
                     store.usage(task.runId(), request, toolCalls, unknownUsage ? null : tokens);
                     Long invocationDurationNs = null;
+                    AgentPolicyRejection sourceEditRejection = null;
                     long invocationStarted = System.nanoTime();
                     try {
                         try {
@@ -263,10 +265,20 @@ public final class CodingAgentService implements AutoCloseable {
                             }
                             result = argumentFailure == null ? sandbox.tool(task.runId(), call, cancelled) : argumentFailure;
                         } catch (AgentException failure) {
-                            if (!failure.code().equals("INVALID_ARGUMENTS")) {
+                            if (call.name().equals("apply_patch") && failure instanceof AgentPolicyRejection rejection
+                                    && rejection.sourceEditRejectedBeforeMutation() && ++sourceEditRejections == 1) {
+                                sourceEditRejection = rejection;
+                                // 只读检查已拒绝且尚未应用；只允许一次另选方案，缓存仍按原调用身份去重。
+                                result = "{\"ok\":false,\"classification\":\"POLICY_REJECTED\","
+                                        + "\"policyRule\":\"SOURCE_CREDENTIALS\",\"policyStage\":\"PATCH_SOURCE\","
+                                        + "\"mutationNotStarted\":true,\"alternativeAllowed\":true,"
+                                        + "\"instruction\":\"原文件受凭据保护，本次未修改源码。保留该文件，选择其他安全实现路径；"
+                                        + "不要重试该补丁。再次触发此拒绝将终止 Run。\"}";
+                            } else if (failure.code().equals("INVALID_ARGUMENTS")) {
+                                result = "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
+                            } else {
                                 throw failure;
                             }
-                            result = "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
                         } finally {
                             // 只测实际 Java→沙箱调用，包含检查/往返；不混入模型、持久化或输出净化耗时。
                             if (argumentFailure == null && argumentRejection == null) {
@@ -280,6 +292,10 @@ public final class CodingAgentService implements AutoCloseable {
                         completed.put(call.id(), result);
                         store.event(task.runId(), "TOOL_FINISHED", activity.finished(call, activityId, result, invocationDurationNs));
                     } catch (RuntimeException failure) {
+                        if (sourceEditRejection != null && failure != sourceEditRejection) {
+                            sourceEditRejection.addSuppressed(failure);
+                            failure = sourceEditRejection;
+                        }
                         try {
                             store.event(task.runId(), "TOOL_FINISHED", activity.failed(call, activityId, failure, invocationDurationNs));
                         } catch (RuntimeException recordingFailure) {

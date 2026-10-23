@@ -50,6 +50,16 @@ public final class AgentToolActivity {
             if (classification.matches("[A-Z][A-Z0-9_]{0,63}") && unchanged(classification)) {
                 summary.put("classification", classification);
             }
+            if (call.name().equals("apply_patch") && classification.equals("POLICY_REJECTED")
+                    && response.path("policyRule").asText().equals("SOURCE_CREDENTIALS")
+                    && response.path("policyStage").asText().equals("PATCH_SOURCE")
+                    && response.path("mutationNotStarted").asBoolean() && response.path("alternativeAllowed").asBoolean()) {
+                summary.put("policyRule", "SOURCE_CREDENTIALS");
+                summary.put("policyStage", "PATCH_SOURCE");
+                summary.put("mutationNotStarted", true);
+                summary.put("alternativeAllowed", true);
+                summary.put("resultRecorded", true);
+            }
             count(summary, response, "durationMs");
             for (String key : List.of("tests", "executedTests", "skipped", "failures", "errors")) {
                 count(summary, details, key);
@@ -102,6 +112,9 @@ public final class AgentToolActivity {
         if (classification.equals("POLICY_REJECTED")) {
             summary.put("policyRule", rejection == null ? "UNCLASSIFIED_POLICY" : rejection.rule().name());
             summary.put("policyStage", rejection == null ? "TOOL_EXECUTION" : rejection.stage().name());
+            if (call.name().equals("apply_patch") && rejection != null && rejection.sourceEditRejectedBeforeMutation()) {
+                summary.put("mutationNotStarted", true);
+            }
         }
         return encode(summary);
     }

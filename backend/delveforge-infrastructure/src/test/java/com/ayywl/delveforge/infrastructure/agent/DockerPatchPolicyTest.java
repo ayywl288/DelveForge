@@ -14,6 +14,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -50,6 +51,26 @@ class DockerPatchPolicyTest {
         assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, failure.rule());
         assertEquals(AgentPolicyRejection.Stage.PATCH_CONTENT, failure.stage());
         sandbox.requirePatchContent(inspection, json.valueToTree(Map.of("patch", "ordinary=2")));
+    }
+
+    @Test
+    void literalCredentialAndOrdinaryCodeAssignmentBothRemainProtectedWithoutExposingValues() {
+        for (String source : new String[]{"password=\"synthetic-private-value\"\nordinary=1\n",
+                "class Parser { int token = 0; int ordinary = 1; }"}) {
+            var inspection = json.valueToTree(Map.of("ok", true, "result", Map.of("src/Config.java", source)));
+            for (String edit : new String[]{"change ordinary only", "change protected value", "[redacted-credential]"}) {
+                var failure = assertThrows(AgentPolicyRejection.class,
+                        () -> sandbox.requirePatchContent(inspection, json.valueToTree(Map.of("patch", edit))));
+                assertTrue(failure.sourceEditRejectedBeforeMutation());
+                assertEquals(AgentPolicyRejection.Rule.SOURCE_CREDENTIALS, failure.rule());
+                assertEquals(AgentPolicyRejection.Stage.PATCH_SOURCE, failure.stage());
+                assertFalse(failure.getMessage().contains(source));
+            }
+        }
+        sandbox.requirePatchContent(json.valueToTree(Map.of("ok", true, "result", Map.of("src/Other.java", "int ordinary = 1;"))),
+                json.valueToTree(Map.of("patch", "change ordinary only")));
+        assertFalse(new AgentPolicyRejection(AgentPolicyRejection.Rule.SOURCE_CREDENTIALS,
+                AgentPolicyRejection.Stage.PATCH_SOURCE).sourceEditRejectedBeforeMutation());
     }
 
     @ParameterizedTest

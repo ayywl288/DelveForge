@@ -479,7 +479,7 @@ it("shows active persisted activity independently of SSE connectivity and keeps 
   const { root } = mount([running()]); await settle();
   const stream = Events.instances.at(-1)!;
   stream.fact(1, "MODEL_REQUEST", "request=1"); await settle();
-  expect(root.querySelector(".is-active")?.getAttribute("data-sequence")).toBe("1");
+  expect(root.querySelector('.current-activity[data-active="true"]')?.textContent).toContain("正在请求模型 · 第 1 次调用");
   stream.onerror?.(); await settle();
   expect(root.querySelector(".run-status")?.textContent).toContain("编码中");
   expect(root.querySelector(".stream-status")?.textContent).toContain("正在重连");

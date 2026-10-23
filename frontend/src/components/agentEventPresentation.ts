@@ -79,9 +79,15 @@ export function numeric(data: Record<string, unknown>, key: string) {
     return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
+function sourceEditNotStarted(data: Record<string, unknown>, tool?: string) {
+    return tool === "apply_patch" && data.classification === "POLICY_REJECTED" && data.policyRule === "SOURCE_CREDENTIALS"
+        && data.policyStage === "PATCH_SOURCE" && data.mutationNotStarted === true;
+}
+
 function resultOutcome(event: AgentEvent, tool?: string): ActivityOutcome {
     const data = summaryFields(event);
     const code = classification(event);
+    if (code === "POLICY_REJECTED") return "blocked";
     if (data.resultRecorded === false) return code === "POLICY_REJECTED" ? "blocked" : "unknown";
     if (code === "PATCH_CONFLICT") return "conflict";
     if (data.ok === false || code && /(FAILED|FAILURE|ERROR|LIMIT|UNAVAILABLE|MISSING|REJECTED|MISMATCH|TIMEOUT)/.test(code)) return "failed";
@@ -150,13 +156,46 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
         const internalMs = numeric(data, "durationMs");
         activities.push({ key: `${event.runId}:${event.sequence}`, event, finish, tool, target,
             targetWithheld: startData.targetState === "withheld" || data.targetState === "withheld",
-            resultUncertain: data.resultRecorded === false,
+            resultUncertain: data.resultRecorded === false && !sourceEditNotStarted(data, tool),
             classification: tool ? classification(result) : event.summary !== event.kind ? safeClassification(event.summary) : undefined,
             duration: tool && !pending ? invocationNs !== undefined ? invocationNs / 1e6 : internalMs : undefined,
             durationSource: invocationNs !== undefined ? "invocation" : internalMs !== undefined ? "internal" : undefined,
             outcome, active: !!active });
     }
     return activities;
+}
+
+export function currentActivity(activities: AgentActivity[], events: AgentEvent[], run: AgentRun) {
+    const state = activityState(events, run);
+    const last = activities.at(-1);
+    const active = activities.find(activity => activity.active);
+    const staticState = { active: false, waiting: false, tone: "recorded", title: "等待运行活动", detail: "" };
+    if (state.terminal) {
+        const terminalKinds = ["FAILED", "CANCELLED", "INTERRUPTED", "SUCCEEDED"];
+        const terminal = terminalKinds.includes(run.state) ? run.state
+            : [...activities].reverse().find(activity => terminalKinds.includes(activity.event.kind))?.event.kind;
+        const titles: Record<string, string> = { FAILED: "运行失败", CANCELLED: "运行已取消", INTERRUPTED: "运行已中断", SUCCEEDED: "Candidate 已冻结" };
+        const rejectedPatch = activities.some(activity => activity.tool === "apply_patch" && activity.classification === "POLICY_REJECTED");
+        return { ...staticState, tone: terminal === "FAILED" ? "failed" : terminal === "SUCCEEDED" ? "completed" : "interrupted",
+            title: titles[terminal ?? ""] ?? "运行已结束",
+            detail: terminal === "FAILED" && rejectedPatch ? "代码修改被安全策略拒绝" : safeClassification(run.reason) ?? "" };
+    }
+    if (run.cancelRequested) return { ...staticState, title: "已请求取消，等待运行结束" };
+    if (active?.event.kind === "MODEL_REQUEST") {
+        const ordinal = active.event.summary.match(/^request=([1-9]\d{0,8})$/)?.[1];
+        return { ...staticState, active: true, waiting: true, tone: "running",
+            title: "正在请求模型" + (ordinal ? ` · 第 ${ordinal} 次调用` : ""), detail: "等待模型响应" };
+    }
+    if (active?.tool) return { ...staticState, active: true, tone: "running",
+        title: ({ read_file: "正在读取文件", list_files: "正在浏览目录", search_code: "正在搜索代码", apply_patch: "正在应用代码修改", run_checks: "正在执行 Maven 检查" } as Record<string, string>)[active.tool] ?? "工具操作进行中",
+        detail: active.target ?? (active.targetWithheld ? "目标已隐藏" : "目标未记录") };
+    if (active) return { ...staticState, active: true, tone: "running",
+        title: ({ CREATED: "运行已预约", PREPARING: "正在准备 Docker 沙箱", RUNNING: "开始编码", FINALIZING: "正在冻结 Candidate" } as Record<string, string>)[active.event.kind] ?? "运行进行中" };
+    if (last?.classification === "POLICY_REJECTED") return { ...staticState, tone: "blocked",
+        title: last.tool === "apply_patch" ? "代码修改被安全策略拒绝" : "工具操作被安全策略拒绝",
+        detail: sourceEditNotStarted(summaryFields(last.finish ?? last.event), last.tool) ? "本次未修改源码" : "请核对运行诊断" };
+    if (last?.event.kind === "MODEL_COMPLETED") return { ...staticState, title: "模型已结束，等待冻结结果" };
+    return { ...staticState, title: ({ CREATED: "运行已预约", PREPARING: "正在准备 Docker 沙箱", RUNNING: "等待下一项运行活动", FINALIZING: "正在冻结 Candidate" } as Record<string, string>)[state.state] ?? "等待运行活动" };
 }
 
 export interface ExplorationGroup {
@@ -189,6 +228,10 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
     if (activity.classification === "POLICY_REJECTED") {
         if (typeof data.policyRule === "string" && policyRules.has(data.policyRule)) rows.push({ label: "拒绝规则", value: data.policyRule });
         if (typeof data.policyStage === "string" && policyStages.has(data.policyStage)) rows.push({ label: "拒绝阶段", value: data.policyStage });
+        if (sourceEditNotStarted(data, activity.tool)) {
+            rows.push({ label: "源码修改", value: "未开始" });
+            if (data.alternativeAllowed === true && data.resultRecorded === true) rows.push({ label: "后续处理", value: "允许一次另选方案" });
+        }
     }
     const addNumber = (key: string, label: string, suffix = "", scale = 1) => {
         const value = numeric(data, key);

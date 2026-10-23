@@ -45,7 +45,6 @@ function duration(value: number) {
                 <time :datetime="activity.event.at" :title="new Date(activity.event.at).toLocaleString()">{{ new Date(activity.event.at).toLocaleTimeString() }}</time>
             </div>
             <div class="activity-result"><span :role="activity.active ? 'status' : undefined">{{ activity.active && activity.event.kind === 'MODEL_REQUEST' ? '等待模型响应' : outcomes[activity.outcome] }}</span>
-                <span v-if="activity.active && activity.event.kind === 'MODEL_REQUEST'" class="model-waiting" aria-hidden="true"><i></i><i></i><i></i></span>
                 <span v-if="activity.duration !== undefined" class="activity-duration" :data-source="activity.durationSource"
                     :title="activity.durationSource === 'invocation' ? 'Java 到沙箱的调用总耗时' : '工具内部计时，不包含 Java 调用往返'">{{ activity.durationSource === 'internal' ? '内部 ' : '' }}{{ duration(activity.duration) }}</span>
                 <code v-if="activity.classification">{{ activity.classification }}</code>
@@ -76,13 +75,8 @@ time, .activity-target, .activity-result, .target-note { font-size: 12px; color:
 [data-tone="completed"] .timeline-node { color: var(--success); }
 [data-tone="interrupted"] .timeline-node { border: 1px dashed var(--muted); }
 .is-active .timeline-node { color: var(--accent); background: var(--selection); animation: activity-pulse 1.8s ease-in-out infinite; }
-.model-waiting { display: inline-flex; gap: 4px; align-items: center; align-self: center; }
-.model-waiting i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; animation: model-wait 1.2s ease-in-out infinite; }
-.model-waiting i:nth-child(2) { animation-delay: 150ms; }
-.model-waiting i:nth-child(3) { animation-delay: 300ms; }
 .activity-uncertain { font-size: 12px; color: var(--muted); margin: 4px 0; }
 .timeline-warning { font-size: 14px; color: var(--warning); margin: 6px 0; }
 @keyframes activity-pulse { 50% { box-shadow: 0 0 0 4px var(--selection); } }
-@keyframes model-wait { 50% { opacity: .35; transform: translateY(-2px); } }
-@media (prefers-reduced-motion: reduce) { .is-active .timeline-node, .model-waiting i { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .is-active .timeline-node { animation: none; } }
 </style>

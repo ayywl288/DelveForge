@@ -443,8 +443,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             var field = paths.next();
             requirePath(field.getKey());
             if (!field.getValue().asText().equals(sanitize(field.getValue().asText()))) {
-                throw new AgentPolicyRejection(AgentPolicyRejection.Rule.SOURCE_CREDENTIALS,
-                        AgentPolicyRejection.Stage.PATCH_SOURCE);
+                throw AgentPolicyRejection.sourceEditRejectedBeforeApply();
             }
         }
         if (!arguments.path("patch").asText().equals(sanitize(arguments.path("patch").asText()))) {
