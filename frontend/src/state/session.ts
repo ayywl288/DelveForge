@@ -27,6 +27,13 @@ export interface SessionIds {
   directionIds: string[];
   planId: string;
 }
+interface DiscoveryMessage {
+  role: "user" | "agent";
+  text: string;
+  state?: "pending" | "accepted" | "failed" | "uncertain";
+  profileId?: string;
+  failed?: boolean;
+}
 interface AdoptedPlanSnapshot {
   version: number;
   plan: EvolutionPlan;
@@ -87,9 +94,10 @@ export function createSession() {
     activeQuestion.value?.revision === profile.value.revision
       ? activeQuestion.value.text : null,
   );
-  const messages = ref<
-    { role: "user" | "agent"; text: string; failed?: boolean }[]
-  >([]);
+  const messages = ref<DiscoveryMessage[]>([]);
+  const discoveryPending = computed(() => messages.value.some(message => message.state === "pending"));
+  const discoveryUncertain = computed(() => messages.value.some(message =>
+    message.state === "uncertain" && message.profileId === profile.value?.id));
   const busy = ref("");
   const error = ref("");
   const notice = ref("");
@@ -150,10 +158,13 @@ export function createSession() {
       .map(message => message.text).slice(-8);
   }
   async function refreshProfileAfterFailure() {
+    const profileId = ids.profileId;
+    const epoch = contextEpoch.value;
     sufficiency.value = null;
     activeQuestion.value = null;
     try {
-      profile.value = await api.profile(ids.profileId);
+      const latest = await api.profile(profileId);
+      if (!disposed && contextEpoch.value === epoch && ids.profileId === profileId) profile.value = latest;
     } catch {
       /* 查询也失败时保留已知画像，并显示原请求失败。 */
     }
@@ -220,6 +231,7 @@ export function createSession() {
       if (disposed || saveContext && contextEpoch.value !== epoch) return;
       if (saveContext && projectContext.value) {
         try {
+          busy.value = "保存项目关联";
           projectContext.value = await api.updateProject(projectContext.value, { ...ids });
         } catch (failure) {
           projectSyncError.value = true;
@@ -475,6 +487,8 @@ export function createSession() {
     dismissReviewChoice() { reviewChoicePending.value = false; },
     nextQuestion,
     messages,
+    discoveryPending,
+    discoveryUncertain,
     busy,
     error,
     notice,
@@ -591,22 +605,57 @@ export function createSession() {
     },
     async turn(input: string) {
       if (!profile.value || profile.value.status !== "EXPLORING" || !input.trim()) return;
+      if (discoveryUncertain.value) {
+        error.value = "上一轮结果仍不确定，请先查询画像并核对；不会重复发送或并发提交。";
+        return;
+      }
       await run("理解需求并更新画像", async () => {
-        const message = { role: "user" as const, text: input };
+        const current = profile.value!;
+        const epoch = contextEpoch.value;
+        const isCurrent = () => !disposed && contextEpoch.value === epoch && profile.value?.id === current.id;
+        const message = reactive<DiscoveryMessage>({ role: "user", text: input,
+          profileId: current.id, state: "pending" });
         messages.value.push(message);
         try {
           activeQuestion.value = null;
-          const result = await api.discoveryTurn(profile.value!.id, input, previousQuestions());
+          const result = await api.discoveryTurn(current.id, input, previousQuestions());
+          if (!isCurrent()) return;
+          // 本轮成功响应与随后 run 保存的项目关联是两个结果。
+          message.state = "accepted";
           profile.value = result.profile;
           acceptSufficiency(result);
           appendQuestion(result.nextQuestion);
         } catch (failure) {
-          const last = messages.value.at(-1);
-          if (last) last.failed = true;
+          if (!isCurrent()) return;
+          // 仅已知在保存前拒绝的契约可判为失败；断线、未知 5xx 均可能已提交。
+          const rejected = failure instanceof ApiError && (
+            failure.status === 400 && failure.code === "INVALID_REQUEST" ||
+            failure.status === 404 && failure.code === "NOT_FOUND" ||
+            failure.status === 409 && failure.code === "CONFLICT" ||
+            failure.status === 502 && failure.code === "EXTERNAL_CAPABILITY_UNAVAILABLE");
+          message.state = rejected ? "failed" : "uncertain";
+          message.failed = true;
           await refreshProfileAfterFailure();
           throw failure;
         }
       });
+    },
+    async checkDiscoveryStatus() {
+      const current = profile.value;
+      if (!current) return;
+      await run("查询画像状态", async () => {
+        const epoch = contextEpoch.value;
+        const latest = await api.profile(current.id);
+        if (disposed || contextEpoch.value !== epoch || profile.value?.id !== current.id) return;
+        if (latest.revision !== current.revision || latest.status !== current.status) {
+          sufficiency.value = null;
+          activeQuestion.value = null;
+        }
+        profile.value = latest;
+        notice.value = discoveryUncertain.value
+          ? "画像已查询；当前接口无法确认这条消息是否提交，也无法确认服务端请求是否结束。未重新发送，请核对画像。"
+          : "画像已查询，未重新发送消息。";
+      }, false);
     },
     async patch(patch: ProfilePatch) {
       if (profile.value)

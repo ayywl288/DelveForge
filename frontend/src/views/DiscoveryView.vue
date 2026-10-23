@@ -42,20 +42,22 @@ watch(
   () => {
     reviewed.value = false;
     editing.value = null;
-    input.value = "";
   },
 );
+watch(() => props.s.profile?.id, () => { input.value = ""; });
 watch(
-  () => props.s.messages.length,
+  () => [props.s.messages.length, props.s.discoveryPending],
   async () => {
     await nextTick();
     if (chat.value) chat.value.scrollTop = chat.value.scrollHeight;
   },
 );
 async function send() {
-  if (!input.value.trim() || props.s.busy) return;
-  await props.s.turn(input.value.trim());
-  if (!props.s.error) input.value = "";
+  if (!input.value.trim() || props.s.busy || props.s.discoveryUncertain) return;
+  const count = props.s.messages.length;
+  const request = props.s.turn(input.value.trim());
+  if (props.s.messages.length > count) input.value = "";
+  await request;
 }
 async function continueExploring() {
   await props.s.continueExploring();
@@ -150,17 +152,31 @@ async function save() {
           v-for="(message, index) in s.messages"
           :key="index"
           class="message"
-          :class="message.role"
+          :class="[message.role, message.state]"
+          :data-state="message.state"
         >
           <span class="message-author">{{
             message.role === "user" ? "你" : "DelveForge"
           }}</span>
           <p>{{ message.text }}</p>
-          <span v-if="message.failed" class="meta"
-            >该请求未收到成功响应，已尝试重新查询画像。不要将这条消息视为已接受的结果。</span
-          >
+          <span v-if="message.state === 'pending'" class="message-state" role="status">
+            <span class="message-spinner" aria-hidden="true"></span>正在提交
+          </span>
+          <span v-else-if="message.state === 'accepted'" class="message-state" title="本轮接口已成功返回；不表示已读回执">
+            <span aria-hidden="true">✓</span> 本轮已接受
+          </span>
+          <div v-else-if="message.failed" class="message-error">
+            <p>{{ message.state === 'failed'
+              ? '本轮未被接受。可以核对画像后编辑并重新发送。'
+              : '未收到成功响应，结果尚不确定。请核对画像；不会自动重发。' }}</p>
+            <button type="button" class="text-button" :disabled="!!s.busy" @click="s.checkDiscoveryStatus">查询画像状态</button>
+          </div>
         </article>
-        <p v-if="s.busy" class="request-note" role="status">
+        <div v-if="s.discoveryPending" class="message agent assistant-waiting" role="status">
+          <span class="message-author">DelveForge</span>
+          <p><span class="waiting-dots" aria-hidden="true"><i></i><i></i><i></i></span>DelveForge 正在整理你的想法…</p>
+        </div>
+        <p v-else-if="s.busy" class="request-note" role="status">
           {{ s.busy }}… 正在等待实际响应。
         </p>
         <p
@@ -177,14 +193,14 @@ async function save() {
           v-model="input"
           rows="3"
           placeholder="最近有什么事情，你希望软件能帮你做得更好？"
-          :disabled="!!s.busy || s.profile.status !== 'EXPLORING'"
+          :disabled="s.profile.status !== 'EXPLORING'"
           @keydown.ctrl.enter.prevent="send"
         />
         <div class="composer-footer">
-          <span class="meta">Ctrl + Enter 发送 · 不保存聊天到浏览器</span>
+          <span class="meta">{{ s.discoveryPending ? '可继续写草稿，当前轮结束后再发送' : s.discoveryUncertain ? '上一轮结果待核对，暂不发送新一轮' : 'Ctrl + Enter 发送 · 不保存聊天到浏览器' }}</span>
           <button
             :disabled="
-              !!s.busy || !input.trim() || s.profile.status !== 'EXPLORING'
+              !!s.busy || s.discoveryUncertain || !input.trim() || s.profile.status !== 'EXPLORING'
             "
           >
             发送

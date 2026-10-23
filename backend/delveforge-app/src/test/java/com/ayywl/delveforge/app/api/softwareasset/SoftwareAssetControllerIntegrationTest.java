@@ -26,6 +26,7 @@ import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -81,6 +82,34 @@ class SoftwareAssetControllerIntegrationTest {
 
     @Autowired
     private SoftwareAssetMapper softwareAssetMapper;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @Test
+    void missingTechnicalGuardDoesNotBreakLookupThenRegistration() throws Exception {
+        jdbc.update("DELETE FROM software_asset_registration_guard");
+        String location = "E:\\registration-api-regression\\expense-tracker";
+        mockMvc.perform(get("/api/software-assets").param("location", location))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
+
+        String id = register(location, true, "BSD-3-Clause", "ALLOWED");
+
+        mockMvc.perform(get("/api/software-assets").param("location", location))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(id))
+                .andExpect(jsonPath("$[0].readPermissionAllowed").value(true))
+                .andExpect(jsonPath("$[0].licenseInfo").value("BSD-3-Clause"))
+                .andExpect(jsonPath("$[0].usageAuthorization").value("ALLOWED"));
+        mockMvc.perform(post("/api/software-assets").contentType(MediaType.APPLICATION_JSON)
+                        .content(registrationBody("e:/REGISTRATION-api-regression/./expense-tracker/",
+                                false, null, "DENIED")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("ASSET_ALREADY_REGISTERED"));
+        assertEquals(1, softwareAssetMapper.selectCount(null));
+    }
 
     @BeforeEach
     void resetStubs() {
@@ -387,7 +416,7 @@ class SoftwareAssetControllerIntegrationTest {
     }
 
     private static String json(String value) {
-        return value == null ? "null" : "\"" + value + "\"";
+        return value == null ? "null" : "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
     }
 
     /** AI Gateway 替身：记录请求并返回预设内容。 */

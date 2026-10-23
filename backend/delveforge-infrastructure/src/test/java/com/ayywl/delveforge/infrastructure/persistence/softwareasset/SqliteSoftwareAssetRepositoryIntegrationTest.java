@@ -24,9 +24,12 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * 验证 {@link SqliteSoftwareAssetRepository} 与真实 SQLite + Flyway + MyBatis-Plus 的集成。
@@ -70,6 +73,37 @@ class SqliteSoftwareAssetRepositoryIntegrationTest {
 
     @Autowired
     private SoftwareAssetMapper softwareAssetMapper;
+
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Test
+    void registersAfterTechnicalGuardRowIsMissingWithoutChangingAuthorizationOrDuplicateRules() {
+        jdbc.update("DELETE FROM software_asset_registration_guard");
+        String location = "E:/registration-regression/expense-tracker";
+        GetSoftwareAssetUseCase get = new GetSoftwareAssetUseCase(repository);
+        assertTrue(get.findByLocation(location).isEmpty());
+
+        SoftwareAsset registered = new RegisterSoftwareAssetUseCase(repository).register(
+                new RegisterSoftwareAssetRequest(location, true, "BSD-3-Clause", UsageAuthorization.ALLOWED));
+
+        SoftwareAsset loaded = get.get(registered.id());
+        assertEquals(location, loaded.location());
+        assertTrue(loaded.readPermissionAllowed());
+        assertEquals("BSD-3-Clause", loaded.licenseInfo().orElseThrow());
+        assertEquals(UsageAuthorization.ALLOWED, loaded.usageAuthorization());
+        assertEquals(0, loaded.authorizationRevision());
+        assertEquals(1, jdbc.queryForObject("SELECT count(*) FROM software_asset_registration_guard", Integer.class));
+        org.junit.jupiter.api.Assertions.assertThrows(
+                com.ayywl.delveforge.application.port.persistence.SoftwareAssetAlreadyRegisteredException.class,
+                () -> repository.registerUnique(asset(new SoftwareAssetId("duplicate"),
+                        "e:/REGISTRATION-regression/./expense-tracker/", false, null, UsageAuthorization.DENIED)));
+        assertEquals(1, get.findByLocation(location).size());
+        assertEquals(UsageAuthorization.ALLOWED, get.get(registered.id()).usageAuthorization());
+    }
 
     @Test
     void savesAndReloadsEveryDomainField() {
@@ -286,6 +320,7 @@ class SqliteSoftwareAssetRepositoryIntegrationTest {
     @Test
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
     void simultaneousRegistrationsHaveExactlyOneWinner() throws Exception {
+        jdbc.update("DELETE FROM software_asset_registration_guard");
         String location = "E:/task-d-concurrent/" + UUID.randomUUID();
         java.util.concurrent.CyclicBarrier barrier = new java.util.concurrent.CyclicBarrier(2);
         try (java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2)) {
@@ -307,6 +342,24 @@ class SqliteSoftwareAssetRepositoryIntegrationTest {
         assertEquals(1, repository.findByLocation(location).size());
         SoftwareAsset winner = repository.findByLocation(location).getFirst();
         softwareAssetMapper.deleteById(winner.id().value());
+    }
+
+    @Test
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+    void guardCreationAndAssetRegistrationRollBackTogether() {
+        jdbc.update("DELETE FROM software_asset_registration_guard");
+        SoftwareAsset candidate = asset(new SoftwareAssetId("rolled-back-registration"),
+                "E:/registration-rollback", false, null, UsageAuthorization.DENIED);
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () ->
+                transaction.executeWithoutResult(status -> {
+                    repository.registerUnique(candidate);
+                    throw new IllegalArgumentException("Test rollback");
+                }));
+
+        assertTrue(repository.findById(candidate.id()).isEmpty());
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM software_asset_registration_guard", Integer.class));
     }
 
 }
