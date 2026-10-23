@@ -70,8 +70,30 @@ it("only an explicit start sends the request; real tool events are ordered and d
   stream.fact(3); stream.fact(3); stream.fact(2); stream.fact(4); await settle();
   expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(2);
   expect(root.textContent).toContain("src/Counter.java");
-  expect(root.textContent).toContain("durationMs: 12");
+  expect([...root.querySelectorAll(".activity-duration")].map(node => node.textContent)).toEqual(["12 ms", "12 ms"]);
+  expect(root.querySelector(".agent-timeline pre")).toBeNull();
   expect(root.textContent).not.toMatch(/\d+%/);
+});
+
+it("correlated SSE activity updates in place and replay never duplicates a completed operation", async () => {
+  const { root } = mount([running()]); await settle();
+  const stream = Events.instances.at(-1)!;
+  const metadata = { metadataVersion: 1, toolCallId: "9d52e412-e03d-4419-a2fb-56322848b598",
+    tool: "read_file", path: "src/Counter.java" };
+  stream.fact(1, "TOOL_STARTED", JSON.stringify(metadata)); await settle();
+  const row = root.querySelector(".agent-timeline li")!;
+  expect(row.querySelector('[role="status"]')?.textContent).toBe("进行中");
+  const result = JSON.stringify({ ...metadata, ok: true, durationMs: 15, classification: "RESULT" });
+  stream.fact(2, "TOOL_FINISHED", result); await settle();
+  stream.onerror?.(); stream.onopen?.();
+  stream.fact(1, "TOOL_STARTED", JSON.stringify(metadata)); stream.fact(2, "TOOL_FINISHED", result); await settle();
+  expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(1);
+  expect(root.querySelector(".agent-timeline li")).toBe(row);
+  expect(row.getAttribute("data-tone")).toBe("completed");
+  expect(row.querySelector(".activity-duration")?.textContent).toBe("15 ms");
+  expect(row.querySelector(".activity-target")?.textContent).toBe("src/Counter.java");
+  expect(root.querySelector(".agent-usage-notice")?.textContent).toContain("取消不是暂停");
+  expect(row.textContent).not.toContain("RESULT");
 });
 
 it("a saved Candidate is displayed with honest NOT_TESTED evidence and never starts coding again", async () => {
@@ -324,8 +346,9 @@ it("explains failed Docker preparation and resource reconciliation without inven
   expect(root.textContent).toContain("Docker 沙箱准备失败，尚未开始编码");
   expect(root.querySelector(".resource-warning[role='alert']")?.textContent).toContain("资源协调待核对");
   expect(root.querySelector(".resource-warning")?.closest("details")).toBeNull();
-  expect(root.querySelector<HTMLDetailsElement>(".run-metadata")!.open).toBe(false);
-  expect(root.querySelector(".run-diagnostic-fields")?.textContent).toContain("DOCKER_FAILURE");
+  expect(root.querySelector(".run-metadata")).toBeNull();
+  expect(root.querySelector(".run-reason code")?.textContent).toBe("DOCKER_FAILURE");
+  expect(root.querySelector(".run-statistics")?.textContent).toContain("0");
   expect(root.querySelector(".run-status[role='status']")?.textContent).toContain("编码失败");
   expect(root.querySelector(".agent-changes")?.textContent).toContain("此 Run 尚无冻结 Candidate");
   expect(root.querySelector('[data-sequence="3"]')?.getAttribute("data-tone")).toBe("blocked");
@@ -337,38 +360,35 @@ it("explains failed Docker preparation and resource reconciliation without inven
   expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", undefined);
 });
 
-it("presents diagnostic label/value fields and full technical identity separately inside a disclosure", async () => {
+it("unifies Run status, failure and times without duplicating diagnostics or exposing technical identities", async () => {
   const failed: AgentRun = { ...running(), id: "run-with-a-long-identity-".repeat(8), state: "FAILED",
     reason: "DOCKER_FAILURE", modelCalls: 0, toolCalls: 0, baseline: "0123456789abcdef".repeat(4),
     endedAt: "2026-10-22T01:02:03Z" };
   const { root } = mount([failed]); await settle();
-  const disclosure = root.querySelector<HTMLDetailsElement>(".run-metadata")!;
-  expect(disclosure.open).toBe(false);
-  expect(disclosure.querySelector("summary")?.textContent).toBe("运行诊断");
-  const value = (label: string) => [...disclosure.querySelectorAll("dt")]
+  const overview = root.querySelector(".run-summary")!;
+  const value = (label: string) => [...overview.querySelectorAll("dt")]
     .find(node => node.textContent === label)?.nextElementSibling;
-  expect(value("运行状态")?.tagName).toBe("DD");
-  expect(value("运行状态")?.textContent).toBe("FAILED");
-  expect(value("失败原因")?.textContent).toBe("DOCKER_FAILURE");
+  expect(root.querySelectorAll(".run-status")).toHaveLength(1);
+  expect(overview.querySelector(".run-reason code")?.textContent).toBe("DOCKER_FAILURE");
+  expect(value("开始时间")?.tagName).toBe("DD");
   expect(value("开始时间")?.querySelector("time")?.getAttribute("datetime")).toBe(failed.startedAt);
   expect(value("结束时间")?.querySelector("time")?.getAttribute("datetime")).toBe(failed.endedAt);
   expect(value("开始时间")?.textContent).toBe(new Date(failed.startedAt).toLocaleString());
-  expect(value("Run ID")?.textContent).toBe(failed.id);
-  expect(value("Baseline revision")?.textContent).toBe(failed.baseline);
-  expect(value("Run ID")?.closest('[aria-labelledby="run-technical-title"]')).not.toBeNull();
-  expect(disclosure.querySelector("#run-technical-title")?.textContent).toBe("技术身份");
-  disclosure.querySelector("summary")!.click(); await settle();
-  expect(disclosure.open).toBe(true);
+  expect(root.querySelector(".run-metadata, #run-technical-title")).toBeNull();
+  expect(root.textContent).not.toContain(failed.id);
+  expect(root.textContent).not.toContain(failed.baseline);
+  expect(api.agentRun).toHaveBeenCalledWith(failed.id);
+  expect(failed.baseline).toBe("0123456789abcdef".repeat(4));
   expect(root.querySelector(".run-failure")?.closest("details")).toBeNull();
 });
 
 it("missing diagnostic values remain honest and do not imply that a running Run has ended", async () => {
   const { root } = mount([running()]); await settle();
-  const fields = root.querySelector(".run-diagnostic-fields")!;
+  const fields = root.querySelector(".run-times")!;
   expect([...fields.querySelectorAll("dt")].map(node => node.textContent))
-    .toEqual(["运行状态", "失败原因", "开始时间", "结束时间"]);
+    .toEqual(["开始时间", "结束时间"]);
   expect(fields.querySelectorAll("dd")[1]?.textContent).toBe("未记录");
-  expect(fields.querySelectorAll("dd")[3]?.textContent).toBe("未记录");
+  expect(root.querySelector(".run-reason")).toBeNull();
   expect(fields.querySelectorAll("time")).toHaveLength(1);
   expect(root.querySelector(".run-status")?.textContent).toContain("编码中");
 });
@@ -442,7 +462,7 @@ it("shows active persisted activity independently of SSE connectivity and keeps 
   expect(root.querySelectorAll(".is-active")).toHaveLength(0);
   expect(root.querySelector('[data-sequence="2"]')?.getAttribute("data-tone")).toBe("failed");
   expect(root.querySelector('[data-sequence="2"] strong')?.textContent).toContain("运行 Maven 检查");
-  expect(root.querySelector('[data-sequence="2"] details')?.textContent).toContain("BUILD_FAILED");
+  expect(root.querySelector('[data-sequence="2"] .activity-result code')?.textContent).toBe("BUILD_FAILED");
   expect(root.querySelector('[data-sequence="2"] strong')?.textContent).not.toContain("durationMs");
 });
 
@@ -461,11 +481,16 @@ it("keeps the latest 1000 persisted events ordered and deduplicated across repla
   const stream = Events.instances.at(-1)!;
   for (let i = 1; i <= 1002; i++) stream.fact(i);
   stream.onerror?.(); stream.onopen?.(); stream.fact(1001); stream.fact(1002); await settle();
+  expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(40);
+  expect(root.querySelector(".agent-timeline li")?.getAttribute("data-sequence")).toBe("963");
+  while (root.querySelector(".earlier-activity")) {
+    root.querySelector<HTMLButtonElement>(".earlier-activity")!.click(); await settle();
+  }
   const rows = root.querySelectorAll(".agent-timeline li");
   expect(rows).toHaveLength(1000);
   expect(rows[0]?.getAttribute("data-sequence")).toBe("3");
   expect(rows[999]?.getAttribute("data-sequence")).toBe("1002");
-  expect(root.textContent).toContain("显示最近 1000 条事件");
+  expect(root.textContent).toContain("已加载最近 1000 条事件");
 });
 
 it.each(["AVAILABLE", "UNAVAILABLE"] as const)("completed Delivery retains read-only cumulative final changes (%s)", async availability => {

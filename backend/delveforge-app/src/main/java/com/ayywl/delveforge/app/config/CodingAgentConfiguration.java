@@ -61,7 +61,6 @@ public class CodingAgentConfiguration {
         AgentProtocol.Limits limits = new AgentProtocol.Limits(
                 limit(environment, "max-model-calls", defaults.maxModelCalls()),
                 limit(environment, "max-tool-calls", defaults.maxToolCalls()),
-                environment.getProperty("delveforge.agent.limits.max-tokens", Long.class, defaults.maxTokens()),
                 limit(environment, "max-context-chars", defaults.maxContextChars()),
                 limit(environment, "max-output-bytes", defaults.maxOutputBytes()),
                 limit(environment, "max-patch-bytes", defaults.maxPatchBytes()),

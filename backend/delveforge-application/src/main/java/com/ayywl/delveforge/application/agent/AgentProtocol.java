@@ -40,11 +40,11 @@ public final class AgentProtocol {
     public record Event(long sequence, String runId, String kind, String summary, Instant at) {
     }
 
-    public record Limits(int maxModelCalls, int maxToolCalls, long maxTokens, int maxContextChars,
+    public record Limits(int maxModelCalls, int maxToolCalls, int maxContextChars,
             int maxOutputBytes, int maxPatchBytes, int maxFileBytes, int maxCandidateBytes,
             int maxFiles, int wallSeconds, int checkSeconds, int dependencyRetries) {
         public Limits {
-            if (maxModelCalls < 1 || maxToolCalls < 1 || maxTokens < 1 || maxContextChars < 4096
+            if (maxModelCalls < 1 || maxToolCalls < 1 || maxContextChars < 4096
                     || maxOutputBytes < 1024 || maxPatchBytes < 1024 || maxFileBytes < 1024
                     || maxCandidateBytes < maxPatchBytes || maxFiles < 1 || wallSeconds < 1
                     || checkSeconds < 1 || dependencyRetries < 0 || dependencyRetries > 3) {
@@ -53,7 +53,7 @@ public final class AgentProtocol {
         }
 
         public static Limits defaults() {
-            return new Limits(60, 160, 240000, 180000, 24000, 131072, 262144, 2097152,
+            return new Limits(60, 160, 180000, 24000, 131072, 262144, 2097152,
                     10000, 1800, 180, 2);
         }
     }

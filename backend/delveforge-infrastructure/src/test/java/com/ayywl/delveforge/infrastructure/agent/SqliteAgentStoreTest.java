@@ -69,6 +69,25 @@ class SqliteAgentStoreTest {
     }
 
     @Test
+    void legacyAndVersionedToolSummariesSurviveReloadWithoutRewritingOrLosingCursorOrder() {
+        var run = run();
+        store.reserve(run);
+        List<String> summaries = List.of("tool=read_file; id=old-call",
+                "{\"tool\":\"read_file\",\"ok\":true,\"classification\":\"RESULT\"}",
+                "{\"metadataVersion\":1,\"toolCallId\":\"12345678-1234-4567-8123-123456789abc\","
+                        + "\"tool\":\"read_file\",\"path\":\"src/A.java\"}");
+        for (int index = 0; index < summaries.size(); index++) {
+            store.event(run.id(), index == 1 ? "TOOL_FINISHED" : "TOOL_STARTED", summaries.get(index));
+        }
+        SqliteAgentStore restarted = new SqliteAgentStore(source);
+        var events = restarted.events(run.id(), 0, 100);
+        assertEquals(summaries, events.subList(1, events.size()).stream().map(AgentProtocol.Event::summary).toList());
+        assertEquals(events.subList(2, events.size()), restarted.events(run.id(), events.get(1).sequence(), 100));
+        assertEquals(run.id(), restarted.get(run.id()).id());
+        assertEquals(run.baseline(), restarted.get(run.id()).baseline());
+    }
+
+    @Test
     void finalizationRetentionSurvivesTerminalCommitAndCannotBeClearedByRelease() throws Exception {
         var run = run();
         store.reserve(run);

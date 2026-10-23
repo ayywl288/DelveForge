@@ -67,7 +67,7 @@ class DockerMavenCompatibilityTest {
                 new DeterministicRepositorySecretPolicy());
         String id = UUID.randomUUID().toString();
         var defaults = AgentProtocol.Limits.defaults();
-        var limits = new AgentProtocol.Limits(defaults.maxModelCalls(), defaults.maxToolCalls(), defaults.maxTokens(),
+        var limits = new AgentProtocol.Limits(defaults.maxModelCalls(), defaults.maxToolCalls(),
                 defaults.maxContextChars(), defaults.maxOutputBytes(), defaults.maxPatchBytes(), defaults.maxFileBytes(),
                 defaults.maxCandidateBytes(), defaults.maxFiles(), 1800, 600, 3);
         try {

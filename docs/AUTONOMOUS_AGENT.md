@@ -145,7 +145,7 @@ Spring AI 直接 ChatModel 调用显式设置 `internalToolExecutionEnabled(fals
 | sandbox.memory / cpus / pids | 2g / 2 / 256 |
 | response-tokens | 8192 |
 
-可单独覆盖 `delveforge.agent.limits.*`：max-model-calls=60、max-tool-calls=160、max-tokens=240000、
+可单独覆盖 `delveforge.agent.limits.*`：max-model-calls=60、max-tool-calls=160、
 max-context-chars=180000、max-output-bytes=24000、max-patch-bytes=131072、max-file-bytes=262144、
 max-candidate-bytes=2097152、max-files=10000、wall-seconds=1800、check-seconds=180、dependency-retries=2。
 在线准备单次上限为 min(wall-seconds, 3×check-seconds)，仍受整个 Run 的 wall deadline 约束。
@@ -153,7 +153,32 @@ max-candidate-bytes=2097152、max-files=10000、wall-seconds=1800、check-second
 基线复制前先检查 Git blob 声明大小、文件数及路径；当前原始基线/传输总上限为 16 MiB，
 单文件仍受 max-file-bytes 约束。超限明确失败，不先把大型对象复制到宿主机再拒绝。
 模型上下文按完整 assistant/tool 组压缩，保留系统、Step、历史结果摘要和近期组；仍超限则失败。
-压缩摘要和持久化事件保留检查 goal、directory、module 与 selectedTest，避免丢失测试覆盖范围。
+上下文压缩行为保持不变，摘要仍保留检查 goal、directory、module 与 selectedTest。
+Candidate 的 testEvidence 继续保存实际测试范围；活动展示摘要只保留安全的 goal、directory、module。
+
+累计预算配置 `delveforge.agent.limits.max-tokens` 已退役，不再因累计用量超过历史 240000 阈值而终止 Run。
+各次响应报告的 tokens 仍累计并持久化；任一次缺少 usage 时总量保持 unknown，不补造数字。
+`delveforge.agent.response-tokens` 和 M1–M3 AiGateway 的 `max-tokens` 仍控制各自响应生成，未作调整。
+执行消耗外部 API 额度，可在界面监控已报告用量并取消。取消不是可恢复暂停，当前没有 checkpoint/resume；
+提供者余额耗尽或其他失败仍走既有失败处理，充值不意味着旧 Run 可续跑，可能需要显式新建 Run。
+上述调用次数、上下文、输出、时限、重试与沙箱资源限制继续生效。
+
+### 活动展示与安全元数据
+
+新 TOOL_STARTED / TOOL_FINISHED 摘要使用 `metadataVersion=1`，每次实际工具执行由服务端生成独立
+UUID `toolCallId`，同一对事件共享此身份。模型原始 call ID 去重与工具执行顺序不变。
+界面只合并同 Run、同工具、同身份且唯一、先开始后结束的事件；旧记录不迁移，也不按相邻位置猜测关联。
+工具返回不等于代码修改成功，例如 `ok=true` 的 PATCH_CONFLICT 仍显示冲突；缺少结束事件显示待核对。
+
+展示目标是经参数校验、既有 RepositorySecretPolicy 与沙箱路径规则保守子集筛选的仓库相对路径：
+单路径最多 256 字符，禁止遍历、宿主绝对路径、受保护文件和敏感片段；实际访问继续由沙箱校验文件系统边界。
+补丁只从成功执行后受控返回的已检查 paths 提取，最多 8 个安全路径，否则不显示文件名，不解析补丁正文。
+展示摘要不保存原始参数、搜索查询、补丁、源码、提示词或任意工具输出，仅包含有界身份、范围、分类与实际数值。
+既有事件大小上限、后端事件读取/安全诊断能力和历史记录保持有效；界面不再提供原始 JSON 或容器身份转储。
+
+界面合并 Run 状态、实际用量与起止时间，日常展示不再重复 Run ID/baseline；API 与持久化记录仍保留完整身份。
+时间线默认显示最近 40 项操作，可展开更早的已加载活动；原有最近 1000 条事件保留边界不变。
+仅在读者位于底部时跟随新活动，向上浏览后可显式回到最新；清理受阻、恢复和保留材料警示继续可见。
 
 JDK 从标准 compiler release/target、java.version 与简单属性引用保守推断。
 只跟随根 POM 声明的 reactor modules，不把测试资源中的 POM 夹具作为环境准入条件。

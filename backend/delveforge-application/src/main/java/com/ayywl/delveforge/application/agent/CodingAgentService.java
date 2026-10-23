@@ -45,6 +45,7 @@ public final class CodingAgentService implements AutoCloseable {
     private final AgentSandboxPort sandbox;
     private final RepositorySecretPolicy secrets;
     private final AgentProtocol.Limits limits;
+    private final AgentToolActivity activity;
     private final ObjectMapper json = new ObjectMapper();
     private final Map<String, Thread> workers = new ConcurrentHashMap<>();
     private final ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor(
@@ -59,6 +60,7 @@ public final class CodingAgentService implements AutoCloseable {
         this.sandbox = sandbox;
         this.secrets = secrets;
         this.limits = limits;
+        this.activity = new AgentToolActivity(secrets, limits);
     }
 
     public AgentProtocol.Run start(String planId, String stepId, Integer targetJdk) {
@@ -190,9 +192,6 @@ public final class CodingAgentService implements AutoCloseable {
                 unknownUsage = true;
             } else {
                 tokens = (tokens == null ? 0 : tokens) + reply.tokens();
-                if (tokens > limits.maxTokens()) {
-                    throw new AgentException("TOKEN_LIMIT", "Reported model token budget exhausted");
-                }
             }
             store.usage(task.runId(), request, toolCalls, unknownUsage ? null : tokens);
             if (reply.text().length() > limits.maxContextChars() || reply.calls().size() > 16) {
@@ -248,7 +247,8 @@ public final class CodingAgentService implements AutoCloseable {
                     if (++toolCalls > limits.maxToolCalls()) {
                         throw new AgentException("TOOL_LIMIT", "Tool call budget exhausted");
                     }
-                    store.event(task.runId(), "TOOL_STARTED", "tool=" + call.name() + "; id=" + safe(call.id()));
+                    String activityId = UUID.randomUUID().toString();
+                    store.event(task.runId(), "TOOL_STARTED", activity.started(call, activityId));
                     try {
                         result = argumentFailure == null ? sandbox.tool(task.runId(), call, cancelled) : argumentFailure;
                     } catch (AgentException failure) {
@@ -262,7 +262,7 @@ public final class CodingAgentService implements AutoCloseable {
                         throw new AgentException("OUTPUT_LIMIT", "Tool response exceeded its budget");
                     }
                     completed.put(call.id(), result);
-                    store.event(task.runId(), "TOOL_FINISHED", eventSummary(call.name(), result));
+                    store.event(task.runId(), "TOOL_FINISHED", activity.finished(call, activityId, result));
                     store.usage(task.runId(), request, toolCalls, unknownUsage ? null : tokens);
                 }
                 history.add(new AgentProtocol.Message("tool", result, List.of(), call.id(), call.name()));

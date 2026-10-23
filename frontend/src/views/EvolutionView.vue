@@ -276,6 +276,7 @@ onUnmounted(deactivate);
         </template>
         </div>
       </template>
+      <p class="agent-usage-notice">执行消耗外部 API 额度；累计 tokens 不再设默认硬停止。可查看用量并取消，但取消不是暂停，当前不支持断点续跑；余额耗尽或其他失败后可能需新建 Run，其他执行限额仍生效。</p>
       <p v-if="error || syncError" role="alert" class="error">{{ error || syncError }}</p>
     </section>
     <section class="panel agent-run-panel" aria-label="运行与实际活动">
@@ -303,22 +304,14 @@ onUnmounted(deactivate);
         <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
         <p v-else-if="run.state === 'SUCCEEDED'" class="meta">本次运行已冻结 Candidate；正式接受状态以交付结果为准。</p>
+        <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
+        <dl class="run-times">
+          <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
+          <div><dt>结束时间</dt><dd><time v-if="run.endedAt" :datetime="run.endedAt">{{ new Date(run.endedAt).toLocaleString() }}</time><span v-else>未记录</span></dd></div>
+        </dl>
         </div>
         <p v-if="resourceBlocked" class="resource-warning" role="alert"><NavigationIcon name="warning" />资源协调待核对：所属资源或保留材料尚未完成核对。请先检查 Docker 与后端安全诊断，再判断能否重新运行。</p>
         <p v-if="run.retained && terminal(run)" class="meta">最终化材料已保留，请核对失败原因。</p>
-        <details class="run-metadata"><summary>运行诊断</summary>
-          <dl class="run-diagnostic-fields">
-            <div><dt>运行状态</dt><dd class="diagnostic-state" :data-state="run.state"><NavigationIcon :name="runIcon(run.state)" /><code>{{ run.state }}</code></dd></div>
-            <div><dt>失败原因</dt><dd><code v-if="run.reason" class="diagnostic-reason">{{ run.reason }}</code><span v-else>未记录</span></dd></div>
-            <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
-            <div><dt>结束时间</dt><dd><time v-if="run.endedAt" :datetime="run.endedAt">{{ new Date(run.endedAt).toLocaleString() }}</time><span v-else>未记录</span></dd></div>
-          </dl>
-          <div class="run-technical-identity" role="group" aria-labelledby="run-technical-title">
-            <h4 id="run-technical-title">技术身份</h4>
-            <dl><div><dt>Run ID</dt><dd><code>{{ run.id }}</code></dd></div>
-              <div><dt>Baseline revision</dt><dd><code>{{ run.baseline }}</code></dd></div></dl>
-          </div>
-        </details>
         <AgentTimeline :key="run.id" :events="events" :run="run" :connection="connection" />
       </template>
       </div></div>
@@ -398,26 +391,16 @@ onUnmounted(deactivate);
 .run-statistics dt { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
 .run-statistics dd { margin: 0; font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .run-statistics dd span { font-size: 12px; font-weight: 400; color: var(--muted); }
-.diagnostic-state { display: flex; gap: 7px; align-items: center; }
-.diagnostic-state .navigation-icon { width: 15px; height: 15px; }
-.diagnostic-state[data-state="FAILED"] { color: var(--danger); }
-.diagnostic-state[data-state="SUCCEEDED"] { color: var(--success); }
-.diagnostic-reason { border-left: 2px solid var(--line); padding-left: 8px; }
+.agent-usage-notice { color: var(--muted); font-size: 12px; line-height: 1.65; margin: 18px 0 0; max-width: 90ch; }
+.run-reason { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; font-size: 13px; margin: 12px 0; }
+.run-reason span { color: var(--muted); }
+.run-reason code { font-size: 12px; overflow-wrap: anywhere; }
+.run-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; margin: 12px 0 20px; }
+.run-times dt { color: var(--muted); font-size: 12px; }
+.run-times dd { font-size: 13px; margin: 3px 0 0; }
 .run-status[data-state="FAILED"] { color: var(--danger); }
 .run-status[data-state="INTERRUPTED"], .run-status[data-state="CANCELLED"] { color: var(--muted); }
 .run-status[data-state="SUCCEEDED"] { color: var(--success); }
-.run-metadata { margin: 16px 0 22px; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
-.run-metadata summary { cursor: pointer; color: var(--ink); font-weight: 600; }
-.run-diagnostic-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 24px; margin: 16px 0; }
-.run-metadata dl > div { min-width: 0; }
-.run-metadata dt { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
-.run-metadata dd { margin: 0; }
-.run-metadata code { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.run-technical-identity { padding-top: 14px; border-top: 1px solid var(--line); }
-.run-technical-identity h4 { font-size: 13px; color: var(--muted); font-weight: 500; margin: 0 0 10px; }
-.run-technical-identity dl { display: grid; gap: 10px; margin: 0; }
-.run-technical-identity dl > div { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 12px; }
-.run-technical-identity dt { margin: 0; }
 .run-failure { color: var(--danger); font-size: 14px; line-height: 1.65; }
 .resource-warning { display: flex; align-items: flex-start; gap: 10px; color: var(--warning); border-left: 2px solid var(--warning); padding: 8px 12px; font-size: 14px; line-height: 1.65; }
 .resource-warning .navigation-icon { flex-shrink: 0; }
@@ -445,8 +428,7 @@ select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
   .candidate-overview { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .delivery-overview { border-left: 0; padding-left: 0; }
   .selected-step-summary { align-items: flex-start; }
-  .run-diagnostic-fields { grid-template-columns: minmax(0, 1fr); gap: 12px; }
-  .run-technical-identity dl > div { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .run-times { grid-template-columns: minmax(0, 1fr); }
   .run-statistics { gap: 10px; }
   .run-statistics dd { font-size: 17px; }
 }
