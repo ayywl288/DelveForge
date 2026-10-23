@@ -3,21 +3,30 @@
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
 **Status:** Active  
-**Last Updated:** 2026-10-22
+**Last Updated:** 2026-10-23
 
 ---
 
 ## 1. Current Goal
 
-**2026-10-22：Task 2 已完成本轮实现与验收，Readiness：READY。起点为 Task 1 检查点 c8fa923。**
-本轮明确授权完成单 Step Agent→Candidate→自动 Delivery→正式可信 commit 的完整流程，
-同时替代冲突的旧执行路径、调整 M3 Step 合同并提供持久化 SSE 和 Vue 活动时间线。
-该授权包含交付恢复；不包含后续 Step 自动执行、Push、发布或真实数据库重置。
-完整后端 verify 实际执行 1,434 项，0 失败，22 项 gated 跳过；真实 Docker 19 项另行通过，真实模型
-两 Step 自动交付通过，五种新进程恢复通过。前端 97 项及类型/构建通过；最终包浏览器回放、断线重连
-与活动 SSE 停机补验通过。证据范围与不支持的情形保留在验收报告，不把跳过算作通过。
-当前结果见 [Task 2 验收](validation/task2-autonomous-evolution.md)。
-下文旧里程碑与实验状态保留历史背景，不撤销本轮 Task 2 授权。
+**当前目标（2026-10-23）：完成自主演化版本的文档收尾、本地 main 快进整合和独立最终审查交接。**
+Task 1 / Task 2 及审查修复已实现；当前流程为 M1 用户探索 → M2 仓库理解与方向选择 →
+M3 规划与隔离 WorkingCopy → 用户确认并启动一个 Step → Docker Agent → 冻结 Candidate →
+确定性 Delivery → 接受正式 Git commit。Application 拥有 Agent Loop；持久化 SSE 与 Vue 展示实际活动。
+旧 M4/M5 的一次性提案、独立 VerificationStrategy / Repair / Rollback 执行链已经退役。
+
+最新实现验收以 [Task 2 报告的 2026-10-23 修复记录](validation/task2-autonomous-evolution.md) 为准：
+后端 1,447 项实际执行、22 项门控跳过、0 失败/错误；Windows Delivery 29、Linux x86-64 交付补验 29、
+另行真实 Docker 17 项通过；前端 108 项、类型检查和构建通过。历史真实模型两 Step 交付、
+五种新进程恢复及未定位根因的间歇性交付失败均保留原始范围，不把跳过或历史执行当作本轮重跑。
+本次收尾的实际复验、版本与审查交接见 [本地收尾记录](validation/autonomous-evolution-local-closeout.md)。
+
+下一步仅为独立最终审查；不启动新功能或 M6，不自动执行后续 Step，不 Push、打标签、发布或迁移真实用户数据库。
+当前兼容范围和升级备份步骤见 [运行说明](AUTONOMOUS_AGENT.md)。
+
+### Historical goals — 2026-10-19 and earlier
+
+以下目标、停止指令和旧里程碑计数保留其当时含义；不作为当前实现入口或待执行工作。
 
 2026-10-19 用户另行授权 **M4/M5 Reliability Hardening — Full Evolution Closure**：在本轮
 独立环境及累计人民币 10 元预算内，按 Spring REST → TodoList → ExpenseTracker 诊断、最小
@@ -839,6 +848,9 @@ Step SUCCEEDED
 
 ## 4. Milestone Overview
 
+当前自主演化交付：Task 1 / Task 2 与审查修复已完成，进入本地集成候选的最终审查。
+以下 M0–M6 表为原始里程碑归档，不能用旧 M5 状态推断当前 Delivery 不具备恢复能力。
+
 | Milestone | Goal | Status |
 |---|---|---|
 | M0 | Project Foundation | DONE |
@@ -846,7 +858,7 @@ Step SUCCEEDED
 | M2 | Product Direction Discovery | DONE |
 | M3 | Evolution Planning & Working Copy | DONE |
 | M4 | First Verified Evolution Step | DONE / FROZEN |
-| M5 | Failure Safety & Recovery | IN_PROGRESS（仅 M5-A / M5-B / M5-C 实验） |
+| M5 | Failure Safety & Recovery | 历史 PARTIAL；旧执行链由 Task 2 替代 |
 | M6 | MVP End-to-End Validation | TODO |
 
 统一状态：
@@ -887,7 +899,12 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 
 ## 5. Current Sprint / Iteration
 
-当前处于：
+当前只进行版本收尾与独立最终审查交接，范围见 §1 和 [收尾记录](validation/autonomous-evolution-local-closeout.md)。
+审查前不增加实现里程碑；本地 main 仅在祖先关系成立且验证通过后 fast-forward-only 整合。
+
+### Historical iteration — M3/M4/M5/Task G
+
+以下为旧迭代冻结记录，包含当时的使用限制、计数与停止条件；不再描述当前执行方式。
 
 ```text
 M3 — Evolution Planning & Working Copy：DONE / FROZEN（2026-10-05）
@@ -901,7 +918,7 @@ Task G — UI / UX Polish：DONE / ACCEPTED / FROZEN（2026-10-12，当前发行
 
 M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不再在此处维护执行清单。
 
-### Current
+### Historical current-status entries
 
 **M5-C User Rollback：DONE / 本地待审查（2026-10-13）。** 独立授权、原始 baseline 精确恢复、
 保留证据与失败阻塞；重启未知判定留给后续 Recovery Slice。最终后端 1,563 项、前端 145 项、
@@ -938,7 +955,7 @@ R1 发现方向、同一资产 R2 重新规划并准备的路径已修复；Pars
 [M3 retrospective](retrospectives/m3-evolution-planning-working-copy.md)。
 M3 不再追加优化或 cleanup，除非发现具体阻塞 M4 的正确性问题。
 
-### Delivery Closeout
+### Historical M4 Delivery Closeout
 
 M4 已完成一次真实直接 Provider → CodingProposal → WorkingCopy mutation → Candidate B →
 BUILD / TEST / DIFF_CHECK → SUCCEEDED / lastVerifiedRevision=B。成功执行器为

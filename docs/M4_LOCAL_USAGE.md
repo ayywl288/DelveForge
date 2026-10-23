@@ -1,5 +1,10 @@
 # M4 本地后端使用
 
+> **历史使用说明（M4/M5 旧执行链）。** 当前执行入口已由 Task 2 替代；新版本的构建、启动、
+> Docker、Maven 缓存、Step 操作与恢复请用 [当前运行说明](AUTONOMOUS_AGENT.md)。
+> 以下旧 execute / VerificationStrategy / Repair / Rollback、宿主 Maven 与 V21 描述仅对应当时版本。
+> 已有库升级到当前 V25 前，先按当前说明备份数据库及全部托管 WorkingCopy，不直接套用下文旧启动步骤。
+
 M0–M4 后端已完成并冻结；当前候选的 M5-A～E 为 PARTIAL，Recovery 写入正式延期；新增失败处理、长期阻塞与数据升级边界见 [M5 PARTIAL 本地说明](M5_PARTIAL_LOCAL_USAGE.md)。DelveForge 自举及 GS REST 外部仓库各已有一个真实 Verified Step；前者详见 [真实案例](validation/m4-real-provider-verified-evolution-smoke.md)，两例证据与最新代码的验证边界见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。本文提供可迁移的运行方式，不承诺其它仓库一次成功。
 
 ## 1. 适用仓库与运行环境

@@ -127,7 +127,7 @@ cd DelveForge
 根据提示输入 **DeepSeek API Key**，其余配置直接回车即可使用默认值。
 
 从仓库根目录启动时，SQLite 默认固定为 `data/delveforge.db`，不需要每次设置数据库环境变量。
-当前代码由 Flyway 向前迁移至 V25，正常重启复用原库。V25 会归档旧 M4/M5 执行行并停用相关计划，保留原代码副本与其他业务数据；升级前请备份原库。开发验收使用独立数据库，不覆盖默认数据。迁移与恢复说明见 [Agent 运行说明](docs/AUTONOMOUS_AGENT.md)。
+当前代码由 Flyway 向前迁移至 V25，正常重启复用原库。**已有数据库升级前，先停止应用并备份数据库和全部托管 WorkingCopy（包括历史 roots）**；V25 会归档旧 M4/M5 执行行并停用相关计划，保留代码副本与其他业务数据。首次启动即可能迁移，不要先启动再备份。步骤见 [升级与本地运行](docs/AUTONOMOUS_AGENT.md#local-startup-and-upgrade)。开发验收只使用独立数据库。
 切换到此新环境前先确认旧请求结束并正常停止旧服务；保留原浏览器存储，使用独立的 Edge 配置文件访问页面，不能清除未知执行标记来绕过等待。
 
 脚本会自动检查环境、构建后端、安装前端依赖，并启动 Spring Boot 和 Vite。首次运行需要联网下载相关依赖。
@@ -158,7 +158,7 @@ cd DelveForge
 
 如果 PowerShell 阻止运行脚本，请先确认脚本来源，并通过 `Get-ExecutionPolicy -List` 检查执行策略。不要直接永久放宽系统安全策略。
 
-需要手动启动前后端、调整环境变量或管理历史 WorkingCopy 时，请参考 [M4 Local Usage](docs/M4_LOCAL_USAGE.md)。
+需要手动启动前后端、调整环境变量或管理历史 WorkingCopy 时，请参考 [当前运行说明](docs/AUTONOMOUS_AGENT.md#local-startup-and-upgrade)。后端和 Vite 默认仅监听本机；开发 HTTP 接口没有用户认证或多租户隔离，不应直接暴露到不受信任网络。
 
 ## 📦 Demo Repositories
 
@@ -198,7 +198,7 @@ cd gs-rest-service
 .\mvnw.cmd verify
 ```
 
-首次执行可能需要联网下载 Maven 依赖，也有助于准备后续离线验证所需的依赖缓存。
+首次执行可能需要联网下载 Maven 依赖。这是用户自己的基线检查；Agent 使用独立的 Docker-managed Central 缓存与每 Run Maven repository，不继承宿主机 `.m2`。
 
 其他两个 Demo 的操作方式相同，只需替换 Bundle 文件名及目标目录。
 
@@ -224,7 +224,9 @@ Demo 的来源、固定 Git Revision、SHA-256 和许可说明见 [Demo Catalog]
 
 ## 🧪 Experimental Code Evolution
 
-DelveForge 曾完成过两次真实 Provider 驱动的受控代码演化：
+当前 Agent/Delivery 路径已有一次真实 Provider 驱动的两 Step 交付：在固定版本的公开 GS REST 仓库上，逐 Step 确认并启动，分别通过 6 / 8 项最终测试，第二步基线等于第一步正式 commit。M1–M3 输入为夹具事实；该结果不是全流程真实对话验收。运行及 2026-10-23 审查修复证据见 [Task 2 验收](docs/validation/task2-autonomous-evolution.md)。
+
+以下两例属于已退役 M4 路径的历史 Provider 验证：
 
 | 案例 | 历史验证结果 |
 | --- | --- |
@@ -250,6 +252,7 @@ DelveForge 曾完成过两次真实 Provider 驱动的受控代码演化：
 - **Experimental Evolution**：代码修改与验证主要针对受信任的小型 Java/Maven 仓库，即使是 Demo 或历史成功过的仓库也不保证再次演化成功。
 - **Limited Verification**：支持受控 Maven 检查和 JDK 17/21；仅支持公开 Central 依赖，不承诺私库、外部服务或任意构建工具。NOT_TESTED 保留实际含义，已知未解决失败会阻止接受。
 - **Docker Required**：项目构建在无网络、非 root 的受限 Docker 容器中执行；正式 Git 交付由系统控制，原始仓库保持只读。
+- **Native Delivery**：正式写入支持具备所需原生 API 的 Windows 和 Linux x86-64；其它平台或能力不可用时拒绝交付。Linux 证据是 29 项交付补验，完整后端验收运行在 Windows，并非完整 Linux 产品验收。
 - **Conservative Recovery**：已知 A/B/C 截面可恢复交付；部分写入、外部改动或未知现场保留为 RECOVERY_REQUIRED，不自动清理或覆盖。
 
 ## 🛠️ Tech Stack
@@ -275,7 +278,8 @@ DelveForge 使用 Maven 多模块架构，将领域规则、应用编排和外�
 
 - [Product Design](docs/PRODUCT.md) · [Architecture](docs/ARCHITECTURE.md) · [Domain Model](docs/DOMAIN_MODEL.md)
 - [Roadmap](docs/ROADMAP.md) · [Architecture Decisions](docs/decisions/)
-- [Local Usage](docs/M4_LOCAL_USAGE.md) · [Demo Catalog](docs/demos/README.md)
+- [Current Local Usage](docs/AUTONOMOUS_AGENT.md) · [Demo Catalog](docs/demos/README.md)
+- [Local Closeout / Final Review](docs/validation/autonomous-evolution-local-closeout.md)
 - [Frontend Guide](frontend/README.md) · [Validation Records](docs/validation/)
 - [Task G UI Closeout](docs/validation/task-g-final-frontend-closeout.md)
 

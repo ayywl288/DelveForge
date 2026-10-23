@@ -2,14 +2,22 @@
 
 Vue 3 + TypeScript + Vite + pnpm。项目工作台与五阶段界面调用当前后端 REST API，没有模拟运行结果或浏览器内 Provider 客户端。
 
-**Task G：DONE / ACCEPTED / FROZEN（2026-10-12，当前发行版 UI）。** 用户已接受 Graphite + Indigo
+**当前自主演化界面（2026-10-23）：** M1–M3 的画像、仓库、方向和规划保留；实施页已替换为
+逐 Step 确认并启动 Agent、持久化 SSE 活动、冻结 Candidate 差异和独立 Delivery 状态。
+后端正式接受 Git commit 后 Step 才成功；后续 Step 仍需分别确认和启动。
+最新测试证据与范围见 [Task 2 审查修复](../docs/validation/task2-autonomous-evolution.md)；
+本次收尾复验另见 [本地收尾](../docs/validation/autonomous-evolution-local-closeout.md)。
+
+**历史 Task G：DONE / ACCEPTED / FROZEN（2026-10-12，当时发行版 UI）。** 用户已接受 Graphite + Indigo
 和六页交互结构，少量视觉不足有意延后。最终实现 `dd3d24e` 已本地整合至 main，前端 123 项测试、
 typecheck / build PASS；[最终关闭与复盘](../docs/validation/task-g-final-frontend-closeout.md) 区分
 合成 UI 验证、真实业务 E2E 和部署验收。后两者未由本次 UI 接受确立，不自动发起新 UI 任务。
 
 ## 本地启动
 
-先按 [M4 本地使用](../docs/M4_LOCAL_USAGE.md) 启动后端。API Key 只配置在后端，不写入前端 `.env`、聊天或浏览器。数据库与 Workspace 由后端配置，不依赖历史 Smoke ID。
+先按 [当前运行及升级说明](../docs/AUTONOMOUS_AGENT.md#local-startup-and-upgrade) 启动后端。
+已有数据库第一次启动前先备份数据库和全部托管 WorkingCopy，Flyway 会迁移到 V25 并归档旧执行。
+API Key 只配置在后端，不写入前端 `.env`、聊天或浏览器。数据库与 Workspace 由后端配置，不依赖历史 Smoke ID。
 
 要求 Node.js `^20.19.0 || >=22.12.0`、`pnpm@12.9.1`，使用提交的 `pnpm-lock.yaml`：
 
@@ -21,7 +29,25 @@ pnpm dev
 
 打开 `http://127.0.0.1:5173`。Vite 绑定本机，`/api` 默认代理到 `http://127.0.0.1:8080`。其它后端端口可在启动前设置 `$env:BACKEND_DEV_URL = 'http://127.0.0.1:18080'`；变量没有 `VITE_` 前缀，不进入浏览器产物。
 
-代理 `timeout` / `proxyTimeout` 为 0；所有 AI POST 与 execute 都没有客户端短期限或自动重试，GET 最多等待 15 秒。`pnpm build` 产出 `dist/`，`pnpm preview` 只预览静态文件，**没有 /api 开发代理**。正式静态托管与同源反向代理尚未交付。
+代理 `timeout` / `proxyTimeout` 为 0；AI/Agent POST 没有客户端短期限或自动重试，GET 最多等待 15 秒。
+`pnpm build` 产出 `dist/`，`pnpm preview` 只预览静态文件，**没有 /api 开发代理**。
+后端开发接口没有用户认证，后端与 Vite 均保持 loopback；正式静态托管与同源反向代理尚未交付。
+
+## 当前 Agent 操作与恢复
+
+完成 M1 画像确认、M2 只读分析与方向选择、M3 规划与 WorkingCopy 准备后，在实施页审阅一个 Step，
+明确确认并启动。Run、Step、Delivery 分别展示；失败或取消的 Run 可显式新建尝试，成功冻结后不重复编码。
+`NOT_TESTED` 保留原义；已知未解决失败不能交付。目标 Maven 可嵌套，检查由 Docker 镜像内 JDK 17/21 与 Maven 执行。
+
+页面用 Run identity 读历史和 `/api/agent-runs/{id}/stream`；SSE 事件来自 SQLite，按 sequence 去重并在重连时续读。
+切换 Step/Run、离开页面会关闭旧订阅，旧动作、确认和 diff 响应按上下文身份丢弃；后端已提交工作不会因切页取消，
+返回后重新读取持久化事实。显式取消调用 cancel API，不通过清浏览器存储模拟取消。
+
+Delivery 自动消费现有 Candidate；明确阻塞可请求重新核对。`RECOVERY_REQUIRED` 保留现场与预约，
+只有原因 `MUTATION_NOT_STARTED` 且外部冲突已处理、干净 A 与授权重新证明时才提供有限显式重试。
+其它未知/部分写入不能从 UI 清理、硬重置或强制标成功。当前协议详见 [运行合同](../docs/AUTONOMOUS_AGENT.md)。
+
+下文项目导航仍提供背景说明；标注 Task G 历史的操作、等待标记、旧错误码和验收计数均只描述当时版本。
 
 ## 项目工作台
 
@@ -40,7 +66,7 @@ pnpm dev
 旧的 UUID 输入恢复保留在「高级调试」中。关联缺失、历史 Root 未允许、目录缺失或画像
 版本已变化会显示具体问题。只读目录预检不检查 Git HEAD，执行仍由完整后端守卫判断。
 
-## 五阶段手动验收
+## 五阶段手动验收（Task G 历史）
 
 | 阶段 | 用户操作 | 实际接口与决定 |
 |---|---|---|
@@ -55,7 +81,7 @@ AI 操作会调用付费 Provider，只在实际获得授权后验收。本次�
 
 只使用用户明确授权、受信任、小型 Java / Maven Git 仓库；需根目录 Wrapper 和已缓存的离线构建、测试能力。现有 BUILD / TEST / FOCUSED_TEST / DIFF_CHECK 场景及限制见 [M4 本地使用](../docs/M4_LOCAL_USAGE.md)。Windows 插件与测试在宿主运行，WorkingCopy 不是 OS 沙箱。
 
-## 刷新、断线与长请求
+## 刷新、断线与长请求（Task G 历史）
 
 - 同一项目内切换阶段保留未发送草稿；切换项目清除上一项目视图和聊天，刷新会丢失草稿和聊天。已知业务对象用 GET 恢复，不重放命令。
 - `delveforge.project.v1` 只保存活动项目 ID。`delveforge.session.v1` 仍只保存对象 ID，供高级恢复兼容；数据库与浏览器 origin 必须对应。新 origin 也可从后端工作台直接选择历史。
@@ -88,6 +114,8 @@ pnpm build
 
 Vitest + jsdom 是开发测试依赖，用于 DTO、Vue 表单决策、版本冲突、刷新、超过 702 秒的等待、断线、锁和存储失败验证。没有增加路由、状态管理或大型 UI 库。
 
+上述测试说明包含旧验收背景；当前套件另外覆盖 Agent/Delivery/SSE 与延迟响应隔离，实际计数见最新 Task 2 报告。
+
 ```text
 src/App.vue             项目导航、状态与高级 ID 恢复
 src/views/              项目工作台与五阶段结构化视图
@@ -96,6 +124,10 @@ src/api/                Controller DTO 与 HTTP 调用
 src/state/session.ts    上下文隔离、ID 恢复、等待与只读轮询
 tests/                  自动化合成夹具，非真实 Provider 证据
 ```
+
+## 历史 Task G 布局与接口验收记录
+
+以下 API 限制与执行流程保留其历史时点含义，当前 Agent 操作以上文为准。
 
 G1 共享视觉采用石墨灰导航、浅色画布和靛蓝操作色，业务成功、等待、执行及错误状态保留
 独立颜色与文字。App 区分工作空间导航和当前项目的五阶段导航；窄屏阶段导航可横向浏览。

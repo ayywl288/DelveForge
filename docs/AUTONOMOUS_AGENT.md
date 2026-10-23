@@ -1,7 +1,86 @@
 # Autonomous Coding Agent and Delivery
 
 本路径以 [ADR-0012](decisions/0012-autonomous-agent-sandbox-and-frozen-candidate.md) 为设计依据。
-运行证据独立记录在 [验收报告](validation/task1-autonomous-agent.md)。Candidate 冻结不等于正式 Delivery。正式交付依据 [ADR-0013](decisions/0013-frozen-candidate-delivery.md)。
+Task 1 历史证据记录在 [核心验收](validation/task1-autonomous-agent.md)。Candidate 冻结不等于正式 Delivery。
+正式交付依据 [ADR-0013](decisions/0013-frozen-candidate-delivery.md)；当前实现证据以
+[Task 2 验收的 2026-10-23 审查修复](validation/task2-autonomous-evolution.md) 为准。
+
+## Local startup and upgrade
+
+DelveForge 自身要求 **JDK 21、Git CLI**；前端要求 **Node.js `^20.19.0 || >=22.12.0`、pnpm 12.9.1**。
+项目自带 Maven Wrapper。Agent 另需下节的 Linux Docker Engine 与可信镜像；目标项目支持的受控 JDK 是 **17/21**，
+不是把 DelveForge 自身切换到 Java 17。正式 Delivery 原生边界支持 Windows 和 Linux x86-64；其它平台、
+缺失原生 API 或不支持的路径/文件类型均失败关闭。完整后端证据来自 Windows，Linux 仅有交付矩阵补验。
+
+### Existing database: back up before first start
+
+应用启动时自动运行 Flyway，目前到 **V25**。V22/V23 增加 Agent/Candidate 与保留意图修复；
+V24 增加 Delivery 日志；V25 将有旧执行事实的原始 Step 行归档到 `legacy_evolution_execution`，
+将相关 Plan 标为 SUPERSEDED、其 Steps 标为 CANCELLED。它不把旧成功转换为新 Delivery，
+不删除原始仓库、WorkingCopy 文件、画像、分析或冻结 Candidate。未经旧执行的规划保留。
+
+已有数据的首次升级应按以下顺序手动进行；本次开发验证不执行真实用户库升级：
+
+1. 核对没有未决操作，正常停止后端及其执行资源；未知占用或材料仍需先人工核对，不能清标记绕过。
+2. 备份实际配置的 SQLite 数据库，使用 SQLite `Connection.backup` 等一致备份 API，验证备份可打开且
+   `PRAGMA integrity_check` 为 `ok`。不要只复制可能仍有 WAL 的主 `.db` 文件。
+3. 在停止写入的状态下，完整备份所有托管 WorkingCopy roots（包括 `existing-roots`、隐藏 `.git`、
+   未跟踪文件与恢复材料），并保留 Agent root 中的留存材料、旧配置和可回退的应用包。
+4. 核对备份可恢复，再明确选择真实库启动。如先用副本试验升级，必须隔离数据库与所有路径绑定，
+   不能启动仍指向原 WorkingCopy 的克隆库。数据库与代码副本必须成组保留，不能只回退一边。
+
+正常重启复用所选数据库，不清库或搬移历史副本。旧 M4/M5 使用文档只作历史参考。
+
+### Build and launch
+
+从仓库根目录构建；Windows 可使用 `setup-delveforge.ps1` 交互启动。手动方式如下（PowerShell 7）：
+
+```powershell
+.\mvnw.cmd verify
+# 已有上述产物时无需再次打包。首次试用请选择不存在的隔离数据库路径。
+$localRunRoot = Join-Path $env:LOCALAPPDATA 'DelveForge\agent-local'
+$env:DELVEFORGE_PERSISTENCE_DATABASE_FILE = Join-Path $localRunRoot 'application.db'
+$env:DELVEFORGE_WORKSPACE_ROOT = Join-Path $localRunRoot 'workspaces'
+$env:DELVEFORGE_AGENT_ROOT = Join-Path $localRunRoot 'agent-runs'
+$env:DELVEFORGE_LOG_DIR = Join-Path $localRunRoot 'logs'
+$env:DEEPSEEK_API_KEY = Read-Host 'DeepSeek API Key' -MaskInput
+java -jar backend/delveforge-app/target/delveforge-app-0.1.0-SNAPSHOT.jar
+```
+
+另开终端运行前端：
+
+```powershell
+cd frontend
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+默认后端 `127.0.0.1:8080`，Vite `127.0.0.1:5173` 代理 `/api`。端口可用 `SERVER_PORT` 和前端的
+`BACKEND_DEV_URL` 对应调整。默认库为仓库启动目录下 `data/delveforge.db`；默认副本为 `data/workspaces`。
+模型和 endpoint 使用后端 `delveforge.ai.deepseek.model/base-url` 配置；API key 仅放后端进程环境，
+不放前端、源码、日志或启动参数。停止后可移除该终端的 key 环境变量。正常启动不需要 `m4-local` profile。
+
+这些是本机开发 HTTP 接口，**没有用户登录认证、多租户隔离或部署安全保证**。保持 loopback，
+不要直接暴露到不受信任网络；`pnpm preview` 只有静态预览，没有开发 API 代理。
+
+### Use an existing Java/Maven repository
+
+在项目工作台创建流程，经 M1 审阅确认画像，M2 登记本地 Git 仓库并如实填写读取权限、许可证与使用授权，
+完成只读分析并选择方向；M3 生成计划，准备独立 WorkingCopy 并激活。原仓库应已提交且干净，分析固定到 revision。
+目标可为根或嵌套 Maven 工程；不要求目标仓库 Maven Wrapper，检查使用可信镜像内 Maven。
+先审阅一个 Step 的 goal/scope/plannedChanges，明确确认，再在实施页启动 Agent；不会自动确认或启动后续 Step。
+失败 Run 可显式创建新尝试；已有成功 Candidate 时消费其交付结果，不重新编码。
+
+Run、Candidate、Delivery 与事件分别保存在所选 SQLite 的 `agent_run`、`agent_candidate`、
+`candidate_delivery`、`agent_event` 中；冻结 diff 为数据库 BLOB，正式 commit 与源码在对应 WorkingCopy。
+临时沙箱和保留材料位于配置的 Agent root 及该 Run 的 Docker 资源，不能当作可随意清理的缓存。
+页面和下文 REST/SSE 可读取真实历史、测试范围、冻结差异与交付原因。
+DELIVERY_BLOCKED 表示已知阻塞，可处理原因后显式重新核对；RECOVERY_REQUIRED 表示现场不能证明安全，
+保留预约和材料，不 reset/clean。只有下文规定的 MUTATION_NOT_STARTED 冲突具备有限的显式重试路径。
+
+普通复验为根目录 `.\mvnw.cmd verify` 与前端 `pnpm test`、`pnpm typecheck`、`pnpm build`，
+没有独立 lint 脚本。Docker、公开仓库兼容性和 Provider 均有单独门控；具体命令及证据范围见
+[Task 2 Reproduction](validation/task2-autonomous-evolution.md#reproduction)。普通验证的门控跳过不算真实通过。
 
 ## Ownership and invocation
 

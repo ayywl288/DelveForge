@@ -1,5 +1,9 @@
 # 本地测试数据归档与环境切换
 
+当前自主演化版本启动会迁移到 **V25**。已有库第一次启动前，必须先核对未决工作并备份
+数据库和全部托管 WorkingCopy（包含历史 roots）；详见 [当前升级步骤](AUTONOMOUS_AGENT.md#local-startup-and-upgrade)。
+下文 Task G / Pre-UI 路径和维护记录属于历史环境，不授权清理或重建现在的数据。
+
 本说明只提供手动步骤；Pre-UI Closeout 没有执行备份、切库或清理。
 旧库 `data/m4-local/delveforge.db` 保留，新的 Task G 数据库使用独立路径。
 以下 PowerShell 7 示例从 `E:\develop\DelveForge` 运行；E 盘路径是可替换示例，
@@ -9,10 +13,10 @@
 
 正常启动直接使用 `application.yml`，不再激活 `m4-local`。默认数据库为
 `./data/delveforge.db`；在本机仓库根目录启动，实际路径为
-`E:\develop\DelveForge\data\delveforge.db`。空库首次初始化到 V21，之后固定复用；正常启动不负责清库或搬走旧文件。
+`E:\develop\DelveForge\data\delveforge.db`。当前空库初始化到 V25，已有库启动会按需向前迁移；正常启动不负责清库或搬走旧文件。
 
-本次本机维护会先用 SQLite backup API 保存并验证旧默认库的一致归档，再单独受控移走旧 DB 及存在的 WAL/SHM，最后创建新的默认库。归档位置与逐项结果记录在本次维护报告中。
-其它历史库，尤其 `data/m4-local/delveforge.db`，以及旧 WorkingCopy 不随此步骤变化。八份原配置草稿也先保存副本；不会用 Git reset 覆盖它们。
+2026-10-19 的历史维护使用 SQLite backup API 验证归档后受控重建过默认库，当时初始化到 V21。
+这不是当前升级步骤，也不授权再次重建。其它历史库及 WorkingCopy 当时原地保留；现在同样不自动清理。
 
 日常从仓库根目录运行 `.\setup-delveforge.ps1`，不必每次设置数据库路径。脚本临时隔离继承的应用覆盖项，退出时恢复调用终端；选择自定义路径仍有效。手动 JAR 启动则受命令行、JVM 属性、环境变量、额外 Spring 配置及工作目录影响；不能把旧进程或旧 JAR 误认为新配置已经生效。
 

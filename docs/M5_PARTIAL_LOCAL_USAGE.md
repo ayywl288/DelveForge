@@ -1,5 +1,9 @@
 # M5 PARTIAL 本地使用与数据边界
 
+> **历史版本：** 本文保留 M5 PARTIAL / V21 当时的操作与延期决定。
+> 当前 Task 2 已替代旧执行链，并提供有界的 Git/SQLite Delivery 恢复；不是旧 Repair/Rollback 的继续实现。
+> 当前启动与 V25 升级备份要求见 [Agent 运行说明](AUTONOMOUS_AGENT.md#local-startup-and-upgrade)。
+
 本文适用于包含 M5-A～E 与 V21 migration 的候选版本。M5 为 **PARTIAL**，Recovery 写入正式延期；本地合并、发布和真实用户数据库升级各需各自的验收与授权。最终验收记录见 [M5 Final Acceptance](validation/m5-final-acceptance-20261017.md)。历史 M4／各 Slice 报告只证明其各自版本及当时的验证范围。
 
 ## 已实现的有限失败处理
