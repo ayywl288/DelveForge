@@ -1,10 +1,83 @@
 # Repository compatibility and automatic preparation
 
-Status: **READY_FOR_FIRST_REAL_EVOLUTION** on the isolated implementation branch. Independent review is still required before merge.
+Status: **READY_FOR_FIRST_REAL_EVOLUTION** at implementation level. Both c0b48da review findings are repaired and verified; the new commit is ready for independent re-review.
 
 Branch: `codex/repository-compatibility`; worktree: `E:\develop\DelveForge-worktrees\repository-compatibility`.
 Base: `b174bf0996b190de5ca784309fec5185ef7b8ca0`. No merge/push or real user database migration.
 All paid Provider gates remain closed. Preparation never confirms or starts a Step.
+
+## Review remediation — 2026-10-24
+
+Reviewed version: `c0b48daeb1fcb8396381eae5c64b74b29090108e`, verdict CHANGES_REQUIRED.
+This repair changes only Infrastructure selection/preparation/provenance code, their two regression test
+classes, and this report. No Domain, persistence, API/UI, Docker image contents, dependencies or authorization
+semantics changed. The original 65-file list below is cumulative relative to main, not this repair's diff.
+
+- **Controlled JDK fallback:** preserve the existing automatic preference while it is configured and meets
+  both the Java language level and minimum build JVM. Otherwise select an available supported 17/21 image
+  satisfying both requirements. Explicit incompatible choices still fail; no qualifying image still fails.
+  Regressions cover default 17 with Java 18/19/20 and both images, explicit incompatible 17, a missing
+  recommended 17 image with available 21, and no suitable configured image.
+- **Literal directory ignore metadata:** query the actual generated directory with a trailing slash, rather
+  than a dot-file probe. Escape Gitignore wildcard/bracket/backslash characters in anchored directory rules;
+  the existing provenance verifier uses the same rule construction. Actual Git preparation regressions
+  cover `**/.*`, `service[1]`, reversed brackets and a module name containing spaces/`!`/`#`. They check
+  regenerated ordinary output is ignored, unrelated `service1/target/customer.json` is not ignored or
+  changed, source snapshots/HEAD stay unchanged, and a recreated adapter accepts the recorded provenance.
+
+Before changing production code, the nine new regression invocations produced four assertion failures,
+four JDK selection errors and one expected no-suitable-image pass (`data/compatibility/review-fixes-red.log`).
+The three Java 18/19/20 failures and both reported ignore scenarios were reproduced through the actual
+selector and production Git preparation code. No old assertion was weakened or test disabled.
+
+Fresh focused repair verification passed: 36 total, **34 executed / 2 skipped**, zero failures/errors
+(`data/compatibility/review-fixes-focused.log`). This includes all ten MavenJdkSelectorTest invocations,
+eighteen executed compatibility Git invocations (including all four new ignore cases), PreparedCandidateDeliveryTest
+and five provisioning diagnostics cases. The two skipped compatibility invocations require the separate
+FinTrack/public-clone properties; they were not enabled in this repair run.
+
+The complete deterministic backend **`mvnw.cmd -o verify` passed** at 2026-10-24 22:52:53 +08:00,
+12:56 elapsed, with all four modules successful and the application JAR repackaged
+(`data/compatibility/review-fixes-verify.log`). All 159 XML reports were written after this invocation began;
+these totals come from this single run, not combined targeted runs.
+
+| Module | Total | Actually executed | Skipped | Failures / errors |
+| --- | ---: | ---: | ---: | ---: |
+| Domain | 205 | 205 | 0 | 0 / 0 |
+| Application | 764 | 764 | 0 | 0 / 0 |
+| Infrastructure | 439 | 411 | 28 | 0 / 0 |
+| App | 209 | 206 | 3 | 0 / 0 |
+| **Total** | **1617** | **1586** | **31** | **0 / 0** |
+
+The 31 skipped invocations are not passing evidence:
+
+- Four paid-model cases: CodingAgentLiveTest, SpringAiAgentModelLiveTest, AutonomousEvolutionLiveTest,
+  RealRepositoryEvolutionLiveTest (one each).
+- Twenty-four optional actual-Docker cases: DockerAgentSandboxTest (12), DockerMavenCompatibilityTest (2),
+  DockerProxyIsolationTest (1), DockerRetentionRecoveryTest (4), DockerSandboxProtocolTest (2),
+  PublicRepositoryBaselineLiveTest (1), RepositoryPreparationDockerTest (2).
+- Three public-clone property cases: RepositoryCompatibilityIntegrationTest (2),
+  WorkingCopyActivationApiIntegrationTest (1). These require separately configured FinTrack/public clone
+  locations and were not enabled; the other normal API preparation/authorization/provenance tests ran.
+
+Paid gates DELVEFORGE_AGENT_E2E, DELVEFORGE_AGENT_LIVE, DELVEFORGE_TASK2_E2E, DELVEFORGE_REAL_STEP and Docker gates
+DELVEFORGE_AGENT_DOCKER, DELVEFORGE_REPOSITORY_COMPATIBILITY_DOCKER, DELVEFORGE_AGENT_COMPATIBILITY,
+DELVEFORGE_REAL_BASELINE were explicitly false; DELVEFORGE_SANDBOX_PROTOCOL_IMAGE and
+DELVEFORGE_SANDBOX_LEGACY_IMAGE were unset. No public-clone system properties were supplied.
+The fresh XML archive is `data/compatibility/review-fixes-verification-xml/` and its separate totals are in
+`review-fixes-verification-summary.json`; original acceptance logs and JSON records are retained.
+
+The retained c0b48da frontend/Python/PowerShell/actual-Docker evidence below is historical; this repair does
+not claim those suites or the real FinTrack Docker baseline were rerun. No task-specific unresolved defect
+is known after these checks. Independent re-review remains the requested next step; no merge, push, paid
+Provider call, real database migration or original-repository modification was performed.
+
+Focused reproduction with the above gates closed (no public-clone properties):
+
+```powershell
+.\mvnw.cmd -o -pl backend/delveforge-infrastructure -am "-Dtest=MavenJdkSelectorTest,RepositoryCompatibilityIntegrationTest,PreparedCandidateDeliveryTest,WorkingCopyProvisioningDiagnosticsTest" "-Dsurefire.failIfNoSpecifiedTests=false" test
+.\mvnw.cmd -o verify
+```
 
 ## Restriction audit and disposition
 
@@ -81,7 +154,7 @@ FinTrack entered production sandbox preparation without the former generated-out
 
 Additional public-clone reports: `data/compatibility/public-repository-matrix.json`. These are independent untouched clones; no per-repository source special cases exist.
 
-## Verification record
+## Original implementation verification (c0b48da; historical)
 
 The final **single complete** Maven Wrapper invocation passed at 2026-10-24 21:59:50 +08:00
 (`backend-verify-complete.log`, 27:09). All four modules passed and the final application JAR was repackaged.

@@ -6,6 +6,8 @@ import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicR
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -69,6 +71,57 @@ class RepositoryCompatibilityIntegrationTest {
         assertTrue(compatibility.inspect(copy, prepared.revision()).report().supported());
         adapter.discard(prepared);
         assertFalse(Files.exists(copy));
+    }
+
+    @Test
+    void dotFileIgnoreDoesNotStandInForIgnoringTheGeneratedDirectory() throws Exception {
+        Path source = repositories.createCommitted("original", Map.of(".gitattributes", "* -text\n",
+                "backend/pom.xml", POM, "backend/src/main/resources/config.txt", "resource\n",
+                "backend/target/classes/config.txt", "resource\n"));
+        GitTestRepositories.writeFile(source, ".gitignore", "**/.*\n");
+        GitTestRepositories.runGit(source, "add", "-f", "--", ".gitignore");
+        GitTestRepositories.commit(source, "ignore dot files only");
+        String original = GitTestRepositories.headRevision(source);
+        var before = GitTestRepositories.snapshot(source);
+        Path managed = repositories.directory("managed");
+        var adapter = new GitWorkspaceAdapter(managed);
+        var prepared = adapter.provision(new WorkspaceRef(source.toString()), original, "copy");
+        Path copy = Path.of(prepared.workspace().value());
+
+        assertEquals("**/.*\n/backend/target/\n", Files.readString(copy.resolve(".gitignore")));
+        assertFalse(CompatibilityGit.text(copy, null, Map.of(), "check-ignore", "--no-index", "--",
+                "backend/target/rebuilt.txt").isEmpty());
+        new GitWorkspaceAdapter(managed).requirePreparationProvenance(prepared.workspace(), prepared.provenance());
+        assertEquals(before, GitTestRepositories.snapshot(source));
+        assertEquals(original, GitTestRepositories.headRevision(source));
+        adapter.discard(prepared);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"service[1]", "service]1[", "service !# [1]"})
+    void generatedIgnoreRulesTreatModuleNamesAsLiteralPaths(String module) throws Exception {
+        Path source = repositories.createCommitted("original", Map.of(".gitattributes", "* -text\n",
+                module + "/pom.xml", POM, module + "/src/main/resources/config.txt", "resource\n",
+                module + "/target/classes/config.txt", "resource\n",
+                "service1/target/customer.json", "{\"business\":true}\n"));
+        String original = GitTestRepositories.headRevision(source);
+        var before = GitTestRepositories.snapshot(source);
+        Path managed = repositories.directory("managed");
+        var adapter = new GitWorkspaceAdapter(managed);
+        var prepared = adapter.provision(new WorkspaceRef(source.toString()), original, "copy");
+        Path copy = Path.of(prepared.workspace().value());
+
+        assertFalse(CompatibilityGit.text(copy, null, Map.of(), "check-ignore", "--no-index", "--",
+                module + "/target/rebuilt.txt").isEmpty());
+        assertEquals("", CompatibilityGit.text(copy, null, Map.of(), "check-ignore", "--no-index", "--",
+                "service1/target/customer.json"));
+        assertArrayEquals(Files.readAllBytes(source.resolve("service1/target/customer.json")),
+                Files.readAllBytes(copy.resolve("service1/target/customer.json")));
+        new GitWorkspaceAdapter(managed).requirePreparationProvenance(prepared.workspace(), prepared.provenance());
+        assertEquals("", GitTestRepositories.runGit(copy, "status", "--porcelain"));
+        assertEquals(before, GitTestRepositories.snapshot(source));
+        assertEquals(original, GitTestRepositories.headRevision(source));
+        adapter.discard(prepared);
     }
 
     @Test

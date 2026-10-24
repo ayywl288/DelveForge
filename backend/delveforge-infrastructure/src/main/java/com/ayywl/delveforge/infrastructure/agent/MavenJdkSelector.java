@@ -18,8 +18,15 @@ final class MavenJdkSelector {
         if (configured == null && layout.languageLevel() != 17 && layout.languageLevel() != 21) {
             chosen = properties.defaultJdk();
         }
-        if (!properties.images().containsKey(chosen) || chosen < layout.languageLevel()
-                || chosen < layout.minimumBuildJdk()) {
+        int required = Math.max(layout.languageLevel(), layout.minimumBuildJdk());
+        if (configured == null && (!properties.images().containsKey(chosen) || chosen < required)) {
+            chosen = properties.images().keySet().stream()
+                    .filter(jdk -> (jdk == 17 || jdk == 21) && jdk >= required)
+                    .sorted()
+                    .findFirst()
+                    .orElse(chosen);
+        }
+        if (!properties.images().containsKey(chosen) || chosen < required) {
             throw new AgentException("JDK_UNSUPPORTED", "所选受控 JDK 不满足 Maven 构建和语言级别要求。");
         }
         return chosen;

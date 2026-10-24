@@ -992,7 +992,8 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             }
             Set<String> allowed = new HashSet<>();
             for (String path : removed) {
-                allowed.add("/" + GitRepositoryCompatibility.generatedRoot(path, original.poms().keySet()) + "target/");
+                allowed.add(GitRepositoryPreparation.directoryIgnoreRule(
+                        GitRepositoryCompatibility.generatedRoot(path, original.poms().keySet()) + "target"));
             }
             String appended = new String(after, before.length, after.length - before.length, StandardCharsets.UTF_8);
             if (appended.lines().filter(line -> !line.isEmpty()).anyMatch(line -> !allowed.contains(line))) {

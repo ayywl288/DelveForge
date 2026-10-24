@@ -20,6 +20,12 @@ final class GitRepositoryPreparation {
     private GitRepositoryPreparation() {
     }
 
+    /** 锚定实际目录，避免模块名中的字符被 Gitignore 解释为通配模式。 */
+    static String directoryIgnoreRule(String directory) {
+        return "/" + directory.replace("\\", "\\\\").replace("*", "\\*").replace("?", "\\?")
+                .replace("[", "\\[").replace("]", "\\]") + "/";
+    }
+
     static PreparationProvenance prepare(Path target, GitRepositoryCompatibility.Inspection inspection) {
         var report = inspection.report();
         if (!report.preparationRequired()) {
@@ -48,9 +54,9 @@ final class GitRepositoryPreparation {
             List<String> ignore = new ArrayList<>();
             for (String root : roots) {
                 String ignored = CompatibilityGit.text(target, null, Map.of(), "check-ignore", "--no-index", "--",
-                        root + "/.delveforge-generated-probe");
+                        root + "/");
                 if (ignored.isEmpty()) {
-                    ignore.add("/" + root + "/");
+                    ignore.add(directoryIgnoreRule(root));
                 }
             }
             if (!ignore.isEmpty()) {

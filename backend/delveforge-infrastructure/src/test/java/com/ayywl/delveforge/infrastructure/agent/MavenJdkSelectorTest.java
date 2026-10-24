@@ -3,6 +3,8 @@ package com.ayywl.delveforge.infrastructure.agent;
 import com.ayywl.delveforge.application.agent.AgentException;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -18,6 +20,45 @@ class MavenJdkSelectorTest {
         var poms = Map.of("pom.xml", DockerAgentSandboxTest.pom(17).getBytes(StandardCharsets.UTF_8));
         assertEquals(17, selector.select(poms, null, DockerAgentSandboxTest.properties(Path.of("data/unused"))));
         assertEquals(21, selector.select(poms, 21, DockerAgentSandboxTest.properties(Path.of("data/unused"))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {18, 19, 20})
+    void automaticSelectionFallsBackFromDefault17ToConfigured21(int languageLevel) {
+        var defaults = DockerAgentSandboxTest.properties(Path.of("data/unused"));
+        var properties = new AgentSandboxProperties(defaults.root(), defaults.docker(), defaults.images(), 17,
+                defaults.owner(), defaults.cacheVolume(), defaults.memory(), defaults.cpus(), defaults.pids());
+        var poms = Map.of("pom.xml", DockerAgentSandboxTest.pom(languageLevel).getBytes(StandardCharsets.UTF_8));
+        var layout = com.ayywl.delveforge.infrastructure.workspace.MavenRepositoryLayout.inspect(poms);
+        var selector = new MavenJdkSelector();
+
+        assertEquals(21, layout.recommendedJdk());
+        assertEquals(21, selector.select(poms, null, properties));
+        assertEquals("JDK_UNSUPPORTED", assertThrows(AgentException.class,
+                () -> selector.select(poms, 17, properties)).code());
+    }
+
+    @Test
+    void automaticSelectionUsesAvailable21WhenRecommended17ImageIsAbsent() {
+        var defaults = DockerAgentSandboxTest.properties(Path.of("data/unused"));
+        var properties = new AgentSandboxProperties(defaults.root(), defaults.docker(),
+                Map.of(21, defaults.images().get(21)), 21, defaults.owner(), defaults.cacheVolume(),
+                defaults.memory(), defaults.cpus(), defaults.pids());
+        var poms = Map.of("pom.xml", DockerAgentSandboxTest.pom(17).getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(21, new MavenJdkSelector().select(poms, null, properties));
+    }
+
+    @Test
+    void automaticSelectionRejectsWhenNoConfiguredImageMeetsRequirements() {
+        var defaults = DockerAgentSandboxTest.properties(Path.of("data/unused"));
+        var properties = new AgentSandboxProperties(defaults.root(), defaults.docker(),
+                Map.of(17, defaults.images().get(17)), 17, defaults.owner(), defaults.cacheVolume(),
+                defaults.memory(), defaults.cpus(), defaults.pids());
+        var poms = Map.of("pom.xml", DockerAgentSandboxTest.pom(18).getBytes(StandardCharsets.UTF_8));
+
+        assertEquals("JDK_UNSUPPORTED", assertThrows(AgentException.class,
+                () -> new MavenJdkSelector().select(poms, null, properties)).code());
     }
 
     @Test
