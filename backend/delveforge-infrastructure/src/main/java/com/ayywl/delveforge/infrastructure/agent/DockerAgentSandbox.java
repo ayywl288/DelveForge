@@ -507,11 +507,18 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
         rejectPolicy(response, call.name().equals("apply_patch") ? AgentPolicyRejection.Stage.PATCH_APPLICATION
                 : AgentPolicyRejection.Stage.TOOL_EXECUTION);
+        requireCertainPatchOutcome(response);
         String safe = sanitizeNode(response).toString();
         if (safe.getBytes(StandardCharsets.UTF_8).length > session.limits.maxOutputBytes()) {
             return "{\"ok\":false,\"classification\":\"OUTPUT_LIMIT\",\"reason\":\"Request a smaller range\"}";
         }
         return safe;
+    }
+
+    static void requireCertainPatchOutcome(JsonNode response) {
+        if (response.path("classification").asText().equals("PATCH_OUTCOME_UNCERTAIN")) {
+            throw new AgentException("PATCH_OUTCOME_UNCERTAIN", "Patch application outcome could not be established");
+        }
     }
 
     private JsonNode sanitizeNode(JsonNode node) {

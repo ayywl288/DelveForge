@@ -24,7 +24,7 @@ const running = (): AgentRun => ({ id: "run-1", planId: "plan-1", stepId: "step-
   baseline: "a".repeat(40), state: "RUNNING", startedAt: "2026-10-22T01:00:00Z", endedAt: null, reason: null,
   candidateId: null, cancelRequested: false, retained: false, modelCalls: 2, toolCalls: 3, tokens: null });
 const cleanup: (() => void)[] = [];
-afterEach(() => { cleanup.splice(0).forEach(fn => fn()); Events.instances = []; vi.restoreAllMocks(); });
+afterEach(() => { cleanup.splice(0).forEach(fn => fn()); Events.instances = []; vi.restoreAllMocks(); vi.useRealTimers(); });
 async function settle() { for (let i = 0; i < 16; i++) { await Promise.resolve(); await nextTick(); } }
 function mount(history: AgentRun[] = []) {
   vi.stubGlobal("EventSource", Events);
@@ -103,7 +103,7 @@ it("correlated SSE activity updates in place and replay never duplicates a compl
   expect(row.getAttribute("data-tone")).toBe("completed");
   expect(row.querySelector(".activity-duration")?.textContent).toBe("15 ms");
   expect(row.querySelector(".activity-target")?.textContent).toBe("src/Counter.java");
-  expect(root.querySelector(".agent-usage-notice")?.textContent).toContain("取消不是暂停");
+  expect(root.querySelector(".agent-usage-notice")?.textContent).toContain("停止不是暂停");
   expect(row.textContent).not.toContain("RESULT");
 });
 
@@ -163,10 +163,59 @@ it("cancels the actual running identity and does not automatically retry a faile
   const cancel = vi.spyOn(api, "cancelAgent").mockResolvedValue({ ...running(), cancelRequested: true });
   const start = vi.spyOn(api, "startAgent");
   const { root } = mount([running()]); await settle();
-  button(root, "取消运行").click(); await settle();
+  button(root, "停止运行").click(); await settle();
   expect(cancel).toHaveBeenCalledExactlyOnceWith("run-1");
-  expect(button(root, "正在取消").disabled).toBe(true);
+  expect(button(root, "正在停止").disabled).toBe(true);
   expect(start).not.toHaveBeenCalled();
+});
+
+it("keeps one persistent stop control targeting the active Run while browsing historical activity", async () => {
+  const response=deferred<AgentRun>();
+  const historical:AgentRun={...running(),id:'old',state:'FAILED',reason:'historical-failure'};
+  const cancel=vi.spyOn(api,'cancelAgent').mockReturnValue(response.promise);
+  const {root}=mount([running(),historical]); await settle();
+  vi.mocked(api.agentRun).mockImplementation(async id=>id==='old'?historical:running());
+  chooseRun(root,1); await settle();
+  expect(root.querySelectorAll('.monitor-stop button')).toHaveLength(1);
+  expect(root.querySelector('.monitor-stop')?.closest('.run-summary')).toBeNull();
+  expect(root.querySelector('.monitor-stop')?.textContent).toContain('正在查看历史记录');
+  const stop=button(root,'停止运行'); stop.click(); stop.click(); await settle();
+  expect(cancel).toHaveBeenCalledExactlyOnceWith('run-1');
+  expect(stop.disabled).toBe(true);
+  expect(root.querySelector('.monitor-stop')?.textContent).toContain('停止请求发送中');
+  response.resolve({...running(),cancelRequested:true}); await settle();
+  expect(button(root,'正在停止').disabled).toBe(true);
+  expect(root.textContent).toContain('historical-failure');
+  expect(Events.instances.at(-1)?.url).toContain('old');
+});
+
+it("accepted cancellation stays pending through a stale poll and disappears only after an actual terminal state", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(api,'cancelAgent').mockResolvedValue({...running(),cancelRequested:true});
+  const {root}=mount([running()]); await settle();
+  button(root,'停止运行').click(); await settle();
+  expect(root.querySelector('.monitor-stop')?.textContent).toContain('停止请求已接受');
+  Events.instances.at(-1)!.fact(1,'MODEL_REQUEST','request=3'); await vi.advanceTimersByTimeAsync(200); await settle();
+  expect(button(root,'正在停止').disabled).toBe(true);
+  expect(root.querySelector('.activity-bar,.model-waiting')).toBeNull();
+  vi.mocked(api.agentRun).mockResolvedValue({...running(),state:'CANCELLED',cancelRequested:true});
+  Events.instances.at(-1)!.fact(2,'CANCELLED'); await vi.advanceTimersByTimeAsync(200); await settle();
+  expect(root.querySelector('.monitor-stop')).toBeNull();
+  expect(root.querySelector('.run-status')?.textContent).toContain('已取消');
+  expect(root.querySelector('.activity-bar,.is-active,.model-waiting')).toBeNull();
+});
+
+it("a poll started before cancellation cannot restore a terminal Run to running", async () => {
+  const poll=deferred<AgentRun>();
+  vi.spyOn(api,'cancelAgent').mockResolvedValue({...running(),state:'CANCELLED',cancelRequested:true});
+  const {root}=mount([running()]); await settle();
+  vi.mocked(api.agentRun).mockReturnValueOnce(poll.promise);
+  Events.instances.at(-1)!.onopen?.(); await settle();
+  button(root,'停止运行').click(); await settle();
+  expect(root.querySelector('.monitor-stop')).toBeNull();
+  poll.resolve(running()); await settle();
+  expect(root.querySelector('.monitor-stop')).toBeNull();
+  expect(root.querySelector('.run-status')?.textContent).toContain('已取消');
 });
 
 it("refresh reloads saved Run history and the event stream without issuing a business POST", async () => {
@@ -207,7 +256,7 @@ it("a late Cancel cannot replace another Run or its active subscription", async 
   const second: AgentRun = { ...running(), id: "run-2", state: "FAILED", reason: "selected-run-two" };
   const { root } = mount([running(), second]); await settle();
   vi.mocked(api.agentRun).mockImplementation(async id => id === second.id ? second : running());
-  button(root, "取消运行").click(); await settle();
+  button(root, "停止运行").click(); await settle();
   chooseRun(root, 1); await settle();
   const currentStream = Events.instances.at(-1)!;
   response.resolve({ ...running(), cancelRequested: true }); await settle();
@@ -225,16 +274,16 @@ it("a stale action error cannot clear the new selection's pending action or erro
   vi.spyOn(api, "cancelAgent").mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
   const { root } = mount([running(), second]); await settle();
   vi.mocked(api.agentRun).mockImplementation(async id => id === second.id ? second : running());
-  button(root, "取消运行").click(); await settle();
+  button(root, "停止运行").click(); await settle();
   chooseRun(root, 1); await settle();
-  expect(button(root, "取消运行").disabled).toBe(false);
-  button(root, "取消运行").click(); await settle();
+  expect(button(root, "停止运行").disabled).toBe(false);
+  button(root, "停止运行").click(); await settle();
   old.reject(new Error("stale failure")); await settle();
   expect(root.textContent).not.toContain("stale failure");
-  expect(button(root, "取消运行").disabled).toBe(true);
+  expect(button(root, "停止运行").disabled).toBe(true);
   fresh.reject(new Error("current failure")); await settle();
   expect(root.textContent).toContain("current failure");
-  expect(button(root, "取消运行").disabled).toBe(false);
+  expect(button(root, "停止运行").disabled).toBe(false);
 });
 
 it("a late Delivery cannot replace the selected Candidate or its Delivery", async () => {
@@ -284,7 +333,7 @@ it("background Candidate arrival invalidates an old Cancel result without strand
   vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
   vi.spyOn(api, "delivery").mockResolvedValue(null);
   const { root } = mount([running()]); await settle();
-  button(root, "取消运行").click(); await settle();
+  button(root, "停止运行").click(); await settle();
   vi.mocked(api.agentRun).mockResolvedValue({ ...running(), state: "SUCCEEDED", candidateId: "candidate-1" });
   Events.instances.at(-1)!.onopen?.(); await settle();
   expect(root.textContent).toContain("Agent：Candidate 已冻结");

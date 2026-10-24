@@ -58,6 +58,7 @@ public class CodingAgentConfiguration {
             AgentModelPort model, AgentSandboxPort sandbox, RepositorySecretPolicy secrets,
             AgentInstanceLock instanceLock, Environment environment) {
         AgentProtocol.Limits defaults = AgentProtocol.Limits.defaults();
+        // 模型/工具次数默认 0（只统计）；仅显式正数配置启用预算，其余资源限额始终保留。
         AgentProtocol.Limits limits = new AgentProtocol.Limits(
                 limit(environment, "max-model-calls", defaults.maxModelCalls()),
                 limit(environment, "max-tool-calls", defaults.maxToolCalls()),

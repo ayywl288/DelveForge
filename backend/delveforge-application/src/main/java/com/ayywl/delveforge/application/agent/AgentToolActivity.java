@@ -61,6 +61,14 @@ public final class AgentToolActivity {
                 summary.put("resultRecorded", true);
             }
             count(summary, response, "durationMs");
+            if (call.name().equals("apply_patch") && classification.equals("PATCH_CONFLICT")
+                    && details.path("mutationNotStarted").asBoolean()) {
+                summary.put("mutationNotStarted", true);
+                String reason = details.path("conflictReason").asText();
+                if (Set.of("CHANGE_ALREADY_PRESENT", "INVALID_DIFF", "PATH_STATE_MISMATCH", "CONTEXT_MISMATCH", "CHECK_FAILED").contains(reason)) {
+                    summary.put("conflictReason", reason);
+                }
+            }
             for (String key : List.of("tests", "executedTests", "skipped", "failures", "errors")) {
                 count(summary, details, key);
             }
@@ -95,6 +103,14 @@ public final class AgentToolActivity {
 
     public String failed(AgentProtocol.ToolCall call, String identity, RuntimeException failure, Long invocationDurationNs) {
         String classification = failure instanceof AgentException classified ? classified.code() : "INTERNAL_FAILURE";
+        if (failure instanceof AgentPatchCorrectionException) {
+            Map<String, Object> summary = base(call, identity);
+            summary.put("ok", false);
+            summary.put("resultRecorded", false);
+            summary.put("mutationNotStarted", true);
+            summary.put("classification", classification);
+            return encode(summary);
+        }
         return failed(call, identity, classification, invocationDurationNs,
                 failure instanceof AgentPolicyRejection rejection ? rejection : null);
     }

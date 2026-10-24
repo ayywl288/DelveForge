@@ -34,6 +34,10 @@ class CheckArgumentError(ValueError):
     pass
 
 
+class PatchOutcomeUnknown(Exception):
+    pass
+
+
 def credential_path(value):
     name = value.rsplit('/', 1)[-1].casefold()
     return (name in ('.env', '.npmrc', '.pypirc', '.netrc') or name.startswith('.env.')
@@ -372,15 +376,36 @@ def dispatch(name, args):
         command = ['git', '-c', 'core.autocrlf=false', '-c', 'core.hooksPath=/dev/null',
                    'apply', '--no-index', '--whitespace=nowarn']
         code, output = run_bounded(command + ['--check', '-'], patch.encode(), 10, 16000)
-        if code == 0:
-            code, output = run_bounded(command + ['-'], patch.encode(), 10, 16000)
+        if code != 0:
+            # --check 从未应用补丁；只返回固定诊断，不转发 Git 自由文本。
+            reverse, _ = run_bounded(command + ['--reverse', '--check', '-'], patch.encode(), 10, 16000)
+            reason = 'CHANGE_ALREADY_PRESENT' if reverse == 0 else (
+                'INVALID_DIFF' if 'corrupt patch' in output or 'unrecognized input' in output else
+                'PATH_STATE_MISMATCH' if 'No such file' in output or 'already exists' in output else
+                'CONTEXT_MISMATCH' if 'does not apply' in output or 'patch failed' in output else 'CHECK_FAILED')
+            endings = set()
+            for relative in paths:
+                if (ROOT / relative).is_file():
+                    content = text(path_for(relative))
+                    endings.add('CRLF' if '\r\n' in content and '\n' not in content.replace('\r\n', '')
+                                else 'MIXED' if '\r\n' in content else 'LF')
+            return {'classification': 'PATCH_CONFLICT', 'mutationNotStarted': True, 'conflictReason': reason,
+                    'paths': paths, 'sourceLineEndings': sorted(endings), 'snapshot': snapshot()['snapshot'],
+                    'instruction': '本次补丁未应用，已有修改保持不变。重新读取目标源码，核对行尾与上下文，再构造正确行数的补丁；不要重复相同补丁。'}
+        try:
+            code, _ = run_bounded(command + ['-'], patch.encode(), 10, 16000)
+        except OSError:
+            raise PatchOutcomeUnknown() from None
+        if code != 0:
+            raise PatchOutcomeUnknown()
         try:
             captured = snapshot()['snapshot']
         except PolicyError as error:
             error.stage = 'SOURCE_CAPTURE'
             raise
-        return {'classification': 'PATCH_APPLIED' if code == 0 else 'PATCH_CONFLICT',
-                'paths': paths, 'output': output, 'snapshot': captured}
+        except (OSError, ValueError, UnicodeError):
+            raise PatchOutcomeUnknown() from None
+        return {'classification': 'PATCH_APPLIED', 'paths': paths, 'snapshot': captured}
     if name == 'run_checks':
         return checks(args)
     raise PolicyError('UNKNOWN_TOOL', 'Unknown tool')
@@ -391,12 +416,14 @@ if __name__ == '__main__':
     try:
         request = json.loads(sys.stdin.buffer.read(524289))
         result = dispatch(request['name'], request.get('arguments', {}))
-        print(json.dumps({'ok': True, 'tool': request['name'], 'durationMs': int(
+        print(json.dumps({'ok': result.get('classification') != 'PATCH_CONFLICT', 'tool': request['name'], 'durationMs': int(
             (time.monotonic() - started) * 1000), 'result': result}, ensure_ascii=True))
     except CheckArgumentError as error:
         print(json.dumps({'ok': False, 'classification': 'INVALID_ARGUMENTS', 'checkStarted': False, 'reason': str(error)}))
     except PolicyError as error:
         print(json.dumps({'ok': False, 'classification': 'POLICY_REJECTED',
                           'policyRule': error.rule, 'policyStage': error.stage}))
+    except PatchOutcomeUnknown:
+        print(json.dumps({'ok': False, 'classification': 'PATCH_OUTCOME_UNCERTAIN'}))
     except (ValueError, OSError, UnicodeError, ET.ParseError) as error:
         print(json.dumps({'ok': False, 'classification': 'TOOL_ERROR', 'reason': type(error).__name__ + ': ' + str(error)[:300]}))

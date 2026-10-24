@@ -35,6 +35,12 @@ let stream: EventSource | undefined;
 let refreshTimer: ReturnType<typeof setTimeout> | undefined;
 const terminal = (item: AgentRun) => ["SUCCEEDED", "FAILED", "CANCELLED", "INTERRUPTED"].includes(item.state);
 const latest = computed(() => runs.value[0]);
+const activeRun = computed(() => run.value && !terminal(run.value) ? run.value : runs.value.find(item => !terminal(item)));
+const stopping = ref(new Set<string>());
+const stopAccepted = ref(new Set<string>());
+const stopError = ref("");
+const stopPending = computed(() => !!activeRun.value && stopping.value.has(activeRun.value.id));
+const stopConfirmed = computed(() => !!activeRun.value && (activeRun.value.cancelRequested || stopAccepted.value.has(activeRun.value.id)));
 const resourceBlocked = computed(() => events.value.some(event =>
   ["CLEANUP_BLOCKED", "RECONCILIATION_BLOCKED"].includes(event.kind)));
 const dockerPreparationFailed = computed(() => run.value?.state === "FAILED" && run.value.reason === "DOCKER_FAILURE"
@@ -79,6 +85,9 @@ function selection() {
     runId: run.value?.id, candidateId: candidate.value?.id };
 }
 type Selection = ReturnType<typeof selection>;
+function retainStopFact(item: AgentRun) {
+  return stopAccepted.value.has(item.id) && !terminal(item) ? { ...item, cancelRequested: true } : item;
+}
 function current(selected: Selection) {
   return active && selected.version === epoch && selected.planId === props.s.plan?.id
     && selected.stepId === step.value?.id && selected.runId === run.value?.id
@@ -91,8 +100,9 @@ async function updateStatus(version: number) {
   const belongs = () => active && version === epoch && scope.planId === props.s.plan?.id
     && scope.stepId === step.value?.id && selected.id === run.value?.id;
   try {
-    const actual = await api.agentRun(selected.id);
+    const actual = retainStopFact(await api.agentRun(selected.id));
     if (!belongs()) return;
+    if (run.value && terminal(run.value) && !terminal(actual)) return;
     run.value = actual;
     runs.value = runs.value.map(item => item.id === actual.id ? actual : item);
     if (actual.candidateId) {
@@ -114,7 +124,7 @@ async function selectRun(selected: AgentRun) {
   pending.value = false;
   error.value = "";
   syncError.value = "";
-  run.value = selected;
+  run.value = retainStopFact(selected);
   candidate.value = null;
   delivery.value = null;
   events.value = [];
@@ -157,7 +167,7 @@ async function loadRuns(older = false) {
   if (!plan || !chosen) return;
   const scope = selection();
   try {
-    const result = await api.agentRuns(plan.id, chosen.id, older ? runs.value.at(-1)?.id : undefined);
+    const result = (await api.agentRuns(plan.id, chosen.id, older ? runs.value.at(-1)?.id : undefined)).map(retainStopFact);
     if (!current(scope)) return;
     runs.value = older ? [...runs.value, ...result.filter(item => !runs.value.some(old => old.id === item.id))] : result;
     syncError.value = "";
@@ -191,8 +201,26 @@ async function startRun() {
   });
 }
 async function cancelRun() {
-  if (!run.value) return;
-  await action(selected => api.cancelAgent(selected.runId!), actual => { run.value = actual; });
+  const target = activeRun.value;
+  if (!target || stopping.value.has(target.id) || target.cancelRequested || stopAccepted.value.has(target.id)) return;
+  const scope = selection();
+  stopping.value.add(target.id);
+  stopError.value = "";
+  try {
+    const actual = await api.cancelAgent(target.id);
+    if (actual.id !== target.id) return;
+    if (actual.cancelRequested) stopAccepted.value.add(target.id);
+    if (!active || scope.planId !== props.s.plan?.id || scope.stepId !== step.value?.id) return;
+    // 只补充已接受的停止事实；迟到响应不得把已终止快照改回运行中。
+    const applyStop = (item: AgentRun) => item.id !== target.id || terminal(item) ? item
+      : terminal(actual) ? actual : { ...item, cancelRequested: item.cancelRequested || actual.cancelRequested };
+    runs.value = runs.value.map(applyStop);
+    if (run.value) run.value = applyStop(run.value);
+  } catch (failure) {
+    if (current(scope)) { error.value = String(failure); stopError.value = "停止请求未确认，请刷新运行状态。"; }
+  } finally {
+    stopping.value.delete(target.id);
+  }
 }
 async function deliverCandidate() {
   if (!candidate.value) return;
@@ -276,7 +304,7 @@ onUnmounted(deactivate);
         </template>
         </div>
       </template>
-      <p class="agent-usage-notice">执行消耗外部 API 额度；累计 tokens 不再设默认硬停止。可查看用量并取消，但取消不是暂停，当前不支持断点续跑；余额耗尽或其他失败后可能需新建 Run，其他执行限额仍生效。</p>
+      <p class="agent-usage-notice">执行消耗外部 API 额度；累计模型、工具次数和 tokens 默认只统计。可随时停止，但停止不是暂停，当前不支持断点续跑；墙钟、上下文和沙箱资源等限制仍生效。</p>
       <p v-if="error || syncError" role="alert" class="error">{{ error || syncError }}</p>
     </section>
     <section class="panel agent-run-panel" aria-label="运行与实际活动">
@@ -291,11 +319,16 @@ onUnmounted(deactivate);
         <button v-if="runs.length >= 50" class="secondary" @click="loadRuns(true)">读取更早的运行</button>
       </aside>
       <div class="selected-run">
+      <div v-if="activeRun" class="monitor-stop" aria-label="当前运行控制">
+        <div><strong>当前步骤正在运行</strong><p v-if="run?.id !== activeRun.id" class="meta">正在查看历史记录；停止操作针对本步骤当前运行。</p>
+          <p id="run-stop-status" class="meta" role="status">{{ stopPending ? '停止请求发送中' : stopConfirmed ? '停止请求已接受，正在等待实际终态；模型或沙箱可能不会立即返回。' : '可停止当前 Run；不支持暂停或续跑。' }}</p>
+          <p v-if="stopError" role="alert" class="error">{{ stopError }}</p></div>
+        <button class="secondary compact-button" :disabled="stopPending || stopConfirmed" aria-describedby="run-stop-status" @click="cancelRun">{{ stopConfirmed ? '正在停止' : '停止运行' }}</button>
+      </div>
       <template v-if="run">
         <div class="run-summary" :data-state="run.state">
         <div class="section-row run-status-row"><h3 class="run-status" :data-state="run.state" role="status"><NavigationIcon :name="runIcon(run.state)" />Agent：{{ label(run.state) }}</h3>
-          <button v-if="!terminal(run)" class="secondary compact-button" :disabled="pending || run.cancelRequested"
-            @click="cancelRun">{{ run.cancelRequested ? '正在取消' : '取消运行' }}</button></div>
+          </div>
         <dl class="run-statistics" aria-label="已保存运行统计">
           <div><dt>模型调用</dt><dd>{{ numberText(run.modelCalls) }} <span>次</span></dd></div>
           <div><dt>工具调用</dt><dd>{{ numberText(run.toolCalls) }} <span>次</span></dd></div>
@@ -383,6 +416,10 @@ onUnmounted(deactivate);
 .run-history .run-choice:hover:not(:disabled) { background: var(--canvas); }
 .run-history .run-choice[aria-pressed="true"] { background: var(--selection); color: var(--accent-hover); }
 .selected-run { min-width: 0; }
+.monitor-stop { position: sticky; top: 12px; z-index: 4; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; margin-bottom: 16px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 3px 10px #25293608; }
+.monitor-stop strong { font-size: 14px; }
+.monitor-stop p { margin: 3px 0 0; font-size: 12px; }
+.monitor-stop button { flex-shrink: 0; }
 .run-summary { margin-bottom: 14px; }
 .run-status { display: flex; align-items: center; gap: 8px; }
 .run-status .navigation-icon { width: 20px; height: 20px; flex-shrink: 0; }

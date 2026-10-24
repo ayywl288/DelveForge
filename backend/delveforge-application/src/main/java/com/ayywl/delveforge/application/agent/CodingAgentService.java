@@ -34,6 +34,7 @@ public final class CodingAgentService implements AutoCloseable {
             不请求或泄露凭据，不访问.git/秘密文件，不逃逸路径，不改正式WorkingCopy，不执行后续Step。
             自主阅读实际文件、修改代码、执行检查、观察失败并修复。不得依赖预测文件名单。
             apply_patch使用标准unified diff，可新增与删除UTF-8文件；不要提交模型自述作为最终代码。
+            补丁冲突表示未应用：先重新读取当前源码，核对行尾与hunk行数；保留已成功修改，不重复相同补丁。
             环境问题由系统处理，不为修复缺依赖而删除测试或随意改变工程配置。
             无工具请求的最终消息必须是JSON：完成为{"status":"completed","summary":"简述"}；
             无法完成为{"status":"failed","summary":"简述"}。没有完成实现不得报告completed。
@@ -183,8 +184,14 @@ public final class CodingAgentService implements AutoCloseable {
         boolean unknownUsage = false;
         int completionCorrections = 0;
         int sourceEditRejections = 0;
-        for (int request = 1; request <= limits.maxModelCalls(); request++) {
+        AgentPatchCorrections corrections = new AgentPatchCorrections();
+        int request = 0;
+        while (true) {
             requireCurrent(task, cancelled);
+            request = incrementUsage(request);
+            if (limits.maxModelCalls() > 0 && request > limits.maxModelCalls()) {
+                throw new AgentException("MODEL_CALL_LIMIT", "Explicit model request budget exhausted");
+            }
             compress(history);
             store.event(task.runId(), "MODEL_REQUEST", "request=" + request);
             AgentProtocol.Reply reply = model.call(List.copyOf(history), AgentTools.definitions());
@@ -192,7 +199,11 @@ public final class CodingAgentService implements AutoCloseable {
             if (reply.tokens() == null) {
                 unknownUsage = true;
             } else {
-                tokens = (tokens == null ? 0 : tokens) + reply.tokens();
+                try {
+                    tokens = Math.addExact(tokens == null ? 0L : tokens, reply.tokens());
+                } catch (ArithmeticException overflow) {
+                    throw new AgentException("USAGE_COUNTER_OVERFLOW", "Usage cannot be represented by the current API");
+                }
             }
             store.usage(task.runId(), request, toolCalls, unknownUsage ? null : tokens);
             if (reply.text().length() > limits.maxContextChars() || reply.calls().size() > 16) {
@@ -249,7 +260,8 @@ public final class CodingAgentService implements AutoCloseable {
                 }
                 String result = completed.get(call.id());
                 if (result == null) {
-                    if (++toolCalls > limits.maxToolCalls()) {
+                    toolCalls = incrementUsage(toolCalls);
+                    if (limits.maxToolCalls() > 0 && toolCalls > limits.maxToolCalls()) {
                         throw new AgentException("TOOL_LIMIT", "Tool call budget exhausted");
                     }
                     String activityId = UUID.randomUUID().toString();
@@ -259,6 +271,9 @@ public final class CodingAgentService implements AutoCloseable {
                     AgentPolicyRejection sourceEditRejection = null;
                     long invocationStarted = System.nanoTime();
                     try {
+                        if (argumentFailure == null && argumentRejection == null) {
+                            corrections.before(call);
+                        }
                         try {
                             if (argumentRejection != null) {
                                 throw argumentRejection;
@@ -303,11 +318,18 @@ public final class CodingAgentService implements AutoCloseable {
                         }
                         throw failure;
                     }
+                    corrections.record(call, result);
                 }
                 history.add(new AgentProtocol.Message("tool", result, List.of(), call.id(), call.name()));
             }
         }
-        throw new AgentException("MODEL_CALL_LIMIT", "Model request budget exhausted");
+    }
+
+    private static int incrementUsage(int value) {
+        if (value == Integer.MAX_VALUE) {
+            throw new AgentException("USAGE_COUNTER_OVERFLOW", "Usage cannot be represented by the current API");
+        }
+        return value + 1;
     }
 
     private String eventSummary(String tool, String result) {
@@ -324,6 +346,25 @@ public final class CodingAgentService implements AutoCloseable {
             summary.put("directory", details.path("directory").asText(""));
             summary.put("module", details.path("module").asText(""));
             summary.put("selectedTest", details.path("selectedTest").asText(""));
+            if (summary.get("classification").equals("PATCH_CONFLICT")) {
+                summary.put("mutationNotStarted", details.path("mutationNotStarted").asBoolean());
+                summary.put("instruction", "补丁未应用；重新读取当前源码、核对行尾与hunk，不重复相同补丁。此前成功修改仍保留。");
+                String reason = details.path("conflictReason").asText();
+                if (List.of("CHANGE_ALREADY_PRESENT", "INVALID_DIFF", "PATH_STATE_MISMATCH", "CONTEXT_MISMATCH", "CHECK_FAILED").contains(reason)) {
+                    summary.put("conflictReason", reason);
+                }
+                List<String> paths = new ArrayList<>();
+                for (JsonNode path : details.path("paths")) {
+                    if (paths.size() == 8) {
+                        break;
+                    }
+                    if (path.isTextual() && path.asText().length() <= 512 && !secrets.excludes(path.asText())
+                            && path.asText().equals(safe(path.asText()))) {
+                        paths.add(path.asText());
+                    }
+                }
+                summary.put("paths", paths);
+            }
             return json.writeValueAsString(summary);
         } catch (IOException failure) {
             throw new AgentException("TOOL_PROTOCOL", "Tool result must be structured JSON");

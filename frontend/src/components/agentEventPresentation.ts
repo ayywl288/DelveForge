@@ -83,11 +83,16 @@ function sourceEditNotStarted(data: Record<string, unknown>, tool?: string) {
     return tool === "apply_patch" && data.classification === "POLICY_REJECTED" && data.policyRule === "SOURCE_CREDENTIALS"
         && data.policyStage === "PATCH_SOURCE" && data.mutationNotStarted === true;
 }
+function patchNotStarted(data: Record<string, unknown>, tool?: string) {
+    return sourceEditNotStarted(data, tool) || tool === 'apply_patch' && data.mutationNotStarted === true
+        && ['PATCH_CONFLICT', 'PATCH_REPEATED_CONFLICT', 'PATCH_CORRECTION_LIMIT'].includes(String(data.classification));
+}
 
 function resultOutcome(event: AgentEvent, tool?: string): ActivityOutcome {
     const data = summaryFields(event);
     const code = classification(event);
     if (code === "POLICY_REJECTED") return "blocked";
+    if (['PATCH_REPEATED_CONFLICT', 'PATCH_CORRECTION_LIMIT'].includes(code ?? '')) return 'conflict';
     if (data.resultRecorded === false) return code === "POLICY_REJECTED" ? "blocked" : "unknown";
     if (code === "PATCH_CONFLICT") return "conflict";
     if (data.ok === false || code && /(FAILED|FAILURE|ERROR|LIMIT|UNAVAILABLE|MISSING|REJECTED|MISMATCH|TIMEOUT)/.test(code)) return "failed";
@@ -156,7 +161,8 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
         const internalMs = numeric(data, "durationMs");
         activities.push({ key: `${event.runId}:${event.sequence}`, event, finish, tool, target,
             targetWithheld: startData.targetState === "withheld" || data.targetState === "withheld",
-            resultUncertain: data.resultRecorded === false && !sourceEditNotStarted(data, tool),
+            resultUncertain: (data.resultRecorded === false || tool === 'apply_patch' && classification(result) === 'PATCH_CONFLICT')
+                && !patchNotStarted(data, tool),
             classification: tool ? classification(result) : event.summary !== event.kind ? safeClassification(event.summary) : undefined,
             duration: tool && !pending ? invocationNs !== undefined ? invocationNs / 1e6 : internalMs : undefined,
             durationSource: invocationNs !== undefined ? "invocation" : internalMs !== undefined ? "internal" : undefined,
@@ -207,6 +213,21 @@ export interface ExplorationGroup {
     failed: number;
     uncertain: number;
 }
+
+export function patchSummary(activities: AgentActivity[], runId: string) {
+    const patches = activities.filter(activity => activity.tool === 'apply_patch');
+    const applied = patches.filter(activity => activity.classification === 'PATCH_APPLIED' && activity.outcome === 'completed');
+    return { key: `patches:${runId}`, activities: patches, count: patches.length, applied: applied.length,
+        conflicts: patches.filter(activity => activity.outcome === 'conflict').length,
+        blocked: patches.filter(activity => activity.outcome === 'blocked').length,
+        uncertain: patches.filter(activity => activity.resultUncertain || activity.outcome === 'unknown').length,
+        failed: patches.filter(activity => activity.outcome === 'failed').length,
+        active: patches.some(activity => activity.active),
+        paths: [...new Set(applied.flatMap(activity => {
+            const data = summaryFields(activity.finish ?? activity.event);
+            return Array.isArray(data.paths) ? data.paths.slice(0, 8).flatMap(path => safePath(path) ? [safePath(path)!] : []) : [];
+        }))].slice(-4) };
+}
 export function isExploration(activity: AgentActivity) {
     return !!activity.tool && ["read_file", "list_files", "search_code"].includes(activity.tool)
         && activity.classification !== "POLICY_REJECTED" && activity.outcome !== "blocked";
@@ -225,6 +246,12 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
     const event = activity.finish ?? activity.event;
     const data = summaryFields(event);
     const rows: { label: string; value: string }[] = [];
+    if (activity.tool === 'apply_patch' && patchNotStarted(data, activity.tool) && activity.classification !== 'POLICY_REJECTED') {
+        rows.push({ label: '本次补丁', value: '未应用，已有修改保留' });
+        const reasons: Record<string, string> = { CONTEXT_MISMATCH: '当前源码上下文不匹配', CHANGE_ALREADY_PRESENT: '变更已存在',
+            INVALID_DIFF: '补丁格式无效', PATH_STATE_MISMATCH: '目标文件状态不匹配', CHECK_FAILED: '预检查未通过' };
+        if (typeof data.conflictReason === 'string' && reasons[data.conflictReason]) rows.push({ label: '冲突原因', value: reasons[data.conflictReason]! });
+    }
     if (activity.classification === "POLICY_REJECTED") {
         if (typeof data.policyRule === "string" && policyRules.has(data.policyRule)) rows.push({ label: "拒绝规则", value: data.policyRule });
         if (typeof data.policyStage === "string" && policyStages.has(data.policyStage)) rows.push({ label: "拒绝阶段", value: data.policyStage });

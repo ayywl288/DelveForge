@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
+import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +24,14 @@ class DockerPatchPolicyTest {
     private final AgentProcess commands = mock(AgentProcess.class);
     private final DockerAgentSandbox sandbox = new DockerAgentSandbox(null,
             new DeterministicRepositorySecretPolicy(), commands);
+
+    @Test
+    void uncertainApplicationCannotBecomeRecoverableToolFeedback() {
+        var failure = assertThrows(AgentException.class, () -> DockerAgentSandbox.requireCertainPatchOutcome(
+                json.valueToTree(Map.of("ok", false, "classification", "PATCH_OUTCOME_UNCERTAIN", "output", "private-body"))));
+        assertEquals("PATCH_OUTCOME_UNCERTAIN", failure.code());
+        assertFalse(failure.getMessage().contains("private-body"));
+    }
 
     @AfterEach
     void noExternalCommandsOrMutation() {

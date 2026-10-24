@@ -607,6 +607,133 @@ class CodingAgentServiceTest {
     }
 
     @Test
+    void defaultTelemetryContinuesBeyondSixtyModelCallsAndOneHundredSixtyToolCalls() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true}");
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AgentModelPort model = (history, tools) -> {
+            int request = requests.incrementAndGet();
+            return request <= 61 ? new AgentProtocol.Reply("", List.of(
+                    new AgentProtocol.ToolCall("a-" + request, "list_files", "{}"),
+                    new AgentProtocol.ToolCall("b-" + request, "list_files", "{}"),
+                    new AgentProtocol.ToolCall("c-" + request, "list_files", "{}")), 1L)
+                    : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 30);
+            assertEquals(AgentRunState.SUCCEEDED, run.state());
+            assertEquals(62, run.modelCalls());
+            assertEquals(183, run.toolCalls());
+            assertEquals(62L, run.tokens());
+            verify(sandbox, times(183)).tool(anyString(), any(), any());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void boundedConflictCorrectionStopsWithoutDuplicateFinishEventsOrUnsafeFreeze(boolean repeated) throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":false,\"result\":{\"classification\":\"PATCH_CONFLICT\","
+                + "\"mutationNotStarted\":true,\"conflictReason\":\"CONTEXT_MISMATCH\"}}");
+        AgentModelPort model = (history, tools) -> {
+            int request = requests.incrementAndGet();
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + request, "apply_patch",
+                    "{\"patch\":\"private-" + (repeated ? "same" : request) + "\"}")), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.FAILED, run.state());
+            assertEquals(repeated ? "PATCH_REPEATED_CONFLICT" : "PATCH_CORRECTION_LIMIT", run.reason());
+            assertEquals(repeated ? 2 : 3, run.toolCalls());
+            verify(sandbox, times(repeated ? 1 : 3)).tool(anyString(), any(), any());
+            verify(sandbox, never()).finish(anyString(), any());
+            assertEquals(null, run.candidateId());
+            var finishes = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).toList();
+            assertEquals(run.toolCalls(), finishes.size());
+            assertTrue(finishes.stream().noneMatch(event -> event.summary().contains("private-")));
+            assertTrue(finishes.stream().allMatch(event -> event.summary().contains("\"mutationNotStarted\":true")));
+        }
+    }
+
+    @Test
+    void compressedHistoryRetainsConflictCorrectionInstructionAndTarget() throws Exception {
+        var defaults = AgentProtocol.Limits.defaults();
+        var limits = new AgentProtocol.Limits(0, 0, 12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
+                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), 30, 10, 0);
+        AtomicInteger requests = new AtomicInteger();
+        AtomicBoolean preserved = new AtomicBoolean();
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            AgentProtocol.ToolCall call = invocation.getArgument(1);
+            return call.name().equals("apply_patch")
+                    ? "{\"ok\":false,\"result\":{\"classification\":\"PATCH_CONFLICT\",\"mutationNotStarted\":true,\"conflictReason\":\"CONTEXT_MISMATCH\",\"paths\":[\"src/Counter.java\"],\"output\":\"" + "x".repeat(2500) + "\"}}"
+                    : "{\"ok\":true,\"result\":{\"content\":\"" + "x".repeat(2500) + "\"}}";
+        });
+        when(sandbox.finish(anyString(), any())).thenThrow(new AgentException("NO_CHANGES", "No changes"));
+        AgentModelPort model = (history, tools) -> {
+            if (history.stream().anyMatch(message -> message.role().equals("system") && message.text().contains("CONTEXT_MISMATCH")
+                    && message.text().contains("src/Counter.java") && message.text().contains("重新读取"))) {
+                preserved.set(true);
+            }
+            int request = requests.incrementAndGet();
+            return request == 6 ? new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L)
+                    : new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + request,
+                    request == 1 ? "apply_patch" : "read_file", request == 1 ? "{\"patch\":\"fixture\"}" : "{\"path\":\"src/Counter.java\"}")), 1L);
+        };
+        try (var service = service(model, limits)) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("NO_CHANGES", awaitTerminal(service, id, 10).reason());
+            assertTrue(preserved.get());
+        }
+    }
+
+    @Test
+    void cancellationIsAcknowledgedBeforeAnUninterruptibleModelReturnsAndNeverFreezes() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AgentModelPort model = (history, tools) -> {
+            entered.countDown();
+            while (release.getCount() > 0) {
+                try {
+                    release.await(20, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException ignored) {
+                    // 夹具模拟不能立即响应中断的外部调用；最终仍须核对取消事实。
+                }
+            }
+            return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertTrue(entered.await(10, TimeUnit.SECONDS));
+            try {
+                var accepted = service.cancel(id);
+                assertTrue(accepted.cancelRequested());
+                assertFalse(accepted.state().terminal());
+                assertTrue(service.cancel(id).cancelRequested());
+            } finally {
+                release.countDown();
+            }
+            assertEquals(AgentRunState.CANCELLED, awaitTerminal(service, id, 10).state());
+            verify(sandbox, never()).finish(anyString(), any());
+            verify(sandbox).cleanup(id);
+        }
+    }
+
+    @Test
+    void usageOverflowDoesNotWrapOrFreeze() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true}");
+        try (var service = service((history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall(
+                "call-" + requests.incrementAndGet(), "list_files", "{}")), requests.get() == 1 ? Long.MAX_VALUE : 1L), AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("USAGE_COUNTER_OVERFLOW", awaitTerminal(service, id, 10).reason());
+            assertEquals(Long.MAX_VALUE, service.get(id).tokens());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
+    }
+
+    @Test
     void compressedModelHistoryPreservesActualMavenCheckScope() throws Exception {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(defaults.maxModelCalls(), defaults.maxToolCalls(),

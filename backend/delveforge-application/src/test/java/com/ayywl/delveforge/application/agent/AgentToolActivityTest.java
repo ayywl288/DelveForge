@@ -169,6 +169,22 @@ class AgentToolActivityTest {
     }
 
     @Test
+    void conflictFeedbackHasSafeReasonAndNeverClaimsPathsWereApplied() throws Exception {
+        var patch = call("apply_patch", Map.of("patch", "private-body"));
+        var result = json.readTree(activity.finished(patch, identity,
+                "{\"ok\":false,\"result\":{\"classification\":\"PATCH_CONFLICT\",\"mutationNotStarted\":true,"
+                        + "\"conflictReason\":\"CONTEXT_MISMATCH\",\"paths\":[\"src/A.java\"],\"output\":\"private diagnostic\"}}"));
+        assertEquals("PATCH_CONFLICT", result.path("classification").asText());
+        assertTrue(result.path("mutationNotStarted").asBoolean());
+        assertEquals("CONTEXT_MISMATCH", result.path("conflictReason").asText());
+        assertFalse(result.has("paths"));
+        assertFalse(result.toString().contains("private"));
+        var stopped = json.readTree(activity.failed(patch, identity, new AgentPatchCorrectionException(true), null));
+        assertTrue(stopped.path("mutationNotStarted").asBoolean());
+        assertFalse(stopped.has("invocationDurationNs"));
+    }
+
+    @Test
     void provenSourceRefusalMetadataIsBoundedAndDistinctFromUnknownMutation() throws Exception {
         var patch = call("apply_patch", Map.of("patch", "private-patch-body"));
         var proven = json.readTree(activity.failed(patch, identity, AgentPolicyRejection.sourceEditRejectedBeforeApply(), 12L));

@@ -18,7 +18,10 @@ function mount(expandFiles = true) {
     } as AgentRun });
     const root = document.createElement("div"); document.body.append(root);
     const app = createApp({ render: () => h(AgentTimeline, props) }); app.mount(root);
-    if (expandFiles) root.querySelector<HTMLElement>(".exploration-summary summary")!.click();
+    if (expandFiles) {
+        root.querySelector<HTMLElement>(".exploration-summary summary")!.click();
+        root.querySelector<HTMLElement>(".patch-summary summary")!.click();
+    }
     cleanup.push(() => { app.unmount(); root.remove(); });
     return { props, root };
 }
@@ -318,9 +321,11 @@ it("keeps patch, checks and security failures in the chronological feed and indi
         tool(14, "TOOL_FINISHED", { ok: false, classification: "POLICY_REJECTED", toolCallId: "different" })];
     await settle();
     expect(root.querySelectorAll(".exploration-summary")).toHaveLength(1);
-    for (const sequence of [4, 8, 14]) {
+    for (const sequence of [8, 14]) {
         expect(root.querySelector(`[data-sequence="${sequence}"]`)?.closest(".agent-timeline")).not.toBeNull();
     }
+    expect(root.querySelector('[data-sequence="4"]')?.closest('.patch-operations')).not.toBeNull();
+    expect(root.querySelector('.patch-count')?.textContent).toContain('冲突 1');
     expect(root.querySelector('[data-sequence="12"]')?.getAttribute("data-tone")).toBe("failed");
     expect(root.querySelector('[data-sequence="13"]')?.getAttribute("data-tone")).toBe("unknown");
     expect(root.querySelector(".exploration-attention")?.textContent).toContain("1 次失败 · 1 次结果待核对");
@@ -450,7 +455,9 @@ it("keeps important milestones chronological and explains a known pre-mutation r
             policyRule: "SOURCE_CREDENTIALS", policyStage: "PATCH_SOURCE", resultRecorded: true, mutationNotStarted: true, alternativeAllowed: true })];
     await settle();
     expect(root.querySelector('.current-title')?.textContent).toContain("代码修改被安全策略拒绝");
-    const refusal = root.querySelector('.agent-timeline [data-sequence="3"]')!;
+    expect(root.querySelector('.patch-alert')?.textContent).toContain('1 次安全拒绝');
+    root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
+    const refusal = root.querySelector('.patch-operations [data-sequence="3"]')!;
     expect(refusal.getAttribute('data-tone')).toBe('blocked');
     expect(refusal.textContent).toContain("源码修改未开始");
     expect(refusal.textContent).toContain("允许一次另选方案");
@@ -458,13 +465,14 @@ it("keeps important milestones chronological and explains a known pre-mutation r
     expect(root.querySelector('.exploration-count')?.textContent).toContain("0 次文件操作");
     props.events.push(fact(5, "MODEL_REQUEST", "request=2"), important(6), fact(7, "FINALIZING"), fact(8, "FAILED", "POLICY_REJECTED"));
     props.run.state = "FAILED"; props.run.reason = "POLICY_REJECTED"; await settle();
-    expect([...root.querySelectorAll('.agent-timeline li')].map(row => row.getAttribute('data-sequence'))).toEqual(['1', '3', '6', '7', '8']);
+    expect([...root.querySelectorAll('.agent-timeline li')].map(row => row.getAttribute('data-sequence'))).toEqual(['1', '6', '7', '8']);
     expect(root.querySelector('.current-activity')?.textContent).toContain("运行失败");
     expect(root.querySelector('.model-waiting, .is-active')).toBeNull();
 });
 
 it("only labels a known pre-mutation source refusal as unmodified, including terminal budget exhaustion", async () => {
     const { root, props } = mount(false);
+    root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
     props.events = [tool(1, "TOOL_FINISHED", { tool: "apply_patch", ok: false, resultRecorded: false,
         classification: "POLICY_REJECTED", policyRule: "SOURCE_CREDENTIALS", policyStage: "PATCH_SOURCE", mutationNotStarted: true })];
     await settle();
@@ -477,4 +485,72 @@ it("only labels a known pre-mutation source refusal as unmodified, including ter
     expect(root.querySelector('.activity-uncertain')).not.toBeNull();
     expect(root.querySelector('.current-detail')?.textContent).not.toContain("未修改源码");
     expect(root.querySelector('.activity-facts')?.textContent).not.toContain("源码修改未开始");
+});
+
+it("updates one patch summary in place with actual outcomes and only applied safe paths", async () => {
+    const { root, props } = mount(false);
+    const summary = root.querySelector<HTMLDetailsElement>('.patch-summary')!;
+    props.events = [tool(1, 'TOOL_STARTED', {tool:'apply_patch',path:undefined})]; await settle();
+    expect(summary.open).toBe(false);
+    expect(summary.textContent).toContain('1 次尝试');
+    expect(summary.textContent).toContain('正在应用代码修改');
+    expect(root.querySelector('.agent-timeline [data-kind="apply_patch"]')).toBeNull();
+    summary.querySelector('summary')!.click(); await settle();
+    const row = summary.querySelector('li')!;
+    props.events.push(tool(2,'TOOL_FINISHED',{tool:'apply_patch',path:undefined,ok:true,classification:'PATCH_APPLIED',paths:['src/Actual.java']})); await settle();
+    expect(summary.querySelector('li')).toBe(row);
+    props.events.push(tool(3,'TOOL_FINISHED',{tool:'apply_patch',toolCallId:'22222222-2222-4222-8222-222222222222',path:undefined,
+        ok:false,classification:'PATCH_CONFLICT',mutationNotStarted:true,paths:['src/Unapplied.java'],conflictReason:'CONTEXT_MISMATCH'}),
+        tool(4,'TOOL_FINISHED',{tool:'apply_patch',toolCallId:'33333333-3333-4333-8333-333333333333',path:undefined,ok:false,classification:'POLICY_REJECTED'}),
+        tool(5,'TOOL_STARTED',{tool:'apply_patch',toolCallId:'44444444-4444-4444-8444-444444444444',path:undefined}), fact(6,'FAILED'));
+    props.run.state='FAILED'; await settle();
+    expect(root.querySelector('.patch-summary')).toBe(summary);
+    expect(summary.querySelector('.patch-count')?.textContent).toContain('4 次尝试 · 已应用 1 · 冲突 1 · 安全拒绝 1 · 结果不明 1');
+    expect(summary.querySelector('.patch-paths')?.textContent).toBe('src/Actual.java');
+    expect(summary.querySelector('[data-sequence="3"]')?.textContent).toContain('未应用，已有修改保留');
+    expect(summary.querySelector('.patch-paths')?.textContent).not.toContain('Unapplied');
+    expect(root.querySelector('.patch-alert')?.textContent).toContain('1 次安全拒绝');
+    expect([...summary.querySelectorAll('li')].map(node=>node.getAttribute('data-sequence'))).toEqual(['1','3','4','5']);
+    expect(root.querySelector('.activity-bar,.model-waiting,.is-active')).toBeNull();
+});
+
+it("renders large patch history incrementally and keeps independent expansions on Run switching", async () => {
+    const {root,props}=mount(false);
+    props.events=Array.from({length:100},(_,index)=>tool(index+1,'TOOL_FINISHED',{tool:'apply_patch',ok:true,classification:'PATCH_APPLIED',paths:['src/A.java']}));
+    await settle();
+    expect(root.querySelector('.patch-operations')).toBeNull();
+    expect(root.querySelector('.patch-count')?.textContent).toContain('100 次尝试');
+    root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
+    expect(root.querySelectorAll('.patch-operations li')).toHaveLength(40);
+    root.querySelector<HTMLButtonElement>('.more-patches')!.click(); await settle();
+    expect(root.querySelectorAll('.patch-operations li')).toHaveLength(80);
+    root.querySelector<HTMLButtonElement>('.more-patches')!.click(); await settle();
+    expect(root.querySelectorAll('.patch-operations li')).toHaveLength(100);
+    expect(root.querySelector<HTMLDetailsElement>('.exploration-summary')!.open).toBe(false);
+    props.run.id='two'; props.events=[]; await settle();
+    expect(root.querySelector<HTMLDetailsElement>('.patch-summary')!.open).toBe(false);
+});
+
+it("animates genuinely active work and supplies static reduced-motion states", async () => {
+    const {root,props}=mount(false);
+    props.events=[fact(1,'MODEL_REQUEST','request=61')]; await settle();
+    expect(root.querySelectorAll('.activity-bar')).toHaveLength(1);
+    expect(root.querySelector('.current-title')?.textContent).toContain('第 61 次调用');
+    props.run.cancelRequested=true; await settle();
+    expect(root.querySelector('.activity-bar,.model-waiting')).toBeNull();
+    const css=readFileSync('src/components/AgentTimeline.vue','utf8');
+    expect(css).toMatch(/prefers-reduced-motion: reduce[^}]+\.activity-bar::after[^}]+animation: none/s);
+    expect(css).toContain('transition: opacity 180ms');
+    expect(css).toContain('data-terminal="true"] .counter-values { animation: none');
+});
+
+it("keeps legacy conflicts visible without retroactively claiming a pre-mutation result", async () => {
+    const {root,props}=mount(false);
+    props.events=[tool(1,'TOOL_FINISHED',{tool:'apply_patch',ok:true,classification:'PATCH_CONFLICT'})]; await settle();
+    expect(root.querySelector('.patch-count')?.textContent).toContain('冲突 1');
+    expect(root.querySelector('.patch-count')?.textContent).toContain('结果不明 1');
+    expect(root.querySelector('.patch-alert')?.textContent).toContain('1 次结果不明');
+    root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
+    expect(root.querySelector('.patch-operations .activity-uncertain')).not.toBeNull();
+    expect(root.querySelector('.patch-operations')?.textContent).not.toContain('未应用，已有修改保留');
 });

@@ -35,7 +35,7 @@ public final class AgentTools {
                         "\"path\":{\"type\":\"string\"},\"query\":{\"type\":\"string\"}", "\"query\""),
                 spec("read_file", "读取UTF-8文本。默认从第1行读120行，最多300行。净化结果不可作为原文覆盖。",
                         "\"path\":{\"type\":\"string\"},\"start_line\":{\"type\":\"integer\"},\"line_count\":{\"type\":\"integer\"}", "\"path\""),
-                spec("apply_patch", "提交标准 unified diff（--- a/path、+++ b/path，新增/删除用 /dev/null）。须含@@行号hunk，不接受*** Begin Patch。",
+                spec("apply_patch", "提交标准 unified diff（--- a/path、+++ b/path，新增/删除用 /dev/null）。须含正确@@行数；保留源码行尾。冲突后重新读取当前文件，不重复相同补丁；不接受*** Begin Patch。",
                         "\"patch\":{\"type\":\"string\"}", "\"patch\""),
                 spec("run_checks", "离线Maven检查。goal可为compile/test/package/verify，默认test；module为相对模块路径，test为测试选择器。环境缺依赖由系统有界准备。",
                         "\"goal\":{\"type\":\"string\",\"enum\":[\"compile\",\"test\",\"package\",\"verify\"]},"
