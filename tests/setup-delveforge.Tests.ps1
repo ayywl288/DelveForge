@@ -13,7 +13,8 @@ $null = [IO.Directory]::CreateDirectory((Join-Path $fixture 'backend/delveforge-
 $originals = @{}
 foreach ($name in @('Read-Host', 'Get-DfDependencies', 'Invoke-DfBuild', 'Wait-DfConnectivity',
         'Assert-DfPortsFree', 'Start-Process', 'Get-CimInstance', 'Get-DfListenerOwners',
-        'Test-DfProcessOwner', 'Invoke-RestMethod', 'Get-DfCommand', 'Get-DfVersion')) {
+        'Test-DfProcessOwner', 'Invoke-RestMethod', 'Get-DfCommand', 'Get-DfVersion',
+        'Initialize-DfAgentImages', 'Invoke-DfDocker', 'Get-DfDockerExecutable')) {
     $originals[$name] = (Get-Command $name).ScriptBlock
 }
 
@@ -81,6 +82,13 @@ function Set-StartupDoubles {
     $script:launches = @()
     $script:checkedPorts = @()
     $script:builds = 0
+    Set-Item Function:script:Initialize-DfAgentImages {
+        param($Root, $Configuration)
+        Assert-True (-not $env:DEEPSEEK_API_KEY) 'Docker builds must not inherit a key'
+        $Configuration.DELVEFORGE_AGENT_IMAGE_21 = 'sha256:' + ('a' * 64)
+        $Configuration.DELVEFORGE_AGENT_IMAGE_17 = 'sha256:' + ('b' * 64)
+        $Configuration.DELVEFORGE_AGENT_ENABLED = 'true'
+    }
     Set-Item Function:script:Get-DfDependencies {
         return @{ Java = 'C:\JDK with spaces\bin\java.exe'; JavaHome = 'C:\JDK with spaces'; Pnpm = 'C:\Node with spaces\pnpm.cmd' }
     }
@@ -102,6 +110,8 @@ function Set-StartupDoubles {
             Port = $env:SERVER_PORT; Proxy = $env:BACKEND_DEV_URL; Model = $env:DELVEFORGE_AI_DEEPSEEK_MODEL
             Database = $env:DELVEFORGE_PERSISTENCE_DATABASE_FILE; Existing = $env:DELVEFORGE_WORKSPACE_EXISTING_ROOTS
             Workspace = $env:DELVEFORGE_WORKSPACE_ROOT
+            Agent21 = $env:DELVEFORGE_AGENT_IMAGE_21; Agent17 = $env:DELVEFORGE_AGENT_IMAGE_17
+            AgentEnabled = $env:DELVEFORGE_AGENT_ENABLED
             Profile = $env:SPRING_PROFILES_ACTIVE
             KeyPresent = [Environment]::GetEnvironmentVariables('Process').Contains('DEEPSEEK_API_KEY')
             ModelPresent = [Environment]::GetEnvironmentVariables('Process').Contains('DELVEFORGE_AI_DEEPSEEK_MODEL')
@@ -127,6 +137,7 @@ Test-Case 'default ignores inherited overrides, isolates key, preserves database
     Set-StartupDoubles
     Set-Answers @('launcher-test-canary-not-a-provider-key', '')
     $names = @('DEEPSEEK_API_KEY', 'SERVER_PORT', 'BACKEND_DEV_URL', 'DELVEFORGE_AI_DEEPSEEK_MODEL',
+        'DELVEFORGE_AGENT_IMAGE_21', 'DELVEFORGE_AGENT_IMAGE_17', 'DELVEFORGE_AGENT_ENABLED',
         'DELVEFORGE_PERSISTENCE_DATABASE_FILE', 'DELVEFORGE_WORKSPACE_ROOT',
         'SPRING_PROFILES_ACTIVE', 'SPRING_APPLICATION_JSON', 'JAVA_TOOL_OPTIONS')
     $saved = @{}
@@ -147,6 +158,10 @@ Test-Case 'default ignores inherited overrides, isolates key, preserves database
         Assert-True (-not $script:launches[1].KeyPresent -and -not $script:launches[0].ModelPresent)
         Assert-True (-not $script:launches[0].Port -and -not $script:launches[0].Model)
         Assert-True (-not $script:launches[0].Database)
+        Assert-True ($script:launches[0].Agent21 -eq ('sha256:' + ('a' * 64)))
+        Assert-True ($script:launches[0].Agent17 -eq ('sha256:' + ('b' * 64)))
+        Assert-True ($script:launches[0].AgentEnabled -eq 'true')
+        Assert-True (-not $script:launches[1].Agent21 -and -not $script:launches[1].Agent17)
         Assert-True ($script:launches[0].Workspace -eq [IO.Path]::GetFullPath((Join-Path $fixture 'data/workspaces')))
         Assert-True (-not $script:launches[1].Workspace)
         Assert-True (-not $script:launches[0].Profile)
@@ -359,6 +374,162 @@ Test-Case 'native pnpm installation failure is reported' {
     $pnpm = Join-Path $fixture 'fake pnpm.cmd'
     [IO.File]::WriteAllText($pnpm, "@exit /b 3`r`n")
     Assert-Rejected { Invoke-DfBuild $fixture $pnpm } 'Frontend dependency installation failed*'
+}
+
+# 真实 Docker 在独立 live 验证中运行；这里固定覆盖镜像选择及故障传播。
+$agentContext = Join-Path $fixture 'backend/delveforge-infrastructure/src/main/resources/agent'
+$null = [IO.Directory]::CreateDirectory($agentContext)
+Copy-Item -LiteralPath (Join-Path $repoRoot 'backend/delveforge-infrastructure/src/main/resources/agent/Dockerfile'),
+    (Join-Path $repoRoot 'backend/delveforge-infrastructure/src/main/resources/agent/sandbox.py'),
+    (Join-Path $repoRoot 'backend/delveforge-infrastructure/src/main/resources/agent/proxy.py'),
+    (Join-Path $repoRoot 'backend/delveforge-infrastructure/src/main/resources/agent/offline-settings.xml') -Destination $agentContext
+
+function Set-DockerDouble {
+    $script:dockerCalls = @()
+    $script:cached = $false
+    $script:engine = 'linux 1.54'
+    $script:dockerFailure = ''
+    $script:probeVersion = 1
+    $script:stale = $false
+    Set-Item Function:script:Get-DfDockerExecutable { return 'docker-test' }
+    Set-Item Function:script:Invoke-DfDocker {
+        param($Docker, $Arguments)
+        $script:dockerCalls += ,$Arguments
+        $operation = $Arguments[0]
+        if ($operation -eq $script:dockerFailure) { return @{ Code = 1; Output = 'failure' } }
+        switch ($operation) {
+            'version' { return @{ Code = 0; Output = $script:engine } }
+            'image' {
+                if ($Arguments[1] -eq 'ls') {
+                    $value = ''
+                    if ($script:cached) { $value = 'sha256:' + ('a' * 64) }
+                    return @{ Code = 0; Output = $value }
+                }
+                return @{ Code = 0; Output = 'sha256:' + ('a' * 64) }
+            }
+            'build' { return @{ Code = 0; Output = '' } }
+            'run' {
+                $hashes = @{}
+                foreach ($name in @('sandbox.py', 'proxy.py', 'offline-settings.xml')) {
+                    $hashes[$name] = (Get-FileHash -LiteralPath (Join-Path $agentContext $name)).Hash.ToLowerInvariant()
+                }
+                if ($script:stale) { $hashes['proxy.py'] = 'obsolete' }
+                $jdk = 21
+                if (@($script:dockerCalls | Where-Object { $_[0] -eq 'run' }).Count -eq 2) { $jdk = 17 }
+                return @{ Code = 0; Output = (@{ handshake = @{ ok = $true; tool = 'protocol';
+                    result = @{ protocol = 'delveforge-sandbox'; version = $script:probeVersion } };
+                    hashes = $hashes; java = 'openjdk version "' + $jdk + '.0.1"' } | ConvertTo-Json -Depth 6) }
+            }
+        }
+        throw 'Unexpected Docker operation'
+    }
+}
+
+Test-Case 'cold provisioning builds both JDKs and selects verified IDs' {
+    Set-DockerDouble
+    $c = @{}
+    Initialize-DfAgentImages $fixture $c
+    Assert-True (@($script:dockerCalls | Where-Object { $_[0] -eq 'build' }).Count -eq 2)
+    Assert-True (@($script:dockerCalls | Where-Object { $_ -contains 'BASE_IMAGE=maven:3.9.9-eclipse-temurin-21' }).Count -eq 1)
+    Assert-True (@($script:dockerCalls | Where-Object { $_ -contains 'BASE_IMAGE=maven:3.9.9-eclipse-temurin-17' }).Count -eq 1)
+    Assert-True ($c.DELVEFORGE_AGENT_IMAGE_17 -eq ('sha256:' + ('a' * 64)))
+    Assert-True ($c.DELVEFORGE_AGENT_ENABLED -eq 'true')
+    foreach ($call in @($script:dockerCalls | Where-Object { $_[0] -eq 'run' })) {
+        Assert-True ($call -contains ('sha256:' + ('a' * 64)))
+        Assert-True ($call -contains '--network=none' -and $call -contains '--read-only')
+    }
+}
+Test-Case 'cached images are probed without rebuild' {
+    Set-DockerDouble
+    $script:cached = $true
+    Initialize-DfAgentImages $fixture @{}
+    Assert-True (@($script:dockerCalls | Where-Object { $_[0] -eq 'build' }).Count -eq 0)
+    Assert-True (@($script:dockerCalls | Where-Object { $_[0] -eq 'run' }).Count -eq 2)
+}
+Test-Case 'changed build inputs select a new identity' {
+    $before = (Get-DfAgentInputs $fixture).Digest
+    $path = Join-Path $agentContext 'Dockerfile'
+    $bytes = [IO.File]::ReadAllBytes($path)
+    try {
+        [IO.File]::AppendAllText($path, "`n# changed input`n")
+        Assert-True ((Get-DfAgentInputs $fixture).Digest -ne $before)
+        Set-DockerDouble
+        Initialize-DfAgentImages $fixture @{}
+        $builds = @($script:dockerCalls | Where-Object { $_[0] -eq 'build' })
+        Assert-True ($builds[0] -contains "delveforge-agent:protocol-v1-jdk21-$((Get-DfAgentInputs $fixture).Digest)")
+    } finally { [IO.File]::WriteAllBytes($path, $bytes) }
+}
+Test-Case 'incompatible cached protocol refuses without overwriting tag' {
+    Set-DockerDouble
+    $script:cached = $true
+    $script:probeVersion = 0
+    Assert-Rejected { Initialize-DfAgentImages $fixture @{} } 'Agent JDK 21 image is incompatible*'
+    Assert-True (@($script:dockerCalls | Where-Object { $_[0] -eq 'build' }).Count -eq 0)
+}
+Test-Case 'stale actual contents refuse despite compatible protocol' {
+    Set-DockerDouble
+    $script:cached = $true
+    $script:stale = $true
+    Assert-Rejected { Initialize-DfAgentImages $fixture @{} } 'Agent JDK 21 image has stale tool contents*'
+}
+Test-Case 'explicit image overrides still pin and probe both images' {
+    Set-DockerDouble
+    Initialize-DfAgentImages $fixture @{} -Image21 'advanced:21' -Image17 'advanced:17'
+    Assert-True (@($script:dockerCalls | Where-Object { $_[0] -eq 'build' }).Count -eq 0)
+    Assert-True (@($script:dockerCalls | Where-Object { $_ -contains 'advanced:17' }).Count -eq 1)
+}
+Test-Case 'missing Docker explains explicit discovery-only option' {
+    Set-Item Function:script:Get-DfDockerExecutable { return $null }
+    Assert-Rejected { Initialize-DfAgentImages $fixture @{} } 'Docker is missing*DisableAgent*'
+    $c = @{}
+    Initialize-DfAgentImages $fixture $c -DisableAgent
+    Assert-True ($c.DELVEFORGE_AGENT_ENABLED -eq 'false' -and -not $c.ContainsKey('DELVEFORGE_AGENT_IMAGE_21'))
+}
+foreach ($engineCase in @('windows 1.54', 'linux 1.47', 'unknown')) {
+    Test-Case "incompatible Engine rejects: $engineCase" {
+        Set-DockerDouble
+        $script:engine = $engineCase
+        Assert-Rejected { Initialize-DfAgentImages $fixture @{} } 'Agent requires a Linux Docker Engine*'
+    }
+}
+foreach ($failureCase in @('version', 'image', 'build', 'run')) {
+    Test-Case "Docker failure terminates provisioning: $failureCase" {
+        Set-DockerDouble
+        $script:dockerFailure = $failureCase
+        Assert-Rejected { Initialize-DfAgentImages $fixture @{} } '*'
+    }
+}
+Test-Case 'bootstrap failure starts no services and restores inherited image configuration' {
+    Set-StartupDoubles
+    Set-Answers @('launcher-test-canary-not-a-provider-key', 'N')
+    Set-Item Function:script:Initialize-DfAgentImages { Stop-DfSetup 'Docker provisioning failed.' }
+    Assert-Rejected { Invoke-DfSetup $fixture } 'Docker provisioning failed*'
+    Assert-True ($script:launches.Count -eq 0)
+}
+Test-Case 'explicit disabled-Agent selection reaches the spawned backend' {
+    Set-StartupDoubles
+    Set-Answers @('launcher-test-canary-not-a-provider-key', 'N')
+    Set-Item Function:script:Initialize-DfAgentImages {
+        param($Root, $Configuration, [switch] $DisableAgent)
+        Assert-True $DisableAgent.IsPresent
+        $Configuration.DELVEFORGE_AGENT_ENABLED = 'false'
+    }
+    Invoke-DfSetup $fixture -DisableAgent
+    Assert-True ($script:launches[0].AgentEnabled -eq 'false')
+    Assert-True (-not $script:launches[0].Agent21 -and -not $script:launches[0].Agent17)
+}
+Test-Case 'explicit advanced image arguments reach bootstrap before backend startup' {
+    Set-StartupDoubles
+    Set-Answers @('launcher-test-canary-not-a-provider-key', 'N')
+    Set-Item Function:script:Initialize-DfAgentImages {
+        param($Root, $Configuration, [string] $Image21, [string] $Image17)
+        Assert-True ($Image21 -eq 'advanced:21' -and $Image17 -eq 'advanced:17')
+        $Configuration.DELVEFORGE_AGENT_IMAGE_21 = 'sha256:' + ('a' * 64)
+        $Configuration.DELVEFORGE_AGENT_IMAGE_17 = 'sha256:' + ('b' * 64)
+    }
+    Invoke-DfSetup $fixture -AgentImage21 'advanced:21' -AgentImage17 'advanced:17'
+    Assert-True ($script:launches[0].Agent21 -eq ('sha256:' + ('a' * 64)))
+    Assert-True ($script:launches[0].Agent17 -eq ('sha256:' + ('b' * 64)))
 }
 
 Write-Host "Launcher tests ($($PSVersionTable.PSVersion)): $passed passed, $failed failed."

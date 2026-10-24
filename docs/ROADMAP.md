@@ -9,7 +9,12 @@
 
 ## 1. Current Goal
 
-**当前目标（2026-10-23）：完成自主演化版本的文档收尾、本地 main 快进整合和独立最终审查交接。**
+**当前目标（2026-10-24）：完成现有自主演化流程的真实单 Step 验证及 Windows Docker 自动准备，保留独立任务分支供审查。**
+
+本轮不合并 main。M1–M3 使用有效领域夹具，真实模型、Docker、Maven、Candidate 和自动 Delivery
+通过新打包应用执行；独立行为验收与完整证据见
+[真实 E2E 稳定化记录](validation/autonomous-evolution-real-e2e-stabilization.md)。
+这不代表真实用户探索全流程或 M6 已完成，不改变逐 Step 确认与隔离边界。
 Task 1 / Task 2 及审查修复已实现；当前流程为 M1 用户探索 → M2 仓库理解与方向选择 →
 M3 规划与隔离 WorkingCopy → 用户确认并启动一个 Step → Docker Agent → 冻结 Candidate →
 确定性 Delivery → 接受正式 Git commit。Application 拥有 Agent Loop；持久化 SSE 与 Vue 展示实际活动。
@@ -899,7 +904,8 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 
 ## 5. Current Sprint / Iteration
 
-当前只进行版本收尾与独立最终审查交接，范围见 §1 和 [收尾记录](validation/autonomous-evolution-local-closeout.md)。
+当前完成 §1 的真实单 Step 验证、Docker 自动准备及审查交接；此前集成背景见
+[收尾记录](validation/autonomous-evolution-local-closeout.md)。本轮提交留在独立分支，不合并或推送 main。
 审查前不增加实现里程碑；本地 main 仅在祖先关系成立且验证通过后 fast-forward-only 整合。
 
 ### Historical iteration — M3/M4/M5/Task G

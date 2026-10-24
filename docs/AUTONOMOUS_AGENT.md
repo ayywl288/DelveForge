@@ -123,7 +123,17 @@ DelveForge 自身仍以 Java 21 和 Maven Wrapper 构建。
 工具镜像必须与当前 Java 消费者匹配。`Dockerfile` 把构建上下文中的 `sandbox.py`、`proxy.py`
 复制到只读 `/opt/delveforge/`；Maven 打包或重启 Java 不会更新现有 Docker 镜像。
 
-在仓库根使用**尚不存在的新标签**构建，保留用户已有 `task1-jdk17/21` 标签。以下为示例，
+正常 Windows 启动只需启动 Docker 后运行 `.\setup-delveforge.ps1`，无需手动构建镜像。
+`setup-agent-images.ps1` 对可信 agent 构建目录内的文件名、原始内容及两种 JDK 的 BASE_IMAGE 参数计算 SHA-256，选择
+`delveforge-agent:protocol-v1-jdk{17|21}-{inputsHash}`。缺失才构建；已有镜像必须通过实际脚本
+SHA-256、协议 v1 握手及 JDK 版本核验，失败时拒绝，不覆盖标签。`sandbox.py`、`proxy.py` 和
+`offline-settings.xml` 必须与当前源码完全一致。修改构建输入会产生新身份。
+启动器显式传递 `DELVEFORGE_AGENT_IMAGE_21/17` 的固定 image ID，隔离继承配置的规则保持不变。
+每次 Run 仍独立执行 Java 的协议握手。脚本不安装 Docker、不修改 Docker 配置、不 prune 或删除用户资源。
+Docker 缺失、不可达、非 Linux 或 API <1.48 时提示修复；只有显式 `-DisableAgent` 才关闭 Agent 后启动。
+高级用户可传 `-AgentImage21 <tag-or-id> -AgentImage17 <tag-or-id>`，仍须通过相同内容/协议验证。
+
+以下手动构建仅供故障排查或直接启动 JAR；在仓库根使用**尚不存在的新标签**，保留已有标签。示例中，
 如果标签已存在，应改用另一个新标签，不覆盖当前部署：
 
 ```powershell
@@ -175,11 +185,10 @@ Python 镜像测试逐字节比较已安装脚本与构建源码，并执行镜�
 应用后未知/捕获失败。Java 测试验证真实 prepare 握手顺序。可另设 `DELVEFORGE_SANDBOX_LEGACY_IMAGE`
 为已有旧镜像的固定 ID，验证其在 initialize 前被拒绝；不会替换该镜像。
 
-**手动上线边界：** 验证后，将选用 JDK 的固定 image ID 显式填入外部配置
-`delveforge.agent.sandbox.images`（键为 17/21），再由用户决定何时重启新 Java 应用。
-默认 `application.yml` 中的 `task1-jdk17/21` 标签为兼容既有配置而保留；如果它们仍是旧工具，
-新应用会明确拒绝。不要为消除错误改成跳过握手或自动重试旧 Run。构建、配置切换和应用重启是
-独立步骤；本说明不会自动执行任何切换。
+**直接启动 JAR：** 手动验证后，将两个固定 image ID 填入 `DELVEFORGE_AGENT_IMAGE_21/17`
+或外部 `delveforge.agent.sandbox.images`（键为 17/21），再启动新 Java 应用。
+直接 JAR 的回退标签为 `protocol-v1-jdk21/17`，不会隐式运行 Docker 构建；推荐使用启动器完成自动配置。
+不要跳过握手或自动重试旧 Run。
 
 API key 从既有 `DEEPSEEK_API_KEY` 提供。模型/endpoint 沿用 `delveforge.ai.deepseek`。
 Spring AI 直接 ChatModel 调用显式设置 `internalToolExecutionEnabled(false)`，Callback 不可执行；
@@ -192,7 +201,7 @@ Spring AI 直接 ChatModel 调用显式设置 `internalToolExecutionEnabled(fals
 | --- | --- |
 | sandbox.root | data/agent-runs |
 | sandbox.docker | docker |
-| sandbox.images | 17 / 21 的既有 task1 标签；升级时显式配置已验证的镜像 ID |
+| sandbox.images | 启动器自动构建并传递已验证的 17/21 固定 image ID；直接 JAR 可显式覆盖 |
 | sandbox.default-jdk | 21 |
 | sandbox.cache-volume | delveforge-maven-central-cache |
 | sandbox.owner | delveforge-local-agent |

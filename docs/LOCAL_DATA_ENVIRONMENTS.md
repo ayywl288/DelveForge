@@ -20,6 +20,12 @@
 
 日常从仓库根目录运行 `.\setup-delveforge.ps1`，不必每次设置数据库路径。脚本临时隔离继承的应用覆盖项，退出时恢复调用终端；选择自定义路径仍有效。手动 JAR 启动则受命令行、JVM 属性、环境变量、额外 Spring 配置及工作目录影响；不能把旧进程或旧 JAR 误认为新配置已经生效。
 
+启动器现在检查 Linux Docker Engine API 1.48+，自动按可信构建输入准备 JDK 17/21 镜像，
+核验实际工具内容/协议后，将两个固定 image ID 显式传入后端。首次使用不需要手动构建镜像；
+缓存复用仍会核验。继承的 `DELVEFORGE_*` 不作为镜像覆盖来源，使用启动参数
+`-AgentImage21` / `-AgentImage17` 提供高级覆盖；无 Docker 的探索模式须显式传 `-DisableAgent`。
+详情见 [Agent 环境](AUTONOMOUS_AGENT.md#environment)。
+
 WorkingCopy 默认 Root 为 `${user.dir}/data/workspaces`；从本机项目根目录启动时为
 `E:\develop\DelveForge\data\workspaces`。启动脚本也显式使用所选项目根目录下的该绝对路径，
 自定义 `DELVEFORGE_WORKSPACE_ROOT` 仍优先。手动运行 JAR 时，相对位置以进程工作目录为准，

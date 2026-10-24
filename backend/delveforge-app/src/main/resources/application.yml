@@ -3,15 +3,15 @@ server:
 
 delveforge:
   agent:
-    enabled: true
+    enabled: ${DELVEFORGE_AGENT_ENABLED:true}
     response-tokens: 8192
     sandbox:
       root: ${DELVEFORGE_AGENT_ROOT:${user.dir}/data/agent-runs}
       docker: ${DELVEFORGE_DOCKER:docker}
       default-jdk: 21
       images:
-        21: delveforge-agent:task1-jdk21
-        17: delveforge-agent:task1-jdk17
+        21: ${DELVEFORGE_AGENT_IMAGE_21:delveforge-agent:protocol-v1-jdk21}
+        17: ${DELVEFORGE_AGENT_IMAGE_17:delveforge-agent:protocol-v1-jdk17}
       owner: ${DELVEFORGE_AGENT_OWNER:delveforge-local-agent}
       cache-volume: ${DELVEFORGE_MAVEN_CACHE:delveforge-maven-central-cache}
       memory: 2g

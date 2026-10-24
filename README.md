@@ -110,7 +110,7 @@ Git 仓库分析、功能模块与可复用资产。
 - **Node.js**：`^20.19.0` 或 `>=22.12.0`
 - **pnpm 12.9.1**
 - **DeepSeek API Key**
-- 运行 Coding Agent 还需 **Linux Docker Engine API 1.48+** 和本地可信工具镜像，准备方式见 [Agent 运行说明](docs/AUTONOMOUS_AGENT.md#environment)。
+- 运行 Coding Agent 还需已启动的 **Linux Docker Engine API 1.48+**（例如 Docker Desktop）；启动器会自动构建并验证 JDK 17/21 工具镜像，见 [Agent 运行说明](docs/AUTONOMOUS_AGENT.md#environment)。
 
 Maven Wrapper 已内置，SQLite 无需单独安装数据库服务。
 
@@ -130,7 +130,11 @@ cd DelveForge
 当前代码由 Flyway 向前迁移至 V25，正常重启复用原库。**已有数据库升级前，先停止应用并备份数据库和全部托管 WorkingCopy（包括历史 roots）**；V25 会归档旧 M4/M5 执行行并停用相关计划，保留代码副本与其他业务数据。首次启动即可能迁移，不要先启动再备份。步骤见 [升级与本地运行](docs/AUTONOMOUS_AGENT.md#local-startup-and-upgrade)。开发验收只使用独立数据库。
 切换到此新环境前先确认旧请求结束并正常停止旧服务；保留原浏览器存储，使用独立的 Edge 配置文件访问页面，不能清除未知执行标记来绕过等待。
 
-脚本会自动检查环境、构建后端、安装前端依赖，并启动 Spring Boot 和 Vite。首次运行需要联网下载相关依赖。
+脚本会自动检查环境和 Docker，按当前工具源码构建缺失的 JDK 17/21 镜像，核验实际脚本、协议 v1 和 JDK，
+再将固定 image ID 传给新后端，安装前端依赖并启动 Spring Boot 和 Vite。首次运行需要联网下载镜像及依赖；
+以后源码未变会复用镜像并重新核验。工具源码更新时选择新标签，不覆盖旧镜像。
+未安装 Docker 时，可明确运行 `.\setup-delveforge.ps1 -DisableAgent` 使用探索与规划；该模式不能执行 Agent。
+Docker 不可达或不兼容时启动会说明原因，不会默默启用不可用的 Agent。
 
 启动后打开终端显示的访问地址，通常为：
 

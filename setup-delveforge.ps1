@@ -1,5 +1,9 @@
 ﻿#requires -Version 5.1
 
+param([switch] $DisableAgent, [string] $AgentImage21, [string] $AgentImage17)
+
+. (Join-Path $PSScriptRoot 'setup-agent-images.ps1')
+
 function Stop-DfSetup {
     param([string] $Message)
 
@@ -320,7 +324,7 @@ function Wait-DfConnectivity {
 }
 
 function Invoke-DfSetup {
-    param([string] $Root)
+    param([string] $Root, [switch] $DisableAgent, [string] $AgentImage21, [string] $AgentImage17)
 
     $ErrorActionPreference = 'Stop'
     $saved = @{}
@@ -355,6 +359,7 @@ function Invoke-DfSetup {
             }
             Assert-DfPortsFree $backendPort
             Assert-DfDatabaseAvailable $Root $configuration
+            Initialize-DfAgentImages $Root $configuration -DisableAgent:$DisableAgent -Image21 $AgentImage21 -Image17 $AgentImage17
             Invoke-DfBuild $Root $dependencies.Pnpm
             $pom = [xml] (Get-Content -Raw -LiteralPath (Join-Path $Root 'pom.xml'))
             $jar = Join-Path $Root "backend/delveforge-app/target/delveforge-app-$($pom.project.version).jar"
@@ -410,7 +415,7 @@ Write-Host ('Frontend exited (code ' + $LASTEXITCODE + '). Inspect the output ab
 # 点加载仅用于确定性测试；正常用户直接执行脚本。
 if ($MyInvocation.InvocationName -ne '.') {
     try {
-        Invoke-DfSetup $PSScriptRoot
+        Invoke-DfSetup $PSScriptRoot -DisableAgent:$DisableAgent -AgentImage21 $AgentImage21 -AgentImage17 $AgentImage17
         exit 0
     } catch {
         if ($_.Exception.Data['DelveForgeSetup']) {

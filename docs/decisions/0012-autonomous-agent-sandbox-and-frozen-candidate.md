@@ -72,4 +72,13 @@ SANDBOX_PROTOCOL_INCOMPATIBLE 停止，不猜测旧返回值的无修改语义�
 这在现有 Workspace/Docker adapter 内实现，不改变 Application/Domain、Candidate 或 Delivery 合同。
 选择固定版本而非通用能力协商，是因为当前只有这一组必需语义；未来不兼容变更必须同步消费者和工具。
 镜像身份固定避免运行中 tag 漂移，握手避免新 Java 配旧脚本；二者不替代对受控镜像构建来源的信任。
-不会自动构建、覆盖用户标签或重启应用，升级步骤及实际镜像回归见 AUTONOMOUS_AGENT.md。
+Java 适配器不自动构建或重启应用；正常启动的镜像准备由下述启动器完成。
+
+## 2026-10-24：启动器自动准备可信镜像
+
+Windows 启动器在启动后端前检查 Linux Engine API 1.48+，按可信构建目录内容生成带协议/JDK/输入哈希
+的镜像标签，缺失时自动构建 17/21 两个环境。实际工具内容哈希、JDK 和协议核验成功后，才把固定 ID
+显式传给新 Java 进程。缓存启动仍核验；输入变化选择新标签；已有不兼容标签拒绝且不覆盖。
+高级覆盖仍验证实际内容，缺失 Docker 时仅显式关闭 Agent 才允许探索模式。
+与手动构建相比减少首次启动遗漏和旧工具误用；代价是首次启动需要 Docker 构建网络和等待时间。
+不改变 Workspace 能力、Agent/Candidate/Delivery 合同或 Engine 配置，不安装 Docker、清理用户资源。
