@@ -24,6 +24,36 @@ class SandboxPolicyTest(unittest.TestCase):
         self.root_patch.start()
         self.addCleanup(self.root_patch.stop)
 
+    def test_opaque_unchanged_snapshot_is_streamed_without_capture_content(self):
+        target = self.root / 'opaque.bin'
+        target.write_bytes(b'\x00\xff' * 200000)
+        initial = sandbox.snapshot()
+        item = initial['files'][0]
+        baseline = {item['path']: item['sha256'] + ':' + item['mode']}
+        with patch.object(sandbox, 'FILE_LIMIT', 1):
+            final = sandbox.snapshot(True, baseline)
+            self.assertEqual(initial['snapshot'], final['snapshot'])
+            self.assertNotIn('content', final['files'][0])
+            target.write_bytes(b'changed')
+            self.assert_policy('SOURCE_CAPTURE_LIMIT', lambda: sandbox.snapshot(True, baseline))
+
+    def test_declared_target_module_is_source_and_its_own_target_is_generated(self):
+        (self.root / 'pom.xml').write_text('<project><modules><module>target</module></modules></project>')
+        (self.root / 'target').mkdir()
+        (self.root / 'target/pom.xml').write_text('<project/>')
+        (self.root / 'target/Source.java').write_text('class Source {}')
+        self.assertFalse(sandbox.build_output('target/Source.java'))
+        self.assertTrue(sandbox.build_output('target/target/classes/Source.class'))
+
+    def test_test_fixture_pom_does_not_hide_its_target_resource(self):
+        (self.root / 'pom.xml').write_text('<project/>')
+        fixture = self.root / 'src/test/resources/template'
+        fixture.mkdir(parents=True)
+        (fixture / 'pom.xml').write_text('<project/>')
+        (fixture / 'target').mkdir()
+        (fixture / 'target/business.json').write_text('original fixture')
+        self.assertIn('src/test/resources/template/target/business.json', sandbox.all_files())
+
     def test_protocol_cli_is_read_only_and_explicit(self):
         request = {'name': 'protocol', 'arguments': {}}
         before = list(self.root.iterdir())
@@ -31,7 +61,7 @@ class SandboxPolicyTest(unittest.TestCase):
                                 capture_output=True, cwd=self.root, check=False)
         self.assertEqual(0, result.returncode)
         self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
-            'protocol': 'delveforge-sandbox', 'version': 1}},
+            'protocol': 'delveforge-sandbox', 'version': 2}},
             {k: v for k, v in json.loads(result.stdout).items() if k != 'durationMs'})
         self.assertEqual(before, list(self.root.iterdir()))
         self.assertEqual(b'', result.stderr)
@@ -167,12 +197,55 @@ class SandboxPolicyTest(unittest.TestCase):
             for name in ('c.txt', 'd.txt', 'e.txt'):
                 (self.root / name).write_text('content', encoding='utf-8')
             self.assert_policy('SOURCE_ENTRY_LIMIT', sandbox.all_files)
-        with patch.object(sandbox, 'FILE_LIMIT', 1):
+        with patch.object(sandbox, 'BASELINE_FILE_LIMIT', 1):
             self.assert_policy('SOURCE_CAPTURE_LIMIT', sandbox.snapshot)
+
+    def test_explicit_new_maven_check_excludes_only_outputs_and_retains_baseline_assets(self):
+        (self.root / 'pom.xml').write_text('<project/>')
+        child = self.root / 'independent'
+        (child / 'target').mkdir(parents=True)
+        (child / 'pom.xml').write_text('<project/>')
+        asset = child / 'target/business.json'
+        asset.write_text('retained baseline resource')
+        baseline = {entry['path']: entry['sha256'] + ':' + entry['mode'] for entry in sandbox.snapshot()['files']}
+
+        def build(*args, **kwargs):
+            (child / 'target/classes').mkdir(exist_ok=True)
+            (child / 'target/classes/Generated.class').write_bytes(b'\x00\xff')
+            return 0, 'build completed'
+
+        with patch.object(sandbox, 'BASELINE_PATHS', set(baseline)), patch.object(sandbox, 'run_bounded', build):
+            result = sandbox.checks({'directory': 'independent'})
+            self.assertEqual('BUILD_PASSED_NOT_TESTED', result['classification'])
+            final = sandbox.snapshot(True, baseline, sandbox.maven_module_roots({'independent'}))
+            self.assertIn('independent/target/business.json', {entry['path'] for entry in final['files']})
+            self.assertNotIn('independent/target/classes/Generated.class', {entry['path'] for entry in final['files']})
+
+            def mutate(*args, **kwargs):
+                asset.write_text('unexpected source mutation')
+                return 0, 'build completed'
+
+            with patch.object(sandbox, 'run_bounded', mutate):
+                self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({'directory': 'independent'}))
+
+    def test_static_report_fixture_is_preserved_and_never_counted_as_execution(self):
+        (self.root / 'pom.xml').write_text('<project/>')
+        fixture = self.root / 'src/test/resources/template/target/surefire-reports/TEST-fixture.xml'
+        fixture.parent.mkdir(parents=True)
+        original = '<testsuite tests="9" failures="0" errors="0" skipped="0"/>'
+        fixture.write_text(original)
+        paths = {entry['path'] for entry in sandbox.snapshot()['files']}
+        with patch.object(sandbox, 'BASELINE_PATHS', paths), patch.object(sandbox, 'run_bounded', return_value=(0, 'BUILD SUCCESS')):
+            result = sandbox.checks({'goal': 'test'})
+        self.assertEqual('BUILD_PASSED_NOT_TESTED', result['classification'])
+        self.assertEqual(0, result['executedTests'])
+        self.assertEqual(original, fixture.read_text())
+        self.assertEqual(0, sandbox.report()['reports'])
 
     def test_case_conflicts(self):
         with patch.object(sandbox.os, 'walk', return_value=[(str(self.root), [], ['a.txt', 'A.txt'])]), \
-                patch.object(pathlib.Path, 'is_file', return_value=True):
+                patch.object(pathlib.Path, 'is_file', return_value=True), \
+                patch.object(sandbox, 'maven_module_roots', return_value=set()):
             self.assert_policy('SOURCE_CASE_CONFLICT', sandbox.all_files)
 
     def test_command_output_limit_remains_enforced(self):

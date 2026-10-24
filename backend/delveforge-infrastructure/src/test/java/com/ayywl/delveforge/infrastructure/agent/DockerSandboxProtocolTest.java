@@ -39,7 +39,7 @@ class DockerSandboxProtocolTest {
     @Test
     void acceptsOnlyExplicitCompatibleToolContract() throws Exception {
         assertDoesNotThrow(() -> DockerAgentSandbox.requireCompatibleProtocol(json.readTree(
-                "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":1}}")));
+                "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":2}}")));
     }
 
     @ParameterizedTest
@@ -48,7 +48,7 @@ class DockerSandboxProtocolTest {
             "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":\"1\"}}",
             "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":1.0}}",
             "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"other\",\"version\":1}}",
-            "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":2}}",
+            "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":1}}",
             "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":4294967297}}"})
     void legacyMalformedAndUnknownContractsFailWithSafeActionableError(String response) throws Exception {
         var failure = assertThrows(AgentException.class,

@@ -70,6 +70,7 @@ export async function request<T>(
   path: string,
   method = "GET",
   body?: unknown,
+  getTimeoutMs = 15_000,
 ): Promise<T> {
   let response: Response;
   try {
@@ -80,7 +81,7 @@ export async function request<T>(
       body: body === undefined ? undefined : JSON.stringify(body),
       cache: "no-store",
       // GET 有界等待；同步 AI / execute POST 不设置前端期限，也不自动重试。
-      signal: method === "GET" ? AbortSignal.timeout(15_000) : undefined,
+      signal: method === "GET" ? AbortSignal.timeout(getTimeoutMs) : undefined,
     });
   } catch {
     throw new ApiError(0, "CONNECTION_LOST");
@@ -222,6 +223,9 @@ export const api = {
     request<EvolutionPlan>(`${plan(value)}/prepare`, "POST"),
   confirmStep: (value: string, step: string) =>
     request<EvolutionPlan>(`${plan(value)}/steps/${id(step)}/confirm`, "POST"),
+  repositoryCompatibility: (assetId: string, revision: string) =>
+    request<import("./types").RepositoryCompatibility>(
+      `/software-assets/${id(assetId)}/compatibility?revision=${encodeURIComponent(revision)}`, "GET", undefined, 120_000),
   workingCopy: (value: string) =>
     request<WorkingCopy>(`/working-copies/${id(value)}`),
   agentRuns: (value: string, step: string, before?: string) =>

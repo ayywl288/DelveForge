@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.app.error;
 
+import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.evolution.planning.EvolutionPlanNotFoundException;
 import com.ayywl.delveforge.application.evolution.planning.PlanningExtractionException;
 import com.ayywl.delveforge.application.evolution.provisioning.WorkingCopyNotFoundException;
@@ -51,6 +52,8 @@ import org.springframework.web.servlet.HandlerMapping;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.time.Instant;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * 统一错误映射。
@@ -605,4 +608,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(new ApiErrorResponse(ApiErrorCode.EVOLUTION_FLOW_SCOPE_CONFLICT,
                         "流程归属缺失或不一致，请只读查看历史。", request.getRequestURI(), Instant.now()));
     }
+    /** Prepare 的兼容性拒绝不属于服务器故障；只映射明确的诊断分类，不回传异常自由文本。 */
+    @ExceptionHandler(AgentException.class)
+    public ResponseEntity<Map<String, String>> compatibilityFailure(AgentException failure) {
+        boolean blocked = Set.of("GIT_PATH_UNSUPPORTED", "GIT_TYPE_UNSUPPORTED", "SOURCE_LIMIT", "GIT_OBJECT_STORAGE",
+                "PROTECTED_CREDENTIAL_PATH", "MAVEN_CONFIGURATION", "MAVEN_ROOT_AMBIGUOUS", "MAVEN_MODULE_MISSING",
+                "MAVEN_MODULE_CYCLE", "MAVEN_PARENT_CYCLE", "MAVEN_MODULE_LIMIT", "MAVEN_PROFILE_AMBIGUOUS",
+                "MAVEN_EXTENSION_UNSUPPORTED", "MAVEN_TOOLCHAIN_UNSUPPORTED", "MAVEN_PATH_UNSUPPORTED",
+                "MAVEN_LOCAL_CONFIGURATION", "JDK_AMBIGUOUS", "JDK_UNSUPPORTED", "GENERATED_OUTPUT_AMBIGUITY",
+                "GIT_ATTRIBUTES_UNSUPPORTED", "LOCAL_BUILD_PREREQUISITE").contains(failure.code());
+        return ResponseEntity.status(blocked ? HttpStatus.CONFLICT : HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Map.of("code", failure.code(), "message", blocked
+                        ? "仓库兼容性检查阻止了准备，请查看兼容性明细。" : "外部执行能力当前不可用。"));
+    }
+
 }

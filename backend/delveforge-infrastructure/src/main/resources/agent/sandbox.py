@@ -18,11 +18,14 @@ ROOT = pathlib.Path('/workspace')
 FILE_LIMIT = int(os.environ.get('DF_FILE_BYTES', '262144'))
 FILES_LIMIT = int(os.environ.get('DF_MAX_FILES', '10000'))
 TOTAL_LIMIT = int(os.environ.get('DF_CAPTURE_BYTES', '16777216'))
+BASELINE_FILE_LIMIT = int(os.environ.get('DF_BASELINE_FILE_BYTES', '16777216'))
+BASELINE_TOTAL_LIMIT = int(os.environ.get('DF_BASELINE_TOTAL_BYTES', '134217728'))
 # v1 约定检查冲突的未修改证据、应用阶段未知及应用后捕获阶段；旧工具不能推断兼容。
 PROTOCOL_NAME = 'delveforge-sandbox'
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2', '.npmrc', '.netrc', '.pypirc'}
 GENERATED = {'target'}
+BASELINE_PATHS = set()
 
 
 class PolicyError(Exception):
@@ -83,21 +86,72 @@ def text(path):
     return raw.decode('utf-8', errors='strict')
 
 
-def build_output(relative):
+def maven_module_roots(extra=()):
+    # 基线角色来自宿主固定版本预检；仅沿实际 reactor 声明扩展新增模块，不能把测试夹具 POM 当项目。
+    encoded = os.environ.get('DF_MAVEN_MODULES_B64', 'W10=')
+    roots = set(json.loads(base64.b64decode(encoded, validate=True).decode('utf-8'))) | set(extra)
+    entry = os.environ.get('DF_MAVEN_DIRECTORY', '.')
+    if (ROOT / entry / 'pom.xml').is_file():
+        roots.add(entry)
+    pending = list(roots)
+    seen = set()
+    while pending:
+        directory = pending.pop()
+        if directory in seen:
+            continue
+        seen.add(directory)
+        if len(seen) > 128 or sum(len(p.encode('utf-8')) for p in seen) > 8192:
+            raise PolicyError('MAVEN_MODULE_LIMIT', 'Bounded reactor metadata limit exceeded')
+        pom = ROOT / directory / 'pom.xml'
+        if not pom.is_file() or pom.is_symlink() or pom.stat().st_size > FILE_LIMIT:
+            continue
+        raw = pom.read_bytes()
+        if b'<!DOCTYPE' in raw.upper():
+            continue
+        try:
+            node = ET.fromstring(raw)
+        except ET.ParseError:
+            continue
+        for module in node.findall('./{*}modules/{*}module'):
+            relative = (module.text or '').strip()
+            child = (ROOT / directory / relative).resolve()
+            if not relative or not child.is_relative_to(ROOT) or child.is_symlink():
+                continue
+            name = child.relative_to(ROOT).as_posix()
+            roots.add(name)
+            pending.append(name)
+    return roots
+
+
+def build_output(relative, modules=None):
+    modules = maven_module_roots() if modules is None else modules
     parent = ROOT
     for part in relative.split('/'):
         child = parent / part
-        if part in GENERATED and (parent / 'pom.xml').is_file():
-            if (child / 'pom.xml').exists():
-                raise PolicyError('AMBIGUOUS_GENERATED_PATH', 'Ambiguous target module/build directory')
+        if part in GENERATED and parent.relative_to(ROOT).as_posix() in modules:
+            if (child / 'pom.xml').is_file():
+                if child.relative_to(ROOT).as_posix() not in modules:
+                    raise PolicyError('AMBIGUOUS_GENERATED_PATH', 'Target directory is not a declared reactor module')
+                parent = child
+                continue
             return True
         parent = child
     return False
 
 
-def all_files():
+def all_files(modules=None, retained=()):
     files = []
     names = set()
+    modules = maven_module_roots() if modules is None else modules
+    retained = BASELINE_PATHS | set(retained)
+    retained_directories = set()
+    for relative in retained:
+        parent = pathlib.PurePosixPath(relative).parent
+        while parent.as_posix() != '.':
+            retained_directories.add(parent.as_posix())
+            if len(retained_directories) > FILES_LIMIT * 4:
+                raise PolicyError('SOURCE_ENTRY_LIMIT', 'Baseline directory metadata exceeds entry budget')
+            parent = parent.parent
     for directory, dirs, filenames in os.walk(ROOT, followlinks=False):
         parent = pathlib.Path(directory)
         for name in dirs + filenames:
@@ -112,28 +166,42 @@ def all_files():
             names.add(relative.casefold())
             if len(names) > FILES_LIMIT * 4:
                 raise PolicyError('SOURCE_ENTRY_LIMIT', 'Directory and file entry limit exceeded')
-        dirs[:] = sorted(d for d in dirs if not build_output((parent / d).relative_to(ROOT).as_posix()))
+        dirs[:] = sorted(d for d in dirs
+                         if (parent / d).relative_to(ROOT).as_posix() in retained_directories
+                         or not build_output((parent / d).relative_to(ROOT).as_posix(), modules))
         for name in sorted(filenames):
-            path = parent / name
-            files.append(path.relative_to(ROOT).as_posix())
+            relative = (parent / name).relative_to(ROOT).as_posix()
+            if relative in retained or not build_output(relative, modules):
+                files.append(relative)
             if len(files) > FILES_LIMIT:
                 raise PolicyError('SOURCE_FILE_LIMIT', 'File count exceeded')
     return sorted(files)
 
 
-def snapshot(include_content=False):
+def snapshot(include_content=False, baseline=None, modules=None):
     result = []
-    total = 0
-    for relative in all_files():
+    total = captured = 0
+    baseline = baseline or {}
+    for relative in all_files(modules, baseline):
         path = ROOT / relative
         size = path.stat().st_size
         total += size
-        if size > FILE_LIMIT or total > TOTAL_LIMIT:
-            raise PolicyError('SOURCE_CAPTURE_LIMIT', 'Source capture size limit exceeded')
-        raw = path.read_bytes()
+        if size > BASELINE_FILE_LIMIT or total > BASELINE_TOTAL_LIMIT:
+            raise PolicyError('SOURCE_CAPTURE_LIMIT', 'Bounded baseline materialization limit exceeded')
+        digest = hashlib.sha256()
+        with path.open('rb') as source:
+            while chunk := source.read(65536):
+                digest.update(chunk)
         mode = '100755' if path.stat().st_mode & stat.S_IXUSR else '100644'
-        entry = {'path': relative, 'mode': mode, 'sha256': hashlib.sha256(raw).hexdigest()}
-        if include_content:
+        sha256 = digest.hexdigest()
+        entry = {'path': relative, 'mode': mode, 'sha256': sha256}
+        if include_content and baseline.get(relative) != sha256 + ':' + mode:
+            captured += size
+            if size > FILE_LIMIT or captured > TOTAL_LIMIT:
+                raise PolicyError('SOURCE_CAPTURE_LIMIT', 'Editable source capture size limit exceeded')
+            raw = path.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != sha256:
+                raise PolicyError('SOURCE_CHANGED_DURING_CAPTURE', 'Source changed during capture')
             entry['content'] = base64.b64encode(raw).decode('ascii')
         result.append(entry)
     identities = [{k: v for k, v in entry.items() if k != 'content'} for entry in result]
@@ -222,25 +290,39 @@ def run_bounded(command, input_bytes=None, timeout=180, maximum=1048576, cwd=ROO
             process.wait(timeout=5)
 
 
-def report():
+def maven_report_files(modules=None):
+    modules = maven_module_roots() if modules is None else modules
+    for module in sorted(modules):
+        prefix = '' if module == '.' else module + '/'
+        for kind in ('surefire-reports', 'failsafe-reports'):
+            directory = path_for(prefix + 'target/' + kind)
+            if not directory.exists():
+                continue
+            if not directory.is_dir():
+                raise PolicyError('UNSAFE_REPORT_DIRECTORY', 'Unsafe report directory')
+            for path in sorted(directory.iterdir()):
+                if path.is_symlink():
+                    raise PolicyError('UNSAFE_REPORT_DIRECTORY', 'Unsafe report directory')
+                if path.is_file() and path.relative_to(ROOT).as_posix() not in BASELINE_PATHS:
+                    yield path
+
+
+def report(modules=None):
     total = failures = errors = skipped = reports = 0
-    for directory, _, files in os.walk(ROOT):
-        if not directory.endswith(('surefire-reports', 'failsafe-reports')):
-            continue
-        for name in sorted(files):
-            if name.startswith('TEST-') and name.endswith('.xml'):
-                reports += 1
-                if reports > 1000:
-                    raise PolicyError('REPORT_COUNT_LIMIT', 'Test report count limit exceeded')
-                path = pathlib.Path(directory) / name
-                if path.is_symlink() or path.stat().st_size > 2097152:
-                    raise PolicyError('UNSAFE_REPORT', 'Unsafe test report')
-                node = ET.fromstring(path.read_bytes())
-                for suite in ([node] if node.tag == 'testsuite' else node.findall('testsuite')):
-                    total += int(suite.get('tests', '0'))
-                    failures += int(suite.get('failures', '0'))
-                    errors += int(suite.get('errors', '0'))
-                    skipped += int(suite.get('skipped', '0'))
+    for path in maven_report_files(modules):
+        name = path.name
+        if name.startswith('TEST-') and name.endswith('.xml'):
+            reports += 1
+            if reports > 1000:
+                raise PolicyError('REPORT_COUNT_LIMIT', 'Test report count limit exceeded')
+            if path.stat().st_size > 2097152:
+                raise PolicyError('UNSAFE_REPORT', 'Unsafe test report')
+            node = ET.fromstring(path.read_bytes())
+            for suite in ([node] if node.tag == 'testsuite' else node.findall('testsuite')):
+                total += int(suite.get('tests', '0'))
+                failures += int(suite.get('failures', '0'))
+                errors += int(suite.get('errors', '0'))
+                skipped += int(suite.get('skipped', '0'))
     if min(total, failures, errors, skipped) < 0 or failures + errors + skipped > total:
         raise PolicyError('REPORT_COUNTS', 'Contradictory test report counts')
     return {'reports': reports, 'tests': total, 'executedTests': total - skipped,
@@ -270,18 +352,14 @@ def checks(args):
         if not re.fullmatch(r'[A-Za-z0-9_.$*#,+-]{1,200}', selected) or goal != 'test':
             raise PolicyError('MAVEN_OPTIONS', 'Invalid test selector')
         command += ['-Dtest=' + selected, '-Dsurefire.failIfNoSpecifiedTests=false']
-    before = snapshot()['snapshot']
-    # 清除旧报告，避免未运行的模块或跳过测试沿用早前结果。
-    for report_directory, _, files in os.walk(ROOT):
-        if report_directory.endswith(('surefire-reports', 'failsafe-reports')):
-            for name in files:
-                path = pathlib.Path(report_directory) / name
-                if path.is_symlink():
-                    raise PolicyError('UNSAFE_REPORT_DIRECTORY', 'Unsafe report directory')
-                path.unlink()
+    modules = maven_module_roots({project.relative_to(ROOT).as_posix()})
+    before = snapshot(modules=modules)['snapshot']
+    # 只清理实际构建目录的生成报告；测试夹具和基线资源不能被清理或冒充执行证据。
+    for path in maven_report_files(modules):
+        path.unlink()
     code, output = run_bounded(command + [goal], timeout=int(os.environ.get('DF_CHECK_SECONDS', '180')))
-    after = snapshot()['snapshot']
-    result = report()
+    after = snapshot(modules=modules)['snapshot']
+    result = report(modules)
     if before != after:
         raise PolicyError('CHECK_MUTATED_SOURCE', 'Build mutated source; results cannot attest the requested snapshot')
     if re.search(r'release version .* not supported|invalid target release|UnsupportedClassVersionError', output):
@@ -305,6 +383,7 @@ def dispatch(name, args):
     if name == 'protocol':
         return {'protocol': PROTOCOL_NAME, 'version': PROTOCOL_VERSION}
     if name == 'initialize':
+        total = 0
         with tarfile.open('/tmp/source.tar') as archive:
             for entry in archive:
                 relative = entry.name.rstrip('/')
@@ -313,15 +392,16 @@ def dispatch(name, args):
                     path.mkdir(parents=True, exist_ok=True)
                 elif entry.isfile():
                     path.parent.mkdir(parents=True, exist_ok=True)
-                    if entry.size > FILE_LIMIT:
+                    total += entry.size
+                    if entry.size > BASELINE_FILE_LIMIT or total > BASELINE_TOTAL_LIMIT:
                         raise PolicyError('BASELINE_FILE_LIMIT', 'Baseline file limit exceeded')
-                    path.write_bytes(archive.extractfile(entry).read(FILE_LIMIT + 1))
+                    path.write_bytes(archive.extractfile(entry).read(BASELINE_FILE_LIMIT + 1))
                     path.chmod(0o755 if entry.mode & 0o100 else 0o644)
                 else:
                     raise PolicyError('BASELINE_FILE_TYPE', 'Unsupported baseline file type')
         return snapshot()
     if name == 'snapshot':
-        return snapshot(args.get('content', False))
+        return snapshot(args.get('content', False), args.get('baseline'))
     if name == 'list_files':
         prefix = args.get('path', '.')
         path = path_for(prefix, True)
@@ -417,9 +497,14 @@ def dispatch(name, args):
 
 
 def main():
+    global BASELINE_PATHS
     started = time.monotonic()
     try:
-        request = json.loads(sys.stdin.buffer.read(524289))
+        raw_request = sys.stdin.buffer.read(8388609)
+        if len(raw_request) > 8388608:
+            raise PolicyError('REQUEST_LIMIT', 'Bounded protocol input exceeded')
+        request = json.loads(raw_request)
+        BASELINE_PATHS = set(request.get('baselinePaths', []))
         result = dispatch(request['name'], request.get('arguments', {}))
         print(json.dumps({'ok': result.get('classification') != 'PATCH_CONFLICT', 'tool': request['name'], 'durationMs': int(
             (time.monotonic() - started) * 1000), 'result': result}, ensure_ascii=True))

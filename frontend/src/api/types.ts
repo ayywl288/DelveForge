@@ -148,10 +148,27 @@ export interface WorkspaceConfiguration {
   root: string | null;
   existingRoots: string[];
 }
+export interface RepositoryCompatibility {
+  revision: string;
+  status: "COMPATIBLE" | "PREPARATION_REQUIRED" | "BLOCKED";
+  policyVersion: string;
+  mavenDirectory: string | null;
+  modules: string[];
+  buildJdk: number | null;
+  sourceBytes: number;
+  files: number;
+  textFiles: number;
+  opaqueFiles: number;
+  generatedPaths: string[];
+  immutablePaths: string[];
+  issues: { classification: string; code: string; path: string; action: string; blocking: boolean }[];
+}
 export interface WorkingCopy {
   id: string;
   sourceAssetId: string;
   sourceRevision: string;
+  preparedRevision?: string;
+  preparation?: { originalRevision: string; preparedRevision: string; policyVersion: string; removedPaths: string[]; metadataPaths: string[] };
   location: string;
   currentRevision: string;
   lastVerifiedRevision: string;

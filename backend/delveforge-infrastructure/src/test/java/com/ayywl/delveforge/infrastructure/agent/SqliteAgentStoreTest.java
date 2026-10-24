@@ -33,13 +33,17 @@ class SqliteAgentStoreTest {
 
     @BeforeEach
     void setup() throws Exception {
+        setup("a".repeat(40));
+    }
+
+    void setup(String baseline) throws Exception {
         source = new SQLiteDataSource();
         source.setUrl("jdbc:sqlite:" + temporary.resolve("agent.db"));
         Flyway.configure().dataSource(source).load().migrate();
         store = new SqliteAgentStore(source);
         sql("INSERT INTO software_asset VALUES('asset','GIT_REPOSITORY','USER_SPECIFIED','original',1,'MIT','ALLOWED',0)");
-        sql("INSERT INTO working_copy VALUES('copy','asset','" + "a".repeat(40) + "','managed','"
-                + "a".repeat(40) + "','" + "a".repeat(40) + "','READY')");
+        sql("INSERT INTO working_copy(id,source_asset_id,source_revision,location,current_revision,last_verified_revision,status) VALUES('copy','asset','" + baseline + "','managed','"
+                + baseline + "','" + baseline + "','READY')");
         sql("INSERT INTO evolution_plan(id,product_direction_id,base_asset_id,base_repository_profile_id,working_copy_id,"
                 + "current_summary,target_problem,target_product,target_differentiation,status) VALUES"
                 + "('plan','direction','asset','profile','copy','current','problem','target','difference','ACTIVE')");

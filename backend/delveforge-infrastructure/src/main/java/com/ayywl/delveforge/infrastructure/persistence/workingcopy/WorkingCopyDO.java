@@ -11,6 +11,25 @@ public class WorkingCopyDO {
     private String currentRevision;
     private String lastVerifiedRevision;
     private String status;
+    private String preparedRevision;
+    private String preparationJson;
+
+    public String getPreparedRevision() {
+        return preparedRevision;
+    }
+
+    public void setPreparedRevision(String value) {
+        preparedRevision = value;
+    }
+
+    public String getPreparationJson() {
+        return preparationJson;
+    }
+
+    public void setPreparationJson(String value) {
+        preparationJson = value;
+    }
+
     public String getId() {
         return id;
     }

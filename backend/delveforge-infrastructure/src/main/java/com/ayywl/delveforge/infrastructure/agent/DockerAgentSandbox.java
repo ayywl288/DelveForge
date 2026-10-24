@@ -7,6 +7,7 @@ import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.agent.Candidate;
+import com.ayywl.delveforge.infrastructure.workspace.GitRepositoryCompatibility;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,6 +52,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         final Path directory;
         final Map<String, Entry> baseline = new LinkedHashMap<>();
         final List<JsonNode> checks = new ArrayList<>();
+        final Map<String, String> baselineHashes = new LinkedHashMap<>();
+        String mavenDirectory;
+        List<String> mavenModules = List.of();
         String image;
         int jdk;
         String lastPreparation;
@@ -138,7 +142,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 "core.quotePath=true", "--git-dir=" + session.directory.resolve("repository.git")));
         command.addAll(List.of(arguments));
         AgentProcess.Result result = commands.run(command, session.directory, input, CONTROL_TIMEOUT,
-                Math.max(session.limits.maxCandidateBytes() * 4, 16777216), () -> false, environment);
+                Math.max(session.limits.maxCandidateBytes() * 4, 150994944), () -> false, environment);
         if (result.exitCode() != 0) {
             String diagnostic = sanitize(result.diagnostic());
             throw new AgentException("GIT_FINALIZATION", "Controlled Git " + arguments[0] + " failed: "
@@ -155,7 +159,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         List<String> command = new ArrayList<>(List.of("git", "--no-optional-locks", "-c", "core.fsmonitor=false",
                 "-c", "core.hooksPath=", "-C", session.task.location()));
         command.addAll(List.of(arguments));
-        AgentProcess.Result result = commands.run(command, null, input, CONTROL_TIMEOUT, 16777216,
+        AgentProcess.Result result = commands.run(command, null, input, CONTROL_TIMEOUT, 150994944,
                 () -> false, Map.of());
         if (result.exitCode() != 0) {
             throw new AgentException("BASELINE_SNAPSHOT", "Cannot read trusted baseline Git objects");
@@ -173,26 +177,20 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     }
 
     private void requireBaselineBudget(Session session) {
-        String listing = decode(sourceGit(session, null, "ls-tree", "-r", "-l", "-z", session.task.baseline()));
-        long bytes = 0;
-        int count = 0;
-        for (String entry : listing.split("\u0000")) {
-            if (entry.isEmpty()) {
-                continue;
-            }
-            int separator = entry.indexOf('\t');
-            String[] metadata = entry.substring(0, separator).trim().split("\\s+");
-            requirePath(entry.substring(separator + 1));
-            if (metadata.length != 4 || !Set.of("100644", "100755").contains(metadata[0])
-                    || !metadata[1].equals("blob") || !metadata[3].matches("[0-9]+")) {
-                throw new AgentException("GIT_TYPE_UNSUPPORTED", "Baseline has unsupported Git entries");
-            }
-            long size = Long.parseLong(metadata[3]);
-            bytes += size;
-            if (++count > session.limits.maxFiles() || size > session.limits.maxFileBytes() || bytes > 16777216L) {
-                throw new AgentException("SOURCE_LIMIT", "Baseline exceeds controlled source materialization limits");
-            }
+        var inspection = new GitRepositoryCompatibility(secrets)
+                .inspect(Path.of(session.task.location()), session.task.baseline());
+        var blocker = inspection.report().issues().stream().filter(issue -> issue.blocking()).findFirst();
+        if (blocker.isPresent()) {
+            throw new AgentException(blocker.get().code(), blocker.get().action());
         }
+        if (inspection.report().preparationRequired()) {
+            throw new AgentException("GENERATED_OUTPUT_AMBIGUITY", "请通过正常准备流程创建已记录来源的演化基线。");
+        }
+        if (inspection.report().files() > session.limits.maxFiles()) {
+            throw new AgentException("SOURCE_LIMIT", "基线文件数超过本次 Run 的资源预算。");
+        }
+        session.mavenDirectory = inspection.report().mavenDirectory();
+        session.mavenModules = inspection.report().modules();
     }
 
     @Override
@@ -252,12 +250,16 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             // 在传入项目源码、初始化和首次模型调用前验证实际固定镜像中的工具。
             verifyProtocol(session, cancelled);
             docker(List.of("exec", "-i", name(task.runId(), "agent"), "python3", "-c",
-                    "import sys; open('/tmp/source.tar','wb').write(sys.stdin.buffer.read(16777217))"),
+                    "import sys; open('/tmp/source.tar','wb').write(sys.stdin.buffer.read(150994945))"),
                     Files.readAllBytes(session.directory.resolve("source.tar")), CONTROL_TIMEOUT, 8192, cancelled);
             JsonNode initial = invoke(session, "initialize", json.createObjectNode(), cancelled);
             requireToolSuccess(initial);
             Set<String> actual = new HashSet<>();
-            initial.path("result").path("files").forEach(file -> actual.add(file.path("path").asText()));
+            initial.path("result").path("files").forEach(file -> {
+                String path = file.path("path").asText();
+                actual.add(path);
+                session.baselineHashes.put(path, file.path("sha256").asText() + ":" + file.path("mode").asText());
+            });
             if (!actual.equals(session.baseline.keySet())) {
                 throw new AgentException("GIT_ATTRIBUTES_UNSUPPORTED", "Archive omitted or transformed baseline paths");
             }
@@ -297,16 +299,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (poms.isEmpty()) {
             throw new AgentException("MAVEN_CONFIGURATION", "A Maven pom.xml is required; Wrapper is optional");
         }
-        for (String path : session.baseline.keySet()) {
-            String[] parts = path.split("/");
-            String parent = "";
-            for (String part : parts) {
-                if (part.equals("target") && poms.containsKey(parent + "pom.xml")) {
-                    throw new AgentException("GENERATED_OUTPUT_AMBIGUITY", "Tracked Maven build output or target-named module requires classification");
-                }
-                parent += part + "/";
-            }
-        }
+
         return poms;
     }
 
@@ -342,6 +335,10 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 "--env", "DF_FILE_BYTES=" + limits.maxFileBytes(), "--env", "DF_MAX_FILES=" + limits.maxFiles(),
                 "--env", "DF_PATCH_BYTES=" + limits.maxPatchBytes(), "--env",
                 "DF_CAPTURE_BYTES=" + Math.max(limits.maxCandidateBytes() * 8, 16777216), "--env",
+                "DF_BASELINE_FILE_BYTES=" + GitRepositoryCompatibility.MAX_BASELINE_FILE_BYTES, "--env",
+                "DF_BASELINE_TOTAL_BYTES=" + GitRepositoryCompatibility.MAX_SOURCE_BYTES, "--env",
+                "DF_MAVEN_DIRECTORY=" + session.mavenDirectory, "--env",
+                modulesEnvironment(session), "--env",
                 "DF_CHECK_SECONDS=" + limits.checkSeconds()));
         for (String proxy : List.of("HTTP_PROXY", "HTTPS_PROXY", "FTP_PROXY", "ALL_PROXY", "NO_PROXY",
                 "http_proxy", "https_proxy", "ftp_proxy", "all_proxy", "no_proxy")) {
@@ -395,13 +392,19 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
     }
 
+    private String modulesEnvironment(Session session) {
+        return "DF_MAVEN_MODULES_B64=" + Base64.getEncoder().encodeToString(
+                json.valueToTree(session.mavenModules).toString().getBytes(StandardCharsets.UTF_8));
+    }
+
     private JsonNode invoke(Session session, String name, JsonNode arguments, BooleanSupplier cancelled) {
         try {
-            byte[] input = json.writeValueAsBytes(Map.of("name", name, "arguments", arguments));
+            byte[] input = json.writeValueAsBytes(Map.of("name", name, "arguments", arguments,
+                    "baselinePaths", session.baseline.keySet()));
             int maxBytes = name.equals("snapshot") ? Math.max(session.limits.maxCandidateBytes() * 16, 33554432)
                     : Math.max(session.limits.maxFileBytes() * 8, 2097152);
-            return parse(docker(List.of("exec", "-i", name(session.task.runId(), "agent"),
-                    "python3", "/opt/delveforge/sandbox.py"), input,
+            return parse(docker(List.of("exec", "-i", "--env", modulesEnvironment(session),
+                    name(session.task.runId(), "agent"), "python3", "/opt/delveforge/sandbox.py"), input,
                     Duration.ofSeconds(name.equals("run_checks") ? session.limits.checkSeconds() + 15L : 45L),
                     maxBytes, cancelled).bytes());
         } catch (IOException failure) {
@@ -428,14 +431,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 || !response.path("result").path("protocol").asText().equals("delveforge-sandbox")
                 || !response.path("result").path("version").isIntegralNumber()
                 || !response.path("result").path("version").canConvertToInt()
-                || response.path("result").path("version").asInt() != 1) {
+                || response.path("result").path("version").asInt() != 2) {
             throw incompatibleProtocol();
         }
     }
 
     private static AgentException incompatibleProtocol() {
         return new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE",
-                "Sandbox tool protocol v1 is required. Build the current agent Dockerfile with a new image tag, "
+                "Sandbox tool protocol v2 is required. Build the current agent Dockerfile with a new image tag, "
                         + "configure delveforge.agent.sandbox.images, then explicitly restart the application. "
                         + "See docs/AUTONOMOUS_AGENT.md.");
     }
@@ -494,6 +497,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     public String tool(String runId, AgentProtocol.ToolCall call, BooleanSupplier cancelled) {
         Session session = requireSession(runId);
         JsonNode arguments = parse(call.arguments().getBytes(StandardCharsets.UTF_8));
+        if (call.name().equals("run_checks") && arguments.isObject() && !arguments.has("directory")) {
+            ((ObjectNode) arguments).put("directory", session.mavenDirectory);
+        }
         if (!arguments.isObject()) {
             return "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
         }
@@ -506,6 +512,13 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
         JsonNode response = invoke(session, call.name(), arguments, cancelled);
         if (call.name().equals("run_checks")) {
+            // 只采纳工具已解析且实际启动检查的入口；基线资源身份始终独立保留，不随目录角色消失。
+            JsonNode checkedDirectory = response.path("result").path("directory");
+            if (checkedDirectory.isTextual() && !session.mavenModules.contains(checkedDirectory.asText())) {
+                List<String> modules = new ArrayList<>(session.mavenModules);
+                modules.add(checkedDirectory.asText());
+                session.mavenModules = List.copyOf(modules);
+            }
             // stop/start 杀死整个容器中的后台进程，防止测试退出后仍有写入者。
             restartAgent(runId, cancelled);
             if (response.path("result").path("classification").asText().equals("DEPENDENCY_MISSING")) {
@@ -541,7 +554,15 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         rejectPolicy(response, call.name().equals("apply_patch") ? AgentPolicyRejection.Stage.PATCH_APPLICATION
                 : AgentPolicyRejection.Stage.TOOL_EXECUTION);
         requireCertainPatchOutcome(response);
-        String safe = sanitizeNode(response).toString();
+        JsonNode visible = sanitizeNode(response);
+        if (call.name().equals("run_checks") && visible.path("result") instanceof ObjectNode check
+                && visible.toString().getBytes(StandardCharsets.UTF_8).length > session.limits.maxOutputBytes()) {
+            String output = check.path("output").asText();
+            int keep = Math.max(0, session.limits.maxOutputBytes() / 8);
+            check.put("output", output.substring(Math.max(0, output.length() - keep)));
+            check.put("outputTruncated", true);
+        }
+        String safe = visible.toString();
         if (safe.getBytes(StandardCharsets.UTF_8).length > session.limits.maxOutputBytes()) {
             return "{\"ok\":false,\"classification\":\"OUTPUT_LIMIT\",\"reason\":\"Request a smaller range\"}";
         }
@@ -694,7 +715,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         docker(capture, null, CONTROL_TIMEOUT, 8192, cancelled);
         JsonNode snapshot;
         try {
-            byte[] request = "{\"name\":\"snapshot\",\"arguments\":{\"content\":true}}".getBytes(StandardCharsets.UTF_8);
+            byte[] request = json.valueToTree(Map.of("name", "snapshot", "arguments",
+                    Map.of("content", true, "baseline", session.baselineHashes))).toString().getBytes(StandardCharsets.UTF_8);
             snapshot = parse(docker(List.of("exec", "-i", name(runId, "capture"), "python3",
                     "/opt/delveforge/sandbox.py"), request, CONTROL_TIMEOUT,
                     Math.max(session.limits.maxCandidateBytes() * 16, 33554432), cancelled).bytes());
@@ -719,6 +741,13 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             String mode = file.path("mode").asText();
             if (!Set.of("100644", "100755").contains(mode)) {
                 throw new AgentException("GIT_TYPE_UNSUPPORTED", "Unsupported final file mode");
+            }
+            if (!file.has("content")) {
+                if (!session.baseline.containsKey(path)
+                        || !(file.path("sha256").asText() + ":" + mode).equals(session.baselineHashes.get(path))) {
+                    throw new AgentException("SNAPSHOT_MISMATCH", "不可变资源的最终快照与可信基线不同。");
+                }
+                continue;
             }
             byte[] bytes = Base64.getDecoder().decode(file.path("content").asText());
             String objectId = gitText(session, Map.of(), bytes, "hash-object", "-w", "--no-filters", "--stdin");

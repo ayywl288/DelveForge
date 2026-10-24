@@ -102,7 +102,7 @@ final class WorkspaceCommandRunner {
         }
     }
 
-    private static void stop(Process process) {
+    static void stop(Process process) {
         java.util.ArrayList<ProcessHandle> owned = new java.util.ArrayList<>(process.descendants().toList());
         owned.forEach(ProcessHandle::destroyForcibly);
         process.destroyForcibly();

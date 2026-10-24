@@ -1,5 +1,8 @@
 # ARCHITECTURE.md
 
+**2026-10-24 准备基线约定：** 原分析 A 与准备 P 分开；通用交付基线记 R，首次 R=P、后续为此前接受的 C。
+下段 Task 2 历史说明中的 A 指其当时的 Step 基线，不得与当前原分析 A 混同。A/P 合同见 ADR-0014。
+
 **2026-10-22 Task 2 当前架构：** [ADR-0012](decisions/0012-autonomous-agent-sandbox-and-frozen-candidate.md)
 规定沙箱与冻结合同；[ADR-0013](decisions/0013-frozen-candidate-delivery.md) 规定正式交付与 Git/SQLite 协调。
 Application 拥有 CodingAgentService 和 CandidateDeliveryService；Infrastructure 实现 Spring AI 1.1.8、
@@ -1062,7 +1065,7 @@ Root 规范化后必须是绝对目录，已有祖先不能通过符号链接或
 外部候选成功后，Application 在隔离的领域候选上依次创建 READY WorkingCopy、绑定、由 Policy
 判定并由 Plan.activate 转换状态。EvolutionLifecycleCommitPort 一次提交 READY 元数据与 ACTIVE
 Plan；SQLite 条件更新再次核对 PROPOSED / 未绑定 / SELECTED、Profile revision 与当前资产授权依据。
-持久化只保存 Working Copy 身份、源资产、位置、三个 revision 与状态，不保存代码或 Git 对象。
+持久化保存 Working Copy 身份、源资产、位置、A/P/current/lastVerified、不可变准备来源与状态，不保存代码或 Git 对象。
 事务失败包含 COMMIT 失败；现有 SQLite transaction manager 的 rollbackOnCommitFailure 继续生效。
 
 领域拒绝或提交失败时 Application 请求删除外部候选；provision 自身失败由 Adapter 清理已分配目录。
@@ -1073,6 +1076,25 @@ Plan；SQLite 条件更新再次核对 PROPOSED / 未绑定 / SELECTED、Profile
 Plan 进入 SUPERSEDED，并与 Direction 切换一起提交。并发出现遗漏的新 Plan 时整批回滚；历史内容、
 Evidence、步骤与已有 Working Copy 绑定都保留。新 Plan 的写入继续检查 SELECTED。
 ACTIVE Plan 的步骤仍为 PENDING_CONFIRMATION，baselineRevision 仍为空；M3 不提供步骤确认或执行。
+
+**Java/Maven 兼容性与自动准备（2026-10-24）**
+
+Application 的 `RepositoryCompatibilityPort` 和只读用例提供固定 revision 的确定性诊断；Workspace 的
+Git 适配器同时供正常准备与 Agent 捕获复用。只解析 Git blobs / POM，不在宿主运行项目 Wrapper、Maven 或插件。
+`GET /api/software-assets/{id}/compatibility?revision=...` 保留资产读取权限；它不准备副本、不调用模型。
+原分析 A 不变；可信准备 P 仅在新建独立 clone 里由精确生成物策略产生，必要 `.gitignore` 只追加锚定模块 target。
+Domain 拥有 PreparationProvenance；Workspace 证明 A→P 的唯一父节点、精确删除及元数据范围。
+激活同一 SQL 事务保存 A/P 与 JSON 来源。V26 仅追加 nullable 列与约束；历史 NULL/NULL 读取为 P=A，
+不更新可能被 Agent/Delivery 占用的行。确认/执行/Delivery 重新核对持久化来源、Git receipt 与实际 tree。
+
+当前有界支持：单文件 16 MiB、总快照 128 MiB、10000 文件、128 个静态 Maven 模块，Git 对象存储 512 MiB；
+准备 Git 命令 45 秒。普通二进制与大文本在基线中逐字节保留且不可编辑；模型可编辑文本仍为 256 KiB。
+transport 上限 144 MiB，捕获对未变文件仅返回 hash/mode，冻结 tree 用基线加受控文本 Diff 重放。
+内部协议独立携带基线路径；显式检查的新 Maven 目录可加入构建角色，但不能因此隐藏已有基线资源。
+只清理和统计实际模块 target 下的生成报告，静态报告夹具不删除，也不作正向测试证据。
+语言级别与构建 JVM 分开推断，可信镜像 JDK 17/21；在线依赖仍只通过既有 Maven Central 代理，最终检查离线。
+外部服务、私有依赖、自定义 toolchain/profile 等不能由预检宣称可用；保留明确限制与实际 Maven 分类。
+当前选择及代价见 ADR-0014；本轮证据见兼容性验收报告。
 
 **Step Authorization / Execution Preparation（M4 Task 1）**
 

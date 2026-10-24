@@ -9,25 +9,19 @@
 
 ## 1. Current Goal
 
-**当前目标（2026-10-24）：完成现有自主演化流程的真实单 Step 验证及 Windows Docker 自动准备，保留独立任务分支供审查。**
+**当前目标（2026-10-24）：普通 Java/Maven 仓库兼容性与自动演化准备。**
 
-本轮不合并 main。M1–M3 使用有效领域夹具，真实模型、Docker、Maven、Candidate 和自动 Delivery
-通过新打包应用执行；独立行为验收与完整证据见
-[真实 E2E 稳定化记录](validation/autonomous-evolution-real-e2e-stabilization.md)。
-这不代表真实用户探索全流程或 M6 已完成，不改变逐 Step 确认与隔离边界。
-Task 1 / Task 2 及审查修复已实现；当前流程为 M1 用户探索 → M2 仓库理解与方向选择 →
-M3 规划与隔离 WorkingCopy → 用户确认并启动一个 Step → Docker Agent → 冻结 Candidate →
-确定性 Delivery → 接受正式 Git commit。Application 拥有 Agent Loop；持久化 SSE 与 Vue 展示实际活动。
-旧 M4/M5 的一次性提案、独立 VerificationStrategy / Repair / Rollback 执行链已经退役。
+用户已授权在 E 盘隔离分支实现固定 Git 预检、精确生成物准备、A→P 来源持久化、二进制资源保留、
+Maven reactor/JDK 诊断及正常 API/UI 衔接。分析仍固定 A，首次 Agent 基线 P，Delivery C 的父节点 P、tree B。
+逐 Step 确认、源码隔离、资产授权、确定性 Candidate/Delivery 与失败恢复边界保持。
+本轮不调用付费 Provider、不合并或推送、不迁移真实数据库。普通前后端回归、隔离 SQLite/Git 测试及
+FinTrack 真实受控 Docker/Maven 验收范围见
+[兼容性与准备验收](validation/repository-compatibility-and-preparation.md)，设计见 ADR-0014。
 
-最新实现验收以 [Task 2 报告的 2026-10-23 修复记录](validation/task2-autonomous-evolution.md) 为准：
-后端 1,447 项实际执行、22 项门控跳过、0 失败/错误；Windows Delivery 29、Linux x86-64 交付补验 29、
-另行真实 Docker 17 项通过；前端 108 项、类型检查和构建通过。历史真实模型两 Step 交付、
-五种新进程恢复及未定位根因的间歇性交付失败均保留原始范围，不把跳过或历史执行当作本轮重跑。
-本次收尾的实际复验、版本与审查交接见 [本地收尾记录](validation/autonomous-evolution-local-closeout.md)。
-
-下一步仅为独立最终审查；不启动新功能或 M6，不自动执行后续 Step，不 Push、打标签、发布或迁移真实用户数据库。
-当前兼容范围和升级备份步骤见 [运行说明](AUTONOMOUS_AGENT.md)。
+前一轮真实单 Step 稳定化及 Docker 自动准备已合入本地基线 b174bf0，其历史证据见
+[真实 E2E 稳定化记录](validation/autonomous-evolution-real-e2e-stabilization.md)。旧 M4/M5 执行链已经退役，
+当前路径为用户确认一个 Step → Docker Agent → 冻结 Candidate → 确定性 Delivery；后续 Step 仍须另行确认和启动。
+该历史验收不作为本轮完整复验；M6 与通用 GitHub 兼容性均不在本轮范围内。
 
 ### Historical goals — 2026-10-19 and earlier
 
@@ -904,7 +898,7 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 
 ## 5. Current Sprint / Iteration
 
-当前完成 §1 的真实单 Step 验证、Docker 自动准备及审查交接；此前集成背景见
+当前完成 §1 的 Java/Maven 兼容性与自动准备；此前集成背景见
 [收尾记录](validation/autonomous-evolution-local-closeout.md)。本轮提交留在独立分支，不合并或推送 main。
 审查前不增加实现里程碑；本地 main 仅在祖先关系成立且验证通过后 fast-forward-only 整合。
 
@@ -1954,7 +1948,7 @@ Plan ACTIVE
 WorkingCopy READY
 Steps PENDING_CONFIRMATION
 
-sourceRevision = currentRevision = lastVerifiedRevision = analyzedRevision
+sourceRevision = analyzedRevision = A；currentRevision = lastVerifiedRevision = preparedRevision = P（无准备时 P=A）
 Steps.baselineRevision = null；没有步骤授权、代码修改或 Verification 执行。
 ```
 

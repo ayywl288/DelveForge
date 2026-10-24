@@ -233,7 +233,7 @@ class ProjectContextPersistenceTest {
             statement.executeUpdate("INSERT INTO software_asset(id, type, source, location, read_permission, license_info, "
                     + "usage_authorization, authorization_revision) VALUES('old-asset', 'GIT_REPOSITORY', 'USER_SPECIFIED', "
                     + "'unchanged', 0, '123', 'DENIED', 7)");
-            statement.executeUpdate("INSERT INTO working_copy VALUES('old-copy', 'old-asset', 'A', 'never-touch', 'B', 'B', 'EVOLVING')");
+            statement.executeUpdate("INSERT INTO working_copy(id,source_asset_id,source_revision,location,current_revision,last_verified_revision,status) VALUES('old-copy', 'old-asset', 'A', 'never-touch', 'B', 'B', 'EVOLVING')");
         }
         Flyway.configure().dataSource(url, null, null).locations("classpath:db/migration").load().migrate();
         try (var connection = DriverManager.getConnection(url); var statement = connection.createStatement()) {

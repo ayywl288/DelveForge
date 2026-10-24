@@ -8,6 +8,7 @@ import StatusBadge from "../components/StatusBadge.vue";
 import EvidenceList from "../components/EvidenceList.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import RevisionText from "../components/RevisionText.vue";
+import RepositoryCompatibility from "../components/RepositoryCompatibility.vue";
 import StepPrerequisites from "../components/StepPrerequisites.vue";
 import NavigationIcon from "../components/NavigationIcon.vue";
 import DetailPanel from "../components/DetailPanel.vue";
@@ -166,6 +167,9 @@ function confirmSelectedStep() {
         <StatusBadge v-if="s.copy" :status="s.copy.status" :show-code="false" />
       </div>
       <p class="meta">先审阅目标与路线，再明确准备隔离副本，最后逐个授权 Step。</p>
+      <RepositoryCompatibility :asset-id="s.plan.baseAssetId"
+        :revision="s.repositories.find(item => item.id === s.plan?.baseRepositoryProfileId)?.analyzedRevision ?? ''"
+        :copy="s.copy" />
       <template v-if="s.plan.status === 'PROPOSED'">
         <div class="workspace-configuration">
           <p class="meta">新 WorkingCopy 存储根目录：<code>{{ workspaceConfiguration?.root ?? '尚未读取' }}</code></p>

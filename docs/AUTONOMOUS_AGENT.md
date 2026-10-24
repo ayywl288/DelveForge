@@ -14,7 +14,7 @@ DelveForge 自身要求 **JDK 21、Git CLI**；前端要求 **Node.js `^20.19.0 
 
 ### Existing database: back up before first start
 
-应用启动时自动运行 Flyway，目前到 **V25**。V22/V23 增加 Agent/Candidate 与保留意图修复；
+应用启动时自动运行 Flyway，目前到 **V26**。V22/V23 增加 Agent/Candidate 与保留意图修复；
 V24 增加 Delivery 日志；V25 将有旧执行事实的原始 Step 行归档到 `legacy_evolution_execution`，
 将相关 Plan 标为 SUPERSEDED、其 Steps 标为 CANCELLED。它不把旧成功转换为新 Delivery，
 不删除原始仓库、WorkingCopy 文件、画像、分析或冻结 Candidate。未经旧执行的规划保留。
@@ -28,6 +28,9 @@ V24 增加 Delivery 日志；V25 将有旧执行事实的原始 Step 行归档�
    未跟踪文件与恢复材料），并保留 Agent root 中的留存材料、旧配置和可回退的应用包。
 4. 核对备份可恢复，再明确选择真实库启动。如先用副本试验升级，必须隔离数据库与所有路径绑定，
    不能启动仍指向原 WorkingCopy 的克隆库。数据库与代码副本必须成组保留，不能只回退一边。
+
+V26 追加 A/P 来源列与不可变约束，历史 NULL/NULL 读取为 P=A，不更新占用行。新准备保存精确删除及元数据路径；
+分析证据始终属于 A，初始 current/lastVerified=P，首次 Candidate/Delivery 以 P 为基线。见 ADR-0014。
 
 正常重启复用所选数据库，不清库或搬移历史副本。旧 M4/M5 使用文档只作历史参考。
 
@@ -66,7 +69,7 @@ pnpm dev
 ### Use an existing Java/Maven repository
 
 在项目工作台创建流程，经 M1 审阅确认画像，M2 登记本地 Git 仓库并如实填写读取权限、许可证与使用授权，
-完成只读分析并选择方向；M3 生成计划，准备独立 WorkingCopy 并激活。原仓库应已提交且干净，分析固定到 revision。
+完成只读分析并选择方向；M3 生成计划，准备独立 WorkingCopy 并激活。分析固定到已提交 revision；未提交工作区内容不进入分析或准备。兼容性面板自动诊断固定 A，准备仅在隔离副本生成 P。
 目标可为根或嵌套 Maven 工程；不要求目标仓库 Maven Wrapper，检查使用可信镜像内 Maven。
 先审阅一个 Step 的 goal/scope/plannedChanges，明确确认，再在实施页启动 Agent；不会自动确认或启动后续 Step。
 失败 Run 可显式创建新尝试；已有成功 Candidate 时消费其交付结果，不重新编码。
@@ -125,8 +128,8 @@ DelveForge 自身仍以 Java 21 和 Maven Wrapper 构建。
 
 正常 Windows 启动只需启动 Docker 后运行 `.\setup-delveforge.ps1`，无需手动构建镜像。
 `setup-agent-images.ps1` 对可信 agent 构建目录内的文件名、原始内容及两种 JDK 的 BASE_IMAGE 参数计算 SHA-256，选择
-`delveforge-agent:protocol-v1-jdk{17|21}-{inputsHash}`。缺失才构建；已有镜像必须通过实际脚本
-SHA-256、协议 v1 握手及 JDK 版本核验，失败时拒绝，不覆盖标签。`sandbox.py`、`proxy.py` 和
+`delveforge-agent:protocol-v2-jdk{17|21}-{inputsHash}`。缺失才构建；已有镜像必须通过实际脚本
+SHA-256、协议 v2 握手及 JDK 版本核验，失败时拒绝，不覆盖标签。`sandbox.py`、`proxy.py` 和
 `offline-settings.xml` 必须与当前源码完全一致。修改构建输入会产生新身份。
 启动器显式传递 `DELVEFORGE_AGENT_IMAGE_21/17` 的固定 image ID，隔离继承配置的规则保持不变。
 每次 Run 仍独立执行 Java 的协议握手。脚本不安装 Docker、不修改 Docker 配置、不 prune 或删除用户资源。
@@ -139,19 +142,22 @@ Docker 缺失、不可达、非 Linux 或 API <1.48 时提示修复；只有显�
 ```powershell
 # 先查询；如果任一示例标签已存在，停止并更换标签。
 docker image ls --format '{{.Repository}}:{{.Tag}}'
-docker build --pull=false -t delveforge-agent:protocol-v1-20261024-jdk21 backend/delveforge-infrastructure/src/main/resources/agent
-docker build --pull=false --build-arg BASE_IMAGE=maven:3.9.9-eclipse-temurin-17 -t delveforge-agent:protocol-v1-20261024-jdk17 backend/delveforge-infrastructure/src/main/resources/agent
+docker build --pull=false -t delveforge-agent:protocol-v2-20261024-jdk21 backend/delveforge-infrastructure/src/main/resources/agent
+docker build --pull=false --build-arg BASE_IMAGE=maven:3.9.9-eclipse-temurin-17 -t delveforge-agent:protocol-v2-20261024-jdk17 backend/delveforge-infrastructure/src/main/resources/agent
 ```
 
-### Sandbox tool protocol v1
+### Sandbox tool protocol v2
 
 实际镜像内的工具接受只读请求 `{"name":"protocol","arguments":{}}`，返回：
 
 ```json
-{"ok":true,"tool":"protocol","durationMs":0,"result":{"protocol":"delveforge-sandbox","version":1}}
+{"ok":true,"tool":"protocol","durationMs":0,"result":{"protocol":"delveforge-sandbox","version":2}}
 ```
 
-`durationMs` 是真实耗时，示例 0 不构成固定值。v1 规定：
+v2 内部请求独立传递固定基线路径；模块元数据使用 Base64 JSON，避免 Windows 参数引号丢失。
+显式检查的新目录可加入实际构建入口集合；基线资源不因目录角色变化而被排除，报告夹具不当作执行证据。
+
+`durationMs` 是真实耗时，示例 0 不构成固定值。v2 保留既有协议规则并增加基线 hash/mode 增量捕获：
 
 - Git `--check` 失败：`ok=false`，嵌套 `PATCH_CONFLICT`、`mutationNotStarted=true`、固定安全原因、
   目标/行尾/快照及重新读取提示；不转发 Git 自由文本，不执行实际应用。
@@ -168,7 +174,7 @@ Java 每次准备 Run 都先将配置镜像解析成固定 image ID，再在实�
 可先直接查询新镜像协议，无需挂载源码或调用模型：
 
 ```powershell
-$protocolImageId = (docker image inspect delveforge-agent:protocol-v1-20261024-jdk21 --format '{{.Id}}').Trim()
+$protocolImageId = (docker image inspect delveforge-agent:protocol-v2-20261024-jdk21 --format '{{.Id}}').Trim()
 '{"name":"protocol","arguments":{}}' | docker run --rm -i --network none --read-only $protocolImageId python3 /opt/delveforge/sandbox.py
 ```
 
@@ -176,7 +182,7 @@ $protocolImageId = (docker image inspect delveforge-agent:protocol-v1-20261024-j
 不调用模型。需要宿主 Python 仅用于这些开发回归，产品运行不需要：
 
 ```powershell
-$env:DELVEFORGE_SANDBOX_PROTOCOL_IMAGE = (docker image inspect delveforge-agent:protocol-v1-20261024-jdk21 --format '{{.Id}}').Trim()
+$env:DELVEFORGE_SANDBOX_PROTOCOL_IMAGE = (docker image inspect delveforge-agent:protocol-v2-20261024-jdk21 --format '{{.Id}}').Trim()
 python -B -m unittest discover -s backend/delveforge-infrastructure/src/test/python -v
 .\mvnw.cmd -pl backend/delveforge-infrastructure -am test '-Dtest=DockerSandboxProtocolTest' '-Dsurefire.failIfNoSpecifiedTests=false'
 ```
@@ -187,7 +193,7 @@ Python 镜像测试逐字节比较已安装脚本与构建源码，并执行镜�
 
 **直接启动 JAR：** 手动验证后，将两个固定 image ID 填入 `DELVEFORGE_AGENT_IMAGE_21/17`
 或外部 `delveforge.agent.sandbox.images`（键为 17/21），再启动新 Java 应用。
-直接 JAR 的回退标签为 `protocol-v1-jdk21/17`，不会隐式运行 Docker 构建；推荐使用启动器完成自动配置。
+直接 JAR 的回退标签为 `protocol-v2-jdk21/17`，不会隐式运行 Docker 构建；推荐使用启动器完成自动配置。
 不要跳过握手或自动重试旧 Run。
 
 API key 从既有 `DEEPSEEK_API_KEY` 提供。模型/endpoint 沿用 `delveforge.ai.deepseek`。
@@ -219,8 +225,8 @@ MODEL_CALL_LIMIT / TOOL_LIMIT 预算。不会把默认 60/160 换成另一个任
 外部 API 仍收费；没有断点续跑。停止请求不等于立刻结束，模型/沙箱返回后仍须核对真实终态与清理事实。
 在线准备单次上限为 min(wall-seconds, 3×check-seconds)，仍受整个 Run 的 wall deadline 约束。
 工具读行默认 120，最多 300；搜索最多 40 处，每段最多 400 字符；文件枚举分页最多 200。
-基线复制前先检查 Git blob 声明大小、文件数及路径；当前原始基线/传输总上限为 16 MiB，
-单文件仍受 max-file-bytes 约束。超限明确失败，不先把大型对象复制到宿主机再拒绝。
+基线复制前先检查 Git blob 声明大小、文件数及路径；当前原始基线总上限 128 MiB、单文件 16 MiB、10000 文件，传输 144 MiB；
+未变二进制/大文本按 hash 与 Git mode 保留，不作为可编辑文本返回。可编辑文件仍受 max-file-bytes 约束。超限明确失败，不先把大型对象复制到宿主机再拒绝。
 模型上下文按完整 assistant/tool 组压缩，保留系统、Step、历史结果摘要和近期组；仍超限则失败。
 上下文压缩行为保持不变，摘要仍保留检查 goal、directory、module 与 selectedTest。
 Candidate 的 testEvidence 继续保存实际测试范围；活动展示摘要只保留安全的 goal、directory、module。
@@ -427,7 +433,9 @@ V22 增加 agent_run、agent_event、agent_candidate。单 WorkingCopy occupied 
 应用以数据库旁的独占文件锁防止第二实例错误中断活跃 Run。资源名称包含 Run UUID，并检查 owner label。
 清理只操作本次资源，不 prune，不清空共享 cache，不触及用户已有容器。
 
-Candidate 字段：id、runId、baseline（commit A）、expectedTree（tree B）、diff（SQLite UTF-8 BLOB）、
+以下通用 Step 基线记 R（首次 R=P，后续 R 为上次接受的 C），原分析 A 始终单独保留。
+
+Candidate 字段：id、runId、baseline（commit R）、expectedTree（tree B）、diff（SQLite UTF-8 BLOB）、
 sha256（diff bytes）、changedPaths、testEvidence、createdAt。diff 有配置大小上限；没有额外全源码 Bundle。
 进入 FINALIZING 的短事务先设置 retained=true，再允许最终化产生唯一可恢复材料；失败终态保持该标记。
 Candidate insert、Run SUCCEEDED 与 retained=false 在同一短事务提交；失败回滚后保留意图仍为 true。
@@ -447,9 +455,9 @@ V22 已用于本地运行与独立验收，保持原迁移校验和；V23 为仍
 同 Candidate 只有一个持久化 Delivery 身份，不重跑模型，也不需要沙箱继续存在。
 INTENT 在任何正式 Git 写入前提交，候选 diff 在独立 index 重放；实际 index、完整 tracked 内容、
 额外文件、路径、attributes 与 Git 安全现场均检查。普通 text/EOL 转换允许经过独立字节等价证明；
-不执行项目自定义 filter、hook 或任意命令。commit-tree 使用 DelveForge 系统身份，parent=A/tree=B；
-保存 C 后 update-ref 以 A 作旧值 CAS 发布。发布后重新证明 C 与文件，短 SQLite 事务才接受 Step。
-此事务同时写 Step SUCCEEDED/baseline A/delivery C、WorkingCopy 两个 revision C、Delivery COMPLETED、
+不执行项目自定义 filter、hook 或任意命令。commit-tree 使用 DelveForge 系统身份，parent=R/tree=B；
+保存 C 后 update-ref 以 R 作旧值 CAS 发布。发布后重新证明 C 与文件，短 SQLite 事务才接受 Step。
+此事务同时写 Step SUCCEEDED/baseline R/delivery C、WorkingCopy 两个 revision C、Delivery COMPLETED、
 完成事件和释放预约。Candidate 不修改，NOT_TESTED 原样显示。
 
 2026-10-23 安全修复后，Git 只在自有临时目录渲染 B，不 checkout 正式源码。正式写入需要
@@ -462,13 +470,13 @@ Windows 的目录/独占文件句柄，或 Linux x86-64 的 openat/statx/renamea
 
 | 实际现场 | 行为 |
 | --- | --- |
-| INTENT + 干净 A | 重新核对授权、重放并继续 |
-| HEAD=A，index/文件完整等于 B，且无未完成标记或已记录的外部冲突 | 不再次应用；创建/复用已记录 C 后发布 |
-| HEAD=已记录 C，parent=A/tree=B，文件完整 | 接受尚未提交的 SQLite 事实 |
+| INTENT + 干净 R | 重新核对授权、重放并继续 |
+| HEAD=R，index/文件完整等于 B，且无未完成标记或已记录的外部冲突 | 不再次应用；创建/复用已记录 C 后发布 |
+| HEAD=已记录 C，parent=R/tree=B，文件完整 | 接受尚未提交的 SQLite 事实 |
 | SQLite 已是 COMPLETED | 返回相同结果，不新增 commit |
-| 干净 A 上的确定拒绝 | DELIVERY_BLOCKED，保留身份，用户可请求重新核对 |
+| 干净 R 上的确定拒绝 | DELIVERY_BLOCKED，保留身份，用户可请求重新核对 |
 | 部分 index/文件、额外外部修改、未知 ref/数据库 | RECOVERY_REQUIRED，保留现场和预约，不自动 reset/clean |
-| MUTATION_NOT_STARTED 冲突已由用户处理，且显式重试重新完整证明干净 A | 重新核对授权后消费同一冻结 Candidate；不重新编码 |
+| MUTATION_NOT_STARTED 冲突已由用户处理，且显式重试重新完整证明干净 R | 重新核对授权后消费同一冻结 Candidate；不重新编码 |
 
 已知 Git 结果但 SQLite 暂不可用时保留可恢复检查点与 DELIVERY_PENDING 事件；异常后先读回是否已经提交。
 冻结结果的首次发现若不能预约，记录阻塞事件，本进程不无限自动重试该结果；明确请求仍会重新校验。

@@ -153,6 +153,105 @@ class WorkingCopyActivationApiIntegrationTest {
     }
 
     @Test
+    void normalPreparationPersistsGeneratedBaselineWithoutCallingAiOrConfirmingStep() throws Exception {
+        Files.writeString(source.resolve("pom.xml"), "<project><properties><maven.compiler.release>17"
+                + "</maven.compiler.release></properties></project>");
+        Files.createDirectories(source.resolve("src/main/resources"));
+        Files.createDirectories(source.resolve("target/classes"));
+        Files.writeString(source.resolve("src/main/resources/message.txt"), "retained resource\n");
+        Files.writeString(source.resolve("target/classes/message.txt"), "retained resource\n");
+        git(source, "add", ".");
+        commit("tracked generated resource");
+        String a = git(source, "rev-parse", "HEAD").strip();
+        assertPreparedApi(source, a, "prepared-profile");
+    }
+
+    @Test
+    void untouchedFinTrackPersistsActualProvenanceThroughNormalPreparationApi() throws Exception {
+        String configured = System.getProperty("delveforge.compatibility.fintrack");
+        Assumptions.assumeTrue(configured != null, "Fresh public clone acceptance is separately enabled");
+        Path original = Path.of(configured).toAbsolutePath();
+        String a = git(original, "rev-parse", "HEAD").strip();
+        assertEquals("0e7f0bce854dee6f4d43582f8315bb45cec369eb", a);
+        assets.save(SoftwareAsset.create(ASSET, SoftwareAssetType.GIT_REPOSITORY, SoftwareAssetSource.USER_SPECIFIED,
+                original.toString(), true, "fixture-authorized-validation-only", UsageAuthorization.ALLOWED));
+        assertPreparedApi(original, a, "fintrack-profile");
+    }
+
+    private void assertPreparedApi(Path original, String a, String profileName) throws Exception {
+        var profileId = new RepositoryProfileId(profileName);
+        profiles.save(RepositoryProfile.create(profileId, ASSET, a, "Reporting", List.of("Java"),
+                List.of("reports"), List.of("Export"), List.of("Render"), List.of(), List.of(), List.of(FACT)));
+        var before = snapshot(original);
+        String id = plan(profileName).path("id").asText();
+        clearInvocations(ai);
+        mvc.perform(get("/api/software-assets/asset/compatibility").param("revision", a))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(a))
+                .andExpect(jsonPath("$.status").value("PREPARATION_REQUIRED"));
+        JsonNode active = prepare(id);
+        String copyId = active.path("workingCopyId").asText();
+        WorkingCopy copy = copies.findById(new WorkingCopyId(copyId)).orElseThrow();
+        String p = copy.preparedRevision();
+        assertNotEquals(a, p);
+        assertEquals(a, copy.sourceRevision());
+        assertEquals(p, copy.currentRevision());
+        assertEquals(p, copy.lastVerifiedRevision());
+        assertEquals(a, profiles.findById(profileId).orElseThrow().analyzedRevision());
+        assertEquals(a, jdbc.queryForObject("SELECT source_revision FROM working_copy WHERE id=?", String.class, copyId));
+        assertEquals(p, jdbc.queryForObject("SELECT prepared_revision FROM working_copy WHERE id=?", String.class, copyId));
+        assertEquals(copy.preparation(), copies.findById(copy.id()).orElseThrow().preparation());
+        assertEquals(p + " " + a, git(Path.of(copy.location()), "rev-list", "--parents", "-n", "1", p).strip());
+        mvc.perform(get("/api/working-copies/{id}", copyId)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceRevision").value(a)).andExpect(jsonPath("$.preparedRevision").value(p))
+                .andExpect(jsonPath("$.preparation.policyVersion").value("maven-generated-v1"));
+        assertEquals(before, snapshot(original));
+        verifyNoInteractions(ai);
+        String evidence = System.getProperty("delveforge.compatibility.evidence");
+        if (evidence != null && profileName.equals("fintrack-profile")) {
+            Files.writeString(Path.of(evidence).resolve("fintrack-api-provenance.json"),
+                    mapper.writerWithDefaultPrettyPrinter().writeValueAsString(Map.of(
+                            "original", a, "prepared", p, "provenance", copy.preparation(),
+                            "storedPreparedRevision", jdbc.queryForObject(
+                                    "SELECT prepared_revision FROM working_copy WHERE id=?", String.class, copyId),
+                            "stepsRemainPending", true, "additionalAiCalls", 0, "sourceUnchanged", true)));
+        }
+    }
+
+    @Test
+    void compatibilityRequiresAssetReadPermissionAndNeverCallsAi() throws Exception {
+        assets.save(asset(false, "MIT", UsageAuthorization.ALLOWED));
+        mvc.perform(get("/api/software-assets/asset/compatibility").param("revision", revision))
+                .andExpect(status().isConflict());
+        mvc.perform(get("/api/software-assets/missing/compatibility")).andExpect(status().isNotFound());
+        assertFalse(Files.exists(ROOT));
+        verifyNoInteractions(ai);
+    }
+
+    @Test
+    void ambiguousTargetReturnsSameCompatibilityCodeFromNormalPrepareWithoutAllocatingCopy() throws Exception {
+        Files.writeString(source.resolve("pom.xml"), "<project/>");
+        Files.createDirectories(source.resolve("target"));
+        Files.writeString(source.resolve("target/business.json"), "{\"retained\":true}");
+        git(source, "add", ".");
+        commit("ambiguous target asset");
+        String a = git(source, "rev-parse", "HEAD").strip();
+        var profile = new RepositoryProfileId("blocked-profile");
+        profiles.save(RepositoryProfile.create(profile, ASSET, a, "Reporting", List.of("Java"), List.of("reports"),
+                List.of("Export"), List.of("Render"), List.of(), List.of(), List.of(FACT)));
+        String id = plan(profile.value()).path("id").asText();
+        clearInvocations(ai);
+        var before = snapshot(source);
+        mvc.perform(get("/api/software-assets/asset/compatibility").param("revision", a))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("BLOCKED"));
+        mvc.perform(post("/api/evolution-plans/{id}/prepare", id)).andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("GENERATED_OUTPUT_AMBIGUITY"));
+        assertUnchanged(id);
+        assertEquals(before, snapshot(source));
+        assertFalse(Files.exists(ROOT));
+        verifyNoInteractions(ai);
+    }
+
+    @Test
     void revokedAuthorizationAndUnknownLicenseAreRecheckedBeforeAnyClone() throws Exception {
         String id = plan().path("id").asText();
         for (SoftwareAsset rejected : List.of(asset(true, "MIT", UsageAuthorization.DENIED),

@@ -30,7 +30,7 @@ public record ProjectWorkspaceResponse(String key, ProjectFlowContext context, b
                 workspace.plan() == null ? null : EvolutionPlanResponse.from(workspace.plan()),
                 copy == null ? null : new WorkingCopyResponse(copy.id().value(), copy.sourceAssetId().value(),
                         copy.sourceRevision(), copy.location(), copy.currentRevision(), copy.lastVerifiedRevision(),
-                        copy.status()), workspace.stage(), workspace.boundUserProfileRevision(), workspace.issues(),
+                        copy.status(), copy.preparedRevision(), copy.preparation()), workspace.stage(), workspace.boundUserProfileRevision(), workspace.issues(),
                 workspace.visibility());
     }
 

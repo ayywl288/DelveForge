@@ -4,6 +4,8 @@ import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.Delivery;
 import com.ayywl.delveforge.application.port.workspace.CandidateDeliveryPort;
 import com.ayywl.delveforge.application.port.workspace.PreparedWorkspace;
+import com.ayywl.delveforge.application.port.workspace.RepositoryCompatibility;
+import com.ayywl.delveforge.application.port.workspace.RepositoryCompatibilityPort;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyBasisChangedException;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyProvisioningPort;
@@ -12,8 +14,11 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceStorageUnavailableException;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
 import com.ayywl.delveforge.domain.agent.Candidate;
+import com.ayywl.delveforge.domain.evolution.PreparationProvenance;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -105,7 +110,8 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 @EnableConfigurationProperties(WorkspaceProperties.class)
 public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvisioningPort,
-        WorkingCopyInspectionPort, CandidateDeliveryPort {
+        WorkingCopyInspectionPort, CandidateDeliveryPort,
+        RepositoryCompatibilityPort {
 
     private static final Logger log = LoggerFactory.getLogger(GitWorkspaceAdapter.class);
 
@@ -481,7 +487,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         if (path == null || path.isBlank() || path.startsWith("/") || path.contains("\\") || path.length() > 512
                 || path.contains(":") || path.contains("\n") || path.contains("\r") || path.contains("\t")
                 || path.contains("\"")
-                || new com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy().excludes(path)) {
+                || new DeterministicRepositorySecretPolicy().excludes(path)) {
             throw new AgentException("TREE_MISMATCH", "Candidate contains an unsupported or protected source path");
         }
         for (String part : path.split("/")) {
@@ -932,10 +938,98 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     }
 
     @Override
+    public RepositoryCompatibility assess(WorkspaceRef source,
+            String revision) {
+        Path repository = requireReadableRepository(source);
+        return compatibility().inspect(repository, revision).report();
+    }
+
+    @Override
+    public void requirePreparationProvenance(WorkspaceRef copy,
+            PreparationProvenance provenance) {
+        if (provenance.originalRevision().equals(provenance.preparedRevision())) {
+            return;
+        }
+        Path target = requireManagedCopy(copy);
+        String parent = CompatibilityGit.text(target, null, Map.of(), "rev-list", "--parents", "-n", "1",
+                provenance.preparedRevision());
+        if (!parent.equals(provenance.preparedRevision() + " " + provenance.originalRevision())) {
+            throw new WorkingCopyBasisChangedException("Prepared baseline parent differs from recorded provenance");
+        }
+        var original = compatibility().inspect(target, provenance.originalRevision());
+        if (!original.report().supported() || !original.report().generatedPaths().equals(provenance.removedPaths())) {
+            throw new WorkingCopyBasisChangedException("Prepared deletion policy differs from recorded provenance");
+        }
+        byte[] diff = CompatibilityGit.run(target, null, Map.of(), "diff-tree", "--no-commit-id", "-r",
+                "--name-status", "--no-renames", "-z", provenance.originalRevision(), provenance.preparedRevision());
+        String[] changes = new String(diff, StandardCharsets.UTF_8).split("\0");
+        Set<String> removed = new HashSet<>();
+        Set<String> metadata = new HashSet<>();
+        for (int i = 0; i < changes.length; i += 2) {
+            if (i + 1 >= changes.length) {
+                throw new WorkingCopyBasisChangedException("Incomplete preparation tree evidence");
+            }
+            if (changes[i].equals("D")) {
+                removed.add(changes[i + 1]);
+            } else if (Set.of("A", "M").contains(changes[i]) && changes[i + 1].equals(".gitignore")) {
+                metadata.add(changes[i + 1]);
+            } else {
+                throw new WorkingCopyBasisChangedException("Preparation contains an unauthorized source change");
+            }
+        }
+        if (!removed.equals(new HashSet<>(provenance.removedPaths()))
+                || !metadata.equals(new HashSet<>(provenance.metadataPaths()))) {
+            throw new WorkingCopyBasisChangedException("Preparation tree differs from persisted changed paths");
+        }
+        if (!metadata.isEmpty()) {
+            var entry = original.entries().get(".gitignore");
+            byte[] before = entry == null ? new byte[0]
+                    : CompatibilityGit.run(target, null, Map.of(), "cat-file", "blob", entry.objectId());
+            byte[] after = CompatibilityGit.run(target, null, Map.of(), "cat-file", "blob",
+                    provenance.preparedRevision() + ":.gitignore");
+            if (after.length < before.length || !Arrays.equals(before, Arrays.copyOf(after, before.length))) {
+                throw new WorkingCopyBasisChangedException("Preparation replaced original ignore metadata");
+            }
+            Set<String> allowed = new HashSet<>();
+            for (String path : removed) {
+                allowed.add("/" + GitRepositoryCompatibility.generatedRoot(path, original.poms().keySet()) + "target/");
+            }
+            String appended = new String(after, before.length, after.length - before.length, StandardCharsets.UTF_8);
+            if (appended.lines().filter(line -> !line.isEmpty()).anyMatch(line -> !allowed.contains(line))) {
+                throw new WorkingCopyBasisChangedException("Preparation added unrelated ignore metadata");
+            }
+        }
+        try {
+            Path marker = target.resolve(".git/delveforge-preparation.json");
+            if (!Files.isRegularFile(marker, LinkOption.NOFOLLOW_LINKS) || Files.size(marker) > 8388608) {
+                throw new WorkingCopyBasisChangedException("Preparation receipt is missing or unsafe");
+            }
+            var stored = new ObjectMapper().readValue(Files.readAllBytes(marker),
+                    PreparationProvenance.class);
+            if (!provenance.equals(stored)) {
+                throw new WorkingCopyBasisChangedException("Git and SQLite preparation receipts differ");
+            }
+        } catch (IOException failure) {
+            throw new WorkspaceException("Cannot prove preparation receipt", failure);
+        }
+    }
+
+    private GitRepositoryCompatibility compatibility() {
+        return new GitRepositoryCompatibility(
+                new DeterministicRepositorySecretPolicy());
+    }
+
+    @Override
     public PreparedWorkspace provision(WorkspaceRef source, String revision, String directoryName) {
         Path repository = requireReadableRepository(source);
         String commit = requireCommitId(repository, revision);
         requireUnchangedBasis(source, commit);
+        GitRepositoryCompatibility.Inspection compatibility = compatibility().inspect(repository, commit);
+        var blocker = compatibility.report().issues().stream()
+                .filter(issue -> issue.blocking() && !issue.code().equals("MAVEN_REQUIRED")).findFirst();
+        if (blocker.isPresent()) {
+            throw new AgentException(blocker.get().code(), blocker.get().action());
+        }
 
         Path target = null;
         boolean allocated = false;
@@ -955,18 +1049,10 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             }
             allocated = true;
 
-            GitCommandResult clone = execute(root, "clone", "--no-local", "--no-checkout",
-                    "--template=", "--", repository.toString(), target.toString());
-            if (!clone.succeeded()) {
-                throw new WorkspaceException("Working Copy clone failed: " + describe(target, clone));
-            }
-
-            // 禁用模板与 checkout hooks，整个准备过程不操作源仓库的工作树或 index。
-            GitCommandResult checkout = execute(target, "-c", "core.hooksPath="
-                    + target.resolve(".git/delveforge-disabled-hooks"), "checkout", "--detach", commit);
-            if (!checkout.succeeded()) {
-                throw new WorkspaceException("Working Copy checkout failed: " + describe(target, checkout));
-            }
+            // 只复制当前分支所需历史；预算与计时由同一受控 Git 执行器保证，不运行项目 Hook。
+            CompatibilityGit.run(root, null, Map.of(), "clone", "--no-local", "--no-checkout",
+                    "--single-branch", "--template=", "--", repository.toString(), target.toString());
+            CompatibilityGit.run(target, null, Map.of(), "checkout", "--detach", commit);
 
             WorkspaceRef location = new WorkspaceRef(target.toString());
             if (!commit.equals(headRevision(location))) {
@@ -984,9 +1070,15 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             requireUnchangedBasis(source, commit);
 
             // 准备凭据用于后续补偿时核对所有权，不能仅凭路径删除托管目录。
+            var provenance = GitRepositoryPreparation.prepare(target, compatibility);
             String token = UUID.randomUUID().toString();
             Files.writeString(target.resolve(".git/delveforge-preparation"), token);
-            return new PreparedWorkspace(location, commit, token);
+            Files.writeString(target.resolve(".git/delveforge-preparation.json"),
+                    new ObjectMapper().writeValueAsString(provenance));
+            requireTrustedState(location, source, provenance.preparedRevision());
+            requirePreparationProvenance(location, provenance);
+            requireUnchangedBasis(source, commit);
+            return new PreparedWorkspace(location, provenance.preparedRevision(), token, provenance);
         } catch (IOException | RuntimeException failure) {
             RuntimeException primary = failure instanceof RuntimeException runtime ? runtime
                     : new WorkspaceException("Working Copy provisioning filesystem failure", failure);

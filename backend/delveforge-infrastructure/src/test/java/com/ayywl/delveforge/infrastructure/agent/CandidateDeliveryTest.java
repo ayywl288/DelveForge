@@ -82,7 +82,7 @@ class CandidateDeliveryTest {
         sql("INSERT INTO product_direction(id,user_profile_id,user_profile_revision,title,problem,target_product,"
                 + "user_fit,differentiation,technical_value,estimated_complexity,status,flow_id) VALUES"
                 + "('direction','user',1,'title','problem','target','fit','diff','value','small','SELECTED','standalone')");
-        sql("INSERT INTO working_copy VALUES('copy','asset','" + baseline + "','" + escape(copy.toString())
+        sql("INSERT INTO working_copy(id,source_asset_id,source_revision,location,current_revision,last_verified_revision,status) VALUES('copy','asset','" + baseline + "','" + escape(copy.toString())
                 + "','" + baseline + "','" + baseline + "','READY')");
         sql("INSERT INTO evolution_plan(id,product_direction_id,base_asset_id,base_repository_profile_id,working_copy_id,"
                 + "current_summary,target_problem,target_product,target_differentiation,status,flow_id) VALUES"

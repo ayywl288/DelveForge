@@ -52,13 +52,11 @@ class DockerRetentionRecoveryTest {
     void setup() throws Exception {
         database = new SqliteAgentStoreTest();
         database.temporary = temporary;
-        database.setup();
         fixture = new DockerAgentSandboxTest();
         fixture.temporary = temporary;
         official = fixture.fixture();
         baseline = fixture.git(official, "rev-parse", "HEAD");
-        database.sql("UPDATE working_copy SET source_revision='" + baseline + "',current_revision='" + baseline
-                + "',last_verified_revision='" + baseline + "' WHERE id='copy'");
+        database.setup(baseline);
         run = new AgentProtocol.Run(UUID.randomUUID().toString(), "plan", "step", "copy", baseline,
                 AgentRunState.CREATED, Instant.now(), null, null, null, false, false, 0, 0, null);
         properties = DockerAgentSandboxTest.properties(temporary.resolve("runs"));

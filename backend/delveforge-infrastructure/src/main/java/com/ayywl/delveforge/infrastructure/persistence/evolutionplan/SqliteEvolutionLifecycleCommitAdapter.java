@@ -51,6 +51,8 @@ public class SqliteEvolutionLifecycleCommitAdapter implements EvolutionLifecycle
             row.setId(copy.id().value());
             row.setSourceAssetId(copy.sourceAssetId().value());
             row.setSourceRevision(copy.sourceRevision());
+            row.setPreparedRevision(copy.preparedRevision());
+            row.setPreparationJson(PreparationProvenanceJson.write(copy.preparation()));
             row.setLocation(copy.location());
             row.setCurrentRevision(copy.currentRevision());
             row.setLastVerifiedRevision(copy.lastVerifiedRevision());

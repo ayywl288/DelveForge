@@ -78,6 +78,7 @@ public final class ExecutionPreparationState {
         }
 
         new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
+        inspection.requirePreparationProvenance(new WorkspaceRef(copy.location()), copy.preparation());
         return new Loaded(plan, copy, asset);
     }
 

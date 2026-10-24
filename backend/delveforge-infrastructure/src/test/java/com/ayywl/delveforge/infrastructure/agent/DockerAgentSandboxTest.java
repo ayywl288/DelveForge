@@ -36,9 +36,9 @@ class DockerAgentSandboxTest {
     private final AgentProcess process = new AgentProcess();
 
     static AgentSandboxProperties properties(Path root) {
-        return new AgentSandboxProperties(root, "docker", Map.of(21, "delveforge-agent:task1-jdk21",
-                17, "delveforge-agent:task1-jdk17"), 21, "delveforge-task1-tests",
-                "delveforge-task1-test-cache", "2g", "2", 256);
+        return new AgentSandboxProperties(root, "docker", Map.of(21, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_21", "delveforge-agent:protocol-v2-jdk21"),
+                17, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_17", "delveforge-agent:protocol-v2-jdk17")), 21, "delveforge-compatibility-tests",
+                "delveforge-compatibility-20261024-cache", "2g", "2", 256);
     }
 
     static String pom(int jdk) {
@@ -370,7 +370,7 @@ class DockerAgentSandboxTest {
         var result = process.run(List.of("docker", "run", "-i", "--rm", "--network", "none", "--user", "11000:11000",
                 "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", "256m",
                 "--cpus", "1", "--pids-limit", "64", "--tmpfs", "/tmp:rw,exec,nosuid,size=32m",
-                "delveforge-agent:task1-jdk21", "python3", "-"), null, script.getBytes(StandardCharsets.UTF_8),
+                properties(temporary.resolve("report-fixture")).images().get(21), "python3", "-"), null, script.getBytes(StandardCharsets.UTF_8),
                 Duration.ofSeconds(20), 8192, () -> false, Map.of());
         assertEquals(0, result.exitCode(), result.diagnostic());
         assertTrue(result.text().contains("REPORT_BOUNDARIES_PASS"));
@@ -474,7 +474,7 @@ class DockerAgentSandboxTest {
     @Test
     void sourceBudgetIsCheckedBeforeHostObjectCopyAndContainerMaterialization() throws Exception {
         Path official = fixture();
-        Files.writeString(official.resolve("oversized.txt"), "x".repeat(2048));
+        Files.write(official.resolve("oversized.txt"), new byte[16777217]);
         git(official, "add", "oversized.txt");
         git(official, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "oversized source fixture");
         String baseline = git(official, "rev-parse", "HEAD");

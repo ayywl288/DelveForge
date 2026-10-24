@@ -19,6 +19,44 @@ class DeliveryMigrationTest {
     @TempDir Path temporary;
 
     @Test
+    void v26PreservesOccupiedLegacyCopyAndRejectsProvenanceMutation() throws Exception {
+        SQLiteDataSource source = new SQLiteDataSource();
+        source.setUrl("jdbc:sqlite:" + temporary.resolve("v25-occupied.db"));
+        Flyway.configure().dataSource(source).target("25").load().migrate();
+        String a = "a".repeat(40);
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("INSERT INTO software_asset VALUES('asset','GIT_REPOSITORY','USER_SPECIFIED','original',1,'MIT','ALLOWED',0)");
+            statement.execute("INSERT INTO working_copy VALUES('copy','asset','" + a + "','managed','" + a + "','" + a + "','READY')");
+            statement.execute("INSERT INTO evolution_plan(id,product_direction_id,base_asset_id,base_repository_profile_id,"
+                    + "working_copy_id,current_summary,target_problem,target_product,target_differentiation,status) "
+                    + "VALUES('plan','direction','asset','profile','copy','current','problem','target','difference','ACTIVE')");
+            statement.execute("INSERT INTO evolution_step(id,plan_id,position,goal,scope,status) VALUES('step','plan',0,'goal','scope','READY')");
+        }
+        new SqliteAgentStore(source).reserve(new AgentProtocol.Run("occupied", "plan", "step", "copy", a,
+                AgentRunState.CREATED, Instant.now(), null, null, null, false, false, 0, 0, null));
+        assertEquals(1, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            try (var rows = statement.executeQuery("SELECT source_revision,current_revision,prepared_revision,preparation_json FROM working_copy")) {
+                rows.next();
+                assertEquals(a, rows.getString(1));
+                assertEquals(a, rows.getString(2));
+                org.junit.jupiter.api.Assertions.assertNull(rows.getString(3));
+                org.junit.jupiter.api.Assertions.assertNull(rows.getString(4));
+                assertEquals(a, com.ayywl.delveforge.infrastructure.persistence.workingcopy.PreparationProvenanceJson
+                        .read(a, rows.getString(3), rows.getString(4)).preparedRevision());
+            }
+            try (var rows = statement.executeQuery("SELECT occupied FROM agent_run WHERE id='occupied'")) {
+                rows.next();
+                assertEquals(1, rows.getInt(1));
+            }
+            org.junit.jupiter.api.Assertions.assertThrows(java.sql.SQLException.class,
+                    () -> statement.execute("UPDATE working_copy SET source_revision='changed' WHERE id='copy'"));
+            org.junit.jupiter.api.Assertions.assertThrows(java.sql.SQLException.class,
+                    () -> statement.execute("INSERT INTO working_copy VALUES('invalid','asset','a','managed2','b','b','READY','b','{}')"));
+        }
+    }
+
+    @Test
     void v23UpgradePreservesFrozenCandidateAndPlanningAndArchivesLegacyExecutionDeliberately() throws Exception {
         SQLiteDataSource source = new SQLiteDataSource();
         source.setUrl("jdbc:sqlite:" + temporary.resolve("v23.db"));
@@ -26,7 +64,7 @@ class DeliveryMigrationTest {
         String a = "a".repeat(40);
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             statement.execute("INSERT INTO software_asset VALUES('asset','GIT_REPOSITORY','USER_SPECIFIED','original',1,'MIT','ALLOWED',0)");
-            statement.execute("INSERT INTO working_copy VALUES('copy','asset','" + a + "','managed','" + a + "','" + a + "','READY')");
+            statement.execute("INSERT INTO working_copy(id,source_asset_id,source_revision,location,current_revision,last_verified_revision,status) VALUES('copy','asset','" + a + "','managed','" + a + "','" + a + "','READY')");
             statement.execute("INSERT INTO evolution_plan(id,product_direction_id,base_asset_id,base_repository_profile_id,"
                     + "working_copy_id,current_summary,target_problem,target_product,target_differentiation,status) "
                     + "VALUES('plan','direction','asset','profile','copy','current','problem','target','difference','ACTIVE')");
@@ -48,7 +86,7 @@ class DeliveryMigrationTest {
                 List.of("Counter.java"), "{\"status\":\"NOT_TESTED\"}", Instant.now());
         store.freeze(frozen);
         store.release("run", false);
-        assertEquals(2, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
+        assertEquals(3, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
         assertEquals(0, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
         assertEquals(frozen, new SqliteAgentStore(source).candidate("candidate"));
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {

@@ -19,6 +19,7 @@ public class SqliteWorkingCopyRepository implements WorkingCopyRepository {
         WorkingCopyDO row = mapper.selectById(id.value());
         return row == null ? Optional.empty() : Optional.of(WorkingCopy.reconstitute(id,
                 new SoftwareAssetId(row.getSourceAssetId()), row.getSourceRevision(), row.getLocation(),
-                row.getCurrentRevision(), row.getLastVerifiedRevision(), WorkingCopyStatus.valueOf(row.getStatus())));
+                row.getCurrentRevision(), row.getLastVerifiedRevision(), WorkingCopyStatus.valueOf(row.getStatus()),
+                PreparationProvenanceJson.read(row.getSourceRevision(), row.getPreparedRevision(), row.getPreparationJson())));
     }
 }

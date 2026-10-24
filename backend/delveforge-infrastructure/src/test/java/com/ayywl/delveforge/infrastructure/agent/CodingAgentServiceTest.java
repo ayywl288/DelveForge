@@ -88,6 +88,12 @@ class CodingAgentServiceTest {
 
     static ExecutionPreparationState eligibility(String baseline, Path official, WorkingCopyInspectionPort inspection,
             Path original) {
+        return eligibility(baseline, official, inspection, original,
+                com.ayywl.delveforge.domain.evolution.PreparationProvenance.unchanged(baseline));
+    }
+
+    static ExecutionPreparationState eligibility(String baseline, Path official, WorkingCopyInspectionPort inspection,
+            Path original, com.ayywl.delveforge.domain.evolution.PreparationProvenance provenance) {
         var assetId = new SoftwareAssetId("asset");
         var profileId = new RepositoryProfileId("profile");
         var planId = new EvolutionPlanId("plan");
@@ -101,8 +107,8 @@ class CodingAgentServiceTest {
                         "先运行现有测试观察失败，再修复 Counter.next(n) 返回 n+1，新增边界测试并重跑完整测试", "Counter",
                         List.of("发现实际文件并修改", "增加独立的边界测试类", "运行完整Maven测试"),
                         EvolutionStepStatus.READY)), List.of(), List.of(evidence), copyId, EvolutionPlanStatus.ACTIVE);
-        WorkingCopy copy = WorkingCopy.reconstitute(copyId, assetId, baseline, official.toString(), baseline,
-                baseline, WorkingCopyStatus.READY);
+        WorkingCopy copy = WorkingCopy.reconstitute(copyId, assetId, provenance.originalRevision(), official.toString(), baseline,
+                baseline, WorkingCopyStatus.READY, provenance);
         SoftwareAsset asset = SoftwareAsset.create(assetId, SoftwareAssetType.GIT_REPOSITORY,
                 SoftwareAssetSource.USER_SPECIFIED, original.toString(), true,
                 "MIT", UsageAuthorization.ALLOWED);

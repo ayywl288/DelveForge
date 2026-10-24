@@ -33,8 +33,8 @@ public final class PlanActivationPolicy {
                 || !copy.sourceAssetId().equals(plan.baseAssetId())
                 || copy.status() != WorkingCopyStatus.READY
                 || !copy.sourceRevision().equals(profile.analyzedRevision())
-                || !copy.currentRevision().equals(copy.sourceRevision())
-                || !copy.lastVerifiedRevision().equals(copy.sourceRevision())) {
+                || !copy.currentRevision().equals(copy.preparedRevision())
+                || !copy.lastVerifiedRevision().equals(copy.preparedRevision())) {
             throw new EvolutionPlanStateException("Plan requires its bound READY Working Copy at the planning revision");
         }
     }

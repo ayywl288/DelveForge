@@ -1,5 +1,17 @@
 # DOMAIN_MODEL.md
 
+**2026-10-24 自动准备基线：**
+
+分析版本记为 A，`WorkingCopy.sourceRevision = RepositoryProfile.analyzedRevision = A`，INV-W09 保持。
+可信准备版本记为 P；无需准备时 P=A。只允许在独立 WorkingCopy 内按版本化确定性策略移除逐项证明的
+Maven 生成物、追加必要的窄范围忽略元数据。P 是 sole-parent=A 的 commit；源码、资源与原仓库不变。
+`PreparationProvenance` 不可变保存 A/P、策略版本、精确删除路径及元数据路径；与 READY/ACTIVE 激活同事务保存。
+初始 `currentRevision = lastVerifiedRevision = preparedRevision = P`；这不表示已通过产品测试。
+准备不确认或执行 Step，不改变 Profile/Plan 的分析证据 A。首次 Candidate Diff 为 P→B，Delivery C 满足
+parent(C)=P、tree(C)=B。下文交付合同的一般 Step 基线用 R 表示；首次 R=P，后续为上次已接受的 C。
+历史无准备记录的 WorkingCopy 按 P=A 解释，不重写占用状态或历史交付。
+详见 [ADR-0014](decisions/0014-repository-compatibility-and-prepared-baseline.md)。
+
 **2026-10-22 Task 2 现行语义（替代下文旧执行生命周期）：**
 
 - EvolutionStep：PENDING_CONFIRMATION→READY→SUCCEEDED；只有用户确认可进入 READY，只有接受正式
@@ -7,17 +19,17 @@
   ExecutionResult、VerificationResult、RepairAuthorization、RetryAuthorization 或 RollbackAuthorization。
 - AgentRun：CREATED→PREPARING→RUNNING→FINALIZING→SUCCEEDED；FAILED/CANCELLED/INTERRUPTED 是替代终态。
   Run 失败保留 Step 的确认；新尝试使用新 Run/沙箱。成功只证明不可变 Candidate 已事务冻结。
-- Candidate：不可变 id/runId/baseline A/diff D/expectedTree B/SHA-256/changedPaths/testEvidence/createdAt。
-  正式交付重新证明 D 在 A 上重放得到 B，不重跑模型，不改写 Candidate。
+- Candidate：不可变 id/runId/baseline R/diff D/expectedTree B/SHA-256/changedPaths/testEvidence/createdAt。
+  正式交付重新证明 D 在 R 上重放得到 B，不重跑模型，不改写 Candidate。
 - Delivery：INTENT→APPLIED→COMMIT_READY→PUBLISHED→COMPLETED。应用或发布后的日志落盘中断可从
   实际 Git 事实恢复，允许跳过已经证明完成的阶段。DELIVERY_BLOCKED 表示明确阻塞；RECOVERY_REQUIRED
   表示安全现场不能证明，继续保留独占预约。不自动硬重置、清理、重打补丁或推进信任。
   2026-10-23：只有原生边界已证明未开始正式文件/index 写入的冲突，才允许在外部冲突处理后、
-  再次完整证明干净 A 且重新核对授权的显式 Delivery 重试中恢复。部分写入标记或碰巧等于 B
+  再次完整证明干净 R 且重新核对授权的显式 Delivery 重试中恢复。部分写入标记或碰巧等于 B
   不能绕过已记录的冲突；RECOVERY_REQUIRED 不由启动协调自动重试。
-- 正式 C 必须 parent=A 且 tree(C)=B。成功接受在同一 SQLite 事务保存 Step.baselineRevision=A、
+- 正式 C 必须 parent=R 且 tree(C)=B。成功接受在同一 SQLite 事务保存 Step.baselineRevision=R、
   Step.deliveryRevision=C、WorkingCopy.currentRevision=lastVerifiedRevision=C，并完成 Delivery/事件/预约。
-  后续 Step 从 C 出发，仍须另行确认和启动；此前 Step 的 A 保留其历史意义。
+  后续 Step 从 C 出发，仍须另行确认和启动；此前 Step 的 R 保留其历史意义。
 - 测试证据保持实际范围、snapshot、stale 和 NOT_TESTED；没有测试不伪装为 PASSED。已知未解决失败阻止
   交付，冻结或交付成功不承诺未测试的业务效果。
 - 资产授权、SELECTED Direction、ACTIVE Plan、WorkingCopy 隔离、先前 Step 成功与可信基线在危险转换前
@@ -107,7 +119,7 @@ LLM Provider、Prompt 调用、Workspace Gateway、文件系统、Git 命令、S
 | **AgentRun** | 用户启动的一次独立隔离编码尝试，拥有实际事件、预算、检查与终态 | 成功冻结不等于正式 Step 成功 |
 | **Candidate** | 成功 Run 冻结的不可变 A/D/B、完整性与测试证据 | 不是正式 WorkingCopy，也不授予模型 Git 发布权 |
 | **Delivery** | 对已有 Candidate 的确定性交付身份与可恢复日志 | 不重跑模型，不改写 Candidate，不自动执行后续 Step |
-| **Accepted Revision** | Delivery 证明 parent=A/tree=B 并由 SQLite 接受的正式 Git commit C | 不把 NOT_TESTED 或未覆盖的业务目标解释成测试通过 |
+| **Accepted Revision** | Delivery 证明 parent=R/tree=B 并由 SQLite 接受的正式 Git commit C（首次 R=P） | 不把 NOT_TESTED 或未覆盖的业务目标解释成测试通过 |
 | **Legacy Execution / Verification Result** | 旧 M4/M5 执行快照，由 V25 归档并停用相关计划 | 不再是当前 Agent/Delivery 的执行合同 |
 
 ---
@@ -317,17 +329,19 @@ Repository Profile
 | ---------------------- | ------------------------------------------------------------ |
 | `id`                   | Working Copy 的唯一标识                                      |
 | `sourceAssetId`        | 创建该 Working Copy 所依据的 Software Asset                  |
-| `sourceRevision`       | 创建时所基于的源软件状态                                     |
+| `sourceRevision`       | 原分析版本 A，与 Planning Basis 的 analyzedRevision 一致 |
+| `preparedRevision` | 初始可信准备版本 P；无准备时 P=A |
+| `preparation` | 不可变 A/P、版本化准备策略及精确变更路径 |
 | `location`             | 当前 Working Copy 的可定位位置                               |
 | `currentRevision`      | Working Copy 当前实际软件状态                                |
-| `lastVerifiedRevision` | 当前领域认可的最近可信稳定软件状态。Working Copy 创建时初始化为 sourceRevision；进入 Evolution 后，仅能由成功的 Evolution Step Verification 推进 |
+| `lastVerifiedRevision` | 当前领域认可的最近可信稳定软件状态。Working Copy 创建时初始化为 preparedRevision；进入 Evolution 后仅由正式 Delivery 接受推进 |
 | `status`               | Working Copy 当前生命周期状态                                |
 
 **Clues**
 
 - `lastVerifiedRevision` 是 Evolution Execution 的安全边界。
-- Working Copy 创建时，sourceRevision 作为本次 Evolution 的初始可信基线，并初始化为 lastVerifiedRevision。
-- 这里的初始化不表示 sourceRevision 曾经经历过 Evolution Step Verification，而表示系统明确选择并认可该 Source Revision 作为本次 Evolution 的起始稳定状态。
+- Working Copy 创建时，preparedRevision P 作为初始可信基线，并初始化为 lastVerifiedRevision。
+- 该初始化认可已核验准备来源的 P 为起点，不表示项目测试已通过；分析证据仍属于 A。
 - 进入 Evolution 后，lastVerifiedRevision 只有在 Evolution Step Verification 成功后才能推进。
 - `Candidate State` 是对 Working Copy 暂定软件状态的领域称呼，而不是独立 Entity。
 - 每个 Evolution Step 开始执行前，其代码基线必须对应当前 `lastVerifiedRevision`。
@@ -339,9 +353,9 @@ Repository Profile
 - 如果 Execution 本身未可靠完成，则当前修改不构成合法 Candidate State，系统在保留必要诊断信息后自动回滚到 `baselineRevision`。
 - Working Copy 的具体实现方式，例如 Git Clone、Git Worktree、独立目录复制或其他隔离机制，以及具体回滚机制，例如 Git Reset、Git Restore、临时 Commit、Snapshot 或其他机制，属于 Workspace / Infrastructure 实现，不由领域模型规定。
 - Working Copy 成功创建并确认其 sourceRevision 与 Evolution Plan 的 Planning Basis 一致后：
-  currentRevision = sourceRevision
-  lastVerifiedRevision = sourceRevision
-- 这里的 sourceRevision 构成本次 Evolution 的初始可信基线。
+  currentRevision = preparedRevision
+  lastVerifiedRevision = preparedRevision
+- 这里的 preparedRevision P 构成本次 Evolution 的初始可信基线。
   该初始化只发生一次；此后 lastVerifiedRevision 只有在 Evolution Step Verification 成功后才能更新。
 
 ### 3.5 Product Direction
@@ -2235,7 +2249,7 @@ Working Copy：
 - 初始化 `lastVerifiedRevision`；
 - 成功创建后进入 `READY`；
 - 与对应 Evolution Plan 建立绑定。
-- 保证currentRevision = sourceRevision， lastVerifiedRevision = sourceRevision，其中 `sourceRevision` 是本次 Evolution 的初始可信基线。
+- 保证 currentRevision = lastVerifiedRevision = preparedRevision P；sourceRevision=A 保留分析来源。
 
 原始 Software Asset 不得因该操作发生代码修改。
 
@@ -6477,7 +6491,7 @@ EvolutionPlan Aggregate Root
 
 Policy 保持无副作用，额外接收当前 ProductDirection 与 Base RepositoryProfile，协调校验
 Plan 的 Direction 身份与 SELECTED 状态、Candidate Asset、被引用 Profile 与资产归属，
-以及初始 WorkingCopy 的三个 revision 与 analyzedRevision 一致。准备与激活时重新应用
+以及 sourceRevision=A 与 analyzedRevision 一致、初始 current/lastVerified=preparedRevision P。准备与激活时重新应用
 §12.6 当前最小 AssetUsagePolicy，不推测许可证兼容性。是否获得步骤授权仍属于独立的用户确认边界。
 
 Direction.repositoryProfileIds 保留方向发现时的历史分析输入，不限制后续 Plan 的 Base Profile。

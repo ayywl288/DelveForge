@@ -12,11 +12,13 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -63,6 +65,8 @@ class WorkingCopyProvisioningDiagnosticsTest {
                 output = command.get(2) + "\n";
             } else if (command.contains("rev-parse")) {
                 output = REVISION + "\n";
+            } else if (command.contains("core.attributesFile")) {
+                exit = 1;
             } else if (command.contains("clone")) {
                 Files.createDirectory(copy.resolve(".git"));
             } else if (command.contains("status")) {
@@ -77,6 +81,13 @@ class WorkingCopyProvisioningDiagnosticsTest {
             when(process.getInputStream()).thenReturn(new ByteArrayInputStream(output.getBytes(StandardCharsets.UTF_8)));
             when(process.getErrorStream()).thenReturn(new ByteArrayInputStream(error.getBytes(StandardCharsets.UTF_8)));
             when(process.waitFor()).thenReturn(exit);
+            when(process.waitFor(org.mockito.ArgumentMatchers.anyLong(),
+                    org.mockito.ArgumentMatchers.any(TimeUnit.class))).thenReturn(true);
+            when(process.exitValue()).thenReturn(exit);
+            when(process.getOutputStream()).thenReturn(new ByteArrayOutputStream());
+            when(builder.redirectError(ProcessBuilder.Redirect.DISCARD)).thenReturn(builder);
+            when(builder.directory(org.mockito.ArgumentMatchers.any(java.io.File.class))).thenReturn(builder);
+            when(builder.redirectErrorStream(true)).thenReturn(builder);
             when(builder.environment()).thenReturn(new HashMap<>());
             when(builder.start()).thenReturn(process);
         })) {

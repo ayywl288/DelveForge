@@ -16,9 +16,10 @@ public class WorkingCopyController {
     public WorkingCopyResponse get(@PathVariable String id) {
         WorkingCopy copy = get.get(new WorkingCopyId(id));
         return new WorkingCopyResponse(copy.id().value(), copy.sourceAssetId().value(), copy.sourceRevision(),
-                copy.location(), copy.currentRevision(), copy.lastVerifiedRevision(), copy.status());
+                copy.location(), copy.currentRevision(), copy.lastVerifiedRevision(), copy.status(), copy.preparedRevision(), copy.preparation());
     }
 
     public record WorkingCopyResponse(String id, String sourceAssetId, String sourceRevision, String location,
-            String currentRevision, String lastVerifiedRevision, WorkingCopyStatus status) {}
+            String currentRevision, String lastVerifiedRevision, WorkingCopyStatus status, String preparedRevision,
+            PreparationProvenance preparation) {}
 }

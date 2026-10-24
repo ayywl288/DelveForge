@@ -37,7 +37,7 @@ class EvolutionFlowScopeMigrationTest {
                     + "'[\"known\",\"shared\"]','gs','2026-10-11T00:00:00Z','2026-10-11T00:00:00Z',3)");
             sql.executeUpdate("INSERT INTO project_flow_context VALUES('b','project','user','[]','[]',"
                     + "'[\"shared\"]',NULL,'2026-10-11T00:00:00Z','2026-10-11T00:00:00Z',4)");
-            sql.executeUpdate("INSERT INTO working_copy VALUES('copy','asset','e38e4a1','never-touch','c822cc3','c822cc3','EVOLVING')");
+            sql.executeUpdate("INSERT INTO working_copy(id,source_asset_id,source_revision,location,current_revision,last_verified_revision,status) VALUES('copy','asset','e38e4a1','never-touch','c822cc3','c822cc3','EVOLVING')");
             sql.executeUpdate("INSERT INTO evolution_step(id,plan_id,position,goal,scope,status,baseline_revision,"
                     + "execution_result,verification_result) VALUES('step','gs',0,'goal','scope','SUCCEEDED','e38e4a1',"
                     + "'{\"revision\":\"c822cc3\"}','{\"success\":true}')");

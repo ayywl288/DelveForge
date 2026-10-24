@@ -9,6 +9,13 @@ public interface WorkingCopyInspectionPort {
 
     void requireTrustedState(WorkspaceRef copy, WorkspaceRef source, String expectedRevision);
 
+    default void requirePreparationProvenance(WorkspaceRef copy,
+            com.ayywl.delveforge.domain.evolution.PreparationProvenance provenance) {
+        if (!provenance.originalRevision().equals(provenance.preparedRevision())) {
+            throw new WorkspaceException("Workspace adapter cannot validate a prepared baseline");
+        }
+    }
+
     void requireSafePaths(WorkspaceRef copy, List<String> normalizedRelativePaths);
 
 }

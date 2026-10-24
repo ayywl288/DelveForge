@@ -11,6 +11,7 @@ public final class WorkingCopy {
     private final SoftwareAssetId sourceAssetId;
     private final String sourceRevision;
     private final String location;
+    private PreparationProvenance preparation;
 
     // 正式副本的已接受版本；沙箱 Candidate 不写入这里。
     private String currentRevision;
@@ -27,6 +28,7 @@ public final class WorkingCopy {
         this.sourceRevision = PlanningContent.text(revision, "sourceRevision");
         this.location = PlanningContent.text(location, "Working Copy location");
         this.status = WorkingCopyStatus.CREATING;
+        this.preparation = PreparationProvenance.unchanged(sourceRevision);
     }
 
     public static WorkingCopy create(WorkingCopyId id, SoftwareAssetId asset, String sourceRevision, String location) {
@@ -34,26 +36,45 @@ public final class WorkingCopy {
     }
 
     /**
-     * 只接受实际准备出的 source revision，并且只能初始化一次。
+     * 只接受实际准备出的可信基线，并且只能初始化一次。
      */
     public void markReady(String actualRevision) {
-        if (status != WorkingCopyStatus.CREATING || !sourceRevision.equals(actualRevision)) {
-            throw new EvolutionPlanStateException("Working Copy must be created at the requested source revision");
+        markReady(actualRevision, PreparationProvenance.unchanged(sourceRevision));
+    }
+
+    public void markReady(String actualRevision, PreparationProvenance provenance) {
+        if (status != WorkingCopyStatus.CREATING || provenance == null
+                || !sourceRevision.equals(provenance.originalRevision())
+                || !actualRevision.equals(provenance.preparedRevision())) {
+            throw new EvolutionPlanStateException("Working Copy must prove its original-to-prepared baseline");
         }
-        currentRevision = sourceRevision;
-        lastVerifiedRevision = sourceRevision;
+        preparation = provenance;
+        currentRevision = actualRevision;
+        lastVerifiedRevision = actualRevision;
         status = WorkingCopyStatus.READY;
     }
 
     public static WorkingCopy reconstitute(WorkingCopyId id, SoftwareAssetId asset, String sourceRevision,
             String location, String currentRevision, String lastVerifiedRevision, WorkingCopyStatus status) {
+        return reconstitute(id, asset, sourceRevision, location, currentRevision, lastVerifiedRevision, status,
+                PreparationProvenance.unchanged(sourceRevision));
+    }
+
+    public static WorkingCopy reconstitute(WorkingCopyId id, SoftwareAssetId asset, String sourceRevision,
+            String location, String currentRevision, String lastVerifiedRevision, WorkingCopyStatus status,
+            PreparationProvenance preparation) {
         WorkingCopy copy = new WorkingCopy(id, asset, sourceRevision, location);
+        if (preparation == null || !sourceRevision.equals(preparation.originalRevision())) {
+            throw new IllegalArgumentException("Working Copy preparation origin differs from its source");
+        }
+        copy.preparation = preparation;
         if (status == null) {
             throw new IllegalArgumentException("Working Copy status is required");
         }
         if (status == WorkingCopyStatus.READY
-                && (!sourceRevision.equals(currentRevision) || !sourceRevision.equals(lastVerifiedRevision))) {
-            throw new IllegalArgumentException("Initial READY Working Copy must retain its source baseline");
+                && (!preparation.preparedRevision().equals(currentRevision)
+                        || !preparation.preparedRevision().equals(lastVerifiedRevision))) {
+            throw new IllegalArgumentException("Initial READY Working Copy must retain its prepared baseline");
         }
         if (status == WorkingCopyStatus.CREATING && (currentRevision != null || lastVerifiedRevision != null)) {
             throw new IllegalArgumentException("CREATING Working Copy has no initialized baseline");
@@ -69,7 +90,7 @@ public final class WorkingCopy {
     }
 
     public WorkingCopy copy() {
-        return reconstitute(id, sourceAssetId, sourceRevision, location, currentRevision, lastVerifiedRevision, status);
+        return reconstitute(id, sourceAssetId, sourceRevision, location, currentRevision, lastVerifiedRevision, status, preparation);
     }
 
     /** 仅正式交付接受同时推进当前与可信 revision；不保存中间沙箱状态。 */
@@ -91,6 +112,14 @@ public final class WorkingCopy {
 
     public String sourceRevision() {
         return sourceRevision;
+    }
+
+    public PreparationProvenance preparation() {
+        return preparation;
+    }
+
+    public String preparedRevision() {
+        return preparation.preparedRevision();
     }
 
     public String location() {

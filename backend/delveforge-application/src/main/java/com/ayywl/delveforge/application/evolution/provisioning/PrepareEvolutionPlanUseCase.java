@@ -75,7 +75,7 @@ public final class PrepareEvolutionPlanUseCase {
             }
 
             WorkingCopy copy = WorkingCopy.create(copyId, asset.id(), profile.analyzedRevision(), prepared.workspace().value());
-            copy.markReady(prepared.revision());
+            copy.markReady(prepared.revision(), prepared.provenance());
 
             EvolutionPlan candidate = plan.copy();
             candidate.bindWorkingCopy(copy);
