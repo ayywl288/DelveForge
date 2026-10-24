@@ -186,7 +186,7 @@ Run/Candidate success was never substituted for Step/Delivery success.
   Its Delivery matrix had passed 29 tests; the native diagnostic reported 16 GiB system memory with
   about 1097 MiB physical memory free. This interrupted invocation is not reported as a full pass.
   The user identified concurrent unrelated work and requested normal continuation without memory
-  limits. The complete verification is being rerun with unchanged memory settings; no other user
+  limits. The complete verification was rerun with unchanged memory settings; no other user
   process was stopped. Diagnostic retained as `backend-verify-native-memory-error.log`.
 - The second full invocation finished Domain/Application/Infrastructure testing but failed one optional
   protocol-negative case: the supplied existing JDK 21 `task1` image actually supports v1. It was incorrect
