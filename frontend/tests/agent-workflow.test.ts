@@ -588,3 +588,19 @@ it.each(["AVAILABLE", "UNAVAILABLE"] as const)("completed Delivery retains read-
   expect(final).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1");
   expect(button(root, "重新核对并交付已有结果")).toBeUndefined();
 });
+
+
+it("an incompatible sandbox shows actionable rollout guidance without starting or delivering", async () => {
+  const start = vi.spyOn(api, "startAgent");
+  const deliver = vi.spyOn(api, "deliver");
+  const failed: AgentRun = { ...running(), state: "FAILED", reason: "SANDBOX_PROTOCOL_INCOMPATIBLE",
+    modelCalls: 0, toolCalls: 0 };
+  const { root } = mount([failed]); await settle();
+  expect(root.querySelector('[role="alert"]')?.textContent).toContain("沙箱工具协议不兼容");
+  expect(root.textContent).toContain("显式配置镜像后再重启应用");
+  expect(root.textContent).toContain("docs/AUTONOMOUS_AGENT.md");
+  expect(root.querySelector(".run-reason code")?.textContent).toBe("SANDBOX_PROTOCOL_INCOMPATIBLE");
+  expect(start).not.toHaveBeenCalled();
+  expect(deliver).not.toHaveBeenCalled();
+  expect(root.querySelector(".candidate-evidence")).toBeNull();
+});

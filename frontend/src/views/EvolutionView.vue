@@ -337,6 +337,9 @@ onUnmounted(deactivate);
         <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
         <p v-else-if="run.state === 'SUCCEEDED'" class="meta">本次运行已冻结 Candidate；正式接受状态以交付结果为准。</p>
+        <p v-if="run.reason === 'SANDBOX_PROTOCOL_INCOMPATIBLE'" class="run-failure" role="alert">
+          沙箱工具协议不兼容。请按 docs/AUTONOMOUS_AGENT.md 构建兼容镜像，显式配置镜像后再重启应用。
+        </p>
         <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
         <dl class="run-times">
           <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>

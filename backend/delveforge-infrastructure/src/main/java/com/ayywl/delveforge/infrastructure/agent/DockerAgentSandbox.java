@@ -249,6 +249,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             List<String> create = baseRun(task.runId(), "agent", session.image, "none", true);
             create.addAll(List.of(session.image, "sleep", "infinity"));
             docker(create, null, CONTROL_TIMEOUT, 8192, cancelled);
+            // 在传入项目源码、初始化和首次模型调用前验证实际固定镜像中的工具。
+            verifyProtocol(session, cancelled);
             docker(List.of("exec", "-i", name(task.runId(), "agent"), "python3", "-c",
                     "import sys; open('/tmp/source.tar','wb').write(sys.stdin.buffer.read(16777217))"),
                     Files.readAllBytes(session.directory.resolve("source.tar")), CONTROL_TIMEOUT, 8192, cancelled);
@@ -405,6 +407,37 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         } catch (IOException failure) {
             throw new AgentException("TOOL_PROTOCOL", "Cannot encode controlled tool request", failure);
         }
+    }
+
+    private void verifyProtocol(Session session, BooleanSupplier cancelled) {
+        JsonNode response;
+        try {
+            response = invoke(session, "protocol", json.createObjectNode(), cancelled);
+        } catch (AgentException failure) {
+            if (failure.code().equals("TOOL_PROTOCOL")) {
+                throw incompatibleProtocol();
+            }
+            throw failure;
+        }
+        requireCompatibleProtocol(response);
+    }
+
+    static void requireCompatibleProtocol(JsonNode response) {
+        if (response == null || !response.path("ok").isBoolean() || !response.path("ok").asBoolean()
+                || !response.path("tool").asText().equals("protocol")
+                || !response.path("result").path("protocol").asText().equals("delveforge-sandbox")
+                || !response.path("result").path("version").isIntegralNumber()
+                || !response.path("result").path("version").canConvertToInt()
+                || response.path("result").path("version").asInt() != 1) {
+            throw incompatibleProtocol();
+        }
+    }
+
+    private static AgentException incompatibleProtocol() {
+        return new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE",
+                "Sandbox tool protocol v1 is required. Build the current agent Dockerfile with a new image tag, "
+                        + "configure delveforge.agent.sandbox.images, then explicitly restart the application. "
+                        + "See docs/AUTONOMOUS_AGENT.md.");
     }
 
     private static void requireToolSuccess(JsonNode response) {

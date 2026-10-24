@@ -120,12 +120,66 @@ Start 返回 202 与 Run identity。此前 Step 必须已明确确认并处于 R
 不依赖 WSL、Docker Desktop 内部路径或宿主机 Maven/Python。Python 只存在于受控工具镜像。
 DelveForge 自身仍以 Java 21 和 Maven Wrapper 构建。
 
-在仓库根建立可信工具镜像：
+工具镜像必须与当前 Java 消费者匹配。`Dockerfile` 把构建上下文中的 `sandbox.py`、`proxy.py`
+复制到只读 `/opt/delveforge/`；Maven 打包或重启 Java 不会更新现有 Docker 镜像。
+
+在仓库根使用**尚不存在的新标签**构建，保留用户已有 `task1-jdk17/21` 标签。以下为示例，
+如果标签已存在，应改用另一个新标签，不覆盖当前部署：
 
 ```powershell
-docker build -t delveforge-agent:task1-jdk21 backend/delveforge-infrastructure/src/main/resources/agent
-docker build --build-arg BASE_IMAGE=maven:3.9.9-eclipse-temurin-17 -t delveforge-agent:task1-jdk17 backend/delveforge-infrastructure/src/main/resources/agent
+# 先查询；如果任一示例标签已存在，停止并更换标签。
+docker image ls --format '{{.Repository}}:{{.Tag}}'
+docker build --pull=false -t delveforge-agent:protocol-v1-20261024-jdk21 backend/delveforge-infrastructure/src/main/resources/agent
+docker build --pull=false --build-arg BASE_IMAGE=maven:3.9.9-eclipse-temurin-17 -t delveforge-agent:protocol-v1-20261024-jdk17 backend/delveforge-infrastructure/src/main/resources/agent
 ```
+
+### Sandbox tool protocol v1
+
+实际镜像内的工具接受只读请求 `{"name":"protocol","arguments":{}}`，返回：
+
+```json
+{"ok":true,"tool":"protocol","durationMs":0,"result":{"protocol":"delveforge-sandbox","version":1}}
+```
+
+`durationMs` 是真实耗时，示例 0 不构成固定值。v1 规定：
+
+- Git `--check` 失败：`ok=false`，嵌套 `PATCH_CONFLICT`、`mutationNotStarted=true`、固定安全原因、
+  目标/行尾/快照及重新读取提示；不转发 Git 自由文本，不执行实际应用。
+- 实际应用成功且捕获成功：`ok=true`、嵌套 `PATCH_APPLIED`。
+- 实际应用非零或 I/O 结果未知、应用后捕获 I/O 失败：顶层 `PATCH_OUTCOME_UNCERTAIN`，终止 Run。
+- 应用后策略拒绝仍为 `POLICY_REJECTED`，保留 `SOURCE_CAPTURE` 阶段，不宣称未修改。
+
+Java 每次准备 Run 都先将配置镜像解析成固定 image ID，再在实际运行容器里调用此握手。
+检查发生在源码传入/initialize、任何模型请求和补丁操作之前。缺失、旧版、不同名称、非整数或
+不支持的版本均以 `SANDBOX_PROTOCOL_INCOMPATIBLE` 停止；无源码初始化、模型或编码工具调用，
+不产生 Candidate/Delivery。Docker 不可达、超时和取消仍保留各自错误分类。
+不会根据 tag、Docker label 或旧冲突结果推断兼容，也不会补造未修改证据。
+
+可先直接查询新镜像协议，无需挂载源码或调用模型：
+
+```powershell
+$protocolImageId = (docker image inspect delveforge-agent:protocol-v1-20261024-jdk21 --format '{{.Id}}').Trim()
+'{"name":"protocol","arguments":{}}' | docker run --rm -i --network none --read-only $protocolImageId python3 /opt/delveforge/sandbox.py
+```
+
+先验证**实际新镜像**，不挂载用户目录。以下命令只使用测试临时数据库/Git 夹具及一次性容器/卷，
+不调用模型。需要宿主 Python 仅用于这些开发回归，产品运行不需要：
+
+```powershell
+$env:DELVEFORGE_SANDBOX_PROTOCOL_IMAGE = (docker image inspect delveforge-agent:protocol-v1-20261024-jdk21 --format '{{.Id}}').Trim()
+python -B -m unittest discover -s backend/delveforge-infrastructure/src/test/python -v
+.\mvnw.cmd -pl backend/delveforge-infrastructure -am test '-Dtest=DockerSandboxProtocolTest' '-Dsurefire.failIfNoSpecifiedTests=false'
+```
+
+Python 镜像测试逐字节比较已安装脚本与构建源码，并执行镜像 CLI、真实 Git 应用/冲突及明确注入的
+应用后未知/捕获失败。Java 测试验证真实 prepare 握手顺序。可另设 `DELVEFORGE_SANDBOX_LEGACY_IMAGE`
+为已有旧镜像的固定 ID，验证其在 initialize 前被拒绝；不会替换该镜像。
+
+**手动上线边界：** 验证后，将选用 JDK 的固定 image ID 显式填入外部配置
+`delveforge.agent.sandbox.images`（键为 17/21），再由用户决定何时重启新 Java 应用。
+默认 `application.yml` 中的 `task1-jdk17/21` 标签为兼容既有配置而保留；如果它们仍是旧工具，
+新应用会明确拒绝。不要为消除错误改成跳过握手或自动重试旧 Run。构建、配置切换和应用重启是
+独立步骤；本说明不会自动执行任何切换。
 
 API key 从既有 `DEEPSEEK_API_KEY` 提供。模型/endpoint 沿用 `delveforge.ai.deepseek`。
 Spring AI 直接 ChatModel 调用显式设置 `internalToolExecutionEnabled(false)`，Callback 不可执行；
@@ -138,7 +192,7 @@ Spring AI 直接 ChatModel 调用显式设置 `internalToolExecutionEnabled(fals
 | --- | --- |
 | sandbox.root | data/agent-runs |
 | sandbox.docker | docker |
-| sandbox.images | 17 / 21 的上述本地镜像 |
+| sandbox.images | 17 / 21 的既有 task1 标签；升级时显式配置已验证的镜像 ID |
 | sandbox.default-jdk | 21 |
 | sandbox.cache-volume | delveforge-maven-central-cache |
 | sandbox.owner | delveforge-local-agent |

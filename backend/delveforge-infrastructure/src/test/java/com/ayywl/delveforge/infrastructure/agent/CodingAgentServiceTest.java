@@ -390,6 +390,67 @@ class CodingAgentServiceTest {
     }
 
     @Test
+    void incompatibleSandboxFailsBeforeModelToolsCandidateOrDelivery() throws Exception {
+        doThrow(new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Build compatible image"))
+                .when(sandbox).prepare(any(), any(), any());
+        AgentModelPort model = mock(AgentModelPort.class);
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.FAILED, run.state());
+            assertEquals("SANDBOX_PROTOCOL_INCOMPATIBLE", run.reason());
+            assertEquals(0, run.modelCalls());
+            assertEquals(0, run.toolCalls());
+            assertEquals(null, run.candidateId());
+            assertNoCandidateOrDelivery();
+            verifyNoInteractions(model);
+            verify(sandbox, never()).tool(anyString(), any(), any());
+            verify(sandbox, never()).finish(anyString(), any());
+            assertTrue(service.events(id, 0, 100).stream().noneMatch(event ->
+                    List.of("RUNNING", "MODEL_REQUEST", "TOOL_STARTED", "FINALIZING", "SUCCEEDED")
+                            .contains(event.kind()) || event.kind().startsWith("DELIVERY")));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void legacyConflictAndUncertainApplyNeverBecomeSafeRetryOrCandidate(boolean legacy) throws Exception {
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(
+                new AgentProtocol.ToolCall("patch", "apply_patch", "{\"patch\":\"synthetic\"}")), 1L);
+        if (legacy) {
+            when(sandbox.tool(anyString(), any(), any())).thenReturn(
+                    "{\"ok\":true,\"result\":{\"classification\":\"PATCH_CONFLICT\"}}");
+        } else {
+            when(sandbox.tool(anyString(), any(), any())).thenThrow(
+                    new AgentException("PATCH_OUTCOME_UNCERTAIN", "Application result unavailable"));
+        }
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals("PATCH_OUTCOME_UNCERTAIN", run.reason());
+            assertEquals(AgentRunState.FAILED, run.state());
+            assertEquals(1, run.modelCalls());
+            assertEquals(null, run.candidateId());
+            assertNoCandidateOrDelivery();
+            verify(sandbox, never()).finish(anyString(), any());
+            assertTrue(service.events(id, 0, 100).stream().noneMatch(event ->
+                    List.of("MODEL_COMPLETED", "FINALIZING", "SUCCEEDED").contains(event.kind())
+                            || event.kind().startsWith("DELIVERY")));
+        }
+    }
+
+    private void assertNoCandidateOrDelivery() throws Exception {
+        try (var connection = database.source.getConnection(); var statement = connection.createStatement()) {
+            for (String table : List.of("agent_candidate", "candidate_delivery")) {
+                try (var rows = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
+                    assertTrue(rows.next());
+                    assertEquals(0, rows.getInt(1));
+                }
+            }
+        }
+    }
+
+    @Test
     void frozenCandidateRejectsStartBeforeAnyWorkerSandboxOrModelWork() {
         var run = database.run();
         database.store.reserve(run);

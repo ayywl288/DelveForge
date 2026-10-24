@@ -24,6 +24,18 @@ class SandboxPolicyTest(unittest.TestCase):
         self.root_patch.start()
         self.addCleanup(self.root_patch.stop)
 
+    def test_protocol_cli_is_read_only_and_explicit(self):
+        request = {'name': 'protocol', 'arguments': {}}
+        before = list(self.root.iterdir())
+        result = subprocess.run([sys.executable, str(SOURCE)], input=json.dumps(request).encode(),
+                                capture_output=True, cwd=self.root, check=False)
+        self.assertEqual(0, result.returncode)
+        self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
+            'protocol': 'delveforge-sandbox', 'version': 1}},
+            {k: v for k, v in json.loads(result.stdout).items() if k != 'durationMs'})
+        self.assertEqual(before, list(self.root.iterdir()))
+        self.assertEqual(b'', result.stderr)
+
     def test_hunk_content_is_not_a_file_header(self):
         target = self.root / 'Notes.txt'
         target.write_text('-- marker\n', encoding='utf-8', newline='\n')

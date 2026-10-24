@@ -18,6 +18,9 @@ ROOT = pathlib.Path('/workspace')
 FILE_LIMIT = int(os.environ.get('DF_FILE_BYTES', '262144'))
 FILES_LIMIT = int(os.environ.get('DF_MAX_FILES', '10000'))
 TOTAL_LIMIT = int(os.environ.get('DF_CAPTURE_BYTES', '16777216'))
+# v1 约定检查冲突的未修改证据、应用阶段未知及应用后捕获阶段；旧工具不能推断兼容。
+PROTOCOL_NAME = 'delveforge-sandbox'
+PROTOCOL_VERSION = 1
 PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2', '.npmrc', '.netrc', '.pypirc'}
 GENERATED = {'target'}
 
@@ -299,6 +302,8 @@ def checks(args):
 
 
 def dispatch(name, args):
+    if name == 'protocol':
+        return {'protocol': PROTOCOL_NAME, 'version': PROTOCOL_VERSION}
     if name == 'initialize':
         with tarfile.open('/tmp/source.tar') as archive:
             for entry in archive:
@@ -411,7 +416,7 @@ def dispatch(name, args):
     raise PolicyError('UNKNOWN_TOOL', 'Unknown tool')
 
 
-if __name__ == '__main__':
+def main():
     started = time.monotonic()
     try:
         request = json.loads(sys.stdin.buffer.read(524289))
@@ -427,3 +432,7 @@ if __name__ == '__main__':
         print(json.dumps({'ok': False, 'classification': 'PATCH_OUTCOME_UNCERTAIN'}))
     except (ValueError, OSError, UnicodeError, ET.ParseError) as error:
         print(json.dumps({'ok': False, 'classification': 'TOOL_ERROR', 'reason': type(error).__name__ + ': ' + str(error)[:300]}))
+
+
+if __name__ == '__main__':
+    main()
