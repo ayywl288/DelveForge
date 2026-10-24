@@ -323,7 +323,8 @@ onUnmounted(deactivate);
         <div><strong>当前步骤正在运行</strong><p v-if="run?.id !== activeRun.id" class="meta">正在查看历史记录；停止操作针对本步骤当前运行。</p>
           <p id="run-stop-status" class="meta" role="status">{{ stopPending ? '停止请求发送中' : stopConfirmed ? '停止请求已接受，正在等待实际终态；模型或沙箱可能不会立即返回。' : '可停止当前 Run；不支持暂停或续跑。' }}</p>
           <p v-if="stopError" role="alert" class="error">{{ stopError }}</p></div>
-        <button class="secondary compact-button" :disabled="stopPending || stopConfirmed" aria-describedby="run-stop-status" @click="cancelRun">{{ stopConfirmed ? '正在停止' : '停止运行' }}</button>
+        <button class="stop-run compact-button" :disabled="stopPending || stopConfirmed" :aria-busy="stopPending || stopConfirmed"
+          aria-describedby="run-stop-status" @click="cancelRun"><NavigationIcon name="stop" />{{ stopPending || stopConfirmed ? '正在停止' : '停止运行' }}</button>
       </div>
       <template v-if="run">
         <div class="run-summary" :data-state="run.state">
@@ -334,6 +335,7 @@ onUnmounted(deactivate);
           <div><dt>工具调用</dt><dd>{{ numberText(run.toolCalls) }} <span>次</span></dd></div>
           <div><dt>累计 tokens</dt><dd>{{ run.tokens === null ? '未报告' : numberText(run.tokens) }}</dd></div>
         </dl>
+        <p class="meta">模型统计按已返回调用累计；失败响应的已报告用量见活动诊断，未报告用量不估算。</p>
         <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
         <p v-else-if="run.state === 'SUCCEEDED'" class="meta">本次运行已冻结 Candidate；正式接受状态以交付结果为准。</p>
@@ -423,6 +425,11 @@ onUnmounted(deactivate);
 .monitor-stop strong { font-size: 14px; }
 .monitor-stop p { margin: 3px 0 0; font-size: 12px; }
 .monitor-stop button { flex-shrink: 0; }
+.monitor-stop .stop-run { display: inline-flex; align-items: center; justify-content: center; gap: 8px; color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
+.monitor-stop .stop-run .navigation-icon { width: 16px; height: 16px; }
+.monitor-stop .stop-run:hover:not(:disabled) { background: var(--danger-bg); box-shadow: inset 0 0 0 1px var(--danger); }
+.monitor-stop .stop-run:focus-visible { outline: 2px solid var(--danger); outline-offset: 3px; }
+.monitor-stop .stop-run:disabled { opacity: .65; }
 .run-summary { margin-bottom: 14px; }
 .run-status { display: flex; align-items: center; gap: 8px; }
 .run-status .navigation-icon { width: 20px; height: 20px; flex-shrink: 0; }

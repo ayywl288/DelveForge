@@ -194,7 +194,12 @@ public final class CodingAgentService implements AutoCloseable {
             }
             compress(history);
             store.event(task.runId(), "MODEL_REQUEST", "request=" + request);
-            AgentProtocol.Reply reply = model.call(List.copyOf(history), AgentTools.definitions());
+            AgentProtocol.Reply reply;
+            try {
+                reply = model.call(List.copyOf(history), AgentTools.definitions());
+            } catch (AgentModelFailure failure) {
+                throw recordModelFailure(task.runId(), request, false, failure);
+            }
             requireCurrent(task, cancelled);
             if (reply.tokens() == null) {
                 unknownUsage = true;
@@ -226,7 +231,8 @@ public final class CodingAgentService implements AutoCloseable {
                 }
                 if (result == null || !result.path("status").asText().equals("completed")) {
                     if (++completionCorrections > 2) {
-                        throw new AgentException("MODEL_PROTOCOL", "Completion must be explicit structured status");
+                        throw recordModelFailure(task.runId(), request, true,
+                                new AgentModelFailure(AgentModelFailure.Reason.COMPLETION_FORMAT_INVALID));
                     }
                     store.event(task.runId(), "COMPLETION_FORMAT_RETRY", "Requesting explicit completion status");
                     history.add(AgentProtocol.Message.text("assistant", safe(reply.text())));
@@ -246,6 +252,9 @@ public final class CodingAgentService implements AutoCloseable {
                 try {
                     AgentTools.validate(call, limits);
                 } catch (AgentException failure) {
+                    if (failure instanceof AgentModelFailure protocol) {
+                        throw recordModelFailure(task.runId(), request, true, protocol);
+                    }
                     if (failure.code().equals("POLICY_REJECTED")) {
                         argumentRejection = failure;
                     } else if (!failure.code().equals("INVALID_ARGUMENTS")) {
@@ -323,6 +332,17 @@ public final class CodingAgentService implements AutoCloseable {
                 history.add(new AgentProtocol.Message("tool", result, List.of(), call.id(), call.name()));
             }
         }
+    }
+
+    private AgentModelFailure recordModelFailure(String runId, int request, boolean callReturned,
+            AgentModelFailure failure) {
+        try {
+            // 不改变既有返回调用的 usage 聚合；失败尝试的实际报告用量单独留在事件中。
+            store.event(runId, "MODEL_FAILED", json.writeValueAsString(failure.diagnostic(request, callReturned)));
+        } catch (IOException recording) {
+            failure.addSuppressed(recording);
+        }
+        return failure;
     }
 
     private static int incrementUsage(int value) {

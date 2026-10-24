@@ -427,7 +427,7 @@ it("updates one persistent current surface through real requests, file work and 
     props.events = Array.from({ length: 10 }, (_, index) => fact(index + 1, "MODEL_REQUEST", `request=${index + 1}`));
     props.events.push(fact(11, "MODEL_REQUEST", "request=11")); await settle();
     expect(root.querySelector('.current-activity')).toBe(surface);
-    expect(surface.textContent).toContain("正在请求模型 · 第 11 次调用");
+    expect(surface.textContent).toContain("正在请求模型 · 第 11 次请求");
     expect(root.querySelectorAll('.model-waiting')).toHaveLength(1);
     expect(root.querySelectorAll('.agent-timeline [data-kind="MODEL_REQUEST"]')).toHaveLength(0);
     expect(root.querySelector('.model-statistics')?.textContent).toBe("模型调用 10 次");
@@ -535,7 +535,7 @@ it("animates genuinely active work and supplies static reduced-motion states", a
     const {root,props}=mount(false);
     props.events=[fact(1,'MODEL_REQUEST','request=61')]; await settle();
     expect(root.querySelectorAll('.activity-bar')).toHaveLength(1);
-    expect(root.querySelector('.current-title')?.textContent).toContain('第 61 次调用');
+    expect(root.querySelector('.current-title')?.textContent).toContain('第 61 次请求');
     props.run.cancelRequested=true; await settle();
     expect(root.querySelector('.activity-bar,.model-waiting')).toBeNull();
     const css=readFileSync('src/components/AgentTimeline.vue','utf8');
@@ -553,4 +553,51 @@ it("keeps legacy conflicts visible without retroactively claiming a pre-mutation
     root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
     expect(root.querySelector('.patch-operations .activity-uncertain')).not.toBeNull();
     expect(root.querySelector('.patch-operations')?.textContent).not.toContain('未应用，已有修改保留');
+});
+
+
+it("terminal MODEL_PROTOCOL takes precedence over an earlier recoverable source rejection", async () => {
+    const { root, props } = mount(false);
+    props.events = [tool(1, "TOOL_FINISHED", { tool: "apply_patch", ok: false, classification: "POLICY_REJECTED",
+        policyRule: "SOURCE_CREDENTIALS", policyStage: "PATCH_SOURCE", mutationNotStarted: true, alternativeAllowed: true,
+        resultRecorded: true }), fact(2, "MODEL_REQUEST", "request=11"), fact(3, "FAILED", "MODEL_PROTOCOL")];
+    props.run.state = "FAILED"; props.run.reason = "MODEL_PROTOCOL"; props.run.modelCalls = 10; await settle();
+    expect(root.querySelector('.current-title')?.textContent).toContain("运行失败");
+    expect(root.querySelector('.current-detail')?.textContent).toBe("MODEL_PROTOCOL");
+    expect(root.querySelector('.patch-alert')?.textContent).toContain("1 次安全拒绝");
+    root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
+    expect(root.querySelector('.patch-operations')?.textContent).toContain("SOURCE_CREDENTIALS");
+    expect(root.querySelector('.model-waiting, .is-active')).toBeNull();
+});
+
+it("terminal event and safe model subcategory are visible before the Run snapshot catches up", async () => {
+    const { root, props } = mount(false);
+    props.run.modelCalls = 10;
+    props.events = [fact(1, "MODEL_REQUEST", "request=11"), fact(2, "MODEL_FAILED", JSON.stringify({
+        metadataVersion: 1, classification: "MODEL_PROTOCOL", reason: "RESPONSE_TRUNCATED", request: 11,
+        stage: "RESPONSE", callReturned: false, responsePresent: true, resultPresent: true, outputPresent: true,
+        finishReason: "LENGTH", responseTokenLimit: 8192, toolCallCount: 1, reportedTokens: 8212,
+        rawResponse: "private-payload-must-not-render" })), fact(3, "FAILED", "MODEL_PROTOCOL")];
+    await settle();
+    expect(root.querySelector('.current-title')?.textContent).toContain("运行失败");
+    expect(root.querySelector('.current-detail')?.textContent).toContain("MODEL_PROTOCOL");
+    expect(root.querySelector('.current-detail')?.textContent).toContain("RESPONSE_TRUNCATED");
+    const failed = root.querySelector('[data-kind="MODEL_FAILED"]')!;
+    expect(failed.getAttribute('data-tone')).toBe('failed');
+    expect(failed.textContent).toContain("模型请求失败");
+    expect(failed.textContent).toContain("LENGTH");
+    expect(failed.textContent).toContain("8,212");
+    expect(root.querySelector('.model-statistics')?.textContent).toContain("10");
+    expect(root.textContent).not.toContain("private-payload");
+    expect(root.querySelector('.model-waiting, .is-active')).toBeNull();
+});
+
+it("unknown model metadata and a mismatched older failure cannot replace the current terminal reason", async () => {
+    const { root, props } = mount(false);
+    props.events = [fact(1, "MODEL_FAILED", JSON.stringify({ metadataVersion: 1, classification: "MODEL_PROTOCOL",
+        reason: "private-reason", finishReason: "private-finish", stage: "private-stage", rawResponse: "private-data" })),
+        fact(2, "FAILED", "MODEL_PROTOCOL")];
+    props.run.state = "FAILED"; props.run.reason = "MODEL_TRANSPORT"; await settle();
+    expect(root.querySelector('.current-detail')?.textContent).toBe("MODEL_TRANSPORT");
+    expect(root.textContent).not.toContain("private-");
 });

@@ -1,4 +1,5 @@
 import { createApp, h, nextTick, reactive } from "vue";
+import { readFileSync } from "node:fs";
 import { afterEach, expect, it, vi } from "vitest";
 import EvolutionView from "../src/views/EvolutionView.vue";
 import { api } from "../src/api/client";
@@ -280,7 +281,7 @@ it("a stale action error cannot clear the new selection's pending action or erro
   button(root, "停止运行").click(); await settle();
   old.reject(new Error("stale failure")); await settle();
   expect(root.textContent).not.toContain("stale failure");
-  expect(button(root, "停止运行").disabled).toBe(true);
+  expect(button(root, "正在停止").disabled).toBe(true);
   fresh.reject(new Error("current failure")); await settle();
   expect(root.textContent).toContain("current failure");
   expect(button(root, "停止运行").disabled).toBe(false);
@@ -528,7 +529,7 @@ it("shows active persisted activity independently of SSE connectivity and keeps 
   const { root } = mount([running()]); await settle();
   const stream = Events.instances.at(-1)!;
   stream.fact(1, "MODEL_REQUEST", "request=1"); await settle();
-  expect(root.querySelector('.current-activity[data-active="true"]')?.textContent).toContain("正在请求模型 · 第 1 次调用");
+  expect(root.querySelector('.current-activity[data-active="true"]')?.textContent).toContain("正在请求模型 · 第 1 次请求");
   stream.onerror?.(); await settle();
   expect(root.querySelector(".run-status")?.textContent).toContain("编码中");
   expect(root.querySelector(".stream-status")?.textContent).toContain("正在重连");
@@ -603,4 +604,24 @@ it("an incompatible sandbox shows actionable rollout guidance without starting o
   expect(start).not.toHaveBeenCalled();
   expect(deliver).not.toHaveBeenCalled();
   expect(root.querySelector(".candidate-evidence")).toBeNull();
+});
+
+
+it("stop control has a dedicated red icon treatment and an immediate disabled pending state", async () => {
+  const response = deferred<AgentRun>();
+  const cancel = vi.spyOn(api, "cancelAgent").mockReturnValue(response.promise);
+  const { root } = mount([running()]); await settle();
+  const stop = button(root, "停止运行");
+  expect(stop.classList.contains("stop-run")).toBe(true);
+  expect(stop.querySelector("svg path")?.getAttribute("d")).toBe("M6 6h12v12H6z");
+  const view = readFileSync("src/views/EvolutionView.vue", "utf8");
+  expect(view).toMatch(/\.stop-run[^{}]*\{[^}]*color:\s*var\(--danger\)/);
+  expect(view).toMatch(/\.stop-run:focus-visible[^{}]*\{[^}]*outline:\s*2px solid var\(--danger\)/);
+  stop.click(); await settle();
+  expect(button(root, "正在停止")).toBe(stop);
+  expect(stop.disabled).toBe(true);
+  expect(root.querySelector(".monitor-stop")?.textContent).toContain("停止请求发送中");
+  response.resolve({ ...running(), cancelRequested: true }); await settle();
+  expect(button(root, "正在停止").disabled).toBe(true);
+  expect(cancel).toHaveBeenCalledExactlyOnceWith("run-1");
 });

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 export type NavigationIconName = "projects" | "discovery" | "repository" | "direction" | "planning" | "evolution"
   | "plus" | "file" | "code" | "layers" | "reuse" | "warning" | "evidence" | "git" | "lock"
-  | "check" | "clock" | "play" | "arrow" | "refresh" | "user" | "activity" | "target" | "heart" | "close";
+  | "check" | "clock" | "play" | "arrow" | "refresh" | "user" | "activity" | "target" | "heart" | "close" | "stop";
 defineProps<{ name: NavigationIconName }>();
 
 const paths: Record<NavigationIconName, string> = {
@@ -30,6 +30,7 @@ const paths: Record<NavigationIconName, string> = {
   target: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10z M12 11v2",
   heart: "M12 21L3 12a5 5 0 0 1 9-7 5 5 0 0 1 9 7z",
   close: "M6 6l12 12 M6 18L18 6",
+  stop: "M6 6h12v12H6z",
 };
 </script>
 <template>

@@ -59,6 +59,31 @@ export function safePath(value: unknown): string | undefined {
     return value;
 }
 
+const modelFailureReasons: Record<string, string> = {
+    RESPONSE_MISSING: "模型响应缺失", RESULT_MISSING: "模型响应没有候选结果", OUTPUT_MISSING: "模型输出缺失",
+    RESPONSE_TRUNCATED: "模型输出被截断", TOOL_ID_INVALID: "工具调用身份无效", TOOL_NAME_INVALID: "工具名称无效",
+    TOOL_ARGUMENTS_INVALID: "工具参数缺失", TOOL_ARGUMENTS_LIMIT: "工具参数超过限制",
+    TOOL_CALL_TYPE_INVALID: "工具调用类型无效", TOOL_CALL_STRUCTURE_INVALID: "工具调用结构无效",
+    CONVERSATION_ROLE_UNSUPPORTED: "对话角色不受支持", COMPLETION_FORMAT_INVALID: "完成状态格式无效",
+    PROVIDER_CALL_FAILED: "提供者调用失败",
+};
+const modelFailureStages: Record<string, string> = {
+    CONVERSATION: "对话转换", RESPONSE: "响应检查", TOOL_CALL: "工具协议检查", COMPLETION: "完成状态检查", PROVIDER_CALL: "提供者调用",
+};
+function modelFailureFields(event: AgentEvent) {
+    const data = summaryFields(event);
+    return event.kind === "MODEL_FAILED" && data.metadataVersion === 1
+        && ["MODEL_PROTOCOL", "MODEL_TRANSPORT"].includes(String(data.classification)) ? data : {};
+}
+function modelFailureReason(event: AgentEvent) {
+    const reason = modelFailureFields(event).reason;
+    return typeof reason === "string" && Object.hasOwn(modelFailureReasons, reason) ? reason : undefined;
+}
+function modelFailureDescription(event: AgentEvent) {
+    const reason = modelFailureReason(event);
+    return reason ? `${reason}（${modelFailureReasons[reason]}）` : undefined;
+}
+
 function correlation(event: AgentEvent) {
     const data = summaryFields(event);
     const tool = recordedTool(event);
@@ -150,7 +175,7 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
         let outcome: ActivityOutcome = toolEvent ? pending ? active ? "running" : "unknown" : resultOutcome(result, tool) : "recorded";
         if (!toolEvent) {
             if (event.kind.includes("BLOCKED") || ["DELIVERY_RECOVERY_REQUIRED", "DELIVERY_PENDING", "MATERIAL_RETAINED"].includes(event.kind)) outcome = "blocked";
-            else if (event.kind === "FAILED") outcome = "failed";
+            else if (["FAILED", "MODEL_FAILED"].includes(event.kind)) outcome = "failed";
             else if (["CANCELLED", "INTERRUPTED"].includes(event.kind)) outcome = "interrupted";
             else if (["SANDBOX_READY", "MODEL_COMPLETED", "SUCCEEDED", "DELIVERY_APPLIED", "DELIVERY_COMMIT_READY", "DELIVERY_PUBLISHED", "DELIVERY_COMPLETED"].includes(event.kind)) outcome = "completed";
             else if (active) outcome = "running";
@@ -163,7 +188,8 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
             targetWithheld: startData.targetState === "withheld" || data.targetState === "withheld",
             resultUncertain: (data.resultRecorded === false || tool === 'apply_patch' && classification(result) === 'PATCH_CONFLICT')
                 && !patchNotStarted(data, tool),
-            classification: tool ? classification(result) : event.summary !== event.kind ? safeClassification(event.summary) : undefined,
+            classification: tool || event.kind === "MODEL_FAILED" ? classification(result)
+                : event.summary !== event.kind ? safeClassification(event.summary) : undefined,
             duration: tool && !pending ? invocationNs !== undefined ? invocationNs / 1e6 : internalMs : undefined,
             durationSource: invocationNs !== undefined ? "invocation" : internalMs !== undefined ? "internal" : undefined,
             outcome, active: !!active });
@@ -181,22 +207,29 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
         const terminal = terminalKinds.includes(run.state) ? run.state
             : [...activities].reverse().find(activity => terminalKinds.includes(activity.event.kind))?.event.kind;
         const titles: Record<string, string> = { FAILED: "运行失败", CANCELLED: "运行已取消", INTERRUPTED: "运行已中断", SUCCEEDED: "Candidate 已冻结" };
-        const rejectedPatch = activities.some(activity => activity.tool === "apply_patch" && activity.classification === "POLICY_REJECTED");
+        const terminalEvent = [...events].reverse().find(event => event.runId === run.id && event.kind === terminal);
+        const reason = safeClassification(terminalKinds.includes(run.state) ? run.reason : terminalEvent?.summary)
+            ?? safeClassification(terminalEvent?.summary);
+        const diagnostic = [...events].reverse().find(event => event.runId === run.id
+            && event.kind === "MODEL_FAILED" && modelFailureFields(event).classification === reason);
+        const description = diagnostic ? modelFailureDescription(diagnostic) : undefined;
         return { ...staticState, tone: terminal === "FAILED" ? "failed" : terminal === "SUCCEEDED" ? "completed" : "interrupted",
             title: titles[terminal ?? ""] ?? "运行已结束",
-            detail: terminal === "FAILED" && rejectedPatch ? "代码修改被安全策略拒绝" : safeClassification(run.reason) ?? "" };
+            detail: reason ? reason + (description ? ` · ${description}` : "") : "" };
     }
     if (run.cancelRequested) return { ...staticState, title: "已请求取消，等待运行结束" };
     if (active?.event.kind === "MODEL_REQUEST") {
         const ordinal = active.event.summary.match(/^request=([1-9]\d{0,8})$/)?.[1];
         return { ...staticState, active: true, waiting: true, tone: "running",
-            title: "正在请求模型" + (ordinal ? ` · 第 ${ordinal} 次调用` : ""), detail: "等待模型响应" };
+            title: "正在请求模型" + (ordinal ? ` · 第 ${ordinal} 次请求` : ""), detail: "等待模型响应" };
     }
     if (active?.tool) return { ...staticState, active: true, tone: "running",
         title: ({ read_file: "正在读取文件", list_files: "正在浏览目录", search_code: "正在搜索代码", apply_patch: "正在应用代码修改", run_checks: "正在执行 Maven 检查" } as Record<string, string>)[active.tool] ?? "工具操作进行中",
         detail: active.target ?? (active.targetWithheld ? "目标已隐藏" : "目标未记录") };
     if (active) return { ...staticState, active: true, tone: "running",
         title: ({ CREATED: "运行已预约", PREPARING: "正在准备 Docker 沙箱", RUNNING: "开始编码", FINALIZING: "正在冻结 Candidate" } as Record<string, string>)[active.event.kind] ?? "运行进行中" };
+    if (last?.event.kind === "MODEL_FAILED") return { ...staticState, tone: "failed", title: "模型请求失败",
+        detail: [classification(last.event), modelFailureDescription(last.event)].filter(Boolean).join(" · ") };
     if (last?.classification === "POLICY_REJECTED") return { ...staticState, tone: "blocked",
         title: last.tool === "apply_patch" ? "代码修改被安全策略拒绝" : "工具操作被安全策略拒绝",
         detail: sourceEditNotStarted(summaryFields(last.finish ?? last.event), last.tool) ? "本次未修改源码" : "请核对运行诊断" };
@@ -264,6 +297,25 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
         const value = numeric(data, key);
         if (value !== undefined) rows.push({ label, value: `${(value / scale).toLocaleString("zh-CN")}${suffix}` });
     };
+    if (event.kind === "MODEL_FAILED") {
+        const data = modelFailureFields(event);
+        const description = modelFailureDescription(event);
+        if (description) rows.push({ label: "诊断", value: description });
+        if (typeof data.stage === "string" && Object.hasOwn(modelFailureStages, data.stage)) {
+            rows.push({ label: "阶段", value: modelFailureStages[data.stage]! });
+        }
+        if (data.metadataVersion === 1) {
+            addNumber("request", "请求尝试"); addNumber("toolCallCount", "响应内工具调用");
+            addNumber("responseTokenLimit", "响应 token 上限"); addNumber("reportedTokens", "该响应报告 tokens");
+            for (const [key, label] of [["callReturned", "适配器已返回"], ["responsePresent", "响应存在"],
+                ["resultPresent", "候选结果存在"], ["outputPresent", "输出存在"]] as const) {
+                if (typeof data[key] === "boolean") rows.push({ label, value: data[key] ? "是" : "否" });
+            }
+            if (["STOP", "TOOL_CALLS", "LENGTH", "CONTENT_FILTER", "MISSING", "OTHER"].includes(String(data.finishReason))) {
+                rows.push({ label: "结束原因", value: String(data.finishReason) });
+            }
+        }
+    }
     if (event.kind === "SANDBOX_READY") {
         addNumber("targetJdk", "JDK"); addNumber("memoryBytes", "内存", " MiB", 1048576);
         addNumber("nanoCpus", "CPU", " 核", 1e9); addNumber("pidsLimit", "PID 上限");

@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
+import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
@@ -386,6 +387,88 @@ class CodingAgentServiceTest {
             assertEquals(0, data.path("durationMs").asLong());
             assertTrue(data.path("invocationDurationNs").asLong() > 0);
             assertEquals("INVALID_ARGUMENTS", data.path("classification").asText());
+        }
+    }
+
+    @Test
+    void rejectedEleventhRequestHasSafeDurableDiagnosticsWithoutInventingCompletedUsage() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> {
+            int request = requests.incrementAndGet();
+            if (request == 11) {
+                throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_TRUNCATED,
+                        new AgentModelFailure.Response(true, true, true, AgentModelFailure.FinishReason.LENGTH, 1, 8192, 17L));
+            }
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + request,
+                    "read_file", "{\"path\":\"src/Counter.java\"}")), 10L);
+        };
+        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true,\"result\":{\"content\":\"synthetic\"}}");
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals("MODEL_PROTOCOL", run.reason());
+            assertEquals(AgentRunState.FAILED, run.state());
+            assertEquals(10, run.modelCalls());
+            assertEquals(10, run.toolCalls());
+            assertEquals(100L, run.tokens());
+            var events = new SqliteAgentStore(database.source).events(id, 0, 100);
+            assertEquals(11, events.stream().filter(e -> e.kind().equals("MODEL_REQUEST")).count());
+            var failures = events.stream().filter(e -> e.kind().equals("MODEL_FAILED")).toList();
+            assertEquals(1, failures.size());
+            var diagnostic = new com.fasterxml.jackson.databind.ObjectMapper().readTree(failures.getFirst().summary());
+            assertEquals(11, diagnostic.path("request").asInt());
+            assertEquals("RESPONSE_TRUNCATED", diagnostic.path("reason").asText());
+            assertEquals("LENGTH", diagnostic.path("finishReason").asText());
+            assertEquals("RESPONSE", diagnostic.path("stage").asText());
+            assertEquals(17, diagnostic.path("reportedTokens").asInt());
+            assertFalse(diagnostic.path("callReturned").asBoolean());
+            assertTrue(failures.getFirst().sequence() < events.stream().filter(e -> e.kind().equals("FAILED")).findFirst().orElseThrow().sequence());
+            verify(sandbox, times(10)).tool(anyString(), any(), any());
+            verify(sandbox, never()).finish(anyString(), any());
+            assertNoCandidateOrDelivery();
+        }
+    }
+
+    @Test
+    void malformedCompletionStopsAfterExistingCorrectionBoundWithDistinctDiagnostic() throws Exception {
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("private-malformed-completion", List.of(), null);
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals("MODEL_PROTOCOL", run.reason());
+            assertEquals(3, run.modelCalls());
+            assertEquals(null, run.tokens());
+            var events = service.events(id, 0, 100);
+            assertEquals(2, events.stream().filter(e -> e.kind().equals("COMPLETION_FORMAT_RETRY")).count());
+            var failed = events.stream().filter(e -> e.kind().equals("MODEL_FAILED")).findFirst().orElseThrow();
+            var diagnostic = new com.fasterxml.jackson.databind.ObjectMapper().readTree(failed.summary());
+            assertEquals("COMPLETION_FORMAT_INVALID", diagnostic.path("reason").asText());
+            assertTrue(diagnostic.path("callReturned").asBoolean());
+            assertFalse(events.stream().anyMatch(e -> e.summary().contains("private-malformed")));
+            verify(sandbox, never()).tool(anyString(), any(), any());
+            verify(sandbox, never()).finish(anyString(), any());
+            assertNoCandidateOrDelivery();
+        }
+    }
+
+    @Test
+    void invalidToolNameProducesDiagnosticAfterReturnedCallButBeforeAnyToolExecutes() throws Exception {
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(
+                new AgentProtocol.ToolCall("call", null, "{}")), 5L);
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals("MODEL_PROTOCOL", run.reason());
+            assertEquals(1, run.modelCalls());
+            assertEquals(5L, run.tokens());
+            assertEquals(0, run.toolCalls());
+            var failed = service.events(id, 0, 100).stream().filter(e -> e.kind().equals("MODEL_FAILED")).findFirst().orElseThrow();
+            var diagnostic = new com.fasterxml.jackson.databind.ObjectMapper().readTree(failed.summary());
+            assertEquals("TOOL_NAME_INVALID", diagnostic.path("reason").asText());
+            assertTrue(diagnostic.path("callReturned").asBoolean());
+            verify(sandbox, never()).tool(anyString(), any(), any());
+            verify(sandbox, never()).finish(anyString(), any());
+            assertNoCandidateOrDelivery();
         }
     }
 

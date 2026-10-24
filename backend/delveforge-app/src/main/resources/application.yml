@@ -170,6 +170,8 @@ logging:
     # 其中可能包含 User Profile 等用户数据。排查结束后必须恢复。
     com.ayywl.delveforge: INFO
     org.springframework.ai: INFO
+    # Spring AI 1.1.8 在响应缺失时以 WARN 打印完整 Prompt；该路径由固定模型诊断事件替代。
+    org.springframework.ai.deepseek.DeepSeekChatModel: ERROR
 
     # 以下框架包在 DEBUG 下会打印未经筛选的原始文本，其中可能包含凭据，
     # 因此固定为 INFO，不随 root 级别变化：

@@ -217,11 +217,35 @@ MODEL_CALL_LIMIT / TOOL_LIMIT 预算。不会把默认 60/160 换成另一个任
 Candidate 的 testEvidence 继续保存实际测试范围；活动展示摘要只保留安全的 goal、directory、module。
 
 累计预算配置 `delveforge.agent.limits.max-tokens` 已退役，不再因累计用量超过历史 240000 阈值而终止 Run。
-各次响应报告的 tokens 仍累计并持久化；任一次缺少 usage 时总量保持 unknown，不补造数字。
+已正常返回并记录的调用，其报告 tokens 仍累计并持久化；这部分任一次缺少 usage 时总量保持 unknown，不补造数字。
 `delveforge.agent.response-tokens` 和 M1–M3 AiGateway 的 `max-tokens` 仍控制各自响应生成，未作调整。
 执行消耗外部 API 额度，可在界面监控已报告用量并取消。取消不是可恢复暂停，当前没有 checkpoint/resume；
 提供者余额耗尽或其他失败仍走既有失败处理，充值不意味着旧 Run 可续跑，可能需要显式新建 Run。
 上述调用次数、上下文、输出、时限、重试与沙箱资源限制继续生效。
+
+### 模型请求失败与用量边界
+
+`MODEL_REQUEST request=N` 表示第 N 次请求尝试已进入调用边界；不是成功返回证明。
+`Run.modelCalls` 和 `Run.tokens` 保留原合同，只聚合编排已记录的正常返回，不声称包含失败请求的
+全部计费用量。请求失败前可能已消耗额度；没有 usage 时不估算。被拒绝响应实际报告的 tokens
+单独保留在下述事件，不重复加入已有聚合，也不把失败请求计成正常返回。
+
+新增 `MODEL_FAILED` 持久化事件使用 `metadataVersion=1`，保留原 Run reason `MODEL_PROTOCOL` /
+`MODEL_TRANSPORT`，另以固定 `reason` 区分 RESPONSE_MISSING、RESULT_MISSING、OUTPUT_MISSING、
+RESPONSE_TRUNCATED、工具身份/名称/参数/结构、对话角色、最终完成格式及 PROVIDER_CALL_FAILED。
+`stage` 仅为 CONVERSATION / RESPONSE / TOOL_CALL / COMPLETION / PROVIDER_CALL。
+事件记录 request、callReturned；取得响应元数据时再记录存在性、工具调用数量、响应 token 上限、
+实际 reportedTokens 和允许名单内的 finishReason。未知结束值统一为 OTHER，缺失用量不填数字。
+不保存 Prompt、模型文本、工具参数、补丁、Provider 错误正文或异常 message/cause。
+
+Spring AI 1.1.8 的实际 DeepSeek 转换路径已在本地假 Provider 验证。length 响应在返回工具前被拒绝，
+不执行截断参数；不增加自动重试或调高 response-tokens（仍为 8192）。空响应与空候选结果另行分类。
+这提高未来失败的可定位性，不补写旧 Run 的缺失响应元数据，也不证明历史失败必然是截断。
+
+终态展示以当前 Run 的真实分类优先；快照未同步时可使用同 Run 的持久化终态事件。
+历史可恢复的安全拒绝继续保留在补丁记录及安全警示中，不覆盖 MODEL_PROTOCOL 等最终原因。
+停止按钮使用局部红色样式和停止图标，请求发送中即显示“正在停止”；粘性位置、取消 API 与
+实际终态核对保持。模型等待处显示“第 N 次请求”，统计仍显示已返回调用数量。
 
 ### 活动展示与安全元数据
 

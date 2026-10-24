@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentException;
+import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
@@ -30,9 +31,11 @@ import java.util.List;
 public final class SpringAiAgentModel implements AgentModelPort {
     private final DeepSeekChatModel model;
     private final DeepSeekProperties properties;
+    private final int responseTokens;
 
     public SpringAiAgentModel(DeepSeekProperties properties, int responseTokens) {
         this.properties = properties;
+        this.responseTokens = responseTokens;
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder()
                 .connectTimeout(properties.timeout()).build());
         factory.setReadTimeout(properties.timeout());
@@ -61,7 +64,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
                 case "tool" -> messages.add(ToolResponseMessage.builder().responses(List.of(
                         new ToolResponseMessage.ToolResponse(message.callId(), message.toolName(), message.text())))
                         .build());
-                default -> throw new AgentException("MODEL_PROTOCOL", "Unsupported conversation role");
+                default -> throw new AgentModelFailure(AgentModelFailure.Reason.CONVERSATION_ROLE_UNSUPPORTED);
             }
         }
         List<ToolCallback> callbacks = tools.stream().map(spec -> (ToolCallback) new ToolCallback() {
@@ -81,18 +84,56 @@ public final class SpringAiAgentModel implements AgentModelPort {
                     .toolCallbacks(callbacks).internalToolExecutionEnabled(false).build()));
         } catch (RuntimeException failure) {
             // 不传播提供者错误正文，其中可能包含请求或凭据。
-            throw new AgentException("MODEL_TRANSPORT", "Model request failed or timed out", failure);
+            throw new AgentModelFailure(AgentModelFailure.Reason.PROVIDER_CALL_FAILED);
         }
-        if (response == null || response.getResult() == null
-                || "length".equalsIgnoreCase(response.getResult().getMetadata().getFinishReason())) {
-            throw new AgentException("MODEL_PROTOCOL", "Missing or truncated model response");
-        }
-        AssistantMessage output = response.getResult().getOutput();
-        var usage = response.getMetadata().getUsage();
+        return decode(response);
+    }
+
+    AgentProtocol.Reply decode(ChatResponse response) {
+        var result = response == null ? null : response.getResult();
+        var output = result == null ? null : result.getOutput();
+        var usage = response == null || response.getMetadata() == null ? null : response.getMetadata().getUsage();
         Long tokens = usage == null || usage.getTotalTokens() == null || usage.getTotalTokens() <= 0
                 ? null : usage.getTotalTokens().longValue();
-        return new AgentProtocol.Reply(output.getText() == null ? "" : output.getText(),
-                output.getToolCalls().stream().map(call -> new AgentProtocol.ToolCall(
-                        call.id(), call.name(), call.arguments())).toList(), tokens);
+        var finish = AgentModelFailure.FinishReason.from(result == null || result.getMetadata() == null
+                ? null : result.getMetadata().getFinishReason());
+        var observed = new AgentModelFailure.Response(response != null, result != null, output != null, finish,
+                output == null || output.getToolCalls() == null ? null : output.getToolCalls().size(), responseTokens, tokens);
+        if (response == null) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_MISSING, observed);
+        }
+        if (result == null) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.RESULT_MISSING, observed);
+        }
+        // 截断的工具参数不能进入 Application；只保留实际返回的有限元数据。
+        if (finish == AgentModelFailure.FinishReason.LENGTH) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_TRUNCATED, observed);
+        }
+        if (output == null) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.OUTPUT_MISSING, observed);
+        }
+        if (output.getToolCalls() == null) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_CALL_STRUCTURE_INVALID, observed);
+        }
+        List<AgentProtocol.ToolCall> calls = new ArrayList<>();
+        for (AssistantMessage.ToolCall call : output.getToolCalls()) {
+            if (call == null) {
+                throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_CALL_STRUCTURE_INVALID, observed);
+            }
+            if (!"function".equals(call.type())) {
+                throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_CALL_TYPE_INVALID, observed);
+            }
+            if (call.id() == null || call.id().isBlank() || call.id().length() > 200) {
+                throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_ID_INVALID, observed);
+            }
+            if (call.name() == null || call.name().isBlank()) {
+                throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_NAME_INVALID, observed);
+            }
+            if (call.arguments() == null) {
+                throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_ARGUMENTS_INVALID, observed);
+            }
+            calls.add(new AgentProtocol.ToolCall(call.id(), call.name(), call.arguments()));
+        }
+        return new AgentProtocol.Reply(output.getText() == null ? "" : output.getText(), calls, tokens);
     }
 }

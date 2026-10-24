@@ -44,10 +44,17 @@ public final class AgentTools {
     }
 
     public static void validate(AgentProtocol.ToolCall call, AgentProtocol.Limits limits) {
-        if (call.id() == null || call.id().isBlank() || call.id().length() > 200
-                || call.arguments() == null || call.arguments().length() > limits.maxPatchBytes() * 2L
-                || !FIELDS.containsKey(call.name())) {
-            throw new AgentException("MODEL_PROTOCOL", "Invalid tool identity or argument budget");
+        if (call.id() == null || call.id().isBlank() || call.id().length() > 200) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_ID_INVALID);
+        }
+        if (call.name() == null || !FIELDS.containsKey(call.name())) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_NAME_INVALID);
+        }
+        if (call.arguments() == null) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_ARGUMENTS_INVALID);
+        }
+        if (call.arguments().length() > limits.maxPatchBytes() * 2L) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_ARGUMENTS_LIMIT);
         }
         try {
             JsonNode args = JSON.readTree(call.arguments());

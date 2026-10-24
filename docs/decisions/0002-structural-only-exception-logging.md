@@ -388,3 +388,15 @@ docs/ARCHITECTURE.md
 application.yml
   当前实际 Framework / Library logger level 配置
 ```
+
+
+## 2026-10-24：Spring AI DeepSeek 的 WARN Prompt 路径
+
+检查本地实际 Spring AI 1.1.8 字节码及回环假 Provider 后确认，DeepSeekChatModel 在没有
+completion body 或 choices 时以 WARN 格式化完整 Prompt。此前包级 INFO 无法阻止这个已知路径。
+应用默认将该具体 logger 限制为 ERROR；不为获取诊断而调回 WARN/INFO/DEBUG，也不改变其他 logger。
+永久回归在不向控制台传播的捕获 appender 中复现旧 INFO 行为，再验证应用配置抑制该 Prompt。
+
+相应模型失败改用 Application 的 MODEL_FAILED 事件：固定原因/阶段、存在性、允许名单结束原因与
+实际数值；不写入模型正文、参数、补丁、请求或 Provider 异常自由文本。原 Run 终态分类及已有
+usage 聚合合同保持。该规则解决已证实的 SDK 日志路径，不宣称发现真实用户 Prompt 已经泄漏。
