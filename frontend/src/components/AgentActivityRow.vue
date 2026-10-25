@@ -19,7 +19,7 @@ const names: Record<string, string> = {
 const outcomes = { running: "进行中", completed: "完成", failed: "失败", conflict: "冲突", unknown: "结果未记录或待核对",
     recorded: "已记录", blocked: "需要核对", interrupted: "已中断或取消" };
 const toolIcons: Record<string, NavigationIconName> = {
-    read_file: "file", list_files: "repository", search_code: "evidence", apply_patch: "code", run_checks: "check",
+    read_file: "file", list_files: "repository", search_code: "evidence", apply_patch: "code", edit_file: "code", run_checks: "check",
 };
 function icon(activity: AgentActivity): NavigationIconName {
     if (["blocked", "conflict"].includes(activity.outcome)) return "lock";
@@ -41,7 +41,7 @@ function duration(value: number) {
             <div class="timeline-heading"><strong>{{ activity.tool ? toolNames[activity.tool] : names[activity.event.kind] ?? '历史运行活动' }}</strong>
                 <span v-if="activity.target" class="activity-target">{{ activity.target }}</span>
                 <span v-if="activity.targetWithheld" class="target-note">{{ activity.target ? '部分目标已隐藏' : '目标已隐藏' }}</span>
-                <span v-else-if="activity.tool && !activity.target && activity.tool !== 'apply_patch'" class="target-note">目标未记录</span>
+                <span v-else-if="activity.tool && !activity.target && !['apply_patch', 'edit_file'].includes(activity.tool)" class="target-note">目标未记录</span>
                 <time :datetime="activity.event.at" :title="new Date(activity.event.at).toLocaleString()">{{ new Date(activity.event.at).toLocaleTimeString() }}</time>
             </div>
             <div class="activity-result"><span :role="activity.active ? 'status' : undefined">{{ activity.active && activity.event.kind === 'MODEL_REQUEST' ? '等待模型响应' : outcomes[activity.outcome] }}</span>

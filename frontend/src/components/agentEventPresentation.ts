@@ -1,5 +1,7 @@
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 
+const isPatchTool = (tool: string | undefined): boolean => tool === "apply_patch" || tool === "edit_file";
+
 export type ActivityOutcome = "running" | "completed" | "failed" | "conflict" | "unknown" | "recorded" | "blocked" | "interrupted";
 export interface AgentActivity {
     key: string;
@@ -16,7 +18,7 @@ export interface AgentActivity {
     active: boolean;
 }
 export const toolNames: Record<string, string> = {
-    list_files: "浏览文件", read_file: "读取文件", search_code: "搜索代码", apply_patch: "应用代码修改",
+    list_files: "浏览文件", read_file: "读取文件", search_code: "搜索代码", apply_patch: "应用代码修改", edit_file: "精确编辑代码",
     run_checks: "运行 Maven 检查",
 };
 const activeKinds: Partial<Record<AgentRun["state"], string[]>> = {
@@ -105,11 +107,11 @@ export function numeric(data: Record<string, unknown>, key: string) {
 }
 
 function sourceEditNotStarted(data: Record<string, unknown>, tool?: string) {
-    return tool === "apply_patch" && data.classification === "POLICY_REJECTED" && data.policyRule === "SOURCE_CREDENTIALS"
+    return isPatchTool(tool) && data.classification === "POLICY_REJECTED" && data.policyRule === "SOURCE_CREDENTIALS"
         && data.policyStage === "PATCH_SOURCE" && data.mutationNotStarted === true;
 }
 function patchNotStarted(data: Record<string, unknown>, tool?: string) {
-    return sourceEditNotStarted(data, tool) || tool === 'apply_patch' && data.mutationNotStarted === true
+    return sourceEditNotStarted(data, tool) || isPatchTool(tool) && data.mutationNotStarted === true
         && ['PATCH_CONFLICT', 'PATCH_REPEATED_CONFLICT', 'PATCH_CORRECTION_LIMIT'].includes(String(data.classification));
 }
 
@@ -122,7 +124,7 @@ function resultOutcome(event: AgentEvent, tool?: string): ActivityOutcome {
     if (code === "PATCH_CONFLICT") return "conflict";
     if (data.ok === false || code && /(FAILED|FAILURE|ERROR|LIMIT|UNAVAILABLE|MISSING|REJECTED|MISMATCH|TIMEOUT)/.test(code)) return "failed";
     if (data.ok !== true || !tool) return "unknown";
-    if (tool === "apply_patch") return code === "PATCH_APPLIED" ? "completed" : "unknown";
+    if (isPatchTool(tool)) return code === "PATCH_APPLIED" ? "completed" : "unknown";
     if (tool === "run_checks") return ["TESTS_PASSED", "BUILD_PASSED_NOT_TESTED"].includes(code ?? "")
         && !(numeric(data, "failures") || numeric(data, "errors")) ? "completed" : "unknown";
     return "completed";
@@ -186,7 +188,7 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
         const internalMs = numeric(data, "durationMs");
         activities.push({ key: `${event.runId}:${event.sequence}`, event, finish, tool, target,
             targetWithheld: startData.targetState === "withheld" || data.targetState === "withheld",
-            resultUncertain: (data.resultRecorded === false || tool === 'apply_patch' && classification(result) === 'PATCH_CONFLICT')
+            resultUncertain: (data.resultRecorded === false || isPatchTool(tool) && classification(result) === 'PATCH_CONFLICT')
                 && !patchNotStarted(data, tool),
             classification: tool || event.kind === "MODEL_FAILED" ? classification(result)
                 : event.summary !== event.kind ? safeClassification(event.summary) : undefined,
@@ -224,7 +226,7 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
             title: "正在请求模型" + (ordinal ? ` · 第 ${ordinal} 次请求` : ""), detail: "等待模型响应" };
     }
     if (active?.tool) return { ...staticState, active: true, tone: "running",
-        title: ({ read_file: "正在读取文件", list_files: "正在浏览目录", search_code: "正在搜索代码", apply_patch: "正在应用代码修改", run_checks: "正在执行 Maven 检查" } as Record<string, string>)[active.tool] ?? "工具操作进行中",
+        title: ({ read_file: "正在读取文件", list_files: "正在浏览目录", search_code: "正在搜索代码", apply_patch: "正在应用代码修改", edit_file: "正在精确编辑代码", run_checks: "正在执行 Maven 检查" } as Record<string, string>)[active.tool] ?? "工具操作进行中",
         detail: active.target ?? (active.targetWithheld ? "目标已隐藏" : "目标未记录") };
     if (active) return { ...staticState, active: true, tone: "running",
         title: ({ CREATED: "运行已预约", PREPARING: "正在准备 Docker 沙箱", RUNNING: "开始编码", FINALIZING: "正在冻结 Candidate" } as Record<string, string>)[active.event.kind] ?? "运行进行中" };
@@ -233,7 +235,7 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
     if (last?.event.kind === "MODEL_FAILED") return { ...staticState, tone: "failed", title: "模型请求失败",
         detail: [classification(last.event), modelFailureDescription(last.event)].filter(Boolean).join(" · ") };
     if (last?.classification === "POLICY_REJECTED") return { ...staticState, tone: "blocked",
-        title: last.tool === "apply_patch" ? "代码修改被安全策略拒绝" : "工具操作被安全策略拒绝",
+        title: isPatchTool(last.tool) ? "代码修改被安全策略拒绝" : "工具操作被安全策略拒绝",
         detail: sourceEditNotStarted(summaryFields(last.finish ?? last.event), last.tool) ? "本次未修改源码" : "请核对运行诊断" };
     if (last?.event.kind === "MODEL_COMPLETED") return { ...staticState, title: "模型已结束，等待冻结结果" };
     return { ...staticState, title: ({ CREATED: "运行已预约", PREPARING: "正在准备 Docker 沙箱", RUNNING: "等待下一项运行活动", FINALIZING: "正在冻结 Candidate" } as Record<string, string>)[state.state] ?? "等待运行活动" };
@@ -250,7 +252,7 @@ export interface ExplorationGroup {
 }
 
 export function patchSummary(activities: AgentActivity[], runId: string) {
-    const patches = activities.filter(activity => activity.tool === 'apply_patch');
+    const patches = activities.filter(activity => isPatchTool(activity.tool));
     const applied = patches.filter(activity => activity.classification === 'PATCH_APPLIED' && activity.outcome === 'completed');
     return { key: `patches:${runId}`, activities: patches, count: patches.length, applied: applied.length,
         conflicts: patches.filter(activity => activity.outcome === 'conflict').length,
@@ -281,7 +283,7 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
     const event = activity.finish ?? activity.event;
     const data = summaryFields(event);
     const rows: { label: string; value: string }[] = [];
-    if (activity.tool === 'apply_patch' && patchNotStarted(data, activity.tool) && activity.classification !== 'POLICY_REJECTED') {
+    if (isPatchTool(activity.tool) && patchNotStarted(data, activity.tool) && activity.classification !== 'POLICY_REJECTED') {
         rows.push({ label: '本次补丁', value: '未应用，已有修改保留' });
         const reasons: Record<string, string> = { CONTEXT_MISMATCH: '当前源码上下文不匹配', CHANGE_ALREADY_PRESENT: '变更已存在',
             INVALID_DIFF: '补丁格式无效', PATH_STATE_MISMATCH: '目标文件状态不匹配', CHECK_FAILED: '预检查未通过' };
@@ -327,7 +329,7 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
         if (numeric(data, "executedTests") || numeric(data, "tests") || numeric(data, "failures") || numeric(data, "errors")) {
             for (const [key, label] of [["executedTests", "已执行测试"], ["failures", "失败"], ["errors", "错误"], ["skipped", "跳过"]] as const) addNumber(key, label);
         }
-    } else if (activity.tool === "apply_patch" && activity.outcome === "completed" && Array.isArray(data.paths)) {
+    } else if (isPatchTool(activity.tool) && activity.outcome === "completed" && Array.isArray(data.paths)) {
         for (const value of data.paths.slice(0, 8)) {
             const path = safePath(value);
             if (path) rows.push({ label: "已应用文件", value: path });

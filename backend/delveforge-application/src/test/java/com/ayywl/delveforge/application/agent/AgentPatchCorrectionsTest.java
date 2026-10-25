@@ -44,6 +44,18 @@ class AgentPatchCorrectionsTest {
     }
 
     @Test
+    void exactEditConflictsUseDecodedContentAndCannotRepeatWithDifferentJsonOrdering() {
+        var corrections = new AgentPatchCorrections();
+        var first = new AgentProtocol.ToolCall("first", "edit_file",
+                "{\"path\":\"source.java\",\"old_text\":\"private before\",\"new_text\":\"after\"}");
+        corrections.record(first, CONFLICT);
+        var repeated = new AgentProtocol.ToolCall("second", "edit_file",
+                "{\"new_text\":\"after\",\"old_text\":\"private before\",\"path\":\"source.java\"}");
+        assertEquals("PATCH_REPEATED_CONFLICT", assertThrows(AgentPatchCorrectionException.class,
+                () -> corrections.before(repeated)).code());
+    }
+
+    @Test
     void defaultCountBudgetsAreDisabledButNegativeConfigurationIsRejected() {
         assertEquals(0, AgentProtocol.Limits.defaults().maxModelCalls());
         assertEquals(0, AgentProtocol.Limits.defaults().maxToolCalls());

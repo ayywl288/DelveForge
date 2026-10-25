@@ -3,6 +3,7 @@ package com.ayywl.delveforge.infrastructure.agent;
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
+import com.ayywl.delveforge.application.agent.AgentTools;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
@@ -469,6 +470,20 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         throw new AgentPolicyRejection(rule, stage);
     }
 
+    /** 只转换只读 inspect_patch 的已知固定语法失败，不持久化异常文本或推断未知写入结果。 */
+    static String patchSyntaxReason(JsonNode inspection) {
+        if (inspection.path("ok").asBoolean() || !inspection.path("classification").asText().equals("TOOL_ERROR")) {
+            return null;
+        }
+        return switch (inspection.path("reason").asText()) {
+            case "ValueError: Invalid unified diff hunk" -> "HUNK_BODY_INVALID";
+            case "ValueError: Invalid unified diff hunk counts" -> "HUNK_COUNTS_INVALID";
+            case "ValueError: Invalid unified diff hunk header" -> "HUNK_HEADER_INVALID";
+            case "ValueError: Invalid or oversized unified diff" -> "DIFF_STRUCTURE_INVALID";
+            default -> null;
+        };
+    }
+
     void requirePatchContent(JsonNode inspection, JsonNode arguments) {
         rejectPolicy(inspection, AgentPolicyRejection.Stage.PATCH_INSPECTION);
         if (!inspection.path("ok").asBoolean()) {
@@ -506,11 +521,32 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (arguments.has("path") && !arguments.path("path").asText().equals(".")) {
             requirePath(arguments.path("path").asText());
         }
-        if (call.name().equals("apply_patch")) {
+        if (call.name().equals("edit_file")) {
+            try {
+                String patch = exactEditPatch(session, arguments, cancelled);
+                arguments = json.createObjectNode().put("patch", patch);
+            } catch (ExactEditPatch.Conflict conflict) {
+                return json.createObjectNode().put("ok", false).put("tool", "edit_file")
+                        .set("result", json.createObjectNode().put("classification", "PATCH_CONFLICT")
+                                .put("mutationNotStarted", true).put("conflictReason", conflict.reason())
+                                .put("instruction", "原文不存在、不唯一或文件已存在；编辑未应用，重新读取后使用唯一完整原文片段。"))
+                        .toString();
+            }
+        }
+        if (AgentTools.mutation(call.name())) {
             JsonNode inspection = invoke(session, "inspect_patch", arguments, cancelled);
+            String syntax = patchSyntaxReason(inspection);
+            if (syntax != null) {
+                return json.createObjectNode().put("ok", false).put("tool", call.name())
+                        .set("result", json.createObjectNode().put("classification", "PATCH_CONFLICT")
+                                .put("mutationNotStarted", true).put("conflictReason", "INVALID_DIFF")
+                                .put("patchDiagnostic", syntax)
+                                .put("instruction", "标准 diff 语法不完整，未应用任何修改；优先改用 edit_file 精确原文替换。"))
+                        .toString();
+            }
             requirePatchContent(inspection, arguments);
         }
-        JsonNode response = invoke(session, call.name(), arguments, cancelled);
+        JsonNode response = invoke(session, call.name().equals("edit_file") ? "apply_patch" : call.name(), arguments, cancelled);
         if (call.name().equals("run_checks")) {
             // 只采纳工具已解析且实际启动检查的入口；基线资源身份始终独立保留，不随目录角色消失。
             JsonNode checkedDirectory = response.path("result").path("directory");
@@ -551,7 +587,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 session.checks.add(missing);
             }
         }
-        rejectPolicy(response, call.name().equals("apply_patch") ? AgentPolicyRejection.Stage.PATCH_APPLICATION
+        rejectPolicy(response, AgentTools.mutation(call.name()) ? AgentPolicyRejection.Stage.PATCH_APPLICATION
                 : AgentPolicyRejection.Stage.TOOL_EXECUTION);
         requireCertainPatchOutcome(response);
         JsonNode visible = sanitizeNode(response);
@@ -603,6 +639,40 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             return result;
         }
         return node;
+    }
+
+    /** 只读当前快照形成标准 diff；后续仍复用原有 inspect_patch 与 apply_patch，不直接写文件。 */
+    private String exactEditPatch(Session session, JsonNode arguments, BooleanSupplier cancelled) {
+        String path = arguments.path("path").asText();
+        requirePath(path);
+        ObjectNode options = json.createObjectNode().put("content", true);
+        options.set("baseline", json.valueToTree(session.baselineHashes));
+        JsonNode captured = invoke(session, "snapshot", options, cancelled);
+        requireToolSuccess(captured);
+        String current = null;
+        for (JsonNode file : captured.path("result").path("files")) {
+            if (!file.path("path").asText().equals(path)) {
+                continue;
+            }
+            byte[] bytes;
+            if (file.has("content")) {
+                bytes = Base64.getDecoder().decode(file.path("content").asText());
+            } else {
+                Entry original = session.baseline.get(path);
+                if (original == null || !(file.path("sha256").asText() + ":" + file.path("mode").asText())
+                        .equals(session.baselineHashes.get(path))) {
+                    throw new AgentException("SNAPSHOT_MISMATCH", "Exact edit source differs from captured baseline");
+                }
+                bytes = git(session, Map.of(), null, "cat-file", "blob", original.objectId());
+            }
+            current = decode(bytes);
+            if (current.indexOf('\0') >= 0 || !current.equals(sanitize(current))) {
+                throw AgentPolicyRejection.sourceEditRejectedBeforeApply();
+            }
+            break;
+        }
+        return ExactEditPatch.create(path, current, arguments.path("old_text").asText(),
+                arguments.path("new_text").asText(), session.limits.maxPatchBytes());
     }
 
     private void restartAgent(String id, BooleanSupplier cancelled) {

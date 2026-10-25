@@ -613,3 +613,13 @@ it("shows bounded response recovery without declaring the live Run failed", asyn
     expect(root.textContent).toContain("模型请求失败");
     expect(root.textContent).not.toContain("当前活动 运行失败");
 });
+
+it("presents exact source edits as applied patches without exposing replacement text", async () => {
+    const { root, props } = mount();
+    props.events = [tool(1, "TOOL_STARTED", { tool: "edit_file", path: "src/Example.java" }),
+        tool(2, "TOOL_FINISHED", { tool: "edit_file", path: "src/Example.java", ok: true,
+            classification: "PATCH_APPLIED", paths: ["src/Example.java"], targetState: "available" })];
+    await settle();
+    expect(root.querySelector('.patch-summary')?.textContent).toContain("src/Example.java");
+    expect(root.querySelector('.patch-summary [data-tone="completed"]')).not.toBeNull();
+});

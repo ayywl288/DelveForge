@@ -514,3 +514,8 @@ Vue 实施页分别显示 Step、Run 与 Delivery；可明确开始、取消或�
 Agent 明确使用非 thinking 工具模式，保留原配置模型、endpoint 和响应上限。LENGTH 全部内容/调用仍被拒绝，同一活跃 Run 内最多两次重新请求较小动作，不重放成功工具。
 MODEL_FAILED 保留失败用量；MODEL_RESPONSE_RECOVERY 是非终态纠正。Run.modelCalls/tokens 统计正常返回，全部请求看 MODEL_REQUEST，失败 reportedTokens 单列。
 见 [ADR-0015](decisions/0015-executable-agent-steps-and-incomplete-response-recovery.md)。其它安全与交付恢复合同不变。
+
+
+### 精确原文编辑（2026-10-25）
+
+Agent 可优先使用 `edit_file`，以 `path` / `old_text` / `new_text` 描述唯一原文替换；新文件只在路径不存在且 old_text 为空时建立。适配器从当前字节生成标准 diff，继续走原有沙箱补丁检查与实际写入校验。不存在/不唯一/重复编辑为明确的未写入冲突，不能据此绕过秘密策略或覆盖已有文件。`apply_patch` 与协议 v2 仍保留，镜像无需为该 Java 侧工具转换更新。

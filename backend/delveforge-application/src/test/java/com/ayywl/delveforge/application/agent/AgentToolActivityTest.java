@@ -25,6 +25,19 @@ class AgentToolActivityTest {
     }
 
     @Test
+    void exactEditsExposeOnlySafePathAndClassificationNeverReplacementContent() throws Exception {
+        var edit = call("edit_file", Map.of("path", "src/Example.java", "old_text", "private-before", "new_text", "private-after"));
+        String started = activity.started(edit, identity);
+        assertFalse(started.contains("private-before"));
+        assertFalse(started.contains("private-after"));
+        assertEquals("src/Example.java", json.readTree(started).path("path").asText());
+        String finished = activity.finished(edit, identity,
+                "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\",\"paths\":[\"src/Example.java\"]}}");
+        assertEquals("PATCH_APPLIED", json.readTree(finished).path("classification").asText());
+        assertEquals("available", json.readTree(finished).path("targetState").asText());
+    }
+
+    @Test
     void onlyTypedRuleAndStageArePersistedAndLegacyPolicyMessagesRemainPrivate() throws Exception {
         var patch = call("apply_patch", Map.of("patch", "private-patch"));
         JsonNode typed = json.readTree(activity.failed(patch, identity, new AgentPolicyRejection(

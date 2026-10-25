@@ -31,3 +31,9 @@ Source: [DeepSeek thinking protocol](https://api-docs.deepseek.com/guides/thinki
 DOMAIN_MODEL.md §5.3 / §10.6 已允许同一 Selected Direction 的新 Plan 替代旧 Plan；现有 planning-rounds 入口却只接受 SUPERSEDED Plan，无法替换不适合执行的 ACTIVE Plan。
 本次沿用入口和项目版本 CAS，Application 用领域 supersede() 形成隔离候选，ProjectContextRepository 增加明确的跨对象原子提交重载。Infrastructure 在写锁内核对旧 Plan/WorkingCopy、活动 Run/Delivery 和恢复状态，再一并写入失效状态与后继上下文；插入失败全部回滚。旧 Plan、Step、WorkingCopy 和历史结果不改写，Direction 保持 SELECTED。无迁移、新 Aggregate 或新依赖。
 UI 要求明确确认；新轮次本身不调用 AI，不自动生成计划或授权执行。后续仍从原始资产及所选 RepositoryProfile 正常准备新副本，不复用未验证 Agent 内容。
+
+## 精确原文编辑复用原写入边界
+
+新版真实 Run b422067b 在 10 次补丁请求中只有 1 次成功；保留的现场只有一个 44 行、尚未完成的方法文件。多次 TOOL_ERROR 的具体原因未留存，不能断言全部为行数错误；另有明确 CONTEXT_MISMATCH / INVALID_DIFF。原文阅读后仍反复失败，没有进入验证，因此通过取消 API 停止付费循环。
+新增 edit_file(path, old_text, new_text)：既有文件只允许唯一精确原文片段替换；old_text 为空只用于不存在的新文件。Infrastructure 只读当前受控快照，从实际字节生成完整标准 diff，再复用 inspect_patch、原文及新增内容凭据检查、Git apply --check / apply、快照、Candidate 与 Delivery 全链。不直接写文件、不做模糊匹配、不推断或恢复半个模型输出。完整 diff 仍受原补丁大小预算约束；较大文件可继续使用原 apply_patch。
+该变化只扩展 Application 给模型的工具，不修改 Python 协议 v2、镜像、权限、数据库或模块依赖。只读补丁解析器的四种已知固定 ValueError 另映射到 INVALID_DIFF 及安全枚举，复用原有重复/三次未解决冲突停止机制，避免通用 TOOL_ERROR 绕过纠错计数。未知错误与写入不确定性不推断为可恢复冲突。

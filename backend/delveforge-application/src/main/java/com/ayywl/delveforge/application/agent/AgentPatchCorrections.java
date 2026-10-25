@@ -13,13 +13,13 @@ final class AgentPatchCorrections {
     private final List<String> rejected = new ArrayList<>();
 
     void before(AgentProtocol.ToolCall call) {
-        if (call.name().equals("apply_patch") && rejected.contains(patch(call))) {
+        if (AgentTools.mutation(call.name()) && rejected.contains(patch(call))) {
             throw new AgentPatchCorrectionException(true);
         }
     }
 
     void record(AgentProtocol.ToolCall call, String result) {
-        if (!call.name().equals("apply_patch")) {
+        if (!AgentTools.mutation(call.name())) {
             return;
         }
         try {
@@ -45,7 +45,10 @@ final class AgentPatchCorrections {
     private String patch(AgentProtocol.ToolCall call) {
         try {
             // 行尾属于补丁语义：LF 冲突后改成 CRLF 可能是正确修正，不能折叠为重复。
-            return json.readTree(call.arguments()).path("patch").asText();
+            JsonNode arguments = json.readTree(call.arguments());
+            return call.name().equals("edit_file") ? json.writeValueAsString(List.of(
+                    arguments.path("path").asText(), arguments.path("old_text").asText(),
+                    arguments.path("new_text").asText())) : arguments.path("patch").asText();
         } catch (IOException failure) {
             return "";
         }

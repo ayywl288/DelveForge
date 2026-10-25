@@ -38,6 +38,8 @@ public final class CodingAgentService implements AutoCloseable {
             记住已读内容，只有文件变化、上下文已压缩或冲突需要核对时才重新读取。
             当前 Step 的实现及有意义的自动化测试必须一起完成；零测试的构建成功不代表功能验收。
             UTF-8 文件和 CSV 等协议文本需要小范围、完整的补丁，不要在一个响应内生成整个项目。
+            优先使用 edit_file，以唯一原文片段精确替换；新文件 old_text 为空且必须不存在，无需手算 diff 行数。
+            新文件应完成一个可编译职责，不要将单个方法截断写入文件；相关文件与测试分轮推进。
             apply_patch使用标准unified diff，可新增与删除UTF-8文件；不要提交模型自述作为最终代码。
             补丁冲突表示未应用：先重新读取当前源码，核对行尾与hunk行数；保留已成功修改，不重复相同补丁。
             环境问题由系统处理，不为修复缺依赖而删除测试或随意改变工程配置。
@@ -319,7 +321,7 @@ public final class CodingAgentService implements AutoCloseable {
                             }
                             result = argumentFailure == null ? sandbox.tool(task.runId(), call, cancelled) : argumentFailure;
                         } catch (AgentException failure) {
-                            if (call.name().equals("apply_patch") && failure instanceof AgentPolicyRejection rejection
+                            if (AgentTools.mutation(call.name()) && failure instanceof AgentPolicyRejection rejection
                                     && rejection.sourceEditRejectedBeforeMutation() && ++sourceEditRejections == 1) {
                                 sourceEditRejection = rejection;
                                 // 只读检查已拒绝且尚未应用；只允许一次另选方案，缓存仍按原调用身份去重。
@@ -362,7 +364,7 @@ public final class CodingAgentService implements AutoCloseable {
                         explorationCalls++;
                     } else if (call.name().equals("run_checks")) {
                         checks++;
-                    } else if (call.name().equals("apply_patch") && patchApplied(result)) {
+                    } else if (AgentTools.mutation(call.name()) && patchApplied(result)) {
                         appliedPatches++;
                     }
                 }

@@ -28,6 +28,13 @@ class AgentToolsProtocolTest {
     }
 
     @Test
+    void exactTextEditCanCreateAFileWithoutInventingUnifiedDiffCounts() {
+        AgentTools.validate(new AgentProtocol.ToolCall("edit", "edit_file",
+                "{\"path\":\"src/Example.java\",\"old_text\":\"\",\"new_text\":\"class Example {}\"}"),
+                AgentProtocol.Limits.defaults());
+    }
+
+    @Test
     void malformedJsonArgumentsRemainExplicitRecoverableArgumentFailures() {
         var failure = assertThrows(AgentException.class, () -> AgentTools.validate(
                 new AgentProtocol.ToolCall("id", "apply_patch", "{\"patch\":"), AgentProtocol.Limits.defaults()));

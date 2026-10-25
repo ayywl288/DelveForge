@@ -16,6 +16,7 @@ public final class AgentTools {
             "search_code", Set.of("path", "query"),
             "read_file", Set.of("path", "start_line", "line_count"),
             "apply_patch", Set.of("patch"),
+            "edit_file", Set.of("path", "old_text", "new_text"),
             "run_checks", Set.of("goal", "directory", "module", "test"));
 
     private AgentTools() {
@@ -27,6 +28,10 @@ public final class AgentTools {
                         + "},\"required\":[" + required + "]}");
     }
 
+    public static boolean mutation(String tool) {
+        return "apply_patch".equals(tool) || "edit_file".equals(tool);
+    }
+
     public static List<AgentProtocol.ToolSpec> definitions() {
         return List.of(
                 spec("list_files", "分页列出当前沙箱文件；默认 path='.'，offset=0，limit=100，最大200。",
@@ -35,6 +40,9 @@ public final class AgentTools {
                         "\"path\":{\"type\":\"string\"},\"query\":{\"type\":\"string\"}", "\"query\""),
                 spec("read_file", "读取UTF-8文本。默认从第1行读120行，最多300行。净化结果不可作为原文覆盖。",
                         "\"path\":{\"type\":\"string\"},\"start_line\":{\"type\":\"integer\"},\"line_count\":{\"type\":\"integer\"}", "\"path\""),
+                spec("edit_file", "优先使用精确文本编辑：path 为相对路径，old_text 必须与当前文件中的一个唯一片段完全一致，new_text 替换该片段。新文件 old_text 为空且必须不存在。不要输出 diff 行数，不要重复已成功的编辑；冲突先重新读取。",
+                        "\"path\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"},\"new_text\":{\"type\":\"string\"}",
+                        "\"path\",\"old_text\",\"new_text\""),
                 spec("apply_patch", "提交标准 unified diff（--- a/path、+++ b/path，新增/删除用 /dev/null）。须含正确@@行数；保留源码行尾。冲突后重新读取当前文件，不重复相同补丁；不接受*** Begin Patch。",
                         "\"patch\":{\"type\":\"string\"}", "\"patch\""),
                 spec("run_checks", "离线Maven检查。goal可为compile/test/package/verify，默认test；module为相对模块路径，test为测试选择器。环境缺依赖由系统有界准备。",
@@ -72,12 +80,15 @@ public final class AgentTools {
             }
             String required = switch (call.name()) {
                 case "search_code" -> "query";
-                case "read_file" -> "path";
+                case "read_file", "edit_file" -> "path";
                 case "apply_patch" -> "patch";
                 default -> null;
             };
             if (required != null && (!args.hasNonNull(required) || args.path(required).asText().isBlank())) {
                 throw new AgentException("INVALID_ARGUMENTS", "Missing required tool argument");
+            }
+            if (call.name().equals("edit_file") && (!args.has("old_text") || !args.has("new_text"))) {
+                throw new AgentException("INVALID_ARGUMENTS", "Exact edit requires both source and replacement text");
             }
             if (call.name().equals("run_checks")) {
                 if (!Set.of("compile", "test", "package", "verify").contains(args.path("goal").asText("test"))

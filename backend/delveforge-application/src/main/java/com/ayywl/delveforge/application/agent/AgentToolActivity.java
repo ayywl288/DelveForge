@@ -50,7 +50,7 @@ public final class AgentToolActivity {
             if (classification.matches("[A-Z][A-Z0-9_]{0,63}") && unchanged(classification)) {
                 summary.put("classification", classification);
             }
-            if (call.name().equals("apply_patch") && classification.equals("POLICY_REJECTED")
+            if (AgentTools.mutation(call.name()) && classification.equals("POLICY_REJECTED")
                     && response.path("policyRule").asText().equals("SOURCE_CREDENTIALS")
                     && response.path("policyStage").asText().equals("PATCH_SOURCE")
                     && response.path("mutationNotStarted").asBoolean() && response.path("alternativeAllowed").asBoolean()) {
@@ -61,9 +61,14 @@ public final class AgentToolActivity {
                 summary.put("resultRecorded", true);
             }
             count(summary, response, "durationMs");
-            if (call.name().equals("apply_patch") && classification.equals("PATCH_CONFLICT")
+            if (AgentTools.mutation(call.name()) && classification.equals("PATCH_CONFLICT")
                     && details.path("mutationNotStarted").asBoolean()) {
                 summary.put("mutationNotStarted", true);
+                String diagnostic = details.path("patchDiagnostic").asText();
+                if (Set.of("HUNK_BODY_INVALID", "HUNK_COUNTS_INVALID", "HUNK_HEADER_INVALID", "DIFF_STRUCTURE_INVALID")
+                        .contains(diagnostic)) {
+                    summary.put("patchDiagnostic", diagnostic);
+                }
                 String reason = details.path("conflictReason").asText();
                 if (Set.of("CHANGE_ALREADY_PRESENT", "INVALID_DIFF", "PATH_STATE_MISMATCH", "CONTEXT_MISMATCH", "CHECK_FAILED").contains(reason)) {
                     summary.put("conflictReason", reason);
@@ -74,7 +79,7 @@ public final class AgentToolActivity {
             }
             // 只取成功应用后受控工具返回的已检查路径，绝不解析 patch 文本。
             JsonNode paths = details.path("paths");
-            if (call.name().equals("apply_patch") && response.path("ok").asBoolean()
+            if (AgentTools.mutation(call.name()) && response.path("ok").asBoolean()
                     && classification.equals("PATCH_APPLIED") && paths.isArray() && paths.size() <= 8) {
                 List<String> values = new java.util.ArrayList<>();
                 for (JsonNode path : paths) {
@@ -128,7 +133,7 @@ public final class AgentToolActivity {
         if (classification.equals("POLICY_REJECTED")) {
             summary.put("policyRule", rejection == null ? "UNCLASSIFIED_POLICY" : rejection.rule().name());
             summary.put("policyStage", rejection == null ? "TOOL_EXECUTION" : rejection.stage().name());
-            if (call.name().equals("apply_patch") && rejection != null && rejection.sourceEditRejectedBeforeMutation()) {
+            if (AgentTools.mutation(call.name()) && rejection != null && rejection.sourceEditRejectedBeforeMutation()) {
                 summary.put("mutationNotStarted", true);
             }
         }
@@ -149,9 +154,9 @@ public final class AgentToolActivity {
         try {
             AgentTools.validate(call, limits);
             JsonNode args = json.readTree(call.arguments());
-            if (Set.of("list_files", "read_file", "search_code").contains(call.name())) {
+            if (Set.of("list_files", "read_file", "search_code", "edit_file").contains(call.name())) {
                 String path = args.path("path").asText(".");
-                if (displayPath(path, !call.name().equals("read_file"))) {
+                if (displayPath(path, !Set.of("read_file", "edit_file").contains(call.name()))) {
                     summary.put("path", path);
                 } else {
                     summary.put("targetState", "withheld");

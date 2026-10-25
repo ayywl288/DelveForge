@@ -26,6 +26,16 @@ class DockerPatchPolicyTest {
             new DeterministicRepositorySecretPolicy(), commands);
 
     @Test
+    void onlyKnownReadOnlyParserFailuresHaveSafeStructuralDiagnostics() {
+        assertEquals("HUNK_COUNTS_INVALID", DockerAgentSandbox.patchSyntaxReason(json.valueToTree(Map.of(
+                "ok", false, "classification", "TOOL_ERROR", "reason", "ValueError: Invalid unified diff hunk counts"))));
+        assertEquals(null, DockerAgentSandbox.patchSyntaxReason(json.valueToTree(Map.of(
+                "ok", false, "classification", "TOOL_ERROR", "reason", "ValueError: private-source-body"))));
+        assertEquals(null, DockerAgentSandbox.patchSyntaxReason(json.valueToTree(Map.of(
+                "ok", false, "classification", "PATCH_OUTCOME_UNCERTAIN", "reason", "ValueError: Invalid unified diff hunk counts"))));
+    }
+
+    @Test
     void uncertainApplicationCannotBecomeRecoverableToolFeedback() {
         var failure = assertThrows(AgentException.class, () -> DockerAgentSandbox.requireCertainPatchOutcome(
                 json.valueToTree(Map.of("ok", false, "classification", "PATCH_OUTCOME_UNCERTAIN", "output", "private-body"))));
