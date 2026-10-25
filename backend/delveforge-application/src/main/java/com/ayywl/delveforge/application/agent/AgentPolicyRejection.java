@@ -1,5 +1,8 @@
 package com.ayywl.delveforge.application.agent;
 
+import java.util.List;
+import java.util.Set;
+
 /** 安全策略拒绝只携带固定规则与阶段；不携带目标、参数或原始异常文本。 */
 public final class AgentPolicyRejection extends AgentException {
     public enum Rule {
@@ -17,19 +20,37 @@ public final class AgentPolicyRejection extends AgentException {
         PATCH_APPLICATION, SOURCE_CAPTURE, TOOL_EXECUTION
     }
 
+    /** 仅定位模型自己拟提交的输入行；不含文件名、字段值、源码片段或指纹。 */
+    public record RejectedInput(String field, List<Integer> lines) {
+        public RejectedInput {
+            if (field == null || !Set.of("patch", "new_text").contains(field) || lines == null || lines.isEmpty()
+                    || lines.size() > 8 || lines.stream().anyMatch(line -> line == null || line < 1 || line > 1000000)) {
+                throw new IllegalArgumentException("Invalid bounded proposal location");
+            }
+            lines = List.copyOf(lines);
+        }
+    }
+
     private final Rule rule;
     private final Stage stage;
     private final boolean sourceEditRejectedBeforeMutation;
+    private final RejectedInput rejectedInput;
 
     public AgentPolicyRejection(Rule rule, Stage stage) {
         this(rule, stage, false);
     }
 
     private AgentPolicyRejection(Rule rule, Stage stage, boolean sourceEditRejectedBeforeMutation) {
+        this(rule, stage, sourceEditRejectedBeforeMutation, null);
+    }
+
+    private AgentPolicyRejection(Rule rule, Stage stage, boolean sourceEditRejectedBeforeMutation,
+            RejectedInput rejectedInput) {
         super("POLICY_REJECTED", "Controlled policy rejection: " + rule.name() + "/" + stage.name());
         this.rule = rule;
         this.stage = stage;
         this.sourceEditRejectedBeforeMutation = sourceEditRejectedBeforeMutation;
+        this.rejectedInput = rejectedInput;
     }
 
     /** 只供已完成只读检查、尚未调用 apply_patch 的受控适配器使用。 */
@@ -41,6 +62,12 @@ public final class AgentPolicyRejection extends AgentException {
     public static AgentPolicyRejection patchContentRejectedBeforeApply() {
         return new AgentPolicyRejection(Rule.PATCH_CREDENTIALS, Stage.PATCH_CONTENT, true);
     }
+
+    public static AgentPolicyRejection patchContentRejectedBeforeApply(RejectedInput input) {
+        return new AgentPolicyRejection(Rule.PATCH_CREDENTIALS, Stage.PATCH_CONTENT, true, input);
+    }
+
+    public RejectedInput rejectedInput() { return rejectedInput; }
 
     public boolean sourceEditRejectedBeforeMutation() { return sourceEditRejectedBeforeMutation; }
 

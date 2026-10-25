@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -61,6 +62,7 @@ public final class AgentToolActivity {
                 summary.put("mutationNotStarted", true);
                 summary.put("alternativeAllowed", true);
                 summary.put("resultRecorded", true);
+                proposalLocation(summary, response.path("rejectedInput"));
             }
             count(summary, response, "durationMs");
             if (AgentTools.mutation(call.name()) && classification.equals("PATCH_CONFLICT")
@@ -137,9 +139,28 @@ public final class AgentToolActivity {
             summary.put("policyStage", rejection == null ? "TOOL_EXECUTION" : rejection.stage().name());
             if (AgentTools.mutation(call.name()) && rejection != null && rejection.sourceEditRejectedBeforeMutation()) {
                 summary.put("mutationNotStarted", true);
+                if (rejection.rejectedInput() != null) {
+                    summary.put("rejectedInput", rejection.rejectedInput());
+                }
             }
         }
         return encode(summary);
+    }
+
+    private void proposalLocation(Map<String, Object> summary, JsonNode location) {
+        if (!location.isObject() || !Set.of("patch", "new_text").contains(location.path("field").asText())
+                || !location.path("lines").isArray() || location.path("lines").isEmpty()
+                || location.path("lines").size() > 8) {
+            return;
+        }
+        List<Integer> lines = new ArrayList<>();
+        for (JsonNode line : location.path("lines")) {
+            if (!line.isIntegralNumber() || !line.canConvertToInt() || line.asInt() < 1 || line.asInt() > 1000000) {
+                return;
+            }
+            lines.add(line.asInt());
+        }
+        summary.put("rejectedInput", new AgentPolicyRejection.RejectedInput(location.path("field").asText(), lines));
     }
 
     private void timing(Map<String, Object> summary, Long invocationDurationNs) {

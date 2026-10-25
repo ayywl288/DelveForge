@@ -26,6 +26,33 @@ class DockerPatchPolicyTest {
             new DeterministicRepositorySecretPolicy(), commands);
 
     @Test
+    void proposedCredentialDiagnosticsContainOnlyBoundedInputLineNumbers() throws Exception {
+        String proposed = "class Example {\nString password=\"fixture-private-value\";\nint ordinary=1;\n"
+                + "String accessToken=generatedValue();\n}";
+        var rejection = sandbox.contentRejection("new_text", proposed);
+        assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, rejection.rule());
+        assertTrue(rejection.sourceEditRejectedBeforeMutation());
+        assertEquals("new_text", rejection.rejectedInput().field());
+        assertEquals(java.util.List.of(2, 4), rejection.rejectedInput().lines());
+        String metadata = json.writeValueAsString(rejection.rejectedInput());
+        for (String privateText : java.util.List.of("fixture-private-value", "password", "accessToken", "generatedValue", "Example")) {
+            assertFalse(metadata.contains(privateText));
+        }
+        String many = java.util.stream.IntStream.range(0, 20).mapToObj(index -> "credential=private-" + index)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        assertEquals(8, sandbox.contentRejection("patch", many).rejectedInput().lines().size());
+        assertEquals(null, AgentPolicyRejection.sourceEditRejectedBeforeApply().rejectedInput());
+    }
+
+    @Test
+    void multilineRecognizedInputKeepsFirstLocationWithoutReturningAnyBlock() throws Exception {
+        var rejection = sandbox.contentRejection("new_text", "ordinary\n-----BEGIN PRIVATE KEY-----\n"
+                + "synthetic-private-material\n-----END PRIVATE KEY-----\n");
+        assertEquals(java.util.List.of(2), rejection.rejectedInput().lines());
+        assertFalse(json.writeValueAsString(rejection.rejectedInput()).contains("synthetic"));
+    }
+
+    @Test
     void recognizedCredentialInNewPatchIsStillRejectedWithProvenPreMutationStage() {
         var failure = assertThrows(AgentPolicyRejection.class, () -> sandbox.requirePatchContent(
                 json.valueToTree(Map.of("ok", true, "result", Map.of("src/Example.java", "ordinary=1;"))),

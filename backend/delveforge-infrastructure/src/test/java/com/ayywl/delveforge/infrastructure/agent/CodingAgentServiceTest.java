@@ -282,7 +282,8 @@ class CodingAgentServiceTest {
         AtomicInteger calls = new AtomicInteger();
         when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
             if (calls.incrementAndGet() == 1 || repeated) {
-                throw AgentPolicyRejection.patchContentRejectedBeforeApply();
+                throw AgentPolicyRejection.patchContentRejectedBeforeApply(
+                        new AgentPolicyRejection.RejectedInput("new_text", List.of(2, 4)));
             }
             return "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\"}}";
         });
@@ -296,6 +297,10 @@ class CodingAgentServiceTest {
                 assertTrue(refusal.text().contains("PATCH_CONTENT"));
                 assertTrue(refusal.text().contains("\"mutationNotStarted\":true"));
                 assertFalse(refusal.text().contains("private-proposed-body"));
+                var location = org.junit.jupiter.api.Assertions.assertDoesNotThrow(
+                        () -> new com.fasterxml.jackson.databind.ObjectMapper().readTree(refusal.text())).path("rejectedInput");
+                assertEquals("new_text", location.path("field").asText());
+                assertEquals(2, location.path("lines").get(0).asInt());
             }
             String proposed = request == 1 ? "private-proposed-body" : "runtime-generated-value";
             var edit = new AgentProtocol.ToolCall("call-" + request, "edit_file",
@@ -317,6 +322,7 @@ class CodingAgentServiceTest {
             assertTrue(recorded.path("alternativeAllowed").asBoolean());
             assertTrue(recorded.path("mutationNotStarted").asBoolean());
             assertEquals("PATCH_CREDENTIALS", recorded.path("policyRule").asText());
+            assertEquals("new_text", recorded.path("rejectedInput").path("field").asText());
             assertTrue(finishes.stream().noneMatch(event -> event.summary().contains("private-proposed-body")));
         }
     }

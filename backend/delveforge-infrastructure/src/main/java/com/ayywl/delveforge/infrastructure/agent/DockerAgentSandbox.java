@@ -34,6 +34,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
@@ -484,6 +486,35 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         };
     }
 
+    /** 检查结论仍来自完整补丁；定位仅针对模型自己提交的输入，不返回任何被识别的值。 */
+    AgentPolicyRejection contentRejection(String field, String proposed) {
+        String sanitized = sanitize(proposed);
+        if (sanitized.equals(proposed)) {
+            return AgentPolicyRejection.patchContentRejectedBeforeApply();
+        }
+        int changed = 0;
+        while (changed < proposed.length() && changed < sanitized.length()
+                && proposed.charAt(changed) == sanitized.charAt(changed)) {
+            changed++;
+        }
+        int firstLine = 1;
+        for (int offset = 0; offset < changed; offset++) {
+            if (proposed.charAt(offset) == '\n') {
+                firstLine++;
+            }
+        }
+        SortedSet<Integer> lines = new TreeSet<>();
+        lines.add(firstLine);
+        String[] inputLines = proposed.split("\n", -1);
+        for (int index = 0; index < inputLines.length && lines.size() < 8; index++) {
+            if (!inputLines[index].equals(sanitize(inputLines[index]))) {
+                lines.add(index + 1);
+            }
+        }
+        return AgentPolicyRejection.patchContentRejectedBeforeApply(
+                new AgentPolicyRejection.RejectedInput(field, List.copyOf(lines)));
+    }
+
     void requirePatchContent(JsonNode inspection, JsonNode arguments) {
         rejectPolicy(inspection, AgentPolicyRejection.Stage.PATCH_INSPECTION);
         if (!inspection.path("ok").asBoolean()) {
@@ -543,7 +574,17 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                                 .put("instruction", "标准 diff 语法不完整，未应用任何修改；优先改用 edit_file 精确原文替换。"))
                         .toString();
             }
-            requirePatchContent(inspection, arguments);
+            try {
+                requirePatchContent(inspection, arguments);
+            } catch (AgentPolicyRejection rejection) {
+                if (rejection.rule() == AgentPolicyRejection.Rule.PATCH_CREDENTIALS
+                        && rejection.sourceEditRejectedBeforeMutation()) {
+                    JsonNode original = parse(call.arguments().getBytes(StandardCharsets.UTF_8));
+                    String field = call.name().equals("edit_file") ? "new_text" : "patch";
+                    throw contentRejection(field, original.path(field).asText());
+                }
+                throw rejection;
+            }
         }
         JsonNode response = invoke(session, call.name().equals("edit_file") ? "apply_patch" : call.name(), arguments, cancelled);
         if (call.name().equals("run_checks")) {

@@ -331,11 +331,15 @@ public final class CodingAgentService implements AutoCloseable {
                                 String instruction = rejection.rule() == AgentPolicyRejection.Rule.SOURCE_CREDENTIALS
                                         ? "原文件含凭据保持只读，未修改源码。保留该文件，选择其他合法实现路径；不要写回脱敏文本。"
                                         : "新增内容包含凭据，补丁未应用。保留验证要求，改用运行时生成的测试值；不得硬编码或写回脱敏值。";
-                                result = json.createObjectNode().put("ok", false).put("classification", "POLICY_REJECTED")
+                                var feedback = json.createObjectNode().put("ok", false).put("classification", "POLICY_REJECTED")
                                         .put("policyRule", rejection.rule().name()).put("policyStage", rejection.stage().name())
                                         .put("mutationNotStarted", true).put("alternativeAllowed", true)
-                                        .put("instruction", instruction + "再次触发写入前策略拒绝将终止 Run。")
-                                        .toString();
+                                        .put("instruction", instruction + "定位只指向你自己的输入行，不含原文；检查同类赋值，"
+                                                + "不得以改名、编码、拆分或脱敏值规避检查。再次触发写入前策略拒绝将终止 Run。");
+                                if (rejection.rejectedInput() != null) {
+                                    feedback.set("rejectedInput", json.valueToTree(rejection.rejectedInput()));
+                                }
+                                result = feedback.toString();
                             } else if (failure.code().equals("INVALID_ARGUMENTS")) {
                                 result = "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
                             } else {

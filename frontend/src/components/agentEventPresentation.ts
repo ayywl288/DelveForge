@@ -293,6 +293,12 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
     if (activity.classification === "POLICY_REJECTED") {
         if (typeof data.policyRule === "string" && policyRules.has(data.policyRule)) rows.push({ label: "拒绝规则", value: data.policyRule });
         if (typeof data.policyStage === "string" && policyStages.has(data.policyStage)) rows.push({ label: "拒绝阶段", value: data.policyStage });
+        const location = data.rejectedInput as { field?: unknown; lines?: unknown } | undefined;
+        if (location && ['patch', 'new_text'].includes(String(location.field)) && Array.isArray(location.lines)
+            && location.lines.length > 0 && location.lines.length <= 8
+            && location.lines.every(line => typeof line === 'number' && Number.isInteger(line) && line >= 1 && line <= 1000000)) {
+            rows.push({ label: "提案位置", value: `${location.field} 第 ${location.lines.join('、')} 行` });
+        }
         if (sourceEditNotStarted(data, activity.tool)) {
             rows.push({ label: "源码修改", value: "未开始" });
             if (data.alternativeAllowed === true && data.resultRecorded === true) rows.push({ label: "后续处理", value: "允许一次另选方案" });

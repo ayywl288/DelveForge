@@ -635,3 +635,14 @@ it("shows a single safe correction after rejected new credential content without
     expect(root.querySelector('.patch-summary')?.textContent).toContain("未开始");
     expect(root.querySelector('.current-activity')?.getAttribute('data-active')).toBe('true');
 });
+
+it("shows only numeric proposal locations when new content is refused", async () => {
+    const { root, props } = mount();
+    props.events = [tool(1, "TOOL_FINISHED", { tool: "edit_file", ok: false, classification: "POLICY_REJECTED",
+        policyRule: "PATCH_CREDENTIALS", policyStage: "PATCH_CONTENT", mutationNotStarted: true,
+        alternativeAllowed: true, resultRecorded: true,
+        rejectedInput: { field: "new_text", lines: [2, 4], value: "private-body" } })];
+    await settle();
+    expect(root.querySelector('.patch-summary')?.textContent).toContain("new_text 第 2、4 行");
+    expect(root.textContent).not.toContain("private-body");
+});

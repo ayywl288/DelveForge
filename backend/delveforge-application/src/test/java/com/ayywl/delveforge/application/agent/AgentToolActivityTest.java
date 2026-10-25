@@ -25,6 +25,25 @@ class AgentToolActivityTest {
     }
 
     @Test
+    void proposalLocationsIgnoreArbitraryTextAndRejectUnboundedMetadata() throws Exception {
+        var edit = call("edit_file", Map.of("path", "src/Example.java", "old_text", "before", "new_text", "private-body"));
+        String base = "{\"ok\":false,\"classification\":\"POLICY_REJECTED\",\"policyRule\":\"PATCH_CREDENTIALS\","
+                + "\"policyStage\":\"PATCH_CONTENT\",\"mutationNotStarted\":true,\"alternativeAllowed\":true,";
+        String recorded = activity.finished(edit, identity, base + "\"rejectedInput\":{\"field\":\"new_text\","
+                + "\"lines\":[2,4],\"value\":\"private-body\"}}");
+        assertEquals(2, json.readTree(recorded).path("rejectedInput").path("lines").size());
+        assertFalse(recorded.contains("private-body"));
+        String invalid = activity.finished(edit, identity, base + "\"rejectedInput\":{\"field\":\"new_text\",\"lines\":[\"private-body\"]}}");
+        assertFalse(json.readTree(invalid).has("rejectedInput"));
+        var values = new java.util.ArrayList<Integer>(java.util.List.of(2));
+        var safe = new AgentPolicyRejection.RejectedInput("new_text", values);
+        values.add(3);
+        assertEquals(java.util.List.of(2), safe.lines());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> new AgentPolicyRejection.RejectedInput("private-body", java.util.List.of(1)));
+    }
+
+    @Test
     void exactEditsExposeOnlySafePathAndClassificationNeverReplacementContent() throws Exception {
         var edit = call("edit_file", Map.of("path", "src/Example.java", "old_text", "private-before", "new_text", "private-after"));
         String started = activity.started(edit, identity);
