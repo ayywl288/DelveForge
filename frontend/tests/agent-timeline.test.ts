@@ -601,3 +601,15 @@ it("unknown model metadata and a mismatched older failure cannot replace the cur
     expect(root.querySelector('.current-detail')?.textContent).toBe("MODEL_TRANSPORT");
     expect(root.textContent).not.toContain("private-");
 });
+
+it("shows bounded response recovery without declaring the live Run failed", async () => {
+    const { props, root } = mount();
+    props.events = [fact(1, "MODEL_FAILED", JSON.stringify({ metadataVersion: 1,
+        classification: "MODEL_PROTOCOL", reason: "RESPONSE_TRUNCATED", request: 2,
+        finishReason: "LENGTH", reportedTokens: 17 })), fact(2, "MODEL_RESPONSE_RECOVERY")];
+    await settle();
+    expect(root.textContent).toContain("正在重新请求较小的模型响应");
+    expect(root.textContent).toContain("截断内容未执行，保留已完成修改");
+    expect(root.textContent).toContain("模型请求失败");
+    expect(root.textContent).not.toContain("当前活动 运行失败");
+});

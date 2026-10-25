@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.persistence.project;
 
 import com.ayywl.delveforge.application.project.ProjectFlowContext;
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanTransition;
 
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -82,13 +83,36 @@ public interface ProjectContextMapper {
             WHERE id = #{basis.id} AND version = #{basis.version} AND flow_id = #{basis.flowId} AND deleted_at IS NULL
                 AND plan_id = #{basis.planId}
                 AND EXISTS (SELECT 1 FROM evolution_plan p WHERE p.id = plan_id
-                    AND p.flow_id = #{basis.flowId} AND p.status = 'SUPERSEDED'
+                    AND p.flow_id = #{basis.flowId} AND p.status = #{expectedStatus}
                     AND NOT EXISTS (SELECT 1 FROM evolution_step s WHERE s.plan_id = p.id
                         AND s.status IN ('EXECUTING','VERIFYING','RECOVERY_REQUIRED','VERIFICATION_FAILED','ROLLING_BACK')))
                 AND NOT EXISTS (SELECT 1 FROM project_flow_context c WHERE c.previous_context_id = #{basis.id})
             """)
     int lockSuccessor(@Param("basis") ProjectFlowContext basis,
-            @Param("updatedAt") String updatedAt);
+            @Param("updatedAt") String updatedAt, @Param("expectedStatus") String expectedStatus);
+
+    @Select("""
+            SELECT (SELECT COUNT(*) FROM evolution_step WHERE plan_id=#{planId}
+                AND status NOT IN ('PENDING_CONFIRMATION','READY','SUCCEEDED','CANCELLED'))
+                + (SELECT COUNT(*) FROM agent_run WHERE plan_id=#{planId} AND occupied<>0)
+                + (SELECT COUNT(*) FROM candidate_delivery WHERE plan_id=#{planId} AND occupied<>0)
+                + (SELECT COUNT(*) FROM evolution_plan p WHERE p.id=#{planId}
+                    AND ((p.status='ACTIVE' AND p.working_copy_id IS NULL)
+                        OR (p.working_copy_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM working_copy w
+                        WHERE w.id=p.working_copy_id AND w.current_revision=w.last_verified_revision
+                            AND w.status IN ('READY','EVOLVING','CLOSED')))))
+                + (SELECT COUNT(*) FROM agent_run r WHERE r.plan_id=#{planId} AND r.state='SUCCEEDED'
+                    AND NOT EXISTS (SELECT 1 FROM candidate_delivery d WHERE d.run_id=r.id AND d.state='COMPLETED'))
+            """)
+    int unsafeReplanningCount(String planId);
+
+    @Update("""
+            UPDATE evolution_plan SET status=#{transition.plan.status}
+            WHERE id=#{transition.plan.id.value} AND status=#{transition.expectedStatus}
+                AND working_copy_id IS #{transition.expectedWorkingCopyId}
+                AND product_direction_id=#{transition.plan.productDirectionId.value}
+            """)
+    int supersedeForRound(@Param("transition") EvolutionPlanTransition transition);
 
     @Insert("""
             INSERT INTO project_flow_context

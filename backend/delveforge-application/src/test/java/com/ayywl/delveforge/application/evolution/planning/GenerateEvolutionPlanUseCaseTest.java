@@ -310,6 +310,9 @@ class GenerateEvolutionPlanUseCaseTest {
                 """;
         ObjectMapper mapper = new ObjectMapper();
         assertEquals(mapper.readTree(expected), mapper.readTree(schema));
+        assertTrue(instruction.contains("代码增量及其自动化验证"));
+        assertTrue(instruction.contains("不得把分析、设计、确定契约或阅读仓库独立列为 Step"));
+        assertTrue(instruction.contains("纵向功能切片"));
     }
 
     @Test

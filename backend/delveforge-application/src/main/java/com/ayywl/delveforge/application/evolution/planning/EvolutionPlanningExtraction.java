@@ -37,6 +37,10 @@ public final class EvolutionPlanningExtraction {
             reusableCapabilities 必须逐字取自 capabilities 或 reusableAssets 中的条目。
             changes 描述工程层面的主要移除、修改、替换或新增。
             生成有顺序的 Step 列表，至少包含一个 Step；每个 Step 都应有意义、范围有界、可独立验证且适合用户显式授权。
+            每个 Step 必须交付可执行的代码增量及其自动化验证，不得把分析、设计、确定契约或阅读仓库独立列为 Step。
+            必要分析合并在同一步实现内；测试、认证与数据隔离不能延期到独立收尾步骤。
+            优先少量完整的纵向功能切片：每步都可运行、可验证，而不是把后端、前端、测试机械拆成多个横向阶段。
+            范围较小的完整用户功能可在一个 Step 交付；范围较大时按可观察的用户能力划分。
             scope 限定该 Step 的业务或工程责任范围。
             plannedChanges 表达主要工程改造类别，不是具体补丁。
             当前 MVP 不包含 Step preconditions 字段，也不得生成替代的自由文本依赖字段。

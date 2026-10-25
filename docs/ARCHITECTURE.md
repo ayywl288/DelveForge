@@ -1677,3 +1677,8 @@ V17 在 ProjectFlowContext 添加 deleted_at，删除和恢复共用现有 versi
 已删除上下文不能关联更新、发现/选择方向、绑定新 Plan 或创建下一轮次；恢复不产生领域转换。
 不存在新的执行状态机或后台取消能力。范围与 READY 的保守限制见
 [ADR-0009](decisions/0009-project-navigation-soft-deletion.md)。
+
+### 2026-10-25 Agent 响应恢复
+
+[ADR-0015](decisions/0015-executable-agent-steps-and-incomplete-response-recovery.md) 定义当前非 thinking 工具模式、活跃 Run 内有限丢弃/重生成截断响应和真实用量语义。
+Application 不依赖提供者 reasoning 类型；Infrastructure 在返回 Reply 前仍拒绝全部截断参数。恢复不扩大 Domain、Workspace 或 Delivery 权限，不恢复跨 Run 对话。

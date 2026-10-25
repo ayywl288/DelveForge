@@ -88,6 +88,16 @@ class SpringAiAgentModelTest {
     }
 
     @Test
+    void agentExplicitlyUsesNonThinkingProtocolWithoutChangingModelOrResponseLimit() throws Exception {
+        body = response("tool_calls", List.of(call("read", "read_file", "{\"path\":\"src/A.java\"}")), "", true);
+        model.call(history(), AgentTools.definitions());
+        JsonNode request = requests.getFirst();
+        assertEquals("disabled", request.path("thinking").path("type").asText());
+        assertEquals("fixture-model", request.path("model").asText());
+        assertEquals(8192, request.path("max_tokens").asInt());
+    }
+
+    @Test
     void realSpringAiConversionRejectsLengthBeforeAnyIncompleteToolCanReturn() throws Exception {
         body = response("length", List.of(call("incomplete", "apply_patch", "{\"patch\":\"private-partial")),
                 "private-model-output", true);

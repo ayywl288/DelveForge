@@ -340,6 +340,101 @@ class ProjectDirectionScopeIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
     }
 
+    private void activateFixturePlan(String planId) {
+        String copyId = UUID.randomUUID().toString();
+        String revision = "A";
+        jdbc.update("INSERT INTO working_copy(id,source_asset_id,source_revision,location,"
+                + "current_revision,last_verified_revision,status) VALUES(?,?,?,?,?,?,?)",
+                copyId, one, revision, "synthetic-missing-copy", revision, revision, "READY");
+        jdbc.update("UPDATE evolution_plan SET status='ACTIVE',working_copy_id=? WHERE id=?", copyId, planId);
+    }
+
+    @Test
+    void sameSelectedDirectionCanExplicitlyReplaceIdlePlanWithoutCallingAi() throws Exception {
+        for (String state : List.of("PROPOSED", "ACTIVE")) {
+            JsonNode a = project(one);
+            String selected = candidate(a, one);
+            assertEquals(200, select(a, selected));
+            JsonNode oldPlan = plan(a, selected, one);
+            if (state.equals("ACTIVE")) {
+                activateFixturePlan(oldPlan.path("id").asText());
+            }
+            JsonNode current = json.readTree(mvc.perform(get("/api/projects/{key}", "project:" + a.path("id").asText()))
+                    .andReturn().getResponse().getContentAsString()).path("context");
+            org.mockito.Mockito.clearInvocations(ai);
+            JsonNode next = json.readTree(mvc.perform(post("/api/projects/{id}/planning-rounds", a.path("id").asText())
+                    .contentType(MediaType.APPLICATION_JSON).content(json.createObjectNode()
+                            .put("expectedVersion", current.path("version").asLong()).toString()))
+                    .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString());
+            verifyNoInteractions(ai);
+            assertEquals("SUPERSEDED", jdbc.queryForObject("SELECT status FROM evolution_plan WHERE id=?",
+                    String.class, oldPlan.path("id").asText()));
+            assertEquals("SELECTED", jdbc.queryForObject("SELECT status FROM product_direction WHERE id=?",
+                    String.class, selected));
+            assertEquals(a.path("id").asText(), next.path("previousContextId").asText());
+            JsonNode replacement = plan(next, selected, one);
+            assertTrue(!replacement.path("id").equals(oldPlan.path("id")));
+        }
+    }
+
+    @Test
+    void activeExecutionCannotBeSupersededAndFailedRoundCreationRollsBackPlan() throws Exception {
+        JsonNode a = project(one);
+        String selected = candidate(a, one);
+        assertEquals(200, select(a, selected));
+        JsonNode oldPlan = plan(a, selected, one);
+        String planId = oldPlan.path("id").asText();
+        activateFixturePlan(planId);
+        JsonNode current = json.readTree(mvc.perform(get("/api/projects/{key}", "project:" + a.path("id").asText()))
+                .andReturn().getResponse().getContentAsString()).path("context");
+        String body = json.createObjectNode().put("expectedVersion", current.path("version").asLong()).toString();
+        jdbc.update("UPDATE evolution_step SET status='EXECUTING' WHERE plan_id=?", planId);
+        mvc.perform(post("/api/projects/{id}/planning-rounds", a.path("id").asText())
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
+        assertEquals("ACTIVE", jdbc.queryForObject("SELECT status FROM evolution_plan WHERE id=?", String.class, planId));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM project_flow_context WHERE previous_context_id=?",
+                Integer.class, a.path("id").asText()));
+        jdbc.update("UPDATE evolution_step SET status='PENDING_CONFIRMATION' WHERE plan_id=?", planId);
+        jdbc.execute("CREATE TRIGGER reject_new_round BEFORE INSERT ON project_flow_context "
+                + "WHEN NEW.previous_context_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'fixture failure'); END");
+        try {
+            mvc.perform(post("/api/projects/{id}/planning-rounds", a.path("id").asText())
+                    .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isInternalServerError());
+        } finally {
+            jdbc.execute("DROP TRIGGER reject_new_round");
+        }
+        assertEquals("ACTIVE", jdbc.queryForObject("SELECT status FROM evolution_plan WHERE id=?", String.class, planId));
+        assertEquals(current.path("version").asLong(), jdbc.queryForObject(
+                "SELECT version FROM project_flow_context WHERE id=?", Long.class, a.path("id").asText()));
+    }
+
+    @Test
+    void occupiedAgentAndUnverifiedCopyBlockReplacementWithoutChangingHistory() throws Exception {
+        JsonNode a = project(one);
+        String selected = candidate(a, one);
+        assertEquals(200, select(a, selected));
+        JsonNode oldPlan = plan(a, selected, one);
+        String planId = oldPlan.path("id").asText();
+        activateFixturePlan(planId);
+        JsonNode current = json.readTree(mvc.perform(get("/api/projects/{key}", "project:" + a.path("id").asText()))
+                .andReturn().getResponse().getContentAsString()).path("context");
+        String body = json.createObjectNode().put("expectedVersion", current.path("version").asLong()).toString();
+        String copyId = jdbc.queryForObject("SELECT working_copy_id FROM evolution_plan WHERE id=?", String.class, planId);
+        String runId = UUID.randomUUID().toString();
+        jdbc.update("INSERT INTO agent_run(id,plan_id,step_id,working_copy_id,baseline,state,started_at,occupied) "
+                + "VALUES(?,?,?,?,?,'RUNNING',?,1)", runId, planId, oldPlan.path("steps").get(0).path("id").asText(),
+                copyId, "A", "2026-10-25T00:00:00Z");
+        mvc.perform(post("/api/projects/{id}/planning-rounds", a.path("id").asText())
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
+        jdbc.update("UPDATE agent_run SET state='FAILED',occupied=0 WHERE id=?", runId);
+        jdbc.update("UPDATE working_copy SET current_revision='unverified' WHERE id=?", copyId);
+        mvc.perform(post("/api/projects/{id}/planning-rounds", a.path("id").asText())
+                .contentType(MediaType.APPLICATION_JSON).content(body)).andExpect(status().isConflict());
+        assertEquals("ACTIVE", jdbc.queryForObject("SELECT status FROM evolution_plan WHERE id=?", String.class, planId));
+        assertEquals(current.path("version").asLong(), jdbc.queryForObject(
+                "SELECT version FROM project_flow_context WHERE id=?", Long.class, a.path("id").asText()));
+    }
+
     @Test
     void stalePlanningContextDuringAiRejectsBeforePlanAndContextCommit() throws Exception {
         JsonNode a = project(one);

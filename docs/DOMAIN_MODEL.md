@@ -8456,3 +8456,9 @@ MVP Implementation
 ```
 
 逐步验证和收敛，而不是继续在 Domain Model 阶段无限扩展。
+
+
+### 2026-10-25 同方向显式重规划的实现约束
+
+用户可在同一已选 ProductDirection 下明确请求替换 PROPOSED / ACTIVE Plan。旧 Plan 通过领域 `supersede()` 成为历史；与同 flow 的后继规划上下文原子提交，不能覆盖旧计划、步骤、WorkingCopy 或执行记录。
+存在活动 Agent / Delivery、未交付 Candidate、未可信或待恢复 WorkingCopy、执行/验证/恢复中的 Step 时拒绝替换。新轮次不调用 AI、不隐含 Step 授权；新计划继续要求独立生成、准备与逐步确认。既有 SUPERSEDED Plan 的历史重规划路径保留。

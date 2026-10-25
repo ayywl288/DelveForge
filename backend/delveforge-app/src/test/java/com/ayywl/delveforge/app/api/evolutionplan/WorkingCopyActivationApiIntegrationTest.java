@@ -393,7 +393,7 @@ class WorkingCopyActivationApiIntegrationTest {
     }
 
     private static String git(Path path, String... args) throws Exception {
-        var command = new ArrayList<>(List.of("git", "-C", path.toString()));
+        var command = new ArrayList<>(List.of("git", "-c", "core.longpaths=true", "-C", path.toString()));
         command.addAll(List.of(args));
         var process = new ProcessBuilder(command).redirectErrorStream(true).start();
         var output = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);

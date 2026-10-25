@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.persistence.project;
 
 import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanTransition;
 import com.ayywl.delveforge.application.port.persistence.ProjectContextRepository;
 import com.ayywl.delveforge.application.port.persistence.ProjectHistoryIndex;
 import com.ayywl.delveforge.application.port.persistence.WorkingCopyRepository;
@@ -11,6 +12,7 @@ import com.ayywl.delveforge.application.project.ProjectNotFoundException;
 import com.ayywl.delveforge.application.project.ProjectVisibility;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
@@ -82,9 +84,29 @@ public class SqliteProjectContextRepository implements ProjectContextRepository,
     @Override
     @Transactional
     public void createSuccessor(ProjectFlowContext predecessor, ProjectFlowContext candidate) {
+        createSuccessor(predecessor, candidate, null);
+    }
+
+    @Override
+    @Transactional
+    public void createSuccessor(ProjectFlowContext predecessor, ProjectFlowContext candidate,
+            EvolutionPlanTransition replacement) {
+        if (replacement != null && (!predecessor.planId().equals(replacement.plan().id().value())
+                || replacement.plan().status() != EvolutionPlanStatus.SUPERSEDED
+                || !List.of(EvolutionPlanStatus.PROPOSED,
+                        EvolutionPlanStatus.ACTIVE)
+                        .contains(replacement.expectedStatus()))) {
+            throw new ProjectContextConflictException();
+        }
+        String expectedStatus = replacement == null ? "SUPERSEDED" : replacement.expectedStatus().name();
         if (!predecessor.id().equals(candidate.previousContextId())
                 || !predecessor.flowId().equals(candidate.flowId()) || candidate.planId() != null
-                || mapper.lockSuccessor(predecessor, candidate.updatedAt().toString()) != 1) {
+                || mapper.lockSuccessor(predecessor, candidate.updatedAt().toString(), expectedStatus) != 1) {
+            throw new ProjectContextConflictException();
+        }
+        // 取得写锁后再核对占用和可信副本；失败时版本、Plan 与后继一起回滚。
+        if (mapper.unsafeReplanningCount(predecessor.planId()) != 0
+                || (replacement != null && mapper.supersedeForRound(replacement) != 1)) {
             throw new ProjectContextConflictException();
         }
         create(candidate, null);

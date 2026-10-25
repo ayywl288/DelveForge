@@ -397,11 +397,44 @@ class CodingAgentServiceTest {
     }
 
     @Test
-    void rejectedEleventhRequestHasSafeDurableDiagnosticsWithoutInventingCompletedUsage() throws Exception {
+    void truncatedResponseCanRegenerateWithoutReplayingCompletedToolsOrPromotingPartialOutput() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenReturn(
+                "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\",\"paths\":[\"src/A.java\"]}}");
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AgentModelPort model = (history, tools) -> {
+            int request = requests.incrementAndGet();
+            if (request == 1) {
+                return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("once", "apply_patch",
+                        "{\"patch\":\"synthetic complete patch\"}")), 10L);
+            }
+            if (request == 2) {
+                throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_TRUNCATED,
+                        new AgentModelFailure.Response(true, true, true, AgentModelFailure.FinishReason.LENGTH, 1, 8192, 17L));
+            }
+            assertTrue(history.stream().anyMatch(message -> message.text().contains("截断")));
+            assertTrue(history.stream().anyMatch(message -> message.calls().stream().anyMatch(call -> call.id().equals("once"))));
+            return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 5L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.SUCCEEDED, run.state());
+            assertEquals(2, run.modelCalls());
+            assertEquals(15L, run.tokens());
+            assertEquals(1, run.toolCalls());
+            assertEquals(3, requests.get());
+            verify(sandbox, times(1)).tool(anyString(), any(), any());
+            assertEquals(1, service.events(id, 0, 100).stream().filter(e -> e.kind().equals("MODEL_RESPONSE_RECOVERY")).count());
+        }
+    }
+
+    @Test
+    void repeatedTruncationStopsAfterBoundAndRetainsEverySafeFailure() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         AgentModelPort model = (history, tools) -> {
             int request = requests.incrementAndGet();
-            if (request == 11) {
+            if (request >= 11) {
                 throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_TRUNCATED,
                         new AgentModelFailure.Response(true, true, true, AgentModelFailure.FinishReason.LENGTH, 1, 8192, 17L));
             }
@@ -418,9 +451,9 @@ class CodingAgentServiceTest {
             assertEquals(10, run.toolCalls());
             assertEquals(100L, run.tokens());
             var events = new SqliteAgentStore(database.source).events(id, 0, 100);
-            assertEquals(11, events.stream().filter(e -> e.kind().equals("MODEL_REQUEST")).count());
+            assertEquals(13, events.stream().filter(e -> e.kind().equals("MODEL_REQUEST")).count());
             var failures = events.stream().filter(e -> e.kind().equals("MODEL_FAILED")).toList();
-            assertEquals(1, failures.size());
+            assertEquals(3, failures.size());
             var diagnostic = new com.fasterxml.jackson.databind.ObjectMapper().readTree(failures.getFirst().summary());
             assertEquals(11, diagnostic.path("request").asInt());
             assertEquals("RESPONSE_TRUNCATED", diagnostic.path("reason").asText());
@@ -432,6 +465,47 @@ class CodingAgentServiceTest {
             verify(sandbox, times(10)).tool(anyString(), any(), any());
             verify(sandbox, never()).finish(anyString(), any());
             assertNoCandidateOrDelivery();
+        }
+    }
+
+    @Test
+    void explicitRequestBudgetStillCountsDiscardedResponses() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        var d = AgentProtocol.Limits.defaults();
+        var limits = new AgentProtocol.Limits(1, 0, d.maxContextChars(), d.maxOutputBytes(), d.maxPatchBytes(),
+                d.maxFileBytes(), d.maxCandidateBytes(), d.maxFiles(), 30, 10, 0);
+        AgentModelPort model = (history, tools) -> {
+            requests.incrementAndGet();
+            throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_TRUNCATED,
+                    new AgentModelFailure.Response(true, true, true, AgentModelFailure.FinishReason.LENGTH, 1, 8192, 17L));
+        };
+        try (var service = service(model, limits)) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("MODEL_CALL_LIMIT", awaitTerminal(service, id, 10).reason());
+            assertEquals(1, requests.get());
+            assertEquals(0, service.get(id).modelCalls());
+            verify(sandbox, never()).tool(anyString(), any(), any());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
+    }
+
+    @Test
+    void transportAndInvalidToolProtocolNeverUseTruncationRecovery() throws Exception {
+        for (var reason : List.of(AgentModelFailure.Reason.PROVIDER_CALL_FAILED,
+                AgentModelFailure.Reason.TOOL_ARGUMENTS_INVALID)) {
+            AtomicInteger requests = new AtomicInteger();
+            AgentModelPort model = (history, tools) -> {
+                requests.incrementAndGet();
+                throw new AgentModelFailure(reason);
+            };
+            try (var service = service(model, AgentProtocol.Limits.defaults())) {
+                String id = service.start("plan", "step", null).id();
+                assertEquals(AgentRunState.FAILED, awaitTerminal(service, id, 10).state());
+                assertEquals(1, requests.get());
+                assertTrue(service.events(id, 0, 100).stream().noneMatch(e -> e.kind().equals("MODEL_RESPONSE_RECOVERY")));
+                verify(sandbox, never()).tool(anyString(), any(), any());
+                verify(sandbox, never()).finish(anyString(), any());
+            }
         }
     }
 

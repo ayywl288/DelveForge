@@ -137,7 +137,7 @@ export function activityState(events: AgentEvent[], run: AgentRun) {
         if (event.runId !== run.id) continue;
         if (terminals.includes(event.kind)) eventTerminal = true;
         if (Object.hasOwn(ranks, event.kind)) eventState = event.kind;
-        else if (["MODEL_REQUEST", "TOOL_STARTED", "TOOL_FINISHED", "MODEL_COMPLETED"].includes(event.kind)) eventState = "RUNNING";
+        else if (["MODEL_REQUEST", "MODEL_RESPONSE_RECOVERY", "TOOL_STARTED", "TOOL_FINISHED", "MODEL_COMPLETED"].includes(event.kind)) eventState = "RUNNING";
     }
     const terminal = terminals.includes(run.state) || eventTerminal;
     const snapshotBehind = !terminals.includes(run.state) && (eventTerminal
@@ -228,6 +228,8 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
         detail: active.target ?? (active.targetWithheld ? "目标已隐藏" : "目标未记录") };
     if (active) return { ...staticState, active: true, tone: "running",
         title: ({ CREATED: "运行已预约", PREPARING: "正在准备 Docker 沙箱", RUNNING: "开始编码", FINALIZING: "正在冻结 Candidate" } as Record<string, string>)[active.event.kind] ?? "运行进行中" };
+    if (last?.event.kind === "MODEL_RESPONSE_RECOVERY") return { ...staticState, tone: "running",
+        title: "正在重新请求较小的模型响应", detail: "截断内容未执行，保留已完成修改" };
     if (last?.event.kind === "MODEL_FAILED") return { ...staticState, tone: "failed", title: "模型请求失败",
         detail: [classification(last.event), modelFailureDescription(last.event)].filter(Boolean).join(" · ") };
     if (last?.classification === "POLICY_REJECTED") return { ...staticState, tone: "blocked",

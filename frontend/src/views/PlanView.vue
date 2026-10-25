@@ -37,6 +37,7 @@ const emit = defineEmits<{ next: []; directions: []; authorize: [assetId: string
 const base = ref("");
 const reviewed = ref(false);
 const prepareOpen = ref(false);
+const replanOpen = ref(false);
 const stepToConfirm = ref<EvolutionStep | null>(null);
 const stepToConfirmLabel = computed(() => {
   const index = props.s.plan?.steps.findIndex(step => step.id === stepToConfirm.value?.id) ?? -1;
@@ -55,6 +56,7 @@ watch(() => props.s.plan?.id, () => {
     ?? props.s.plan?.steps[0]?.id ?? "";
   reviewed.value = false;
   prepareOpen.value = false;
+  replanOpen.value = false;
   stepToConfirm.value = null;
   detail.value = null;
 });
@@ -87,6 +89,11 @@ function confirmSelectedStep() {
 }
 </script>
 <template>
+  <section v-if="s.plan && ['PROPOSED', 'ACTIVE'].includes(s.plan.status)" class="panel inline-note">
+    <h2>需要重新拆分计划？</h2>
+    <p>将当前计划保留为历史，在同一已选方向开启新一轮规划。</p>
+    <button class="secondary" :disabled="!!s.busy || !s.projectContext" @click="replanOpen = true">重新规划</button>
+  </section>
   <section v-if="s.plan?.status === 'SUPERSEDED'" class="panel inline-note">
     <h2>这份计划已失效，保留为历史记录</h2>
     <p>它的方向已被替代，或历史迁移已标记失效，不能继续授权或执行。原步骤、WorkingCopy 和验证结果保留。</p>
@@ -298,6 +305,14 @@ function confirmSelectedStep() {
       </template>
     </template>
   </DetailPanel>
+  <ConfirmDialog
+    :open="replanOpen"
+    :disabled="!!s.busy || !s.projectContext || !s.plan || !['PROPOSED', 'ACTIVE'].includes(s.plan.status)"
+    title="保留旧计划并重新规划？"
+    confirm-label="开始新一轮规划"
+    @close="replanOpen = false"
+    @confirm="replanOpen = false; s.beginReplanning()"
+  ><p>当前计划将失效，原步骤、运行记录和代码副本继续保留。新一轮需重新生成计划并确认步骤。此操作不会调用 AI。</p></ConfirmDialog>
   <ConfirmDialog
     :open="prepareOpen"
     :disabled="!!s.busy || !reviewed || s.plan?.status !== 'PROPOSED'"

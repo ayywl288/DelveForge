@@ -26,6 +26,15 @@ public interface ProjectContextRepository {
         throw new UnsupportedOperationException("Atomic planning round creation is required");
     }
 
+    /** 显式重规划：旧 Plan 的领域候选与后继轮次必须同一事务提交。 */
+    default void createSuccessor(ProjectFlowContext predecessor, ProjectFlowContext candidate,
+            EvolutionPlanTransition replacement) {
+        if (replacement != null) {
+            throw new UnsupportedOperationException("Atomic plan replacement is required");
+        }
+        createSuccessor(predecessor, candidate);
+    }
+
     default ProjectVisibility visibility(String key) {
         return new ProjectVisibility(key, 0, null);
     }

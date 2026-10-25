@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.application.project;
 
 import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
+import com.ayywl.delveforge.application.port.persistence.EvolutionPlanTransition;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.application.port.persistence.ProjectContextRepository;
 import com.ayywl.delveforge.application.port.persistence.ProjectHistoryIndex;
@@ -16,6 +17,7 @@ import com.ayywl.delveforge.domain.direction.ProductDirectionId;
 import com.ayywl.delveforge.domain.direction.ProductDirectionStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
 import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
@@ -202,7 +204,11 @@ public final class ProjectWorkspaceService {
         ProjectWorkspace workspace = load("project:" + contextId, basis, false);
         if (workspace.issues().stream().anyMatch(ProjectWorkspaceService::invalidAssociation)
                 || workspace.issues().contains("FLOW_OWNERSHIP_UNKNOWN")
-                || workspace.plan().status() != com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus.SUPERSEDED) {
+                || workspace.plan() == null
+                || !List.of(EvolutionPlanStatus.PROPOSED,
+                        EvolutionPlanStatus.ACTIVE,
+                        EvolutionPlanStatus.SUPERSEDED)
+                        .contains(workspace.plan().status())) {
             throw new EvolutionFlowScopeException();
         }
         Optional<ProjectFlowContext> existing = contexts.findByFlow(basis.flowId()).stream()
@@ -219,7 +225,14 @@ public final class ProjectWorkspaceService {
                 workspace.repositoryProfiles().stream().map(profile -> profile.id().value()).toList(),
                 workspace.directions().stream().map(direction -> direction.id().value()).toList(), null,
                 now, now, 0, basis.flowId(), basis.id());
-        contexts.createSuccessor(basis, candidate);
+        EvolutionPlanTransition replacement = null;
+        if (workspace.plan().status() != EvolutionPlanStatus.SUPERSEDED) {
+            EvolutionPlan historical = workspace.plan().copy();
+            historical.supersede();
+            replacement = new EvolutionPlanTransition(historical, workspace.plan().status(),
+                    workspace.plan().workingCopyId());
+        }
+        contexts.createSuccessor(basis, candidate, replacement);
         return candidate;
     }
 

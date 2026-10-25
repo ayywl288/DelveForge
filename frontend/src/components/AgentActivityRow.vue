@@ -7,7 +7,7 @@ defineProps<{ activity: AgentActivity }>();
 const names: Record<string, string> = {
     CREATED: "运行已预约", PREPARING: "准备 Docker 沙箱", SANDBOX_READY: "隔离沙箱已就绪",
     RUNNING: "开始编码", MODEL_REQUEST: "请求模型", MODEL_COMPLETED: "模型已结束，等待冻结结果",
-    MODEL_FAILED: "模型请求失败", COMPLETION_FORMAT_RETRY: "请求模型明确完成状态", TOOL_STARTED: "工具操作已开始", TOOL_FINISHED: "工具操作已返回",
+    MODEL_RESPONSE_RECOVERY: "丢弃截断响应，准备较小动作", MODEL_FAILED: "模型请求失败", COMPLETION_FORMAT_RETRY: "请求模型明确完成状态", TOOL_STARTED: "工具操作已开始", TOOL_FINISHED: "工具操作已返回",
     FINALIZING: "冻结 Candidate", SUCCEEDED: "Candidate 已冻结", FAILED: "运行失败",
     CANCELLED: "运行已取消", INTERRUPTED: "运行已中断", MATERIAL_RETAINED: "最终化材料已保留",
     CLEANUP_BLOCKED: "资源清理受阻，需核对现场", RECONCILIATION_BLOCKED: "资源协调受阻",

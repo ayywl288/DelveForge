@@ -263,3 +263,20 @@ describe("项目上下文恢复与隔离", () => {
     expect(update).not.toHaveBeenCalled(); expect(localStorage.getItem(projectKey)).toBe("another");
   });
 });
+
+
+it("requires an explicit confirmation before replacing an active plan", async () => {
+  const saved = workspace("replan-confirm", true); stubReads(saved);
+  vi.spyOn(api, "workspaceConfiguration").mockResolvedValue({ root: "synthetic", existingRoots: [] });
+  const raw = make(); await raw.openProject(saved.key); const s = reactive(raw);
+  const begin = vi.spyOn(s, "beginReplanning").mockResolvedValue(true);
+  const root = document.createElement("div"); document.body.append(root);
+  const app = createApp(PlanView, { s }); app.mount(root);
+  cleanups.push(() => { app.unmount(); root.remove(); }); await settle();
+  const button = (label: string) => [...root.querySelectorAll<HTMLButtonElement>("button")]
+    .find(item => item.textContent?.trim() === label)!;
+  button("重新规划").click(); await settle();
+  expect(begin).not.toHaveBeenCalled();
+  button("开始新一轮规划").click(); await settle();
+  expect(begin).toHaveBeenCalledOnce();
+});

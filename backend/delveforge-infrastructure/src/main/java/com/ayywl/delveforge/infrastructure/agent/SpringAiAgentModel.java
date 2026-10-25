@@ -6,6 +6,9 @@ import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -29,6 +32,7 @@ import java.util.List;
 
 /** 只交换模型消息，不执行工具；禁用框架循环并用不可执行 Callback 防止双重派发。 */
 public final class SpringAiAgentModel implements AgentModelPort {
+    private static final ObjectMapper JSON = new ObjectMapper();
     private final DeepSeekChatModel model;
     private final DeepSeekProperties properties;
     private final int responseTokens;
@@ -41,7 +45,12 @@ public final class SpringAiAgentModel implements AgentModelPort {
         factory.setReadTimeout(properties.timeout());
         DeepSeekApi api = DeepSeekApi.builder().baseUrl(properties.baseUrl())
                 .apiKey(properties.apiKey() == null || properties.apiKey().isBlank() ? "unconfigured" : properties.apiKey())
-                .restClientBuilder(RestClient.builder().requestFactory(factory)).build();
+                .restClientBuilder(RestClient.builder().requestFactory(factory).requestInterceptor((request, body, execution) -> {
+                    // 当前消息合同不携带提供者 reasoning_content，显式关闭默认 thinking，避免不完整的工具会话。
+                    ObjectNode payload = (ObjectNode) JSON.readTree(body);
+                    payload.set("thinking", JSON.createObjectNode().put("type", "disabled"));
+                    return execution.execute(request, JSON.writeValueAsBytes(payload));
+                })).build();
         model = DeepSeekChatModel.builder().deepSeekApi(api)
                 .defaultOptions(DeepSeekChatOptions.builder().model(properties.model())
                         .maxTokens(responseTokens).internalToolExecutionEnabled(false).build())

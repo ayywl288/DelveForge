@@ -507,3 +507,10 @@ Vue 实施页分别显示 Step、Run 与 Delivery；可明确开始、取消或�
 恢复要求原始位置仍可读、托管根仍在配置许可内；不能用挪动路径或猜测来源绕过边界。
 
 实际验收和限制见 [Task 2 验收](validation/task2-autonomous-evolution.md)。
+
+## 2026-10-25: 可执行步骤与响应纠正
+
+规划要求每步交付代码与自动化验证，分析并入实现，优先纵向切片；不改写历史计划或自动确认。
+Agent 明确使用非 thinking 工具模式，保留原配置模型、endpoint 和响应上限。LENGTH 全部内容/调用仍被拒绝，同一活跃 Run 内最多两次重新请求较小动作，不重放成功工具。
+MODEL_FAILED 保留失败用量；MODEL_RESPONSE_RECOVERY 是非终态纠正。Run.modelCalls/tokens 统计正常返回，全部请求看 MODEL_REQUEST，失败 reportedTokens 单列。
+见 [ADR-0015](decisions/0015-executable-agent-steps-and-incomplete-response-recovery.md)。其它安全与交付恢复合同不变。
