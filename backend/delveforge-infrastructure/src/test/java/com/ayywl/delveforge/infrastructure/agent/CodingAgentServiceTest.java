@@ -276,6 +276,67 @@ class CodingAgentServiceTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void newCredentialContentIsRejectedAndOnlyOneDifferentAttemptIsAllowed(boolean repeated) throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            if (calls.incrementAndGet() == 1 || repeated) {
+                throw AgentPolicyRejection.patchContentRejectedBeforeApply();
+            }
+            return "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\"}}";
+        });
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AtomicInteger requests = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> {
+            int request = requests.incrementAndGet();
+            if (request == 2) {
+                var refusal = history.stream().filter(message -> message.role().equals("tool")).findFirst().orElseThrow();
+                assertTrue(refusal.text().contains("PATCH_CREDENTIALS"));
+                assertTrue(refusal.text().contains("PATCH_CONTENT"));
+                assertTrue(refusal.text().contains("\"mutationNotStarted\":true"));
+                assertFalse(refusal.text().contains("private-proposed-body"));
+            }
+            String proposed = request == 1 ? "private-proposed-body" : "runtime-generated-value";
+            var edit = new AgentProtocol.ToolCall("call-" + request, "edit_file",
+                    "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"" + proposed + "\"}");
+            return request <= 2 ? new AgentProtocol.Reply("", List.of(edit), 1L)
+                    : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var terminal = awaitTerminal(service, id, 10);
+            assertEquals(repeated ? AgentRunState.FAILED : AgentRunState.SUCCEEDED, terminal.state());
+            if (repeated) {
+                assertEquals("POLICY_REJECTED", terminal.reason());
+                verify(sandbox, never()).finish(anyString(), any());
+            }
+            assertEquals(2, calls.get());
+            var finishes = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).toList();
+            var recorded = new com.fasterxml.jackson.databind.ObjectMapper().readTree(finishes.getFirst().summary());
+            assertTrue(recorded.path("alternativeAllowed").asBoolean());
+            assertTrue(recorded.path("mutationNotStarted").asBoolean());
+            assertEquals("PATCH_CREDENTIALS", recorded.path("policyRule").asText());
+            assertTrue(finishes.stream().noneMatch(event -> event.summary().contains("private-proposed-body")));
+        }
+    }
+
+    @Test
+    void sourceAndNewContentRefusalsShareOneCorrectionOpportunity() throws Exception {
+        when(sandbox.tool(anyString(), any(), any()))
+                .thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply())
+                .thenThrow(AgentPolicyRejection.patchContentRejectedBeforeApply());
+        AtomicInteger requests = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall(
+                "call-" + requests.incrementAndGet(), "apply_patch", "{\"patch\":\"private\"}")), 1L);
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
+            assertEquals(2, requests.get());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
+    }
+
     @Test
     void postMutationOrUncertainPolicyRejectionNeverAllowsAlternative() throws Exception {
         AtomicInteger requests = new AtomicInteger();

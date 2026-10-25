@@ -26,6 +26,16 @@ class DockerPatchPolicyTest {
             new DeterministicRepositorySecretPolicy(), commands);
 
     @Test
+    void recognizedCredentialInNewPatchIsStillRejectedWithProvenPreMutationStage() {
+        var failure = assertThrows(AgentPolicyRejection.class, () -> sandbox.requirePatchContent(
+                json.valueToTree(Map.of("ok", true, "result", Map.of("src/Example.java", "ordinary=1;"))),
+                json.valueToTree(Map.of("patch", "password=\"fixture-private-value\""))));
+        assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, failure.rule());
+        assertEquals(AgentPolicyRejection.Stage.PATCH_CONTENT, failure.stage());
+        assertTrue(failure.sourceEditRejectedBeforeMutation());
+    }
+
+    @Test
     void onlyKnownReadOnlyParserFailuresHaveSafeStructuralDiagnostics() {
         assertEquals("HUNK_COUNTS_INVALID", DockerAgentSandbox.patchSyntaxReason(json.valueToTree(Map.of(
                 "ok", false, "classification", "TOOL_ERROR", "reason", "ValueError: Invalid unified diff hunk counts"))));

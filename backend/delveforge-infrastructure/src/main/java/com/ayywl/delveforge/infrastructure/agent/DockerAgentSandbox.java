@@ -498,8 +498,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             }
         }
         if (!arguments.path("patch").asText().equals(sanitize(arguments.path("patch").asText()))) {
-            throw new AgentPolicyRejection(AgentPolicyRejection.Rule.PATCH_CREDENTIALS,
-                    AgentPolicyRejection.Stage.PATCH_CONTENT);
+            throw AgentPolicyRejection.patchContentRejectedBeforeApply();
         }
     }
 

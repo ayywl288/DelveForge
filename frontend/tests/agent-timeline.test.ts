@@ -623,3 +623,15 @@ it("presents exact source edits as applied patches without exposing replacement 
     expect(root.querySelector('.patch-summary')?.textContent).toContain("src/Example.java");
     expect(root.querySelector('.patch-summary [data-tone="completed"]')).not.toBeNull();
 });
+
+it("shows a single safe correction after rejected new credential content without claiming a write", async () => {
+    const { root, props } = mount();
+    props.events = [tool(1, "TOOL_STARTED", { tool: "edit_file", path: "src/ExampleTest.java" }),
+        tool(2, "TOOL_FINISHED", { tool: "edit_file", ok: false, classification: "POLICY_REJECTED",
+            policyRule: "PATCH_CREDENTIALS", policyStage: "PATCH_CONTENT", mutationNotStarted: true,
+            alternativeAllowed: true, resultRecorded: true }), fact(3, "MODEL_REQUEST")];
+    await settle();
+    expect(root.querySelector('.patch-summary')?.textContent).toContain("PATCH_CREDENTIALS");
+    expect(root.querySelector('.patch-summary')?.textContent).toContain("未开始");
+    expect(root.querySelector('.current-activity')?.getAttribute('data-active')).toBe('true');
+});

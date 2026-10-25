@@ -51,11 +51,13 @@ public final class AgentToolActivity {
                 summary.put("classification", classification);
             }
             if (AgentTools.mutation(call.name()) && classification.equals("POLICY_REJECTED")
-                    && response.path("policyRule").asText().equals("SOURCE_CREDENTIALS")
-                    && response.path("policyStage").asText().equals("PATCH_SOURCE")
+                    && ((response.path("policyRule").asText().equals("SOURCE_CREDENTIALS")
+                            && response.path("policyStage").asText().equals("PATCH_SOURCE"))
+                        || (response.path("policyRule").asText().equals("PATCH_CREDENTIALS")
+                            && response.path("policyStage").asText().equals("PATCH_CONTENT")))
                     && response.path("mutationNotStarted").asBoolean() && response.path("alternativeAllowed").asBoolean()) {
-                summary.put("policyRule", "SOURCE_CREDENTIALS");
-                summary.put("policyStage", "PATCH_SOURCE");
+                summary.put("policyRule", response.path("policyRule").asText());
+                summary.put("policyStage", response.path("policyStage").asText());
                 summary.put("mutationNotStarted", true);
                 summary.put("alternativeAllowed", true);
                 summary.put("resultRecorded", true);

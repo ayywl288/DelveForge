@@ -37,6 +37,11 @@ public final class AgentPolicyRejection extends AgentException {
         return new AgentPolicyRejection(Rule.SOURCE_CREDENTIALS, Stage.PATCH_SOURCE, true);
     }
 
+    /** 仅在只读检查确认新增补丁内容被拒绝、尚未调用实际写入命令时使用。 */
+    public static AgentPolicyRejection patchContentRejectedBeforeApply() {
+        return new AgentPolicyRejection(Rule.PATCH_CREDENTIALS, Stage.PATCH_CONTENT, true);
+    }
+
     public boolean sourceEditRejectedBeforeMutation() { return sourceEditRejectedBeforeMutation; }
 
     public Rule rule() { return rule; }

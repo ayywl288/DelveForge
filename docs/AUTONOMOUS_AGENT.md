@@ -93,7 +93,7 @@ DELIVERY_BLOCKED 表示已知阻塞，可处理原因后显式重新核对；REC
 - Infrastructure：Spring AI **1.1.8** DeepSeek adapter、Docker CLI、容器工具、受控 Central 代理、Git 捕获/重放与 SQLite。
 - App：配置、生命周期装配和本机 REST。既有 M1–M3 文本 AiGateway 保留。
 
-只使用五个模型工具：`list_files`、`search_code`、`read_file`、`apply_patch`、`run_checks`。
+只使用五个模型工具：`list_files`、`search_code`、`read_file`、`edit_file`、`apply_patch`、`run_checks`。
 工具参数是结构化 JSON；没有 shell、Docker、任意 Maven 参数或 Delivery 工具。
 `apply_patch` 接受标准 unified diff。`run_checks` 支持 compile/test/package/verify、directory、module 与 test selector。
 目录可选择仓库内嵌套 Maven reactor，不要求仓库根 POM，不使用项目 Wrapper。
@@ -519,3 +519,8 @@ MODEL_FAILED 保留失败用量；MODEL_RESPONSE_RECOVERY 是非终态纠正。R
 ### 精确原文编辑（2026-10-25）
 
 Agent 可优先使用 `edit_file`，以 `path` / `old_text` / `new_text` 描述唯一原文替换；新文件只在路径不存在且 old_text 为空时建立。适配器从当前字节生成标准 diff，继续走原有沙箱补丁检查与实际写入校验。不存在/不唯一/重复编辑为明确的未写入冲突，不能据此绕过秘密策略或覆盖已有文件。`apply_patch` 与协议 v2 仍保留，镜像无需为该 Java 侧工具转换更新。
+
+
+### 新增内容的写入前凭据拒绝（2026-10-25）
+
+新增代码或测试内容也受原凭据检查约束，测试目录没有例外。只读检查确认 PATCH_CREDENTIALS/PATCH_CONTENT 时，拒绝内容不会写入；可共享原有每 Run 一次的安全替代机会。SOURCE_CREDENTIALS 与 PATCH_CREDENTIALS 共用这一次机会，重复触发、未知阶段或写入后拒绝仍终止。认证测试应使用框架隔离身份或运行时输入，不硬编码凭据，也不以脱敏值替代源码。

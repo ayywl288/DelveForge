@@ -107,8 +107,9 @@ export function numeric(data: Record<string, unknown>, key: string) {
 }
 
 function sourceEditNotStarted(data: Record<string, unknown>, tool?: string) {
-    return isPatchTool(tool) && data.classification === "POLICY_REJECTED" && data.policyRule === "SOURCE_CREDENTIALS"
-        && data.policyStage === "PATCH_SOURCE" && data.mutationNotStarted === true;
+    return isPatchTool(tool) && data.classification === "POLICY_REJECTED" && data.mutationNotStarted === true
+        && (data.policyRule === "SOURCE_CREDENTIALS" && data.policyStage === "PATCH_SOURCE"
+            || data.policyRule === "PATCH_CREDENTIALS" && data.policyStage === "PATCH_CONTENT");
 }
 function patchNotStarted(data: Record<string, unknown>, tool?: string) {
     return sourceEditNotStarted(data, tool) || isPatchTool(tool) && data.mutationNotStarted === true

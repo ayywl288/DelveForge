@@ -1682,3 +1682,6 @@ V17 在 ProjectFlowContext 添加 deleted_at，删除和恢复共用现有 versi
 
 [ADR-0015](decisions/0015-executable-agent-steps-and-incomplete-response-recovery.md) 定义当前非 thinking 工具模式、活跃 Run 内有限丢弃/重生成截断响应和真实用量语义。
 Application 不依赖提供者 reasoning 类型；Infrastructure 在返回 Reply 前仍拒绝全部截断参数。恢复不扩大 Domain、Workspace 或 Delivery 权限，不恢复跨 Run 对话。
+
+
+2026-10-25 补充：Application 的 `edit_file` 工具在 Infrastructure 内从当前受控源文本生成标准 diff，后续复用既有 `inspect_patch` 与 `apply_patch`。该转换不新增直接文件写入通道，不改变 Workspace、凭据保护、冻结验证或 Delivery 的权限边界；详见 ADR-0015。
