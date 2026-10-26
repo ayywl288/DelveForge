@@ -889,8 +889,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             // 非零可能是预先存在的编译/测试失败；只把后续离线 check 当作测试证据。
             List<String> command = new ArrayList<>(List.of(properties.docker()));
             command.addAll(launch);
-            var prepared = commands.run(command, null, null, Duration.ofSeconds(Math.min(
-                    session.limits.wallSeconds(), session.limits.checkSeconds() * 3L)),
+            var prepared = commands.run(command, null, null, Duration.ofSeconds(session.limits.checkSeconds() * 3L),
                     2097152, cancelled, Map.of());
             String diagnostic = sanitize(prepared.text() + prepared.diagnostic());
             diagnostic += sanitize(docker(List.of("logs", "--tail", "20", name(id, "proxy")), null,

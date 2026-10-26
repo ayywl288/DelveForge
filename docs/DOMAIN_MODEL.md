@@ -1,5 +1,8 @@
 # DOMAIN_MODEL.md
 
+**2026-10-26 执行政策：** ADR-0018 的启动费用确认属于 Interface/Application 调用合同，
+不能替代 Step 确认、资产授权或可信版本检查。不新增账单 Aggregate，也不改变 Candidate/Delivery 状态机。
+
 **2026-10-26 MVP 凭据识别范围：** ADR-0017 替代 ADR-0016 的源码表达式分类，主动缩减秘密检测范围。
 这是 Application 出站/编辑政策选择，不改变资产授权、用户确认、WorkingCopy 隔离、可信 revision
 及 Candidate/Delivery 领域状态合同；实际缩减边界见 [ADR-0017](decisions/0017-bounded-agent-credential-policy.md)。

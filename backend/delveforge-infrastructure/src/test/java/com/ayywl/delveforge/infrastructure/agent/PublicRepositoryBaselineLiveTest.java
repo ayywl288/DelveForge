@@ -34,9 +34,9 @@ class PublicRepositoryBaselineLiveTest {
         var sandbox = new DockerAgentSandbox(properties, new DeterministicRepositorySecretPolicy());
         String run = UUID.randomUUID().toString();
         var defaults = AgentProtocol.Limits.defaults();
-        var limits = new AgentProtocol.Limits(0, 0, defaults.maxContextChars(), defaults.maxOutputBytes(),
-                defaults.maxPatchBytes(), defaults.maxFileBytes(), defaults.maxCandidateBytes(),
-                defaults.maxFiles(), 1800, 600, 2);
+        var limits = new AgentProtocol.Limits(defaults.maxContextChars(), defaults.maxOutputBytes(), defaults.maxPatchBytes(),
+                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(),
+                600, 2);
         try {
             sandbox.prepare(new AgentSandboxPort.Task(run, "baseline-only", "baseline-only", "baseline-only",
                     source.toString(), evidence.resolve("unused-original").toString(), baseline,

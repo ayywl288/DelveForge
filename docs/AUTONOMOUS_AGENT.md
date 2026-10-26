@@ -114,7 +114,7 @@ API（默认仅监听 127.0.0.1；勿把本机开发接口暴露到不受信任�
 
 ```text
 POST /api/evolution-plans/{planId}/steps/{stepId}/agent-runs
-     optional body: {"targetJdk":17}
+     required body: {"paidUsageAcknowledged":true,"targetJdk":17} (targetJdk optional)
 GET  /api/agent-runs/{runId}
 GET  /api/agent-runs/{runId}/events?after=0&limit=100
 POST /api/agent-runs/{runId}/cancel
@@ -224,16 +224,22 @@ Spring AI 直接 ChatModel 调用显式设置 `internalToolExecutionEnabled(fals
 | sandbox.memory / cpus / pids | 2g / 2 / 256 |
 | response-tokens | 8192 |
 
-可单独覆盖 `delveforge.agent.limits.*`：max-model-calls=0、max-tool-calls=0、
+可单独覆盖 `delveforge.agent.limits.*` 的技术限制：
 max-context-chars=180000、max-output-bytes=24000、max-patch-bytes=131072、max-file-bytes=262144、
-max-candidate-bytes=2097152、max-files=10000、wall-seconds=1800、check-seconds=180、dependency-retries=2。
+max-candidate-bytes=2097152、max-files=10000、check-seconds=180、dependency-retries=2。
 
-2026-10-24 产品决定：模型和工具累计次数默认只作遥测，0 表示不设次数预算；显式配置正数时仍可选择
-MODEL_CALL_LIMIT / TOOL_LIMIT 预算。不会把默认 60/160 换成另一个任意大值。计数沿用现有 int API，
+2026-10-26 产品决定：累计模型/工具调用、tokens 与总运行时长不作停止门槛。
+`max-model-calls`、`max-tool-calls`、`wall-seconds` 已移除；旧配置不再启用配额。计数沿用现有 int API，
 达到表示范围或 tokens 累加溢出时以 USAGE_COUNTER_OVERFLOW 停止，不回绕或静默截断。
-墙钟、每响应工具数量（16）、上下文/输出、补丁/文件/快照、Maven 时间、依赖重试及沙箱资源限额继续生效。
+每响应工具数量（16）、上下文/输出、补丁/文件/快照、单次 Maven 时间、依赖重试及沙箱资源限额继续生效。
 外部 API 仍收费；没有断点续跑。停止请求不等于立刻结束，模型/沙箱返回后仍须核对真实终态与清理事实。
-在线准备单次上限为 min(wall-seconds, 3×check-seconds)，仍受整个 Run 的 wall deadline 约束。
+在线依赖准备单次上限为 3×check-seconds，不作为整个 Run 的截止时间。
+每次启动或重试前必须明确确认愿意付费且预算充足；前端默认未勾选，取消、离开或切换步骤后重置。
+启动 API 请求必须包含 `paidUsageAcknowledged: true`，缺失或 false 在预留 Run 前被拒绝。
+这只是本次调用确认，不是账单、余额或费用上限。实际用量持续展示，取消保留已发生的调用事实。
+当前无进展检测保留最近十二个结构化工具观察：长度一至四的相同循环连续重复三次且没有成功源码修改时，
+以 NO_PROGRESS 停止；忽略 durationMs，比较实际参数与结果。新结果、不同探索或成功修改不会仅因用量停止。
+这是短循环检测，不能证明覆盖任意语义空转；既有补丁冲突和截断响应恢复上限保持。
 工具读行默认 120，最多 300；搜索最多 40 处，每段最多 400 字符；文件枚举分页最多 200。
 基线复制前先检查 Git blob 声明大小、文件数及路径；当前原始基线总上限 128 MiB、单文件 16 MiB、10000 文件，传输 144 MiB；
 未变二进制/大文本按 hash 与 Git mode 保留，不作为可编辑文本返回。可编辑文件仍受 max-file-bytes 约束。超限明确失败，不先把大型对象复制到宿主机再拒绝。
@@ -246,7 +252,7 @@ Candidate 的 testEvidence 继续保存实际测试范围；活动展示摘要�
 `delveforge.agent.response-tokens` 和 M1–M3 AiGateway 的 `max-tokens` 仍控制各自响应生成，未作调整。
 执行消耗外部 API 额度，可在界面监控已报告用量并取消。取消不是可恢复暂停，当前没有 checkpoint/resume；
 提供者余额耗尽或其他失败仍走既有失败处理，充值不意味着旧 Run 可续跑，可能需要显式新建 Run。
-上述调用次数、上下文、输出、时限、重试与沙箱资源限制继续生效。
+上述技术材料、单次操作时限、错误恢复与沙箱资源限制继续生效。
 
 ### 模型请求失败与用量边界
 

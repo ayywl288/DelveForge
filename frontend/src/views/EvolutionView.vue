@@ -9,6 +9,7 @@ import StatusBadge from "../components/StatusBadge.vue";
 import StepFinalChanges from "../components/StepFinalChanges.vue";
 import AgentTimeline from "../components/AgentTimeline.vue";
 import NavigationIcon from "../components/NavigationIcon.vue";
+import ConfirmDialog from "../components/ConfirmDialog.vue";
 import type { NavigationIconName } from "../components/NavigationIcon.vue";
 import { stepPrerequisiteIssue } from "../state/stepPrerequisite";
 
@@ -28,6 +29,8 @@ const syncError = ref("");
 const pending = ref(false);
 const connection = ref("尚未连接");
 const jdk = ref("");
+const startReview = ref(false);
+const budgetAcknowledged = ref(false);
 let active = false;
 let epoch = 0;
 let actionId = 0;
@@ -192,10 +195,17 @@ async function action<T>(operation: (selected: Selection) => Promise<T>,
     if (owner === actionId) pending.value = false;
   }
 }
+function reviewStart() {
+  if (!canStart.value) return;
+  budgetAcknowledged.value = false;
+  startReview.value = true;
+}
 async function startRun() {
-  if (!canStart.value || !props.s.plan || !step.value) return;
+  if (!canStart.value || !startReview.value || !budgetAcknowledged.value || !props.s.plan || !step.value) return;
+  startReview.value = false;
+  budgetAcknowledged.value = false;
   const selectedJdk = jdk.value ? Number(jdk.value) : undefined;
-  await action(selected => api.startAgent(selected.planId!, selected.stepId!, selectedJdk), async started => {
+  await action(selected => api.startAgent(selected.planId!, selected.stepId!, true, selectedJdk), async started => {
     runs.value = [started, ...runs.value];
     await selectRun(started);
   });
@@ -246,12 +256,17 @@ function activate() {
   stepId.value = step.value?.id ?? "";
   void loadRuns();
 }
-function deactivate() { active = false; ++epoch; ++actionId; pending.value = false; stop(); }
+function deactivate() {
+  active = false; ++epoch; ++actionId; pending.value = false; startReview.value = false;
+  budgetAcknowledged.value = false; stop();
+}
 watch([() => props.s.plan?.id, () => step.value?.id], async () => {
   const version = ++epoch;
   ++actionId;
   stop();
   pending.value = false;
+  startReview.value = false;
+  budgetAcknowledged.value = false;
   runs.value = [];
   run.value = null;
   events.value = [];
@@ -299,12 +314,12 @@ onUnmounted(deactivate);
         <template v-if="step.status === 'READY'">
           <div class="jdk-field"><label for="agent-jdk">运行环境</label>
             <select id="agent-jdk" v-model="jdk"><option value="">自动选择 JDK</option><option value="17">JDK 17</option><option value="21">JDK 21</option></select></div>
-          <div class="start-action"><button :disabled="!canStart" @click="startRun">{{ latest ? '重新开始编码' : '开始 Agent' }}</button>
+          <div class="start-action"><button :disabled="!canStart" @click="reviewStart">{{ latest ? '重新开始编码' : '开始 Agent' }}</button>
             <p class="meta">仅运行当前已授权 Step</p></div>
         </template>
         </div>
       </template>
-      <p class="agent-usage-notice">执行消耗外部 API 额度；累计模型、工具次数和 tokens 默认只统计。可随时停止，但停止不是暂停，当前不支持断点续跑；墙钟、上下文和沙箱资源等限制仍生效。</p>
+      <p class="agent-usage-notice">执行会产生外部 API 费用；模型、工具次数和 tokens 按实际报告展示，不按累计用量或总时长自动停止。可随时停止；停止不是暂停，当前不支持断点续跑。单次操作超时、沙箱资源限制与重复无进展检测仍生效。</p>
       <p v-if="error || syncError" role="alert" class="error">{{ error || syncError }}</p>
     </section>
     <section class="panel agent-run-panel" aria-label="运行与实际活动">
@@ -342,6 +357,7 @@ onUnmounted(deactivate);
         <p v-if="run.reason === 'SANDBOX_PROTOCOL_INCOMPATIBLE'" class="run-failure" role="alert">
           沙箱工具协议不兼容。请按 docs/AUTONOMOUS_AGENT.md 构建兼容镜像，显式配置镜像后再重启应用。
         </p>
+        <p v-if="run.reason === 'NO_PROGRESS'" class="run-failure" role="alert">检测到重复的工具循环，且没有新的观察或成功修改，运行已停止。</p>
         <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
         <dl class="run-times">
           <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
@@ -386,9 +402,17 @@ onUnmounted(deactivate);
       </template>
     </section>
   </template>
+  <ConfirmDialog :open="startReview" title="确认 API 费用与预算" confirm-label="确认费用并开始"
+    :disabled="!budgetAcknowledged || !canStart" @close="startReview = false; budgetAcknowledged = false" @confirm="startRun">
+    <p>Agent 会调用已配置的外部模型 API，发送当前步骤目标和必要的已净化仓库材料，并持续编码、测试至可验证交付。</p>
+    <p>API 调用会产生费用，实际费用以服务商账单为准。累计调用、tokens 与总运行时长没有自动停止门槛；取消不能撤回已发生的费用。</p>
+    <label class="budget-acknowledgment"><input v-model="budgetAcknowledged" type="checkbox" />我确认有足够的 API 预算，并愿意承担本次运行的实际费用。</label>
+  </ConfirmDialog>
 </template>
 
 <style scoped>
+.budget-acknowledgment { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; }
+.budget-acknowledgment input { flex: 0 0 auto; margin-top: 4px; }
 .agent-output { max-height: 32rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--canvas); padding: 14px; border-radius: 8px; }
 .workbench-heading, .workbench-heading > .meta { display: flex; align-items: center; gap: 10px; }
 .workbench-heading { justify-content: space-between; flex-wrap: wrap; }

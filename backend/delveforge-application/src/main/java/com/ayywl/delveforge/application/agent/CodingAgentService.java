@@ -21,9 +21,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 /** 一次已确认 Step 的自主编排；成功只冻结 Candidate，不执行正式 Delivery。 */
@@ -60,8 +57,6 @@ public final class CodingAgentService implements AutoCloseable {
     private final AgentToolActivity activity;
     private final ObjectMapper json = new ObjectMapper();
     private final Map<String, Thread> workers = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor(
-            Thread.ofPlatform().daemon(true).name("agent-watchdog").factory());
     private volatile boolean closed;
 
     public CodingAgentService(ExecutionPreparationState eligibility, AgentStore store, AgentModelPort model,
@@ -101,15 +96,8 @@ public final class CodingAgentService implements AutoCloseable {
 
     private void execute(AgentSandboxPort.Task task) {
         String id = task.runId();
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(limits.wallSeconds());
         BooleanSupplier cancelled = () -> closed || Thread.currentThread().isInterrupted()
-                || System.nanoTime() > deadline || store.get(id).cancelRequested();
-        var alarm = watchdog.schedule(() -> {
-            Thread worker = workers.get(id);
-            if (worker != null) {
-                worker.interrupt();
-            }
-        }, limits.wallSeconds(), TimeUnit.SECONDS);
+                || store.get(id).cancelRequested();
         try {
             store.advance(id, AgentRunState.CREATED, AgentRunState.PREPARING, null);
             sandbox.prepare(task, limits, cancelled);
@@ -134,13 +122,9 @@ public final class CodingAgentService implements AutoCloseable {
             if (!run.state().terminal()) {
                 AgentRunState next = closed ? AgentRunState.INTERRUPTED
                         : run.cancelRequested() ? AgentRunState.CANCELLED : AgentRunState.FAILED;
-                if (System.nanoTime() > deadline) {
-                    reason = "WALL_TIME_LIMIT";
-                }
                 store.advance(id, run.state(), next, reason);
             }
         } finally {
-            alarm.cancel(false);
             Thread.interrupted();
             try {
                 // 只依赖事务已提交的事实；读取失败时也不能进入破坏性清理。
@@ -172,7 +156,7 @@ public final class CodingAgentService implements AutoCloseable {
 
     private void requireCurrent(AgentSandboxPort.Task task, BooleanSupplier cancelled) {
         if (cancelled.getAsBoolean()) {
-            throw new AgentException("CANCELLED", "Run cancelled or budget exhausted");
+            throw new AgentException("CANCELLED", "Run cancellation requested");
         }
         var loaded = eligibility.load(new EvolutionPlanId(task.planId()), new EvolutionStepId(task.stepId()), false);
         if (!task.workingCopyId().equals(loaded.copy().id().value())
@@ -196,6 +180,7 @@ public final class CodingAgentService implements AutoCloseable {
         int completionCorrections = 0;
         int sourceEditRejections = 0;
         AgentPatchCorrections corrections = new AgentPatchCorrections();
+        AgentProgress progress = new AgentProgress();
         int request = 0;
         int acceptedCalls = 0;
         int truncatedCorrections = 0;
@@ -205,9 +190,6 @@ public final class CodingAgentService implements AutoCloseable {
         while (true) {
             requireCurrent(task, cancelled);
             request = incrementUsage(request);
-            if (limits.maxModelCalls() > 0 && request > limits.maxModelCalls()) {
-                throw new AgentException("MODEL_CALL_LIMIT", "Explicit model request budget exhausted");
-            }
             compress(history, false);
             store.event(task.runId(), "MODEL_REQUEST", "request=" + request);
             AgentProtocol.Reply reply;
@@ -304,11 +286,9 @@ public final class CodingAgentService implements AutoCloseable {
                     throw new AgentException("TOOL_ID_CONFLICT", "Tool identity reused for different arguments");
                 }
                 String result = completed.get(call.id());
+                boolean invoked = result == null;
                 if (result == null) {
                     toolCalls = incrementUsage(toolCalls);
-                    if (limits.maxToolCalls() > 0 && toolCalls > limits.maxToolCalls()) {
-                        throw new AgentException("TOOL_LIMIT", "Tool call budget exhausted");
-                    }
                     String activityId = UUID.randomUUID().toString();
                     store.event(task.runId(), "TOOL_STARTED", activity.started(call, activityId));
                     store.usage(task.runId(), acceptedCalls, toolCalls, unknownUsage ? null : tokens);
@@ -379,6 +359,7 @@ public final class CodingAgentService implements AutoCloseable {
                         appliedPatches++;
                     }
                 }
+                progress.record(call, result, invoked && AgentTools.mutation(call.name()) && patchApplied(result));
                 history.add(new AgentProtocol.Message("tool", result, List.of(), call.id(), call.name()));
             }
         }
@@ -619,6 +600,5 @@ public final class CodingAgentService implements AutoCloseable {
                 break;
             }
         }
-        watchdog.shutdownNow();
     }
 }

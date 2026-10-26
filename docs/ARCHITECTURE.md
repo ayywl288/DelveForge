@@ -1,5 +1,9 @@
 # ARCHITECTURE.md
 
+**2026-10-26 执行政策：** [ADR-0018](decisions/0018-progress-based-agent-execution-and-cost-acknowledgment.md)
+移除累计调用/tokens 配额与总运行时限。每次启动须明确确认 API 费用与预算；实际遥测、取消、
+单次操作超时、容器隔离、有限错误恢复及短重复循环检测保持，不新增计费子系统。
+
 **2026-10-26 MVP 简化：** [ADR-0017](decisions/0017-bounded-agent-credential-policy.md)
 替代下段 ADR-0016 的表达式分类：Agent 仅识别已知凭据格式和直接凭据字面量，不解析任意源码语义。
 写入前后核对、完整文件净化、冻结重放、隔离及正式 Delivery 合同保留；M1–M3 保守政策保持。

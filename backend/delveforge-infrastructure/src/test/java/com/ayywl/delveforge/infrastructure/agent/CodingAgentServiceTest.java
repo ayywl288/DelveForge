@@ -506,7 +506,7 @@ class CodingAgentServiceTest {
                         new AgentModelFailure.Response(true, true, true, AgentModelFailure.FinishReason.LENGTH, 1, 8192, 17L));
             }
             return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + request,
-                    "read_file", "{\"path\":\"src/Counter.java\"}")), 10L);
+                    "read_file", "{\"path\":\"src/Counter.java\",\"start_line\":" + request + "}")), 10L);
         };
         when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true,\"result\":{\"path\":\"src/Counter.java\",\"content\":\"synthetic\"}}");
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
@@ -536,20 +536,17 @@ class CodingAgentServiceTest {
     }
 
     @Test
-    void explicitRequestBudgetStillCountsDiscardedResponses() throws Exception {
+    void truncationRecoveryRemainsBoundedWithoutARequestQuota() throws Exception {
         AtomicInteger requests = new AtomicInteger();
-        var d = AgentProtocol.Limits.defaults();
-        var limits = new AgentProtocol.Limits(1, 0, d.maxContextChars(), d.maxOutputBytes(), d.maxPatchBytes(),
-                d.maxFileBytes(), d.maxCandidateBytes(), d.maxFiles(), 30, 10, 0);
         AgentModelPort model = (history, tools) -> {
             requests.incrementAndGet();
             throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_TRUNCATED,
                     new AgentModelFailure.Response(true, true, true, AgentModelFailure.FinishReason.LENGTH, 1, 8192, 17L));
         };
-        try (var service = service(model, limits)) {
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
-            assertEquals("MODEL_CALL_LIMIT", awaitTerminal(service, id, 10).reason());
-            assertEquals(1, requests.get());
+            assertEquals("MODEL_PROTOCOL", awaitTerminal(service, id, 10).reason());
+            assertEquals(3, requests.get());
             assertEquals(0, service.get(id).modelCalls());
             verify(sandbox, never()).tool(anyString(), any(), any());
             verify(sandbox, never()).finish(anyString(), any());
@@ -759,45 +756,41 @@ class CodingAgentServiceTest {
     }
 
     @Test
-    void toolCallLimitStillStopsWithoutFreezing() throws Exception {
-        var defaults = AgentProtocol.Limits.defaults();
-        var limits = new AgentProtocol.Limits(10, 1, defaults.maxContextChars(), defaults.maxOutputBytes(),
-                defaults.maxPatchBytes(), defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(),
-                30, 10, 0);
+    void repeatedUnchangedWorkStopsForNoProgressRatherThanUsage() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
         when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true}");
         try (var service = service((history, tools) -> new AgentProtocol.Reply("", List.of(
-                new AgentProtocol.ToolCall("one", "list_files", "{}"),
-                new AgentProtocol.ToolCall("two", "list_files", "{}")), 300000L), limits)) {
+                new AgentProtocol.ToolCall("read-" + requests.incrementAndGet(), "list_files", "{}")), 300000L),
+                AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
             var run = awaitTerminal(service, id, 10);
-            assertEquals("TOOL_LIMIT", run.reason());
+            assertEquals("NO_PROGRESS", run.reason());
             assertEquals(AgentRunState.FAILED, run.state());
-            assertEquals(300000L, run.tokens());
-            assertEquals(1, run.modelCalls());
-            assertEquals(1, run.toolCalls());
+            assertEquals(900000L, run.tokens());
+            assertEquals(3, run.modelCalls());
+            assertEquals(3, run.toolCalls());
             assertEquals(null, run.candidateId());
             verify(sandbox, never()).finish(anyString(), any());
         }
     }
 
     @Test
-    void wallClockLimitStillStopsWithoutFreezing() throws Exception {
-        var defaults = AgentProtocol.Limits.defaults();
-        var limits = new AgentProtocol.Limits(10, 10, defaults.maxContextChars(), defaults.maxOutputBytes(),
-                defaults.maxPatchBytes(), defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(),
-                1, 10, 0);
+    void modelWaitRemainsCancellableWithoutAnOverallDeadline() throws Exception {
+        var entered = new java.util.concurrent.CountDownLatch(1);
         try (var service = service((history, tools) -> {
+            entered.countDown();
             try {
-                Thread.sleep(5000);
+                new java.util.concurrent.CountDownLatch(1).await();
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
             }
             return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 300000L);
-        }, limits)) {
+        }, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
+            assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            service.cancel(id);
             var run = awaitTerminal(service, id, 10);
-            assertEquals(AgentRunState.FAILED, run.state());
-            assertEquals("WALL_TIME_LIMIT", run.reason());
+            assertEquals(AgentRunState.CANCELLED, run.state());
             assertEquals(null, run.candidateId());
             verify(sandbox, never()).finish(anyString(), any());
         }
@@ -880,18 +873,19 @@ class CodingAgentServiceTest {
     }
 
     @Test
-    void callBudgetExhaustionIsTerminalAndNeverFreezes() throws Exception {
-        var defaults = AgentProtocol.Limits.defaults();
-        var limits = new AgentProtocol.Limits(1, 10, defaults.maxContextChars(),
-                defaults.maxOutputBytes(), defaults.maxPatchBytes(), defaults.maxFileBytes(), defaults.maxCandidateBytes(),
-                defaults.maxFiles(), 30, 10, 0);
+    void repeatedReadCyclesWithoutNewObservationsNeverFreeze() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
         when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true}");
-        try (var service = service((history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall(
-                "call", "list_files", "{}")), null), limits)) {
+        try (var service = service((history, tools) -> {
+            int request = requests.incrementAndGet();
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("read-" + request,
+                    "read_file", "{\"path\":\"src/Part" + (request % 2) + ".java\"}")), null);
+        }, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
             var terminal = awaitTerminal(service, id, 10);
             assertEquals(AgentRunState.FAILED, terminal.state());
-            assertEquals("MODEL_CALL_LIMIT", terminal.reason());
+            assertEquals("NO_PROGRESS", terminal.reason());
+            assertEquals(6, terminal.toolCalls());
             assertEquals(null, terminal.candidateId());
             verify(sandbox, never()).finish(anyString(), any());
         }
@@ -905,10 +899,10 @@ class CodingAgentServiceTest {
         AgentModelPort model = (history, tools) -> {
             int request = requests.incrementAndGet();
             return request <= 61 ? new AgentProtocol.Reply("", List.of(
-                    new AgentProtocol.ToolCall("a-" + request, "list_files", "{}"),
-                    new AgentProtocol.ToolCall("b-" + request, "list_files", "{}"),
-                    new AgentProtocol.ToolCall("c-" + request, "list_files", "{}")), 1L)
-                    : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+                    new AgentProtocol.ToolCall("a-" + request, "read_file", "{\"path\":\"src/a" + request + ".java\"}"),
+                    new AgentProtocol.ToolCall("b-" + request, "read_file", "{\"path\":\"src/b" + request + ".java\"}"),
+                    new AgentProtocol.ToolCall("c-" + request, "read_file", "{\"path\":\"src/c" + request + ".java\"}")), 10001L)
+                    : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 10001L);
         };
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
@@ -916,7 +910,7 @@ class CodingAgentServiceTest {
             assertEquals(AgentRunState.SUCCEEDED, run.state());
             assertEquals(62, run.modelCalls());
             assertEquals(183, run.toolCalls());
-            assertEquals(62L, run.tokens());
+            assertEquals(620062L, run.tokens());
             verify(sandbox, times(183)).tool(anyString(), any(), any());
         }
     }
@@ -951,8 +945,9 @@ class CodingAgentServiceTest {
     @Test
     void compressedHistoryRetainsConflictCorrectionInstructionAndTarget() throws Exception {
         var defaults = AgentProtocol.Limits.defaults();
-        var limits = new AgentProtocol.Limits(0, 0, 12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
-                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), 30, 10, 0);
+        var limits = new AgentProtocol.Limits(12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
+                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(),
+                10, 0);
         AtomicInteger requests = new AtomicInteger();
         AtomicBoolean preserved = new AtomicBoolean();
         when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
@@ -970,7 +965,8 @@ class CodingAgentServiceTest {
             int request = requests.incrementAndGet();
             return request == 6 ? new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L)
                     : new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + request,
-                    request == 1 ? "apply_patch" : "read_file", request == 1 ? "{\"patch\":\"fixture\"}" : "{\"path\":\"src/Counter.java\"}")), 1L);
+                    request == 1 ? "apply_patch" : "read_file", request == 1 ? "{\"patch\":\"fixture\"}"
+                            : "{\"path\":\"src/Counter.java\",\"start_line\":" + request + "}")), 1L);
         };
         try (var service = service(model, limits)) {
             String id = service.start("plan", "step", null).id();
@@ -1027,13 +1023,14 @@ class CodingAgentServiceTest {
     @Test
     void compressedModelHistoryPreservesActualMavenCheckScope() throws Exception {
         var defaults = AgentProtocol.Limits.defaults();
-        var limits = new AgentProtocol.Limits(defaults.maxModelCalls(), defaults.maxToolCalls(),
-                12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(), defaults.maxFileBytes(),
-                defaults.maxCandidateBytes(), defaults.maxFiles(), 30, 10, 0);
+        var limits = new AgentProtocol.Limits(12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
+                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(),
+                10, 0);
         String result = "{\"ok\":true,\"result\":{\"classification\":\"TESTS_PASSED\",\"goal\":\"test\","
                 + "\"directory\":\"nested\",\"module\":\"library\",\"selectedTest\":\"CounterTest\","
                 + "\"tests\":1,\"executedTests\":1,\"output\":\"" + "x".repeat(2500) + "\"}}";
-        when(sandbox.tool(anyString(), any(), any())).thenReturn(result);
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> result.replace("\"output\":\"",
+                "\"output\":\"" + ((AgentProtocol.ToolCall) invocation.getArgument(1)).id() + ":"));
         when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
         AtomicInteger requests = new AtomicInteger();
         AtomicBoolean scopedSummarySeen = new AtomicBoolean();

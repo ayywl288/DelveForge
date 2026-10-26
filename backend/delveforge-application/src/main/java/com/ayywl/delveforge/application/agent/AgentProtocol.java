@@ -40,22 +40,21 @@ public final class AgentProtocol {
     public record Event(long sequence, String runId, String kind, String summary, Instant at) {
     }
 
-    public record Limits(int maxModelCalls, int maxToolCalls, int maxContextChars,
+    public record Limits(int maxContextChars,
             int maxOutputBytes, int maxPatchBytes, int maxFileBytes, int maxCandidateBytes,
-            int maxFiles, int wallSeconds, int checkSeconds, int dependencyRetries) {
+            int maxFiles, int checkSeconds, int dependencyRetries) {
         public Limits {
-            if (maxModelCalls < 0 || maxToolCalls < 0 || maxContextChars < 4096
+            if (maxContextChars < 4096
                     || maxOutputBytes < 1024 || maxPatchBytes < 1024 || maxFileBytes < 1024
-                    || maxCandidateBytes < maxPatchBytes || maxFiles < 1 || wallSeconds < 1
+                    || maxCandidateBytes < maxPatchBytes || maxFiles < 1
                     || checkSeconds < 1 || dependencyRetries < 0 || dependencyRetries > 3) {
                 throw new IllegalArgumentException("Invalid Agent limits");
             }
         }
 
         public static Limits defaults() {
-            // 调用次数默认只作遥测；正数配置才启用明确选择的预算。
-            return new Limits(0, 0, 180000, 24000, 131072, 262144, 2097152,
-                    10000, 1800, 180, 2);
+            // 累计用量与总时长不作停止门槛；技术材料、单次检查和错误恢复仍有界。
+            return new Limits(180000, 24000, 131072, 262144, 2097152, 10000, 180, 2);
         }
     }
 }

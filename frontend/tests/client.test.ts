@@ -14,7 +14,7 @@ describe("真实 DTO 请求契约", () => {
       fetcher.mockResolvedValueOnce(new Response(
         JSON.stringify({ code, message: "PRIVATE_PROMPT_PROVIDER_CREDENTIAL" }), { status },
       ));
-      await expect(api.startAgent("plan", "step")).rejects.toThrow(text);
+      await expect(api.startAgent("plan", "step", true)).rejects.toThrow(text);
       expect(new ApiError(status, code).message).not.toContain("PRIVATE_PROMPT_PROVIDER_CREDENTIAL");
       expect(new ApiError(status, code).message).not.toContain("重试即可");
     }
@@ -60,7 +60,7 @@ describe("真实 DTO 请求契约", () => {
     await api.decideDirection("d", "reject");
     await api.prepare("plan");
     await api.confirmStep("plan", "step");
-    await api.startAgent("plan", "step");
+    await api.startAgent("plan", "step", true);
     expect(
       fetcher.mock.calls.map(([url, options]) => [
         url,
@@ -102,7 +102,7 @@ describe("真实 DTO 请求契约", () => {
       ["/api/product-directions/d/reject", "POST", undefined],
       ["/api/evolution-plans/plan/prepare", "POST", undefined],
       ["/api/evolution-plans/plan/steps/step/confirm", "POST", undefined],
-      ["/api/evolution-plans/plan/steps/step/agent-runs", "POST", undefined],
+      ["/api/evolution-plans/plan/steps/step/agent-runs", "POST", { paidUsageAcknowledged: true }],
     ]);
     expect(
       fetcher.mock.calls.every(([, options]) => options.signal === undefined),

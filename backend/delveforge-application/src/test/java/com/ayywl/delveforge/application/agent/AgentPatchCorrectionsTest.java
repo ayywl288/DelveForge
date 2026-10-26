@@ -56,9 +56,9 @@ class AgentPatchCorrectionsTest {
     }
 
     @Test
-    void defaultCountBudgetsAreDisabledButNegativeConfigurationIsRejected() {
-        assertEquals(0, AgentProtocol.Limits.defaults().maxModelCalls());
-        assertEquals(0, AgentProtocol.Limits.defaults().maxToolCalls());
-        assertThrows(IllegalArgumentException.class, () -> new AgentProtocol.Limits(-1, 0, 4096, 1024, 1024, 1024, 2048, 1, 1, 1, 0));
+    void invalidTechnicalMaterialBoundsAreRejected() {
+        assertThrows(IllegalArgumentException.class, () -> new AgentProtocol.Limits(4095, 1024, 1024,
+                1024, 2048, 1,
+                1, 0));
     }
 }

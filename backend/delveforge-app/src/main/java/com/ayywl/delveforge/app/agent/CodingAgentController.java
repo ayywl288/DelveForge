@@ -2,9 +2,9 @@ package com.ayywl.delveforge.app.agent;
 
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
-import com.ayywl.delveforge.application.agent.CodingAgentService;
 import com.ayywl.delveforge.application.agent.AgentStore;
 import com.ayywl.delveforge.application.agent.CandidateDeliveryService;
+import com.ayywl.delveforge.application.agent.CodingAgentService;
 import com.ayywl.delveforge.application.agent.Delivery;
 import com.ayywl.delveforge.domain.agent.Candidate;
 
@@ -17,8 +17,8 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -77,13 +77,16 @@ public class CodingAgentController {
         return ResponseEntity.accepted().body(delivery.submit(id));
     }
 
-    public record StartRequest(Integer targetJdk) {
+    public record StartRequest(Integer targetJdk, boolean paidUsageAcknowledged) {
     }
 
     @PostMapping("/api/evolution-plans/{planId}/steps/{stepId}/agent-runs")
     public ResponseEntity<AgentProtocol.Run> start(@PathVariable String planId, @PathVariable String stepId,
-            @RequestBody(required = false) StartRequest request) {
-        return ResponseEntity.accepted().body(service.start(planId, stepId, request == null ? null : request.targetJdk()));
+            @RequestBody StartRequest request) {
+        if (!request.paidUsageAcknowledged()) {
+            throw new AgentException("PAID_USAGE_ACK_REQUIRED", "请确认本次 API 费用及可用预算");
+        }
+        return ResponseEntity.accepted().body(service.start(planId, stepId, request.targetJdk()));
     }
 
     @GetMapping("/api/agent-runs/{id}")
@@ -120,6 +123,7 @@ public class CodingAgentController {
     public ResponseEntity<Map<String, String>> error(AgentException failure) {
         int status = switch (failure.code()) {
             case "NOT_FOUND" -> 404;
+            case "PAID_USAGE_ACK_REQUIRED" -> 400;
             case "INVALID_REQUEST", "INVALID_ARGUMENTS" -> 400;
             case "RUN_CONFLICT", "INSTANCE_CONFLICT", "DELIVERY_CONFLICT", "BASELINE_MISMATCH" -> 409;
             default -> 503;

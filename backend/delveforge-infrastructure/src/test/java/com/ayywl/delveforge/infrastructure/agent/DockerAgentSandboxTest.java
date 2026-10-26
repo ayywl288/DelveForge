@@ -552,9 +552,9 @@ class DockerAgentSandboxTest {
         String baseline = git(official, "rev-parse", "HEAD");
         String id = UUID.randomUUID().toString();
         var defaults = AgentProtocol.Limits.defaults();
-        var limits = new AgentProtocol.Limits(defaults.maxModelCalls(), defaults.maxToolCalls(),
-                defaults.maxContextChars(), defaults.maxOutputBytes(), defaults.maxPatchBytes(), 1024,
-                defaults.maxCandidateBytes(), defaults.maxFiles(), defaults.wallSeconds(), defaults.checkSeconds(), 0);
+        var limits = new AgentProtocol.Limits(defaults.maxContextChars(), defaults.maxOutputBytes(), defaults.maxPatchBytes(),
+                1024, defaults.maxCandidateBytes(), defaults.maxFiles(),
+                defaults.checkSeconds(), 0);
         var sandbox = new DockerAgentSandbox(properties(temporary.resolve("runs")), new DeterministicRepositorySecretPolicy());
         try {
             assertEquals("SOURCE_LIMIT", assertThrows(AgentException.class, () -> sandbox.prepare(

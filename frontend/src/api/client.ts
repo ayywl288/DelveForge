@@ -23,6 +23,7 @@ import type {
 import type { AgentRun, AgentCandidate, Delivery } from "./agentTypes";
 
 const messages: Record<string, string> = {
+  PAID_USAGE_ACK_REQUIRED: "请先确认本次 API 费用及可用预算，再明确开始运行。",
   RUN_CONFLICT: "已有 Agent 正在运行或已冻结结果，请刷新运行记录。",
   DELIVERY_CONFLICT: "交付占用或授权已变化，请刷新交付状态。",
   BASELINE_MISMATCH: "冻结结果与当前可信版本不一致，交付已停止。",
@@ -230,8 +231,8 @@ export const api = {
     request<WorkingCopy>(`/working-copies/${id(value)}`),
   agentRuns: (value: string, step: string, before?: string) =>
     request<AgentRun[]>(`${plan(value)}/steps/${id(step)}/agent-runs?limit=50${before ? `&before=${id(before)}` : ""}`),
-  startAgent: (value: string, step: string, targetJdk?: number) =>
-    request<AgentRun>(`${plan(value)}/steps/${id(step)}/agent-runs`, "POST", targetJdk ? { targetJdk } : undefined),
+  startAgent: (value: string, step: string, paidUsageAcknowledged: boolean, targetJdk?: number) =>
+    request<AgentRun>(`${plan(value)}/steps/${id(step)}/agent-runs`, "POST", { targetJdk, paidUsageAcknowledged }),
   agentRun: (value: string) => request<AgentRun>(`/agent-runs/${id(value)}`),
   cancelAgent: (value: string) => request<AgentRun>(`/agent-runs/${id(value)}/cancel`, "POST"),
   candidate: (value: string) => request<AgentCandidate>(`/agent-candidates/${id(value)}`),

@@ -27,6 +27,14 @@ const running = (): AgentRun => ({ id: "run-1", planId: "plan-1", stepId: "step-
 const cleanup: (() => void)[] = [];
 afterEach(() => { cleanup.splice(0).forEach(fn => fn()); Events.instances = []; vi.restoreAllMocks(); vi.useRealTimers(); });
 async function settle() { for (let i = 0; i < 16; i++) { await Promise.resolve(); await nextTick(); } }
+async function acknowledgeBudget(root: Element) {
+  const checkbox = root.querySelector<HTMLInputElement>(".budget-acknowledgment input")!;
+  checkbox.checked = true;
+  checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+  await settle();
+  button(root, "确认费用并开始").click();
+  await settle();
+}
 function mount(history: AgentRun[] = []) {
   vi.stubGlobal("EventSource", Events);
   vi.spyOn(api, "agentRuns").mockResolvedValue(history);
@@ -70,7 +78,12 @@ it("only an explicit start sends the request; real tool events are ordered and d
   const { root } = mount(); await settle();
   expect(start).not.toHaveBeenCalled();
   button(root, "开始 Agent").click(); await settle();
-  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", undefined);
+  expect(root.querySelector("dialog")!.textContent).toContain("API 调用会产生费用");
+  expect(button(root, "确认费用并开始").disabled).toBe(true);
+  button(root, "确认费用并开始").dispatchEvent(new MouseEvent("click", { bubbles: true })); await settle();
+  expect(start).not.toHaveBeenCalled();
+  await acknowledgeBudget(root);
+  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", true, undefined);
   const stream = Events.instances.at(-1)!;
   expect(stream.url).toContain("/agent-runs/run-1/stream?after=0");
   stream.fact(3); stream.fact(3); stream.fact(2); stream.fact(4); await settle();
@@ -80,6 +93,24 @@ it("only an explicit start sends the request; real tool events are ordered and d
   expect([...root.querySelectorAll(".activity-duration")].map(node => node.textContent)).toEqual(["内部 12 ms", "内部 12 ms"]);
   expect(root.querySelector(".agent-timeline pre")).toBeNull();
   expect(root.textContent).not.toMatch(/\d+%/);
+});
+
+it("closing or changing Step invalidates the current budget acknowledgment", async () => {
+  const start = vi.spyOn(api, "startAgent");
+  const { root, s } = mount(); await settle();
+  button(root, "开始 Agent").click(); await settle();
+  const checkbox = root.querySelector<HTMLInputElement>(".budget-acknowledgment input")!;
+  checkbox.checked = true; checkbox.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+  button(root, "返回审阅").click(); await settle();
+  button(root, "开始 Agent").click(); await settle();
+  expect(checkbox.checked).toBe(false);
+  checkbox.checked = true; checkbox.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+  s.plan!.steps.push({ ...s.plan!.steps[0]!, id: "another", status: "PENDING_CONFIRMATION" });
+  await settle();
+  chooseStep(root, "another"); await settle();
+  expect(checkbox.checked).toBe(false);
+  button(root, "确认费用并开始").dispatchEvent(new MouseEvent("click", { bubbles: true })); await settle();
+  expect(start).not.toHaveBeenCalled();
 });
 
 it("correlated SSE activity updates in place and replay never duplicates a completed operation", async () => {
@@ -236,12 +267,13 @@ it("ignores a late Start after a Step switch and reloads its persisted Run on re
   const { root, s } = mount(); await settle();
   s.plan!.steps.push({ ...s.plan!.steps[0]!, id: "step-2", goal: "second selected step", status: "PENDING_CONFIRMATION" });
   button(root, "开始 Agent").click(); button(root, "开始 Agent").click(); await settle();
+  await acknowledgeBudget(root);
   chooseStep(root, "step-2"); await settle();
   response.resolve(running()); await settle();
   expect(root.querySelector<HTMLSelectElement>("#agent-step")!.value).toBe("step-2");
   expect(root.textContent).not.toContain("Agent：编码中");
   expect(Events.instances).toHaveLength(0);
-  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", undefined);
+  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", true, undefined);
   expect(button(root, "确认此步骤")).toBeUndefined();
   expect(root.querySelector(".step-lock-reason")?.textContent).toContain("前序 Step");
   vi.mocked(api.agentRuns).mockResolvedValue([running()]);
@@ -402,7 +434,8 @@ it("separates Step configuration, expandable changes, JDK selection and explicit
   const jdk = root.querySelector<HTMLSelectElement>("#agent-jdk")!;
   jdk.value = "21"; jdk.dispatchEvent(new Event("change", { bubbles: true })); await settle();
   button(root, "开始 Agent").click(); button(root, "开始 Agent").click(); await settle();
-  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", 21);
+  await acknowledgeBudget(root);
+  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", true, 21);
   expect(button(root, "开始 Agent").disabled).toBe(true);
   response.resolve(running()); await settle();
   expect(button(root, "重新开始编码").disabled).toBe(true);
@@ -432,7 +465,9 @@ it("explains failed Docker preparation and resource reconciliation without inven
   expect(button(root, "重新开始编码").disabled).toBe(false);
   vi.spyOn(api, "startAgent").mockResolvedValue({ ...running(), id: "new-run" });
   button(root, "重新开始编码").click(); await settle();
-  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", undefined);
+  expect(root.querySelector<HTMLInputElement>(".budget-acknowledgment input")!.checked).toBe(false);
+  await acknowledgeBudget(root);
+  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", true, undefined);
 });
 
 it("unifies Run status, failure and times without duplicating diagnostics or exposing technical identities", async () => {

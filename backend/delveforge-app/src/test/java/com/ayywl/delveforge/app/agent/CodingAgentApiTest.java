@@ -52,6 +52,19 @@ class CodingAgentApiTest {
     int port;
 
     @Test
+    void paidStartRequiresAnExplicitBudgetAcknowledgmentBeforeAnyRunReservation() {
+        String path = "/api/evolution-plans/absent/steps/absent/agent-runs";
+        assertEquals(HttpStatus.BAD_REQUEST, http.postForEntity(path, null, String.class).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, http.postForEntity(path,
+                java.util.Map.of("paidUsageAcknowledged", false), String.class).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, http.postForEntity(path,
+                java.util.Map.of("targetJdk", 17), String.class).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, http.postForEntity(path,
+                java.util.Map.of("paidUsageAcknowledged", true), String.class).getStatusCode());
+        assertEquals(java.util.List.of(), store.runs("absent", "absent", null, 50));
+    }
+
+    @Test
     void actualHttpQueriesEventsAndCancellationUsePersistedRun() throws Exception {
         String id = UUID.randomUUID().toString();
         try (var connection = source.getConnection(); var statement = connection.prepareStatement("""
