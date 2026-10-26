@@ -1,5 +1,9 @@
 # DOMAIN_MODEL.md
 
+**2026-10-26 MVP 凭据识别范围：** ADR-0017 替代 ADR-0016 的源码表达式分类，主动缩减秘密检测范围。
+这是 Application 出站/编辑政策选择，不改变资产授权、用户确认、WorkingCopy 隔离、可信 revision
+及 Candidate/Delivery 领域状态合同；实际缩减边界见 [ADR-0017](decisions/0017-bounded-agent-credential-policy.md)。
+
 **2026-10-26 现行凭据编辑合同：** [ADR-0016](decisions/0016-mutation-aware-source-credential-protection.md)
 替代历史整文件凭据编辑禁令。普通运行时令牌代码可以编辑；真实凭据所在行及敏感路径仍保护。
 完整源码先净化再切片，真实补丁私有预演/写入前后像核对，冻结独立复核并以无秘密上下文的 D 重放交付。

@@ -1,6 +1,7 @@
 # ADR-0016：源码凭据的变更感知保护
 
 Status: Accepted for current implementation; genuine acceptance remains separately evidenced.
+Expression classification superseded by ADR-0017; controlled mutation and freezing remain in force.
 Date: 2026-10-26
 
 ## 问题与授权

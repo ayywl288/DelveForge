@@ -1,5 +1,9 @@
 # ARCHITECTURE.md
 
+**2026-10-26 MVP 简化：** [ADR-0017](decisions/0017-bounded-agent-credential-policy.md)
+替代下段 ADR-0016 的表达式分类：Agent 仅识别已知凭据格式和直接凭据字面量，不解析任意源码语义。
+写入前后核对、完整文件净化、冻结重放、隔离及正式 Delivery 合同保留；M1–M3 保守政策保持。
+
 **2026-10-26 现行凭据编辑合同：** [ADR-0016](decisions/0016-mutation-aware-source-credential-protection.md)
 替代历史整文件凭据编辑禁令。普通运行时令牌代码可以编辑；真实凭据所在行及敏感路径仍保护。
 完整源码先净化再切片，真实补丁私有预演/写入前后像核对，冻结独立复核并以无秘密上下文的 D 重放交付。

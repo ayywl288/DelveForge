@@ -1,5 +1,9 @@
 # Autonomous Coding Agent and Delivery
 
+**2026-10-26 MVP 简化：** [ADR-0017](decisions/0017-bounded-agent-credential-policy.md)
+替代下段源码表达式分类。Agent 保护已知格式和直接凭据字面量；不承诺识别任意代码中的秘密。
+不新增词法或语义分析；隔离、写入核对、Candidate/Delivery 和 M1–M3 保守政策保持。
+
 **2026-10-26 现行凭据编辑合同：** [ADR-0016](decisions/0016-mutation-aware-source-credential-protection.md)
 替代历史整文件凭据编辑禁令。普通运行时令牌代码可以编辑；真实凭据所在行及敏感路径仍保护。
 完整源码先净化再切片，真实补丁私有预演/写入前后像核对，冻结独立复核并以无秘密上下文的 D 重放交付。

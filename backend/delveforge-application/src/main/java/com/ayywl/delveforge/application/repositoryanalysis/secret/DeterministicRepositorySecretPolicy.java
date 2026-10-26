@@ -73,6 +73,15 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
                     + "|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret"
                     + "|auth[_-]?token)";
 
+    private static final Set<String> SOURCE_EXTENSIONS = Set.of("java", "js", "ts", "jsx", "tsx", "vue", "kt");
+
+    // Agent 只保护直接赋值的明确字面量，不尝试解析任意源码表达式或判断数据流。
+    private static final Pattern SOURCE_CREDENTIAL_LITERAL = Pattern.compile(
+            "(?im)((?:^|[^A-Za-z0-9_\\-])[\"']?" + CREDENTIAL_KEY
+                    + "[\"']?[^\\S\\r\\n]*[:=](?![=<>:])[^\\S\\r\\n]*)"
+                    + "(\"(?:[^\"\\\\\\r\\n]|\\\\.)*+\""
+                    + "|'(?:[^'\\\\\\r\\n]|''|\\\\.)*+'|`[^`$\\r\\n]*+`)");
+
     /**
      * 内容规则，按顺序应用。
      *
@@ -267,20 +276,28 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
         return visible.toString();
     }
 
-    /** 出站仍按原保守规则净化；修改判定只把源码运行时表达式与内嵌值区别开。 */
+    /** M1–M3 保持保守规则；Agent 源码只保护已知格式与直接凭据字面量，见 ADR-0017。 */
     @Override
     public List<Integer> mutationProtectedLines(String relativePath, String content) {
         SortedSet<Integer> lines = new TreeSet<>();
+        int dot = relativePath.lastIndexOf('.');
+        boolean source = dot >= 0
+                && SOURCE_EXTENSIONS.contains(relativePath.substring(dot + 1).toLowerCase(Locale.ROOT));
         for (int index = 0; index < CONTENT_RULES.size(); index++) {
-            Matcher matcher = CONTENT_RULES.get(index).pattern().matcher(content);
+            boolean assignment = index == CONTENT_RULES.size() - 1;
+            Matcher matcher = (source && assignment ? SOURCE_CREDENTIAL_LITERAL : CONTENT_RULES.get(index).pattern())
+                    .matcher(content);
             int cursor = 0;
             int row = 1;
             while (matcher.find()) {
-                if (index == CONTENT_RULES.size() - 1
-                        && SourceCredentialExpression.runtime(relativePath, content, matcher.start(2))) {
-                    continue;
+                if (source && assignment) {
+                    String literal = matcher.group(2);
+                    String value = literal.substring(1, literal.length() - 1);
+                    if (value.isEmpty() || value.equals("Bearer ") || value.equals("Basic ")) {
+                        continue;
+                    }
                 }
-                int start = index == CONTENT_RULES.size() - 1 ? matcher.start(2) : matcher.start();
+                int start = assignment ? matcher.start(2) : matcher.start();
                 while (cursor < start) {
                     if (content.charAt(cursor++) == 10) {
                         row++;

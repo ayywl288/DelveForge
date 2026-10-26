@@ -43,17 +43,32 @@ class CredentialMutationPolicyTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "const token = 'embedded-private-value';",
-            "const token = cached || 'embedded-private-value';",
-            "const getToken = () => 'embedded-private-value';",
-            "String password = createUser(\"embedded-private-value\");",
             "String secret = \"placeholder\";",
             "const token = `embedded-private-value`;",
-            "const token = arbitrary.get('embedded-private-value');",
-            "const token = `Bearer ${runtimeValue}hardcoded-private-value`;",
             "String key = \"ghp_0123456789abcdefghijklmnopqrstuvwx\";"
     })
-    void literalsStayProtectedRegardlessOfExampleNamesOrSurroundingCode(String source) {
+    void directCredentialLiteralsAndKnownFormatsStayProtected(String source) {
         assertFalse(policy.mutationProtectedLines("src/Auth.java", source).isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "// token=example-without-a-known-prefix",
+            "String sample = \"token=example-without-a-known-prefix\";",
+            "const token = cached || 'unmarked-value';",
+            "const getToken = () => 'unmarked-value';",
+            "String password = createUser(\"unmarked-value\");",
+            "const token = `Bearer ${runtimeValue}suffix`;"
+    })
+    void mvpDoesNotClaimToClassifyUnmarkedValuesOrParseSourceSemantics(String source) {
+        assertEquals(List.of(), policy.mutationProtectedLines("Auth.java", source));
+    }
+
+    @Test
+    void knownCredentialFormatsRemainProtectedInCommentsAndStrings() {
+        String key = "ghp_0123456789abcdefghijklmnopqrstuvwx";
+        assertEquals(List.of(1), policy.mutationProtectedLines("Auth.java", "// token=" + key));
+        assertEquals(List.of(1), policy.mutationProtectedLines("Auth.java", "String value=\"" + key + "\";"));
     }
 
     @Test

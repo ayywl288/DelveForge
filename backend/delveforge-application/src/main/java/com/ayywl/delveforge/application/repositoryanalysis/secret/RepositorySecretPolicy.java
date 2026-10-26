@@ -65,7 +65,7 @@ public interface RepositorySecretPolicy {
      */
     SanitizedRepositoryMaterial sanitize(List<RepositorySourceFile> files);
 
-    /** Agent 源码视图；默认沿用保守出站规则，具体实现可保留已证明不是字面量的表达式。 */
+    /** Agent 源码视图；具体实现定义可陈述的凭据规则，不承担通用源码秘密分析。 */
     default String sanitizeSource(String relativePath, String content) {
         return sanitize(List.of(new RepositorySourceFile(relativePath, content))).material().getFirst().content();
     }
