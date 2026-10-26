@@ -73,7 +73,9 @@ final class CompatibilityGit {
             Thread.currentThread().interrupt();
             throw new WorkspaceException("Repository preparation was interrupted", failure);
         } finally {
-            WorkspaceCommandRunner.stop(process);
+            if (process.isAlive()) {
+                WorkspaceCommandRunner.stop(process);
+            }
         }
     }
 

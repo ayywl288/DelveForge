@@ -103,7 +103,17 @@ final class WorkspaceCommandRunner {
     }
 
     static void stop(Process process) {
+        // 此处只运行受控 Git。退出后 PID 可能被复用，不能再据它重新发现并终止“后代”。
+        if (!process.isAlive()) {
+            return;
+        }
         java.util.ArrayList<ProcessHandle> owned = new java.util.ArrayList<>(process.descendants().toList());
+        if (!process.isAlive()) {
+            return;
+        }
+        if (owned.stream().anyMatch(handle -> handle.pid() == ProcessHandle.current().pid())) {
+            throw new WorkspaceException("Controlled process ancestry cannot be proven");
+        }
         owned.forEach(ProcessHandle::destroyForcibly);
         process.destroyForcibly();
         // destroyForcibly 是异步的；只等待本次进程树，避免 Windows 目录锁仍被持有时清理。

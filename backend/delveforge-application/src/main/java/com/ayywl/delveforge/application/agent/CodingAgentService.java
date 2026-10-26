@@ -10,6 +10,8 @@ import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -25,6 +27,7 @@ import java.util.function.BooleanSupplier;
 
 /** 一次已确认 Step 的自主编排；成功只冻结 Candidate，不执行正式 Delivery。 */
 public final class CodingAgentService implements AutoCloseable {
+    private static final Logger log = LoggerFactory.getLogger(CodingAgentService.class);
     private static final String SYSTEM = """
             你是 DelveForge 单个 EvolutionStep 的 Coding Agent。只实现当前已确认目标。
             只能通过提供的工具探索、修改沙箱与运行Maven；没有shell或Docker权限。
@@ -115,6 +118,13 @@ public final class CodingAgentService implements AutoCloseable {
             requireCurrent(task, cancelled);
             store.freeze(candidate);
         } catch (RuntimeException failure) {
+            // 只记录异常类型和框架代码位置，不输出异常正文、cause 或模型/源码材料。
+            StackTraceElement site = java.util.Arrays.stream(failure.getStackTrace())
+                    .filter(frame -> frame.getClassName().startsWith("com.ayywl.delveforge."))
+                    .findFirst().orElse(null);
+            log.warn("operation=agent.execute runId={} result=FAILED exceptionType={} failureSite={} line={}",
+                    id, failure.getClass().getName(), site == null ? "unknown" : site.getClassName() + "." + site.getMethodName(),
+                    site == null ? -1 : site.getLineNumber());
             // 中断标记不能阻止清理/诊断，取消事实仍保存在SQLite。
             Thread.interrupted();
             AgentProtocol.Run run = store.get(id);

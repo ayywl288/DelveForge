@@ -80,11 +80,24 @@ final class AgentProcess {
             Thread.currentThread().interrupt();
             throw new AgentException("CANCELLED", "Agent operation interrupted", failure);
         } finally {
-            process.descendants().forEach(ProcessHandle::destroyForcibly);
-            if (process.isAlive()) {
-                process.destroyForcibly();
-            }
+            stop(process);
         }
+    }
+
+    static void stop(Process process) {
+        // CLI 已退出后不能按旧 PID 重新认定进程归属；枚举期间退出也不能授权终止。
+        if (!process.isAlive()) {
+            return;
+        }
+        List<ProcessHandle> owned = process.descendants().toList();
+        if (!process.isAlive()) {
+            return;
+        }
+        if (owned.stream().anyMatch(handle -> handle.pid() == ProcessHandle.current().pid())) {
+            throw new AgentException("RESOURCE_OWNERSHIP", "Controlled process ancestry cannot be proven");
+        }
+        owned.forEach(ProcessHandle::destroyForcibly);
+        process.destroyForcibly();
     }
 
     private static Thread drain(java.io.InputStream input, ByteArrayOutputStream output, int maxBytes,

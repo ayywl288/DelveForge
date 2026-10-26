@@ -1,13 +1,75 @@
 package com.ayywl.delveforge.infrastructure.workspace;
 
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
+
+import org.junit.jupiter.api.Test;
+
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
-import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.*;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class WorkspaceCommandRunnerTest {
+    @Test
+    void liveOwnedProcessAndItsSnapshotAreStillStoppedAndAwaited() throws Exception {
+        Process process = mock(Process.class);
+        ProcessHandle child = mock(ProcessHandle.class);
+        when(process.isAlive()).thenReturn(true);
+        when(process.descendants()).thenReturn(java.util.stream.Stream.of(child));
+        when(process.waitFor(anyLong(), any(java.util.concurrent.TimeUnit.class))).thenReturn(true);
+        WorkspaceCommandRunner.stop(process);
+        verify(child).destroyForcibly();
+        verify(process).destroyForcibly();
+        verify(process).waitFor(anyLong(), any(java.util.concurrent.TimeUnit.class));
+    }
+
+    @Test
+    void impossibleCurrentProcessAncestryFailsBeforeAnyKill() {
+        Process process = mock(Process.class);
+        ProcessHandle unrelated = mock(ProcessHandle.class);
+        when(process.isAlive()).thenReturn(true);
+        when(process.descendants()).thenReturn(java.util.stream.Stream.of(unrelated));
+        when(unrelated.pid()).thenReturn(ProcessHandle.current().pid());
+        assertThrows(WorkspaceException.class, () -> WorkspaceCommandRunner.stop(process));
+        verify(process, never()).destroyForcibly();
+        verify(unrelated, never()).destroyForcibly();
+    }
+
+    @Test
+    void completedProcessMustNeverUsePidBasedDescendantDiscovery() {
+        Process process = mock(Process.class);
+        ProcessHandle unrelated = mock(ProcessHandle.class);
+        when(process.isAlive()).thenReturn(false);
+        when(process.descendants()).thenReturn(java.util.stream.Stream.of(unrelated));
+        when(unrelated.destroyForcibly()).thenThrow(new IllegalStateException("synthetic current-process refusal"));
+        assertDoesNotThrow(() -> WorkspaceCommandRunner.stop(process));
+        verify(process, never()).descendants();
+        verify(process, never()).destroyForcibly();
+        verify(unrelated, never()).destroyForcibly();
+    }
+
+    @Test
+    void exitDuringDescendantSnapshotCannotAuthorizeAnyKill() {
+        Process process = mock(Process.class);
+        ProcessHandle unrelated = mock(ProcessHandle.class);
+        when(process.isAlive()).thenReturn(true, false);
+        when(process.descendants()).thenReturn(java.util.stream.Stream.of(unrelated));
+        when(unrelated.destroyForcibly()).thenThrow(new IllegalStateException("synthetic current-process refusal"));
+        assertDoesNotThrow(() -> WorkspaceCommandRunner.stop(process));
+        verify(process, never()).destroyForcibly();
+        verify(unrelated, never()).destroyForcibly();
+    }
+
     private List<String> probe(String mode) {
         String executable = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
         return List.of(Path.of(System.getProperty("java.home"), "bin", executable).toString(), "-cp",
