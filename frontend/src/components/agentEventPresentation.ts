@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 
-const isPatchTool = (tool: string | undefined): boolean => tool === "apply_patch" || tool === "edit_file";
+export const isPatchTool = (tool: string | undefined): boolean => tool === "apply_patch" || tool === "edit_file";
 
 export type ActivityOutcome = "running" | "completed" | "failed" | "conflict" | "unknown" | "recorded" | "blocked" | "interrupted";
 export interface AgentActivity {

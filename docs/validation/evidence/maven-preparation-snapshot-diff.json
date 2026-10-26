@@ -1,0 +1,21 @@
+{
+  "mavenExit": 0,
+  "beforeSnapshot": "f34457768308a4ceda22fca5c089a9a4114369fb59e6db2061d400c82de55414",
+  "afterSnapshot": "f7c00c60b8ba2221e419c4dc9895eae03c484e79f287ee3b21cab5b406cfb8b3",
+  "changed": [
+    {
+      "path": "database/taskarium_db.mv.db",
+      "category": "CONTENT",
+      "before": {
+        "path": "database/taskarium_db.mv.db",
+        "mode": "100644",
+        "sha256": "e29e193af4feef972e233c826afb455c94ce1b921623a218a69bb8c97c4f4725"
+      },
+      "after": {
+        "path": "database/taskarium_db.mv.db",
+        "mode": "100644",
+        "sha256": "5d65d2a66a4be6ca72165d6e07d373e0299411fc2abe613a3d971816d3927d7f"
+      }
+    }
+  ]
+}

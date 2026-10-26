@@ -514,10 +514,11 @@ it("updates one patch summary in place with actual outcomes and only applied saf
     expect(root.querySelector('.activity-bar,.model-waiting,.is-active')).toBeNull();
 });
 
-it("renders large patch history incrementally and keeps independent expansions on Run switching", async () => {
+it.each(['apply_patch', 'edit_file'])("keeps long %s histories exclusively in the complete edit summary", async editTool => {
     const {root,props}=mount(false);
-    props.events=Array.from({length:100},(_,index)=>tool(index+1,'TOOL_FINISHED',{tool:'apply_patch',ok:true,classification:'PATCH_APPLIED',paths:['src/A.java']}));
+    props.events=Array.from({length:100},(_,index)=>tool(index+1,'TOOL_FINISHED',{tool:editTool,ok:true,classification:'PATCH_APPLIED',paths:['src/A.java']}));
     await settle();
+    expect(root.querySelectorAll('.agent-timeline li')).toHaveLength(0);
     expect(root.querySelector('.patch-operations')).toBeNull();
     expect(root.querySelector('.patch-count')?.textContent).toContain('100 次尝试');
     root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
@@ -529,6 +530,36 @@ it("renders large patch history incrementally and keeps independent expansions o
     expect(root.querySelector<HTMLDetailsElement>('.exploration-summary')!.open).toBe(false);
     props.run.id='two'; props.events=[]; await settle();
     expect(root.querySelector<HTMLDetailsElement>('.patch-summary')!.open).toBe(false);
+});
+
+it.each(['apply_patch', 'edit_file'])("preserves live %s status, refusals and lifecycle milestones without duplicate edit rows", async editTool => {
+    const { root, props } = mount(false);
+    props.events = [fact(1, 'CREATED'), fact(2, 'SANDBOX_READY'),
+        tool(3, 'TOOL_STARTED', { tool: editTool })];
+    await settle();
+    expect(root.querySelector('.current-activity')?.getAttribute('data-active')).toBe('true');
+    expect(root.querySelector('.current-title')?.textContent)
+        .toContain(editTool === 'edit_file' ? '正在精确编辑代码' : '正在应用代码修改');
+    expect(root.querySelector('.activity-bar')).not.toBeNull();
+    expect(root.querySelectorAll('.agent-timeline li')).toHaveLength(2);
+    props.events.push(tool(4, 'TOOL_FINISHED', { tool: editTool, ok: false,
+        classification: 'POLICY_REJECTED', mutationNotStarted: true,
+        policyRule: 'SOURCE_CREDENTIALS', policyStage: 'PATCH_SOURCE' }),
+        tool(5, 'TOOL_FINISHED', { tool: 'read_file', ok: true }), important(6),
+        fact(7, 'FAILED', 'POLICY_REJECTED'));
+    props.run.state = 'FAILED'; props.run.reason = 'POLICY_REJECTED';
+    await settle();
+    expect([...root.querySelectorAll('.agent-timeline li')].map(row => row.getAttribute('data-sequence')))
+        .toEqual(['1', '2', '6', '7']);
+    expect(root.querySelector('.patch-alert')?.textContent).toContain('1 次安全拒绝');
+    expect(root.querySelector('.exploration-count')?.textContent).toContain('1 次文件操作');
+    expect(root.querySelector('.current-title')?.textContent).toContain('运行失败');
+    expect(root.querySelector('.activity-bar')).toBeNull();
+    root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
+    expect(root.querySelectorAll('.patch-operations li')).toHaveLength(1);
+    expect(root.querySelector('.patch-operations')?.textContent).toContain('源码修改未开始');
+    props.events = [...props.events]; await settle();
+    expect(root.querySelectorAll('.patch-operations li')).toHaveLength(1);
 });
 
 it("animates genuinely active work and supplies static reduced-motion states", async () => {

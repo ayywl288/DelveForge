@@ -1,0 +1,49 @@
+{
+  "backendFullTests": {
+    "command": "mvnw.cmd -o verify",
+    "exitCode": 1,
+    "testReportCount": 166,
+    "counts": {
+      "tests": 1702,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 36
+    },
+    "executed": 1666,
+    "buildBlocker": "Windows could not rename the JAR held by the historical idle acceptance backend"
+  },
+  "focusedDocker": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "frontend": {
+    "testFiles": 17,
+    "tests": 256,
+    "failures": 0,
+    "typecheck": "PASS",
+    "build": "PASS"
+  },
+  "finalPackage": {
+    "command": "mvnw.cmd -o -DskipTests verify",
+    "exitCode": 0,
+    "jarSha256": "8b2c1df1b40210472c04a4106382e090a284dd5a5135260f73030f69e6df578a"
+  },
+  "deepSeekCallsThisRepair": 0,
+  "sourceSha256": {
+    "backend/delveforge-infrastructure/src/main/java/com/ayywl/delveforge/infrastructure/agent/DockerAgentSandbox.java": "1b4aaae8726533f1f9209c89848965ab8acb89dd226a2f2311f7972035984c56",
+    "frontend/src/components/AgentTimeline.vue": "b04ba758e66d84097b3762aa298777aeab741c6cf98c28046c4f83f450a5f07f",
+    "frontend/src/components/agentEventPresentation.ts": "97d2afcfa61aeb19840ae48e0bf12cec01e97fd704b2f5a4c228a35737b3975d"
+  },
+  "historicalRunUnchanged": true,
+  "historicalRun": {
+    "id": "a650c901-e265-4ab6-80e0-05339296e2c2",
+    "state": "FAILED",
+    "reason": "DEPENDENCY_PREPARATION_MUTATED_SOURCE",
+    "modelCalls": 30,
+    "toolCalls": 65,
+    "tokens": 635067
+  },
+  "historicalPlanSnapshotSha256": "bc23239993340200a87c740c5bad64e3d8f8a83db0696348ec0780dbb59125a1"
+}

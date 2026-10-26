@@ -3,7 +3,7 @@ import { computed, nextTick, ref, watch } from "vue";
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import NavigationIcon from "./NavigationIcon.vue";
 import AgentActivityRow from "./AgentActivityRow.vue";
-import { activityState, buildActivities, currentActivity, explorationSummary, isExploration, patchSummary, toolNames } from "./agentEventPresentation";
+import { activityState, buildActivities, currentActivity, explorationSummary, isExploration, isPatchTool, patchSummary, toolNames } from "./agentEventPresentation";
 
 const props = defineProps<{ events: AgentEvent[]; run: AgentRun; connection: string }>();
 const viewport = ref<HTMLElement>();
@@ -17,7 +17,7 @@ const patchesExpanded = ref(false);
 const patchCount = ref(40);
 const visiblePatches = computed(() => patches.value.activities.slice(0, patchCount.value));
 const current = computed(() => currentActivity(activities.value, props.events, props.run));
-const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && activity.tool !== 'apply_patch' && activity.event.kind !== "MODEL_REQUEST"));
+const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && !isPatchTool(activity.tool) && activity.event.kind !== "MODEL_REQUEST"));
 const visible = computed(() => chronological.value.slice(-visibleCount.value));
 const fileCount = ref(40);
 const filesExpanded = ref(false);

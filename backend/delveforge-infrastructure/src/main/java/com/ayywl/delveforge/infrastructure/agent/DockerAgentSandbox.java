@@ -328,13 +328,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     private List<String> baseRun(String runId, String suffix, String image, String network, boolean detached) {
         Session session = sessions.get(runId);
         AgentProtocol.Limits limits = session.limits;
+        String sourceVolume = suffix.equals("prepare") ? "prepare-source" : "source";
         List<String> result = new ArrayList<>(List.of("run", "--name", name(runId, suffix), "--label",
                 "delveforge.owner=" + properties.owner(), "--label", "delveforge.run=" + runId,
                 "--network", network, "--user", "11000:11000", "--cap-drop", "ALL", "--security-opt",
                 "no-new-privileges", "--read-only", "--pids-limit", Integer.toString(properties.pids()),
                 "--memory", properties.memory(), "--cpus", properties.cpus(), "--tmpfs",
                 "/tmp:rw,exec,nosuid,size=256m", "--tmpfs", "/home/agent:rw,nosuid,size=32m,uid=11000,gid=11000",
-                "--mount", "type=volume,source=" + name(runId, "source") + ",target=/workspace",
+                "--mount", "type=volume,source=" + name(runId, sourceVolume) + ",target=/workspace",
                 "--mount", "type=volume,source=" + name(runId, "m2") + ",target=/m2",
                 "--env", "DF_FILE_BYTES=" + limits.maxFileBytes(), "--env", "DF_MAX_FILES=" + limits.maxFiles(),
                 "--env", "DF_PATCH_BYTES=" + limits.maxPatchBytes(), "--env",
@@ -344,6 +345,10 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 "DF_MAVEN_DIRECTORY=" + session.mavenDirectory, "--env",
                 modulesEnvironment(session), "--env",
                 "DF_CHECK_SECONDS=" + limits.checkSeconds()));
+        if (suffix.equals("prepare")) {
+            result.addAll(List.of("--mount", "type=volume,source=" + name(runId, "source")
+                    + ",target=/source,readonly"));
+        }
         for (String proxy : List.of("HTTP_PROXY", "HTTPS_PROXY", "FTP_PROXY", "ALL_PROXY", "NO_PROXY",
                 "http_proxy", "https_proxy", "ftp_proxy", "all_proxy", "no_proxy")) {
             result.addAll(List.of("--env", proxy + "="));
@@ -840,9 +845,12 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
 
     private void prepareDependencies(Session session, JsonNode args, BooleanSupplier cancelled) {
         String id = session.task.runId();
-        String before = invoke(session, "snapshot", json.createObjectNode(), cancelled).path("result").path("snapshot").asText();
+        JsonNode captured = invoke(session, "snapshot", json.createObjectNode(), cancelled);
+        requireToolSuccess(captured);
+        String before = captured.path("result").path("snapshot").asText();
         stopContainer(name(id, "agent"));
         try {
+            ensureVolume(name(id, "prepare-source"), id);
             String network = name(id, "network");
             if (inspect("network", network) == null) {
                 docker(List.of("network", "create", "--internal", "--opt",
@@ -871,9 +879,13 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 requireOwner("container", proxy);
                 docker(List.of("start", proxy), null, CONTROL_TIMEOUT, 8192, cancelled);
             }
-            // 在线准备仍在独立非 root 容器；只有内部网络，POM 的任意仓库 URL 被统一镜像覆盖。
+            // 在线准备可能执行测试并产生数据库等副作用；只在一次性副本中运行，不回写 Agent 源码。
+            // 原源码卷只读挂载且仍核对前后快照；只有每 Run 的 Maven 缓存被后续离线检查复用。
             List<String> launch = baseRun(id, "prepare", session.image, network, false);
-            launch.addAll(List.of(session.image, "mvn", "-B", "-ntp", "-U", "-s", "/opt/delveforge/offline-settings.xml",
+            launch.addAll(List.of(session.image, "python3", "-c",
+                    "import os,shutil,sys;shutil.copytree('/source','/workspace/project');"
+                            + "os.chdir('/workspace/project');os.execvp(sys.argv[1],sys.argv[1:])",
+                    "mvn", "-B", "-ntp", "-U", "-s", "/opt/delveforge/offline-settings.xml",
                     "-Dmaven.repo.local=/m2", "-Dstyle.color=never"));
             if (args.hasNonNull("directory") && !args.path("directory").asText().equals(".")) {
                 requirePath(args.path("directory").asText());
@@ -897,6 +909,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             session.lastPreparation = diagnostic.substring(Math.max(0, diagnostic.length() - 10000));
         } finally {
             removeContainer(name(id, "prepare"));
+            removeVolume(name(id, "prepare-source"));
             stopContainer(name(id, "proxy"));
             docker(List.of("start", name(id, "agent")), null, CONTROL_TIMEOUT, 8192, () -> false);
         }
@@ -1149,6 +1162,13 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
     }
 
+    private void removeVolume(String name) {
+        if (inspect("volume", name) != null) {
+            requireOwner("volume", name);
+            docker(List.of("volume", "rm", name), null, CONTROL_TIMEOUT, 8192, () -> false);
+        }
+    }
+
     @Override
     public void stop(String id) {
         for (String suffix : List.of("prepare", "agent", "capture", "seed", "proxy")) {
@@ -1167,12 +1187,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             requireOwner("network", network);
             docker(List.of("network", "rm", network), null, CONTROL_TIMEOUT, 8192, () -> false);
         }
-        for (String suffix : List.of("source", "m2")) {
-            String volume = name(id, suffix);
-            if (inspect("volume", volume) != null) {
-                requireOwner("volume", volume);
-                docker(List.of("volume", "rm", volume), null, CONTROL_TIMEOUT, 8192, () -> false);
-            }
+        for (String suffix : List.of("source", "m2", "prepare-source")) {
+            removeVolume(name(id, suffix));
         }
         Path directory = directory(id);
         try {
