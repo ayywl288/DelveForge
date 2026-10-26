@@ -6,7 +6,8 @@ Local evidence: `E:/develop/DelveForge/data/independent-multistep-20261026/`.
 
 ## Status and boundary
 
-Preparation in progress. No acceptance PASS or FAIL has been established.
+Environment preparation is complete; genuine acceptance is waiting for a credential.
+No acceptance PASS or FAIL has been established.
 No paid AI request, target implementation, generated Plan, Candidate or Delivery exists for this experiment yet.
 The new process, user and machine environments have no `DEEPSEEK_API_KEY`; a credential input is pending.
 FinTrack domain data and execution state are not reused. No merge or push is authorized.
@@ -67,8 +68,36 @@ Existing databases, worktrees and reports are retained.
 - Frontend: 17 test files / 253 tests passed in this new checkout.
 - Supported startup image checks built and verified current-source JDK 17/21 images using real Docker,
   protocol v3, script hashes and Java version checks. Image identities are in `verified-agent-images.json`.
-- Backend: fresh `mvnw.cmd -o verify` is still running at this checkpoint.
+- Backend: fresh `mvnw.cmd -o verify` passed, exit 0, 165 XML reports; 1,699 total tests,
+  33 gated skips, 1,666 executed, zero failures/errors. Logs, XML archive and exact skipped suites
+  are retained in `delveforge-backend-verify.log`, `backend-test-xml.zip` and `backend-verification.json`.
+  The skips include live Provider, Docker and public-repository gates; they are not fresh passes.
+  Built executable JAR SHA-256: `e70dac9bb39a01beb4e669c1692263629ddcaa6bcfe831e741a2ecbdb327839e`.
 - No DelveForge product fix or target business-code intervention has been made.
+
+The newly built application started against a previously nonexistent isolated `product.sqlite`,
+with new WorkingCopy and Agent roots, a new owner/cache identity and no existing-roots fallback.
+Normal API reads returned empty project and asset lists. Before spending on discovery, the public clone
+was registered through the ordinary asset API with explicit read permission and MIT usage authorization:
+asset `93d346df-8444-44e0-aa8b-cbf443ca33e7`.
+
+The ordinary read-only compatibility endpoint returned `COMPATIBLE`, policy `maven-generated-v1`,
+root Maven module, automatically selected JDK 17, 73 files / 752,250 bytes, 67 text / 6 opaque files,
+and no generated paths or blocking issues. Binary resources and credential-sensitive files remain
+immutable under the existing policy; no source or configuration was adapted to obtain this result.
+Compatibility is not a build or business-usability result for Taskarium.
+
+After these keyless checks the isolated Java process was stopped, leaving its port available for secure startup.
+Read-only SQLite inspection found integrity `ok`, zero foreign-key issues, one SoftwareAsset and zero UserProfiles,
+RepositoryProfiles, Directions, Plans, WorkingCopies, AgentRuns, Candidates or Deliveries.
+A consistent SQLite backup is retained as `pre-discovery-consistent-backup.sqlite`.
+The original clone's complete source-file size/hash snapshot is unchanged. Paid model calls: **0**.
+
+`acceptance_driver.py start` prompts for the DeepSeek key without echo and places it only in the new Java
+process environment. It does not save the key to a file, command argument, log or report.
+The startup record contains only credential presence and non-secret settings.
+This helper controls the environment and captures normal HTTP evidence; it does not implement target features,
+rewrite a Plan, edit repository source or mutate domain records through SQLite.
 
 Initial Git clone and Docker inspection were denied by the restricted tool environment; the same authorized,
 scoped operations succeeded with normal host access. These are environment execution limits, not product failures.
