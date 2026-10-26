@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.SortedSet;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -236,6 +238,63 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
             sanitized.add(new RepositorySourceFile(file.relativePath(), replacement.text()));
         }
         return new SanitizedRepositoryMaterial(sanitized, replacedSpans);
+    }
+
+    /** 按完整文件识别后再构造保留行号的视图，禁止分片截断私钥等多行材料后再扫描。 */
+    @Override
+    public String sanitizeSource(String relativePath, String content) {
+        Set<Integer> protectedLines = Set.copyOf(mutationProtectedLines(relativePath, content));
+        StringBuilder visible = new StringBuilder();
+        int offset = 0;
+        int line = 1;
+        while (offset < content.length()) {
+            int end = content.indexOf(10, offset);
+            end = end < 0 ? content.length() : end + 1;
+            String raw = content.substring(offset, end);
+            if (protectedLines.contains(line++)) {
+                visible.append(REDACTION_MARKER);
+                if (raw.endsWith(String.valueOf((char) 10))) {
+                    if (raw.length() >= 2 && raw.charAt(raw.length() - 2) == 13) {
+                        visible.append((char) 13);
+                    }
+                    visible.append((char) 10);
+                }
+            } else {
+                visible.append(raw);
+            }
+            offset = end;
+        }
+        return visible.toString();
+    }
+
+    /** 出站仍按原保守规则净化；修改判定只把源码运行时表达式与内嵌值区别开。 */
+    @Override
+    public List<Integer> mutationProtectedLines(String relativePath, String content) {
+        SortedSet<Integer> lines = new TreeSet<>();
+        for (int index = 0; index < CONTENT_RULES.size(); index++) {
+            Matcher matcher = CONTENT_RULES.get(index).pattern().matcher(content);
+            int cursor = 0;
+            int row = 1;
+            while (matcher.find()) {
+                if (index == CONTENT_RULES.size() - 1
+                        && SourceCredentialExpression.runtime(relativePath, content, matcher.start(2))) {
+                    continue;
+                }
+                int start = index == CONTENT_RULES.size() - 1 ? matcher.start(2) : matcher.start();
+                while (cursor < start) {
+                    if (content.charAt(cursor++) == 10) {
+                        row++;
+                    }
+                }
+                lines.add(row);
+                while (cursor < matcher.end()) {
+                    if (content.charAt(cursor++) == 10) {
+                        lines.add(++row);
+                    }
+                }
+            }
+        }
+        return List.copyOf(lines);
     }
 
     private static Replacement replaceIn(String content) {

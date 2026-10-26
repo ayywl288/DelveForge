@@ -22,7 +22,7 @@ BASELINE_FILE_LIMIT = int(os.environ.get('DF_BASELINE_FILE_BYTES', '16777216'))
 BASELINE_TOTAL_LIMIT = int(os.environ.get('DF_BASELINE_TOTAL_BYTES', '134217728'))
 # v1 约定检查冲突的未修改证据、应用阶段未知及应用后捕获阶段；旧工具不能推断兼容。
 PROTOCOL_NAME = 'delveforge-sandbox'
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2', '.npmrc', '.netrc', '.pypirc'}
 GENERATED = {'target'}
 BASELINE_PATHS = set()
@@ -379,6 +379,86 @@ def checks(args):
             **result, 'output': output[-18000:]}
 
 
+def patch_state(path):
+    if not path.exists():
+        return 'absent'
+    raw = path.read_bytes()
+    if not path.is_file() or len(raw) > FILE_LIMIT or b'\x00' in raw:
+        raise PolicyError('PATCH_PREIMAGE', 'Unsupported patch preimage')
+    raw.decode('utf-8', errors='strict')
+    mode = '100755' if path.stat().st_mode & 0o111 else '100644'
+    return hashlib.sha256(raw).hexdigest() + ':' + mode
+
+
+def preview_patch(patch):
+    # 预演只写私有临时目录；返回原始前后像给宿主检查，绝不直接交给模型。
+    import shutil
+    import tempfile
+    paths = patch_paths(patch)
+    with tempfile.TemporaryDirectory() as directory:
+        before_root = pathlib.Path(directory) / 'before'
+        after_root = pathlib.Path(directory) / 'after'
+        before_root.mkdir()
+        after_root.mkdir()
+        files = {}
+        for relative in paths:
+            original = path_for(relative)
+            old, new = before_root / relative, after_root / relative
+            old.parent.mkdir(parents=True, exist_ok=True)
+            new.parent.mkdir(parents=True, exist_ok=True)
+            state = patch_state(original)
+            before = text(original) if state != 'absent' else None
+            files[relative] = {'before': before, 'preimage': state}
+            if before is not None:
+                old.write_bytes(original.read_bytes())
+                new.write_bytes(original.read_bytes())
+                old.chmod(0o755 if original.stat().st_mode & 0o111 else 0o644)
+                new.chmod(old.stat().st_mode & 0o777)
+        command = ['git', '-c', 'core.autocrlf=false', '-c', 'core.hooksPath=/dev/null',
+                   'apply', '--no-index', '--unidiff-zero', '--whitespace=nowarn']
+        code, output = run_bounded(command + ['--check', '-'], patch.encode(), 10, 16000, cwd=after_root)
+        if code:
+            reverse, _ = run_bounded(command + ['--reverse', '--check', '-'], patch.encode(), 10, 16000, cwd=after_root)
+            reason = 'CHANGE_ALREADY_PRESENT' if reverse == 0 else (
+                'INVALID_DIFF' if 'corrupt patch' in output or 'unrecognized input' in output else
+                'PATH_STATE_MISMATCH' if 'No such file' in output or 'already exists' in output else
+                'CONTEXT_MISMATCH' if 'does not apply' in output or 'patch failed' in output else 'CHECK_FAILED')
+            endings = set()
+            for value in files.values():
+                content = value['before']
+                if content is not None:
+                    endings.add('CRLF' if '\r\n' in content and '\n' not in content.replace('\r\n', '')
+                                else 'MIXED' if '\r\n' in content else 'LF')
+            return {'classification': 'PATCH_CONFLICT', 'mutationNotStarted': True, 'conflictReason': reason,
+                    'paths': paths, 'sourceLineEndings': sorted(endings),
+                    'instruction': '补丁预演未通过，实际源码未写入。重新读取后修正唯一原文与上下文。'}
+        code, _ = run_bounded(command + ['-'], patch.encode(), 10, 16000, cwd=after_root)
+        if code:
+            raise ValueError('Controlled patch preview failed')
+        for relative in paths:
+            old, new = before_root / relative, after_root / relative
+            files[relative]['after'] = text(new) if new.exists() else None
+            files[relative]['postimage'] = patch_state(new)
+            # 固定名称避免把仓库文件名当作 diff 语法；原始diff仅在进程内转换为行范围。
+            left, right = pathlib.Path(directory) / 'left', pathlib.Path(directory) / 'right'
+            left.write_bytes(old.read_bytes() if old.exists() else b'')
+            right.write_bytes(new.read_bytes() if new.exists() else b'')
+            code, diff = run_bounded(['git', 'diff', '--no-index', '--no-ext-diff', '--no-textconv',
+                                      '--unified=0', '--', str(left), str(right)], timeout=10,
+                                     maximum=FILE_LIMIT * 3, cwd=after_root)
+            if code not in (0, 1):
+                raise ValueError('Controlled patch comparison failed')
+            changes = []
+            for line in diff.splitlines():
+                if line.startswith('@@'):
+                    match = re.match(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@', line)
+                    if not match:
+                        raise ValueError('Invalid controlled change range')
+                    changes.append([int(match[1]), int(match[2] or '1'), int(match[3]), int(match[4] or '1')])
+            files[relative]['changes'] = changes
+        return {'files': files}
+
+
 def dispatch(name, args):
     if name == 'protocol':
         return {'protocol': PROTOCOL_NAME, 'version': PROTOCOL_VERSION}
@@ -425,7 +505,7 @@ def dispatch(name, args):
             raise ValueError('Invalid line range')
         lines = content.splitlines(keepends=True)
         return {'path': args['path'], 'startLine': start, 'totalLines': len(lines),
-                'content': ''.join(lines[start - 1:start - 1 + count])}
+                'count': count, '_source': content}
     if name == 'search_code':
         query = args.get('query')
         if not isinstance(query, str) or not 1 <= len(query) <= 200:
@@ -435,6 +515,7 @@ def dispatch(name, args):
         if not parent.exists():
             raise ValueError('Path does not exist')
         matches = []
+        sources = {}
         for relative in all_files():
             path = ROOT / relative
             if parent != ROOT and not path.is_relative_to(parent):
@@ -445,21 +526,26 @@ def dispatch(name, args):
                 continue
             for index, line in enumerate(content.splitlines(), 1):
                 if query in line:
-                    matches.append({'path': relative, 'line': index, 'excerpt': line[:400]})
+                    matches.append({'path': relative, 'line': index})
+                    sources[relative] = content
                     if len(matches) == 40:
-                        return {'matches': matches, 'truncated': True}
-        return {'matches': matches, 'truncated': False}
+                        return {'matches': matches, '_sources': sources, 'truncated': True}
+        return {'matches': matches, '_sources': sources, 'truncated': False}
     if name == 'inspect_patch':
-        return {relative: text(ROOT / relative) if (ROOT / relative).exists() else ''
-                for relative in patch_paths(args['patch'])}
+        return preview_patch(args['patch'])
     if name == 'apply_patch':
         patch = args['patch']
         paths = patch_paths(patch)
         for relative in paths:
             if (ROOT / relative).exists():
                 text(ROOT / relative)
+        if (set(args.get('preimages', {})) != set(paths) or set(args.get('postimages', {})) != set(paths)):
+            raise PolicyError('PATCH_PREIMAGE', 'Controlled patch witness required')
+        if any(patch_state(path_for(relative)) != args['preimages'][relative] for relative in paths):
+            return {'classification': 'PATCH_CONFLICT', 'mutationNotStarted': True,
+                    'conflictReason': 'CONTEXT_MISMATCH', 'instruction': '预检后源码变化；未应用补丁，重新读取。'}
         command = ['git', '-c', 'core.autocrlf=false', '-c', 'core.hooksPath=/dev/null',
-                   'apply', '--no-index', '--whitespace=nowarn']
+                   'apply', '--no-index', '--unidiff-zero', '--whitespace=nowarn']
         code, output = run_bounded(command + ['--check', '-'], patch.encode(), 10, 16000)
         if code != 0:
             # --check 从未应用补丁；只返回固定诊断，不转发 Git 自由文本。
@@ -477,6 +563,9 @@ def dispatch(name, args):
             return {'classification': 'PATCH_CONFLICT', 'mutationNotStarted': True, 'conflictReason': reason,
                     'paths': paths, 'sourceLineEndings': sorted(endings), 'snapshot': snapshot()['snapshot'],
                     'instruction': '本次补丁未应用，已有修改保持不变。重新读取目标源码，核对行尾与上下文，再构造正确行数的补丁；不要重复相同补丁。'}
+        if any(patch_state(path_for(relative)) != args['preimages'][relative] for relative in paths):
+            return {'classification': 'PATCH_CONFLICT', 'mutationNotStarted': True,
+                    'conflictReason': 'CONTEXT_MISMATCH', 'instruction': '写入前源码变化；未应用补丁，重新读取。'}
         try:
             code, _ = run_bounded(command + ['-'], patch.encode(), 10, 16000)
         except OSError:
@@ -484,6 +573,8 @@ def dispatch(name, args):
         if code != 0:
             raise PatchOutcomeUnknown()
         try:
+            if any(patch_state(path_for(relative)) != args['postimages'][relative] for relative in paths):
+                raise PatchOutcomeUnknown()
             captured = snapshot()['snapshot']
         except PolicyError as error:
             error.stage = 'SOURCE_CAPTURE'

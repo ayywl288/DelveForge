@@ -389,7 +389,7 @@ function Set-DockerDouble {
     $script:cached = $false
     $script:engine = 'linux 1.54'
     $script:dockerFailure = ''
-    $script:probeVersion = 2
+    $script:probeVersion = 3
     $script:stale = $false
     Set-Item Function:script:Get-DfDockerExecutable { return 'docker-test' }
     Set-Item Function:script:Invoke-DfDocker {
@@ -456,7 +456,7 @@ Test-Case 'changed build inputs select a new identity' {
         Set-DockerDouble
         Initialize-DfAgentImages $fixture @{}
         $builds = @($script:dockerCalls | Where-Object { $_[0] -eq 'build' })
-        Assert-True ($builds[0] -contains "delveforge-agent:protocol-v2-jdk21-$((Get-DfAgentInputs $fixture).Digest)")
+        Assert-True ($builds[0] -contains "delveforge-agent:protocol-v3-jdk21-$((Get-DfAgentInputs $fixture).Digest)")
     } finally { [IO.File]::WriteAllBytes($path, $bytes) }
 }
 Test-Case 'incompatible cached protocol refuses without overwriting tag' {

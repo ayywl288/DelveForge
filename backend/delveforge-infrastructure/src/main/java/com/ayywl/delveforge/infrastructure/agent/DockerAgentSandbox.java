@@ -6,6 +6,7 @@ import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentTools;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.agent.Candidate;
 import com.ayywl.delveforge.infrastructure.workspace.GitRepositoryCompatibility;
@@ -404,7 +405,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         try {
             byte[] input = json.writeValueAsBytes(Map.of("name", name, "arguments", arguments,
                     "baselinePaths", session.baseline.keySet()));
-            int maxBytes = name.equals("snapshot") ? Math.max(session.limits.maxCandidateBytes() * 16, 33554432)
+            int maxBytes = Set.of("snapshot", "inspect_patch", "search_code").contains(name) ? Math.max(session.limits.maxCandidateBytes() * 16, 33554432)
                     : Math.max(session.limits.maxFileBytes() * 8, 2097152);
             return parse(docker(List.of("exec", "-i", "--env", modulesEnvironment(session),
                     name(session.task.runId(), "agent"), "python3", "/opt/delveforge/sandbox.py"), input,
@@ -434,14 +435,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 || !response.path("result").path("protocol").asText().equals("delveforge-sandbox")
                 || !response.path("result").path("version").isIntegralNumber()
                 || !response.path("result").path("version").canConvertToInt()
-                || response.path("result").path("version").asInt() != 2) {
+                || response.path("result").path("version").asInt() != 3) {
             throw incompatibleProtocol();
         }
     }
 
     private static AgentException incompatibleProtocol() {
         return new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE",
-                "Sandbox tool protocol v2 is required. Build the current agent Dockerfile with a new image tag, "
+                "Sandbox tool protocol v3 is required. Build the current agent Dockerfile with a new image tag, "
                         + "configure delveforge.agent.sandbox.images, then explicitly restart the application. "
                         + "See docs/AUTONOMOUS_AGENT.md.");
     }
@@ -488,48 +489,91 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
 
     /** 检查结论仍来自完整补丁；定位仅针对模型自己提交的输入，不返回任何被识别的值。 */
     AgentPolicyRejection contentRejection(String field, String proposed) {
-        String sanitized = sanitize(proposed);
-        if (sanitized.equals(proposed)) {
+        return contentRejection(field, proposed, "proposal.txt");
+    }
+
+    AgentPolicyRejection contentRejection(String field, String proposed, String path) {
+        if (path == null || path.isBlank()) {
             return AgentPolicyRejection.patchContentRejectedBeforeApply();
         }
-        int changed = 0;
-        while (changed < proposed.length() && changed < sanitized.length()
-                && proposed.charAt(changed) == sanitized.charAt(changed)) {
-            changed++;
-        }
-        int firstLine = 1;
-        for (int offset = 0; offset < changed; offset++) {
-            if (proposed.charAt(offset) == '\n') {
-                firstLine++;
-            }
-        }
-        SortedSet<Integer> lines = new TreeSet<>();
-        lines.add(firstLine);
-        String[] inputLines = proposed.split("\n", -1);
-        for (int index = 0; index < inputLines.length && lines.size() < 8; index++) {
-            if (!inputLines[index].equals(sanitize(inputLines[index]))) {
+        SortedSet<Integer> lines = new TreeSet<>(secrets.mutationProtectedLines(path, proposed));
+        String[] inputLines = proposed.split(String.valueOf((char) 10), -1);
+        for (int index = 0; index < inputLines.length; index++) {
+            if (inputLines[index].contains(DeterministicRepositorySecretPolicy.REDACTION_MARKER)) {
                 lines.add(index + 1);
             }
         }
+        if (lines.isEmpty()) {
+            return AgentPolicyRejection.patchContentRejectedBeforeApply();
+        }
         return AgentPolicyRejection.patchContentRejectedBeforeApply(
-                new AgentPolicyRejection.RejectedInput(field, List.copyOf(lines)));
+                new AgentPolicyRejection.RejectedInput(field, lines.stream().limit(8).toList()));
     }
 
     void requirePatchContent(JsonNode inspection, JsonNode arguments) {
         rejectPolicy(inspection, AgentPolicyRejection.Stage.PATCH_INSPECTION);
-        if (!inspection.path("ok").asBoolean()) {
-            return;
+        requireToolSuccess(inspection);
+        JsonNode files = inspection.path("result").path("files");
+        if (!files.isObject() || files.isEmpty() || files.size() > 64) {
+            throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Controlled patch preview is required");
         }
-        var paths = inspection.path("result").fields();
-        while (paths.hasNext()) {
-            var field = paths.next();
-            requirePath(field.getKey());
-            if (!field.getValue().asText().equals(sanitize(field.getValue().asText()))) {
+        ObjectNode beforeImages = json.createObjectNode();
+        ObjectNode afterImages = json.createObjectNode();
+        var entries = files.fields();
+        while (entries.hasNext()) {
+            var entry = entries.next();
+            String path = entry.getKey();
+            requirePath(path);
+            JsonNode file = entry.getValue();
+            String before = capturedText(file.get("before"));
+            String after = capturedText(file.get("after"));
+            String preimage = file.path("preimage").asText();
+            String postimage = file.path("postimage").asText();
+            requireWitness(before, preimage);
+            requireWitness(after, postimage);
+            List<CredentialMutationGuard.Range> oldLines = new ArrayList<>();
+            List<CredentialMutationGuard.Range> newLines = new ArrayList<>();
+            if (!file.path("changes").isArray()) {
+                throw new AgentException("SNAPSHOT_MISMATCH", "Controlled change ranges are required");
+            }
+            for (JsonNode range : file.path("changes")) {
+                if (!range.isArray() || range.size() != 4) {
+                    throw new AgentException("SNAPSHOT_MISMATCH", "Invalid controlled change range");
+                }
+                for (JsonNode value : range) {
+                    if (!value.isIntegralNumber() || !value.canConvertToInt()) {
+                        throw new AgentException("SNAPSHOT_MISMATCH", "Invalid controlled change range");
+                    }
+                }
+                oldLines.add(new CredentialMutationGuard.Range(range.get(0).asInt(), range.get(1).asInt()));
+                newLines.add(new CredentialMutationGuard.Range(range.get(2).asInt(), range.get(3).asInt()));
+            }
+            var guard = new CredentialMutationGuard(secrets);
+            guard.requireSafe(path, before, after, new CredentialMutationGuard.Changes(oldLines, newLines));
+            if (!preimage.equals("absent") && !postimage.equals("absent")
+                    && !preimage.substring(65).equals(postimage.substring(65))
+                    && !secrets.mutationProtectedLines(path, before).isEmpty()) {
                 throw AgentPolicyRejection.sourceEditRejectedBeforeApply();
             }
+            beforeImages.put(path, preimage);
+            afterImages.put(path, postimage);
         }
-        if (!arguments.path("patch").asText().equals(sanitize(arguments.path("patch").asText()))) {
-            throw AgentPolicyRejection.patchContentRejectedBeforeApply();
+        ((ObjectNode) arguments).set("preimages", beforeImages);
+        ((ObjectNode) arguments).set("postimages", afterImages);
+    }
+
+    private String capturedText(JsonNode value) {
+        if (value == null || !(value.isNull() || value.isTextual())) {
+            throw new AgentException("SNAPSHOT_MISMATCH", "Controlled source text is required");
+        }
+        return value.isNull() ? null : value.asText();
+    }
+
+    private void requireWitness(String content, String identity) {
+        if (content == null ? !identity.equals("absent")
+                : !identity.matches("[0-9a-f]{64}:100(?:644|755)")
+                    || !identity.startsWith(Candidate.digest(content) + ":") || content.indexOf(0) >= 0) {
+            throw new AgentException("SNAPSHOT_MISMATCH", "Captured source identity differs from its content");
         }
     }
 
@@ -574,6 +618,11 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                                 .put("instruction", "标准 diff 语法不完整，未应用任何修改；优先改用 edit_file 精确原文替换。"))
                         .toString();
             }
+            if (inspection.path("ok").asBoolean()
+                    && inspection.path("result").path("classification").asText().equals("PATCH_CONFLICT")) {
+                ((ObjectNode) inspection).put("tool", call.name());
+                return inspection.toString();
+            }
             try {
                 requirePatchContent(inspection, arguments);
             } catch (AgentPolicyRejection rejection) {
@@ -581,7 +630,11 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                         && rejection.sourceEditRejectedBeforeMutation()) {
                     JsonNode original = parse(call.arguments().getBytes(StandardCharsets.UTF_8));
                     String field = call.name().equals("edit_file") ? "new_text" : "patch";
-                    throw contentRejection(field, original.path(field).asText());
+                    String path = original.path("path").asText();
+                    if (field.equals("patch") && inspection.path("result").path("files").size() == 1) {
+                        path = inspection.path("result").path("files").fieldNames().next();
+                    }
+                    throw contentRejection(field, original.path(field).asText(), path);
                 }
                 throw rejection;
             }
@@ -630,7 +683,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         rejectPolicy(response, AgentTools.mutation(call.name()) ? AgentPolicyRejection.Stage.PATCH_APPLICATION
                 : AgentPolicyRejection.Stage.TOOL_EXECUTION);
         requireCertainPatchOutcome(response);
-        JsonNode visible = sanitizeNode(response);
+        JsonNode visible = sourceResponse(call.name(), response);
         if (call.name().equals("run_checks") && visible.path("result") instanceof ObjectNode check
                 && visible.toString().getBytes(StandardCharsets.UTF_8).length > session.limits.maxOutputBytes()) {
             String output = check.path("output").asText();
@@ -649,6 +702,71 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (response.path("classification").asText().equals("PATCH_OUTCOME_UNCERTAIN")) {
             throw new AgentException("PATCH_OUTCOME_UNCERTAIN", "Patch application outcome could not be established");
         }
+    }
+
+    /** 完整源码先净化再切片；内部原文材料字段不进入模型工具结果。 */
+    JsonNode sourceResponse(String tool, JsonNode response) {
+        if (!response.path("ok").asBoolean() || !Set.of("read_file", "search_code").contains(tool)) {
+            return sanitizeNode(response);
+        }
+        JsonNode result = response.path("result");
+        ObjectNode visible = json.createObjectNode().put("ok", true).put("tool", tool);
+        ObjectNode data = json.createObjectNode();
+        if (tool.equals("read_file")) {
+            String path = result.path("path").asText();
+            requirePath(path);
+            if (!result.path("_source").isTextual()) {
+                throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Complete source view is required");
+            }
+            List<String> lines = sourceLines(secrets.sanitizeSource(path, result.path("_source").asText()));
+            int first = result.path("startLine").asInt();
+            int count = result.path("count").asInt();
+            if (first < 1 || count < 1 || count > 300) {
+                throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Invalid source slice");
+            }
+            int start = Math.min(first - 1, lines.size());
+            data.put("path", sanitize(path)).put("startLine", first).put("totalLines", result.path("totalLines").asInt())
+                    .put("content", String.join("", lines.subList(start, Math.min(start + count, lines.size()))));
+        } else {
+            var matches = data.putArray("matches");
+            data.put("truncated", result.path("truncated").asBoolean());
+            Map<String, List<String>> sources = new HashMap<>();
+            for (JsonNode match : result.path("matches")) {
+                String path = match.path("path").asText();
+                requirePath(path);
+                JsonNode raw = result.path("_sources").path(path);
+                if (!raw.isTextual()) {
+                    throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Complete search source is required");
+                }
+                List<String> lines = sources.computeIfAbsent(path,
+                        key -> sourceLines(secrets.sanitizeSource(key, raw.asText())));
+                int line = match.path("line").asInt();
+                if (line < 1 || line > lines.size()) {
+                    throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Invalid search source line");
+                }
+                String excerpt = lines.get(line - 1);
+                while (!excerpt.isEmpty() && (excerpt.charAt(excerpt.length() - 1) == 10
+                        || excerpt.charAt(excerpt.length() - 1) == 13)) {
+                    excerpt = excerpt.substring(0, excerpt.length() - 1);
+                }
+                matches.addObject().put("path", sanitize(path)).put("line", line)
+                        .put("excerpt", excerpt.substring(0, Math.min(excerpt.length(), 400)));
+            }
+        }
+        visible.set("result", data);
+        return visible;
+    }
+
+    private List<String> sourceLines(String content) {
+        List<String> lines = new ArrayList<>();
+        int start = 0;
+        while (start < content.length()) {
+            int end = content.indexOf(10, start);
+            end = end < 0 ? content.length() : end + 1;
+            lines.add(content.substring(start, end));
+            start = end;
+        }
+        return lines;
     }
 
     private JsonNode sanitizeNode(JsonNode node) {
@@ -706,8 +824,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 bytes = git(session, Map.of(), null, "cat-file", "blob", original.objectId());
             }
             current = decode(bytes);
-            if (current.indexOf('\0') >= 0 || !current.equals(sanitize(current))) {
-                throw AgentPolicyRejection.sourceEditRejectedBeforeApply();
+            if (current.indexOf(0) >= 0) {
+                throw new AgentException("SOURCE_TEXT", "Binary source cannot be edited");
             }
             break;
         }
@@ -872,6 +990,11 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     throw new AgentException("GENERATED_OUTPUT_AMBIGUITY", "Generated-looking output outside target requires explicit classification");
                 }
                 String content = candidateText(bytes);
+                if (previous != null && !previous.mode().equals(mode)
+                        && !secrets.mutationProtectedLines(path, candidateText(git(session, Map.of(), null,
+                                "cat-file", "blob", previous.objectId()))).isEmpty()) {
+                    throw new AgentException("CANDIDATE_POLICY", "Credential-bearing source mode must remain unchanged");
+                }
                 if (path.equals(".gitattributes") || path.endsWith("/.gitattributes")) {
                     if (content.matches("(?s).*(filter=|export-ignore|export-subst|working-tree-encoding|\\bident\\b).*")) {
                         throw new AgentException("GIT_ATTRIBUTES_UNSUPPORTED", "Unsupported Git attribute change");
@@ -879,6 +1002,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 }
                 changed.add(path);
                 git(session, index, null, "update-index", "--add", "--cacheinfo", mode + "," + objectId + "," + path);
+                requireFrozenMutation(session, index, path, previous == null ? null
+                        : git(session, Map.of(), null, "cat-file", "blob", previous.objectId()), bytes);
             }
         }
         for (String deleted : session.baseline.keySet()) {
@@ -887,6 +1012,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 changed.add(deleted);
                 byte[] removal = ("0 " + "0".repeat(40) + "\t" + deleted + "\0").getBytes(StandardCharsets.UTF_8);
                 git(session, index, removal, "update-index", "-z", "--index-info");
+                requireFrozenMutation(session, index, deleted,
+                        git(session, Map.of(), null, "cat-file", "blob", session.baseline.get(deleted).objectId()), null);
             }
         }
         if (changed.isEmpty()) {
@@ -895,13 +1022,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         changed.sort(Comparator.naturalOrder());
         String expected = gitText(session, index, null, "write-tree");
         byte[] diff = git(session, Map.of(), null, "diff-tree", "--no-commit-id", "-r", "-p", "--full-index",
-                "--binary", "--no-renames", "--no-ext-diff", "--no-textconv", session.task.baseline(), expected, "--");
+                "--binary", "--unified=0", "--no-renames", "--no-ext-diff", "--no-textconv", session.task.baseline(), expected, "--");
+        diff = removeHunkHeadings(decode(diff)).getBytes(StandardCharsets.UTF_8);
         if (diff.length > session.limits.maxCandidateBytes()) {
             throw new AgentException("CANDIDATE_LIMIT", "Final Candidate exceeds configured diff budget");
         }
         Map<String, String> replay = Map.of("GIT_INDEX_FILE", session.directory.resolve("replay.index").toString());
         git(session, replay, null, "read-tree", session.task.baseline());
-        git(session, replay, diff, "apply", "--cached", "--whitespace=nowarn", "-");
+        git(session, replay, diff, "apply", "--cached", "--unidiff-zero", "--whitespace=nowarn", "-");
         String replayed = gitText(session, replay, null, "write-tree");
         if (!expected.equals(replayed)) {
             throw new AgentException("REPLAY_MISMATCH", "Candidate diff does not reconstruct the final source tree");
@@ -926,10 +1054,28 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     /** 新旧两侧都验证，防止最终删除或类型转换绕过文本工具的修改边界。 */
     private String candidateText(byte[] bytes) {
         String content = decode(bytes);
-        if (content.indexOf('\0') >= 0 || !content.equals(sanitize(content))) {
+        if (content.indexOf(0) >= 0) {
             throw new AgentException("CANDIDATE_POLICY", "Changed source is binary or contains recognized credentials");
         }
         return content;
+    }
+
+    /** 最终捕获不信任工具阶段的结论，独立按实际基线和冻结文件重算变更。 */
+    private void requireFrozenMutation(Session session, Map<String, String> index, String path,
+            byte[] before, byte[] after) {
+        String delta = decode(git(session, index, null, "diff", "--cached", "--unified=0",
+                "--no-ext-diff", "--no-textconv", session.task.baseline(), "--", path));
+        try {
+            new CredentialMutationGuard(secrets).requireSafe(path, before == null ? null : candidateText(before),
+                    after == null ? null : candidateText(after), CredentialMutationGuard.ranges(delta));
+        } catch (AgentPolicyRejection rejected) {
+            throw new AgentException("CANDIDATE_POLICY", "Frozen source contains a prohibited credential mutation");
+        }
+    }
+
+    /** Git 的函数标题也可能来自邻接源码；不让它携带未修改的秘密进入持久化差异。 */
+    static String removeHunkHeadings(String diff) {
+        return diff.replaceAll("(?m)^(@@ -[0-9]+(?:,[0-9]+)? [+][0-9]+(?:,[0-9]+)? @@).*$", "$1");
     }
 
     private String evidence(Session session, JsonNode snapshot) {

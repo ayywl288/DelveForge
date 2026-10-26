@@ -508,7 +508,7 @@ class CodingAgentServiceTest {
             return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + request,
                     "read_file", "{\"path\":\"src/Counter.java\"}")), 10L);
         };
-        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true,\"result\":{\"content\":\"synthetic\"}}");
+        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true,\"result\":{\"path\":\"src/Counter.java\",\"content\":\"synthetic\"}}");
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
             var run = awaitTerminal(service, id, 10);
@@ -959,7 +959,7 @@ class CodingAgentServiceTest {
             AgentProtocol.ToolCall call = invocation.getArgument(1);
             return call.name().equals("apply_patch")
                     ? "{\"ok\":false,\"result\":{\"classification\":\"PATCH_CONFLICT\",\"mutationNotStarted\":true,\"conflictReason\":\"CONTEXT_MISMATCH\",\"paths\":[\"src/Counter.java\"],\"output\":\"" + "x".repeat(2500) + "\"}}"
-                    : "{\"ok\":true,\"result\":{\"content\":\"" + "x".repeat(2500) + "\"}}";
+                    : "{\"ok\":true,\"result\":{\"path\":\"src/Counter.java\",\"content\":\"" + "x".repeat(2500) + "\"}}";
         });
         when(sandbox.finish(anyString(), any())).thenThrow(new AgentException("NO_CHANGES", "No changes"));
         AgentModelPort model = (history, tools) -> {

@@ -1,5 +1,11 @@
 # Autonomous Coding Agent and Delivery
 
+**2026-10-26 现行凭据编辑合同：** [ADR-0016](decisions/0016-mutation-aware-source-credential-protection.md)
+替代历史整文件凭据编辑禁令。普通运行时令牌代码可以编辑；真实凭据所在行及敏感路径仍保护。
+完整源码先净化再切片，真实补丁私有预演/写入前后像核对，冻结独立复核并以无秘密上下文的 D 重放交付。
+M1–M3 保守出站政策、隔离、用户确认、可信 R/B/C 和失败未知状态不变。下文旧整文件描述保留为历史。
+
+
 本路径以 [ADR-0012](decisions/0012-autonomous-agent-sandbox-and-frozen-candidate.md) 为设计依据。
 Task 1 历史证据记录在 [核心验收](validation/task1-autonomous-agent.md)。Candidate 冻结不等于正式 Delivery。
 正式交付依据 [ADR-0013](decisions/0013-frozen-candidate-delivery.md)；当前实现证据以

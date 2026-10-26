@@ -1,5 +1,11 @@
 # DOMAIN_MODEL.md
 
+**2026-10-26 现行凭据编辑合同：** [ADR-0016](decisions/0016-mutation-aware-source-credential-protection.md)
+替代历史整文件凭据编辑禁令。普通运行时令牌代码可以编辑；真实凭据所在行及敏感路径仍保护。
+完整源码先净化再切片，真实补丁私有预演/写入前后像核对，冻结独立复核并以无秘密上下文的 D 重放交付。
+M1–M3 保守出站政策、隔离、用户确认、可信 R/B/C 和失败未知状态不变。下文旧整文件描述保留为历史。
+
+
 **2026-10-24 自动准备基线：**
 
 分析版本记为 A，`WorkingCopy.sourceRevision = RepositoryProfile.analyzedRevision = A`，INV-W09 保持。

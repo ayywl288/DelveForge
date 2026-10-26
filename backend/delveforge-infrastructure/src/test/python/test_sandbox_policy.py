@@ -15,6 +15,20 @@ sandbox = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sandbox)
 
 
+def fixture_git(command, input_bytes=None, *_args, **kwargs):
+    result = subprocess.run(command, input=input_bytes, cwd=kwargs.get('cwd', sandbox.ROOT),
+                            capture_output=True, check=False, timeout=10)
+    return result.returncode, (result.stdout + result.stderr).decode('utf-8', errors='replace')
+
+
+def witnessed(patch_text):
+    with patch.object(sandbox, 'run_bounded', side_effect=fixture_git):
+        preview = sandbox.dispatch('inspect_patch', {'patch': patch_text})
+    return {'patch': patch_text,
+            'preimages': {key: data['preimage'] for key, data in preview['files'].items()},
+            'postimages': {key: data['postimage'] for key, data in preview['files'].items()}}
+
+
 class SandboxPolicyTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -61,7 +75,7 @@ class SandboxPolicyTest(unittest.TestCase):
                                 capture_output=True, cwd=self.root, check=False)
         self.assertEqual(0, result.returncode)
         self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
-            'protocol': 'delveforge-sandbox', 'version': 2}},
+            'protocol': 'delveforge-sandbox', 'version': 3}},
             {k: v for k, v in json.loads(result.stdout).items() if k != 'durationMs'})
         self.assertEqual(before, list(self.root.iterdir()))
         self.assertEqual(b'', result.stderr)
@@ -154,11 +168,9 @@ class SandboxPolicyTest(unittest.TestCase):
         target = self.root / 'Notes.txt'
         target.write_text('-- marker\n', encoding='utf-8', newline='\n')
         diff = '--- a/Notes.txt\n+++ b/Notes.txt\n@@ -1 +1 @@\n--- marker\n+++ marker\n'
-        def git(command, input_bytes, *_args):
-            result = subprocess.run(command, input=input_bytes, cwd=self.root, capture_output=True, check=False)
-            return result.returncode, result.stdout.decode('utf-8')
-        with patch.object(sandbox, 'run_bounded', side_effect=git):
-            result = sandbox.dispatch('apply_patch', {'patch': diff})
+        args = witnessed(diff)
+        with patch.object(sandbox, 'run_bounded', side_effect=fixture_git):
+            result = sandbox.dispatch('apply_patch', args)
         self.assertEqual('PATCH_APPLIED', result['classification'])
         self.assertEqual(['Notes.txt'], result['paths'])
         self.assertEqual('++ marker\n', target.read_text(encoding='utf-8'))
@@ -166,21 +178,23 @@ class SandboxPolicyTest(unittest.TestCase):
     def test_capture_rejection_after_apply_is_classified_without_claiming_no_mutation(self):
         failure = sandbox.PolicyError('SOURCE_CAPTURE_LIMIT', 'fixed internal diagnostic')
         diff = '--- /dev/null\n+++ b/a.txt\n@@ -0,0 +1 @@\n+value\n'
-        with patch.object(sandbox, 'run_bounded', return_value=(0, '')), patch.object(sandbox, 'snapshot', side_effect=failure):
-            caught = self.assert_policy('SOURCE_CAPTURE_LIMIT', lambda: sandbox.dispatch('apply_patch', {'patch': diff}))
+        args = witnessed(diff)
+        with patch.object(sandbox, 'run_bounded', side_effect=fixture_git), patch.object(sandbox, 'snapshot', side_effect=failure):
+            caught = self.assert_policy('SOURCE_CAPTURE_LIMIT', lambda: sandbox.dispatch('apply_patch', args))
         self.assertIs(failure, caught)
         self.assertEqual('SOURCE_CAPTURE', caught.stage)
 
-    def test_inspect_patch_only_reads_original_source_and_never_executes_or_mutates(self):
+    def test_patch_preview_only_mutates_private_copies_and_preserves_original_bytes(self):
         original = 'password="synthetic-private-value"\nordinary=1\n'
         target = self.root / 'Config.txt'
-        target.write_text(original, encoding='utf-8', newline='\n')
+        target.write_bytes(original.encode())
         diff = '--- a/Config.txt\n+++ b/Config.txt\n@@ -2 +2 @@\n-ordinary=1\n+ordinary=2\n'
-        with patch.object(sandbox, 'run_bounded') as execute:
-            inspected = sandbox.dispatch('inspect_patch', {'patch': diff})
-            execute.assert_not_called()
-        self.assertEqual(original, inspected['Config.txt'])
-        self.assertEqual(original, target.read_text(encoding='utf-8'))
+        with patch.object(sandbox, 'run_bounded', side_effect=fixture_git):
+            result = sandbox.dispatch('inspect_patch', {'patch': diff})
+        self.assertEqual(original.encode(), target.read_bytes())
+        self.assertEqual(original, result['files']['Config.txt']['before'])
+        self.assertEqual(original.replace('ordinary=1', 'ordinary=2'), result['files']['Config.txt']['after'])
+        self.assertEqual([[2, 1, 2, 1]], result['files']['Config.txt']['changes'])
 
     def test_source_entry_type_and_protected_entries(self):
         (self.root / 'safe.txt').write_text('content', encoding='utf-8')

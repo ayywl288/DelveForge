@@ -19,7 +19,7 @@ class ExactEditPatchTest {
 
     private int apply(String patch, boolean check) throws Exception {
         List<String> command = new ArrayList<>(List.of("git", "-c", "core.longpaths=true",
-                "-c", "core.autocrlf=false", "apply", "--no-index", "--whitespace=nowarn"));
+                "-c", "core.autocrlf=false", "apply", "--no-index", "--unidiff-zero", "--whitespace=nowarn"));
         if (check) {
             command.add("--check");
         }

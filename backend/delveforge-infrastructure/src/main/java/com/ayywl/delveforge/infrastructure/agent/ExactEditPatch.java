@@ -43,12 +43,25 @@ final class ExactEditPatch {
         }
         List<String> oldLines = lines(current == null ? "" : current);
         List<String> newLines = lines(updated);
+        int prefix = 0;
+        while (prefix < oldLines.size() && prefix < newLines.size()
+                && oldLines.get(prefix).equals(newLines.get(prefix))) {
+            prefix++;
+        }
+        int suffix = 0;
+        while (suffix < oldLines.size() - prefix && suffix < newLines.size() - prefix
+                && oldLines.get(oldLines.size() - suffix - 1).equals(newLines.get(newLines.size() - suffix - 1))) {
+            suffix++;
+        }
+        int oldCount = oldLines.size() - prefix - suffix;
+        int newCount = newLines.size() - prefix - suffix;
+        // 只生成实际改动行；不把邻接的未变凭据写进差异或候选记录。
         StringBuilder diff = new StringBuilder("--- ").append(current == null ? "/dev/null" : "a/" + path)
                 .append("\n+++ b/").append(path).append("\n@@ -")
-                .append(oldLines.isEmpty() ? 0 : 1).append(',').append(oldLines.size()).append(" +")
-                .append(newLines.isEmpty() ? 0 : 1).append(',').append(newLines.size()).append(" @@\n");
-        append(diff, oldLines, '-');
-        append(diff, newLines, '+');
+                .append(oldCount == 0 ? prefix : prefix + 1).append(',').append(oldCount).append(" +")
+                .append(newCount == 0 ? prefix : prefix + 1).append(',').append(newCount).append(" @@\n");
+        append(diff, oldLines.subList(prefix, oldLines.size() - suffix), '-');
+        append(diff, newLines.subList(prefix, newLines.size() - suffix), '+');
         String patch = diff.toString();
         if (patch.getBytes(StandardCharsets.UTF_8).length > maximumBytes) {
             throw new AgentPolicyRejection(AgentPolicyRejection.Rule.PATCH_SIZE,

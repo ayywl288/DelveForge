@@ -64,4 +64,20 @@ public interface RepositorySecretPolicy {
      * @throws RepositorySecretBoundaryException 边界无法安全完成这次净化
      */
     SanitizedRepositoryMaterial sanitize(List<RepositorySourceFile> files);
+
+    /** Agent 源码视图；默认沿用保守出站规则，具体实现可保留已证明不是字面量的表达式。 */
+    default String sanitizeSource(String relativePath, String content) {
+        return sanitize(List.of(new RepositorySourceFile(relativePath, content))).material().getFirst().content();
+    }
+
+    /** 写入边界的受保护物理行；未知实现保持整文件保守拒绝，不改变出站净化合同。 */
+    default List<Integer> mutationProtectedLines(String relativePath, String content) {
+        String visible = sanitize(List.of(new RepositorySourceFile(relativePath, content)))
+                .material().getFirst().content();
+        if (visible.equals(content)) {
+            return List.of();
+        }
+        return java.util.stream.IntStream.rangeClosed(1, content.split("\n", -1).length).boxed().toList();
+    }
+
 }

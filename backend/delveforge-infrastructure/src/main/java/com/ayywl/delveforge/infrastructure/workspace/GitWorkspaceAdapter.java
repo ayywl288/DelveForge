@@ -283,7 +283,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             patch = Files.createTempFile(target.resolve(".git"), "delveforge-delivery-", ".diff");
             Files.writeString(patch, candidate.diff(), StandardCharsets.UTF_8);
             deliveryGit(target, index, "read-tree", delivery.baseline());
-            deliveryGit(target, index, "apply", "--cached", "--whitespace=nowarn", "--", patch.toString());
+            deliveryGit(target, index, "apply", "--cached", "--unidiff-zero", "--whitespace=nowarn", "--", patch.toString());
             if (!deliveryGit(target, index, "write-tree").strip().equals(candidate.expectedTree())) {
                 throw new AgentException("TREE_MISMATCH", "Frozen diff does not replay to expected Candidate tree");
             }
@@ -387,7 +387,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             // 只有源码写入成功后才更新 index；--cached 不接触正式工作树，并由 Git 自己持有 index.lock。
             beforeDeliveryIndexPublication(target);
             deliveryGit(target, null, "--attr-source=" + delivery.expectedTree(), "-c", "core.safecrlf=false",
-                    "apply", "--cached", "--whitespace=nowarn", "--", patch.toString());
+                    "apply", "--cached", "--unidiff-zero", "--whitespace=nowarn", "--", patch.toString());
             requireDeliveryTree(new WorkspaceRef(delivery.location()), new WorkspaceRef(delivery.originalLocation()),
                     delivery.baseline(), delivery.expectedTree());
             // 只有实际 B/index 全部证明后才移除此标记；任何失败/崩溃均不允许按 B 自动接受。

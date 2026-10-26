@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
-from test_sandbox_policy import sandbox
+from test_sandbox_policy import sandbox, fixture_git
 
 
 class PatchFeedbackTest(unittest.TestCase):
@@ -25,12 +25,21 @@ class PatchFeedbackTest(unittest.TestCase):
         return ''.join(difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),
                                           fromfile='a/Counter.java', tofile='b/Counter.java', n=2))
 
+    def witness(self, value):
+        with patch.object(sandbox, 'run_bounded', side_effect=fixture_git):
+            preview = sandbox.dispatch('inspect_patch', {'patch': value})
+        if 'classification' in preview:
+            return preview
+        return {'patch': value,
+                'preimages': {key: data['preimage'] for key, data in preview['files'].items()},
+                'postimages': {key: data['postimage'] for key, data in preview['files'].items()}}
+
     def apply(self, value):
-        def git(command, input_bytes, *_args):
-            result = subprocess.run(command, input=input_bytes, cwd=self.root, capture_output=True, check=False)
-            return result.returncode, (result.stdout + result.stderr).decode('utf-8', errors='replace')
-        with patch.object(sandbox, 'run_bounded', side_effect=git):
-            return sandbox.dispatch('apply_patch', {'patch': value})
+        args = self.witness(value)
+        if 'classification' in args:
+            return args
+        with patch.object(sandbox, 'run_bounded', side_effect=fixture_git):
+            return sandbox.dispatch('apply_patch', args)
 
     def test_stale_context_is_confirmed_non_mutating_and_has_safe_actionable_feedback(self):
         changed = self.original.replace('first = 1', 'first = 2')
@@ -73,12 +82,14 @@ class PatchFeedbackTest(unittest.TestCase):
 
     def test_apply_failure_after_successful_check_is_uncertain_and_never_recoverable(self):
         change = self.diff(self.original, self.original.replace('first = 1', 'first = 2'))
+        args = self.witness(change)
         with patch.object(sandbox, 'run_bounded', side_effect=[(0, ''), (1, 'private diagnostic')]):
             with self.assertRaises(sandbox.PatchOutcomeUnknown):
-                sandbox.dispatch('apply_patch', {'patch': change})
+                sandbox.dispatch('apply_patch', args)
 
     def test_capture_io_failure_after_apply_is_not_returned_as_recoverable_tool_error(self):
         change = self.diff(self.original, self.original.replace('first = 1', 'first = 2'))
-        with patch.object(sandbox, 'run_bounded', return_value=(0, '')), patch.object(sandbox, 'snapshot', side_effect=OSError('private')):
+        args = self.witness(change)
+        with patch.object(sandbox, 'run_bounded', side_effect=fixture_git), patch.object(sandbox, 'snapshot', side_effect=OSError('private')):
             with self.assertRaises(sandbox.PatchOutcomeUnknown):
-                sandbox.dispatch('apply_patch', {'patch': change})
+                sandbox.dispatch('apply_patch', args)

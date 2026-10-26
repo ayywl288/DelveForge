@@ -29,7 +29,16 @@ diff = '--- a/Counter.java\n+++ b/Counter.java\n@@ -1 +1 @@\n-class Counter { in
 if mode == 'conflict':
     target.write_bytes(original.replace(b'= 1', b'= 3'))
 before = target.read_bytes()
-request = json.dumps({'name': 'apply_patch', 'arguments': {'patch': diff}}).encode()
+preview = sandbox.dispatch('inspect_patch', {'patch': diff})
+if preview.get('classification') == 'PATCH_CONFLICT':
+    # 验证应用入口自己的 Git冲突路径，前像仍取当前实际文件，不伪造不存在的修改结果。
+    args = {'patch': diff, 'preimages': {'Counter.java': sandbox.patch_state(target)},
+            'postimages': {'Counter.java': sandbox.patch_state(target)}}
+else:
+    args = {'patch': diff,
+            'preimages': {key: item['preimage'] for key, item in preview['files'].items()},
+            'postimages': {key: item['postimage'] for key, item in preview['files'].items()}}
+request = json.dumps({'name': 'apply_patch', 'arguments': args}).encode()
 sys.stdin = io.TextIOWrapper(io.BytesIO(request), encoding='utf-8')
 output = io.StringIO()
 real_run = sandbox.run_bounded
@@ -94,7 +103,7 @@ class SandboxImageProtocolTest(unittest.TestCase):
                                 json.dumps({'name': 'protocol', 'arguments': {}}).encode())
         response = json.loads(output)
         self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
-            'protocol': 'delveforge-sandbox', 'version': 2}},
+            'protocol': 'delveforge-sandbox', 'version': 3}},
             {k: v for k, v in response.items() if k != 'durationMs'})
 
     def test_successful_patch_changes_exact_fixture_bytes(self):

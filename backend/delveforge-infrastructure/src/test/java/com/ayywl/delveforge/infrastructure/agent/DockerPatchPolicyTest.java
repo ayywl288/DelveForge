@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
+import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
 
@@ -45,18 +46,28 @@ class DockerPatchPolicyTest {
     }
 
     @Test
-    void multilineRecognizedInputKeepsFirstLocationWithoutReturningAnyBlock() throws Exception {
+    void proposedSourceLocationsDoNotFlagLegitimateRuntimeExpressions() {
+        String proposed = "const token = this.getToken();\nconst password='synthetic-private-value';\n"
+                + "const ordinary='[redacted-credential]';\n";
+        var rejection = sandbox.contentRejection("new_text", proposed, "src/Auth.js");
+        assertEquals(java.util.List.of(2, 3), rejection.rejectedInput().lines());
+        assertEquals(null, sandbox.contentRejection("new_text", "const token=this.getToken();", "src/Auth.js")
+                .rejectedInput());
+    }
+
+    @Test
+    void multilineRecognizedInputKeepsProtectedLinesWithoutReturningAnyBlock() throws Exception {
         var rejection = sandbox.contentRejection("new_text", "ordinary\n-----BEGIN PRIVATE KEY-----\n"
                 + "synthetic-private-material\n-----END PRIVATE KEY-----\n");
-        assertEquals(java.util.List.of(2), rejection.rejectedInput().lines());
+        assertEquals(java.util.List.of(2, 3, 4), rejection.rejectedInput().lines());
         assertFalse(json.writeValueAsString(rejection.rejectedInput()).contains("synthetic"));
     }
 
     @Test
     void recognizedCredentialInNewPatchIsStillRejectedWithProvenPreMutationStage() {
         var failure = assertThrows(AgentPolicyRejection.class, () -> sandbox.requirePatchContent(
-                json.valueToTree(Map.of("ok", true, "result", Map.of("src/Example.java", "ordinary=1;"))),
-                json.valueToTree(Map.of("patch", "password=\"fixture-private-value\""))));
+                preview("src/Example.java", "ordinary=1;", "password='synthetic-private-value';"),
+                json.createObjectNode().put("patch", "controlled patch")));
         assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, failure.rule());
         assertEquals(AgentPolicyRejection.Stage.PATCH_CONTENT, failure.stage());
         assertTrue(failure.sourceEditRejectedBeforeMutation());
@@ -86,55 +97,70 @@ class DockerPatchPolicyTest {
     }
 
     @Test
-    void unrelatedEditOfCredentialBearingFileStillRejectsAndSanitizedWritebackIsNotAllowed() {
-        var inspection = json.valueToTree(Map.of("ok", true, "result", Map.of("src/Config.java",
-                "password=\"fixture-private-value\"\nordinary=1\n")));
-        for (String patch : new String[]{"change ordinary to 2", "password=[redacted-credential]"}) {
+    void credentialMutationsAndRedactedWritebackRemainRejectedWhileOrdinaryTokenCodeIsEditable() {
+        String before = "String password='synthetic-private-value';";
+        for (String after : new String[]{"ordinary=2;", "String password='other-private-value';",
+                "String password='[redacted-credential]';"}) {
             var failure = assertThrows(AgentPolicyRejection.class,
-                    () -> sandbox.requirePatchContent(inspection, json.valueToTree(Map.of("patch", patch))));
+                    () -> sandbox.requirePatchContent(preview("src/Config.java", before, after),
+                            json.createObjectNode().put("patch", "controlled patch")));
             assertEquals(AgentPolicyRejection.Rule.SOURCE_CREDENTIALS, failure.rule());
             assertEquals(AgentPolicyRejection.Stage.PATCH_SOURCE, failure.stage());
-            assertFalse(failure.getMessage().contains("fixture-private-value"));
-            assertFalse(failure.getMessage().contains("Config.java"));
+            assertFalse(failure.getMessage().contains("synthetic-private-value"));
         }
-    }
-
-    @Test
-    void patchCredentialsRejectBeforeExecutionButOrdinaryContentRemainsPermitted() {
-        var inspection = json.valueToTree(Map.of("ok", true, "result", Map.of("src/Config.java", "ordinary=1\n")));
-        var failure = assertThrows(AgentPolicyRejection.class, () -> sandbox.requirePatchContent(inspection,
-                json.valueToTree(Map.of("patch", "password=\"fixture-private-value\""))));
-        assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, failure.rule());
-        assertEquals(AgentPolicyRejection.Stage.PATCH_CONTENT, failure.stage());
-        sandbox.requirePatchContent(inspection, json.valueToTree(Map.of("patch", "ordinary=2")));
-    }
-
-    @Test
-    void literalCredentialAndOrdinaryCodeAssignmentBothRemainProtectedWithoutExposingValues() {
-        for (String source : new String[]{"password=\"synthetic-private-value\"\nordinary=1\n",
-                "class Parser { int token = 0; int ordinary = 1; }"}) {
-            var inspection = json.valueToTree(Map.of("ok", true, "result", Map.of("src/Config.java", source)));
-            for (String edit : new String[]{"change ordinary only", "change protected value", "[redacted-credential]"}) {
-                var failure = assertThrows(AgentPolicyRejection.class,
-                        () -> sandbox.requirePatchContent(inspection, json.valueToTree(Map.of("patch", edit))));
-                assertTrue(failure.sourceEditRejectedBeforeMutation());
-                assertEquals(AgentPolicyRejection.Rule.SOURCE_CREDENTIALS, failure.rule());
-                assertEquals(AgentPolicyRejection.Stage.PATCH_SOURCE, failure.stage());
-                assertFalse(failure.getMessage().contains(source));
-            }
-        }
-        sandbox.requirePatchContent(json.valueToTree(Map.of("ok", true, "result", Map.of("src/Other.java", "int ordinary = 1;"))),
-                json.valueToTree(Map.of("patch", "change ordinary only")));
+        var arguments = json.createObjectNode().put("patch", "controlled patch");
+        sandbox.requirePatchContent(preview("src/Config.java", "int token = 0;", "int token = next();"), arguments);
+        assertTrue(arguments.has("preimages"));
+        assertTrue(arguments.has("postimages"));
         assertFalse(new AgentPolicyRejection(AgentPolicyRejection.Rule.SOURCE_CREDENTIALS,
                 AgentPolicyRejection.Stage.PATCH_SOURCE).sourceEditRejectedBeforeMutation());
+    }
+
+    @Test
+    void previewContentAndWitnessMustAgreeAndMissingPreviewFailsClosed() {
+        var inspection = preview("src/Config.java", "int ordinary=1;", "int ordinary=2;");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) inspection.path("result").path("files").path("src/Config.java"))
+                .put("preimage", "0".repeat(64) + ":100644");
+        assertEquals("SNAPSHOT_MISMATCH", assertThrows(AgentException.class,
+                () -> sandbox.requirePatchContent(inspection, json.createObjectNode())).code());
+        assertThrows(AgentException.class, () -> sandbox.requirePatchContent(
+                json.valueToTree(Map.of("ok", true, "result", Map.of())), json.createObjectNode()));
+    }
+
+    @Test
+    void completeSourceIsSanitizedBeforeReadingOrSearchingAnInteriorPrivateKeyLine() {
+        String complete = "ordinary();\n-----BEGIN PRIVATE KEY-----\nsynthetic-private-material\n-----END PRIVATE KEY-----\nnext();\n";
+        var data = json.createObjectNode().put("path", "src/Auth.js").put("startLine", 3).put("count", 1)
+                .put("totalLines", 5).put("_source", complete);
+        var read = sandbox.sourceResponse("read_file", json.createObjectNode().put("ok", true).set("result", data));
+        assertFalse(read.toString().contains("synthetic-private-material"));
+        assertFalse(read.toString().contains("_source"));
+        assertEquals("[redacted-credential]\n", read.path("result").path("content").asText());
+        var search = json.createObjectNode();
+        search.putArray("matches").addObject().put("path", "src/Auth.js").put("line", 3);
+        search.set("_sources", json.createObjectNode().put("src/Auth.js", complete));
+        var visible = sandbox.sourceResponse("search_code", json.createObjectNode().put("ok", true).set("result", search));
+        assertFalse(visible.toString().contains("synthetic-private-material"));
+        assertFalse(visible.toString().contains("_sources"));
+        assertEquals("[redacted-credential]", visible.path("result").path("matches").get(0).path("excerpt").asText());
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode preview(String path, String before, String after) {
+        var file = json.createObjectNode().put("before", before).put("after", after)
+                .put("preimage", before == null ? "absent" : com.ayywl.delveforge.domain.agent.Candidate.digest(before) + ":100644")
+                .put("postimage", after == null ? "absent" : com.ayywl.delveforge.domain.agent.Candidate.digest(after) + ":100644");
+        file.putArray("changes").addArray().add(before == null ? 0 : 1).add(before == null ? 0 : 1)
+                .add(after == null ? 0 : 1).add(after == null ? 0 : 1);
+        return json.createObjectNode().put("ok", true).set("result",
+                json.createObjectNode().set("files", json.createObjectNode().set(path, file)));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"../host", "/host/path", ".git/config", ".env", "keys/private.pem"})
     void inspectedProtectedPathsCannotBypassJavaGuard(String path) {
         var failure = assertThrows(AgentPolicyRejection.class, () -> sandbox.requirePatchContent(
-                json.valueToTree(Map.of("ok", true, "result", Map.of(path, "ordinary=1"))),
-                json.valueToTree(Map.of("patch", "ordinary=2"))));
+                preview(path, "ordinary=1", "ordinary=2"),
+                json.createObjectNode().put("patch", "controlled patch")));
         assertEquals("POLICY_REJECTED", failure.code());
         assertEquals(AgentPolicyRejection.Stage.PATH_VALIDATION, failure.stage());
         assertFalse(failure.getMessage().contains(path));
@@ -166,7 +192,8 @@ class DockerPatchPolicyTest {
         var failure = assertThrows(AgentPolicyRejection.class,
                 () -> DockerAgentSandbox.rejectPolicy(capture, AgentPolicyRejection.Stage.PATCH_APPLICATION));
         assertEquals(AgentPolicyRejection.Stage.SOURCE_CAPTURE, failure.stage());
-        sandbox.requirePatchContent(json.valueToTree(Map.of("ok", false, "classification", "TOOL_ERROR")),
-                json.valueToTree(Map.of("patch", "invalid patch")));
+        assertThrows(AgentException.class, () -> sandbox.requirePatchContent(
+                json.valueToTree(Map.of("ok", false, "classification", "TOOL_ERROR")),
+                json.createObjectNode().put("patch", "invalid patch")));
     }
 }

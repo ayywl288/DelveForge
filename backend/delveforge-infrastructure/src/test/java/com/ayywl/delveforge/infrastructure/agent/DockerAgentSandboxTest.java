@@ -36,8 +36,8 @@ class DockerAgentSandboxTest {
     private final AgentProcess process = new AgentProcess();
 
     static AgentSandboxProperties properties(Path root) {
-        return new AgentSandboxProperties(root, "docker", Map.of(21, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_21", "delveforge-agent:protocol-v2-jdk21"),
-                17, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_17", "delveforge-agent:protocol-v2-jdk17")), 21, "delveforge-compatibility-tests",
+        return new AgentSandboxProperties(root, "docker", Map.of(21, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_21", "delveforge-agent:protocol-v3-jdk21"),
+                17, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_17", "delveforge-agent:protocol-v3-jdk17")), 21, "delveforge-compatibility-tests",
                 "delveforge-compatibility-20261024-cache", "2g", "2", 256);
     }
 
@@ -103,6 +103,78 @@ class DockerAgentSandboxTest {
             patch.append('+').append(newLines[i]).append('\n');
         }
         return patch.toString();
+    }
+
+    @Test
+    void safeChangesBesideCredentialFreezeWithoutSecretInCandidateDiff() throws Exception {
+        Path official = fixture();
+        Path auth = official.resolve("src/main/java/example/Auth.java");
+        Files.writeString(auth, """
+                package example;
+                class Auth {
+                    private final String password = "synthetic-private-value";
+                    int ordinary = 1;
+                }
+                """);
+        git(official, "add", "src/main/java/example/Auth.java");
+        git(official, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "credential fixture");
+        String baseline = git(official, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        var sandbox = new DockerAgentSandbox(properties(temporary.resolve("credential-runs")),
+                new DeterministicRepositorySecretPolicy());
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
+                    temporary.resolve("original").toString(), baseline, "increment", "counter", "fix", 21),
+                    AgentProtocol.Limits.defaults(), () -> false);
+            String visible = tool(sandbox, id, "read_file", Map.of("path", "src/main/java/example/Auth.java"));
+            assertFalse(visible.contains("synthetic-private-value"));
+            assertTrue(visible.contains("redacted-credential"));
+            assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Auth.java",
+                    "old_text", "int ordinary = 1;", "new_text", "int ordinary = 2;")).contains("PATCH_APPLIED"));
+            assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
+                    "old_text", "return n;", "new_text", "return n + 1;")).contains("PATCH_APPLIED"));
+            var check = json.readTree(tool(sandbox, id, "run_checks", Map.of("goal", "verify")));
+            assertEquals("TESTS_PASSED", check.path("result").path("classification").asText());
+            assertTrue(check.path("result").path("executedTests").asInt() > 0);
+            Candidate candidate = sandbox.finish(id, () -> false);
+            assertFalse(candidate.diff().contains("synthetic-private-value"));
+            assertTrue(candidate.changedPaths().contains("src/main/java/example/Auth.java"));
+            assertEquals(baseline, git(official, "rev-parse", "HEAD"));
+            assertTrue(git(official, "status", "--porcelain").isEmpty());
+        } finally {
+            sandbox.cleanup(id);
+        }
+    }
+
+    @Test
+    void finalCaptureRejectsCredentialMutationOutsideTheEditingTool() throws Exception {
+        Path official = fixture();
+        Files.writeString(official.resolve("src/main/java/example/Auth.java"), """
+                package example;
+                class Auth { String password = "synthetic-private-value"; }
+                """);
+        git(official, "add", "src/main/java/example/Auth.java");
+        git(official, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "credential fixture");
+        String baseline = git(official, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        var sandbox = new DockerAgentSandbox(properties(temporary.resolve("credential-bypass")),
+                new DeterministicRepositorySecretPolicy());
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
+                    temporary.resolve("original").toString(), baseline, "increment", "counter", "fix", 21),
+                    AgentProtocol.Limits.defaults(), () -> false);
+            String code = "from pathlib import Path; p=Path('/workspace/src/main/java/example/Auth.java'); "
+                    + "p.write_bytes(p.read_bytes().replace(b'synthetic-private-value', b'different-private-value'))";
+            var result = process.run(List.of("docker", "exec", sandbox.identity(id).containerId(), "python3", "-c", code),
+                    temporary, null, Duration.ofSeconds(20), 8192, () -> false, Map.of());
+            assertEquals(0, result.exitCode());
+            assertEquals("CANDIDATE_POLICY", assertThrows(AgentException.class,
+                    () -> sandbox.finish(id, () -> false)).code());
+            assertEquals(baseline, git(official, "rev-parse", "HEAD"));
+            assertTrue(git(official, "status", "--porcelain").isEmpty());
+        } finally {
+            sandbox.cleanup(id);
+        }
     }
 
     @Test
