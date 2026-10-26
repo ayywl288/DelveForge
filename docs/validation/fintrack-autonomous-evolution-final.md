@@ -1,8 +1,8 @@
 # FinTrack 自主稳定化与真实演化验收
 
-日期：2026-10-25（Asia/Shanghai）。代码版本：`eca48614e3a2f74420bd71470b2271713e16baca`。
+更新：2026-10-26（Asia/Shanghai）；10月25日历史记录保留，最新状态见第10节。代码版本：`eca48614e3a2f74420bd71470b2271713e16baca`。
 
-**结论：BLOCKED_WITH_VERIFIED_CAUSE。** 已完成 DelveForge 修复与回归，但真实 CSV 演化未交付。最后一次正常产品 Run 在模型请求前遇到 Docker Engine 不可达，监控取消并停止后续尝试。**已核实的阻塞是 Docker Linux 管道消失、Desktop/后端进程不在、WSL distribution 停止；退出根因仍 UNKNOWN。** 没有 Candidate、Delivery 或完成的功能验收。
+**结论：BLOCKED_WITH_VERIFIED_CAUSE。** 10月26日用户重新打开Docker并授权一次重试。本次Docker全程正常，但Agent两次尝试编辑 `frontend/js/api.js`，触发原有 SOURCE_CREDENTIALS/PATCH_SOURCE；第一次已允许另选方案，第二次仍编辑同一受保护文件，Run按规则终止。没有Candidate、Delivery或完成的CSV功能验收。10月25日Docker退出根因仍UNKNOWN，不能把历史故障当作这次失败原因。
 
 ## 1. 范围、版本与事实边界
 
@@ -87,7 +87,7 @@ Run01取消前归档了工作现场，Run02保留编译后的只读归档。Run0
 | `4464943a-033c-43ba-aa50-1331261157ea` | 6回复、16工具、51931 tokens | Docker执行中退出，根因UNKNOWN；无Candidate/Delivery |
 | `82a89bba-9501-43e4-ab5a-9aea761388de` | 9请求、8接受回复、28工具 | 接受usage96739，失败响应另报告36354，合计133093报告tokens；LENGTH/8192，未执行部分响应。无补丁或Candidate/Delivery |
 
-## 6. 最后一次 Docker 失联：最后可信事件
+## 6. 10月25日 Docker 失联：最后可信事件
 
 | 本地时间 | 已确认事实 |
 |---|---|
@@ -118,7 +118,7 @@ Run01取消前归档了工作现场，Run02保留编译后的只读归档。Run0
 | 新正式WorkingCopy | HEAD=currentRevision=lastVerifiedRevision=preparedRevision=P，Git干净，未发布任何本轮不完整编辑 |
 | Candidate B / Delivery C | **不存在**，不能提供parent(C)=P/tree(C)=B或最终冻结测试一致性的完成证据 |
 | SQLite | integrity_check=ok，foreign_key_check=0，Candidate=0、Delivery=0；新Plan ACTIVE、Step READY |
-| Run04占用 | 终态CANCELLED但occupied=1，CLEANUP_BLOCKED。保留锁和归属资源，未SQL强行释放；状态READY并不表示当前可再次Run |
+| Run04占用 | 10月25日终态CANCELLED、occupied=1、CLEANUP_BLOCKED；10月26日通过正常应用启动协调释放为0，未SQL强行释放。Run05结束后也为0，详见第10节 |
 
 证据为 `state-before-run04.json`、`run-04/final-integrity.json`，以及 before-product/after-run-01/02/03/04.sqlite 一致备份。没有删除历史Run、工作副本、缓存、镜像或数据库。
 
@@ -175,6 +175,51 @@ Run01取消前归档了工作现场，Run02保留编译后的只读归档。Run0
 
 现在的DelveForge可以在原资产之外准备可信副本，正常替换不适合的同方向计划，提出完整可验证的Step，用受控精确编辑实际改代码并调用Maven；部分明确写入前错误和截断可安全反馈修正。真实Run已证明精确编辑和编译链路推进，最终位置反馈只有确定性验证。**本次尚未证明普通用户能靠该流程成功交付FinTrack CSV功能，不能宣传为完整演化成功或通用可靠。**
 
-外部阻塞发生后已停止所有后续实验，并按PID与JAR身份核对后停止本任务启动的空闲后端；未处理用户其他进程。继续前需要查清/恢复Docker与WSL环境，再用正常产品协调流程处理Run04的CLEANUP_BLOCKED和归属资源、复核P与占用。不能直接绕过锁或自动发起下一次付费调用。本次不提供无证据的系统配置修改或推测代码修复。
+10月25日外部阻塞后停止了实验并保留占用；10月26日用户恢复Docker、重新授权一次重试后，正常启动协调已释放Run04占用。本次失败后正常清理也已完成，再按PID/JAR身份核对停止隔离后端，未处理用户其他进程。没有绕过锁、放宽凭据规则或自动发起另一Run；后续需要让真实Agent完成符合既有安全边界的实现与验证，不能用人工FinTrack修改代替。
+
+
+## 10. 2026-10-26：用户恢复Docker后的单次真实重试
+
+用户明确表示已打开Docker并要求再试一次。生产源码未改，继续使用 `eca4861` 和上一轮已验证的同一JAR（SHA256见第4节）；10月25日回归是留存证据，本次没有重复运行完整后端/前端回归。
+
+### 正常恢复与非AI负载
+
+- 初查Docker Linux29.4.0/API1.54、WSL2 Running、无运行容器；Windows Available=4246056960bytes（3.95GiB）。没有使用4GiB硬性门槛。
+- 同一当前JAR的生产Docker适配器，对可信P执行一次非AI `run_checks(directory=backend,goal=verify)`：总耗时31.92秒、exit0、BUILD_PASSED_NOT_TESTED，0报告/0测试。原P没有测试，构建结果不作为功能通过。
+- 五次资源样本中可用内存约3.29–3.75GiB，Docker检查结束后正常；原仓库、旧WorkingCopy、数据库文件hash/size/mtime、Run/Step/副本状态全不变。没有新Agent Run、模型调用或源码编辑。
+- 先备份 `before-retry-20261026.sqlite`。启动同一隔离数据库的正式后端，现有 ApplicationRunner 调用 reconcile，正常停止/清理Run04归属资源后释放occupied=1→0；没有直接更新SQLite或清理其他历史资源。证据：`reconciliation-20261026.json`。
+- 非AI证据：`non-ai-retry-20261026/load-summary.json`、`load-maven-result.json`、`load-resource-samples.json`及前后保护快照。
+
+### 本次实际Run与失败链
+
+| 项 | 实际结果 |
+|---|---|
+| Run | `8df8f04d-acfa-4f49-9c9e-3eb7a7585267`，本轮只POST一次 |
+| 时间 | 11:10:54.891–11:19:54.259（Asia/Shanghai），约9分钟 |
+| 起点 | 原Plan/Step/WorkingCopy不变，确认状态和Git干净P校验后启动；不重做M1–M3或规划 |
+| 模型 | 17个MODEL_REQUEST、17个接受回复，报告usage **237547 tokens** |
+| 工具 | 30次：1list_files、5search_code、15read_file、8edit_file、1apply_patch |
+| 编辑 | 6次精确编辑成功，涉及TransactionService、TransactionController、TransactionCsvExporter、transactions.js；只在Run隔离区，未发布 |
+| Maven/测试 | **0次run_checks、0项测试**；没有本次编译或功能通过证据 |
+| 终态 | FAILED/POLICY_REJECTED，无Candidate/Delivery |
+
+可信事件链（`run-05/events.json`，共82条完整事件）：
+
+1. seq471 / 11:18:32.641：编辑 `frontend/js/api.js` 被 SOURCE_CREDENTIALS/PATCH_SOURCE 拒绝；mutationNotStarted=true、alternativeAllowed=true、resultRecorded=true。拒绝含义是原文件命中既有秘密策略，并非证明其中每个命中值都是实际密钥；没有输出值或原文。
+2. seq473 / 11:18:41.232：Agent改为编辑 `frontend/js/transactions.js`，PATCH_APPLIED。
+3. seq476 / 11:19:05.187：重新读取api.js。
+4. seq479 / 11:19:29.695：apply_patch为PATCH_CONFLICT，固定诊断DIFF_STRUCTURE_INVALID，未开始写入；不是政策绕过。
+5. seq482 / 11:19:54.257：再次edit_file同一个api.js，SOURCE_CREDENTIALS/PATCH_SOURCE；第二次策略拒绝按既有共享一次替代上限终止。
+
+**已核实的本次失败原因：Agent在收到“保留受保护文件、选择其他合法实现路径”的反馈后，又请求编辑同一被保护源文件。** 这次并非Docker不可达、资源耗尽、模型截断、Maven失败或新增测试内容拒绝；不能将它们混称为原因。新增new_text/patch数字行号反馈针对PATCH_CREDENTIALS，本次两次是SOURCE_CREDENTIALS，没有真实触发该新定位反馈。没有放宽秘密策略，也未人工替Agent完成业务代码。
+
+### Docker、保护状态与终态
+
+- 持续77个资源样本，Windows Available约 **3.23–5.08GiB**，commit最高约 **45.64%**；监控未观察到Docker失联或严重资源压力，终态Docker仍可达。这是约9分钟窗口的稳定性证据，不是历史退出原因已修复的证明。
+- `run-05/final-integrity.json`于11:21:15独立检查：原仓库130文件和旧WorkingCopy67文件hash/size/mtime均与任务前一致；新正式副本Git干净，HEAD=currentRevision=lastVerifiedRevision=preparedRevision=P。
+- SQLite integrity_check=ok，foreign_key_check=0、occupied=0、Candidate=0、Delivery=0；Plan仍ACTIVE、Step仍READY。失败的隔离Run已正常清理，没有发布不完整编辑。
+- 保留 `after-run-05.sqlite` 一致备份；未删除原仓库、数据库、旧副本、缓存、镜像或历史证据。隔离后端在本轮结束后按PID/JAR身份核对停止，Docker保持用户打开的状态。
+- 本任务至今5个新Agent Run中，有80个接受模型回复、129次工具活动、1468358报告tokens；加一次规划为1480434。Run04没有模型请求。没有把报告tokens换算成未核对的账单费用。
+- 实际CSV下载、用户隔离、UTF-8/转义/公式安全、正数测试、Candidate/官方Delivery以及独立HTTP/浏览器验收仍未完成。没有启动第二个新付费Run，没有新增生产源码修复或重跑夹具来替代真实成功。
 
 **BLOCKED_WITH_VERIFIED_CAUSE**
