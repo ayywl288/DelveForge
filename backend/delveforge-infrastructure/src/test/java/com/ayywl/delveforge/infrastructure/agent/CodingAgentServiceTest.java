@@ -327,6 +327,71 @@ class CodingAgentServiceTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"applied", "read", "conflict", "failed-applied"})
+    void onlyANewSuccessfulMutationRestoresPreMutationCorrectionOpportunity(String middle) throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            int call = calls.incrementAndGet();
+            if (call == 1 || call == 3) {
+                throw AgentPolicyRejection.patchContentRejectedBeforeApply();
+            }
+            if (call == 2 && middle.equals("read")) {
+                return "{\"ok\":true,\"result\":{\"path\":\"src/Example.java\",\"content\":\"new observation\"}}";
+            }
+            if (call == 2 && middle.equals("conflict")) {
+                return "{\"ok\":true,\"result\":{\"classification\":\"PATCH_CONFLICT\",\"mutationNotStarted\":true}}";
+            }
+            return "{\"ok\":" + !(call == 2 && middle.equals("failed-applied"))
+                    + ",\"result\":{\"classification\":\"PATCH_APPLIED\"}}";
+        });
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AtomicInteger requests = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> {
+            int request = requests.incrementAndGet();
+            if (request > 4) {
+                return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+            }
+            boolean read = request == 2 && middle.equals("read");
+            AgentProtocol.ToolCall call = new AgentProtocol.ToolCall("call-" + request,
+                    read ? "read_file" : "apply_patch", read ? "{\"path\":\"src/Example.java\"}"
+                            : "{\"patch\":\"edit-" + request + "\"}");
+            return new AgentProtocol.Reply("", List.of(call), 1L);
+        };
+        try (CodingAgentService service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var terminal = awaitTerminal(service, id, 10);
+            assertEquals(middle.equals("applied") ? AgentRunState.SUCCEEDED : AgentRunState.FAILED, terminal.state());
+            assertEquals(middle.equals("applied") ? 4 : 3, calls.get());
+            if (!middle.equals("applied")) {
+                assertEquals("POLICY_REJECTED", terminal.reason());
+                verify(sandbox, never()).finish(anyString(), any());
+            }
+        }
+    }
+
+    @Test
+    void cachedSuccessfulMutationCannotRestoreCorrectionOpportunity() throws Exception {
+        AgentProtocol.ToolCall applied = new AgentProtocol.ToolCall("applied", "apply_patch", "{\"patch\":\"safe\"}");
+        when(sandbox.tool(anyString(), eq(applied), any()))
+                .thenReturn("{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\"}}");
+        AgentProtocol.ToolCall first = new AgentProtocol.ToolCall("first-refusal", "apply_patch", "{\"patch\":\"first\"}");
+        AgentProtocol.ToolCall second = new AgentProtocol.ToolCall("second-refusal", "apply_patch", "{\"patch\":\"second\"}");
+        when(sandbox.tool(anyString(), eq(first), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
+        when(sandbox.tool(anyString(), eq(second), any())).thenThrow(AgentPolicyRejection.patchContentRejectedBeforeApply());
+        List<AgentProtocol.ToolCall> sequence = List.of(applied, first, applied, second);
+        AtomicInteger requests = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("",
+                List.of(sequence.get(requests.getAndIncrement())), 1L);
+        try (CodingAgentService service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
+            assertEquals(4, requests.get());
+            verify(sandbox, times(1)).tool(anyString(), eq(applied), any());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
+    }
+
     @Test
     void sourceAndNewContentRefusalsShareOneCorrectionOpportunity() throws Exception {
         when(sandbox.tool(anyString(), any(), any()))

@@ -188,7 +188,7 @@ public final class CodingAgentService implements AutoCloseable {
         Long tokens = null;
         boolean unknownUsage = false;
         int completionCorrections = 0;
-        int sourceEditRejections = 0;
+        int consecutiveSourceEditRejections = 0;
         AgentPatchCorrections corrections = new AgentPatchCorrections();
         AgentProgress progress = new AgentProgress();
         int request = 0;
@@ -316,9 +316,9 @@ public final class CodingAgentService implements AutoCloseable {
                             result = argumentFailure == null ? sandbox.tool(task.runId(), call, cancelled) : argumentFailure;
                         } catch (AgentException failure) {
                             if (AgentTools.mutation(call.name()) && failure instanceof AgentPolicyRejection rejection
-                                    && rejection.sourceEditRejectedBeforeMutation() && ++sourceEditRejections == 1) {
+                                    && rejection.sourceEditRejectedBeforeMutation() && ++consecutiveSourceEditRejections == 1) {
                                 sourceEditRejection = rejection;
-                                // 同一次 Run 共享一次写入前策略修正机会，拒绝内容从不写回，重复触发仍终止。
+                                // 没有实际修改进展时共享一次写入前修正机会，拒绝内容从不写回。
                                 String instruction = rejection.rule() == AgentPolicyRejection.Rule.SOURCE_CREDENTIALS
                                         ? "拟修改行受到凭据保护，未修改源码。保持这些行原始字节不变，可精确编辑其他行；不要写回脱敏文本。"
                                         : "新增内容包含凭据，补丁未应用。保留验证要求，改用运行时生成的测试值；不得硬编码或写回脱敏值。";
@@ -326,7 +326,7 @@ public final class CodingAgentService implements AutoCloseable {
                                         .put("policyRule", rejection.rule().name()).put("policyStage", rejection.stage().name())
                                         .put("mutationNotStarted", true).put("alternativeAllowed", true)
                                         .put("instruction", instruction + "定位只指向你自己的输入行，不含原文；检查同类赋值，"
-                                                + "不得以改名、编码、拆分或脱敏值规避检查。再次触发写入前策略拒绝将终止 Run。");
+                                                + "不得以改名、编码、拆分或脱敏值规避检查。下一次成功实际修改前再次触发写入前策略拒绝将终止 Run。");
                                 if (rejection.rejectedInput() != null) {
                                     feedback.set("rejectedInput", json.valueToTree(rejection.rejectedInput()));
                                 }
@@ -367,6 +367,8 @@ public final class CodingAgentService implements AutoCloseable {
                         checks++;
                     } else if (AgentTools.mutation(call.name()) && patchApplied(result)) {
                         appliedPatches++;
+                        // 只有本次调用的成功源码修改重置连续拒绝；读取、冲突和缓存均不能重置。
+                        consecutiveSourceEditRejections = 0;
                     }
                 }
                 progress.record(call, result, invoked && AgentTools.mutation(call.name()) && patchApplied(result));
@@ -488,7 +490,8 @@ public final class CodingAgentService implements AutoCloseable {
     private boolean patchApplied(String result) {
         try {
             JsonNode response = json.readTree(result);
-            return response.path("result").path("classification").asText().equals("PATCH_APPLIED");
+            return response.path("ok").asBoolean()
+                    && response.path("result").path("classification").asText().equals("PATCH_APPLIED");
         } catch (IOException failure) {
             throw new AgentException("TOOL_PROTOCOL", "Tool result must be structured JSON");
         }

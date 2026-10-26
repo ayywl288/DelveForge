@@ -363,17 +363,16 @@ PATCH_CORRECTION_LIMIT。成功应用后才清空此修正历史。CRLF 与 LF �
 旧记录缺少规则时保持未知；旧工具协议的未分类拒绝显式标为 UNCLASSIFIED_POLICY，不猜测历史原因。
 诊断写入失败仍保留原始失败分类。未新增迁移或自动重试，Candidate/Delivery 安全边界不变。
 
-2026-10-24 的有限反馈：只有 Docker 适配器在只读 inspect_patch 完成、尚未调用 apply_patch 时抛出的
-SOURCE_CREDENTIALS/PATCH_SOURCE，才显式标记 mutationNotStarted。普通规则/阶段相同的异常不推断该保证。
-每个 Run 最多一次将此拒绝作为 ok=false、resultRecorded=true 的安全工具结果返回，带固定规则、阶段和
-alternativeAllowed=true；告知模型保留受保护文件并另选安全实现路径，不自动重试原补丁。
-同一工具身份重放返回缓存，不重新调用沙箱；换参数复用身份仍 TOOL_ID_CONFLICT。
-第二个不同调用再次命中即终止 POLICY_REJECTED，不给第二次恢复机会。原有模型/工具/时间预算不变。
-拒绝本身不是修改成功；Candidate 最终化及 Delivery 仍核对实际源码、检查与授权，不能把拒绝当作成功证据。
-若该反馈的净化/持久化失败，仍以原策略拒绝终止。应用后捕获、未知结果、凭据补丁及其他安全拒绝不恢复。
-已证明修改前拒绝的终态事件仍 resultRecorded=false，但附 mutationNotStarted=true；UI 区分其与修改情况未知。
-整文件保护未放宽；允许秘密所在文件的局部修改仅为待审设计，见
-[调查与策略决策](validation/activity-monitor-source-credentials.md)。
+2026-10-26 的有界反馈：只有适配器明确证明尚未写入的 SOURCE_CREDENTIALS/PATCH_SOURCE
+或 PATCH_CREDENTIALS/PATCH_CONTENT，才允许返回 ok=false、resultRecorded=true、
+mutationNotStarted=true、alternativeAllowed=true 的固定安全反馈；不返回被拒绝的原文。
+没有真实修改进展的区间最多一次修正机会，第二个不同调用再次命中即终止 POLICY_REJECTED。
+只有本次实际调用得到 ok=true/PATCH_APPLIED 才重置连续拒绝计数；读取、冲突、失败以及缓存旧成功均不重置。
+模型须保留验证要求，保持受保护原文不变；新测试内容使用运行时生成的值，不能写回脱敏占位符。
+同一工具身份返回缓存，不重新调用沙箱；换参数复用身份仍 TOOL_ID_CONFLICT。
+拒绝不是成功修改；Candidate 与 Delivery 仍独立核对实际源码、测试和授权。
+净化或记录失败仍以原策略拒绝终止；应用后捕获、未知结果及其他安全拒绝均不恢复。
+这只纠正累计拒绝控制流，不修改凭据识别、原文保护或写入/冻结边界。
 
 unified diff 路径解析按 hunk 的旧/新行数识别正文，正文里的 ---/+++ 不再误当文件头。
 真实文件头仍检查相对路径及所有原有策略；畸形 hunk 在 Git 执行前拒绝，既有 TOOL_ERROR 反馈只适用于此类未执行请求。
