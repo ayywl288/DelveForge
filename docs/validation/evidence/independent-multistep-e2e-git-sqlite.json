@@ -1,0 +1,70 @@
+{
+  "sqliteIntegrity": "ok",
+  "foreignKeyIssues": [],
+  "steps": [
+    {
+      "id": "0b5a9528-5ae2-4602-a34f-49c16a331885",
+      "position": 0,
+      "status": "READY",
+      "baseline_revision": null,
+      "delivery_revision": null
+    },
+    {
+      "id": "9c8ec79b-4340-4d9d-965b-48ced52a4d73",
+      "position": 1,
+      "status": "PENDING_CONFIRMATION",
+      "baseline_revision": null,
+      "delivery_revision": null
+    },
+    {
+      "id": "f80dc4d4-75a4-4a51-8237-ab57929ed433",
+      "position": 2,
+      "status": "PENDING_CONFIRMATION",
+      "baseline_revision": null,
+      "delivery_revision": null
+    },
+    {
+      "id": "aee6fe13-e14d-44bb-9579-b267bdd7242e",
+      "position": 3,
+      "status": "PENDING_CONFIRMATION",
+      "baseline_revision": null,
+      "delivery_revision": null
+    }
+  ],
+  "workingCopy": {
+    "id": "8ab00aed-43c3-4a57-aadc-2d3391cb6618",
+    "source_asset_id": "93d346df-8444-44e0-aa8b-cbf443ca33e7",
+    "source_revision": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d",
+    "location": "E:\\develop\\DelveForge\\data\\independent-multistep-20261026\\workspaces\\8ab00aed-43c3-4a57-aadc-2d3391cb6618",
+    "current_revision": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d",
+    "last_verified_revision": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d",
+    "status": "READY",
+    "prepared_revision": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d",
+    "preparation_json": "{\"originalRevision\":\"91f69ab1d7ab3a654814a1971cd3871ab0dffb1d\",\"preparedRevision\":\"91f69ab1d7ab3a654814a1971cd3871ab0dffb1d\",\"policyVersion\":\"IDENTITY\",\"removedPaths\":[],\"metadataPaths\":[]}"
+  },
+  "runs": [
+    {
+      "id": "a650c901-e265-4ab6-80e0-05339296e2c2",
+      "state": "FAILED",
+      "reason": "DEPENDENCY_PREPARATION_MUTATED_SOURCE",
+      "baseline": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d",
+      "candidate_id": null,
+      "occupied": 0,
+      "retained": 0,
+      "model_calls": 30,
+      "tool_calls": 65,
+      "tokens": 635067
+    }
+  ],
+  "candidateCount": 0,
+  "deliveryCount": 0,
+  "occupiedRunCount": 0,
+  "occupiedDeliveryCount": 0,
+  "originalHead": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d",
+  "originalGitStatus": "",
+  "originalFilesUnchanged": true,
+  "workingCopyHead": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d",
+  "workingCopyGitStatus": "",
+  "workingCopyParents": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d ddb97af514400ac5d68235aa3a9579cc60674e8d",
+  "planSnapshotSha256": "bc23239993340200a87c740c5bad64e3d8f8a83db0696348ec0780dbb59125a1"
+}
