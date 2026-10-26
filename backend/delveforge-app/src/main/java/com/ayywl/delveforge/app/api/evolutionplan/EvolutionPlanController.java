@@ -34,7 +34,7 @@ public class EvolutionPlanController {
         return EvolutionPlanResponse.from(generate.generate(new GenerateEvolutionPlanRequest(
                 new ProductDirectionId(request.productDirectionId()), new SoftwareAssetId(request.baseAssetId()),
                 new RepositoryProfileId(request.baseRepositoryProfileId()),
-                request.project() == null ? null : request.project().basis())));
+                request.project() == null ? null : request.project().basis(), request.planningNotes())));
     }
     @GetMapping("/{id}")
     public EvolutionPlanResponse get(@PathVariable String id) {

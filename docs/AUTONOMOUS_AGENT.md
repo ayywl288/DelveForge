@@ -1,5 +1,10 @@
 # Autonomous Coding Agent and Delivery
 
+**2026-10-26 验收反馈入口：** `POST /api/evolution-plans/planning` 可选 `planningNotes`，
+供用户提交目标内的补充要求或独立验收反馈。说明经过既有保守凭据净化后作为模型数据输入，
+不成为 Evidence 或授权；所选 Direction、事实来源校验、PROPOSED 计划和逐 Step 确认保持。
+已成功 Step 不回改、不重跑；需要继续改进时正常生成、准备并确认新计划。当前前端不提供说明编辑器。
+
 **2026-10-26 MVP 简化：** [ADR-0017](decisions/0017-bounded-agent-credential-policy.md)
 替代下段源码表达式分类。Agent 保护已知格式和直接凭据字面量；不承诺识别任意代码中的秘密。
 不新增词法或语义分析；隔离、写入核对、Candidate/Delivery 和 M1–M3 保守政策保持。

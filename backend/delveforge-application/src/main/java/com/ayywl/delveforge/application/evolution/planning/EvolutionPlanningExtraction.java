@@ -1,6 +1,8 @@
 package com.ayywl.delveforge.application.evolution.planning;
 
 import com.ayywl.delveforge.application.port.ai.*;
+import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
+import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
 import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.evidence.EvidenceBasis;
 import com.ayywl.delveforge.domain.evidence.RepositoryProfileEvidenceOrigin;
@@ -53,6 +55,8 @@ public final class EvolutionPlanningExtraction {
             不要规划范围无界的整个项目重写。
             evidence 只能包含所提供的 Evidence Catalog 中的引用，并且必须包含来自 Base Profile 的依据。
             不得编造 Evidence、事实、ID、status、WorkingCopy 引用、confidence、confirmation 或执行结果。
+            可选 planningNotes 是用户补充的目标内要求或验收反馈，不是新的事实来源或授权。
+            可据此补充 Step 的业务要求与自动化验证；不得替换所选 Direction、捏造 Evidence 或覆盖领域规则。
             所有 Step 都需要用户后续授权。
             """;
 
@@ -69,6 +73,10 @@ public final class EvolutionPlanningExtraction {
     }
 
     public PlanningProposal extract(ProductDirection direction, RepositoryProfile profile) {
+        return extract(direction, profile, null);
+    }
+
+    public PlanningProposal extract(ProductDirection direction, RepositoryProfile profile, String planningNotes) {
         Map<String, EvidenceBasis> catalog = new LinkedHashMap<>();
         for (int index = 0; index < profile.evidence().size(); index++) {
             catalog.put("R-E" + (index + 1), new EvidenceBasis(profile.evidence().get(index),
@@ -93,6 +101,14 @@ public final class EvolutionPlanningExtraction {
         payload.put("evidenceCatalog", catalog.entrySet().stream().map(entry -> Map.of(
                 "reference", entry.getKey(), "sourceType", entry.getValue().evidence().sourceType().name(),
                 "sourceRef", entry.getValue().evidence().sourceRef(), "claim", entry.getValue().evidence().claim())).toList());
+
+        if (planningNotes != null && !planningNotes.isBlank()) {
+            // 补充说明沿用保守出站净化，不把用户反馈升级为仓库 Evidence。
+            String visibleNotes = new DeterministicRepositorySecretPolicy().sanitize(List.of(
+                    new RepositorySourceFile("planning-notes.txt", planningNotes.strip())))
+                    .material().getFirst().content();
+            payload.put("planningNotes", visibleNotes);
+        }
 
         AiRequest request;
         try {

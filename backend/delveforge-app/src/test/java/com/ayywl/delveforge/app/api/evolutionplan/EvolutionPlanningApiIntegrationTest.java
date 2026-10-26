@@ -114,6 +114,21 @@ class EvolutionPlanningApiIntegrationTest {
     }
 
     @Test
+    void optionalPlanningNotesPassThroughHttpAndRetainNormalProposalBoundaries() throws Exception {
+        String request = REQUEST.substring(0, REQUEST.lastIndexOf('}'))
+                + ",\"planningNotes\":\"Cover a reported escaping regression\"}";
+        mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("PROPOSED"))
+                .andExpect(jsonPath("$.steps[0].status").value("PENDING_CONFIRMATION"));
+        var sent = org.mockito.ArgumentCaptor.forClass(AiRequest.class);
+        verify(ai).generate(sent.capture());
+        JsonNode payload = mapper.readTree(sent.getValue().messages().get(1).content());
+        assertEquals("Cover a reported escaping regression", payload.path("planningNotes").asText());
+        verifyNoInteractions(reads, mutations);
+    }
+
+    @Test
     void createsAndRetrievesThePersistedProposedPlanWithoutWorkspaceAccess() throws Exception {
         String body = mvc.perform(post("/api/evolution-plans/planning").contentType(MediaType.APPLICATION_JSON)
                 .content(REQUEST.substring(0, REQUEST.lastIndexOf('}'))
