@@ -1,0 +1,357 @@
+{
+  "at": "2026-10-26T14:03:57.257076+00:00",
+  "method": "POST",
+  "route": "/api/evolution-plans/planning",
+  "request": {
+    "productDirectionId": "26fdf6fe-1cfc-4ea4-acf2-4cb5f9720c58",
+    "baseAssetId": "93d346df-8444-44e0-aa8b-cbf443ca33e7",
+    "baseRepositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a",
+    "project": {
+      "contextId": "b41df302-59c3-4d9b-99db-6eb07f9cff69",
+      "expectedVersion": 2
+    }
+  },
+  "status": 201,
+  "seconds": 40.078,
+  "response": {
+    "id": "281e9daa-e68c-48f1-8a8a-89326dffca29",
+    "productDirectionId": "26fdf6fe-1cfc-4ea4-acf2-4cb5f9720c58",
+    "baseAssetId": "93d346df-8444-44e0-aa8b-cbf443ca33e7",
+    "baseRepositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a",
+    "workingCopyId": null,
+    "currentState": {
+      "summary": "从周计划个人任务板方向看，Taskarium 已具备 Spring Boot/Thymeleaf 服务端渲染、任务与笔记 CRUD、按当前用户隔离查询的数据访问和 Spring Security 基础；但任务编辑更新未写回、删除后的用户响应不完整、输入校验与页面/持久化配置材料缺失，且安全配置使用 NoOpPasswordEncoder。现有能力集中在通用任务/笔记管理，尚未体现截止日期、完成状态、逾期/即将到期分类、未来一周视图或进度汇总。",
+      "capabilities": [
+        "支持用户注册与登录",
+        "基于 ADMIN/USER 角色的 URL 访问控制",
+        "支持任务的新增、列表、详情、编辑和删除接口",
+        "任务和笔记按当前登录用户隔离查询与操作",
+        "支持为任务新增笔记、删除笔记、按任务查询笔记及查询全部笔记",
+        "使用 Thymeleaf 返回服务端渲染页面视图",
+        "使用 MapStruct 进行 DTO 与实体映射",
+        "通过 data.sql 初始化用户数据"
+      ],
+      "modules": [
+        "用户与认证模块：注册、登录、用户服务与 Spring Security 配置",
+        "任务管理模块：任务新增、列表、详情、编辑、删除",
+        "笔记管理模块：笔记新增、按任务查询、全部查询、删除",
+        "持久化模块：User/Task/Note 实体及 JPA Repository",
+        "DTO 与映射模块：任务/笔记/用户 DTO 和 MapStruct 映射",
+        "安全组件模块：CustomUserDetails、CustomUserDetailsService、SecurityConfig"
+      ],
+      "limitations": [
+        "TaskServiceImpl.updateTask 只查询并保存任务，没有把 TaskUpdateDto 的字段写回任务实体，任务编辑逻辑不完整",
+        "TaskController.deleteTask 返回 void，没有重定向或视图返回，用户端删除后的响应不完整",
+        "DTO 与实体中未看到输入校验注解，参数校验能力有限",
+        "提供材料中未包含 application.properties、Thymeleaf 模板和测试代码，无法确认完整页面、数据库连接及测试覆盖情况",
+        "README 声称安全密码存储，但实际安全配置使用 NoOpPasswordEncoder"
+      ]
+    },
+    "targetState": {
+      "problem": "用户经常忘记逾期任务，完成任务后看不清剩余工作量和进度；现有 Taskarium 只有任务/笔记 CRUD，任务实体没有截止日期和完成状态，也没有未来一周视图或进度汇总。",
+      "targetProduct": "一个在本机运行的 Spring Boot + Thymeleaf 个人任务工具：任务可设截止日期和完成状态，首页区分逾期/即将到期，提供未来一周视图，完成后显示剩余任务数与进度，并保留任务描述和关联笔记。",
+      "differentiation": "把现有通用任务 CRUD 改造成以截止日期、完成状态和周计划为核心的个人每日工具，强调逾期提醒和完成后的剩余工作量反馈，而不是团队协作或通用后台。"
+    },
+    "reusableCapabilities": [
+      "支持任务的新增、列表、详情、编辑和删除接口",
+      "任务和笔记按当前登录用户隔离查询与操作",
+      "支持为任务新增笔记、删除笔记、按任务查询笔记及查询全部笔记",
+      "使用 Thymeleaf 返回服务端渲染页面视图",
+      "使用 MapStruct 进行 DTO 与实体映射",
+      "User、Task、Note JPA 实体",
+      "UserRepository、TaskRepository、NoteRepository 数据访问接口",
+      "TaskMapper MapStruct 映射接口",
+      "SecurityConfig 安全过滤链配置"
+    ],
+    "changes": [
+      "扩展任务领域模型与数据传输对象，承载截止日期、完成状态，并保留任务描述及关联笔记关系，同时提供已有数据兼容策略。",
+      "修复任务编辑更新流程，使编辑请求字段真正写回任务实体，并补齐删除后的用户可见响应。",
+      "新增按当前用户、截止日期范围和完成状态的数据访问与查询分类，支撑逾期、即将到期、未来一周和剩余工作量统计。",
+      "改造 Thymeleaf 页面为每日任务板：任务编辑含截止日期与状态，首页分区展示逾期与即将到期，周视图按日期组织，完成后显示剩余数与进度，并展示关联笔记。",
+      "补充输入校验、本地文件型持久化配置、账户凭据安全哈希及必要 Web 安全防护，并增加日期边界、进度计算、跨用户隔离和重启持久化的自动化测试。"
+    ],
+    "steps": [
+      {
+        "id": "0b5a9528-5ae2-4602-a34f-49c16a331885",
+        "planId": "281e9daa-e68c-48f1-8a8a-89326dffca29",
+        "goal": "让用户能创建和编辑带截止日期、完成状态的任务，并在任务列表与详情中看到这些状态，任务编辑字段可靠保存。",
+        "scope": "任务生命周期的截止日期与完成状态字段、编辑写回、基础表单校验，以及相应自动化验证。",
+        "plannedChanges": [
+          "扩展任务实体、DTO 与映射以承载截止日期和完成状态，并兼容已有任务数据。",
+          "修复任务编辑流程，使表单提交的标题、描述、截止日期和完成状态可靠写回。",
+          "在现有任务列表和详情视图中呈现截止日期与完成状态，并补齐编辑、删除后的可见响应。",
+          "为字段持久化、编辑写回、表单校验和用户隔离补充自动化测试。"
+        ],
+        "status": "PENDING_CONFIRMATION",
+        "baselineRevision": null,
+        "deliveryRevision": null
+      },
+      {
+        "id": "9c8ec79b-4340-4d9d-965b-48ced52a4d73",
+        "planId": "281e9daa-e68c-48f1-8a8a-89326dffca29",
+        "goal": "让用户每天打开首页即可区分逾期与即将到期任务，并按未来一周查看安排。",
+        "scope": "按当前用户、日期范围与完成状态的任务查询分类，首页逾期/即将到期分区，未来一周视图，以及关联笔记可见性。",
+        "plannedChanges": [
+          "新增按当前用户和日期范围查询未完成任务的数据访问能力。",
+          "实现逾期与即将到期判定，并在首页分区呈现。",
+          "实现未来一周按日期组织的任务视图，显示任务截止日期、状态与关联笔记。",
+          "为日期边界、逾期判定、周视图范围和跨用户隔离补充自动化测试。"
+        ],
+        "status": "PENDING_CONFIRMATION",
+        "baselineRevision": null,
+        "deliveryRevision": null
+      },
+      {
+        "id": "f80dc4d4-75a4-4a51-8237-ab57929ed433",
+        "planId": "281e9daa-e68c-48f1-8a8a-89326dffca29",
+        "goal": "让用户完成任务后立即看到剩余任务数与进度变化，并能在首页或周视图中切换完成状态。",
+        "scope": "任务完成状态切换、剩余任务数与进度汇总、完成后页面反馈，以及统计与用户隔离验证。",
+        "plannedChanges": [
+          "实现任务完成与取消完成操作，并在完成后刷新用户可见的剩余任务数与进度。",
+          "新增按用户汇总未完成、逾期、即将到期和未来一周任务数量的统计能力。",
+          "在首页和周视图展示剩余工作量与进度反馈。",
+          "为完成状态切换、进度计算、汇总范围和跨用户隔离补充自动化测试。"
+        ],
+        "status": "PENDING_CONFIRMATION",
+        "baselineRevision": null,
+        "deliveryRevision": null
+      },
+      {
+        "id": "aee6fe13-e14d-44bb-9579-b267bdd7242e",
+        "planId": "281e9daa-e68c-48f1-8a8a-89326dffca29",
+        "goal": "确保应用重启后任务与笔记仍保留，不同账户登录时不会看到彼此的任务。",
+        "scope": "本地文件型数据库持久化配置、账户凭据安全哈希、登录与注册账户隔离回归，以及跨重启数据保留验证。",
+        "plannedChanges": [
+          "配置本地文件型 H2 持久化并处理示例数据初始化，使重启后任务和笔记不丢失。",
+          "将账户密码存储从明文编码替换为安全哈希，并调整示例账户初始化以支持正常登录。",
+          "收敛安全配置以保持登录保护、当前用户数据隔离和页面表单提交可用。",
+          "为重启后数据保留、登录认证和跨用户任务隔离补充自动化测试。"
+        ],
+        "status": "PENDING_CONFIRMATION",
+        "baselineRevision": null,
+        "deliveryRevision": null
+      }
+    ],
+    "risks": [
+      "新增截止日期和完成状态需要兼容已有 H2 数据，若处理不当可能导致旧任务不可见或启动失败。",
+      "任务编辑当前未写回更新字段，修复时若遗漏字段映射会导致用户修改无效。",
+      "日期边界、逾期判定、未来一周范围和进度统计容易产生当天或时区歧义，需要自动化测试固定行为。",
+      "材料未提供 application.properties、Thymeleaf 模板和测试代码，页面与文件型持久化配置需要在实现中补齐并验证。",
+      "现有安全配置使用 NoOpPasswordEncoder 且禁用 CSRF、CORS 和 headers，账户隔离与表单安全不能直接视为已完成。",
+      "data.sql 明文示例密码与仓库内 H2 数据库文件带来凭据和本地数据风险，调整初始化与持久化时需避免泄露。"
+    ],
+    "evidence": [
+      {
+        "evidence": {
+          "sourceType": "REPOSITORY",
+          "sourceRef": "pom.xml",
+          "claim": "项目使用 Spring Boot 3.2.5、Spring Web、Spring Data JPA、Spring Security、Thymeleaf、MapStruct、Lombok 和 H2 依赖。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "REPOSITORY_PROFILE",
+          "userProfileId": null,
+          "userProfileRevision": null,
+          "repositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a"
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "REPOSITORY",
+          "sourceRef": "src/main/java/com/springmvc/taskarium/security/SecurityConfig.java",
+          "claim": "SecurityConfig 配置了公开路径、需认证路径和 ADMIN 路径，并禁用 CORS、CSRF 和 headers。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "REPOSITORY_PROFILE",
+          "userProfileId": null,
+          "userProfileRevision": null,
+          "repositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a"
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "REPOSITORY",
+          "sourceRef": "src/main/java/com/springmvc/taskarium/security/SecurityConfig.java",
+          "claim": "SecurityConfig 使用 NoOpPasswordEncoder。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "REPOSITORY_PROFILE",
+          "userProfileId": null,
+          "userProfileRevision": null,
+          "repositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a"
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "REPOSITORY",
+          "sourceRef": "src/main/java/com/springmvc/taskarium/controller/TaskController.java",
+          "claim": "TaskController 提供任务新增、列表、详情、编辑和删除端点。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "REPOSITORY_PROFILE",
+          "userProfileId": null,
+          "userProfileRevision": null,
+          "repositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a"
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "REPOSITORY",
+          "sourceRef": "src/main/java/com/springmvc/taskarium/service/impl/TaskServiceImpl.java",
+          "claim": "TaskServiceImpl.updateTask 仅查询并保存任务，没有将 TaskUpdateDto 字段写入任务实体。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "REPOSITORY_PROFILE",
+          "userProfileId": null,
+          "userProfileRevision": null,
+          "repositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a"
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "REPOSITORY",
+          "sourceRef": "src/main/java/com/springmvc/taskarium/controller/NoteController.java",
+          "claim": "NoteController 提供笔记新增、删除和全部查询端点。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "REPOSITORY_PROFILE",
+          "userProfileId": null,
+          "userProfileRevision": null,
+          "repositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a"
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "REPOSITORY",
+          "sourceRef": "src/main/java/com/springmvc/taskarium/model/entity/Task.java",
+          "claim": "Task、User、Note 是 JPA 实体，并分别映射 tasks、users、notes 表。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "REPOSITORY_PROFILE",
+          "userProfileId": null,
+          "userProfileRevision": null,
+          "repositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a"
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "REPOSITORY",
+          "sourceRef": "src/main/java/com/springmvc/taskarium/repository/TaskRepository.java",
+          "claim": "TaskRepository、NoteRepository、UserRepository 提供 JPA 数据访问能力并按用户或任务过滤。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "REPOSITORY_PROFILE",
+          "userProfileId": null,
+          "userProfileRevision": null,
+          "repositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a"
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "REPOSITORY",
+          "sourceRef": "src/main/resources/data.sql",
+          "claim": "data.sql 插入了带明文密码的 ADMIN 和 USER 用户。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "REPOSITORY_PROFILE",
+          "userProfileId": null,
+          "userProfileRevision": null,
+          "repositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a"
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "REPOSITORY",
+          "sourceRef": "database/db.mv.db",
+          "claim": "仓库中包含 H2 数据库文件 database/db.mv.db。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "REPOSITORY_PROFILE",
+          "userProfileId": null,
+          "userProfileRevision": null,
+          "repositoryProfileId": "987e185d-b1bb-471d-92f1-a251bb875f3a"
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "USER_INPUT",
+          "sourceRef": "我叫Lin，24岁，初级Java开发者，一边准备作品集，一边为社区读书会做志愿者，每月组织两次活动。平时工作事项和活动笔记散落在手机备忘录与聊天记录里。我每晚会在笔记本电脑上查看任务，周日安排未来一周，但经常忘记哪件事已经逾期，完成任务后也不容易看清还剩多少工作。我想要一个自己每天会用的个人任务工具：创建或编辑任务时能记录截止日期，快速区分逾期和即将到期的事，查看未来一周的安排，看到完成工作后剩余任务与进度的变化；任务描述和相关笔记也要保留。重启电脑上的应用后内容不能丢，别人用自己的账号时不能混进我的任务。我懂Java、Spring Boot、SQL和基础HTML/CSS，能运行Maven应用，但没有精力维护多台服务器、复杂前端工具链或付费SaaS/通知服务。对我来说实用和维护简单比作品集包装更重要，不需要团队协作平台。",
+          "claim": "用户经常忘记逾期任务且完成任务后看不清剩余工作量。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "USER_PROFILE",
+          "userProfileId": "68eedc88-5611-41b4-9791-7411aa22a4c0",
+          "userProfileRevision": 17,
+          "repositoryProfileId": null
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "USER_INPUT",
+          "sourceRef": "我叫Lin，24岁，初级Java开发者，一边准备作品集，一边为社区读书会做志愿者，每月组织两次活动。平时工作事项和活动笔记散落在手机备忘录与聊天记录里。我每晚会在笔记本电脑上查看任务，周日安排未来一周，但经常忘记哪件事已经逾期，完成任务后也不容易看清还剩多少工作。我想要一个自己每天会用的个人任务工具：创建或编辑任务时能记录截止日期，快速区分逾期和即将到期的事，查看未来一周的安排，看到完成工作后剩余任务与进度的变化；任务描述和相关笔记也要保留。重启电脑上的应用后内容不能丢，别人用自己的账号时不能混进我的任务。我懂Java、Spring Boot、SQL和基础HTML/CSS，能运行Maven应用，但没有精力维护多台服务器、复杂前端工具链或付费SaaS/通知服务。对我来说实用和维护简单比作品集包装更重要，不需要团队协作平台。",
+          "claim": "用户希望个人任务工具支持截止日期、逾期与即将到期区分、未来一周视图、进度变化和笔记保留。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "USER_PROFILE",
+          "userProfileId": "68eedc88-5611-41b4-9791-7411aa22a4c0",
+          "userProfileRevision": 17,
+          "repositoryProfileId": null
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "USER_INPUT",
+          "sourceRef": "我叫Lin，24岁，初级Java开发者，一边准备作品集，一边为社区读书会做志愿者，每月组织两次活动。平时工作事项和活动笔记散落在手机备忘录与聊天记录里。我每晚会在笔记本电脑上查看任务，周日安排未来一周，但经常忘记哪件事已经逾期，完成任务后也不容易看清还剩多少工作。我想要一个自己每天会用的个人任务工具：创建或编辑任务时能记录截止日期，快速区分逾期和即将到期的事，查看未来一周的安排，看到完成工作后剩余任务与进度的变化；任务描述和相关笔记也要保留。重启电脑上的应用后内容不能丢，别人用自己的账号时不能混进我的任务。我懂Java、Spring Boot、SQL和基础HTML/CSS，能运行Maven应用，但没有精力维护多台服务器、复杂前端工具链或付费SaaS/通知服务。对我来说实用和维护简单比作品集包装更重要，不需要团队协作平台。",
+          "claim": "用户每晚在笔记本电脑上查看任务并在周日安排未来一周。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "USER_PROFILE",
+          "userProfileId": "68eedc88-5611-41b4-9791-7411aa22a4c0",
+          "userProfileRevision": 17,
+          "repositoryProfileId": null
+        }
+      },
+      {
+        "evidence": {
+          "sourceType": "USER_INPUT",
+          "sourceRef": "我叫Lin，24岁，初级Java开发者，一边准备作品集，一边为社区读书会做志愿者，每月组织两次活动。平时工作事项和活动笔记散落在手机备忘录与聊天记录里。我每晚会在笔记本电脑上查看任务，周日安排未来一周，但经常忘记哪件事已经逾期，完成任务后也不容易看清还剩多少工作。我想要一个自己每天会用的个人任务工具：创建或编辑任务时能记录截止日期，快速区分逾期和即将到期的事，查看未来一周的安排，看到完成工作后剩余任务与进度的变化；任务描述和相关笔记也要保留。重启电脑上的应用后内容不能丢，别人用自己的账号时不能混进我的任务。我懂Java、Spring Boot、SQL和基础HTML/CSS，能运行Maven应用，但没有精力维护多台服务器、复杂前端工具链或付费SaaS/通知服务。对我来说实用和维护简单比作品集包装更重要，不需要团队协作平台。",
+          "claim": "用户掌握Java、Spring Boot、SQL和基础HTML/CSS并能运行Maven应用。",
+          "confidence": null,
+          "confirmed": false
+        },
+        "origin": {
+          "kind": "USER_PROFILE",
+          "userProfileId": "68eedc88-5611-41b4-9791-7411aa22a4c0",
+          "userProfileRevision": 17,
+          "repositoryProfileId": null
+        }
+      }
+    ],
+    "status": "PROPOSED"
+  }
+}
