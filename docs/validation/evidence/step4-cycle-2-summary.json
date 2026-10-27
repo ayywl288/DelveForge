@@ -1,0 +1,89 @@
+{
+  "cycle": {
+    "cycle": 2,
+    "verifiedCorrection": "existing paired H2 trace append rejected during isolated Maven checks",
+    "sourceCommit": "ccb2be5f165daf9ac759b26cbacfe4f51cce5ff5",
+    "phase": "FAILED_INVESTIGATING_CREDENTIAL_REJECTIONS",
+    "previousRunIds": [
+      "3d017a2c-4535-4d1f-aa52-f6f123c93b84",
+      "7198fab3-c773-47d5-80db-156b60aa12ee",
+      "72e7ff85-31e3-4283-a4f7-0fc8cc9359de",
+      "7eceebcf-6d9f-4b37-afbe-aa39085709d2",
+      "a650c901-e265-4ab6-80e0-05339296e2c2",
+      "dc3465c3-4da8-4101-8dee-91f5482fc065",
+      "e9f883f1-6210-4c72-b52b-38d9932089ff"
+    ],
+    "targetJdk": 17,
+    "runId": "126b58c3-6c3c-4f70-825f-f402c37d7ced",
+    "paidUsageAcknowledged": true,
+    "outcome": "POLICY_REJECTED",
+    "modelCalls": 29,
+    "toolCalls": 65,
+    "tokens": 678721
+  },
+  "run": {
+    "id": "126b58c3-6c3c-4f70-825f-f402c37d7ced",
+    "state": "FAILED",
+    "reason": "POLICY_REJECTED",
+    "model_calls": 29,
+    "tool_calls": 65,
+    "tokens": 678721,
+    "occupied": 0,
+    "retained": 0,
+    "candidate_id": null
+  },
+  "policyEvents": [
+    {
+      "sequence": 1445,
+      "kind": "TOOL_FINISHED",
+      "summary": {
+        "metadataVersion": 1,
+        "toolCallId": "c008a5df-f515-4b85-9694-bec203f3f923",
+        "tool": "edit_file",
+        "path": "src/test/java/com/springmvc/taskarium/AccountSecurityIntegrationTests.java",
+        "invocationDurationNs": 529500600,
+        "ok": false,
+        "classification": "POLICY_REJECTED",
+        "policyRule": "PATCH_CREDENTIALS",
+        "policyStage": "PATCH_CONTENT",
+        "mutationNotStarted": true,
+        "alternativeAllowed": true,
+        "resultRecorded": true,
+        "rejectedInput": {
+          "field": "new_text",
+          "lines": [
+            83,
+            84
+          ]
+        }
+      }
+    },
+    {
+      "sequence": 1448,
+      "kind": "TOOL_FINISHED",
+      "summary": {
+        "metadataVersion": 1,
+        "toolCallId": "549edd79-2437-4e21-8c70-11ffec488efb",
+        "tool": "edit_file",
+        "path": "src/test/java/com/springmvc/taskarium/AccountSecurityIntegrationTests.java",
+        "ok": false,
+        "resultRecorded": false,
+        "classification": "POLICY_REJECTED",
+        "invocationDurationNs": 532231400,
+        "policyRule": "PATCH_CREDENTIALS",
+        "policyStage": "PATCH_CONTENT",
+        "mutationNotStarted": true,
+        "rejectedInput": {
+          "field": "new_text",
+          "lines": [
+            86,
+            87
+          ]
+        }
+      }
+    }
+  ],
+  "stepStatus": "READY",
+  "delivery": null,
+  "historicalInputValues": "not retained; cannot uniquely reconstruct or classify the rejected values"
+}

@@ -107,7 +107,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void springConfigurationReferencesEditVerifyAndFreezeWhileActualCredentialsStayBlocked() throws Exception {
+    void configurationReferencesAndGeneratedTestValuesFreezeWhileActualCredentialsStayBlocked() throws Exception {
         Path official = fixture();
         String baseline = git(official, "rev-parse", "HEAD");
         String id = UUID.randomUUID().toString();
@@ -129,11 +129,32 @@ class DockerAgentSandboxTest {
             String unchanged = tool(sandbox, id, "read_file", Map.of("path", path));
             assertTrue(unchanged.contains("${DB_PASSWORD:}"));
             assertFalse(unchanged.contains("embedded-private-value"));
+            String testPath = "src/test/java/example/GeneratedCredentialTest.java";
+            String generated = """
+                    package example;
+                    class GeneratedCredentialTest {
+                        @org.junit.jupiter.api.Test void eachFixtureValueIsGeneratedAtRuntime() {
+                            String password = "case-" + java.util.UUID.randomUUID().toString();
+                            String anotherPassword = "case-" + java.util.UUID.randomUUID().toString();
+                            org.junit.jupiter.api.Assertions.assertTrue(password.startsWith("case-"));
+                            org.junit.jupiter.api.Assertions.assertNotEquals(password, anotherPassword);
+                        }
+                    }
+                    """;
+            assertTrue(tool(sandbox, id, "edit_file", Map.of(
+                    "path", testPath, "old_text", "", "new_text", generated)).contains("PATCH_APPLIED"));
+            var literalRejection = assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id, "edit_file", Map.of(
+                    "path", testPath, "old_text", generated,
+                    "new_text", generated.replace("\"case-\" + java.util.UUID.randomUUID().toString()",
+                            "\"embedded-private-value\""))));
+            assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, literalRejection.rule());
+            assertTrue(tool(sandbox, id, "read_file", Map.of("path", testPath)).contains("UUID.randomUUID()"));
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
                     "old_text", "return n;", "new_text", "return n + 1;")).contains("PATCH_APPLIED"));
             assertTrue(tool(sandbox, id, "run_checks", Map.of("goal", "test")).contains("TESTS_PASSED"));
             Candidate candidate = sandbox.finish(id, () -> false);
             assertTrue(candidate.diff().contains("${DB_PASSWORD:}"));
+            assertTrue(candidate.diff().contains("UUID.randomUUID()"));
             assertFalse(candidate.diff().contains("embedded-private-value"));
             assertTrue(candidate.testEvidence().contains("\"status\":\"TESTED\""));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));

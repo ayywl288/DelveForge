@@ -1,0 +1,46 @@
+{
+  "confirmedLocalDefect": "source-only direct credential literal matcher captured the first literal of a concatenation expression",
+  "red": {
+    "tests": 41,
+    "failures": 1,
+    "case": "runtimeGeneratedPasswordWithALiteralPrefixIsNotACompleteCredentialLiteral"
+  },
+  "green": [
+    {
+      "name": "repositoryanalysis.secret.CredentialMutationPolicyTest",
+      "tests": 44,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "repositoryanalysis.secret.DeterministicRepositorySecretPolicyTest",
+      "tests": 27,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "agent.CodingAgentServiceTest",
+      "tests": 50,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "agent.CredentialMutationGuardTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "docker": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "preserved": "complete literal assignments, known formats, protected preimages, configuration conservative rules, outbound M1-M3 sanitation",
+  "historicalRunRelationship": "same source editing boundary; rejected historical input values unavailable; exact historical trigger not claimed"
+}

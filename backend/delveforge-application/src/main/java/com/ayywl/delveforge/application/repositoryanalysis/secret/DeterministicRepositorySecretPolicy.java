@@ -79,12 +79,12 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
     private static final Pattern CONFIGURATION_REFERENCE =
             Pattern.compile("\\$\\{[A-Za-z_][A-Za-z0-9_.-]{0,127}:?\\}");
 
-    // Agent 只保护直接赋值的明确字面量，不尝试解析任意源码表达式或判断数据流。
+    // Agent 只保护直接赋值的明确字面量；后接 + 的部分字面量属于拼接表达式，不判断数据流。
     private static final Pattern SOURCE_CREDENTIAL_LITERAL = Pattern.compile(
             "(?im)((?:^|[^A-Za-z0-9_\\-])[\"']?" + CREDENTIAL_KEY
                     + "[\"']?[^\\S\\r\\n]*[:=](?![=<>:])[^\\S\\r\\n]*)"
                     + "(\"(?:[^\"\\\\\\r\\n]|\\\\.)*+\""
-                    + "|'(?:[^'\\\\\\r\\n]|''|\\\\.)*+'|`[^`$\\r\\n]*+`)");
+                    + "|'(?:[^'\\\\\\r\\n]|''|\\\\.)*+'|`[^`$\\r\\n]*+`)(?![^\\S\\r\\n]*\\+)");
 
     /**
      * 内容规则，按顺序应用。

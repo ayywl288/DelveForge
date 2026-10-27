@@ -42,6 +42,16 @@ class CredentialMutationPolicyTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
+            "String password = \"case-\" + java.util.UUID.randomUUID().toString();",
+            "const token = 'case-' + crypto.randomUUID();",
+            "val password = \"case-\"   + UUID.randomUUID().toString()"
+    })
+    void runtimeGeneratedPasswordWithALiteralPrefixIsNotACompleteCredentialLiteral(String source) {
+        assertEquals(List.of(), policy.mutationProtectedLines("src/test/java/AccountTest.java", source));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
             "const token = 'embedded-private-value';",
             "String secret = \"placeholder\";",
             "const token = `embedded-private-value`;",
@@ -62,6 +72,15 @@ class CredentialMutationPolicyTest {
     })
     void mvpDoesNotClaimToClassifyUnmarkedValuesOrParseSourceSemantics(String source) {
         assertEquals(List.of(), policy.mutationProtectedLines("Auth.java", source));
+    }
+
+    @Test
+    void concatenationDoesNotHideKnownCredentialFormatsOrExemptConfiguration() {
+        String token = "ghp_0123456789abcdefghijklmnopqrstuvwx";
+        assertEquals(List.of(1), policy.mutationProtectedLines("Auth.java",
+                "String password = \"" + token + "\" + runtimeValue;"));
+        assertEquals(List.of(1), policy.mutationProtectedLines("application.properties",
+                "password=case- + runtimeValue"));
     }
 
     @Test

@@ -69,5 +69,25 @@ M1–M3 净化、明确凭据路径、写入前后像、停止后快照、Candid
 
 ### 周期 2 与最终验收
 
-修复验证完成，待部署并核对原七个 Run、三个 Delivery、原四步及可信 C3 后，开始第二次实际 Run。
-后续周期仍须有已验证修正或新的相关证据，不能盲目重复付费。
+部署 `ccb2be5` 后复核七个 Run、三个 Delivery、原四步、原授权、可信 C3 与原仓库 73 文件均未改变。
+通过原页面费用确认启动 `126b58c3-6c3c-4f70-825f-f402c37d7ced`。
+29 次模型、65 次工具、678,721 tokens；一次 compile 成功但未执行测试。
+新增 AccountSecurityIntegrationTests.java 时两次 `PATCH_CREDENTIALS/PATCH_CONTENT`，Run 失败且无 Candidate/Delivery。
+拟写入值未保存，不能判定这两次具体是完整秘密字面量还是其他表达式。
+[周期 2 安全摘要](evidence/step4-cycle-2-summary.json)。
+
+### 第三个已确认缺陷：直接字面量规则截取了表达式前缀
+
+独立回归确认 `"case-" + UUID.randomUUID()` 被误认成完整硬编码凭据；旧实现 41 项有 1 项失败。
+按 ADR-0017 既有不分析拼接片段的合同，仅排除字面量后继续 `+` 的源码表达式。
+不解析数据流，不给测试目录豁免，完整直接赋值、已知密钥形态和配置保守规则不变。
+这是同一编辑边界上可重现的实现缺陷，不声称恢复了上轮被丢弃的输入。
+
+凭据规则、旧保守净化、写入 Guard、Agent 编排定向共 128/128 通过；实际 Docker 3/3 通过。
+正式工具添加运行时生成值、Maven 执行、冻结均通过；将其改成完整凭据字面量被拒，原生成表达式保留。
+旧秘密旁的安全修改可冻结，绕过工具的秘密改动仍拒绝。最终打包通过，JAR 内策略类和 sandbox 脚本与已测产物一致。
+[回归计数](evidence/step4-source-expression-regression.json)、[Docker JUnit](evidence/step4-source-expression-docker.junit.xml)。
+
+### 周期 3 与最终验收
+
+待部署本次已验证修正并再次核对 C3 后，开始新的实际 Run。不得盲目重试。
