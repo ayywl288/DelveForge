@@ -1,8 +1,16 @@
 # Step 4 阻塞修正与最终验收
 
-日期：2026-10-27。分支：`codex/resolve-step4-blockers`，起点 `10fa4e0`。
+日期：2026-10-27 至 2026-10-28。分支：`codex/resolve-step4-blockers`，起点 `10fa4e0`。
 本轮授权：修正已复现的 DelveForge 缺陷、验证后按需重试，完成原四步；不得代写 Taskarium、重规划或弱化真实秘密保护。
-当前记录进行中的工程周期，最终结果将在实际 Run、Delivery 和浏览器验收后填写。
+最终结论：原四步真实交付及 Git/SQLite 一致性 **PASS**；实际产品浏览器验收 **FAIL**。
+四个 Step 均 SUCCEEDED，四份 Candidate/Delivery 均真实存在且 Delivery COMPLETED；Plan COMPLETED，WorkingCopy CLOSED。
+最终 C4 以当前冻结源码通过 34/34 项完整 Maven 测试，但真实注册、登录缺少 CSRF 字段而返回 403。
+认证后的任务、笔记、截止日期、进度、浏览器重启保留与第二账户隔离均未执行，不能宣称满足全部用户需求。
+
+最终代码 `1b9baa6` 的完整后端 verify：1735 项，1696 执行通过、39 跳过、0 失败/错误；前端 269/269、类型检查和生产构建通过。
+先前周期中的定向/Docker 证据按各节所列版本和范围保留，不把历史检查当成这次全量执行。
+[最终链路证明](evidence/step4-final-git-sqlite-proof.json)、[收尾审计证明](evidence/step4-plan-completion-proof.json)、
+[最终交付界面](evidence/step4-final-delivery-ui.jpg)、[界面核对](evidence/step4-final-ui-acceptance.json)。
 
 ## 历史事实与已确认缺陷
 
@@ -171,7 +179,13 @@ Aggregate 还拒绝重建 COMPLETED，与既定 INV-C01–C05 完成条件不符
 核对全部成功 Step、同一最终可信 revision、无占用后原子收尾。不调用模型、不创建新 Candidate/Delivery/提交，也不改历史步骤。
 49 项定向回归通过，包含真实 Git/SQLite、重复调用、事务失败回滚、Git 不可信拒绝。
 完整后端 verify 与前端 269 项及构建通过，计数见 [收尾完整结果](evidence/step4-plan-completion-results.json)。
-修正尚待部署到原实验实例并调用正式收尾命令，严格版本链校验仍保留。
+已部署 `1b9baa6` 到原实验实例，通过正式 `/api/agent-candidates/9ab286d5-a76f-48f1-a152-a449a49df944/complete-plan` 命令收尾，HTTP 200；重复调用 HTTP 200。
+实际 Plan 已 COMPLETED，WorkingCopy 已 CLOSED，currentRevision、lastVerifiedRevision 和 Git HEAD 均精确等于 C4。
+与收尾前一致 SQLite 备份逐列比较：12 条 Run、4 条 Candidate、4 条 Delivery、4 条 Step 及定义全部保持，
+仅原子更新 Plan/WorkingCopy 完成状态并新增一条 PLAN_COMPLETED 事件（sequence 2619）；重复调用未重复追加。
+严格链路校验现已通过，原 COMPLETED 断言保留。
+独立脚本原来把 Step 4 尚未交付时的空 baselineRevision 误当作不变定义，现按既定首次 Delivery 合同精确校验为 C3，
+前三步 baseline 仍与原快照相同；没有放宽 Plan 完成、授权、定义或历史记录的检查。
 
 ### C4 实际产品验收：认证阻塞
 
@@ -190,3 +204,30 @@ Docker 内部网络未发布浏览器端口。直接连接 bridge 的尝试被�
 
 认证阻塞后，任务、笔记、截止日期、进度、浏览器重启及第二账户检查均记为未执行，产品验收 FAIL。
 Codex 没有手改 Taskarium 的业务、测试、POM 或配置。原要求禁止重写/再生成计划；另建 C4 修复计划的授权已询问，尚待用户回答。
+
+## 最终四步链与验收边界
+
+Plan `281e9daa-e68c-48f1-8a8a-89326dffca29`；WorkingCopy `8ab00aed-43c3-4a57-aadc-2d3391cb6618`。
+每一行的 Candidate ID 同时是对应正式 Delivery ID；完整 Step ID、树、快照和用量保存在最终链路证明。
+
+| Step | 成功 Run | Candidate / Delivery | 正式 Git revision | 最终当前快照全量测试 |
+| --- | --- | --- | --- | --- |
+| 1 | `72e7ff85-31e3-4283-a4f7-0fc8cc9359de` | `18677cfa-58f6-4d30-81a2-35d90c57fded` | `6eb7c59f656be4c9b9813bb31ad19bf1e644f206` | 9/9，0 跳过 |
+| 2 | `7198fab3-c773-47d5-80db-156b60aa12ee` | `1d2b25a9-fb25-4d58-8349-124f36085822` | `ed3bc1c4bcdf6959c94446586086552b730d967c` | 19/19，0 跳过 |
+| 3 | `7eceebcf-6d9f-4b37-afbe-aa39085709d2` | `7a7c5067-d98d-4f31-9f9a-729feb97c5c3` | `6cad3bc93ca88e8cdf3a19d3a470e036d084d086` | 28/28，0 跳过 |
+| 4 | `47c23a47-ad06-42fd-b72c-a7a6df9df260` | `9ab286d5-a76f-48f1-a152-a449a49df944` | `483f5c484fa19df732968ce972cf2fb0f1dd378a` | 34/34，0 跳过 |
+
+原始 A `91f69ab1d7ab3a654814a1971cd3871ab0dffb1d` → C1 → C2 → C3 → C4 各为唯一父节点；
+每个 Git tree 等于相应冻结 Candidate/Delivery expectedTree，diff SHA-256 与保存字节相同。
+原注册仓库全部 73 个文件、路径集合、大小、SHA-256、Git HEAD 和干净状态保持；最终工作副本干净，活跃 Run 为 0。
+此处是本地原始注册仓库核对，未对 GitHub 远程进行新的网络核验，也没有推送。
+
+最终界面可见“交付成功”“演化计划已完成”，原始差异、原始测试证据、版本溯源和 Candidate 版本面板均未显示，
+页面无 pre 原始块。文件摘要、聚合测试结果与必要的 Run ID 开发者折叠保留。
+
+实际产品浏览器地址为 `http://127.0.0.1:28920/`，运行正式 C4 的精确导出副本。
+启动成功与匿名 Dashboard 可打开已确认；注册和登录 403 已在真实浏览器重现，未注入 CSRF、绕过认证或修改应用来制造通过。
+全部 Taskarium 源码变更来自真实 Coding Agent。Codex 仅修正 DelveForge、添加通用回归夹具与本地验证运行工具。
+
+本报告及证据在隔离分支本地提交；不合并、不推送。原四步交付完成不等于用户端产品验收完成。
+另建以 C4 为基线的 CSRF 修复计划会超出本轮“不重写或重新生成 EvolutionPlan”的明确边界，仍等待该范围授权。
