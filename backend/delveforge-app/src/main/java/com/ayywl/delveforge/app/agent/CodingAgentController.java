@@ -77,6 +77,11 @@ public class CodingAgentController {
         return ResponseEntity.accepted().body(delivery.submit(id));
     }
 
+    @PostMapping("/api/agent-candidates/{id}/complete-plan")
+    public Delivery completePlan(@PathVariable String id) {
+        return delivery.completePlan(id);
+    }
+
     public record StartRequest(Integer targetJdk, boolean paidUsageAcknowledged) {
     }
 

@@ -12,7 +12,7 @@ const names: Record<string, string> = {
     CANCELLED: "运行已取消", INTERRUPTED: "运行已中断", MATERIAL_RETAINED: "最终化材料已保留",
     CLEANUP_BLOCKED: "资源清理受阻，需核对现场", RECONCILIATION_BLOCKED: "资源协调受阻",
     DELIVERY_INTENT: "正式交付已预约", DELIVERY_APPLIED: "正式文件已核对", DELIVERY_COMMIT_READY: "正式提交已准备",
-    DELIVERY_PUBLISHED: "Git 已发布，等待接受", DELIVERY_COMPLETED: "正式交付完成", DELIVERY_BLOCKED: "正式交付阻塞",
+    DELIVERY_PUBLISHED: "Git 已发布，等待接受", DELIVERY_COMPLETED: "正式交付完成", PLAN_COMPLETED: "演化计划已完成", DELIVERY_BLOCKED: "正式交付阻塞",
     DELIVERY_RECOVERY_REQUIRED: "正式副本需要核对恢复", DELIVERY_PENDING: "交付等待协调",
     DELIVERY_DISCOVERY_BLOCKED: "冻结结果的交付发现受阻",
 };

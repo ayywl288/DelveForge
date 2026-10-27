@@ -19,4 +19,7 @@ public interface DeliveryStore {
     Delivery advance(Delivery expected, Delivery.State next, String revision, String reason);
 
     void accept(Delivery delivery);
+
+    /** 幂等补齐历史已接受末次交付的 Plan/WorkingCopy 终结态，不重写交付事实。 */
+    void completePlan(Delivery delivery);
 }

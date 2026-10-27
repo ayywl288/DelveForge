@@ -9,6 +9,13 @@ import com.ayywl.delveforge.application.port.workspace.CandidateDeliveryPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.domain.agent.AgentRunState;
 import com.ayywl.delveforge.domain.agent.Candidate;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
+import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
+import com.ayywl.delveforge.domain.evolution.WorkingCopy;
+import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
+import com.ayywl.delveforge.domain.evolution.WorkingCopyStatus;
 import com.ayywl.delveforge.infrastructure.workspace.GitWorkspaceAdapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -421,6 +428,8 @@ class CandidateDeliveryTest {
         assertEquals(delivery.revision(), scalar("SELECT last_verified_revision FROM working_copy"));
         assertEquals(delivery.revision(), scalar("SELECT current_revision FROM working_copy"));
         assertEquals("SUCCEEDED", scalar("SELECT status FROM evolution_step"));
+        assertEquals("COMPLETED", scalar("SELECT status FROM evolution_plan"));
+        assertEquals("CLOSED", scalar("SELECT status FROM working_copy"));
         assertEquals("0", scalar("SELECT occupied FROM candidate_delivery"));
         assertEquals(baseline, git(original, "rev-parse", "HEAD").strip());
         assertEquals("", git(original, "status", "--porcelain"));
@@ -436,6 +445,81 @@ class CandidateDeliveryTest {
             assertEquals("2", git(copy, "rev-list", "--count", "HEAD").strip());
             assertEquals("1", scalar("SELECT count(*) FROM agent_run"));
             assertTrue(agents.events(candidate.runId(), 0, 200).stream().anyMatch(e -> e.kind().equals("DELIVERY_COMPLETED")));
+        }
+    }
+
+    private CandidateDeliveryService legacyCompletionService(Delivery accepted) throws Exception {
+        var fixture = eligibility.loadDeliveryMetadata(new EvolutionPlanId("plan"), new EvolutionStepId("step"));
+        EvolutionPlan facts = fixture.plan().copy();
+        WorkingCopy trusted = fixture.copy().copy();
+        facts.acceptDelivery(new EvolutionStepId("step"), trusted, baseline, accepted.revision());
+        var state = spy(eligibility);
+        doAnswer(invocation -> new ExecutionPreparationState.Loaded(
+                EvolutionPlan.reconstitute(facts.id(), facts.productDirectionId(), facts.baseAssetId(),
+                        facts.baseRepositoryProfileId(), facts.currentState(), facts.targetState(),
+                        facts.reusableCapabilities(), facts.changes(), facts.steps(), facts.risks(), facts.evidence(),
+                        new WorkingCopyId("copy"), EvolutionPlanStatus.valueOf(scalar("SELECT status FROM evolution_plan"))),
+                WorkingCopy.reconstitute(trusted.id(), trusted.sourceAssetId(), trusted.sourceRevision(), trusted.location(),
+                        scalar("SELECT current_revision FROM working_copy"), scalar("SELECT last_verified_revision FROM working_copy"),
+                        WorkingCopyStatus.valueOf(scalar("SELECT status FROM working_copy"))), fixture.asset()))
+                .when(state).loadAcceptedDeliveryMetadata(any(), any());
+        return new CandidateDeliveryService(agents, new SqliteDeliveryStore(source, state), workspace, state);
+    }
+
+    @Test
+    void legacyClosureIsIdempotentAndDoesNotCreateACommitCandidateOrDelivery() throws Exception {
+        Delivery accepted;
+        try (var service = service()) {
+            accepted = service.deliver(candidate.id());
+        }
+        sql("UPDATE evolution_plan SET status='ACTIVE'");
+        sql("UPDATE working_copy SET status='EVOLVING'");
+        String priorEvents = scalar("SELECT count(*) FROM agent_event WHERE kind='PLAN_COMPLETED'");
+        try (var service = legacyCompletionService(accepted)) {
+            assertEquals(accepted, service.completePlan(candidate.id()));
+            assertAccepted(accepted);
+            String afterEvents = scalar("SELECT count(*) FROM agent_event WHERE kind='PLAN_COMPLETED'");
+            assertEquals(Integer.parseInt(priorEvents) + 1, Integer.parseInt(afterEvents));
+            assertEquals(accepted, service.completePlan(candidate.id()));
+            assertEquals(afterEvents, scalar("SELECT count(*) FROM agent_event WHERE kind='PLAN_COMPLETED'"));
+            assertEquals("2", git(copy, "rev-list", "--count", "HEAD").strip());
+            assertEquals("1", scalar("SELECT count(*) FROM agent_candidate"));
+            assertEquals("1", scalar("SELECT count(*) FROM candidate_delivery"));
+        }
+    }
+
+    @Test
+    void failedLegacyClosureRollsBackPlanAndCopyTogether() throws Exception {
+        Delivery accepted;
+        try (var service = service()) {
+            accepted = service.deliver(candidate.id());
+        }
+        sql("UPDATE evolution_plan SET status='ACTIVE'");
+        sql("UPDATE working_copy SET status='EVOLVING'");
+        sql("CREATE TRIGGER fail_close BEFORE UPDATE ON working_copy BEGIN SELECT RAISE(ABORT,'fixture'); END");
+        try (var service = legacyCompletionService(accepted)) {
+            assertThrows(AgentException.class, () -> service.completePlan(candidate.id()));
+            assertEquals("ACTIVE", scalar("SELECT status FROM evolution_plan"));
+            assertEquals("EVOLVING", scalar("SELECT status FROM working_copy"));
+            assertEquals(accepted.revision(), scalar("SELECT last_verified_revision FROM working_copy"));
+            assertEquals("COMPLETED", scalar("SELECT state FROM candidate_delivery"));
+        }
+    }
+
+    @Test
+    void legacyClosureRejectsUntrustedGitWithoutChangingMetadata() throws Exception {
+        Delivery accepted;
+        try (var service = service()) {
+            accepted = service.deliver(candidate.id());
+        }
+        sql("UPDATE evolution_plan SET status='ACTIVE'");
+        sql("UPDATE working_copy SET status='EVOLVING'");
+        Files.writeString(copy.resolve("Counter.java"), "external change");
+        try (var service = legacyCompletionService(accepted)) {
+            assertEquals("SNAPSHOT_INTEGRITY", assertThrows(AgentException.class,
+                    () -> service.completePlan(candidate.id())).code());
+            assertEquals("ACTIVE", scalar("SELECT status FROM evolution_plan"));
+            assertEquals("EVOLVING", scalar("SELECT status FROM working_copy"));
         }
     }
 

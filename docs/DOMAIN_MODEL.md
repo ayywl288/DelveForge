@@ -1,5 +1,10 @@
 # DOMAIN_MODEL.md
 
+**2026-10-28 Plan 收尾：** 最后一个必需 Step 正式交付后，同一接受事务保存 Plan=COMPLETED、
+WorkingCopy=CLOSED，两个 revision 保持已接受 C。既有已接受实例可通过显式、幂等的收尾命令补齐；
+须重新证明最终 Git 状态、全部成功 Step 与同一可信 revision，不调用模型或制造交付事实。
+见 [ADR-0013](decisions/0013-frozen-candidate-delivery.md#2026-10-28正式-plan-收尾)。
+
 **2026-10-26 执行政策：** ADR-0018 的启动费用确认属于 Interface/Application 调用合同，
 不能替代 Step 确认、资产授权或可信版本检查。不新增账单 Aggregate，也不改变 Candidate/Delivery 状态机。
 

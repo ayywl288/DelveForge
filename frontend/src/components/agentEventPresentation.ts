@@ -181,7 +181,7 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
             if (event.kind.includes("BLOCKED") || ["DELIVERY_RECOVERY_REQUIRED", "DELIVERY_PENDING", "MATERIAL_RETAINED"].includes(event.kind)) outcome = "blocked";
             else if (["FAILED", "MODEL_FAILED"].includes(event.kind)) outcome = "failed";
             else if (["CANCELLED", "INTERRUPTED"].includes(event.kind)) outcome = "interrupted";
-            else if (["SANDBOX_READY", "MODEL_COMPLETED", "SUCCEEDED", "DELIVERY_APPLIED", "DELIVERY_COMMIT_READY", "DELIVERY_PUBLISHED", "DELIVERY_COMPLETED"].includes(event.kind)) outcome = "completed";
+            else if (["SANDBOX_READY", "MODEL_COMPLETED", "SUCCEEDED", "DELIVERY_APPLIED", "DELIVERY_COMMIT_READY", "DELIVERY_PUBLISHED", "DELIVERY_COMPLETED", "PLAN_COMPLETED"].includes(event.kind)) outcome = "completed";
             else if (active) outcome = "running";
         }
         const target = tool ? safePath(startData.path) ?? safePath(startData.module) ?? safePath(startData.directory)

@@ -53,11 +53,79 @@ class AcceptedDeliveryTest {
         assertEquals(C, plan.step(first).deliveryRevision());
         assertEquals(C, copy.currentRevision());
         assertEquals(C, copy.lastVerifiedRevision());
+        assertEquals(EvolutionPlanStatus.ACTIVE, plan.status());
+        assertEquals(WorkingCopyStatus.EVOLVING, copy.status());
         plan.confirmStep(second, copy, new StepExecutionPolicy());
         assertThrows(EvolutionPlanStateException.class, () -> plan.acceptDelivery(second, copy, A, "d".repeat(40)));
         plan.acceptDelivery(second, copy, C, "d".repeat(40));
         assertEquals(C, plan.step(second).baselineRevision());
+        assertEquals(EvolutionPlanStatus.COMPLETED, plan.status());
+        assertEquals(WorkingCopyStatus.CLOSED, copy.status());
         assertEquals(C, plan.copy().step(first).deliveryRevision());
+    }
+
+    private EvolutionPlan completedPlan(WorkingCopy copy) {
+        EvolutionPlan plan = plan();
+        plan.confirmStep(first, copy, new StepExecutionPolicy());
+        plan.acceptDelivery(first, copy, A, C);
+        plan.confirmStep(second, copy, new StepExecutionPolicy());
+        plan.acceptDelivery(second, copy, C, "d".repeat(40));
+        return plan;
+    }
+
+    private EvolutionPlan activeSnapshot(EvolutionPlan completed) {
+        return EvolutionPlan.reconstitute(completed.id(), completed.productDirectionId(), completed.baseAssetId(),
+                completed.baseRepositoryProfileId(), completed.currentState(), completed.targetState(),
+                completed.reusableCapabilities(), completed.changes(), completed.steps(), completed.risks(),
+                completed.evidence(), new WorkingCopyId(completed.workingCopyId()), EvolutionPlanStatus.ACTIVE);
+    }
+
+    @Test
+    void unfinishedStepsCannotCompleteOrCloseTheTrustedCopy() {
+        EvolutionPlan plan = plan();
+        WorkingCopy copy = copy();
+        assertThrows(EvolutionPlanStateException.class, () -> plan.complete(copy));
+        assertEquals(EvolutionPlanStatus.ACTIVE, plan.status());
+        assertEquals(WorkingCopyStatus.READY, copy.status());
+        plan.confirmStep(first, copy, new StepExecutionPolicy());
+        plan.acceptDelivery(first, copy, A, C);
+        assertThrows(EvolutionPlanStateException.class, () -> plan.complete(copy));
+        assertEquals(EvolutionPlanStatus.ACTIVE, plan.status());
+        assertEquals(WorkingCopyStatus.EVOLVING, copy.status());
+        assertEquals(C, copy.lastVerifiedRevision());
+        assertThrows(EvolutionPlanStateException.class, () -> EvolutionPlan.reconstitute(plan.id(),
+                plan.productDirectionId(), plan.baseAssetId(), plan.baseRepositoryProfileId(), plan.currentState(),
+                plan.targetState(), plan.reusableCapabilities(), plan.changes(), plan.steps(), plan.risks(),
+                plan.evidence(), new WorkingCopyId(plan.workingCopyId()), EvolutionPlanStatus.COMPLETED));
+    }
+
+    @Test
+    void legacyAcceptedPlanClosesWithoutChangingAnyRevisionOrStepHistory() {
+        EvolutionPlan completed = completedPlan(copy());
+        EvolutionPlan legacy = activeSnapshot(completed);
+        String finalRevision = "d".repeat(40);
+        WorkingCopy copy = WorkingCopy.reconstitute(new WorkingCopyId("copy"), asset, A, "managed",
+                finalRevision, finalRevision, WorkingCopyStatus.EVOLVING);
+        legacy.complete(copy);
+        assertEquals(EvolutionPlanStatus.COMPLETED, legacy.copy().status());
+        assertEquals(WorkingCopyStatus.CLOSED, copy.status());
+        assertEquals(finalRevision, copy.currentRevision());
+        assertEquals(finalRevision, copy.lastVerifiedRevision());
+        assertEquals(A, legacy.step(first).baselineRevision());
+        assertEquals(C, legacy.step(first).deliveryRevision());
+        assertEquals(C, legacy.step(second).baselineRevision());
+        assertThrows(EvolutionPlanStateException.class, () -> legacy.confirmStep(second, copy, new StepExecutionPolicy()));
+    }
+
+    @Test
+    void mismatchedFinalRevisionCannotPartiallyCloseALegacyPlan() {
+        EvolutionPlan legacy = activeSnapshot(completedPlan(copy()));
+        WorkingCopy stale = WorkingCopy.reconstitute(new WorkingCopyId("copy"), asset, A, "managed", C, C,
+                WorkingCopyStatus.EVOLVING);
+        assertThrows(EvolutionPlanStateException.class, () -> legacy.complete(stale));
+        assertEquals(EvolutionPlanStatus.ACTIVE, legacy.status());
+        assertEquals(WorkingCopyStatus.EVOLVING, stale.status());
+        assertEquals(C, stale.currentRevision());
     }
 
     @Test

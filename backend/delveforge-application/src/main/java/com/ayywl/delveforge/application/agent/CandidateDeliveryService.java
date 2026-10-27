@@ -195,6 +195,22 @@ public final class CandidateDeliveryService implements AutoCloseable {
         }
     }
 
+    /** 显式补齐已接受的最终交付；不调用模型，不重放补丁或创建提交。 */
+    public Delivery completePlan(String candidateId) {
+        agents.candidate(candidateId);
+        Delivery accepted = store.get(candidateId);
+        if (accepted == null || accepted.state() != Delivery.State.COMPLETED) {
+            throw new AgentException("DELIVERY_CONFLICT", "Plan closure requires a completed Delivery");
+        }
+        try (var occupation = workspace.occupy(accepted)) {
+            if (workspace.inspect(accepted) != CandidateDeliveryPort.Position.PUBLISHED) {
+                throw new AgentException("SNAPSHOT_INTEGRITY", "Plan closure requires the unchanged accepted Git state");
+            }
+            store.completePlan(accepted);
+            return store.get(candidateId);
+        }
+    }
+
     private static void requireEvidence(Candidate candidate) {
         try {
             JsonNode evidence = new ObjectMapper().readTree(candidate.testEvidence());

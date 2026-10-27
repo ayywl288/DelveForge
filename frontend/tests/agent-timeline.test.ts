@@ -726,3 +726,16 @@ it("keeps a source mutation refusal and terminal failure visible outside collaps
     expect(root.querySelector<HTMLDetailsElement>(".check-summary")!.open).toBe(false);
     expect(root.querySelector(".check-latest")?.textContent).not.toContain("测试通过");
 });
+
+it("renders accepted plan closure once as a completed ordinary activity", async () => {
+    const { root, props } = mount();
+    props.run.state = "SUCCEEDED";
+    props.events = [fact(1, "DELIVERY_COMPLETED"), fact(2, "PLAN_COMPLETED")];
+    await settle();
+    const closure = root.querySelector('[data-sequence="2"]')!;
+    expect(closure.getAttribute("data-tone")).toBe("completed");
+    expect(closure.querySelector("strong")?.textContent).toBe("演化计划已完成");
+    expect(root.querySelectorAll('[data-sequence="2"]')).toHaveLength(1);
+    expect(root.querySelectorAll(".is-active")).toHaveLength(0);
+    expect(root.querySelector("pre")).toBeNull();
+});

@@ -1,5 +1,10 @@
 # PRODUCT.md
 
+**2026-10-28 Plan 收尾：** 最后一个必需 Step 正式交付后，同一接受事务保存 Plan=COMPLETED、
+WorkingCopy=CLOSED，两个 revision 保持已接受 C。既有已接受实例可通过显式、幂等的收尾命令补齐；
+须重新证明最终 Git 状态、全部成功 Step 与同一可信 revision，不调用模型或制造交付事实。
+见 [ADR-0013](decisions/0013-frozen-candidate-delivery.md#2026-10-28正式-plan-收尾)。
+
 **2026-10-22 Task 2 当前产品流程：** 用户逐 Step 确认并启动 Agent。Agent 在一次性 Docker
 沙箱中探索、修改和检查，冻结 Candidate；系统随后自动执行确定性 Delivery，接受正式 Git commit 后
 才把 Step 标为 SUCCEEDED。失败的 Run 可由用户启动新尝试，不恢复旧对话，也不执行后续 Step。

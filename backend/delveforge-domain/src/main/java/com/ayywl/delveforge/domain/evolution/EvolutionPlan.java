@@ -77,7 +77,7 @@ public final class EvolutionPlan {
             SoftwareAssetId assetId, RepositoryProfileId profileId, CurrentState currentState, TargetState targetState,
             List<String> reusableCapabilities, List<String> changes, List<EvolutionStep> steps,
             List<String> risks, List<EvidenceBasis> evidence, WorkingCopyId workingCopyId, EvolutionPlanStatus status) {
-        if (status == null || status == EvolutionPlanStatus.COMPLETED) {
+        if (status == null) {
             throw new IllegalArgumentException("Unsupported M3 Plan lifecycle state");
         }
         if (status == EvolutionPlanStatus.ACTIVE && workingCopyId == null) {
@@ -87,6 +87,10 @@ public final class EvolutionPlan {
                 reusableCapabilities, changes, steps, risks, evidence);
         plan.workingCopyId = workingCopyId;
         plan.status = status;
+        if (status == EvolutionPlanStatus.COMPLETED
+                && (workingCopyId == null || steps.stream().anyMatch(step -> step.status() != EvolutionStepStatus.SUCCEEDED))) {
+            throw new EvolutionPlanStateException("Completed Plan requires every required Step to have succeeded");
+        }
         return plan;
     }
 
@@ -117,6 +121,22 @@ public final class EvolutionPlan {
         }
         copy.acceptDelivery(baseline, revision);
         step(id).acceptDelivery(baseline, revision);
+        if (steps.stream().allMatch(step -> step.status() == EvolutionStepStatus.SUCCEEDED)) {
+            complete(copy);
+        }
+    }
+
+    /** 只接受全部正式成功步骤及其最后可信版本；不制造交付或推进 revision。 */
+    public void complete(WorkingCopy copy) {
+        if (status != EvolutionPlanStatus.ACTIVE || copy == null || workingCopyId == null
+                || !workingCopyId.equals(copy.id()) || !baseAssetId.equals(copy.sourceAssetId())
+                || steps.stream().anyMatch(step -> step.status() != EvolutionStepStatus.SUCCEEDED)
+                || !steps.getLast().deliveryRevision().equals(copy.currentRevision())
+                || !copy.currentRevision().equals(copy.lastVerifiedRevision())) {
+            throw new EvolutionPlanStateException("Plan completion requires all accepted Steps and their trusted final revision");
+        }
+        copy.closeAfterCompletion(steps.getLast().deliveryRevision());
+        status = EvolutionPlanStatus.COMPLETED;
     }
 
     public void bindWorkingCopy(WorkingCopy copy) {

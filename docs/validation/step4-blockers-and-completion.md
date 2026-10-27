@@ -151,4 +151,42 @@ Java 原来反而要求 ok=true。该分支不属于上一修正的顶层 TOOL_E
 
 ### 周期 6 与最终验收
 
-待部署已验证 HTML 分类修正并重新核对原 C3 后执行。
+在 2026-10-28 复核中确认先前未启动周期 6，后端仍运行 `4977aca`；十一条历史 Run、三份 Delivery、原授权及可信 C3 保持。
+通过原页面费用确认，实际启动 `47c23a47-ad06-42fd-b72c-a7a6df9df260`。
+131 次模型、173 次工具、3,667,978 tokens，最终全量 34/34、0 跳过，成功冻结并正式交付。
+Candidate/Delivery `9ab286d5-a76f-48f1-a152-a449a49df944`，C4 `483f5c484fa19df732968ce972cf2fb0f1dd378a`，
+父节点 C3，tree `add06c2eaf07c8af36b1ca950993fd72d69a466f`，最终源码 snapshot
+`5bbf607f9ac338b6313f96479768663363b8c5a07c550c0c8af17260f1204312`。
+[周期 6 安全摘要](evidence/step4-cycle-6-summary.json)。
+本任务新增六轮合计 375 次模型、579 次工具、10,042,523 个报告 tokens；不等同于供应商实际账单或其他流程的用量。
+
+### 2026-10-28：四步交付后的 Plan 收尾缺口
+
+四个 Step 已 SUCCEEDED、四份 Delivery 已 COMPLETED，但 Plan 仍 ACTIVE、WorkingCopy 仍 EVOLVING。
+Aggregate 还拒绝重建 COMPLETED，与既定 INV-C01–C05 完成条件不符。
+尝试把独立校验改成接受 ACTIVE 被自动审批拒绝；原 COMPLETED 校验保持，不把该状态当成完成。
+
+修正最后一个正式接受时的 Domain 完成与可信 WorkingCopy 关闭，并在同一 SQLite 事务保存。
+既有 C4 可通过显式、幂等的正式 complete-plan 命令补齐；须在 Workspace 原生锁中重新证明实际 PUBLISHED Git，
+核对全部成功 Step、同一最终可信 revision、无占用后原子收尾。不调用模型、不创建新 Candidate/Delivery/提交，也不改历史步骤。
+49 项定向回归通过，包含真实 Git/SQLite、重复调用、事务失败回滚、Git 不可信拒绝。
+完整后端 verify 与前端 269 项及构建通过，计数见 [收尾完整结果](evidence/step4-plan-completion-results.json)。
+修正尚待部署到原实验实例并调用正式收尾命令，严格版本链校验仍保留。
+
+### C4 实际产品验收：认证阻塞
+
+从正式 C4 精确导出临时副本，初始源码 snapshot 与冻结证据完全一致。
+启动打包最初离线缺插件，经过既有受控 Central 代理补齐后再次离线打包成功；这两次启动打包跳过测试，不算新的测试通过。
+实际可执行 JAR 成功启动，匿名 Dashboard 可打开。
+
+Docker 内部网络未发布浏览器端口。直接连接 bridge 的尝试被自动审批拒绝且未执行。
+采用固定目标 TCP 本机转发，应用继续只处于内部网络；转发只挂载自身程序，不挂载项目或凭据，宿主仅绑定 127.0.0.1:28920。
+
+真实界面注册与登录均返回 403，两个表单均无 CSRF 字段。C4 启用 CSRF，新增 MockMvc 测试手动 `.with(csrf())`，
+因此后端 34 项通过没有覆盖真实 HTML 提交。原测试的修改只增加 CSRF 后处理器，未删除既有断言；
+新增测试真实覆盖哈希、账户查询隔离和两次 ApplicationContext 重启保留，但不替代浏览器证据。
+[浏览器验收记录](evidence/step4-product-browser-acceptance.json)、[注册 403](evidence/step4-product-register-403.jpg)、
+[登录 403](evidence/step4-product-login-403.jpg)。
+
+认证阻塞后，任务、笔记、截止日期、进度、浏览器重启及第二账户检查均记为未执行，产品验收 FAIL。
+Codex 没有手改 Taskarium 的业务、测试、POM 或配置。原要求禁止重写/再生成计划；另建 C4 修复计划的授权已询问，尚待用户回答。

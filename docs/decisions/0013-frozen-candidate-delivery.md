@@ -89,3 +89,19 @@ Git-first/SQLite-first write alone cannot survive restart. A second source bundl
 the frozen Candidate. Automatic hard reset could destroy external changes. The journal adds
 one persistent workflow; conservative recovery may require user intervention for ambiguous
 partial mutations, preserving their exact state.
+
+## 2026-10-28：正式 Plan 收尾
+
+四步真实交付后发现 Plan 仍为 ACTIVE、WorkingCopy 仍为 EVOLVING；Aggregate 还拒绝还原 COMPLETED。
+这是 DOMAIN_MODEL.md §6.6 / INV-C01–C05 已定义完成条件的实现遗漏。
+保持原完成校验，不把 ACTIVE 当作完成，也不修改任何 Step 定义或交付事实。
+
+最后一个必需 Step 接受后，Domain 同时关闭其可信 WorkingCopy 并完成 Plan；所有 Step 默认必需。
+Step/Delivery、两项可信 revision、Plan 和 WorkingCopy 状态在同一 SQLite 接受事务保存。
+加载 COMPLETED Plan 必须具有全部成功 Step。非成功步骤、错误归属、最后 revision 不一致或非可信副本均拒绝。
+
+为已经正式交付但未收尾的旧实例，提供显式 POST /api/agent-candidates/{id}/complete-plan。
+Application 要求该最终 Delivery 已 COMPLETED，并在 Workspace 原生锁内重新证明 PUBLISHED Git 状态；
+Domain 验证所有 Step 与最终可信 revision，短事务再次校验步骤、占用与 CAS 后完成 Plan/WorkingCopy。
+重复调用幂等，完成事件单独记录当前时间。没有模型、补丁重放、新提交、原数据迁移或启动时批量改写；
+原 Candidate、Delivery、Run 与 Step 历史保持。任何不明 Git 状态或事务失败都不能形成部分收尾。

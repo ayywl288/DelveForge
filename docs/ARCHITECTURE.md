@@ -1,5 +1,10 @@
 # ARCHITECTURE.md
 
+**2026-10-28 Plan 收尾：** 最后一个必需 Step 正式交付后，同一接受事务保存 Plan=COMPLETED、
+WorkingCopy=CLOSED，两个 revision 保持已接受 C。既有已接受实例可通过显式、幂等的收尾命令补齐；
+须重新证明最终 Git 状态、全部成功 Step 与同一可信 revision，不调用模型或制造交付事实。
+见 [ADR-0013](decisions/0013-frozen-candidate-delivery.md#2026-10-28正式-plan-收尾)。
+
 **2026-10-26 执行政策：** [ADR-0018](decisions/0018-progress-based-agent-execution-and-cost-acknowledgment.md)
 移除累计调用/tokens 配额与总运行时限。每次启动须明确确认 API 费用与预算；实际遥测、取消、
 单次操作超时、容器隔离、有限错误恢复及短重复循环检测保持，不新增计费子系统。

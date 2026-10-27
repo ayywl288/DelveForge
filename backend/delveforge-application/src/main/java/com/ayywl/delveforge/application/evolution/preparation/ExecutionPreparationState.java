@@ -89,6 +89,15 @@ public final class ExecutionPreparationState {
         return loaded;
     }
 
+    /** 已接受交付的收尾不重新执行 Step；仍校验归属、资产与准备来源。 */
+    public Loaded loadAcceptedDeliveryMetadata(EvolutionPlanId id, EvolutionStepId stepId) {
+        Loaded loaded = loadObjects(id, stepId);
+        if (loaded.plan().step(stepId).status() != EvolutionStepStatus.SUCCEEDED) {
+            throw new EvolutionPlanStateException("Plan closure requires an already accepted Step");
+        }
+        return loaded;
+    }
+
     public Loaded revalidate(Loaded expected, EvolutionStepId stepId, boolean confirmation) {
         Loaded actual = load(expected.plan().id(), stepId, confirmation);
         if (!actual.copy().id().equals(expected.copy().id())

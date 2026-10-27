@@ -8,8 +8,10 @@ import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparati
 import com.ayywl.delveforge.domain.agent.Candidate;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
+import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
+import com.ayywl.delveforge.domain.evolution.WorkingCopyStatus;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -227,11 +229,50 @@ public final class SqliteDeliveryStore implements DeliveryStore {
                     """, delivery.baseline(), plan.step(new EvolutionStepId(delivery.stepId())).deliveryRevision(),
                     delivery.stepId(), delivery.planId()) == 1);
             require(update(connection, """
-                    UPDATE working_copy SET current_revision=?,last_verified_revision=?,status='EVOLVING'
+                    UPDATE working_copy SET current_revision=?,last_verified_revision=?,status=?
                     WHERE id=? AND current_revision=? AND last_verified_revision=? AND location=?
-                    """, copy.currentRevision(), copy.lastVerifiedRevision(), delivery.workingCopyId(),
+                    """, copy.currentRevision(), copy.lastVerifiedRevision(), copy.status().name(), delivery.workingCopyId(),
                     delivery.baseline(), delivery.baseline(), delivery.location()) == 1);
+            require(update(connection, "UPDATE evolution_plan SET status=? WHERE id=? AND status='ACTIVE'",
+                    plan.status().name(), delivery.planId()) == 1);
+            if (plan.status() == EvolutionPlanStatus.COMPLETED) {
+                addEvent(connection, delivery.runId(), "PLAN_COMPLETED", "All required Steps accepted; WorkingCopy closed");
+            }
             addEvent(connection, delivery.runId(), "DELIVERY_COMPLETED", "Accepted official Git commit " + delivery.revision());
+            return null;
+        });
+    }
+
+    @Override
+    public void completePlan(Delivery delivery) {
+        require(delivery.state() == Delivery.State.COMPLETED);
+        var loaded = eligibility.loadAcceptedDeliveryMetadata(new EvolutionPlanId(delivery.planId()),
+                new EvolutionStepId(delivery.stepId()));
+        EvolutionPlan plan = loaded.plan().copy();
+        WorkingCopy copy = loaded.copy().copy();
+        require(copy.id().value().equals(delivery.workingCopyId())
+                && copy.location().equals(delivery.location())
+                && plan.steps().getLast().id().value().equals(delivery.stepId())
+                && delivery.revision().equals(plan.steps().getLast().deliveryRevision())
+                && delivery.revision().equals(copy.currentRevision())
+                && delivery.revision().equals(copy.lastVerifiedRevision()));
+        if (plan.status() == EvolutionPlanStatus.COMPLETED && copy.status() == WorkingCopyStatus.CLOSED) {
+            return;
+        }
+        plan.complete(copy);
+        transactions.transaction(connection -> {
+            require(delivery.equals(read(connection, delivery.candidateId())));
+            require(update(connection, """
+                    UPDATE evolution_plan SET status='COMPLETED' WHERE id=? AND working_copy_id=? AND status='ACTIVE'
+                    AND NOT EXISTS (SELECT 1 FROM evolution_step WHERE plan_id=? AND status<>'SUCCEEDED')
+                    AND NOT EXISTS (SELECT 1 FROM agent_run WHERE plan_id=? AND occupied=1)
+                    AND NOT EXISTS (SELECT 1 FROM candidate_delivery WHERE plan_id=? AND occupied=1)
+                    """, delivery.planId(), delivery.workingCopyId(), delivery.planId(), delivery.planId(), delivery.planId()) == 1);
+            require(update(connection, """
+                    UPDATE working_copy SET status='CLOSED' WHERE id=? AND status='EVOLVING'
+                    AND current_revision=? AND last_verified_revision=? AND location=?
+                    """, delivery.workingCopyId(), delivery.revision(), delivery.revision(), delivery.location()) == 1);
+            addEvent(connection, delivery.runId(), "PLAN_COMPLETED", "All required Steps accepted; WorkingCopy closed");
             return null;
         });
     }

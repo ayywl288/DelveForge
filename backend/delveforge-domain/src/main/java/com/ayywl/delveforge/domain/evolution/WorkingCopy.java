@@ -106,6 +106,15 @@ public final class WorkingCopy {
         status = WorkingCopyStatus.EVOLVING;
     }
 
+    /** 完成只关闭已接受的可信副本，不移动文件或更改 revision。 */
+    void closeAfterCompletion(String revision) {
+        if (status != WorkingCopyStatus.EVOLVING || revision == null
+                || !revision.equals(currentRevision) || !revision.equals(lastVerifiedRevision)) {
+            throw new EvolutionPlanStateException("Only the final accepted WorkingCopy revision may close");
+        }
+        status = WorkingCopyStatus.CLOSED;
+    }
+
     public SoftwareAssetId sourceAssetId() {
         return sourceAssetId;
     }
