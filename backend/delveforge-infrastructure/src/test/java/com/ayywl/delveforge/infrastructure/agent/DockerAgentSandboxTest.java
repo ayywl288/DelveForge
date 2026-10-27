@@ -165,6 +165,38 @@ class DockerAgentSandboxTest {
     }
 
     @Test
+    void failedReadOnlyPatchInspectionCanBeCorrectedWithoutLosingTheRun() throws Exception {
+        Path official = fixture();
+        String baseline = git(official, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        var sandbox = new DockerAgentSandbox(properties(temporary.resolve("inspection-runs")),
+                new DeterministicRepositorySecretPolicy());
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
+                    temporary.resolve("original").toString(), baseline, "fixture", "fixture", "inspection", 21),
+                    AgentProtocol.Limits.defaults(), () -> false);
+            String path = "src/main/java/example/Counter.java";
+            String before = json.readTree(tool(sandbox, id, "read_file", Map.of("path", path)))
+                    .path("result").path("content").asText();
+            var failed = json.readTree(tool(sandbox, id, "apply_patch", Map.of(
+                    "patch", "diff --git \"a/src/main/java/example/Counter.java b/src/main/java/example/Counter.java\n")));
+            assertEquals("PATCH_CONFLICT", failed.path("result").path("classification").asText());
+            assertTrue(failed.path("result").path("mutationNotStarted").asBoolean());
+            assertEquals("INSPECTION_UNAVAILABLE", failed.path("result").path("patchDiagnostic").asText());
+            assertEquals(before, json.readTree(tool(sandbox, id, "read_file", Map.of("path", path)))
+                    .path("result").path("content").asText());
+            assertTrue(tool(sandbox, id, "edit_file", Map.of("path", path,
+                    "old_text", "return n;", "new_text", "return n + 1;")).contains("PATCH_APPLIED"));
+            assertTrue(tool(sandbox, id, "run_checks", Map.of("goal", "test")).contains("TESTS_PASSED"));
+            assertTrue(sandbox.finish(id, () -> false).testEvidence().contains("\"status\":\"TESTED\""));
+            assertEquals(baseline, git(official, "rev-parse", "HEAD"));
+            assertTrue(git(official, "status", "--porcelain").isEmpty());
+        } finally {
+            sandbox.cleanup(id);
+        }
+    }
+
+    @Test
     void safeChangesBesideCredentialFreezeWithoutSecretInCandidateDiff() throws Exception {
         Path official = fixture();
         Path auth = official.resolve("src/main/java/example/Auth.java");

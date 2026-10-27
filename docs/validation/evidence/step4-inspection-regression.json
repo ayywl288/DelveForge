@@ -1,0 +1,51 @@
+{
+  "confirmedDefect": "TOOL_ERROR from read-only inspect_patch terminated the Run before mutation rather than permitting bounded correction",
+  "red": {
+    "realDockerTests": 1,
+    "errors": 1,
+    "error": "No closing quotation: controlled malformed header fixture, not historical input"
+  },
+  "green": [
+    {
+      "name": "agent.AgentPatchCorrectionsTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "agent.AgentToolActivityTest",
+      "tests": 35,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "agent.CodingAgentServiceTest",
+      "tests": 50,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "agent.DockerPatchPolicyTest",
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "docker": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "preserved": [
+    "valid preview and complete pre/postimages required before writes",
+    "credential policy rejection remains terminal as defined",
+    "unknown application outcome remains terminal",
+    "same patch or three unresolved conflicts stop work"
+  ],
+  "historicalExactError": "unavailable; only failure stage confirmed"
+}

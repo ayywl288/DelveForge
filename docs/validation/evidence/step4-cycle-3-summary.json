@@ -1,0 +1,157 @@
+{
+  "cycle": {
+    "cycle": 3,
+    "verifiedCorrection": "direct credential literal rule falsely captured prefix of runtime concatenation expression",
+    "sourceCommit": "621b074fa3da20a69ad5e81f3b4bcba75b3f45e1",
+    "phase": "FAILED_NEW_CONCRETE_INSPECTION_BLOCKER",
+    "previousRunIds": [
+      "126b58c3-6c3c-4f70-825f-f402c37d7ced",
+      "3d017a2c-4535-4d1f-aa52-f6f123c93b84",
+      "7198fab3-c773-47d5-80db-156b60aa12ee",
+      "72e7ff85-31e3-4283-a4f7-0fc8cc9359de",
+      "7eceebcf-6d9f-4b37-afbe-aa39085709d2",
+      "a650c901-e265-4ab6-80e0-05339296e2c2",
+      "dc3465c3-4da8-4101-8dee-91f5482fc065",
+      "e9f883f1-6210-4c72-b52b-38d9932089ff"
+    ],
+    "targetJdk": 17,
+    "runId": "995f76d8-74f2-4c2d-8590-213c3ef7f108",
+    "paidUsageAcknowledged": true,
+    "outcome": "TOOL_ERROR",
+    "modelCalls": 93,
+    "toolCalls": 129,
+    "tokens": 2700605
+  },
+  "run": {
+    "id": "995f76d8-74f2-4c2d-8590-213c3ef7f108",
+    "state": "FAILED",
+    "reason": "TOOL_ERROR",
+    "model_calls": 93,
+    "tool_calls": 129,
+    "tokens": 2700605,
+    "occupied": 0,
+    "retained": 0,
+    "candidate_id": null
+  },
+  "checks": [
+    {
+      "sequence": 1543,
+      "classification": "BUILD_PASSED_NOT_TESTED",
+      "executedTests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "sequence": 1546,
+      "classification": "TESTS_FAILED",
+      "executedTests": 28,
+      "failures": 11,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "sequence": 1630,
+      "classification": "TESTS_PASSED",
+      "executedTests": 28,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "sequence": 1662,
+      "classification": "TESTS_FAILED",
+      "executedTests": 9,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "sequence": 1674,
+      "classification": "TESTS_PASSED",
+      "executedTests": 9,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "sequence": 1688,
+      "classification": "TESTS_FAILED",
+      "executedTests": 2,
+      "failures": 0,
+      "errors": 2,
+      "skipped": 0
+    },
+    {
+      "sequence": 1697,
+      "classification": "TESTS_FAILED",
+      "executedTests": 2,
+      "failures": 0,
+      "errors": 2,
+      "skipped": 0
+    },
+    {
+      "sequence": 1714,
+      "classification": "TESTS_FAILED",
+      "executedTests": 2,
+      "failures": 0,
+      "errors": 2,
+      "skipped": 0
+    },
+    {
+      "sequence": 1717,
+      "classification": "TESTS_FAILED",
+      "executedTests": 1,
+      "failures": 0,
+      "errors": 1,
+      "skipped": 0
+    },
+    {
+      "sequence": 1737,
+      "classification": "TESTS_FAILED",
+      "executedTests": 2,
+      "failures": 0,
+      "errors": 2,
+      "skipped": 0
+    },
+    {
+      "sequence": 1751,
+      "classification": "TESTS_FAILED",
+      "executedTests": 2,
+      "failures": 0,
+      "errors": 2,
+      "skipped": 0
+    },
+    {
+      "sequence": 1757,
+      "classification": "TESTS_FAILED",
+      "executedTests": 2,
+      "failures": 0,
+      "errors": 2,
+      "skipped": 0
+    }
+  ],
+  "policyEvents": [
+    {
+      "sequence": 1537,
+      "policyRule": "PATCH_CREDENTIALS",
+      "policyStage": "PATCH_CONTENT",
+      "path": "src/main/java/com/springmvc/taskarium/config/SampleDataInitializer.java",
+      "rejectedInput": {
+        "field": "new_text",
+        "lines": [
+          24,
+          25
+        ]
+      }
+    }
+  ],
+  "terminalSite": {
+    "class": "DockerAgentSandbox",
+    "method": "requireToolSuccess",
+    "line": 492,
+    "calledFrom": "requirePatchContent: read-only inspect_patch result; actual apply not started"
+  },
+  "historicalExceptionText": "not retained; exact historic error not reconstructed",
+  "delivery": null
+}

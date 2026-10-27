@@ -69,7 +69,7 @@ public final class AgentToolActivity {
                     && details.path("mutationNotStarted").asBoolean()) {
                 summary.put("mutationNotStarted", true);
                 String diagnostic = details.path("patchDiagnostic").asText();
-                if (Set.of("HUNK_BODY_INVALID", "HUNK_COUNTS_INVALID", "HUNK_HEADER_INVALID", "DIFF_STRUCTURE_INVALID")
+                if (Set.of("HUNK_BODY_INVALID", "HUNK_COUNTS_INVALID", "HUNK_HEADER_INVALID", "DIFF_STRUCTURE_INVALID", "INSPECTION_UNAVAILABLE")
                         .contains(diagnostic)) {
                     summary.put("patchDiagnostic", diagnostic);
                 }

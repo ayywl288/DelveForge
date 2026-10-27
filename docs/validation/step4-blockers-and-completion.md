@@ -90,4 +90,26 @@ M1–M3 净化、明确凭据路径、写入前后像、停止后快照、Candid
 
 ### 周期 3 与最终验收
 
-待部署本次已验证修正并再次核对 C3 后，开始新的实际 Run。不得盲目重试。
+部署 `621b074`、再次核对八个 Run、三份 Delivery、原授权和原 C3 后，通过正常页面启动
+`995f76d8-74f2-4c2d-8590-213c3ef7f108`。
+93 次模型、129 次工具、2,700,605 tokens，最终 TOOL_ERROR，无 Candidate/Delivery。
+原 28 项测试及新 9 项账户检查曾通过；跨重启测试持续出现执行错误，后续又有修改，没有最终全量通过证据。
+[周期 3 安全摘要](evidence/step4-cycle-3-summary.json) 保留完整检查计数与终止位置。
+
+### 第四个已确认缺陷：只读预演失败被当成致命错误
+
+实际终止日志为 requireToolSuccess:492，由 requirePatchContent 对 inspect_patch 的只读结果调用；
+真正 apply_patch 尚未调用。旧异常正文未持久化，不能唯一恢复具体错误。
+独立真实 Docker 夹具用不闭合引号的 diff 头可复现相同终止路径：四种固定消息之外的只读解析错误直接使 Run 失败。
+
+修正仅在只读 inspect_patch 返回 TOOL_ERROR 时交回未写入的预检查失败，固定诊断 INSPECTION_UNAVAILABLE，
+不返回异常正文；沿用重复补丁/三次未解决冲突停止。后续仍需有效预演、凭据检查和完整前后像。
+策略拒绝、无效协议、实际应用后结果不明继续终止，未将未知写入伪装成冲突。
+
+定向 115/115、真实 Docker 4/4 通过，覆盖失败后源码不变、有效编辑、正向测试、冻结以及秘密保护。
+打包通过，部署 JAR 内 AgentToolActivity、凭据策略与 DockerAgentSandbox 类均与已测类逐字节一致。
+[回归计数](evidence/step4-inspection-regression.json)、[Docker JUnit](evidence/step4-inspection-docker.junit.xml)。
+
+### 周期 4 与最终验收
+
+待部署本次已验证的预演处理修正并重新核对可信 C3 后继续实际 Run。

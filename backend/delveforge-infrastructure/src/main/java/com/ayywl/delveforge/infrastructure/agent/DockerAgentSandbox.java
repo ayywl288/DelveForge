@@ -537,6 +537,20 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         };
     }
 
+    /** 只在只读预演入口使用；未知应用结果不能进入此修正路径，异常正文不返回或持久化。 */
+    JsonNode patchInspectionFailure(String tool, JsonNode inspection) {
+        if (inspection.path("ok").asBoolean() || !inspection.path("classification").asText().equals("TOOL_ERROR")) {
+            return null;
+        }
+        String syntax = patchSyntaxReason(inspection);
+        return json.createObjectNode().put("ok", false).put("tool", tool)
+                .set("result", json.createObjectNode().put("classification", "PATCH_CONFLICT")
+                        .put("mutationNotStarted", true)
+                        .put("conflictReason", syntax == null ? "CHECK_FAILED" : "INVALID_DIFF")
+                        .put("patchDiagnostic", syntax == null ? "INSPECTION_UNAVAILABLE" : syntax)
+                        .put("instruction", "补丁只读预演未通过，未尝试写入。重新读取源码并优先使用 edit_file；持续失败时停止并说明。"));
+    }
+
     /** 检查结论仍来自完整补丁；定位仅针对模型自己提交的输入，不返回任何被识别的值。 */
     AgentPolicyRejection contentRejection(String field, String proposed) {
         return contentRejection(field, proposed, "proposal.txt");
@@ -659,14 +673,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
         if (AgentTools.mutation(call.name())) {
             JsonNode inspection = invoke(session, "inspect_patch", arguments, cancelled);
-            String syntax = patchSyntaxReason(inspection);
-            if (syntax != null) {
-                return json.createObjectNode().put("ok", false).put("tool", call.name())
-                        .set("result", json.createObjectNode().put("classification", "PATCH_CONFLICT")
-                                .put("mutationNotStarted", true).put("conflictReason", "INVALID_DIFF")
-                                .put("patchDiagnostic", syntax)
-                                .put("instruction", "标准 diff 语法不完整，未应用任何修改；优先改用 edit_file 精确原文替换。"))
-                        .toString();
+            JsonNode failedInspection = patchInspectionFailure(call.name(), inspection);
+            if (failedInspection != null) {
+                return failedInspection.toString();
             }
             if (inspection.path("ok").asBoolean()
                     && inspection.path("result").path("classification").asText().equals("PATCH_CONFLICT")) {

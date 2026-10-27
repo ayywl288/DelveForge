@@ -124,3 +124,15 @@ mode/SHA-256，意外变化优先，并记录总数、截断与前后 snapshot�
 不返回日志正文；新增文件、覆写/截断、删除、模式及其他源码变化仍拒绝。
 权威源码继续只读、前后完整核对，测试绑定执行前 snapshot，日志副作用不进入 Candidate。
 这是对已复现运行期文件格式的支持补充，不扩大到任意日志路径或任意测试写入。
+
+### 2026-10-27：只读补丁预演失败可修正
+
+实际 Run 的末次 apply_patch 在 requirePatchContent 调用 requireToolSuccess 处以 TOOL_ERROR 终止；
+该调用针对只读 inspect_patch，实际应用尚未开始。具体旧异常正文未保存，不反推其输入。
+真实 Docker 通用夹具复现：不闭合引号的 diff --git 头产生额外解析错误，原四项消息匹配没有接纳，导致 Run 被提前终止。
+
+适配器仅在 inspect_patch 只读返回 TOOL_ERROR 的位置返回 PATCH_CONFLICT、CHECK_FAILED、
+mutationNotStarted=true，诊断使用固定 INSPECTION_UNAVAILABLE；已知语法仍有原固定类别。
+不输出异常正文，也不宣称输入只是语法错误；反复失败沿用现有相同补丁和三次未解决冲突停止规则。
+后续写入仍必须重新获得有效预演、凭据检查和完整前后像。策略拒绝、协议不可信及实际应用后结果不明仍终止。
+这是失败阶段的修正，不允许任意异常成为可重试写入，也不改变 Candidate/Delivery 合同。

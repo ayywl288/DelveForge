@@ -84,6 +84,22 @@ class DockerPatchPolicyTest {
     }
 
     @Test
+    void readOnlyInspectionErrorsReturnBoundedFeedbackWithoutSuppressingPolicyOrUnknownApplication() {
+        var failed = sandbox.patchInspectionFailure("apply_patch", json.valueToTree(Map.of(
+                "ok", false, "classification", "TOOL_ERROR", "reason", "OSError: fixture-private-source")));
+        assertEquals("PATCH_CONFLICT", failed.path("result").path("classification").asText());
+        assertEquals("CHECK_FAILED", failed.path("result").path("conflictReason").asText());
+        assertEquals("INSPECTION_UNAVAILABLE", failed.path("result").path("patchDiagnostic").asText());
+        assertTrue(failed.path("result").path("mutationNotStarted").asBoolean());
+        assertFalse(failed.toString().contains("fixture-private-source"));
+        for (String classification : java.util.List.of("POLICY_REJECTED", "PATCH_OUTCOME_UNCERTAIN")) {
+            assertEquals(null, sandbox.patchInspectionFailure("apply_patch", json.valueToTree(Map.of(
+                    "ok", false, "classification", classification))));
+        }
+        assertEquals(null, sandbox.patchInspectionFailure("apply_patch", json.createObjectNode().put("ok", true)));
+    }
+
+    @Test
     void uncertainApplicationCannotBecomeRecoverableToolFeedback() {
         var failure = assertThrows(AgentException.class, () -> DockerAgentSandbox.requireCertainPatchOutcome(
                 json.valueToTree(Map.of("ok", false, "classification", "PATCH_OUTCOME_UNCERTAIN", "output", "private-body"))));
