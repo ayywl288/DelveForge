@@ -162,7 +162,7 @@ it("a saved Candidate is displayed with honest NOT_TESTED evidence and never sta
     revision: null, reason: "AUTHORIZATION_CHANGED" });
   const { root } = mount([frozen]); await settle();
   expect(button(root, "重新开始编码").disabled).toBe(true);
-  expect(root.textContent).toContain("NOT_TESTED");
+  expect(root.querySelector(".evidence-status")?.textContent).toContain("未运行测试");
   expect(root.textContent).toContain("交付受阻");
   expect(button(root, "重新核对并交付已有结果")).toBeDefined();
   expect(start).not.toHaveBeenCalled();
@@ -333,7 +333,10 @@ it("a late Delivery cannot replace the selected Candidate or its Delivery", asyn
   chooseRun(root, 1); await settle();
   response.resolve({ candidateId: "candidate-1", state: "COMPLETED", revision: "c".repeat(40), reason: null });
   await settle();
-  expect(root.textContent).toContain("candidate-2 blocked");
+  expect(root.querySelector(".run-status")?.textContent).toBe("交付受阻");
+  expect(root.querySelector(".final-file-list")?.textContent).toContain("candidate-2.java");
+  expect(root.querySelector(".agent-changes .resource-warning")?.textContent).toContain("正式交付受阻");
+  expect(button(root, "重新核对并交付已有结果").disabled).toBe(false);
   expect(root.textContent).toContain("candidate-2.java");
   expect(root.textContent).not.toContain("Delivery：交付完成");
   expect(button(root, "重新核对并交付已有结果").disabled).toBe(false);
@@ -352,7 +355,8 @@ it("current Delivery responses and errors remain visible and release pending con
   expect(button(root, "重新核对并交付已有结果").disabled).toBe(true);
   response.resolve({ candidateId: "candidate-1", state: "DELIVERY_BLOCKED", revision: null, reason: "exact conflict" });
   await settle();
-  expect(root.textContent).toContain("exact conflict");
+  expect(root.querySelector(".run-status")?.textContent).toBe("交付受阻");
+  expect(root.querySelector(".agent-changes .resource-warning")?.textContent).toContain("正式交付受阻");
   expect(button(root, "重新核对并交付已有结果").disabled).toBe(false);
   button(root, "重新核对并交付已有结果").click(); await settle();
   expect(root.textContent).toContain("delivery unavailable");
@@ -383,20 +387,27 @@ it.each(["MUTATION_NOT_STARTED", "DELIVERY_FAILURE"])("recovery retry is offered
   expect(Boolean(button(root, "重新核对并交付已有结果"))).toBe(reason === "MUTATION_NOT_STARTED");
 });
 
-it("ignores a stale diff body and its pending cleanup after selecting another Run", async () => {
+it("ignores late file classification after switching to another Candidate", async () => {
   const body = deferred<string>();
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, text: () => body.promise }));
+  const secondDiff = "diff --git a/candidate-2.java b/candidate-2.java\nnew file mode 100644\n--- /dev/null\n+++ b/candidate-2.java\n@@ -0,0 +1 @@\n+new\n";
+  const fetchDiff = vi.fn().mockResolvedValueOnce({ ok: true, text: () => body.promise })
+    .mockResolvedValueOnce({ ok: true, text: async () => secondDiff });
+  vi.stubGlobal("fetch", fetchDiff);
   const first: AgentRun = { ...running(), state: "SUCCEEDED", candidateId: "candidate-1" };
-  const second: AgentRun = { ...running(), id: "run-2", state: "FAILED", reason: "selected-run-two" };
-  vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
+  const second: AgentRun = { ...running(), id: "run-2", state: "SUCCEEDED", candidateId: "candidate-2" };
+  vi.spyOn(api, "candidate").mockImplementation(async id => savedCandidate(id, id === "candidate-2" ? "run-2" : "run-1"));
   vi.spyOn(api, "delivery").mockResolvedValue(null);
   const { root } = mount([first, second]); await settle();
   vi.mocked(api.agentRun).mockImplementation(async id => id === second.id ? second : first);
-  root.querySelector<HTMLElement>(".final-diff summary")!.click(); await settle();
   chooseRun(root, 1); await settle();
-  body.reject(new Error("old diff failure")); await settle();
-  expect(root.textContent).toContain("selected-run-two");
-  expect(root.textContent).not.toContain("old diff failure");
+  expect(root.querySelector(".file-change-type")?.getAttribute("data-type")).toBe("ADDED");
+  body.resolve("diff --git a/candidate-1.java b/candidate-1.java\ndeleted file mode 100644\n--- a/candidate-1.java\n+++ /dev/null\n");
+  await settle();
+  expect(root.querySelector(".final-file-list")?.textContent).toContain("candidate-2.java");
+  expect(root.querySelector(".final-file-list")?.textContent).not.toContain("candidate-1.java");
+  expect(root.querySelector(".file-change-type")?.getAttribute("data-type")).toBe("ADDED");
+  expect(fetchDiff).toHaveBeenCalledTimes(2);
+  expect(root.querySelector(".final-diff, .candidate-technical, .agent-changes pre")).toBeNull();
   expect(button(root, "刷新记录").disabled).toBe(false);
 });
 
@@ -610,6 +621,8 @@ it("keeps the latest 1000 persisted events ordered and deduplicated across repla
 });
 
 it.each(["AVAILABLE", "UNAVAILABLE"] as const)("completed Delivery retains read-only cumulative final changes (%s)", async availability => {
+  const fetchDiff = vi.fn();
+  vi.stubGlobal("fetch", fetchDiff);
   const frozen: AgentRun = { ...running(), state: "SUCCEEDED", candidateId: "candidate-1" };
   vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
   vi.spyOn(api, "delivery").mockResolvedValue({ candidateId: "candidate-1", state: "COMPLETED", revision: "b".repeat(40), reason: null });
@@ -624,11 +637,14 @@ it.each(["AVAILABLE", "UNAVAILABLE"] as const)("completed Delivery retains read-
   expect(root.querySelector(".candidate-overview .file-change-summary")).toBeNull();
   expect(root.querySelector(".final-file-list")?.textContent ?? "").not.toContain("candidate-1.java");
   expect(root.querySelector(".evidence-status")?.textContent).toContain("未运行测试");
-  expect(root.querySelector<HTMLDetailsElement>(".candidate-evidence details")!.open).toBe(false);
-  expect(root.querySelector(".candidate-evidence pre")?.textContent).toContain("NOT_TESTED");
+  expect(root.querySelector(".agent-changes details, .agent-changes pre")).toBeNull();
+  expect(root.querySelector(".agent-changes")?.textContent).not.toContain("NOT_TESTED");
+  expect(root.querySelector(".agent-changes")?.textContent).not.toContain("开发者详情");
+  expect(root.querySelector(".agent-changes")?.textContent).not.toContain("查看最终差异");
   expect(root.querySelector("#step-final-changes")?.textContent).toContain(availability === "AVAILABLE" ? "cumulative.java" : "历史 Git 对象已不可用");
   expect(root.textContent).toContain("已正式接受的完整步骤变更");
   expect(final).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1");
+  expect(fetchDiff).not.toHaveBeenCalled();
   expect(button(root, "重新核对并交付已有结果")).toBeUndefined();
 });
 

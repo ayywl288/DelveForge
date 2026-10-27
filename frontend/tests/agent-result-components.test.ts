@@ -20,15 +20,15 @@ it("shows distinct change kinds with accurate counts, readable full paths and an
   expect(root.querySelectorAll("li")).toHaveLength(8);
   expect(root.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
 });
-it("renders TESTED counts and NOT_TESTED honestly while original JSON stays in a closed disclosure",async()=>{
+it("renders TESTED counts and NOT_TESTED honestly without rendering original JSON or developer disclosures",async()=>{
   const props=reactive({evidence:JSON.stringify({status:"TESTED",finalSnapshot:"a".repeat(64),checks:[{stale:false,snapshot:"a".repeat(64),
     classification:"TESTS_PASSED",executedTests:28,tests:30,skipped:2,failures:0,errors:0}]})});
   const root=document.createElement("div");const app=createApp({render:()=>h(AgentTestEvidence,props)});app.mount(root);
   cleanup.push(()=>app.unmount());await settle();
   expect(root.querySelector(".evidence-status")?.textContent).toBe("已测试");
   expect([...root.querySelectorAll("dd")].map(node=>node.textContent)).toEqual(["28","28","0","0","2"]);
-  expect(root.querySelector<HTMLDetailsElement>("details")!.open).toBe(false);
-  expect(root.querySelector("pre")?.textContent).toBe(props.evidence);
+  expect(root.querySelector("details, pre")).toBeNull();
+  expect(root.textContent).not.toContain(props.evidence);
   props.evidence='{"status":"NOT_TESTED"}';await settle();
   expect(root.querySelector(".evidence-status")?.textContent).toBe("未运行测试");
   expect(root.querySelector(".test-counts")).toBeNull();

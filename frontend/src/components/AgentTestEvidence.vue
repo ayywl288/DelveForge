@@ -15,7 +15,6 @@ const result = computed(() => presentTestEvidence(props.evidence));
             <div><dt>错误</dt><dd>{{ result.counts.errored ?? '未记录' }}</dd></div>
             <div><dt>跳过</dt><dd>{{ result.counts.skipped ?? '未记录' }}</dd></div>
         </dl>
-        <details class="technical-details evidence-raw"><summary>开发者详情 · 原始测试证据</summary><pre class="agent-output">{{ evidence }}</pre></details>
     </section>
 </template>
 <style scoped>
@@ -31,8 +30,5 @@ h4 { font-size: 15px; margin: 0; }
 .test-counts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
 .test-counts dt { font-size: 12px; color: var(--muted); }
 .test-counts dd { margin: 4px 0 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
-.technical-details { font-size: 12px; color: var(--muted); margin-top: 12px; }
-summary { cursor: pointer; }
-.agent-output { max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--canvas); padding: 12px; }
 @media (max-width: 640px) { .test-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 </style>

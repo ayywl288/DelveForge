@@ -3,13 +3,12 @@ import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted,
 import { api } from "../api/client";
 import type { AgentCandidate, AgentEvent, AgentRun, Delivery } from "../api/agentTypes";
 import type { WorkspaceSession } from "../state/session";
-import RevisionText from "../components/RevisionText.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import StepFinalChanges from "../components/StepFinalChanges.vue";
 import AgentTimeline from "../components/AgentTimeline.vue";
 import AgentTestEvidence from "../components/AgentTestEvidence.vue";
 import FileChangeSummary from "../components/FileChangeSummary.vue";
-import { candidateFileChanges, presentRun, type RunPresentation } from "../components/agentResultPresentation";
+import { candidateFileChanges, presentRun, type PresentedFileChange, type RunPresentation } from "../components/agentResultPresentation";
 import NavigationIcon from "../components/NavigationIcon.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import type { NavigationIconName } from "../components/NavigationIcon.vue";
@@ -25,17 +24,15 @@ const run = ref<AgentRun | null>(null);
 const candidate = ref<AgentCandidate | null>(null);
 const delivery = ref<Delivery | null>(null);
 const events = ref<AgentEvent[]>([]);
-const diff = ref("");
-const diffExpanded = ref(false);
-const diffLoading = ref(false);
-const diffError = ref("");
-let diffAttemptedId = "";
+const candidateFiles = ref<PresentedFileChange[]>([]);
+const filesLoading = ref(false);
+const filesUnavailable = ref(false);
+let filesAttemptedId = "";
 const runDeliveries = ref<Record<string, Delivery | null>>({});
 const historyDeliveryError = ref(false);
 let historyEpoch = 0;
 const runPresentation = computed(() => run.value ? presentRun(run.value,
     run.value.candidateId ? runDeliveries.value[run.value.candidateId] : null) : null);
-const candidateFiles = computed(() => candidate.value ? candidateFileChanges(candidate.value.changedPaths, diff.value) : []);
 const completedDelivery = computed(() => run.value?.state === "SUCCEEDED" && candidate.value
     && delivery.value?.candidateId === candidate.value.id && delivery.value.state === "COMPLETED");
 const officialStep = computed(() => completedDelivery.value && step.value?.id === run.value?.stepId
@@ -130,10 +127,11 @@ async function updateStatus(version: number) {
       const [frozen, accepted] = await Promise.all([api.candidate(actual.candidateId), api.delivery(actual.candidateId)]);
       if (!belongs()) return;
       if (frozen.id !== actual.candidateId || frozen.runId !== actual.id) throw new Error("冻结结果与当前运行不一致。");
+      if (candidate.value?.id !== frozen.id) candidateFiles.value = candidateFileChanges(frozen.changedPaths, "");
       candidate.value = frozen;
       delivery.value = rememberDelivery(frozen.id, accepted);
       if (accepted?.state === "COMPLETED" && step.value?.status !== "SUCCEEDED") await props.s.refreshPlan();
-      if (belongs() && accepted?.state !== "COMPLETED" && diffAttemptedId !== frozen.id) void loadDiff();
+      if (belongs() && delivery.value?.state !== "COMPLETED" && filesAttemptedId !== frozen.id) void loadCandidateFiles();
     }
     if (belongs()) syncError.value = "";
   } catch (failure) {
@@ -151,11 +149,10 @@ async function selectRun(selected: AgentRun) {
   candidate.value = null;
   delivery.value = null;
   events.value = [];
-  diff.value = "";
-  diffExpanded.value = false;
-  diffLoading.value = false;
-  diffError.value = "";
-  diffAttemptedId = "";
+  candidateFiles.value = [];
+  filesLoading.value = false;
+  filesUnavailable.value = false;
+  filesAttemptedId = "";
   if (!active) return;
   if (typeof EventSource === "undefined") {
     connection.value = "浏览器不支持实时事件";
@@ -270,28 +267,25 @@ async function confirmStep() {
   if (!canConfirm.value) return;
   await action(selected => props.s.confirmStep(selected.stepId!, () => current(selected)));
 }
-async function loadDiff() {
-  const id = candidate.value?.id;
-  if (!id || diffLoading.value) return;
+async function loadCandidateFiles() {
+  const frozen = candidate.value;
+  if (!frozen || filesLoading.value) return;
   const scope = selection();
-  diffAttemptedId = id;
-  diffLoading.value = true;
-  diffError.value = "";
+  filesAttemptedId = frozen.id;
+  filesLoading.value = true;
+  filesUnavailable.value = false;
   try {
-    const response = await fetch(`/api/agent-candidates/${encodeURIComponent(id)}/diff`, { cache: "no-store" });
+    // 未交付 Candidate 仍需从冻结 diff 判定文件类型；只保留分类，不展示或持有原始正文。
+    const response = await fetch(`/api/agent-candidates/${encodeURIComponent(frozen.id)}/diff`, { cache: "no-store" });
     if (!current(scope)) return;
-    if (!response.ok) throw new Error("最终差异读取失败");
+    if (!response.ok) throw new Error("Candidate file classification unavailable");
     const text = await response.text();
-    if (current(scope)) diff.value = text;
-  } catch (failure) {
-    if (current(scope)) diffError.value = failure instanceof Error ? failure.message : "差异暂不可用。";
+    if (current(scope)) candidateFiles.value = candidateFileChanges(frozen.changedPaths, text);
+  } catch {
+    if (current(scope)) filesUnavailable.value = true;
   } finally {
-    if (current(scope)) diffLoading.value = false;
+    if (current(scope)) filesLoading.value = false;
   }
-}
-function toggleDiff() {
-  diffExpanded.value = !diffExpanded.value;
-  if (diffExpanded.value && !diff.value) void loadDiff();
 }
 
 function activate() {
@@ -319,11 +313,10 @@ watch([() => props.s.plan?.id, () => step.value?.id], async () => {
   events.value = [];
   candidate.value = null;
   delivery.value = null;
-  diff.value = "";
-  diffExpanded.value = false;
-  diffLoading.value = false;
-  diffError.value = "";
-  diffAttemptedId = "";
+  candidateFiles.value = [];
+  filesLoading.value = false;
+  filesUnavailable.value = false;
+  filesAttemptedId = "";
   error.value = "";
   syncError.value = "";
   await nextTick();
@@ -433,15 +426,13 @@ onUnmounted(deactivate);
         : run ? '此 Run 尚无冻结 Candidate，因此没有 Candidate 文件列表。'
           : '选择或开始运行后，可在此查看冻结 Candidate 的文件、检查证据与交付结果。' }}</p>
       <template v-else>
-      <StepFinalChanges v-if="officialStep && step" :plan-id="s.plan.id" :step="step">
-        <template #technical><p>Candidate <code>{{ candidate.id }}</code></p><p>Diff SHA-256 <code>{{ candidate.sha256 }}</code></p></template>
-      </StepFinalChanges>
+      <StepFinalChanges v-if="officialStep && step" :plan-id="s.plan.id" :step="step" />
       <p v-else-if="completedDelivery" role="status">交付已完成，正在同步步骤的正式版本与文件清单。</p>
       <div v-else class="candidate-overview">
         <h4>候选变更</h4><p class="meta">以下是本次保存的编码结果，尚未完成正式交付。</p>
-        <p v-if="diffLoading" role="status" class="meta">正在读取候选文件分类…</p>
+        <p v-if="filesLoading" role="status" class="meta">正在读取候选文件分类…</p>
         <FileChangeSummary :key="candidate.id" :files="candidateFiles" />
-        <p v-if="diffError" class="meta" role="status">文件分类暂未读回，可展开最终差异后重试。</p>
+        <p v-if="filesUnavailable" class="meta" role="status">文件分类暂未读回，可刷新记录重试。</p>
       </div>
       <p v-if="delivery?.state === 'RECOVERY_REQUIRED'" class="resource-warning" role="alert">正式副本状态需要核对，后续执行已停止。请查看开发者详情。</p>
       <p v-else-if="delivery?.state === 'DELIVERY_BLOCKED'" class="resource-warning" role="alert">正式交付受阻，编码结果已保留。</p>
@@ -449,22 +440,6 @@ onUnmounted(deactivate);
         || delivery.state === 'RECOVERY_REQUIRED' && delivery.reason === 'MUTATION_NOT_STARTED'" :disabled="pending"
         @click="deliverCandidate">重新核对并交付已有结果</button>
       <AgentTestEvidence :evidence="candidate.testEvidence" />
-      <details class="final-diff" :open="diffExpanded">
-        <summary @click.prevent="toggleDiff">查看最终差异</summary>
-        <p v-if="diffLoading" role="status" class="meta">正在读取差异…</p>
-        <p v-else-if="diffError" role="alert" class="field-error">{{ diffError }} <button class="text-button" @click="loadDiff">重新读取差异</button></p>
-        <pre v-else-if="diff" class="agent-output">{{ diff }}</pre>
-        <p v-else class="meta">尚无可展示的差异正文。</p>
-      </details>
-      <details v-if="!officialStep" class="candidate-technical">
-        <summary>开发者详情 · 候选与版本</summary>
-        <p>Candidate <code>{{ candidate.id }}</code></p>
-        <p v-if="delivery">Delivery <code>{{ delivery.state }}</code><span v-if="delivery.reason"> · {{ delivery.reason }}</span></p>
-        <RevisionText label="候选 baseline" :value="candidate.baseline" />
-        <RevisionText label="候选 Tree" :value="candidate.expectedTree" />
-        <RevisionText v-if="delivery?.revision" label="正式提交" :value="delivery.revision" />
-        <p>Diff SHA-256 <code>{{ candidate.sha256 }}</code></p>
-      </details>
       </template>
     </section>
   </template>
@@ -479,7 +454,6 @@ onUnmounted(deactivate);
 <style scoped>
 .budget-acknowledgment { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; }
 .budget-acknowledgment input { flex: 0 0 auto; margin-top: 4px; }
-.agent-output { max-height: 32rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--canvas); padding: 14px; border-radius: 8px; }
 .workbench-heading, .workbench-heading > .meta { display: flex; align-items: center; gap: 10px; }
 .workbench-heading { justify-content: space-between; flex-wrap: wrap; }
 .workbench-heading h2 { margin: 0; font-size: 19px; }
@@ -546,7 +520,6 @@ onUnmounted(deactivate);
 .candidate-overview h4 { font-size: 15px; margin: 0 0 12px; }
 .candidate-overview p { font-size: 14px; }
 .candidate-evidence { margin: 16px 0; font-size: 13px; }
-.candidate-evidence summary { cursor: pointer; }
 .agent-changes :deep(.step-final-changes) { border-top: 0; padding-top: 0; }
 select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
 @media (max-width: 1050px) {
@@ -567,6 +540,6 @@ select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
 }
 .run-status[data-tone="blocked"] { color: var(--warning); }
 .run-status[data-tone="completed"] { color: var(--success); }
-.run-technical, .candidate-technical, .final-diff { font-size: 12px; color: var(--muted); margin: 14px 0; overflow-wrap: anywhere; }
-.run-technical summary, .candidate-technical summary, .final-diff summary { cursor: pointer; }
+.run-technical { font-size: 12px; color: var(--muted); margin: 14px 0; overflow-wrap: anywhere; }
+.run-technical summary { cursor: pointer; }
 </style>

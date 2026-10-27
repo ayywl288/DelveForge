@@ -25,6 +25,9 @@ it("shows actual cumulative files separately from the latest ExecutionResult", a
   const { root } = mount(); await settle();
   expect(root.textContent).toContain("whole-step.java");
   expect(root.textContent).not.toContain("src/ReportService.java");
+  expect(root.querySelector("details, pre")).toBeNull();
+  expect(root.textContent).not.toContain("开发者详情");
+  expect(root.textContent).not.toContain("a".repeat(40));
   expect(api.finalChanges).toHaveBeenCalledWith("plan-1", "step-1");
 });
 it("available empty result differs from unavailable historical objects", async () => {

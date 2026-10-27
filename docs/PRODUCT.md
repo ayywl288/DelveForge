@@ -3,7 +3,7 @@
 **2026-10-22 Task 2 当前产品流程：** 用户逐 Step 确认并启动 Agent。Agent 在一次性 Docker
 沙箱中探索、修改和检查，冻结 Candidate；系统随后自动执行确定性 Delivery，接受正式 Git commit 后
 才把 Step 标为 SUCCEEDED。失败的 Run 可由用户启动新尝试，不恢复旧对话，也不执行后续 Step。
-用户可查看真实工具与 Maven 活动、冻结差异和独立交付状态；刷新和重连读取持久化事件。
+用户可查看真实工具与 Maven 活动、文件变化、测试摘要和独立交付状态；刷新和重连读取持久化事件。
 NOT_TESTED 不等于测试通过，已知未解决检查失败不能被接受。普通 Java/Maven 兼容范围仍受 Task 1
 JDK、文件、公开 Central 依赖及隔离限制约束。实现验收见 [Task 2 验收](validation/task2-autonomous-evolution.md)。
 下文旧 M4/M5 一次性提案、独立 Repair/Retry/Rollback 是历史背景，已退出当前产品流程。

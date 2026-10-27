@@ -2,7 +2,6 @@
 import { onBeforeUnmount, ref, watch } from "vue";
 import { api, ApiError } from "../api/client";
 import type { EvolutionStep, StepFinalChanges } from "../api/types";
-import RevisionText from "./RevisionText.vue";
 import FileChangeSummary from "./FileChangeSummary.vue";
 
 const props = defineProps<{ planId: string; step: EvolutionStep }>();
@@ -69,13 +68,6 @@ onBeforeUnmount(() => { generation++; });
     <template v-else-if="result?.availability === 'AVAILABLE'">
       <FileChangeSummary :key="step.id + step.deliveryRevision" :files="result.files!" />
       <p v-if="!result.files!.length" class="context-note">最终没有净文件变化。</p>
-      <details class="reading-disclosure technical-details"><summary>开发者详情 · 版本溯源</summary>
-        <RevisionText label="Step 原始 baseline" :value="result.baselineRevision" />
-        <RevisionText label="此 Step 的 Verified Revision" :value="result.verifiedRevision" />
-        <RevisionText label="baseline Tree" :value="result.baselineTree" />
-        <RevisionText label="Verified Tree" :value="result.verifiedTree" />
-        <slot name="technical" />
-      </details>
     </template>
     <p v-else-if="result" class="context-note">最终差异不可用：{{ reasons[result.reason ?? ''] ?? '当前无法安全完成历史 Tree 比较。' }}
       <span class="meta">{{ result.reason }}</span>不会以本轮或历史文件列表替代。</p>
