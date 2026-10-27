@@ -70,6 +70,25 @@ class CredentialMutationGuardTest {
     }
 
     @Test
+    void ordinarySpringConfigurationReferencesCanBeAddedWithoutWeakeningLiteralProtection() throws Exception {
+        String before = "spring.application.name=fixture\nspring.datasource.password=\n";
+        String after = "spring.application.name=fixture\nspring.datasource.password=${DB_PASSWORD:}\n"
+                + "app.jwt.secret=${JWT_SECRET}\n";
+        String path = "src/main/resources/application.properties";
+        guard.requireSafe(path, before, after, changes(before, after));
+        for (String literal : new String[]{"embedded-private-value", "${DB_PASSWORD:embedded-private-value}"}) {
+            String unsafe = after.replace("${DB_PASSWORD:}", literal);
+            var delta = changes(after, unsafe);
+            assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, assertThrows(AgentPolicyRejection.class,
+                    () -> guard.requireSafe(path, after, unsafe, delta)).rule());
+        }
+        String protectedBefore = "spring.datasource.password=embedded-private-value\n";
+        var protectedDelta = changes(protectedBefore, after);
+        assertEquals(AgentPolicyRejection.Rule.SOURCE_CREDENTIALS, assertThrows(AgentPolicyRejection.class,
+                () -> guard.requireSafe(path, protectedBefore, after, protectedDelta)).rule());
+    }
+
+    @Test
     void protectedLinesKeepCrLfAndExactEditDiffDoesNotCopyAdjacentSecret() throws Exception {
         String before = "password='synthetic-private-value';\r\nordinary=1;\r\n";
         String after = before.replace("ordinary=1", "ordinary=2");

@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentException;
+import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
@@ -103,6 +104,43 @@ class DockerAgentSandboxTest {
             patch.append('+').append(newLines[i]).append('\n');
         }
         return patch.toString();
+    }
+
+    @Test
+    void springConfigurationReferencesEditVerifyAndFreezeWhileActualCredentialsStayBlocked() throws Exception {
+        Path official = fixture();
+        String baseline = git(official, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        String path = "src/main/resources/application.properties";
+        String configuration = "spring.datasource.password=${DB_PASSWORD:}\napp.jwt.secret=${JWT_SECRET}\n";
+        var sandbox = new DockerAgentSandbox(properties(temporary.resolve("configuration-runs")),
+                new DeterministicRepositorySecretPolicy());
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
+                    temporary.resolve("original").toString(), baseline, "fixture", "fixture", "configuration", 21),
+                    AgentProtocol.Limits.defaults(), () -> false);
+            assertTrue(tool(sandbox, id, "edit_file", Map.of("path", path, "old_text", "", "new_text", configuration))
+                    .contains("PATCH_APPLIED"));
+            assertTrue(tool(sandbox, id, "read_file", Map.of("path", path)).contains("${DB_PASSWORD:}"));
+            var rejection = assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id, "edit_file", Map.of(
+                    "path", path, "old_text", "${DB_PASSWORD:}", "new_text", "embedded-private-value")));
+            assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, rejection.rule());
+            assertTrue(rejection.sourceEditRejectedBeforeMutation());
+            String unchanged = tool(sandbox, id, "read_file", Map.of("path", path));
+            assertTrue(unchanged.contains("${DB_PASSWORD:}"));
+            assertFalse(unchanged.contains("embedded-private-value"));
+            assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
+                    "old_text", "return n;", "new_text", "return n + 1;")).contains("PATCH_APPLIED"));
+            assertTrue(tool(sandbox, id, "run_checks", Map.of("goal", "test")).contains("TESTS_PASSED"));
+            Candidate candidate = sandbox.finish(id, () -> false);
+            assertTrue(candidate.diff().contains("${DB_PASSWORD:}"));
+            assertFalse(candidate.diff().contains("embedded-private-value"));
+            assertTrue(candidate.testEvidence().contains("\"status\":\"TESTED\""));
+            assertEquals(baseline, git(official, "rev-parse", "HEAD"));
+            assertTrue(git(official, "status", "--porcelain").isEmpty());
+        } finally {
+            sandbox.cleanup(id);
+        }
     }
 
     @Test

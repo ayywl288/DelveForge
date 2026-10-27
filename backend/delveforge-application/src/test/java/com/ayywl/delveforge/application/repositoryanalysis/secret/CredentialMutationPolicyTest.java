@@ -71,6 +71,53 @@ class CredentialMutationPolicyTest {
         assertEquals(List.of(1), policy.mutationProtectedLines("Auth.java", "String value=\"" + key + "\";"));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "spring.datasource.password=${DB_PASSWORD}\n",
+            "spring.datasource.password=${DB_PASSWORD:}\r\n",
+            "security.password=${security.password}\n",
+            "jwt.secret=\"${JWT_SECRET}\"\n",
+            "password: '${DB_PASSWORD:}'\n"
+    })
+    void configurationReferencesDoNotContainCredentialValues(String configuration) {
+        for (String path : List.of("src/main/resources/application.properties", "src/test/resources/application.yml")) {
+            assertEquals(List.of(), policy.mutationProtectedLines(path, configuration), path);
+            assertEquals(configuration, policy.sanitizeSource(path, configuration));
+        }
+        assertFalse(policy.sanitize(List.of(new RepositorySourceFile("application.properties", configuration)))
+                .material().getFirst().content().equals(configuration));
+    }
+
+    @Test
+    void emptyYamlScalarsAndStandaloneReferencesWithCommentsContainNoSecrets() {
+        String configuration = "password: \"\"\nsecret: ''\n"
+                + "apiKey: ${API_KEY} # injected at runtime\n";
+        assertEquals(List.of(), policy.mutationProtectedLines("application.yaml", configuration));
+    }
+
+    @Test
+    void referenceSyntaxDoesNotHideKnownTokenFormatsOrProtectPropertyQuoteBytesAsEmpty() {
+        String token = "ghp_0123456789abcdefghijklmnopqrstuvwx";
+        assertEquals(List.of(1), policy.mutationProtectedLines("application.yml", "password: ${" + token + "}\n"));
+        assertEquals(List.of(1), policy.mutationProtectedLines("application.properties", "password=\"\"\n"));
+        assertEquals(List.of(1), policy.mutationProtectedLines("sample.txt", "password=${DB_PASSWORD}\n"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "password=${DB_PASSWORD:embedded-private-value}\n",
+            "secret=${JWT_SECRET}literal-suffix\n",
+            "password=embedded-private-value\n",
+            "password: \"embedded-private-value\"\n",
+            "password=${OUTER:${INNER}}\n"
+    })
+    void literalDefaultsAndUnsupportedMixedValuesRemainProtected(String configuration) {
+        for (String path : List.of("src/main/resources/application.properties", "src/test/resources/application.yml")) {
+            assertEquals(List.of(1), policy.mutationProtectedLines(path, configuration), path);
+        }
+        assertEquals(List.of(1), policy.mutationProtectedLines("Auth.java", "String secret=\"${JWT_SECRET}\";"));
+    }
+
     @Test
     void configurationDoesNotAcquireCodeExpressionExemptions() {
         assertEquals(List.of(2), policy.mutationProtectedLines("config.yml", "ordinary: ok\npassword: runtimeValue\n"));

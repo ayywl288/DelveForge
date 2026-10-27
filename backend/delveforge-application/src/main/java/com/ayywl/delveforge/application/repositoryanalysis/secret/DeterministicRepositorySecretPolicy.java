@@ -75,6 +75,10 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
 
     private static final Set<String> SOURCE_EXTENSIONS = Set.of("java", "js", "ts", "jsx", "tsx", "vue", "kt");
 
+    // 只识别完整的配置引用；非空默认值和拼接仍按凭据字面量处理。
+    private static final Pattern CONFIGURATION_REFERENCE =
+            Pattern.compile("\\$\\{[A-Za-z_][A-Za-z0-9_.-]{0,127}:?\\}");
+
     // Agent 只保护直接赋值的明确字面量，不尝试解析任意源码表达式或判断数据流。
     private static final Pattern SOURCE_CREDENTIAL_LITERAL = Pattern.compile(
             "(?im)((?:^|[^A-Za-z0-9_\\-])[\"']?" + CREDENTIAL_KEY
@@ -281,8 +285,10 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
     public List<Integer> mutationProtectedLines(String relativePath, String content) {
         SortedSet<Integer> lines = new TreeSet<>();
         int dot = relativePath.lastIndexOf('.');
-        boolean source = dot >= 0
-                && SOURCE_EXTENSIONS.contains(relativePath.substring(dot + 1).toLowerCase(Locale.ROOT));
+        String extension = dot < 0 ? "" : relativePath.substring(dot + 1).toLowerCase(Locale.ROOT);
+        boolean source = SOURCE_EXTENSIONS.contains(extension);
+        boolean configuration = Set.of("properties", "yml", "yaml").contains(extension);
+        boolean yaml = extension.equals("yml") || extension.equals("yaml");
         for (int index = 0; index < CONTENT_RULES.size(); index++) {
             boolean assignment = index == CONTENT_RULES.size() - 1;
             Matcher matcher = (source && assignment ? SOURCE_CREDENTIAL_LITERAL : CONTENT_RULES.get(index).pattern())
@@ -290,6 +296,9 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
             int cursor = 0;
             int row = 1;
             while (matcher.find()) {
+                if (configuration && assignment && configurationReference(matcher, content, yaml)) {
+                    continue;
+                }
                 if (source && assignment) {
                     String literal = matcher.group(2);
                     String value = literal.substring(1, literal.length() - 1);
@@ -312,6 +321,38 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
             }
         }
         return List.copyOf(lines);
+    }
+
+    /** Agent 配置编辑允许不含值的引用；M1–M3 净化和已知秘密格式规则保持独立。 */
+    private static boolean configurationReference(Matcher assignment, String content, boolean yaml) {
+        String value = assignment.group(2);
+        int end = assignment.end(2);
+        boolean quoted = value.startsWith("\"") || value.startsWith("'");
+        if (quoted) {
+            value = value.substring(1, value.length() - 1);
+        } else if (value.startsWith("${") && end < content.length() && content.charAt(end) == '}') {
+            // 保守赋值规则在右花括号前结束，需要把引用结束符一起核对。
+            value += "}";
+            end++;
+        }
+        if (!(yaml && quoted && value.isEmpty()) && !CONFIGURATION_REFERENCE.matcher(value).matches()) {
+            return false;
+        }
+        int tail = end;
+        while (tail < content.length()) {
+            char current = content.charAt(tail);
+            if (current == '\r' || current == '\n') {
+                return true;
+            }
+            if (yaml && current == '#' && tail > end) {
+                return true;
+            }
+            if (!Character.isWhitespace(current)) {
+                return false;
+            }
+            tail++;
+        }
+        return true;
     }
 
     private static Replacement replaceIn(String content) {
