@@ -329,6 +329,34 @@ def report(modules=None):
             'failures': failures, 'errors': errors, 'skipped': skipped}
 
 
+def h2_runtime_database(path):
+    # 仅识别已有 H2 MVStore 二进制数据库，不按目录或任意后缀豁免源文件。
+    if not path.name.endswith('.mv.db'):
+        return False
+    with path.open('rb') as source:
+        header = source.read(4096).split(b'\n', 1)[0]
+    fields = dict(field.split(b':', 1) for field in header.split(b',') if b':' in field)
+    return (fields.get(b'H') == b'2' and fields.get(b'blockSize') == b'1000'
+            and all(key in fields for key in (b'block', b'chunk', b'format', b'fletcher')))
+
+
+def check_runtime_changes(before, after, databases):
+    old = {entry['path']: entry for entry in before['files']}
+    new = {entry['path']: entry for entry in after['files']}
+    changes = []
+    for relative in sorted(old.keys() | new.keys()):
+        if old.get(relative) == new.get(relative):
+            continue
+        # 此例外只适用于丢弃的检查副本；删除、模式变化和所有其他材料仍拒绝。
+        if (relative not in databases or relative not in new
+                or old[relative]['mode'] != new[relative]['mode']
+                or not h2_runtime_database(path_for(relative))):
+            raise PolicyError('CHECK_MUTATED_SOURCE', 'Build mutated source; results cannot attest the requested snapshot')
+        changes.append({'path': relative, 'category': 'H2_MVSTORE_CONTENT',
+                        'before': old[relative], 'after': new[relative]})
+    return changes
+
+
 def checks(args):
     goal = args.get('goal', 'test')
     if goal not in ('compile', 'test', 'package', 'verify'):
@@ -353,15 +381,17 @@ def checks(args):
             raise PolicyError('MAVEN_OPTIONS', 'Invalid test selector')
         command += ['-Dtest=' + selected, '-Dsurefire.failIfNoSpecifiedTests=false']
     modules = maven_module_roots({project.relative_to(ROOT).as_posix()})
-    before = snapshot(modules=modules)['snapshot']
+    captured = snapshot(modules=modules)
+    before = captured['snapshot']
+    databases = ({entry['path'] for entry in captured['files'] if h2_runtime_database(path_for(entry['path']))}
+                 if os.environ.get('DF_CHECK_COPY') == 'true' else set())
     # 只清理实际构建目录的生成报告；测试夹具和基线资源不能被清理或冒充执行证据。
     for path in maven_report_files(modules):
         path.unlink()
     code, output = run_bounded(command + [goal], timeout=int(os.environ.get('DF_CHECK_SECONDS', '180')))
-    after = snapshot(modules=modules)['snapshot']
+    after = snapshot(modules=modules)
+    changes = check_runtime_changes(captured, after, databases)
     result = report(modules)
-    if before != after:
-        raise PolicyError('CHECK_MUTATED_SOURCE', 'Build mutated source; results cannot attest the requested snapshot')
     if re.search(r'release version .* not supported|invalid target release|UnsupportedClassVersionError', output):
         classification = 'JDK_ENVIRONMENT_MISMATCH'
     elif result['failures'] or result['errors']:
@@ -374,7 +404,7 @@ def checks(args):
         classification = 'COMPILATION_FAILED'
     else:
         classification = 'BUILD_CONFIGURATION_FAILED'
-    return {'classification': classification, 'exitCode': code, 'snapshot': before,
+    return {'classification': classification, 'exitCode': code, 'snapshot': before, 'runtimeChanges': changes,
             'goal': goal, 'directory': project.relative_to(ROOT).as_posix(), 'module': module, 'selectedTest': selected,
             **result, 'output': output[-18000:]}
 

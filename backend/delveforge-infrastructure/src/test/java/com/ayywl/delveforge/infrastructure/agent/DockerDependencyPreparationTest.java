@@ -95,6 +95,15 @@ class DockerDependencyPreparationTest {
             JsonNode before = snapshot(sandbox, id);
             prepareDependencies(sandbox, id);
             assertEquals(before, snapshot(sandbox, id));
+            JsonNode check = json.readTree(sandbox.tool(id,
+                    new AgentProtocol.ToolCall("formal-test", "run_checks", "{\"goal\":\"test\"}"), () -> false));
+            assertEquals("TESTS_PASSED", check.path("result").path("classification").asText());
+            assertEquals(before.path("snapshot"), check.path("result").path("snapshot"));
+            assertEquals(1, check.path("result").path("executedTests").asInt());
+            assertEquals(1, check.path("result").path("runtimeChanges").size());
+            assertEquals("database/taskarium_db.mv.db",
+                    check.path("result").path("runtimeChanges").get(0).path("path").asText());
+            assertEquals(before, snapshot(sandbox, id));
             org.junit.jupiter.api.Assertions.assertArrayEquals(database,
                     Files.readAllBytes(official.resolve("database/taskarium_db.mv.db")));
             assertTrue(fixture.git(official, "status", "--porcelain").isEmpty());
@@ -137,6 +146,7 @@ class DockerDependencyPreparationTest {
             AgentPolicyRejection failure = assertThrows(AgentPolicyRejection.class, () -> sandbox.tool(id,
                     new AgentProtocol.ToolCall("formal-test", "run_checks", "{\"goal\":\"test\"}"), () -> false));
             assertEquals("CHECK_MUTATED_SOURCE", failure.rule().name());
+            assertEquals(before, snapshot(sandbox, id));
             assertTrue(fixture.git(official, "status", "--porcelain").isEmpty());
         } finally {
             sandbox.cleanup(id);

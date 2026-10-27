@@ -1,0 +1,63 @@
+{
+  "baseline": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d",
+  "check": {
+    "ok": true,
+    "result": {
+      "classification": "TESTS_PASSED",
+      "exitCode": 0,
+      "snapshot": "f34457768308a4ceda22fca5c089a9a4114369fb59e6db2061d400c82de55414",
+      "runtimeChanges": [
+        {
+          "path": "database/taskarium_db.mv.db",
+          "category": "H2_MVSTORE_CONTENT",
+          "before": {
+            "path": "database/taskarium_db.mv.db",
+            "mode": "100644",
+            "sha256": "e29e193af4feef972e233c826afb455c94ce1b921623a218a69bb8c97c4f4725"
+          },
+          "after": {
+            "path": "database/taskarium_db.mv.db",
+            "mode": "100644",
+            "sha256": "17a8b71dfb2474bf3c89e27fee75149884e5c60c3818389817fe2e00432bbddc"
+          }
+        }
+      ],
+      "goal": "test",
+      "directory": ".",
+      "module": null,
+      "selectedTest": null,
+      "reports": 1,
+      "tests": 1,
+      "executedTests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "reports": {
+    "reports": 1,
+    "tests": 1,
+    "executedTests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "beforeSnapshot": "f34457768308a4ceda22fca5c089a9a4114369fb59e6db2061d400c82de55414",
+  "afterSnapshot": "cca381a5592800f9e13c33a26a6a519af9a033f1fbbb8a9207323ad8f89025b1",
+  "changed": [
+    {
+      "path": "database/taskarium_db.mv.db",
+      "category": "CONTENT",
+      "before": {
+        "path": "database/taskarium_db.mv.db",
+        "mode": "100644",
+        "sha256": "e29e193af4feef972e233c826afb455c94ce1b921623a218a69bb8c97c4f4725"
+      },
+      "after": {
+        "path": "database/taskarium_db.mv.db",
+        "mode": "100644",
+        "sha256": "17a8b71dfb2474bf3c89e27fee75149884e5c60c3818389817fe2e00432bbddc"
+      }
+    }
+  ]
+}

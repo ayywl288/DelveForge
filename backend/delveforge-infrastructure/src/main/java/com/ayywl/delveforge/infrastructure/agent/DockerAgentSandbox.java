@@ -328,7 +328,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     private List<String> baseRun(String runId, String suffix, String image, String network, boolean detached) {
         Session session = sessions.get(runId);
         AgentProtocol.Limits limits = session.limits;
-        String sourceVolume = suffix.equals("prepare") ? "prepare-source" : "source";
+        boolean isolatedCopy = Set.of("prepare", "check").contains(suffix);
+        String sourceVolume = isolatedCopy ? suffix + "-source" : "source";
         List<String> result = new ArrayList<>(List.of("run", "--name", name(runId, suffix), "--label",
                 "delveforge.owner=" + properties.owner(), "--label", "delveforge.run=" + runId,
                 "--network", network, "--user", "11000:11000", "--cap-drop", "ALL", "--security-opt",
@@ -345,7 +346,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 "DF_MAVEN_DIRECTORY=" + session.mavenDirectory, "--env",
                 modulesEnvironment(session), "--env",
                 "DF_CHECK_SECONDS=" + limits.checkSeconds()));
-        if (suffix.equals("prepare")) {
+        if (isolatedCopy) {
             result.addAll(List.of("--mount", "type=volume,source=" + name(runId, "source")
                     + ",target=/source,readonly"));
         }
@@ -412,6 +413,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     "baselinePaths", session.baseline.keySet()));
             int maxBytes = Set.of("snapshot", "inspect_patch", "search_code").contains(name) ? Math.max(session.limits.maxCandidateBytes() * 16, 33554432)
                     : Math.max(session.limits.maxFileBytes() * 8, 2097152);
+            if (name.equals("run_checks")) {
+                return invokeChecks(session, input, maxBytes, cancelled);
+            }
             return parse(docker(List.of("exec", "-i", "--env", modulesEnvironment(session),
                     name(session.task.runId(), "agent"), "python3", "/opt/delveforge/sandbox.py"), input,
                     Duration.ofSeconds(name.equals("run_checks") ? session.limits.checkSeconds() + 15L : 45L),
@@ -419,6 +423,35 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         } catch (IOException failure) {
             throw new AgentException("TOOL_PROTOCOL", "Cannot encode controlled tool request", failure);
         }
+    }
+
+    /** 正式检查只写一次性副本；返回结果必须绑定复制前的完整源码身份。 */
+    private JsonNode invokeChecks(Session session, byte[] input, int maxBytes, BooleanSupplier cancelled) {
+        String id = session.task.runId();
+        JsonNode before = invoke(session, "snapshot", json.createObjectNode(), cancelled);
+        requireToolSuccess(before);
+        JsonNode response;
+        try {
+            ensureVolume(name(id, "check-source"), id);
+            List<String> launch = baseRun(id, "check", session.image, "none", false);
+            launch.addAll(List.of("-i", "--env", "DF_CHECK_COPY=true", session.image, "python3", "-c",
+                    "import os,shutil;shutil.copytree('/source','/workspace',dirs_exist_ok=True);"
+                            + "os.execvp('python3',['python3','/opt/delveforge/sandbox.py'])"));
+            response = parse(docker(launch, input, Duration.ofSeconds(session.limits.checkSeconds() + 15L),
+                    maxBytes, cancelled).bytes());
+        } finally {
+            removeContainer(name(id, "check"));
+            removeVolume(name(id, "check-source"));
+        }
+        JsonNode after = invoke(session, "snapshot", json.createObjectNode(), cancelled);
+        requireToolSuccess(after);
+        String expected = before.path("result").path("snapshot").asText();
+        if (!expected.equals(after.path("result").path("snapshot").asText())
+                || (response.path("ok").asBoolean()
+                    && !expected.equals(response.path("result").path("snapshot").asText()))) {
+            throw new AgentException("SNAPSHOT_INTEGRITY", "Isolated check does not attest the authoritative source");
+        }
+        return response;
     }
 
     private void verifyProtocol(Session session, BooleanSupplier cancelled) {
@@ -1126,6 +1159,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     "goal", check.path("goal").asText(), "module", check.path("module").asText(""),
                     "selectedTest", check.path("selectedTest").asText("")));
             record.put("directory", directory);
+            if (check.has("runtimeChanges")) {
+                record.put("runtimeChanges", check.path("runtimeChanges").deepCopy());
+            }
             records.add(record);
         }
         if (!unresolved.isEmpty()) {
@@ -1171,7 +1207,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
 
     @Override
     public void stop(String id) {
-        for (String suffix : List.of("prepare", "agent", "capture", "seed", "proxy")) {
+        for (String suffix : List.of("check", "prepare", "agent", "capture", "seed", "proxy")) {
             stopContainer(name(id, suffix));
         }
     }
@@ -1179,7 +1215,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     @Override
     public void cleanup(String id) {
         stop(id);
-        for (String suffix : List.of("prepare", "agent", "capture", "seed", "proxy")) {
+        for (String suffix : List.of("check", "prepare", "agent", "capture", "seed", "proxy")) {
             removeContainer(name(id, suffix));
         }
         String network = name(id, "network");
@@ -1187,7 +1223,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             requireOwner("network", network);
             docker(List.of("network", "rm", network), null, CONTROL_TIMEOUT, 8192, () -> false);
         }
-        for (String suffix : List.of("source", "m2", "prepare-source")) {
+        for (String suffix : List.of("source", "m2", "prepare-source", "check-source")) {
             removeVolume(name(id, suffix));
         }
         Path directory = directory(id);

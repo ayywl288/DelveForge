@@ -242,6 +242,72 @@ class SandboxPolicyTest(unittest.TestCase):
             with patch.object(sandbox, 'run_bounded', mutate):
                 self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({'directory': 'independent'}))
 
+    def test_recognized_database_runtime_change_is_explicit_and_bound_to_initial_snapshot(self):
+        (self.root / 'pom.xml').write_text('<project/>')
+        database = self.root / 'fixture.mv.db'
+        header = b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00'
+        database.write_bytes(header + b'before')
+        before = sandbox.snapshot()
+
+        def build(*args, **kwargs):
+            database.write_bytes(header + b'after')
+            return 0, 'build completed'
+
+        with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'true'}), \
+                patch.object(sandbox, 'run_bounded', build):
+            result = sandbox.checks({'goal': 'test'})
+        self.assertEqual(before['snapshot'], result['snapshot'])
+        self.assertEqual('BUILD_PASSED_NOT_TESTED', result['classification'])
+        change = result['runtimeChanges'][0]
+        self.assertEqual('fixture.mv.db', change['path'])
+        self.assertEqual('H2_MVSTORE_CONTENT', change['category'])
+        self.assertNotEqual(change['before']['sha256'], change['after']['sha256'])
+        self.assertNotIn('content', change['before'])
+
+    def test_database_exception_never_accepts_other_integrity_changes(self):
+        (self.root / 'pom.xml').write_text('<project/>')
+        header = b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00'
+        for name, before, after in [('Counter.java', b'class A {}', b'class B {}'),
+                                    ('application.properties', b'a=1', b'a=2'),
+                                    ('library.jar', b'\x00old', b'\x00new'),
+                                    ('fake.mv.db', b'arbitrary bytes', b'changed')]:
+            with self.subTest(name=name):
+                path = self.root / name
+                path.write_bytes(before)
+                def mutate(*args, **kwargs):
+                    path.write_bytes(after)
+                    return 0, 'build completed'
+                with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'true'}), \
+                        patch.object(sandbox, 'run_bounded', mutate):
+                    self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({}))
+                path.unlink()
+        database = self.root / 'fixture.mv.db'
+        database.write_bytes(header + b'original')
+        def delete(*args, **kwargs):
+            database.unlink()
+            return 0, 'build completed'
+        with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'true'}), \
+                patch.object(sandbox, 'run_bounded', delete):
+            self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({}))
+
+    def test_database_allowance_requires_disposable_copy_and_preserves_mode_and_path(self):
+        (self.root / 'pom.xml').write_text('<project/>')
+        database = self.root / 'fixture.mv.db'
+        header = b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00'
+        database.write_bytes(header + b'original')
+        def mutate(*args, **kwargs):
+            database.write_bytes(header + b'changed')
+            return 0, 'build completed'
+        with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'false'}), \
+                patch.object(sandbox, 'run_bounded', mutate):
+            self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({}))
+        before = sandbox.snapshot()
+        entry = next(item for item in before['files'] if item['path'] == 'fixture.mv.db')
+        after = {'files': [dict(item, mode='100755') if item == entry else item for item in before['files']]}
+        self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, after, {'fixture.mv.db'}))
+        after = {'files': before['files'] + [dict(entry, path='new.mv.db')]}
+        self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, after, {'fixture.mv.db'}))
+
     def test_static_report_fixture_is_preserved_and_never_counted_as_execution(self):
         (self.root / 'pom.xml').write_text('<project/>')
         fixture = self.root / 'src/test/resources/template/target/surefire-reports/TEST-fixture.xml'

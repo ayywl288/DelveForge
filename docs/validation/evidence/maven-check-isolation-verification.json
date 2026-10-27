@@ -1,0 +1,35 @@
+{
+  "backend": {
+    "command": "mvnw.cmd -o verify",
+    "exitCode": 0,
+    "reportCount": 166,
+    "tests": 1702,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 36,
+    "executed": 1666
+  },
+  "docker": {
+    "tests": 3,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "python": {
+    "tests": 42,
+    "skipped": 7,
+    "executed": 35,
+    "failures": 0,
+    "errors": 0
+  },
+  "jarSha256": "67581f9540fdbe4522a9e6156bf2c86370b13034feb421127906a2b29d67593e",
+  "images": {
+    "DELVEFORGE_AGENT_IMAGE_17": "sha256:8dcdb7bba435a5614cd86036b1c92c07492c2acde55825f89c7621c5fe672f43",
+    "DELVEFORGE_AGENT_IMAGE_21": "sha256:23fff4ba8364c555c54df678771d40bd7bad0c91f6c5fc91b975136542585c0c"
+  },
+  "deepSeekCallsPhaseA": 0,
+  "sourceSha256": {
+    "backend/delveforge-infrastructure/src/main/java/com/ayywl/delveforge/infrastructure/agent/DockerAgentSandbox.java": "e5c58c81f88102a6c139014e66e0177ea607ed6dabf0901ef41cf7414c352cc8",
+    "backend/delveforge-infrastructure/src/main/resources/agent/sandbox.py": "58ba8afedf544ba430dfcdd207bee30c9715a0db5b668fff5cf7cdb2052e7b68"
+  }
+}
