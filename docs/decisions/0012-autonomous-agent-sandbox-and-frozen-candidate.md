@@ -136,3 +136,15 @@ mutationNotStarted=true，诊断使用固定 INSPECTION_UNAVAILABLE；已知语�
 不输出异常正文，也不宣称输入只是语法错误；反复失败沿用现有相同补丁和三次未解决冲突停止规则。
 后续写入仍必须重新获得有效预演、凭据检查和完整前后像。策略拒绝、协议不可信及实际应用后结果不明仍终止。
 这是失败阶段的修正，不允许任意异常成为可重试写入，也不改变 Candidate/Delivery 合同。
+
+### 2026-10-27：原生预演冲突的失败外壳
+
+后续实际 Run 仍在 requireToolSuccess:492 终止。进一步检查发现：Python CLI 对预演的
+PATCH_CONFLICT 返回 `ok=false`，分类和 mutationNotStarted 位于 result；适配器却要求 ok=true 才接纳冲突。
+因此正常上下文冲突被送入 requirePatchContent，因顶层没有 classification 而降成 TOOL_ERROR。
+真实 Docker 使用有效但上下文过期的补丁复现相同路径；此缺陷与上节未知解析错误的处理相邻，但不被其顶层错误分支覆盖。
+旧 Run 的具体补丁与响应体仍无法重建，不伪造历史冲突事件。
+
+适配器接纳当前协议明确的布尔 ok=false、内层 PATCH_CONFLICT 和布尔 mutationNotStarted=true，
+直接返回该只读失败结果，让既有冲突修正/停止规则处理；不进入凭据见证或实际应用。
+没有明确未写入标记的结果继续失败关闭。Python v3 协议、写入前后像和未知应用结果规则保持。

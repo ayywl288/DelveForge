@@ -112,4 +112,25 @@ M1–M3 净化、明确凭据路径、写入前后像、停止后快照、Candid
 
 ### 周期 4 与最终验收
 
-待部署本次已验证的预演处理修正并重新核对可信 C3 后继续实际 Run。
+部署 `9c5d606`，核对九个 Run、三份 Delivery、原授权、可信 C3 与原仓库后，实际启动
+`39ae48f2-70cb-48c4-9326-7940233732e4`。55 次模型、86 次工具、1,449,742 tokens，
+最终仍在补丁预演以 TOOL_ERROR 终止。原 28 项通过后继续修改，新增 1 项检查持续执行错误；没有最终正向测试或 Candidate/Delivery。
+[周期 4 安全摘要](evidence/step4-cycle-4-summary.json)。
+
+### 同一预演边界的实际协议错误
+
+进一步定位：Python 对正常预演冲突返回 `ok=false`，内层 result 为 PATCH_CONFLICT 且明确未写入；
+Java 原来反而要求 ok=true。该分支不属于上一修正的顶层 TOOL_ERROR，随后进入 requireToolSuccess，
+因顶层分类缺失而退化为 TOOL_ERROR。这是确定的跨语言协议不匹配。
+真实 Docker 使用有效但上下文过期的补丁，在 `9c5d606` 上复现同样的 requireToolSuccess / requirePatchContent 终止路径。
+旧 Run 原始补丁和响应未保存，不能补造其精确内容；日志位置、运行产物和当前代码支持上述路径解释。
+
+修正要求布尔 ok=false、内层 PATCH_CONFLICT、布尔 mutationNotStarted=true，直接返回预演冲突，
+不进入实际写入；缺少明确标记仍失败关闭。
+定向 115 项与真实 Docker 4 项共 119/119 通过，最终打包通过。
+回归包括有效上下文冲突、源码保持、后续有效编辑、正向测试及冻结，并继续验证秘密保护。
+[协议回归](evidence/step4-native-conflict-regression.json)、[Docker JUnit](evidence/step4-native-conflict-docker.junit.xml)。
+
+### 周期 5 与最终验收
+
+待部署已验证的原生冲突协议修正并核对可信 C3 后执行。

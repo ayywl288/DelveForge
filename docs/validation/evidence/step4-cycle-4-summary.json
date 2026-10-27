@@ -1,0 +1,125 @@
+{
+  "cycle": {
+    "cycle": 4,
+    "verifiedCorrection": "read-only patch inspection TOOL_ERROR terminated before mutation instead of allowing bounded correction",
+    "sourceCommit": "9c5d606511d2dce8edb3b028ffa1c74adc79aebd",
+    "phase": "FAILED_NATIVE_INSPECTION_CONFLICT_PROTOCOL_DEFECT",
+    "previousRunIds": [
+      "126b58c3-6c3c-4f70-825f-f402c37d7ced",
+      "3d017a2c-4535-4d1f-aa52-f6f123c93b84",
+      "7198fab3-c773-47d5-80db-156b60aa12ee",
+      "72e7ff85-31e3-4283-a4f7-0fc8cc9359de",
+      "7eceebcf-6d9f-4b37-afbe-aa39085709d2",
+      "995f76d8-74f2-4c2d-8590-213c3ef7f108",
+      "a650c901-e265-4ab6-80e0-05339296e2c2",
+      "dc3465c3-4da8-4101-8dee-91f5482fc065",
+      "e9f883f1-6210-4c72-b52b-38d9932089ff"
+    ],
+    "targetJdk": 17,
+    "runId": "39ae48f2-70cb-48c4-9326-7940233732e4",
+    "paidUsageAcknowledged": true,
+    "outcome": "TOOL_ERROR",
+    "modelCalls": 55,
+    "toolCalls": 86,
+    "tokens": 1449742
+  },
+  "run": {
+    "id": "39ae48f2-70cb-48c4-9326-7940233732e4",
+    "state": "FAILED",
+    "reason": "TOOL_ERROR",
+    "model_calls": 55,
+    "tool_calls": 86,
+    "tokens": 1449742,
+    "occupied": 0,
+    "retained": 0,
+    "candidate_id": null
+  },
+  "checks": [
+    {
+      "sequence": 1924,
+      "classification": "BUILD_PASSED_NOT_TESTED",
+      "executedTests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "sequence": 1927,
+      "classification": "TESTS_FAILED",
+      "executedTests": 28,
+      "failures": 11,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "sequence": 1969,
+      "classification": "COMPILATION_FAILED",
+      "executedTests": 0,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "sequence": 1978,
+      "classification": "TESTS_PASSED",
+      "executedTests": 28,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "sequence": 1992,
+      "classification": "TESTS_FAILED",
+      "executedTests": 1,
+      "failures": 0,
+      "errors": 1,
+      "skipped": 0
+    },
+    {
+      "sequence": 2001,
+      "classification": "TESTS_FAILED",
+      "executedTests": 1,
+      "failures": 0,
+      "errors": 1,
+      "skipped": 0
+    },
+    {
+      "sequence": 2012,
+      "classification": "TESTS_FAILED",
+      "executedTests": 1,
+      "failures": 0,
+      "errors": 1,
+      "skipped": 0
+    }
+  ],
+  "rejections": [
+    {
+      "sequence": 1909,
+      "policyRule": "PATCH_CREDENTIALS",
+      "policyStage": "PATCH_CONTENT",
+      "path": "src/main/java/com/springmvc/taskarium/bootstrap/ExampleDataInitializer.java",
+      "rejectedInput": {
+        "field": "new_text",
+        "lines": [
+          30,
+          35
+        ]
+      }
+    },
+    {
+      "sequence": 1918,
+      "policyRule": "PATCH_CREDENTIALS",
+      "policyStage": "PATCH_CONTENT",
+      "path": "src/main/resources/application.properties",
+      "rejectedInput": {
+        "field": "new_text",
+        "lines": [
+          6,
+          10
+        ]
+      }
+    }
+  ],
+  "terminalSite": "DockerAgentSandbox.requireToolSuccess:492, from read-only patch preview; no Candidate or Delivery",
+  "historicalInputs": "not retained; original patch content unavailable"
+}

@@ -677,8 +677,11 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             if (failedInspection != null) {
                 return failedInspection.toString();
             }
-            if (inspection.path("ok").asBoolean()
-                    && inspection.path("result").path("classification").asText().equals("PATCH_CONFLICT")) {
+            // 只读预演的冲突使用失败外壳；必须明确未写入，不能送入实际应用路径。
+            if (inspection.path("ok").isBoolean() && !inspection.path("ok").asBoolean()
+                    && inspection.path("result").path("classification").asText().equals("PATCH_CONFLICT")
+                    && inspection.path("result").path("mutationNotStarted").isBoolean()
+                    && inspection.path("result").path("mutationNotStarted").asBoolean()) {
                 ((ObjectNode) inspection).put("tool", call.name());
                 return inspection.toString();
             }

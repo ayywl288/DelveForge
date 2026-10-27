@@ -183,6 +183,12 @@ class DockerAgentSandboxTest {
             assertEquals("PATCH_CONFLICT", failed.path("result").path("classification").asText());
             assertTrue(failed.path("result").path("mutationNotStarted").asBoolean());
             assertEquals("INSPECTION_UNAVAILABLE", failed.path("result").path("patchDiagnostic").asText());
+            String stale = before.replace("return n;", "return n - 1;");
+            String contextPatch = ExactEditPatch.create(path, stale, "return n - 1;", "return n + 1;", 131072);
+            var conflict = json.readTree(tool(sandbox, id, "apply_patch", Map.of("patch", contextPatch)));
+            assertEquals("PATCH_CONFLICT", conflict.path("result").path("classification").asText());
+            assertTrue(conflict.path("result").path("mutationNotStarted").asBoolean());
+            assertEquals("CONTEXT_MISMATCH", conflict.path("result").path("conflictReason").asText());
             assertEquals(before, json.readTree(tool(sandbox, id, "read_file", Map.of("path", path)))
                     .path("result").path("content").asText());
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", path,

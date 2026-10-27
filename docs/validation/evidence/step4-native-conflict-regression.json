@@ -1,0 +1,46 @@
+{
+  "confirmedDefect": "native inspect_patch conflict has ok=false and nested result.classification=PATCH_CONFLICT; adapter required ok=true and reached missing top-level classification fallback TOOL_ERROR",
+  "red": {
+    "realDockerTests": 1,
+    "errors": 1,
+    "path": "requireToolSuccess -> requirePatchContent before actual apply",
+    "fixture": "valid unified diff with stale context; no historical patch reconstructed"
+  },
+  "green": [
+    {
+      "name": "agent.AgentPatchCorrectionsTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "agent.AgentToolActivityTest",
+      "tests": 35,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "agent.CodingAgentServiceTest",
+      "tests": 50,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    {
+      "name": "agent.DockerPatchPolicyTest",
+      "tests": 25,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  ],
+  "docker": {
+    "tests": 4,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "contract": "explicit boolean ok=false, nested PATCH_CONFLICT, explicit boolean mutationNotStarted=true required; then normal correction guard; actual apply not invoked"
+}

@@ -604,3 +604,6 @@ Agent 的凭据直接字面量规则不把 `"case-" + UUID.randomUUID()` 的前�
 只读 inspect_patch 的 TOOL_ERROR 可作为“预检查未通过、未尝试写入”交回 Agent 修正，
 使用固定诊断，不保存异常正文。相同/连续冲突停止规则继续生效。
 实际写入仍要求有效预演与前后像；安全拒绝及应用后结果不明继续终止，不能复用这条只读恢复路径。
+
+原生预演上下文冲突沿用 v3 的 `ok=false` 外壳及内层 PATCH_CONFLICT。
+宿主须同时确认布尔 mutationNotStarted=true，直接交给修正流程；不能把它当作未知工具错误或送入实际写入。
