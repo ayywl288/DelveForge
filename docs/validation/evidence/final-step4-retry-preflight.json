@@ -1,0 +1,49 @@
+{
+  "planId": "281e9daa-e68c-48f1-8a8a-89326dffca29",
+  "step4Id": "aee6fe13-e14d-44bb-9579-b267bdd7242e",
+  "workingCopy": {
+    "id": "8ab00aed-43c3-4a57-aadc-2d3391cb6618",
+    "source_asset_id": "93d346df-8444-44e0-aa8b-cbf443ca33e7",
+    "source_revision": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d",
+    "location": "E:\\develop\\DelveForge\\data\\independent-multistep-20261026\\workspaces\\8ab00aed-43c3-4a57-aadc-2d3391cb6618",
+    "current_revision": "6cad3bc93ca88e8cdf3a19d3a470e036d084d086",
+    "last_verified_revision": "6cad3bc93ca88e8cdf3a19d3a470e036d084d086",
+    "status": "EVOLVING",
+    "prepared_revision": "91f69ab1d7ab3a654814a1971cd3871ab0dffb1d",
+    "preparation_json": "{\"originalRevision\":\"91f69ab1d7ab3a654814a1971cd3871ab0dffb1d\",\"preparedRevision\":\"91f69ab1d7ab3a654814a1971cd3871ab0dffb1d\",\"policyVersion\":\"IDENTITY\",\"removedPaths\":[],\"metadataPaths\":[]}"
+  },
+  "stepStatuses": [
+    "SUCCEEDED",
+    "SUCCEEDED",
+    "SUCCEEDED",
+    "READY"
+  ],
+  "existingRunIds": [
+    "a650c901-e265-4ab6-80e0-05339296e2c2",
+    "72e7ff85-31e3-4283-a4f7-0fc8cc9359de",
+    "7198fab3-c773-47d5-80db-156b60aa12ee",
+    "7eceebcf-6d9f-4b37-afbe-aa39085709d2",
+    "e9f883f1-6210-4c72-b52b-38d9932089ff"
+  ],
+  "deliveries": [
+    {
+      "candidateId": "18677cfa-58f6-4d30-81a2-35d90c57fded",
+      "state": "COMPLETED"
+    },
+    {
+      "candidateId": "1d2b25a9-fb25-4d58-8349-124f36085822",
+      "state": "COMPLETED"
+    },
+    {
+      "candidateId": "7a7c5067-d98d-4f31-9f9a-729feb97c5c3",
+      "state": "COMPLETED"
+    }
+  ],
+  "diagnosticJarSha256": "2cf6619d8350f1f360cebf5277dd858464b53feb3c28176ca694240c6a9ca1a9",
+  "diagnosticResourcesMatch": {
+    "agent/sandbox.py": "8d3cc4adf9cf67e60369fb9031d071161947791152a5e36f004ca6757af5a616",
+    "com/ayywl/delveforge/application/agent/AgentPolicyRejection.class": "85adc582f95d2b85f7566215256582d874ca3070f0275dab12a0d4ae50d948d3",
+    "com/ayywl/delveforge/application/agent/AgentToolActivity.class": "38646f1ad6e80d156dc12a38240acf2d371fe531f91c4ff2aa2830791ffdd415"
+  },
+  "occupiedRuns": 0
+}

@@ -130,3 +130,13 @@ SQLite integrity=ok、外键问题=0、活跃 Run/Delivery 预约均为 0；执�
 
 **建议：暂不原样重跑 Step 4。** 下一次付费尝试前，先取得拒绝时有界的相对路径、变化类别和前后哈希，
 再无模型区分合法运行期数据与真实完整性违规。本轮到此停止，不将这个缺口扩展成无界修复项目。
+
+
+## 2026-10-27：最终界面清理与单次 Step 4 重试补充
+
+本节仅追加后续事实，不改写上文历史失败及用量。已授权的新 Run
+`dc3465c3-4da8-4101-8dee-91f5482fc065` 于 16:23–16:27 执行，28 次模型、42 次工具、461,751 reported tokens。
+结果仍为 FAILED，无 Candidate/Delivery。本次在正式 Maven 前连续两次写入 application.properties 时
+触发 PATCH_CREDENTIALS/PATCH_CONTENT，写入尚未开始；与此前 CHECK_MUTATED_SOURCE 不同。
+仍为 3/4 正式交付，原 Plan、C1/C2/C3 和旧失败记录不变；没有追加付费 Run。
+完整界面验证、拒绝输入位置、保护核对和限制见 [本次独立报告](final-ui-step4-retry.md)。

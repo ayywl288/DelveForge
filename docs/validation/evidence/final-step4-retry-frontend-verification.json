@@ -1,0 +1,13 @@
+{
+  "sourceCommit": "6a22c42",
+  "frontendTests": {
+    "filesPassed": 19,
+    "passed": 268,
+    "failed": 0
+  },
+  "typecheck": "PASS",
+  "productionBuild": "PASS",
+  "backendChangesThisTask": false,
+  "backendFullVerification": "retained b0f4d33 evidence; not rerun",
+  "browserSimplification": "real delivered Step 3; one list, 28/28 counts, removed labels and raw blocks absent"
+}
