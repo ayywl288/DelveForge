@@ -137,6 +137,27 @@ class CredentialMutationPolicyTest {
         assertEquals(List.of(1), policy.mutationProtectedLines("Auth.java", "String secret=\"${JWT_SECRET}\";"));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "<label for=\"password\">Password:</label>",
+            "<script>const csrfToken = document.querySelector('meta').content;</script>",
+            "<label>Password: <input type=\"password\" th:field=\"*{password}\"></label>"
+    })
+    void htmlFormLabelsAndRuntimeCodeDoNotContainCredentialValues(String source) {
+        assertEquals(List.of(), policy.mutationProtectedLines("src/main/resources/templates/login.html", source));
+        assertEquals(source, policy.sanitizeSource("src/main/resources/templates/login.html", source));
+    }
+
+    @Test
+    void directHtmlCredentialAttributesAndKnownTokensRemainProtected() {
+        assertEquals(List.of(1), policy.mutationProtectedLines("login.html",
+                "<div data-password=\"synthetic-private-value\"></div>"));
+        assertEquals(List.of(1), policy.mutationProtectedLines("login.html",
+                "<script>const token = 'synthetic-private-value';</script>"));
+        assertEquals(List.of(1), policy.mutationProtectedLines("login.html",
+                "<!-- ghp_0123456789abcdefghijklmnopqrstuvwx -->"));
+    }
+
     @Test
     void configurationDoesNotAcquireCodeExpressionExemptions() {
         assertEquals(List.of(2), policy.mutationProtectedLines("config.yml", "ordinary: ok\npassword: runtimeValue\n"));

@@ -1,0 +1,67 @@
+{
+  "cycle": {
+    "cycle": 5,
+    "verifiedCorrection": "native ok=false nested PATCH_CONFLICT incorrectly fell through to fatal TOOL_ERROR",
+    "sourceCommit": "460a1697a69581e7989aaa315d505d6a74f67721",
+    "phase": "FAILED_CONFIRMED_HTML_CLASSIFICATION_DEFECT",
+    "previousRunIds": [
+      "126b58c3-6c3c-4f70-825f-f402c37d7ced",
+      "39ae48f2-70cb-48c4-9326-7940233732e4",
+      "3d017a2c-4535-4d1f-aa52-f6f123c93b84",
+      "7198fab3-c773-47d5-80db-156b60aa12ee",
+      "72e7ff85-31e3-4283-a4f7-0fc8cc9359de",
+      "7eceebcf-6d9f-4b37-afbe-aa39085709d2",
+      "995f76d8-74f2-4c2d-8590-213c3ef7f108",
+      "a650c901-e265-4ab6-80e0-05339296e2c2",
+      "dc3465c3-4da8-4101-8dee-91f5482fc065",
+      "e9f883f1-6210-4c72-b52b-38d9932089ff"
+    ],
+    "targetJdk": 17,
+    "runId": "c475acb2-8e2f-4030-90f3-b13c4530ce49",
+    "paidUsageAcknowledged": true,
+    "outcome": "POLICY_REJECTED",
+    "modelCalls": 15,
+    "toolCalls": 36,
+    "tokens": 229460
+  },
+  "run": {
+    "id": "c475acb2-8e2f-4030-90f3-b13c4530ce49",
+    "state": "FAILED",
+    "reason": "POLICY_REJECTED",
+    "model_calls": 15,
+    "tool_calls": 36,
+    "tokens": 229460,
+    "occupied": 0,
+    "retained": 0,
+    "candidate_id": null
+  },
+  "policyEvents": [
+    {
+      "sequence": 2126,
+      "policyRule": "PATCH_CREDENTIALS",
+      "policyStage": "PATCH_CONTENT",
+      "path": "src/main/resources/templates/login.html",
+      "rejectedInput": {
+        "field": "new_text",
+        "lines": [
+          2
+        ]
+      }
+    },
+    {
+      "sequence": 2128,
+      "policyRule": "PATCH_CREDENTIALS",
+      "policyStage": "PATCH_CONTENT",
+      "path": "src/main/resources/templates/register.html",
+      "rejectedInput": {
+        "field": "new_text",
+        "lines": [
+          2
+        ]
+      }
+    }
+  ],
+  "checks": [],
+  "delivery": null,
+  "historicalInputs": "not retained; exact proposed HTML cannot be reconstructed"
+}

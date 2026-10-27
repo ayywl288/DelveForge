@@ -149,12 +149,23 @@ class DockerAgentSandboxTest {
                             "\"embedded-private-value\""))));
             assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, literalRejection.rule());
             assertTrue(tool(sandbox, id, "read_file", Map.of("path", testPath)).contains("UUID.randomUUID()"));
+            String htmlPath = "src/main/resources/templates/login.html";
+            String form = "<form><label for=\"password\">Password:</label>"
+                    + "<input type=\"password\" name=\"password\"></form>\n";
+            assertTrue(tool(sandbox, id, "edit_file", Map.of(
+                    "path", htmlPath, "old_text", "", "new_text", form)).contains("PATCH_APPLIED"));
+            assertTrue(tool(sandbox, id, "read_file", Map.of("path", htmlPath)).contains("Password:</label>"));
+            var htmlRejection = assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id, "edit_file", Map.of(
+                    "path", htmlPath, "old_text", form,
+                    "new_text", form.replace("<form>", "<form data-password=\"embedded-private-value\">"))));
+            assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, htmlRejection.rule());
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
                     "old_text", "return n;", "new_text", "return n + 1;")).contains("PATCH_APPLIED"));
             assertTrue(tool(sandbox, id, "run_checks", Map.of("goal", "test")).contains("TESTS_PASSED"));
             Candidate candidate = sandbox.finish(id, () -> false);
             assertTrue(candidate.diff().contains("${DB_PASSWORD:}"));
             assertTrue(candidate.diff().contains("UUID.randomUUID()"));
+            assertTrue(candidate.diff().contains("Password:</label>"));
             assertFalse(candidate.diff().contains("embedded-private-value"));
             assertTrue(candidate.testEvidence().contains("\"status\":\"TESTED\""));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));

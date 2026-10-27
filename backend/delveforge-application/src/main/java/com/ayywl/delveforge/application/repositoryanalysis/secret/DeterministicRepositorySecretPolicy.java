@@ -73,7 +73,7 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
                     + "|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret"
                     + "|auth[_-]?token)";
 
-    private static final Set<String> SOURCE_EXTENSIONS = Set.of("java", "js", "ts", "jsx", "tsx", "vue", "kt");
+    private static final Set<String> SOURCE_EXTENSIONS = Set.of("java", "js", "ts", "jsx", "tsx", "vue", "kt", "html");
 
     // 只识别完整的配置引用；非空默认值和拼接仍按凭据字面量处理。
     private static final Pattern CONFIGURATION_REFERENCE =

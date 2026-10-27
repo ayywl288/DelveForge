@@ -133,4 +133,22 @@ Java 原来反而要求 ok=true。该分支不属于上一修正的顶层 TOOL_E
 
 ### 周期 5 与最终验收
 
-待部署已验证的原生冲突协议修正并核对可信 C3 后执行。
+部署 `460a169`，核对十个 Run、三个 Delivery、原授权与可信 C3 后，通过原页面启动
+`c475acb2-8e2f-4030-90f3-b13c4530ce49`。15 次模型、36 次工具、229,460 tokens。
+修改 login.html 与 register.html 的拟写入 new_text 第 2 行分别触发 PATCH_CREDENTIALS/PATCH_CONTENT，
+连续拒绝终止，尚未运行 Maven，无 Candidate/Delivery。
+[周期 5 安全摘要](evidence/step4-cycle-5-summary.json)。
+
+### HTML 模板被错误归入保守配置文本
+
+独立通用夹具的三种合法模板中两种误报：Password: 后接输入框的标签，以及内联运行时 CSRF token 代码。简单结束标签的对照项原来已通过。
+原因是 .html 未列入源码类别，被套用保守赋值规则。旧 Run 的具体提案未保存，不能逐字恢复或唯一归因。
+修正把 HTML 模板纳入已有源码类别，规则与 Vue/JavaScript 等一致；没有模板目录豁免或新解析器。
+明确凭据属性、脚本完整凭据字面量、已知密钥与原秘密行仍保护，M1–M3/配置/写入完整性不变。
+旧实现 48 项有 2 项失败；修正后的定向与 Docker 共 201/201 通过，其中真实 Docker 4/4。
+正式工具可添加、读回普通表单并冻结，加入明确 data-password 字面量仍拒绝；最终打包通过且 JAR 内类与已测类一致。
+[HTML 回归](evidence/step4-html-policy-regression.json)、[Docker JUnit](evidence/step4-html-policy-docker.junit.xml)。
+
+### 周期 6 与最终验收
+
+待部署已验证 HTML 分类修正并重新核对原 C3 后执行。
