@@ -1,4 +1,5 @@
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
+import { verificationLabel } from "./agentResultPresentation";
 
 export const isPatchTool = (tool: string | undefined): boolean => tool === "apply_patch" || tool === "edit_file";
 
@@ -266,6 +267,22 @@ export function patchSummary(activities: AgentActivity[], runId: string) {
             return Array.isArray(data.paths) ? data.paths.slice(0, 8).flatMap(path => safePath(path) ? [safePath(path)!] : []) : [];
         }))].slice(-4) };
 }
+export function checkSummary(activities: AgentActivity[], runId: string) {
+    const checks = activities.filter(activity => activity.tool === "run_checks");
+    const latest = checks.at(-1);
+    const data = latest ? summaryFields(latest.finish ?? latest.event) : {};
+    const executing = checks.some(activity => activity.active);
+    const executed = numeric(data, "executedTests");
+    const detail = executed ? [`已执行 ${executed} 项`,
+        ...([["failures", "失败"], ["errors", "错误"], ["skipped", "跳过"]] as const)
+            .flatMap(([key, label]) => numeric(data, key) === undefined ? [] : [`${label} ${numeric(data, key)}`])].join(" · ") : "";
+    return { key: `checks:${runId}`, activities: checks, count: checks.length, latest, executing,
+        label: executing ? "正在执行检查" : latest ? verificationLabel(latest.classification) : "尚未执行检查",
+        detail, failed: checks.filter(activity => ["failed", "blocked"].includes(activity.outcome)).length,
+        sourceBlocked: data.policyRule === "CHECK_MUTATED_SOURCE",
+        blocked: latest?.outcome === "blocked" };
+}
+
 export function isExploration(activity: AgentActivity) {
     return !!activity.tool && ["read_file", "list_files", "search_code"].includes(activity.tool)
         && activity.classification !== "POLICY_REJECTED" && activity.outcome !== "blocked";

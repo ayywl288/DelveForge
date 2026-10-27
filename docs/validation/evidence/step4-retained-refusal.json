@@ -1,0 +1,23 @@
+[
+  {
+    "sequence": 929,
+    "runId": "e9f883f1-6210-4c72-b52b-38d9932089ff",
+    "kind": "TOOL_STARTED",
+    "summary": "{\"metadataVersion\":1,\"toolCallId\":\"76824c55-232a-4a6a-8321-b6d36ae90957\",\"tool\":\"run_checks\",\"goal\":\"test\",\"directory\":\".\"}",
+    "at": "2026-10-27T02:48:51.530893800Z"
+  },
+  {
+    "sequence": 930,
+    "runId": "e9f883f1-6210-4c72-b52b-38d9932089ff",
+    "kind": "TOOL_FINISHED",
+    "summary": "{\"metadataVersion\":1,\"toolCallId\":\"76824c55-232a-4a6a-8321-b6d36ae90957\",\"tool\":\"run_checks\",\"goal\":\"test\",\"directory\":\".\",\"ok\":false,\"resultRecorded\":false,\"classification\":\"POLICY_REJECTED\",\"invocationDurationNs\":17564818001,\"policyRule\":\"CHECK_MUTATED_SOURCE\",\"policyStage\":\"TOOL_EXECUTION\"}",
+    "at": "2026-10-27T02:49:09.109575300Z"
+  },
+  {
+    "sequence": 931,
+    "runId": "e9f883f1-6210-4c72-b52b-38d9932089ff",
+    "kind": "FAILED",
+    "summary": "POLICY_REJECTED",
+    "at": "2026-10-27T02:49:09.118356300Z"
+  }
+]

@@ -3,7 +3,7 @@ package com.ayywl.delveforge.application.agent;
 import java.util.List;
 import java.util.Set;
 
-/** 安全策略拒绝只携带固定规则与阶段；不携带目标、参数或原始异常文本。 */
+/** 安全拒绝不携带参数或异常原文；源码变化只允许有界路径、类别及哈希诊断。 */
 public final class AgentPolicyRejection extends AgentException {
     public enum Rule {
         STORAGE_LOCATION, PATH_FORMAT, PROTECTED_CREDENTIAL_PATH, FORBIDDEN_PATH, SYMLINK_PATH,
@@ -31,10 +31,65 @@ public final class AgentPolicyRejection extends AgentException {
         }
     }
 
+    public enum SourceChangeType { ADDED, DELETED, CONTENT, MODE, CONTENT_AND_MODE }
+
+    public record SourceFileState(String mode, String sha256) {
+        public SourceFileState {
+            if (mode == null || !Set.of("100644", "100755").contains(mode) || sha256 == null || !sha256.matches("[0-9a-f]{64}")) {
+                throw new IllegalArgumentException("Invalid source state metadata");
+            }
+        }
+    }
+
+    public record SourceChange(String path, SourceChangeType changeType, SourceFileState before,
+            SourceFileState after, boolean runtimeData) {
+        public SourceChange {
+            if (path == null || path.isBlank() || path.length() > 512 || path.startsWith("/")
+                    || path.chars().anyMatch(value -> value < 32 || value == 127 || value == ':' || value == '\\')
+                    || changeType == null) {
+                throw new IllegalArgumentException("Invalid relative source metadata");
+            }
+            for (String part : path.split("/", -1)) {
+                if (part.isEmpty() || part.equals(".") || part.equals("..")) {
+                    throw new IllegalArgumentException("Invalid relative source metadata");
+                }
+            }
+            boolean valid = switch (changeType) {
+                case ADDED -> before == null && after != null;
+                case DELETED -> before != null && after == null;
+                case CONTENT -> before != null && after != null && before.mode().equals(after.mode())
+                        && !before.sha256().equals(after.sha256());
+                case MODE -> before != null && after != null && !before.mode().equals(after.mode())
+                        && before.sha256().equals(after.sha256());
+                case CONTENT_AND_MODE -> before != null && after != null && !before.mode().equals(after.mode())
+                        && !before.sha256().equals(after.sha256());
+            };
+            if (!valid || runtimeData && changeType != SourceChangeType.CONTENT) {
+                throw new IllegalArgumentException("Contradictory source change metadata");
+            }
+        }
+    }
+
+    /** 只用于 CHECK_MUTATED_SOURCE；八项以外保留计数和截断标记，不含源文件内容。 */
+    public record SourceChanges(String beforeSnapshot, String afterSnapshot, int totalChanges,
+            int unexpectedChanges, List<SourceChange> files, boolean truncated) {
+        public SourceChanges {
+            if (beforeSnapshot == null || !beforeSnapshot.matches("[0-9a-f]{64}")
+                    || afterSnapshot == null || !afterSnapshot.matches("[0-9a-f]{64}")
+                    || totalChanges < 1 || unexpectedChanges < 1 || unexpectedChanges > totalChanges
+                    || files == null || files.isEmpty() || files.size() > 8 || files.size() > totalChanges
+                    || truncated != (totalChanges > files.size())) {
+                throw new IllegalArgumentException("Invalid bounded source diagnostics");
+            }
+            files = List.copyOf(files);
+        }
+    }
+
     private final Rule rule;
     private final Stage stage;
     private final boolean sourceEditRejectedBeforeMutation;
     private final RejectedInput rejectedInput;
+    private final SourceChanges sourceChanges;
 
     public AgentPolicyRejection(Rule rule, Stage stage) {
         this(rule, stage, false);
@@ -46,11 +101,17 @@ public final class AgentPolicyRejection extends AgentException {
 
     private AgentPolicyRejection(Rule rule, Stage stage, boolean sourceEditRejectedBeforeMutation,
             RejectedInput rejectedInput) {
+        this(rule, stage, sourceEditRejectedBeforeMutation, rejectedInput, null);
+    }
+
+    private AgentPolicyRejection(Rule rule, Stage stage, boolean sourceEditRejectedBeforeMutation,
+            RejectedInput rejectedInput, SourceChanges sourceChanges) {
         super("POLICY_REJECTED", "Controlled policy rejection: " + rule.name() + "/" + stage.name());
         this.rule = rule;
         this.stage = stage;
         this.sourceEditRejectedBeforeMutation = sourceEditRejectedBeforeMutation;
         this.rejectedInput = rejectedInput;
+        this.sourceChanges = sourceChanges;
     }
 
     /** 只供已完成只读检查、尚未调用 apply_patch 的受控适配器使用。 */
@@ -66,6 +127,15 @@ public final class AgentPolicyRejection extends AgentException {
     public static AgentPolicyRejection patchContentRejectedBeforeApply(RejectedInput input) {
         return new AgentPolicyRejection(Rule.PATCH_CREDENTIALS, Stage.PATCH_CONTENT, true, input);
     }
+
+    public static AgentPolicyRejection sourceChanged(SourceChanges changes) {
+        if (changes == null) {
+            throw new IllegalArgumentException("Source diagnostics required");
+        }
+        return new AgentPolicyRejection(Rule.CHECK_MUTATED_SOURCE, Stage.TOOL_EXECUTION, false, null, changes);
+    }
+
+    public SourceChanges sourceChanges() { return sourceChanges; }
 
     public RejectedInput rejectedInput() { return rejectedInput; }
 

@@ -1,0 +1,139 @@
+{
+  "allOriginalDatabaseTablesUnchanged": true,
+  "historicalRecordsEqualPreviousFinalBackup": true,
+  "previewDomainRecordsUnchanged": true,
+  "runCount": 5,
+  "candidateCount": 3,
+  "deliveryCount": 3,
+  "originalManifestAll73Unchanged": true,
+  "originalGitClean": true,
+  "workingCopyGitClean": true,
+  "workingCopyCurrentRevision": "6cad3bc93ca88e8cdf3a19d3a470e036d084d086",
+  "workingCopyLastVerifiedRevision": "6cad3bc93ca88e8cdf3a19d3a470e036d084d086",
+  "originalSqliteIntegrity": "ok",
+  "originalForeignKeyIssues": 0,
+  "newPaidRuns": 0,
+  "newDeliveries": 0,
+  "tableHashes": {
+    "agent_candidate": {
+      "rows": 3,
+      "sha256": "dd66722f2b55959c9768a0ebb616e036a9208fe0913f1e1c3ae721826848dedb"
+    },
+    "agent_event": {
+      "rows": 931,
+      "sha256": "16e601bcf2de574fa89ecf8a1d6e545342cf98bd9c563ac10e22e370ebaca8c2"
+    },
+    "agent_run": {
+      "rows": 5,
+      "sha256": "f13e59ad01eab5ffe17ed3defc75f572efc2861d9d179dce5278e4644b3a9b10"
+    },
+    "candidate_delivery": {
+      "rows": 3,
+      "sha256": "86127828c5da9f59562e8e136213fc9f1849b1c8f71873c696966571a4084586"
+    },
+    "evolution_plan": {
+      "rows": 1,
+      "sha256": "35166ef84f5e09fb5393a8210d6cf025bf75f1fecd1179ef57662823d4969f9c"
+    },
+    "evolution_plan_evidence": {
+      "rows": 14,
+      "sha256": "05b8b93557c2bda7426729b67aefadd7c1ff63a09366b1632088680780ca6c14"
+    },
+    "evolution_plan_section_item": {
+      "rows": 39,
+      "sha256": "35e93d40a8cfbe555067f74f9ad8dbe05fed269aa3021845bb76ae210e9ea243"
+    },
+    "evolution_step": {
+      "rows": 4,
+      "sha256": "8ed0395e89574cbdd1d46eab2f75a0699280a6ec5acd4db4545fe2a822bc0577"
+    },
+    "evolution_step_section_item": {
+      "rows": 16,
+      "sha256": "2ae44891ce2d16e585c99c20cf47e7a8d886aa01d8b6244f95f34e94a4b95a55"
+    },
+    "flyway_schema_history": {
+      "rows": 26,
+      "sha256": "eee6e7bdfbd13b73f8de47292c7d00601a0e776ce64b56825abb98558af44732"
+    },
+    "legacy_evolution_execution": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "product_direction": {
+      "rows": 4,
+      "sha256": "9131e74314ef4081e7784766c4fa8d280e688c68ad45ff6c31a009d96ac883e5"
+    },
+    "product_direction_candidate_asset": {
+      "rows": 4,
+      "sha256": "19c526b214767a7c13236365a67e6aa645cdc84fae47d260698537852c6d0e40"
+    },
+    "product_direction_evidence_support": {
+      "rows": 67,
+      "sha256": "7e5fdae90192b382d5428ef0cb06b2301b614360eb13d5593e128ad858b4a6a9"
+    },
+    "product_direction_repository_profile": {
+      "rows": 4,
+      "sha256": "eabf5d364e6253d8aabb585ab0eaeef0fd6a42418ecc2f85ca064091e2589e1f"
+    },
+    "product_direction_risk": {
+      "rows": 21,
+      "sha256": "e80972af61a51631a2864a10cdb38dd5b74a7dc3bf52d79ccc1d440e7f206f4f"
+    },
+    "project_flow_context": {
+      "rows": 1,
+      "sha256": "2fa7a4ed352bdd739d45fcc7224522234af4d4fe93c2a3ab93d42978c1db239d"
+    },
+    "project_legacy_visibility": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "repository_profile": {
+      "rows": 1,
+      "sha256": "2d1b28f8699619e105777e496a00f67c7576f95f95ed3b37aa80192d845c59e4"
+    },
+    "repository_profile_evidence": {
+      "rows": 24,
+      "sha256": "692773fee97b079e321a0c75acc0b231d6f708b7af09c54fd0bc05a958f38718"
+    },
+    "repository_profile_section_item": {
+      "rows": 57,
+      "sha256": "3a62a819869eabdd3aa1aa47c809751f3db0ee9c782f77697c11c1c48731103c"
+    },
+    "software_asset": {
+      "rows": 1,
+      "sha256": "157cc9a538727255ad83fc552b16c004beb42c47594312388e92f685bc682269"
+    },
+    "software_asset_registration_guard": {
+      "rows": 1,
+      "sha256": "465d674ce6bae7911e62c34c8ec4790981ae2eb73f9db75b8f8fe54a2d2c25a1"
+    },
+    "sqlite_sequence": {
+      "rows": 1,
+      "sha256": "cf04aef5ba35621fd55984e4365651aa48225ba7a7d9db2572d282417b72879a"
+    },
+    "user_profile": {
+      "rows": 1,
+      "sha256": "3c6259213c9a8580496dc0662a5337c8483bc5e77d7e2a79e64a8631c7a4e5ab"
+    },
+    "user_profile_evidence": {
+      "rows": 10,
+      "sha256": "1996c3e37943a2395b4d8a2e28c2f809107a228e73ca0bb9e0d70b922bf0999d"
+    },
+    "user_profile_revision": {
+      "rows": 2,
+      "sha256": "39441b113bd0a67a335be78f2e885692e854d0467dfd3cd8c70b18a6198710b7"
+    },
+    "user_profile_section_item": {
+      "rows": 29,
+      "sha256": "9bdb4885c9706d42941be96cf0a669318b429639337e8f835d6b0a07efabd3e9"
+    },
+    "user_profile_sufficiency": {
+      "rows": 1,
+      "sha256": "eb67a335984f4aea8c3eec3b284fcb8d85cf883bb63b6b4c69959d13aeaf61a8"
+    },
+    "working_copy": {
+      "rows": 1,
+      "sha256": "3aeabb7db32b1139bbd2fa337edb7f4a8a691c7d618787446c222623e9b4ac0a"
+    }
+  }
+}

@@ -308,6 +308,52 @@ class SandboxPolicyTest(unittest.TestCase):
         after = {'files': before['files'] + [dict(entry, path='new.mv.db')]}
         self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, after, {'fixture.mv.db'}))
 
+    def test_source_rejection_records_paths_types_and_hashes_without_source_contents(self):
+        (self.root / 'pom.xml').write_text('<project/>')
+        for name in ['Counter.java', 'application.properties', 'data.sql']:
+            (self.root / name).write_text('synthetic-private-before')
+        before = sandbox.snapshot()
+        def mutate(*args, **kwargs):
+            for name in ['Counter.java', 'application.properties', 'data.sql']:
+                (self.root / name).write_text('synthetic-private-after')
+            return 0, 'build completed'
+        with patch.object(sandbox, 'run_bounded', mutate):
+            with self.assertRaises(sandbox.PolicyError) as captured:
+                sandbox.checks({})
+        self.assertEqual('CHECK_MUTATED_SOURCE', captured.exception.rule)
+        diagnostic = captured.exception.source_changes
+        self.assertEqual(before['snapshot'], diagnostic['beforeSnapshot'])
+        self.assertEqual(3, diagnostic['totalChanges'])
+        self.assertEqual(3, diagnostic['unexpectedChanges'])
+        self.assertEqual(['Counter.java', 'application.properties', 'data.sql'],
+                         [entry['path'] for entry in diagnostic['files']])
+        self.assertTrue(all(entry['changeType'] == 'CONTENT' for entry in diagnostic['files']))
+        self.assertNotIn('synthetic-private', json.dumps(diagnostic))
+        self.assertNotIn('content', diagnostic['files'][0]['before'])
+        self.assertRegex(diagnostic['files'][0]['after']['sha256'], r'^[0-9a-f]{64}$')
+
+    def test_source_change_diagnostics_are_bounded_and_classify_add_delete_and_mode(self):
+        (self.root / 'pom.xml').write_text('<project/>')
+        for index in range(12):
+            (self.root / ('File%02d.java' % index)).write_text('original')
+        def mutate(*args, **kwargs):
+            for index in range(12):
+                (self.root / ('File%02d.java' % index)).write_text('changed')
+            return 0, 'build completed'
+        with patch.object(sandbox, 'run_bounded', mutate):
+            with self.assertRaises(sandbox.PolicyError) as captured:
+                sandbox.checks({})
+        self.assertEqual(12, captured.exception.source_changes['totalChanges'])
+        self.assertEqual(8, len(captured.exception.source_changes['files']))
+        self.assertTrue(captured.exception.source_changes['truncated'])
+        state = {'mode': '100644', 'sha256': 'a' * 64}
+        before = {'snapshot': 'a' * 64, 'files': [dict(state, path='Deleted.java'), dict(state, path='Mode.java')]}
+        after = {'snapshot': 'b' * 64, 'files': [dict(state, path='Added.java'), dict(state, path='Mode.java', mode='100755')]}
+        with self.assertRaises(sandbox.PolicyError) as captured:
+            sandbox.check_runtime_changes(before, after, set())
+        self.assertEqual(['ADDED', 'DELETED', 'MODE'],
+                         [entry['changeType'] for entry in captured.exception.source_changes['files']])
+
     def test_static_report_fixture_is_preserved_and_never_counted_as_execution(self):
         (self.root / 'pom.xml').write_text('<project/>')
         fixture = self.root / 'src/test/resources/template/target/surefire-reports/TEST-fixture.xml'

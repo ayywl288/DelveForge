@@ -137,6 +137,9 @@ public final class AgentToolActivity {
         if (classification.equals("POLICY_REJECTED")) {
             summary.put("policyRule", rejection == null ? "UNCLASSIFIED_POLICY" : rejection.rule().name());
             summary.put("policyStage", rejection == null ? "TOOL_EXECUTION" : rejection.stage().name());
+            if (rejection != null && rejection.rule() == AgentPolicyRejection.Rule.CHECK_MUTATED_SOURCE) {
+                sourceChanges(summary, rejection.sourceChanges());
+            }
             if (AgentTools.mutation(call.name()) && rejection != null && rejection.sourceEditRejectedBeforeMutation()) {
                 summary.put("mutationNotStarted", true);
                 if (rejection.rejectedInput() != null) {
@@ -145,6 +148,26 @@ public final class AgentToolActivity {
             }
         }
         return encode(summary);
+    }
+
+    private void sourceChanges(Map<String, Object> summary, AgentPolicyRejection.SourceChanges changes) {
+        if (changes == null) {
+            summary.put("sourceChangesStatus", "UNAVAILABLE");
+            return;
+        }
+        List<AgentPolicyRejection.SourceChange> visible = changes.files().stream()
+                .filter(file -> displayPath(file.path(), false)).toList();
+        int withheld = changes.files().size() - visible.size();
+        Map<String, Object> diagnostic = new LinkedHashMap<>();
+        diagnostic.put("beforeSnapshot", changes.beforeSnapshot());
+        diagnostic.put("afterSnapshot", changes.afterSnapshot());
+        diagnostic.put("totalChanges", changes.totalChanges());
+        diagnostic.put("unexpectedChanges", changes.unexpectedChanges());
+        diagnostic.put("files", visible);
+        diagnostic.put("withheldFiles", withheld);
+        diagnostic.put("truncated", changes.truncated() || withheld > 0);
+        summary.put("sourceChangesStatus", changes.truncated() || withheld > 0 ? "PARTIAL" : "RECORDED");
+        summary.put("sourceChanges", diagnostic);
     }
 
     private void proposalLocation(Map<String, Object> summary, JsonNode location) {

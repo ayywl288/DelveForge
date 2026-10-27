@@ -3,11 +3,13 @@ import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted,
 import { api } from "../api/client";
 import type { AgentCandidate, AgentEvent, AgentRun, Delivery } from "../api/agentTypes";
 import type { WorkspaceSession } from "../state/session";
-import ContentList from "../components/ContentList.vue";
 import RevisionText from "../components/RevisionText.vue";
 import StatusBadge from "../components/StatusBadge.vue";
 import StepFinalChanges from "../components/StepFinalChanges.vue";
 import AgentTimeline from "../components/AgentTimeline.vue";
+import AgentTestEvidence from "../components/AgentTestEvidence.vue";
+import FileChangeSummary from "../components/FileChangeSummary.vue";
+import { candidateFileChanges, presentRun, type RunPresentation } from "../components/agentResultPresentation";
 import NavigationIcon from "../components/NavigationIcon.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import type { NavigationIconName } from "../components/NavigationIcon.vue";
@@ -24,6 +26,20 @@ const candidate = ref<AgentCandidate | null>(null);
 const delivery = ref<Delivery | null>(null);
 const events = ref<AgentEvent[]>([]);
 const diff = ref("");
+const diffExpanded = ref(false);
+const diffLoading = ref(false);
+const diffError = ref("");
+let diffAttemptedId = "";
+const runDeliveries = ref<Record<string, Delivery | null>>({});
+const historyDeliveryError = ref(false);
+let historyEpoch = 0;
+const runPresentation = computed(() => run.value ? presentRun(run.value,
+    run.value.candidateId ? runDeliveries.value[run.value.candidateId] : null) : null);
+const candidateFiles = computed(() => candidate.value ? candidateFileChanges(candidate.value.changedPaths, diff.value) : []);
+const completedDelivery = computed(() => run.value?.state === "SUCCEEDED" && candidate.value
+    && delivery.value?.candidateId === candidate.value.id && delivery.value.state === "COMPLETED");
+const officialStep = computed(() => completedDelivery.value && step.value?.id === run.value?.stepId
+    && step.value?.status === "SUCCEEDED" && step.value.deliveryRevision === delivery.value?.revision);
 const error = ref("");
 const syncError = ref("");
 const pending = ref(false);
@@ -49,13 +65,7 @@ const resourceBlocked = computed(() => events.value.some(event =>
 const dockerPreparationFailed = computed(() => run.value?.state === "FAILED" && run.value.reason === "DOCKER_FAILURE"
   && run.value.modelCalls === 0 && run.value.toolCalls === 0
   && !events.value.some(event => ["SANDBOX_READY", "RUNNING"].includes(event.kind)));
-const evidenceStatus = computed(() => {
-  try {
-    const evidence = JSON.parse(candidate.value?.testEvidence ?? "{}");
-    return evidence.status ?? "查看实际检查证据";
-  } catch { return "查看实际检查证据"; }
-});
-const prerequisiteIssue = computed(() => props.s.plan && step.value
+const prerequisiteIssue = computed(() => step.value?.status === "SUCCEEDED" ? "" : props.s.plan && step.value
   ? stepPrerequisiteIssue(props.s.plan, step.value, props.s.copy) : "请先读取计划与步骤。");
 const canConfirm = computed(() => step.value?.status === "PENDING_CONFIRMATION" && !prerequisiteIssue.value
   && !pending.value && !props.s.busy);
@@ -63,19 +73,27 @@ const canStart = computed(() => props.s.plan?.status === "ACTIVE" && step.value?
   && !prerequisiteIssue.value
   && !pending.value && !props.s.busy && (!latest.value || terminal(latest.value) && !latest.value.candidateId)
   && props.s.plan.steps.slice(0, props.s.plan.steps.indexOf(step.value)).every(item => item.status === "SUCCEEDED"));
-const labels: Record<string, string> = {
-  CREATED: "已预约", PREPARING: "准备沙箱", RUNNING: "编码中", FINALIZING: "冻结结果中", SUCCEEDED: "Candidate 已冻结",
-  FAILED: "编码失败", CANCELLED: "已取消", INTERRUPTED: "运行已中断", INTENT: "交付已预约", APPLIED: "正式文件已核对",
-  COMMIT_READY: "正式提交已准备", PUBLISHED: "Git 已发布，等待接受", COMPLETED: "交付完成", DELIVERY_BLOCKED: "交付阻塞",
-  RECOVERY_REQUIRED: "需要核对恢复", MODEL_REQUEST: "请求模型", MODEL_COMPLETED: "模型完成，等待冻结",
-  TOOL_STARTED: "工具开始", TOOL_FINISHED: "工具结果", SANDBOX_READY: "沙箱已就绪", DELIVERY_PENDING: "交付等待协调",
-};
-function label(value: string) { return labels[value] ?? labels[value.replace(/^DELIVERY_/, "")] ?? value; }
-function runIcon(state: AgentRun["state"]): NavigationIconName {
-  if (state === "FAILED") return "warning";
-  if (state === "SUCCEEDED") return "check";
-  if (["INTERRUPTED", "CANCELLED"].includes(state)) return "close";
-  return "activity";
+function runIcon(presentation: RunPresentation): NavigationIconName {
+    return presentation.tone === "failed" ? "warning" : presentation.tone === "blocked" ? "lock"
+        : presentation.tone === "completed" ? "check" : "activity";
+}
+function rememberDelivery(id: string, actual: Delivery | null) {
+    if (actual && actual.candidateId !== id) throw new Error("交付结果与当前候选不一致。");
+    const saved = runDeliveries.value[id];
+    if (saved?.state === "COMPLETED") return saved;
+    runDeliveries.value = { ...runDeliveries.value, [id]: actual };
+    return actual;
+}
+async function loadHistoryDeliveries(items: AgentRun[], planId: string, selectedStep: string, version: number) {
+    const belongs = () => active && historyEpoch === version && props.s.plan?.id === planId && step.value?.id === selectedStep;
+    const results = await Promise.allSettled(items.filter(item => item.state === "SUCCEEDED" && item.candidateId
+        && !Object.hasOwn(runDeliveries.value, item.candidateId)).map(async item => {
+        const accepted = await api.delivery(item.candidateId!);
+        if (belongs() && runs.value.some(current => current.id === item.id && current.candidateId === item.candidateId)) {
+            rememberDelivery(item.candidateId!, accepted);
+        }
+    }));
+    if (belongs()) historyDeliveryError.value = results.some(result => result.status === "rejected");
 }
 const numberText = (value: number) => value.toLocaleString("zh-CN");
 function stop() {
@@ -111,9 +129,11 @@ async function updateStatus(version: number) {
     if (actual.candidateId) {
       const [frozen, accepted] = await Promise.all([api.candidate(actual.candidateId), api.delivery(actual.candidateId)]);
       if (!belongs()) return;
+      if (frozen.id !== actual.candidateId || frozen.runId !== actual.id) throw new Error("冻结结果与当前运行不一致。");
       candidate.value = frozen;
-      delivery.value = accepted;
+      delivery.value = rememberDelivery(frozen.id, accepted);
       if (accepted?.state === "COMPLETED" && step.value?.status !== "SUCCEEDED") await props.s.refreshPlan();
+      if (belongs() && accepted?.state !== "COMPLETED" && diffAttemptedId !== frozen.id) void loadDiff();
     }
     if (belongs()) syncError.value = "";
   } catch (failure) {
@@ -132,6 +152,10 @@ async function selectRun(selected: AgentRun) {
   delivery.value = null;
   events.value = [];
   diff.value = "";
+  diffExpanded.value = false;
+  diffLoading.value = false;
+  diffError.value = "";
+  diffAttemptedId = "";
   if (!active) return;
   if (typeof EventSource === "undefined") {
     connection.value = "浏览器不支持实时事件";
@@ -174,7 +198,11 @@ async function loadRuns(older = false) {
     if (!current(scope)) return;
     runs.value = older ? [...runs.value, ...result.filter(item => !runs.value.some(old => old.id === item.id))] : result;
     syncError.value = "";
+    const historyVersion = historyEpoch;
     if (!older && result[0]) await selectRun(result[0]);
+    if (active && plan.id === props.s.plan?.id && chosen.id === step.value?.id && historyVersion === historyEpoch) {
+      void loadHistoryDeliveries(result, plan.id, chosen.id, historyVersion);
+    }
   } catch (failure) {
     if (current(scope)) syncError.value = String(failure);
   }
@@ -234,7 +262,9 @@ async function cancelRun() {
 }
 async function deliverCandidate() {
   if (!candidate.value) return;
-  await action(selected => api.deliver(selected.candidateId!), actual => { delivery.value = actual; });
+  await action(selected => api.deliver(selected.candidateId!), actual => {
+    delivery.value = rememberDelivery(actual.candidateId, actual);
+  });
 }
 async function confirmStep() {
   if (!canConfirm.value) return;
@@ -242,14 +272,28 @@ async function confirmStep() {
 }
 async function loadDiff() {
   const id = candidate.value?.id;
-  if (!id) return;
-  await action(async selected => {
+  if (!id || diffLoading.value) return;
+  const scope = selection();
+  diffAttemptedId = id;
+  diffLoading.value = true;
+  diffError.value = "";
+  try {
     const response = await fetch(`/api/agent-candidates/${encodeURIComponent(id)}/diff`, { cache: "no-store" });
-    if (!current(selected)) return "";
+    if (!current(scope)) return;
     if (!response.ok) throw new Error("最终差异读取失败");
-    return response.text();
-  }, text => { diff.value = text; });
+    const text = await response.text();
+    if (current(scope)) diff.value = text;
+  } catch (failure) {
+    if (current(scope)) diffError.value = failure instanceof Error ? failure.message : "差异暂不可用。";
+  } finally {
+    if (current(scope)) diffLoading.value = false;
+  }
 }
+function toggleDiff() {
+  diffExpanded.value = !diffExpanded.value;
+  if (diffExpanded.value && !diff.value) void loadDiff();
+}
+
 function activate() {
   if (active) return;
   active = true;
@@ -257,11 +301,14 @@ function activate() {
   void loadRuns();
 }
 function deactivate() {
-  active = false; ++epoch; ++actionId; pending.value = false; startReview.value = false;
+  active = false; ++epoch; ++actionId; ++historyEpoch; pending.value = false; startReview.value = false;
   budgetAcknowledged.value = false; stop();
 }
 watch([() => props.s.plan?.id, () => step.value?.id], async () => {
   const version = ++epoch;
+  ++historyEpoch;
+  runDeliveries.value = {};
+  historyDeliveryError.value = false;
   ++actionId;
   stop();
   pending.value = false;
@@ -273,6 +320,10 @@ watch([() => props.s.plan?.id, () => step.value?.id], async () => {
   candidate.value = null;
   delivery.value = null;
   diff.value = "";
+  diffExpanded.value = false;
+  diffLoading.value = false;
+  diffError.value = "";
+  diffAttemptedId = "";
   error.value = "";
   syncError.value = "";
   await nextTick();
@@ -299,7 +350,7 @@ onUnmounted(deactivate);
         <option v-for="(item, index) in s.plan.steps" :key="item.id" :value="item.id">Step {{ String(index + 1).padStart(2, '0') }} · {{ item.goal }}</option>
       </select>
       <template v-if="step">
-        <div class="selected-step-summary"><StatusBadge :status="step.status" /><p>{{ step.scope }}</p></div>
+        <div class="selected-step-summary"><StatusBadge :status="step.status" :show-code="false" /><p>{{ step.scope }}</p></div>
         <details class="planned-changes"><summary>计划变更 · {{ step.plannedChanges.length }} 项</summary>
           <ul class="planned-change-list"><li v-for="(change, index) in step.plannedChanges" :key="index">{{ change }}</li></ul></details>
       </template></div>
@@ -328,9 +379,10 @@ onUnmounted(deactivate);
       <div v-else class="run-workspace">
       <aside class="run-history" aria-label="历史运行"><p class="workbench-eyebrow">运行历史 · {{ runs.length }}</p>
         <ul><li v-for="(item, index) in runs" :key="item.id"><button class="text-button run-choice" :aria-pressed="run?.id === item.id"
-          @click="selectRun(item)"><span class="run-choice-heading"><strong>{{ label(item.state) }}</strong><small v-if="index === 0">最新</small></span>
+          @click="selectRun(item)"><span class="run-choice-heading"><strong>{{ presentRun(item, item.candidateId ? runDeliveries[item.candidateId] : null).label }}</strong><small v-if="index === 0">最新</small></span>
             <time :datetime="item.startedAt">{{ new Date(item.startedAt).toLocaleString() }}</time>
             <span>模型 {{ item.modelCalls }} · 工具 {{ item.toolCalls }}</span></button></li></ul>
+        <p v-if="historyDeliveryError" class="meta" role="status">部分历史交付状态尚未读取，刷新记录可重试。</p>
         <button v-if="runs.length >= 50" class="secondary" @click="loadRuns(true)">读取更早的运行</button>
       </aside>
       <div class="selected-run">
@@ -343,7 +395,7 @@ onUnmounted(deactivate);
       </div>
       <template v-if="run">
         <div class="run-summary" :data-state="run.state">
-        <div class="section-row run-status-row"><h3 class="run-status" :data-state="run.state" role="status"><NavigationIcon :name="runIcon(run.state)" />Agent：{{ label(run.state) }}</h3>
+        <div class="section-row run-status-row"><h3 v-if="runPresentation" class="run-status" :data-state="run.state" :data-tone="runPresentation.tone" role="status"><NavigationIcon :name="runIcon(runPresentation)" />{{ runPresentation.label }}</h3>
           </div>
         <dl class="run-statistics" aria-label="已保存运行统计">
           <div><dt>模型调用</dt><dd>{{ numberText(run.modelCalls) }} <span>次</span></dd></div>
@@ -353,12 +405,16 @@ onUnmounted(deactivate);
         <p class="meta">模型统计按已返回调用累计；失败响应的已报告用量见活动诊断，未报告用量不估算。</p>
         <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
-        <p v-else-if="run.state === 'SUCCEEDED'" class="meta">本次运行已冻结 Candidate；正式接受状态以交付结果为准。</p>
+        <p v-else-if="runPresentation" class="meta">{{ runPresentation.detail }}</p>
         <p v-if="run.reason === 'SANDBOX_PROTOCOL_INCOMPATIBLE'" class="run-failure" role="alert">
           沙箱工具协议不兼容。请按 docs/AUTONOMOUS_AGENT.md 构建兼容镜像，显式配置镜像后再重启应用。
         </p>
         <p v-if="run.reason === 'NO_PROGRESS'" class="run-failure" role="alert">检测到重复的工具循环，且没有新的观察或成功修改，运行已停止。</p>
-        <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
+        <details class="run-technical"><summary>开发者详情 · 运行标识</summary>
+          <p><span>Run</span> <code>{{ run.id }}</code></p>
+          <p><span>运行状态</span> <code>{{ run.state }}</code></p>
+          <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
+        </details>
         <dl class="run-times">
           <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
           <div><dt>结束时间</dt><dd><time v-if="run.endedAt" :datetime="run.endedAt">{{ new Date(run.endedAt).toLocaleString() }}</time><span v-else>未记录</span></dd></div>
@@ -366,39 +422,49 @@ onUnmounted(deactivate);
         </div>
         <p v-if="resourceBlocked" class="resource-warning" role="alert"><NavigationIcon name="warning" />资源协调待核对：所属资源或保留材料尚未完成核对。请先检查 Docker 与后端安全诊断，再判断能否重新运行。</p>
         <p v-if="run.retained && terminal(run)" class="meta">最终化材料已保留，请核对失败原因。</p>
-        <AgentTimeline :key="run.id" :events="events" :run="run" :connection="connection" />
+        <AgentTimeline :key="run.id" :events="events" :run="run" :connection="connection" :presentation="runPresentation ?? undefined" :show-usage="false" />
       </template>
       </div></div>
     </section>
     <section class="panel agent-changes" aria-labelledby="agent-changes-title">
-      <div class="section-row"><h3 id="agent-changes-title">代码变更与交付</h3><span v-if="candidate" class="meta">冻结 Candidate · {{ candidate.changedPaths.length }} 个文件</span></div>
+      <div class="section-row"><h3 id="agent-changes-title">代码变更与交付</h3><span v-if="candidate && runPresentation" class="meta">{{ runPresentation.label }}</span></div>
       <p v-if="!candidate" class="workbench-empty">{{ run?.candidateId
         ? '此 Run 已记录冻结 Candidate，但详情尚未读回。请刷新记录核对，暂不展示文件列表。'
         : run ? '此 Run 尚无冻结 Candidate，因此没有 Candidate 文件列表。'
           : '选择或开始运行后，可在此查看冻结 Candidate 的文件、检查证据与交付结果。' }}</p>
       <template v-else>
-      <p class="meta">Candidate 变更来自本次冻结结果；正式接受的变更以完成的 Delivery 与最终累计差异为准。</p>
-      <div class="candidate-overview"><div>
-      <h4>Candidate 变更</h4>
-      <p>Candidate 已冻结 · {{ candidate.diffBytes }} bytes</p>
-      <ContentList title="变化文件" :items="candidate.changedPaths" />
-      <details class="candidate-evidence"><summary>实际检查证据 · {{ evidenceStatus }}</summary><pre class="agent-output">{{ candidate.testEvidence }}</pre></details>
-      <button class="secondary compact-button" :disabled="pending" @click="loadDiff">读取最终差异</button>
-      </div><div class="delivery-overview">
-      <h4>正式交付</h4>
-      <p>Delivery：{{ delivery ? label(delivery.state) : '等待自动交付' }}</p>
-      <p v-if="delivery?.reason">{{ delivery.reason === 'MUTATION_NOT_STARTED'
-        ? '本次未写入正式副本。请核对外部文件或运行环境，处理后可重新交付已有结果。' : delivery.reason }}</p>
-      <p v-if="delivery?.state === 'RECOVERY_REQUIRED'" role="alert">正式副本状态无法证明安全，已保留现场并阻止后续执行。请核对文件、Git 与交付日志。</p>
-      <RevisionText v-if="delivery?.revision" label="正式提交" :value="delivery.revision" />
+      <StepFinalChanges v-if="officialStep && step" :plan-id="s.plan.id" :step="step">
+        <template #technical><p>Candidate <code>{{ candidate.id }}</code></p><p>Diff SHA-256 <code>{{ candidate.sha256 }}</code></p></template>
+      </StepFinalChanges>
+      <p v-else-if="completedDelivery" role="status">交付已完成，正在同步步骤的正式版本与文件清单。</p>
+      <div v-else class="candidate-overview">
+        <h4>候选变更</h4><p class="meta">以下是本次保存的编码结果，尚未完成正式交付。</p>
+        <p v-if="diffLoading" role="status" class="meta">正在读取候选文件分类…</p>
+        <FileChangeSummary :key="candidate.id" :files="candidateFiles" />
+        <p v-if="diffError" class="meta" role="status">文件分类暂未读回，可展开最终差异后重试。</p>
+      </div>
+      <p v-if="delivery?.state === 'RECOVERY_REQUIRED'" class="resource-warning" role="alert">正式副本状态需要核对，后续执行已停止。请查看开发者详情。</p>
+      <p v-else-if="delivery?.state === 'DELIVERY_BLOCKED'" class="resource-warning" role="alert">正式交付受阻，编码结果已保留。</p>
       <button v-if="!delivery || ['DELIVERY_BLOCKED', 'PUBLISHED', 'COMMIT_READY', 'APPLIED'].includes(delivery.state)
         || delivery.state === 'RECOVERY_REQUIRED' && delivery.reason === 'MUTATION_NOT_STARTED'" :disabled="pending"
         @click="deliverCandidate">重新核对并交付已有结果</button>
-      </div></div>
-      <pre v-if="diff" class="agent-output">{{ diff }}</pre>
-      <StepFinalChanges v-if="delivery?.state === 'COMPLETED' && step && step.id === run?.stepId"
-        :plan-id="s.plan.id" :step="step" />
-      <p class="meta">检查证据保留实际范围与 NOT_TESTED 状态；交付完成表示代码一致性已接受。</p>
+      <AgentTestEvidence :evidence="candidate.testEvidence" />
+      <details class="final-diff" :open="diffExpanded">
+        <summary @click.prevent="toggleDiff">查看最终差异</summary>
+        <p v-if="diffLoading" role="status" class="meta">正在读取差异…</p>
+        <p v-else-if="diffError" role="alert" class="field-error">{{ diffError }} <button class="text-button" @click="loadDiff">重新读取差异</button></p>
+        <pre v-else-if="diff" class="agent-output">{{ diff }}</pre>
+        <p v-else class="meta">尚无可展示的差异正文。</p>
+      </details>
+      <details v-if="!officialStep" class="candidate-technical">
+        <summary>开发者详情 · 候选与版本</summary>
+        <p>Candidate <code>{{ candidate.id }}</code></p>
+        <p v-if="delivery">Delivery <code>{{ delivery.state }}</code><span v-if="delivery.reason"> · {{ delivery.reason }}</span></p>
+        <RevisionText label="候选 baseline" :value="candidate.baseline" />
+        <RevisionText label="候选 Tree" :value="candidate.expectedTree" />
+        <RevisionText v-if="delivery?.revision" label="正式提交" :value="delivery.revision" />
+        <p>Diff SHA-256 <code>{{ candidate.sha256 }}</code></p>
+      </details>
       </template>
     </section>
   </template>
@@ -471,19 +537,17 @@ onUnmounted(deactivate);
 .run-times dd { font-size: 13px; margin: 3px 0 0; }
 .run-status[data-state="FAILED"] { color: var(--danger); }
 .run-status[data-state="INTERRUPTED"], .run-status[data-state="CANCELLED"] { color: var(--muted); }
-.run-status[data-state="SUCCEEDED"] { color: var(--success); }
+.run-status[data-tone="recorded"] { color: var(--muted); }
 .run-failure { color: var(--danger); font-size: 14px; line-height: 1.65; }
 .resource-warning { display: flex; align-items: flex-start; gap: 10px; color: var(--warning); border-left: 2px solid var(--warning); padding: 8px 12px; font-size: 14px; line-height: 1.65; }
 .resource-warning .navigation-icon { flex-shrink: 0; }
 .workbench-empty { font-size: 14px; line-height: 1.65; color: var(--muted); padding: 12px 0; }
-.candidate-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 28px; margin: 20px 0; }
-.candidate-overview > div { min-width: 0; overflow-wrap: anywhere; }
+.candidate-overview { min-width: 0; margin: 20px 0; }
 .candidate-overview h4 { font-size: 15px; margin: 0 0 12px; }
 .candidate-overview p { font-size: 14px; }
-.delivery-overview { border-left: 1px solid var(--line); padding-left: 28px; }
 .candidate-evidence { margin: 16px 0; font-size: 13px; }
 .candidate-evidence summary { cursor: pointer; }
-.agent-changes :deep(.step-final-changes) { border-top: 1px solid var(--line); padding-top: 20px; }
+.agent-changes :deep(.step-final-changes) { border-top: 0; padding-top: 0; }
 select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
 @media (max-width: 1050px) {
   .run-workspace { grid-template-columns: minmax(0, 1fr); gap: 20px; }
@@ -496,11 +560,13 @@ select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
   .execution-action-area { gap: 18px; align-items: stretch; }
   .jdk-field { width: 100%; }
   .start-action { width: 100%; }
-  .candidate-overview { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .delivery-overview { border-left: 0; padding-left: 0; }
   .selected-step-summary { align-items: flex-start; }
   .run-times { grid-template-columns: minmax(0, 1fr); }
   .run-statistics { gap: 10px; }
   .run-statistics dd { font-size: 17px; }
 }
+.run-status[data-tone="blocked"] { color: var(--warning); }
+.run-status[data-tone="completed"] { color: var(--success); }
+.run-technical, .candidate-technical, .final-diff { font-size: 12px; color: var(--muted); margin: 14px 0; overflow-wrap: anywhere; }
+.run-technical summary, .candidate-technical summary, .final-diff summary { cursor: pointer; }
 </style>

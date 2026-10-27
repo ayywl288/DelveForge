@@ -29,10 +29,11 @@ BASELINE_PATHS = set()
 
 
 class PolicyError(Exception):
-    def __init__(self, rule, message):
+    def __init__(self, rule, message, source_changes=None):
         super().__init__(message)
         self.rule = rule
         self.stage = None
+        self.source_changes = source_changes
 
 
 class CheckArgumentError(ValueError):
@@ -344,16 +345,36 @@ def check_runtime_changes(before, after, databases):
     old = {entry['path']: entry for entry in before['files']}
     new = {entry['path']: entry for entry in after['files']}
     changes = []
+    diagnostics = []
     for relative in sorted(old.keys() | new.keys()):
-        if old.get(relative) == new.get(relative):
+        original, current = old.get(relative), new.get(relative)
+        if original == current:
             continue
-        # 此例外只适用于丢弃的检查副本；删除、模式变化和所有其他材料仍拒绝。
-        if (relative not in databases or relative not in new
-                or old[relative]['mode'] != new[relative]['mode']
-                or not h2_runtime_database(path_for(relative))):
-            raise PolicyError('CHECK_MUTATED_SOURCE', 'Build mutated source; results cannot attest the requested snapshot')
-        changes.append({'path': relative, 'category': 'H2_MVSTORE_CONTENT',
-                        'before': old[relative], 'after': new[relative]})
+        runtime = (relative in databases and current is not None
+                   and original['mode'] == current['mode'] and h2_runtime_database(path_for(relative)))
+        if original is None:
+            kind = 'ADDED'
+        elif current is None:
+            kind = 'DELETED'
+        elif original['sha256'] == current['sha256']:
+            kind = 'MODE'
+        else:
+            kind = 'CONTENT' if original['mode'] == current['mode'] else 'CONTENT_AND_MODE'
+        # 诊断仅含相对路径、固定类别和哈希；绝不带捕获内容或命令输出。
+        state = lambda entry: {key: entry[key] for key in ('mode', 'sha256')} if entry else None
+        diagnostics.append({'path': relative, 'changeType': kind, 'before': state(original),
+                            'after': state(current), 'runtimeData': bool(runtime)})
+        if runtime:
+            changes.append({'path': relative, 'category': 'H2_MVSTORE_CONTENT',
+                            'before': original, 'after': current})
+    unexpected = [entry for entry in diagnostics if not entry['runtimeData']]
+    if unexpected:
+        # 优先保留违规项，超过八项明确标记截断；原拒绝语义不因诊断而改变。
+        selected = (unexpected + [entry for entry in diagnostics if entry['runtimeData']])[:8]
+        diagnostic = {'beforeSnapshot': before.get('snapshot'), 'afterSnapshot': after.get('snapshot'),
+                      'totalChanges': len(diagnostics), 'unexpectedChanges': len(unexpected),
+                      'files': selected, 'truncated': len(diagnostics) > len(selected)}
+        raise PolicyError('CHECK_MUTATED_SOURCE', 'Build mutated source; results cannot attest the requested snapshot', diagnostic)
     return changes
 
 
@@ -632,8 +653,11 @@ def main():
     except CheckArgumentError as error:
         print(json.dumps({'ok': False, 'classification': 'INVALID_ARGUMENTS', 'checkStarted': False, 'reason': str(error)}))
     except PolicyError as error:
-        print(json.dumps({'ok': False, 'classification': 'POLICY_REJECTED',
-                          'policyRule': error.rule, 'policyStage': error.stage}))
+        rejected = {'ok': False, 'classification': 'POLICY_REJECTED',
+                    'policyRule': error.rule, 'policyStage': error.stage}
+        if error.source_changes is not None:
+            rejected['sourceChanges'] = error.source_changes
+        print(json.dumps(rejected))
     except PatchOutcomeUnknown:
         print(json.dumps({'ok': False, 'classification': 'PATCH_OUTCOME_UNCERTAIN'}))
     except (ValueError, OSError, UnicodeError, ET.ParseError) as error:

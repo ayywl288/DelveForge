@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentException;
+import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
@@ -35,6 +36,29 @@ class DockerSandboxProtocolTest {
     Path temporary;
     private final ObjectMapper json = new ObjectMapper();
     private final AgentProcess process = new AgentProcess();
+
+    @Test
+    void sourceChangeDiagnosticsAreValidatedAndNeverReplaceThePolicyRejection() throws Exception {
+        var before = new AgentPolicyRejection.SourceFileState("100644", "a".repeat(64));
+        var after = new AgentPolicyRejection.SourceFileState("100644", "b".repeat(64));
+        var file = new AgentPolicyRejection.SourceChange("src/Example.java",
+                AgentPolicyRejection.SourceChangeType.CONTENT, before, after, false);
+        var changes = new AgentPolicyRejection.SourceChanges("c".repeat(64), "d".repeat(64),
+                1, 1, List.of(file), false);
+        var response = json.createObjectNode().put("ok", false).put("classification", "POLICY_REJECTED")
+                .put("policyRule", "CHECK_MUTATED_SOURCE");
+        response.set("sourceChanges", json.valueToTree(changes));
+        AgentPolicyRejection valid = assertThrows(AgentPolicyRejection.class,
+                () -> DockerAgentSandbox.rejectPolicy(response, AgentPolicyRejection.Stage.TOOL_EXECUTION));
+        assertEquals(changes, valid.sourceChanges());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) response.path("sourceChanges").path("files").get(0))
+                .put("path", "../private-source");
+        AgentPolicyRejection invalid = assertThrows(AgentPolicyRejection.class,
+                () -> DockerAgentSandbox.rejectPolicy(response, AgentPolicyRejection.Stage.TOOL_EXECUTION));
+        assertEquals(AgentPolicyRejection.Rule.CHECK_MUTATED_SOURCE, invalid.rule());
+        org.junit.jupiter.api.Assertions.assertNull(invalid.sourceChanges());
+        assertFalse(invalid.getMessage().contains("private-source"));
+    }
 
     @Test
     void acceptsOnlyExplicitCompatibleToolContract() throws Exception {

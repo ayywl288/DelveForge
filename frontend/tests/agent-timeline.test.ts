@@ -12,6 +12,9 @@ const tool = (sequence: number, kind: string, fields: Record<string, unknown> = 
     JSON.stringify({ metadataVersion: 1, toolCallId: identity, tool: "read_file", path: "src/Counter.java", ...fields }));
 const important = (sequence: number) => fact(sequence, "TOOL_FINISHED", '{"tool":"run_checks","ok":true,"classification":"TESTS_PASSED"}');
 async function settle() { await nextTick(); await nextTick(); }
+async function expandChecks(root: HTMLElement) {
+    root.querySelector<HTMLElement>(".check-summary summary")!.click(); await settle();
+}
 function mount(expandFiles = true) {
     const props = reactive({ events: [] as AgentEvent[], connection: "已连接", run: {
         id: "one", state: "RUNNING", cancelRequested: false,
@@ -76,7 +79,9 @@ it("keeps ordered readable failure classifications and visible cleanup warnings 
         ok: false, classification: "BUILD_FAILED", tests: 0, nested: { fullIdentifier } })),
         fact(12, "CLEANUP_BLOCKED", "Owned resources require reconciliation: one")];
     props.run.state = "FAILED"; await settle();
-    expect([...root.querySelectorAll(".agent-timeline li")].map(node => node.getAttribute("data-sequence"))).toEqual(["10", "11", "12"]);
+    expect([...root.querySelectorAll(".agent-timeline li")].map(node => node.getAttribute("data-sequence"))).toEqual(["10", "12"]);
+    await expandChecks(root);
+    expect(root.querySelector(".check-history li")?.getAttribute("data-sequence")).toBe("11");
     expect(root.querySelector(".exploration-operations li")).toBeNull();
     const event = root.querySelector('[data-sequence="11"]')!;
     expect(event.querySelector("strong")?.textContent).toBe("运行 Maven 检查");
@@ -96,6 +101,8 @@ it("shows actual Maven scope, result, duration once and compact recorded test co
         classification: "TESTS_PASSED", durationMs: 1240, executedTests: 12, tests: 14, skipped: 2, failures: 0,
         errors: 0, module: "reports", directory: ".", goal: "test", selectedTest: "ScheduleTest", snapshot: "f".repeat(64) }))];
     await settle();
+    expect(root.querySelector<HTMLDetailsElement>(".check-summary")!.open).toBe(false);
+    await expandChecks(root);
     expect(root.querySelector(".activity-target")?.textContent).toBe("reports");
     expect(root.querySelector(".activity-result")?.textContent).toContain("TESTS_PASSED");
     expect(root.querySelectorAll(".activity-duration")).toHaveLength(1);
@@ -212,13 +219,13 @@ it("does not expose credential-shaped legacy classification strings", async () =
 });
 it("renders forty recent activities, reveals older loaded history, preserves reading and resets on Run switch", async () => {
     const { root, props } = mount();
-    props.events = Array.from({ length: 95 }, (_, index) => important(index + 1)); await settle();
+    props.events = Array.from({ length: 95 }, (_, index) => fact(index + 1, "FINALIZING")); await settle();
     expect(root.querySelectorAll("li")).toHaveLength(40);
     expect(root.querySelector("li")?.getAttribute("data-sequence")).toBe("56");
     root.querySelector<HTMLButtonElement>(".earlier-activity")!.click(); await settle();
     expect(root.querySelectorAll("li")).toHaveLength(80);
     expect(root.querySelector("li")?.getAttribute("data-sequence")).toBe("16");
-    props.events.push(important(96)); await settle();
+    props.events.push(fact(96, "FINALIZING")); await settle();
     expect(root.querySelector("li")?.getAttribute("data-sequence")).toBe("16");
     expect(root.querySelector(".latest-activity")?.textContent).toContain("有新活动");
     root.querySelector<HTMLButtonElement>(".earlier-activity")!.click(); await settle();
@@ -227,7 +234,7 @@ it("renders forty recent activities, reveals older loaded history, preserves rea
     root.querySelector<HTMLButtonElement>(".latest-activity")!.click(); await settle();
     expect(root.querySelectorAll("li")).toHaveLength(40);
     props.run.id = "two";
-    props.events = Array.from({ length: 50 }, (_, index) => ({ ...important(index + 1), runId: "two" }));
+    props.events = Array.from({ length: 50 }, (_, index) => ({ ...fact(index + 1, "FINALIZING"), runId: "two" }));
     await settle();
     expect(root.querySelectorAll("li")).toHaveLength(40);
     expect(root.querySelector("li")?.getAttribute("data-sequence")).toBe("11");
@@ -378,7 +385,7 @@ it("more than thirty mixed operations update the same summary and rows never rel
 
 it("exploration expansion is independent of chronological history and resets when selecting another Run", async () => {
     const { root, props } = mount(false);
-    props.events = Array.from({ length: 80 }, (_, index) => important(index + 1));
+    props.events = Array.from({ length: 80 }, (_, index) => fact(index + 1, "FINALIZING"));
     props.events.push(tool(81, "TOOL_FINISHED", { ok: true })); await settle();
     const summary = root.querySelector<HTMLDetailsElement>(".exploration-summary")!;
     summary.querySelector("summary")!.click(); await settle();
@@ -465,7 +472,9 @@ it("keeps important milestones chronological and explains a known pre-mutation r
     expect(root.querySelector('.exploration-count')?.textContent).toContain("0 次文件操作");
     props.events.push(fact(5, "MODEL_REQUEST", "request=2"), important(6), fact(7, "FINALIZING"), fact(8, "FAILED", "POLICY_REJECTED"));
     props.run.state = "FAILED"; props.run.reason = "POLICY_REJECTED"; await settle();
-    expect([...root.querySelectorAll('.agent-timeline li')].map(row => row.getAttribute('data-sequence'))).toEqual(['1', '6', '7', '8']);
+    expect([...root.querySelectorAll('.agent-timeline li')].map(row => row.getAttribute('data-sequence'))).toEqual(['1', '7', '8']);
+    await expandChecks(root);
+    expect(root.querySelector('.check-history [data-sequence="6"]')).not.toBeNull();
     expect(root.querySelector('.current-activity')?.textContent).toContain("运行失败");
     expect(root.querySelector('.model-waiting, .is-active')).toBeNull();
 });
@@ -506,9 +515,10 @@ it("updates one patch summary in place with actual outcomes and only applied saf
     props.run.state='FAILED'; await settle();
     expect(root.querySelector('.patch-summary')).toBe(summary);
     expect(summary.querySelector('.patch-count')?.textContent).toContain('4 次尝试 · 已应用 1 · 冲突 1 · 安全拒绝 1 · 结果不明 1');
-    expect(summary.querySelector('.patch-paths')?.textContent).toBe('src/Actual.java');
+    expect(summary.querySelector('.patch-paths')).toBeNull();
+    expect(summary.querySelector('.patch-operations')?.textContent).toContain('src/Actual.java');
     expect(summary.querySelector('[data-sequence="3"]')?.textContent).toContain('未应用，已有修改保留');
-    expect(summary.querySelector('.patch-paths')?.textContent).not.toContain('Unapplied');
+    expect(summary.querySelector('.patch-operations')?.textContent).not.toContain('src/Unapplied.java');
     expect(root.querySelector('.patch-alert')?.textContent).toContain('1 次安全拒绝');
     expect([...summary.querySelectorAll('li')].map(node=>node.getAttribute('data-sequence'))).toEqual(['1','3','4','5']);
     expect(root.querySelector('.activity-bar,.model-waiting,.is-active')).toBeNull();
@@ -550,7 +560,9 @@ it.each(['apply_patch', 'edit_file'])("preserves live %s status, refusals and li
     props.run.state = 'FAILED'; props.run.reason = 'POLICY_REJECTED';
     await settle();
     expect([...root.querySelectorAll('.agent-timeline li')].map(row => row.getAttribute('data-sequence')))
-        .toEqual(['1', '2', '6', '7']);
+        .toEqual(['1', '2', '7']);
+    await expandChecks(root);
+    expect(root.querySelector('.check-history [data-sequence="6"]')).not.toBeNull();
     expect(root.querySelector('.patch-alert')?.textContent).toContain('1 次安全拒绝');
     expect(root.querySelector('.exploration-count')?.textContent).toContain('1 次文件操作');
     expect(root.querySelector('.current-title')?.textContent).toContain('运行失败');
@@ -676,4 +688,41 @@ it("shows only numeric proposal locations when new content is refused", async ()
     await settle();
     expect(root.querySelector('.patch-summary')?.textContent).toContain("new_text 第 2、4 行");
     expect(root.textContent).not.toContain("private-body");
+});
+
+
+it("summarizes 100 checks without red intermediate milestones and retains every ordered result", async () => {
+    const { root, props } = mount(false);
+    props.events = [fact(1, "CREATED"), ...Array.from({length: 100}, (_, index) =>
+        fact(index + 2, "TOOL_FINISHED", JSON.stringify({tool: "run_checks", ok: index === 99,
+            classification: index === 99 ? "TESTS_PASSED" : "TESTS_FAILED", executedTests: 12,
+            failures: index === 99 ? 0 : 1, errors: 0, skipped: 2}))), fact(102, "SUCCEEDED")];
+    props.run.state = "SUCCEEDED"; await settle();
+    expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(2);
+    expect(root.querySelector(".check-history")).toBeNull();
+    expect(root.querySelector(".check-latest")?.textContent).toBe("测试通过");
+    expect(root.querySelector(".check-count")?.textContent).toContain("100 次检查 · 历史 99 次未通过");
+    expect(root.querySelector(".check-detail")?.textContent).toContain("已执行 12 项 · 失败 0 · 错误 0 · 跳过 2");
+    await expandChecks(root);
+    expect(root.querySelectorAll(".check-history li")).toHaveLength(40);
+    root.querySelector<HTMLButtonElement>(".more-checks")!.click(); await settle();
+    root.querySelector<HTMLButtonElement>(".more-checks")!.click(); await settle();
+    expect([...root.querySelectorAll(".check-history li")].map(node => node.getAttribute("data-sequence")))
+        .toEqual(Array.from({length:100},(_,i)=>String(i+2)));
+    expect(root.querySelector('.check-history [data-sequence="2"]')?.getAttribute("data-tone")).toBe("failed");
+    props.run.id = "two"; props.events = [{...important(1),runId:"two"}]; await settle();
+    expect(root.querySelector<HTMLDetailsElement>(".check-summary")!.open).toBe(false);
+    expect(root.querySelector(".check-count")?.textContent).toBe("1 次检查");
+});
+it("keeps a source mutation refusal and terminal failure visible outside collapsed check history", async () => {
+    const {root,props}=mount(false);
+    props.events=[tool(1,"TOOL_FINISHED",{tool:"run_checks",ok:false,classification:"POLICY_REJECTED",
+        policyRule:"CHECK_MUTATED_SOURCE",policyStage:"TOOL_EXECUTION",resultRecorded:false}),fact(2,"FAILED","POLICY_REJECTED")];
+    props.run.state="FAILED";await settle();
+    const warning=root.querySelector('.check-blocker[role="alert"]')!;
+    expect(warning.closest("details")).toBeNull();
+    expect(warning.textContent).toContain("检测到文件变化");
+    expect(root.querySelector('.agent-timeline [data-sequence="2"]')?.getAttribute("data-tone")).toBe("failed");
+    expect(root.querySelector<HTMLDetailsElement>(".check-summary")!.open).toBe(false);
+    expect(root.querySelector(".check-latest")?.textContent).not.toContain("测试通过");
 });

@@ -3,9 +3,10 @@ import { computed, nextTick, ref, watch } from "vue";
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import NavigationIcon from "./NavigationIcon.vue";
 import AgentActivityRow from "./AgentActivityRow.vue";
-import { activityState, buildActivities, currentActivity, explorationSummary, isExploration, isPatchTool, patchSummary, toolNames } from "./agentEventPresentation";
+import type { RunPresentation } from "./agentResultPresentation";
+import { activityState, buildActivities, currentActivity, checkSummary, explorationSummary, isExploration, isPatchTool, patchSummary, toolNames } from "./agentEventPresentation";
 
-const props = defineProps<{ events: AgentEvent[]; run: AgentRun; connection: string }>();
+const props = withDefaults(defineProps<{ events: AgentEvent[]; run: AgentRun; connection: string; presentation?: RunPresentation; showUsage?: boolean }>(), { showUsage: true });
 const viewport = ref<HTMLElement>();
 const following = ref(true);
 const unseen = ref(false);
@@ -16,8 +17,18 @@ const patches = computed(() => patchSummary(activities.value, props.run.id));
 const patchesExpanded = ref(false);
 const patchCount = ref(40);
 const visiblePatches = computed(() => patches.value.activities.slice(0, patchCount.value));
-const current = computed(() => currentActivity(activities.value, props.events, props.run));
-const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && !isPatchTool(activity.tool) && activity.event.kind !== "MODEL_REQUEST"));
+const current = computed(() => {
+    const result = currentActivity(activities.value, props.events, props.run);
+    if (props.presentation && props.run.state === "SUCCEEDED" && result.title === "Candidate 已冻结") {
+        return { ...result, title: props.presentation.label, detail: props.presentation.detail, tone: props.presentation.tone };
+    }
+    return result;
+});
+const checks = computed(() => checkSummary(activities.value, props.run.id));
+const checksExpanded = ref(false);
+const checkCount = ref(40);
+const visibleChecks = computed(() => checks.value.activities.slice(0, checkCount.value));
+const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && !isPatchTool(activity.tool) && activity.tool !== "run_checks" && activity.event.kind !== "MODEL_REQUEST"));
 const visible = computed(() => chronological.value.slice(-visibleCount.value));
 const fileCount = ref(40);
 const filesExpanded = ref(false);
@@ -54,7 +65,7 @@ watch(() => props.events.at(-1)?.sequence, async () => {
     await nextTick();
     if (follow && following.value && viewport.value) viewport.value.scrollTop = viewport.value.scrollHeight;
 });
-watch(() => props.run.id, () => { following.value = true; unseen.value = false; visibleCount.value = 40; previousCount = 0; filesExpanded.value = false; fileCount.value = 40; patchesExpanded.value = false; patchCount.value = 40; });
+watch(() => props.run.id, () => { following.value = true; unseen.value = false; visibleCount.value = 40; previousCount = 0; filesExpanded.value = false; fileCount.value = 40; patchesExpanded.value = false; patchCount.value = 40; checksExpanded.value = false; checkCount.value = 40; });
 </script>
 
 <template>
@@ -70,7 +81,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
                 <p v-if="current.detail" class="current-detail">{{ current.detail }}</p></div></Transition></div>
         </div>
         <div v-if="current.active" class="activity-bar" aria-hidden="true"></div>
-        <p class="model-statistics">模型调用 {{ run.modelCalls ?? '待同步' }}{{ run.modelCalls === undefined ? '' : ' 次' }}</p>
+        <p v-if="showUsage !== false" class="model-statistics">模型调用 {{ run.modelCalls ?? '待同步' }}{{ run.modelCalls === undefined ? '' : ' 次' }}</p>
         <p v-if="patches.blocked || patches.uncertain || patches.failed" class="patch-alert" role="alert">代码修改需核对：{{ patches.blocked }} 次安全拒绝 · {{ patches.uncertain }} 次结果不明 · {{ patches.failed }} 次失败。详见代码修改记录；不代表 Candidate 或交付成功。</p>
         <h4 class="operations-title">重要操作</h4>
         <button v-if="chronological.length > visible.length" class="text-button earlier-activity" @click="earlier">查看更早活动（已加载 {{ chronological.length }} 项）</button>
@@ -82,13 +93,25 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
         </div>
         <button v-if="!following" class="secondary compact-button latest-activity" @click="latest">{{ unseen ? '有新活动 · 回到最新' : '回到最新活动' }}</button>
         <p v-if="chronological.length > 40" class="meta">显示 {{ visible.length }} / {{ chronological.length }} 项已加载时间线活动。</p>
+        <details v-if="checks.count" :key="checks.key" class="check-summary" :open="checksExpanded">
+            <summary @click.prevent="checksExpanded = !checksExpanded"><NavigationIcon name="check" />检查 · 汇总
+                <strong class="check-latest" :data-tone="checks.latest?.outcome">{{ checks.label }}</strong>
+                <span class="check-count">{{ checks.count }} 次检查<span v-if="checks.failed"> · 历史 {{ checks.failed }} 次未通过</span></span>
+                <span v-if="checks.detail" class="check-detail">{{ checks.detail }}</span>
+            </summary>
+            <template v-if="checksExpanded"><p class="exploration-note">以下保留每次实际检查的结果与顺序；过程中的失败不等于本次运行的最终结果。</p>
+                <ol class="check-history" aria-label="本 Run 完整检查历史，按时间排序" tabindex="0">
+                    <AgentActivityRow v-for="activity in visibleChecks" :key="activity.key" :activity="activity" />
+                </ol><button v-if="checkCount < checks.count" class="secondary compact-button more-checks" @click="checkCount += 40">显示更多检查记录</button>
+            </template>
+        </details>
+        <p v-if="checks.blocked" class="check-blocker" role="alert">{{ checks.sourceBlocked ? '检查期间检测到文件变化，本次检查已停止。' : '检查被安全规则停止，请核对运行记录。' }}</p>
         <details :key="patches.key" class="patch-summary" :open="patchesExpanded">
-            <summary @click.prevent="patchesExpanded = !patchesExpanded"><NavigationIcon name="code" />代码修改 · 汇总
+            <summary @click.prevent="patchesExpanded = !patchesExpanded"><NavigationIcon name="code" />代码修改 · 执行历史
                 <span class="patch-count"><span :key="`${patches.count}:${patches.applied}:${patches.conflicts}:${patches.blocked}:${patches.uncertain}`" class="counter-values">已加载 {{ patches.count }} 次尝试 · 已应用 {{ patches.applied }} · 冲突 {{ patches.conflicts }} · 安全拒绝 {{ patches.blocked }} · 结果不明 {{ patches.uncertain }} · 失败 {{ patches.failed }}</span></span>
-                <span class="patch-paths">{{ patches.paths.join(' · ') || '尚无可展示的已应用路径' }}</span>
                 <span v-if="patches.active" class="patch-current" role="status">正在应用代码修改</span>
             </summary>
-            <p class="exploration-note">仅统计沙箱补丁尝试，冲突不代表文件已修改；成功应用不等于 Candidate 冻结或正式交付。安全拒绝与结果不明可重叠；缺少旧记录证据时不推断未修改。修正冲突前请重新读取当前源码。</p>
+            <p v-if="patchesExpanded" class="exploration-note">以下为逐次修改尝试；最终交付文件见下方变更清单。冲突、安全拒绝和结果不明均保留原记录。</p>
             <template v-if="patchesExpanded"><ol class="patch-operations" aria-label="本 Run 补丁尝试，按时间排序" tabindex="0">
                 <AgentActivityRow v-for="activity in visiblePatches" :key="activity.key" :activity="activity" />
             </ol><button v-if="patchCount < patches.count" class="secondary compact-button more-patches" @click="patchCount += 40">显示更多补丁尝试</button></template>
@@ -114,6 +137,17 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 </template>
 
 <style scoped>
+.check-summary { min-width: 0; margin: 10px 0; padding: 12px 0 16px; border-bottom: 1px solid var(--line); }
+.check-summary summary { cursor: pointer; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+.check-summary summary > .navigation-icon { width: 15px; height: 15px; vertical-align: middle; margin-right: 8px; color: var(--muted); }
+.check-latest, .check-count, .check-detail { display: block; margin: 4px 0 0 28px; font-size: 12px; line-height: 1.6; }
+.check-count, .check-detail { color: var(--muted); font-weight: 400; }
+.check-latest[data-tone="completed"] { color: var(--success); }
+.check-latest[data-tone="failed"] { color: var(--danger); }
+.check-latest[data-tone="blocked"], .check-blocker { color: var(--warning); }
+.check-blocker { margin: 10px 0 0 28px; font-size: 13px; line-height: 1.6; }
+.check-history { list-style: none; margin: 14px 0 10px; padding: 0; max-height: 26rem; overflow: auto; scrollbar-width: thin; }
+
 .activity-section { min-width: 0; line-height: 1.6; }
 .activity-section h3 { font-size: 17px; line-height: 1.5; margin: 0; }
 .activity-section > .section-row { margin-bottom: 12px; }
@@ -134,7 +168,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .patch-summary { border-bottom: 1px solid var(--line); padding: 10px 0 16px; }
 .patch-summary summary { cursor: pointer; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .patch-summary summary .navigation-icon { width: 15px; height: 15px; vertical-align: middle; margin-right: 8px; color: var(--muted); }
-.patch-count, .patch-paths, .patch-current { display: block; font-size: 12px; font-weight: 400; color: var(--muted); margin: 4px 0 0 28px; overflow-wrap: anywhere; }
+.patch-count, .patch-current { display: block; font-size: 12px; font-weight: 400; color: var(--muted); margin: 4px 0 0 28px; overflow-wrap: anywhere; }
 .patch-current { color: var(--accent); }
 .patch-count { display: grid; }
 .counter-values { grid-area: 1/1; animation: counter-update 220ms ease-out; }

@@ -146,6 +146,11 @@ class DockerDependencyPreparationTest {
             AgentPolicyRejection failure = assertThrows(AgentPolicyRejection.class, () -> sandbox.tool(id,
                     new AgentProtocol.ToolCall("formal-test", "run_checks", "{\"goal\":\"test\"}"), () -> false));
             assertEquals("CHECK_MUTATED_SOURCE", failure.rule().name());
+            assertEquals(1, failure.sourceChanges().unexpectedChanges());
+            assertEquals("src/main/java/example/Counter.java", failure.sourceChanges().files().getFirst().path());
+            assertEquals(AgentPolicyRejection.SourceChangeType.CONTENT,
+                    failure.sourceChanges().files().getFirst().changeType());
+            assertEquals(false, failure.sourceChanges().files().getFirst().runtimeData());
             assertEquals(before, snapshot(sandbox, id));
             assertTrue(fixture.git(official, "status", "--porcelain").isEmpty());
         } finally {
@@ -176,6 +181,10 @@ class DockerDependencyPreparationTest {
             assertEquals("TESTS_PASSED", result.path("result").path("classification").asText());
             assertTrue(result.path("result").path("executedTests").asInt() > 0);
             assertEquals(before, snapshot(sandbox, id));
+            var candidate = sandbox.finish(id, () -> false);
+            JsonNode evidence = json.readTree(candidate.testEvidence());
+            assertEquals(0, evidence.path("checks").get(0).path("failures").asInt(-1));
+            assertEquals(0, evidence.path("checks").get(0).path("errors").asInt(-1));
             assertTrue(fixture.git(official, "status", "--porcelain").isEmpty());
         } finally {
             sandbox.cleanup(id);

@@ -3,6 +3,7 @@ import { onBeforeUnmount, ref, watch } from "vue";
 import { api, ApiError } from "../api/client";
 import type { EvolutionStep, StepFinalChanges } from "../api/types";
 import RevisionText from "./RevisionText.vue";
+import FileChangeSummary from "./FileChangeSummary.vue";
 
 const props = defineProps<{ planId: string; step: EvolutionStep }>();
 const result = ref<StepFinalChanges | null>(null);
@@ -54,32 +55,26 @@ async function load() {
 watch(() => [props.planId, props.step.id, props.step.status, props.step.baselineRevision,
   props.step.deliveryRevision], load, { immediate: true });
 onBeforeUnmount(() => { generation++; });
-const typeLabels = { ADDED: "新增", MODIFIED: "修改", DELETED: "删除" };
+
 </script>
 <template>
   <section id="step-final-changes" class="execution-section step-final-changes" :aria-busy="loading">
-    <div class="section-row"><h3>本 Step 最终累计变更</h3>
-      <button v-if="step.status === 'SUCCEEDED'" class="secondary compact-button" :disabled="loading" @click="load">重新查询差异</button>
+    <div class="section-row"><h4>已交付文件</h4>
+      <button v-if="step.status === 'SUCCEEDED'" class="secondary compact-button" :disabled="loading" @click="load">刷新文件</button>
     </div>
-    <p class="meta">比较此 Step 的可信起点与正式接受版本，展示完整交付差异。</p>
-    <p v-if="step.status !== 'SUCCEEDED'" class="context-note">此 Step 尚未成功，没有最终 Verified Revision。下方轨迹与历史仍可查看。</p>
-    <p v-else-if="loading" role="status">正在只读查询固定 Git Tree…</p>
+    <p class="meta">以下清单来自已正式接受的完整步骤变更。</p>
+    <p v-if="step.status !== 'SUCCEEDED'" class="context-note">此步骤尚未正式交付，暂无最终文件清单。</p>
+    <p v-else-if="loading" role="status">正在读取已交付文件…</p>
     <p v-else-if="error" role="alert" class="field-error">最终差异不可用：{{ error }}</p>
     <template v-else-if="result?.availability === 'AVAILABLE'">
-      <p class="change-counts"><strong>{{ result.files!.length }} 个文件</strong>
-        <span>新增 {{ result.counts!.added }}</span><span>修改 {{ result.counts!.modified }}</span><span>删除 {{ result.counts!.deleted }}</span></p>
-      <p v-if="!result.files!.length" class="context-note">已完整比较两个 Tree：最终没有净文件变化。</p>
-      <details v-else :key="step.id" class="reading-disclosure final-files" :open="result.files!.length <= 6">
-      <summary>查看变更文件（{{ result.files!.length }}）</summary>
-      <ul class="final-file-list">
-        <li v-for="file in result.files" :key="file.path"><span class="file-change-type" :data-type="file.changeType">{{ typeLabels[file.changeType] }}</span><code>{{ file.path }}</code></li>
-      </ul>
-      </details>
-      <details class="reading-disclosure technical-details"><summary>比较端点与 Tree 身份</summary>
+      <FileChangeSummary :key="step.id + step.deliveryRevision" :files="result.files!" />
+      <p v-if="!result.files!.length" class="context-note">最终没有净文件变化。</p>
+      <details class="reading-disclosure technical-details"><summary>开发者详情 · 版本溯源</summary>
         <RevisionText label="Step 原始 baseline" :value="result.baselineRevision" />
         <RevisionText label="此 Step 的 Verified Revision" :value="result.verifiedRevision" />
         <RevisionText label="baseline Tree" :value="result.baselineTree" />
         <RevisionText label="Verified Tree" :value="result.verifiedTree" />
+        <slot name="technical" />
       </details>
     </template>
     <p v-else-if="result" class="context-note">最终差异不可用：{{ reasons[result.reason ?? ''] ?? '当前无法安全完成历史 Tree 比较。' }}

@@ -163,7 +163,7 @@ it("a saved Candidate is displayed with honest NOT_TESTED evidence and never sta
   const { root } = mount([frozen]); await settle();
   expect(button(root, "重新开始编码").disabled).toBe(true);
   expect(root.textContent).toContain("NOT_TESTED");
-  expect(root.textContent).toContain("交付阻塞");
+  expect(root.textContent).toContain("交付受阻");
   expect(button(root, "重新核对并交付已有结果")).toBeDefined();
   expect(start).not.toHaveBeenCalled();
 });
@@ -271,14 +271,14 @@ it("ignores a late Start after a Step switch and reloads its persisted Run on re
   chooseStep(root, "step-2"); await settle();
   response.resolve(running()); await settle();
   expect(root.querySelector<HTMLSelectElement>("#agent-step")!.value).toBe("step-2");
-  expect(root.textContent).not.toContain("Agent：编码中");
+  expect(root.textContent).not.toContain("编码中");
   expect(Events.instances).toHaveLength(0);
   expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", true, undefined);
   expect(button(root, "确认此步骤")).toBeUndefined();
   expect(root.querySelector(".step-lock-reason")?.textContent).toContain("前序 Step");
   vi.mocked(api.agentRuns).mockResolvedValue([running()]);
   chooseStep(root, "step-1"); await settle();
-  expect(root.textContent).toContain("Agent：编码中");
+  expect(root.textContent).toContain("编码中");
   expect(Events.instances.at(-1)?.url).toContain("run-1");
   expect(start).toHaveBeenCalledTimes(1);
 });
@@ -369,9 +369,9 @@ it("background Candidate arrival invalidates an old Cancel result without strand
   button(root, "停止运行").click(); await settle();
   vi.mocked(api.agentRun).mockResolvedValue({ ...running(), state: "SUCCEEDED", candidateId: "candidate-1" });
   Events.instances.at(-1)!.onopen?.(); await settle();
-  expect(root.textContent).toContain("Agent：Candidate 已冻结");
+  expect(root.textContent).toContain("候选已冻结，等待交付");
   response.resolve({ ...running(), cancelRequested: true }); await settle();
-  expect(root.textContent).toContain("Agent：Candidate 已冻结");
+  expect(root.textContent).toContain("候选已冻结，等待交付");
   expect(button(root, "重新核对并交付已有结果").disabled).toBe(false);
 });
 
@@ -392,7 +392,7 @@ it("ignores a stale diff body and its pending cleanup after selecting another Ru
   vi.spyOn(api, "delivery").mockResolvedValue(null);
   const { root } = mount([first, second]); await settle();
   vi.mocked(api.agentRun).mockImplementation(async id => id === second.id ? second : first);
-  button(root, "读取最终差异").click(); await settle();
+  root.querySelector<HTMLElement>(".final-diff summary")!.click(); await settle();
   chooseRun(root, 1); await settle();
   body.reject(new Error("old diff failure")); await settle();
   expect(root.textContent).toContain("selected-run-two");
@@ -457,7 +457,7 @@ it("explains failed Docker preparation and resource reconciliation without inven
   expect(root.querySelector(".run-metadata")).toBeNull();
   expect(root.querySelector(".run-reason code")?.textContent).toBe("DOCKER_FAILURE");
   expect(root.querySelector(".run-statistics")?.textContent).toContain("0");
-  expect(root.querySelector(".run-status[role='status']")?.textContent).toContain("编码失败");
+  expect(root.querySelector(".run-status[role='status']")?.textContent).toContain("本次运行失败");
   expect(root.querySelector(".agent-changes")?.textContent).toContain("此 Run 尚无冻结 Candidate");
   expect(root.querySelector('[data-sequence="3"]')?.getAttribute("data-tone")).toBe("blocked");
   expect(root.querySelectorAll(".is-active")).toHaveLength(0);
@@ -485,7 +485,9 @@ it("unifies Run status, failure and times without duplicating diagnostics or exp
   expect(value("结束时间")?.querySelector("time")?.getAttribute("datetime")).toBe(failed.endedAt);
   expect(value("开始时间")?.textContent).toBe(new Date(failed.startedAt).toLocaleString());
   expect(root.querySelector(".run-metadata, #run-technical-title")).toBeNull();
-  expect(root.textContent).not.toContain(failed.id);
+  expect(overview.querySelector<HTMLDetailsElement>(".run-technical")!.open).toBe(false);
+  expect(overview.querySelector(".run-technical")?.textContent).toContain(failed.id);
+  expect(overview.querySelector(".run-status")?.textContent).not.toContain(failed.id);
   expect(root.textContent).not.toContain(failed.baseline);
   expect(api.agentRun).toHaveBeenCalledWith(failed.id);
   expect(failed.baseline).toBe("0123456789abcdef".repeat(4));
@@ -515,7 +517,7 @@ it.each(["CREATED", "PREPARING", "RUNNING", "FINALIZING", "FAILED", "CANCELLED",
     expect(summary.querySelector('[role="status"]')?.getAttribute("data-state")).toBe(state);
     expect(summary.querySelector('.navigation-icon[aria-hidden="true"]')).not.toBeNull();
     expect(summary.textContent).not.toContain("交付完成");
-    if (state === "SUCCEEDED") expect(summary.textContent).toContain("正式接受状态以交付结果为准");
+    if (state === "SUCCEEDED") expect(summary.textContent).toContain("等待正式交付确认");
     if (["FAILED", "CANCELLED", "INTERRUPTED"].includes(state)) expect(summary.textContent).toContain("本次编码未交付");
     expect(start).not.toHaveBeenCalled();
   });
@@ -570,6 +572,8 @@ it("shows active persisted activity independently of SSE connectivity and keeps 
   expect(root.querySelector(".stream-status")?.textContent).toContain("正在重连");
   stream.fact(2, "TOOL_FINISHED", '{"tool":"run_checks","ok":false,"classification":"BUILD_FAILED","durationMs":12}'); await settle();
   expect(root.querySelectorAll(".is-active")).toHaveLength(0);
+  expect(root.querySelector<HTMLDetailsElement>(".check-summary")!.open).toBe(false);
+  root.querySelector<HTMLElement>(".check-summary summary")!.click(); await settle();
   expect(root.querySelector('[data-sequence="2"]')?.getAttribute("data-tone")).toBe("failed");
   expect(root.querySelector('[data-sequence="2"] strong')?.textContent).toContain("运行 Maven 检查");
   expect(root.querySelector('[data-sequence="2"] .activity-result code')?.textContent).toBe("BUILD_FAILED");
@@ -617,10 +621,13 @@ it.each(["AVAILABLE", "UNAVAILABLE"] as const)("completed Delivery retains read-
   const { root, s } = mount([frozen]);
   s.plan!.steps[0] = { ...s.plan!.steps[0]!, status: "SUCCEEDED", baselineRevision: "a".repeat(40), deliveryRevision: "b".repeat(40) };
   await settle();
-  expect(root.querySelector(".candidate-overview")?.textContent).toContain("candidate-1.java");
-  expect(root.querySelector(".candidate-evidence summary")?.textContent).toContain("NOT_TESTED");
+  expect(root.querySelector(".candidate-overview .file-change-summary")).toBeNull();
+  expect(root.querySelector(".final-file-list")?.textContent ?? "").not.toContain("candidate-1.java");
+  expect(root.querySelector(".evidence-status")?.textContent).toContain("未运行测试");
+  expect(root.querySelector<HTMLDetailsElement>(".candidate-evidence details")!.open).toBe(false);
+  expect(root.querySelector(".candidate-evidence pre")?.textContent).toContain("NOT_TESTED");
   expect(root.querySelector("#step-final-changes")?.textContent).toContain(availability === "AVAILABLE" ? "cumulative.java" : "历史 Git 对象已不可用");
-  expect(root.textContent).toContain("正式接受的变更");
+  expect(root.textContent).toContain("已正式接受的完整步骤变更");
   expect(final).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1");
   expect(button(root, "重新核对并交付已有结果")).toBeUndefined();
 });
@@ -659,4 +666,49 @@ it("stop control has a dedicated red icon treatment and an immediate disabled pe
   response.resolve({ ...running(), cancelRequested: true }); await settle();
   expect(button(root, "正在停止").disabled).toBe(true);
   expect(cancel).toHaveBeenCalledExactlyOnceWith("run-1");
+});
+
+
+it("keeps a failed historical attempt failed after later official Delivery, refresh and Run switching", async () => {
+  vi.spyOn(api,"startAgent");
+  const accepted:AgentRun={...running(),state:"SUCCEEDED",candidateId:"candidate-1"};
+  const old:AgentRun={...running(),id:"old-run",state:"FAILED",reason:"POLICY_REJECTED"};
+  vi.spyOn(api,"candidate").mockResolvedValue(savedCandidate());
+  vi.spyOn(api,"delivery").mockResolvedValue({candidateId:"candidate-1",state:"COMPLETED",revision:"b".repeat(40),reason:null});
+  vi.spyOn(api,"finalChanges").mockResolvedValue({planId:"plan-1",stepId:"step-1",baselineRevision:"a".repeat(40),
+    verifiedRevision:"b".repeat(40),baselineTree:"tree-a",verifiedTree:"tree-b",availability:"AVAILABLE",reason:null,
+    files:[{path:"official.java",changeType:"ADDED"}],counts:{added:1,modified:0,deleted:0}});
+  const {root,s}=mount([accepted,old]);
+  s.plan!.steps[0]={...s.plan!.steps[0]!,status:"SUCCEEDED",baselineRevision:"a".repeat(40),deliveryRevision:"b".repeat(40)};
+  await settle();
+  vi.mocked(api.agentRun).mockImplementation(async id=>id===old.id?old:accepted);
+  expect(root.querySelector(".run-status")?.textContent).toBe("步骤已完成");
+  expect(root.querySelector(".step-prerequisite")).toBeNull();
+  expect(root.querySelectorAll(".file-change-summary")).toHaveLength(1);
+  expect(root.querySelector(".final-file-list")?.textContent).toContain("official.java");
+  expect(root.querySelector(".final-file-list")?.textContent).not.toContain("candidate-1.java");
+  chooseRun(root,1);await settle();
+  expect(root.querySelector(".run-status")?.textContent).toBe("本次运行失败");
+  expect(root.querySelector(".file-change-summary")).toBeNull();
+  chooseRun(root,0);await settle();
+  expect(root.querySelector(".run-status")?.textContent).toBe("步骤已完成");
+  button(root,"刷新记录").click();await settle();
+  expect(root.querySelector(".run-status")?.textContent).toBe("步骤已完成");
+  expect(root.querySelectorAll(".run-history button")[1]?.textContent).toContain("本次运行失败");
+  expect(api.startAgent).not.toHaveBeenCalled();
+});
+
+
+it("loads official Delivery for a nonselected historical success without changing the selected failed Run", async () => {
+  const failed:AgentRun={...running(),id:"latest-failed",state:"FAILED",reason:"POLICY_REJECTED"};
+  const saved:AgentRun={...running(),state:"SUCCEEDED",candidateId:"candidate-1"};
+  const accepted=deferred<Delivery|null>();
+  const deliveries=vi.spyOn(api,"delivery").mockReturnValue(accepted.promise);
+  const {root}=mount([failed,saved]);await settle();
+  expect(deliveries).toHaveBeenCalledWith("candidate-1");
+  expect(root.querySelectorAll(".run-choice strong")[1]?.textContent).toBe("候选已冻结，交付状态待核对");
+  accepted.resolve({candidateId:"candidate-1",state:"COMPLETED",revision:"b".repeat(40),reason:null});await settle();
+  expect(root.querySelectorAll(".run-choice strong")[1]?.textContent).toBe("步骤已完成");
+  expect(root.querySelector(".run-status")?.textContent).toBe("本次运行失败");
+  expect(root.querySelector(".agent-changes .file-change-summary")).toBeNull();
 });

@@ -8,7 +8,7 @@ const names: Record<string, string> = {
     CREATED: "运行已预约", PREPARING: "准备 Docker 沙箱", SANDBOX_READY: "隔离沙箱已就绪",
     RUNNING: "开始编码", MODEL_REQUEST: "请求模型", MODEL_COMPLETED: "模型已结束，等待冻结结果",
     MODEL_RESPONSE_RECOVERY: "丢弃截断响应，准备较小动作", MODEL_FAILED: "模型请求失败", COMPLETION_FORMAT_RETRY: "请求模型明确完成状态", TOOL_STARTED: "工具操作已开始", TOOL_FINISHED: "工具操作已返回",
-    FINALIZING: "冻结 Candidate", SUCCEEDED: "Candidate 已冻结", FAILED: "运行失败",
+    FINALIZING: "冻结 Candidate", SUCCEEDED: "编码结果已保存", FAILED: "运行失败",
     CANCELLED: "运行已取消", INTERRUPTED: "运行已中断", MATERIAL_RETAINED: "最终化材料已保留",
     CLEANUP_BLOCKED: "资源清理受阻，需核对现场", RECONCILIATION_BLOCKED: "资源协调受阻",
     DELIVERY_INTENT: "正式交付已预约", DELIVERY_APPLIED: "正式文件已核对", DELIVERY_COMMIT_READY: "正式提交已准备",
@@ -47,16 +47,22 @@ function duration(value: number) {
             <div class="activity-result"><span :role="activity.active ? 'status' : undefined">{{ activity.active && activity.event.kind === 'MODEL_REQUEST' ? '等待模型响应' : outcomes[activity.outcome] }}</span>
                 <span v-if="activity.duration !== undefined" class="activity-duration" :data-source="activity.durationSource"
                     :title="activity.durationSource === 'invocation' ? 'Java 到沙箱的调用总耗时' : '工具内部计时，不包含 Java 调用往返'">{{ activity.durationSource === 'internal' ? '内部 ' : '' }}{{ duration(activity.duration) }}</span>
-                <code v-if="activity.classification">{{ activity.classification }}</code>
+                <code v-if="activity.classification && activity.tool">{{ activity.classification }}</code>
             </div>
             <p v-if="activity.resultUncertain" class="activity-uncertain">未取得完整工具结果，修改情况需核对。</p>
-            <AgentEventDetails :activity="activity" />
+            <AgentEventDetails v-if="activity.tool" :activity="activity" />
+            <details v-else-if="activity.classification || ['SANDBOX_READY', 'MODEL_FAILED'].includes(activity.event.kind)" class="activity-technical">
+                <summary>技术详情</summary><code v-if="activity.classification">{{ activity.classification }}</code>
+                <AgentEventDetails :activity="activity" />
+            </details>
             <p v-if="activity.event.kind === 'CLEANUP_BLOCKED'" class="timeline-warning">需核对所属资源与保留材料，完成资源协调后再判断能否重试。</p>
         </div>
     </li>
 </template>
 
 <style scoped>
+.activity-technical { margin-top: 5px; font-size: 12px; color: var(--muted); }
+.activity-technical summary { cursor: pointer; }
 li { position: relative; display: flex; gap: 12px; padding: 0 0 16px; margin: 0; min-width: 0; }
 li:not(:last-child)::before { content: ""; position: absolute; left: 13px; top: 28px; bottom: 0; width: 1px; background: var(--line); }
 .timeline-node { flex: 0 0 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--canvas); color: var(--muted); }

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,6 +23,35 @@ class AgentToolActivityTest {
 
     private AgentProtocol.ToolCall call(String name, Map<String, Object> args) throws Exception {
         return new AgentProtocol.ToolCall("model-id-never-persisted", name, json.writeValueAsString(args));
+    }
+
+    @Test
+    void sourceChangesPersistOnlyBoundedSafeMetadataAndClearlyMarkMissingDiagnostics() throws Exception {
+        var before = new AgentPolicyRejection.SourceFileState("100644", "a".repeat(64));
+        var after = new AgentPolicyRejection.SourceFileState("100644", "b".repeat(64));
+        var visible = new AgentPolicyRejection.SourceChange("src/Counter.java",
+                AgentPolicyRejection.SourceChangeType.CONTENT, before, after, false);
+        var protectedFile = new AgentPolicyRejection.SourceChange("config/.env",
+                AgentPolicyRejection.SourceChangeType.CONTENT, before, after, false);
+        var changes = new AgentPolicyRejection.SourceChanges("c".repeat(64), "d".repeat(64), 2, 2,
+                List.of(visible, protectedFile), false);
+        var check = call("run_checks", Map.of("goal", "test"));
+        String recorded = activity.failed(check, identity, AgentPolicyRejection.sourceChanged(changes), 123L);
+        JsonNode metadata = json.readTree(recorded);
+        assertEquals("CHECK_MUTATED_SOURCE", metadata.path("policyRule").asText());
+        assertEquals("PARTIAL", metadata.path("sourceChangesStatus").asText());
+        assertEquals(1, metadata.path("sourceChanges").path("files").size());
+        assertEquals(1, metadata.path("sourceChanges").path("withheldFiles").asInt());
+        assertEquals("src/Counter.java", metadata.path("sourceChanges").path("files").get(0).path("path").asText());
+        assertEquals("b".repeat(64), metadata.path("sourceChanges").path("files").get(0)
+                .path("after").path("sha256").asText());
+        assertFalse(recorded.contains(".env"));
+        assertFalse(metadata.path("resultRecorded").asBoolean());
+        JsonNode missing = json.readTree(activity.failed(check, identity,
+                new AgentPolicyRejection(AgentPolicyRejection.Rule.CHECK_MUTATED_SOURCE,
+                        AgentPolicyRejection.Stage.TOOL_EXECUTION), 124L));
+        assertEquals("UNAVAILABLE", missing.path("sourceChangesStatus").asText());
+        assertFalse(missing.has("sourceChanges"));
     }
 
     @Test

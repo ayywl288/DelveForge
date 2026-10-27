@@ -50,7 +50,7 @@ it("does not query Git for an unfinished Step", async () => {
   vi.spyOn(api, "finalChanges").mockResolvedValue(response());
   const { props, root } = mount(); await settle();
   vi.mocked(api.finalChanges).mockClear(); props.step = { ...props.step, status: "READY" }; await settle();
-  expect(root.textContent).toContain("没有最终 Verified Revision");
+  expect(root.textContent).toContain("此步骤尚未正式交付");
   expect(api.finalChanges).not.toHaveBeenCalled();
 });
 it("network failure does not fabricate an empty difference", async () => {

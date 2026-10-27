@@ -508,6 +508,18 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 && response.path("policyStage").asText().equals("SOURCE_CAPTURE")) {
             stage = AgentPolicyRejection.Stage.SOURCE_CAPTURE;
         }
+        if (rule == AgentPolicyRejection.Rule.CHECK_MUTATED_SOURCE && stage == AgentPolicyRejection.Stage.TOOL_EXECUTION
+                && response.path("sourceChanges").isObject()) {
+            AgentPolicyRejection.SourceChanges changes;
+            try {
+                changes = new ObjectMapper().treeToValue(response.path("sourceChanges"),
+                        AgentPolicyRejection.SourceChanges.class);
+            } catch (IOException | IllegalArgumentException invalid) {
+                // 诊断缺失或畸形不能覆盖原安全拒绝；活动记录会明确标为 UNAVAILABLE。
+                throw new AgentPolicyRejection(rule, stage);
+            }
+            throw AgentPolicyRejection.sourceChanged(changes);
+        }
         throw new AgentPolicyRejection(rule, stage);
     }
 
@@ -1159,6 +1171,12 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     "goal", check.path("goal").asText(), "module", check.path("module").asText(""),
                     "selectedTest", check.path("selectedTest").asText("")));
             record.put("directory", directory);
+            for (String key : List.of("failures", "errors")) {
+                JsonNode count = check.path(key);
+                if (count.isIntegralNumber() && count.canConvertToLong() && count.asLong() >= 0) {
+                    record.put(key, count.asLong());
+                }
+            }
             if (check.has("runtimeChanges")) {
                 record.put("runtimeChanges", check.path("runtimeChanges").deepCopy());
             }
