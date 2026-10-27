@@ -341,7 +341,46 @@ def h2_runtime_database(path):
             and all(key in fields for key in (b'block', b'chunk', b'format', b'fletcher')))
 
 
-def check_runtime_changes(before, after, databases):
+H2_TRACE_HEADER = re.compile(
+    rb'\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})? '
+    rb'[A-Za-z][A-Za-z0-9_\[\] .-]{0,63}:')
+
+
+def h2_runtime_traces(before, databases):
+    # 只接纳已有、与已识别 MVStore 同名的 H2 文本日志，不按后缀忽略任意文件。
+    entries = {entry['path']: entry for entry in before['files']}
+    traces = {}
+    for database in databases:
+        relative = database[:-len('.mv.db')] + '.trace.db'
+        if relative not in entries:
+            continue
+        path = path_for(relative)
+        with path.open('rb') as source:
+            if not H2_TRACE_HEADER.match(source.read(512).lstrip(b'\r\n')):
+                continue
+        traces[relative] = (path.stat().st_size, entries[relative]['sha256'])
+    return traces
+
+
+def h2_trace_appended(path, original):
+    # 前缀必须逐字节保留；只返回摘要，不能把日志里的 SQL 或用户数据带出检查副本。
+    length, expected = original
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        remaining = length
+        while remaining:
+            part = source.read(min(remaining, 65536))
+            if not part:
+                return False
+            digest.update(part)
+            remaining -= len(part)
+        if digest.hexdigest() != expected:
+            return False
+        return bool(H2_TRACE_HEADER.match(source.read(512).lstrip(b'\r\n')))
+
+
+def check_runtime_changes(before, after, databases, traces=None):
+    traces = traces or {}
     old = {entry['path']: entry for entry in before['files']}
     new = {entry['path']: entry for entry in after['files']}
     changes = []
@@ -350,8 +389,12 @@ def check_runtime_changes(before, after, databases):
         original, current = old.get(relative), new.get(relative)
         if original == current:
             continue
-        runtime = (relative in databases and current is not None
-                   and original['mode'] == current['mode'] and h2_runtime_database(path_for(relative)))
+        database_runtime = (relative in databases and current is not None
+                            and original['mode'] == current['mode'] and h2_runtime_database(path_for(relative)))
+        trace_runtime = (relative in traces and current is not None
+                         and original['mode'] == current['mode']
+                         and h2_trace_appended(path_for(relative), traces[relative]))
+        runtime = database_runtime or trace_runtime
         if original is None:
             kind = 'ADDED'
         elif current is None:
@@ -365,7 +408,7 @@ def check_runtime_changes(before, after, databases):
         diagnostics.append({'path': relative, 'changeType': kind, 'before': state(original),
                             'after': state(current), 'runtimeData': bool(runtime)})
         if runtime:
-            changes.append({'path': relative, 'category': 'H2_MVSTORE_CONTENT',
+            changes.append({'path': relative, 'category': 'H2_MVSTORE_CONTENT' if database_runtime else 'H2_TRACE_APPEND',
                             'before': original, 'after': current})
     unexpected = [entry for entry in diagnostics if not entry['runtimeData']]
     if unexpected:
@@ -406,12 +449,13 @@ def checks(args):
     before = captured['snapshot']
     databases = ({entry['path'] for entry in captured['files'] if h2_runtime_database(path_for(entry['path']))}
                  if os.environ.get('DF_CHECK_COPY') == 'true' else set())
+    traces = h2_runtime_traces(captured, databases)
     # 只清理实际构建目录的生成报告；测试夹具和基线资源不能被清理或冒充执行证据。
     for path in maven_report_files(modules):
         path.unlink()
     code, output = run_bounded(command + [goal], timeout=int(os.environ.get('DF_CHECK_SECONDS', '180')))
     after = snapshot(modules=modules)
-    changes = check_runtime_changes(captured, after, databases)
+    changes = check_runtime_changes(captured, after, databases, traces)
     result = report(modules)
     if re.search(r'release version .* not supported|invalid target release|UnsupportedClassVersionError', output):
         classification = 'JDK_ENVIRONMENT_MISMATCH'

@@ -22,6 +22,7 @@ import java.util.UUID;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -74,6 +75,65 @@ class DockerDependencyPreparationTest {
                 throw cause;
             }
             throw failure;
+        }
+    }
+
+    @Test
+    @EnabledIfSystemProperty(named = "delveforge.preparation.repository", matches = ".+")
+    void h2ErrorTraceAppendDuringMavenIsolatedCheckKeepsSourceAndFrozenEvidence() throws Exception {
+        Path retained = Path.of(System.getProperty("delveforge.preparation.repository"));
+        var fixture = new DockerAgentSandboxTest();
+        fixture.temporary = temporary;
+        Path official = fixture.fixture();
+        Files.writeString(official.resolve("pom.xml"), DockerAgentSandboxTest.pom(21).replace("</dependencies>",
+                "<dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId>"
+                        + "<version>2.2.224</version><scope>test</scope></dependency></dependencies>"));
+        Files.createDirectories(official.resolve("database"));
+        for (String name : new String[]{"taskarium_db.mv.db", "taskarium_db.trace.db"}) {
+            Files.copy(retained.resolve("database").resolve(name), official.resolve("database").resolve(name));
+        }
+        Files.writeString(official.resolve("src/test/java/example/H2TraceTest.java"), """
+                package example;
+                import java.sql.DriverManager;
+                import java.sql.SQLException;
+                import org.junit.jupiter.api.Test;
+                import static org.junit.jupiter.api.Assertions.assertThrows;
+                class H2TraceTest {
+                    @Test void expectedFailureWritesAnH2Diagnostic() throws Exception {
+                        try (var connection = DriverManager.getConnection(
+                                "jdbc:h2:file:./database/taskarium_db", "sa", "")) {
+                            assertThrows(SQLException.class, () -> connection.createStatement()
+                                    .execute("SELECT * FROM DF_ABSENT_ACCEPTANCE_TABLE_8B742"));
+                        }
+                    }
+                }
+                """);
+        fixture.git(official, "add", ".");
+        fixture.git(official, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "trace fixture");
+        String baseline = fixture.git(official, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        DockerAgentSandbox sandbox = sandbox();
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", baseline,
+                    "trace fixture", "trace fixture", "verify runtime trace", 21), AgentProtocol.Limits.defaults(), () -> false);
+            var edit = new AgentProtocol.ToolCall(UUID.randomUUID().toString(), "edit_file", json.writeValueAsString(Map.of(
+                    "path", "src/main/java/example/Counter.java", "old_text", "return n;", "new_text", "return n + 1;")));
+            assertTrue(sandbox.tool(id, edit, () -> false).contains("PATCH_APPLIED"));
+            JsonNode before = snapshot(sandbox, id);
+            var check = new AgentProtocol.ToolCall(UUID.randomUUID().toString(), "run_checks", "{\"goal\":\"test\"}");
+            JsonNode result = json.readTree(sandbox.tool(id, check, () -> false)).path("result");
+            assertEquals("TESTS_PASSED", result.path("classification").asText());
+            assertEquals(2, result.path("executedTests").asInt());
+            assertTrue(result.path("runtimeChanges").toString().contains("H2_TRACE_APPEND"));
+            assertEquals(before.path("snapshot").asText(), result.path("snapshot").asText());
+            assertEquals(before, snapshot(sandbox, id));
+            var candidate = sandbox.finish(id, () -> false);
+            assertTrue(candidate.testEvidence().contains("H2_TRACE_APPEND"));
+            assertFalse(candidate.diff().contains("taskarium_db.trace.db"));
+            assertEquals(baseline, fixture.git(official, "rev-parse", "HEAD"));
+            assertTrue(fixture.git(official, "status", "--porcelain").isEmpty());
+        } finally {
+            sandbox.cleanup(id);
         }
     }
 

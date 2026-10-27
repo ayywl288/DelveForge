@@ -264,6 +264,71 @@ class SandboxPolicyTest(unittest.TestCase):
         self.assertNotEqual(change['before']['sha256'], change['after']['sha256'])
         self.assertNotIn('content', change['before'])
 
+    def h2_trace_fixture(self):
+        (self.root / 'pom.xml').write_text('<project/>')
+        (self.root / 'fixture.mv.db').write_bytes(b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00')
+        trace = self.root / 'fixture.trace.db'
+        trace.write_bytes(b'2026-10-27 00:00:00.123456+08:00 jdbc[3]: exception\norg.h2.jdbc.FixtureException\n')
+        return trace
+
+    def test_h2_trace_header_accepts_actual_timezone_formats(self):
+        for timestamp in ['2026-10-27 00:00:00', '2026-10-27 00:00:00.123456+08:00',
+                          '2026-10-27 00:00:00.123456789-05:30', '2026-10-27 00:00:00Z']:
+            with self.subTest(timestamp=timestamp):
+                self.assertIsNotNone(sandbox.H2_TRACE_HEADER.match((timestamp + ' jdbc[3]: exception').encode()))
+        self.assertIsNone(sandbox.H2_TRACE_HEADER.match(b'2026-10-27 00:00:00+wrong jdbc[3]: exception'))
+
+    def test_existing_h2_trace_append_is_recorded_without_exporting_log_contents(self):
+        trace = self.h2_trace_fixture()
+        before = sandbox.snapshot()
+        def build(*args, **kwargs):
+            with trace.open('ab') as output:
+                output.write(b'2026-10-27 00:00:01.123456789+00:00 jdbc[3]: exception\nprivate-sql-and-user-data\n')
+            return 0, 'build completed'
+        with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'true'}), patch.object(sandbox, 'run_bounded', build):
+            result = sandbox.checks({})
+        self.assertEqual(before['snapshot'], result['snapshot'])
+        self.assertEqual('H2_TRACE_APPEND', result['runtimeChanges'][0]['category'])
+        self.assertNotIn('private-sql', json.dumps(result))
+        self.assertNotIn('content', result['runtimeChanges'][0]['after'])
+
+    def test_trace_allowance_requires_recognized_pair_copy_mode_and_append_only(self):
+        trace = self.h2_trace_fixture()
+        original = trace.read_bytes()
+        mutations = [lambda: trace.write_bytes(b'2026-10-27 00:00:01 jdbc[3]: overwritten\n'),
+                     lambda: trace.write_bytes(original + b'arbitrary-source-rewrite\n'),
+                     trace.unlink]
+        for mutation in mutations:
+            trace.write_bytes(original)
+            def build(*args, **kwargs):
+                mutation()
+                return 0, 'build completed'
+            with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'true'}), patch.object(sandbox, 'run_bounded', build):
+                self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({}))
+        for copy, companion, header in [('false', True, original), ('true', False, original),
+                                        ('true', True, b'ordinary-source-file\n')]:
+            trace.write_bytes(header)
+            (self.root / 'fixture.mv.db').write_bytes(b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00' if companion else b'not-h2')
+            def append(*args, **kwargs):
+                with trace.open('ab') as output: output.write(b'2026-10-27 00:00:02 jdbc[3]: append\n')
+                return 0, 'build completed'
+            with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': copy}), patch.object(sandbox, 'run_bounded', append):
+                self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({}))
+
+    def test_trace_allowance_preserves_new_file_mode_and_source_change_rejection(self):
+        trace = self.h2_trace_fixture()
+        before = sandbox.snapshot()
+        traces = sandbox.h2_runtime_traces(before, {'fixture.mv.db'})
+        with trace.open('ab') as output: output.write(b'2026-10-27 00:00:02 jdbc[3]: append\n')
+        after = sandbox.snapshot()
+        changed_mode = {'files': [dict(item, mode='100755') if item['path'] == 'fixture.trace.db' else item for item in after['files']]}
+        self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, changed_mode, {'fixture.mv.db'}, traces))
+        (self.root / 'new.trace.db').write_bytes(trace.read_bytes())
+        self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, sandbox.snapshot(), {'fixture.mv.db'}, traces))
+        (self.root / 'new.trace.db').unlink()
+        (self.root / 'Source.java').write_text('class Unexpected {}')
+        self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, sandbox.snapshot(), {'fixture.mv.db'}, traces))
+
     def test_database_exception_never_accepts_other_integrity_changes(self):
         (self.root / 'pom.xml').write_text('<project/>')
         header = b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00'
