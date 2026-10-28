@@ -1,104 +1,136 @@
 # DelveForge
 
-**Personalized Project Discovery & Evolution Agent — Evolution Before Rewrite.**
+**Personalized Project Discovery & Evolution Agent**
 
-DelveForge 面向已有一些 Java 项目经验、希望找到个人项目方向的开发者：
-通过需求对话形成用户画像，只读理解已有 Git 仓库，提出产品方向与增量计划；
-用户逐步授权后，由 Coding Agent 在 Docker 内编码、检查，冻结 Candidate，再正式交付到独立 WorkingCopy。
+> 🔨 **Evolution Before Rewrite.**
+>
+> 从真实需求出发，发现值得做的项目，让已有代码成为新想法的起点。
 
-**当前状态：MVP 功能冻结，准备本地技术展示与实习面试。** 它是需要人工选择、授权、观察和验收的本地实验工具。
-冻结依据是已有实现与可审计结果，不代表所有历史实验通过、生产就绪或任意仓库均兼容。
-本轮不再新增功能、生成 EvolutionPlan、运行付费实验或修补目标应用。
+![Java 21](https://img.shields.io/badge/Java-21-007396)
+![Spring Boot 3.5](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F)
+![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D)
 
-## 实际能力
+## 🎯 About DelveForge
 
-| 阶段 | 当前能力与边界 |
+完成一个课程项目或教程项目后，下一个项目应该做什么？
+
+热门项目清单可以提供题目，却很难回答：**这个项目为什么适合我？能否满足真实需求？我已经写过的代码有没有复用价值？**
+
+DelveForge 是一个面向开发者的个性化项目探索与演化 Agent。
+
+它通过 AI 对话理解用户的兴趣、痛点、技术能力和项目目标，分析已有 Git 仓库的功能与可复用资产，再提出个性化产品方向和演化计划。
+
+在此基础上，DelveForge 可以在用户逐步授权后，通过 Coding Agent 在 Docker 隔离环境中修改独立 WorkingCopy，执行构建与测试，将修改冻结为 Candidate，再经过验证和交付流程推进可信版本。
+
+## ✨ What Can It Do?
+
+DelveForge 提供项目工作台，以及从需求探索到代码验证的五个业务阶段。
+
+| 功能 | 说明 |
 | --- | --- |
-| User Discovery | 多轮需求探索、结构化画像、人工审阅与确认 |
-| Repository Understanding | 读取获授权的本地 Git 固定 revision，分析模块、能力、证据与限制；不改原仓库 |
-| Product Direction | 综合画像与仓库事实提出方向，由用户选择 |
-| Evolution Planning | 生成 goal/scope/plannedChanges，准备独立 WorkingCopy，逐 Step 确认 |
-| Coding Agent | 真实模型循环与六个受控工具，隔离编码、Maven 检查、按源码快照记录证据 |
-| Candidate / Delivery | 冻结 diff/tree/测试事实，确定性 Git/SQLite 协调；接受正式提交后 Step 才成功 |
-| 运行观察 | 持久化事件、工具活动、文件与测试摘要、用量、取消及独立交付状态 |
+| 🗂️ **Project Workspace** | 管理不同项目、查看历史记录和已验证步骤，支持继续项目与重新规划 |
+| 💬 **User Discovery** | 自然语言多轮探索、画像提取与充分性反馈；生成六维用户画像，由用户审阅、纠正并确认 |
+| 🔍 **Repository Understanding** | 只读分析本地 Git 仓库，识别模块、技术栈、已有能力、可复用资产、限制和风险 |
+| 💡 **Product Direction** | 结合用户需求与已有代码，生成个性化产品方向，展示依据与风险，由用户选择 |
+| 📋 **Evolution Planning** | 为选定方向生成演化计划，拆分步骤、修改范围和验收标准 |
+| 🧪 **Verified Evolution** | 用户确认 Step 后，Coding Agent 在 Docker 中编辑独立副本、运行检查、冻结 Candidate 并交付经过验证的修改 |
 
-```mermaid
-flowchart LR
-    U[探索需求并确认画像] --> R[只读理解仓库]
-    R --> D[用户选择方向]
-    D --> P[生成计划与准备 WorkingCopy]
-    P --> S[用户确认一个 Step]
-    S --> A[Docker Coding Agent]
-    A --> C[冻结 Candidate]
-    C --> V[确定性 Delivery]
-    V --> T[接受 Git 提交并推进可信版本]
+### 🧭 Workflow
+
+```text
+Explore Your Needs
+        ↓
+Understand Existing Repositories
+        ↓
+Discover Product Directions
+        ↓
+Plan Incremental Evolution
+        ↓
+Review & Confirm Steps
+        ↓
+Execute in Docker Sandbox
+        ↓
+Verify & Deliver Candidate Changes
 ```
 
-AI Proposes, Domain Decides。Run 成功、Candidate 冻结、Delivery 完成和产品可用性分别判断；
-NOT_TESTED 不等于测试通过。后续 Step 不会自动确认或启动。
+DelveForge 不会自动替用户决定产品方向，也不会在选择方向后直接修改代码。
 
-## 已有实验的真实结果
+**AI Proposes, Domain Decides.**
 
-| 实验 | 正式交付与技术验证 | 实际使用验收 |
-| --- | --- | --- |
-| FinTrack | 两次真实 Delivery；展示版 Run07 最终 12 项测试通过 | JWT 登录、两用户 CSV 范围、文本转义与真实浏览器下载通过；范围有限 |
-| Taskarium | 原四步 4/4 正式交付，最终测试依次 9/19/28/34 项通过；Plan COMPLETED | C4 启动成功，但 Step 4 引入表单/CSRF 不匹配，注册和登录 403；浏览器产品验收失败 |
+AI 提出建议，系统检查结构、依据、授权和状态。代码修改只有满足相应验证要求后，才能成为可信的 Verified Revision。
 
-FinTrack 复用已有真实 M1–M3，后续反馈计划有 Codex 辅助，不是完全无人干预全旅程。
-Taskarium 的任务、笔记、日期、进度、浏览器重启保留和第二账户界面检查因认证阻塞未执行。
-完整范围、失败历史、身份与证据入口见 [验证索引](docs/validation/README.md)。
 
-## 技术栈与结构
+## 🚀 Quick Start
 
-Java 21、Maven Wrapper、Spring Boot 3.5.16；Spring AI 1.1.8 与 DeepSeek 适配器；
-SQLite / Flyway（当前 V26）/ MyBatis-Plus；Vue 3 / TypeScript / Vite / pnpm；Git CLI 与 Docker。
+目前推荐在 **Windows 本地环境**中运行。
 
-后端由 domain、application、infrastructure、app 四个 Maven 模块组成。
-Application 持有用例和 Port，Infrastructure 提供模型、Git、文件、SQLite、Docker 实现，App 负责装配与 HTTP。
-详见 [架构与三张流程图](docs/release/ARCHITECTURE_OVERVIEW.md)。
+### 1. Requirements
 
-## 本地启动
+- **JDK 21**
+- **Git CLI**
+- **Node.js**：`^20.19.0` 或 `>=22.12.0`
+- **pnpm 12.9.1**
+- **DeepSeek API Key**（调用 AI 时需要）
+- **Docker Desktop / Linux Docker Engine**（使用 Coding Agent 时需要）
 
-推荐 Windows / PowerShell 7；需要 JDK 21、Git、Node.js `^20.19.0 || >=22.12.0` 和 pnpm 12.9.1。
-Coding Agent 另需 Linux Docker Engine API 1.48+；目标构建受控支持 JDK 17/21 与公开 Maven Central 依赖。
-DeepSeek 功能需要用户自己的 API key 与额度；不在源码或前端中配置 key。
+### 2. One-Command Startup
 
-```powershell
-# 在已合入冻结 MVP 的本地 main 仓库根目录执行。
+在 PowerShell 中获取仓库，并从仓库根目录启动：
+
+```
+git clone https://github.com/ayywl288/DelveForge.git
+cd DelveForge
 .\setup-delveforge.ps1
 ```
 
-冻结 MVP 已在 `2753765` 合入本地 `main`，后续仅做文档修正。
-截至 2026-10-28 本次核对，远程 `main` 尚未同步本地提交，仓库为 private；
-请使用已集成的本地仓库，或在单独授权推送后取得远程版本。读取私有仓库需要相应权限。
-启动器会交互获取 key、检查依赖、准备镜像，再启动前后端；
-`.\setup-delveforge.ps1 -DisableAgent` 可关闭 Agent，探索阶段仍需真实模型。
-**无密钥、无 Docker 的启动检查**与可复制的手动配置见 [本地运行](docs/release/LOCAL_SETUP.md)。
-仅启动和读取历史不会自动运行付费实验，需求对话、分析、方向与规划也可能调用模型。
+根据提示配置 **DeepSeek API Key** 和所需选项即可。
 
-已有数据在首次启动前须一致备份数据库、全部 WorkingCopy 与 Agent 留存材料，不能只复制有 WAL 的主库文件。
-不使用真实数据库演示迁移，不清理旧占用或未知恢复现场。默认后端和 Vite 只监听本机。
+### ⚙️ Custom Configuration
 
-## 限制与当前交付
+启动时选择 `Customize configuration? [y/N]` 中的 `y`，可以配置以下 **7 项**：
 
-- 面向小型、受信任的 Java/Maven 本地仓库；不是任意语言、任意依赖与外部服务的通用编码平台。
-- 模型输出需要审阅；凭据规则是有界的格式/直接字面量识别，不是通用源码秘密分析。
-- 每次 Agent 启动仍需费用确认；无默认累计 tokens 或总时长硬停止。用量是供应商报告值，不是账单。
-- 取消不是暂停，不支持断点续接；未知写入或外部修改会保留 RECOVERY_REQUIRED。
-- 开发 HTTP 接口没有登录认证或多租户隔离，不作为公网部署方案。
-- Windows 有完整后端历史验证；Linux x86-64 仅有局部原生交付验证，不宣称完整跨平台验收。
+- 后端端口（默认 `8080`）
+- DeepSeek Model（默认 `deepseek-flash`）
+- DeepSeek Base URL（默认 `https://api.deepseek.com`）
+- SQLite 数据库文件路径（默认 `data/delveforge.db`）
+- WorkingCopy 根目录（默认 `data/workspaces/`，自定义时须使用绝对路径）
+- 日志目录（默认 `logs/`）
+- 历史 WorkingCopy 根目录（默认空；自定义时以逗号分隔多个绝对路径）
 
-## 文档导航
+**以上可选输入留空即使用默认值。** 修改后端端口时，启动脚本会同步配置前端代理；前端端口固定为 `5173`。
 
-- [冻结基线、本地集成与发布检查](docs/release/README.md)
-- [架构、Agent 与 Git/SQLite Delivery 图](docs/release/ARCHITECTURE_OVERVIEW.md)
-- [环境、构建、启动与排错](docs/release/LOCAL_SETUP.md)
-- [演示路径与面试讲解](docs/release/DEMONSTRATION.md)
-- [验证索引：新执行、历史成功和失败边界](docs/validation/README.md)
-- [UX 改进记录与待办](docs/release/UX_BACKLOG.md)
-- [Product](docs/PRODUCT.md) · [Architecture](docs/ARCHITECTURE.md) · [Domain](docs/DOMAIN_MODEL.md)
-- [Roadmap](docs/ROADMAP.md) · [ADR](docs/decisions/) · [Agent 详细合同](docs/AUTONOMOUS_AGENT.md)
-- [演示仓库固定基线与许可](docs/demos/README.md)
+调用真实模型会产生 Token 费用。Coding Agent 执行前需要明确授权；启动应用不会自动开始代码演化。
 
-旧截图和 milestone 报告保留其版本含义；当前执行页参考
-[Taskarium 正式交付截图](docs/validation/evidence/step4-final-delivery-ui.jpg)。
+### 💡 How to Use
+
+启动 DelveForge 后：
+
+1. 在 **Project Workspace** 中新建项目。
+2. 通过 **User Discovery** 探索需求，审阅并确认用户画像。
+3. 在 **Repository Understanding** 中登记本地 Git 仓库，填写真实的读取权限、许可证信息与使用授权。
+4. 运行仓库分析，查看已有功能、结构和可复用能力。
+5. 在 **Product Direction** 中生成并选择感兴趣的方向。
+6. 通过 **Evolution Planning** 生成并审阅演化计划。
+7. 如果愿意继续实验，可以准备 WorkingCopy、确认 Step，并尝试执行代码演化。
+
+**建议首次从 GitHub 手动克隆一个体量较小的 Java/Maven 项目，使用其本地绝对路径进行体验。**
+
+## ⚠️ Current Limitations
+
+- **Java / Maven Evolution Only：**当前完整的代码演化与验证流程仅支持 Java + Maven 项目。系统主要通过 Maven 执行构建与测试，因此其他语言或使用 Gradle、npm 等构建工具的仓库，即使能够被读取和分析，目前也无法完成完整的自动演化流程。
+
+- **No Guaranteed Success or Resume：**Coding Agent 的代码修改与验证不保证每次成功。执行失败后，可在系统允许的状态和授权条件下重新发起执行或重试，但不支持从中断位置断点续跑；失败或状态不确定时，需先核对执行结果。
+
+- **anual Local Repository Setup：**当前不支持自动搜索 GitHub 仓库或自动克隆。用户需要自行从 GitHub 等来源将仓库克隆到本地，再在 DelveForge 中填写该 Git 仓库的绝对路径，完成读取权限与使用授权后才能分析和继续后续流程。
+
+### 📚 Documentation
+
+- [Product Design](docs/PRODUCT.md) · [Architecture](docs/ARCHITECTURE.md) · [Domain Model](docs/DOMAIN_MODEL.md)
+- [Roadmap](docs/ROADMAP.md) · [Architecture Decisions](docs/decisions/)
+- [Local Setup](docs/release/LOCAL_SETUP.md) · [Demo Catalog](docs/demos/README.md)
+- [Frontend Guide](frontend/README.md) · [Validation Records](docs/validation/)
+- [MVP Release](docs/release/README.md) · [Architecture Overview](docs/release/ARCHITECTURE_OVERVIEW.md)
+
+---
+
+**🔨 DelveForge — Evolution Before Rewrite.**
