@@ -6,11 +6,9 @@
 工作树改进 User Discovery 对话与充分性一致性；保留显式审阅/确认、事实依据和失败原子性。
 不扩展其他业务、FinTrack、Agent 编排或基础设施；不合并、不推送。初次实现与独立审查未运行付费 Provider。
 用户后续单独授权修复 UD-IR-001/002，并在自动化回归后进行隔离的约 8–12 轮真实 DeepSeek
-会话验收；不新增人为金额/Token 配额，不无限循环或重试。见
-[复审后修复记录](validation/user-discovery-conversation-post-review-fix.md)。
+会话验收；不新增人为金额/Token 配额，不无限循环或重试。
 最终独立审查发现 UD-FR-001 后，继续在同一功能分支修复复用审阅资格的并发撤销窗口；
-不新增付费调用，见 [审阅资格并发修复](validation/user-discovery-review-readiness-race-fix.md)。
-实现及确定性验收见 [本次记录](validation/user-discovery-conversational-experience.md)。
+不新增付费调用。
 以下冻结范围对本例外以外的工作继续有效。
 不新增产品功能、不生成 EvolutionPlan、不运行付费 DeepSeek 实验、不代修 Taskarium；
 不为旧实验全部变绿继续扩张 Agent、sandbox、Delivery 或前端架构。
@@ -18,9 +16,9 @@
 
 原四步 Taskarium 已正式交付、Plan COMPLETED；C4 实际登录/注册因 CSRF 403 未通过，
 不提升为完整产品验收成功。FinTrack 核心 CSV 交付与浏览器证据按范围保留。
-当前交付清单、验证、集成与回退见 [MVP 冻结](release/README.md)；UX 反馈只进 [待办](release/UX_BACKLOG.md)。
 旧 Milestone 状态不因本次文档收尾自动改为 DONE，M6 与更广泛能力不启动。
 
+历史阶段的验证、复盘和交接材料可通过 Git History 查阅，不再作为当前文件维护。
 以下 2026-10-26 及更早的执行授权与目标作为历史记录，已由本次冻结范围替代，不是待继续执行的指令。
 
 **2026-10-26 最新执行原则：** 以有意义进展推进至可验证交付，移除累计调用/tokens 与总时长停止配额。
@@ -55,10 +53,10 @@ Maven reactor/JDK 诊断及正常 API/UI 衔接。分析仍固定 A，首次 Age
 逐 Step 确认、源码隔离、资产授权、确定性 Candidate/Delivery 与失败恢复边界保持。
 本轮不调用付费 Provider、不合并或推送、不迁移真实数据库。普通前后端回归、隔离 SQLite/Git 测试及
 FinTrack 真实受控 Docker/Maven 验收范围见
-[兼容性与准备验收](validation/repository-compatibility-and-preparation.md)，设计见 ADR-0014。
+兼容性与准备验收（Git History），设计见 ADR-0014。
 
 前一轮真实单 Step 稳定化及 Docker 自动准备已合入本地基线 b174bf0，其历史证据见
-[真实 E2E 稳定化记录](validation/autonomous-evolution-real-e2e-stabilization.md)。旧 M4/M5 执行链已经退役，
+真实 E2E 稳定化记录（Git History）。旧 M4/M5 执行链已经退役，
 当前路径为用户确认一个 Step → Docker Agent → 冻结 Candidate → 确定性 Delivery；后续 Step 仍须另行确认和启动。
 该历史验收不作为本轮完整复验；M6 与通用 GitHub 兼容性均不在本轮范围内。
 
@@ -80,19 +78,18 @@ ADR-0010；完成前不提升里程碑状态。允许证据驱动的相关修复
 本实验不改变已发布 v0.1.0 或 main，不 Push / 合并；不用真实业务数据或付费 Provider。
 F1/F1b 原型及实验记录均已通过独立审查，但隔离技术 Gate 均为 NO-GO；用户已决定停止当前候选研究。
 2026-10-17 独立最终验收完成，结论为 **M5 PARTIAL READY FOR LOCAL MERGE**；仅表示有限范围本地集成就绪，完整 M5 保持 PARTIAL。
-完整回归、隔离升级、打包重启、真实 Edge 证据及剩余边界见 [M5 最终验收](validation/m5-final-acceptance-20261017.md)。
+完整回归、隔离升级、打包重启、真实 Edge 证据及剩余边界见 M5 最终验收（Git History）。
 报告完成后停止，等待用户安排；不自动合并、发布或开始 Recovery。
-完成范围、证据与发布前 Gate 见 [M5 阶段性收尾](validation/m5-partial-closeout.md)；
+完成范围、证据与发布前 Gate 见 M5 阶段性收尾（Git History）；
 延期决策见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md) 的 2026-10-16 refinement。
 
 业务阶段关闭、两次历史 Verified Evolution、Pre-UI 时点 1474 / 85 项确定性回归及尚未重跑的付费 E2E
-见 [Pre-UI Closeout](validation/pre-ui-final-closeout.md)。
-Task G 当前发行版 UI 的最终结果与 123 项前端回归见 [最终关闭记录](validation/task-g-final-frontend-closeout.md)。
+见 Pre-UI Closeout（Git History）。
+Task G 当前发行版 UI 的最终结果与 123 项前端回归见 最终关闭记录（Git History）。
 2026-10-12 用户单独授权的 M4 执行前能力预检与安全错误分类修复见
-[correctness 修复记录](validation/m4-execution-preflight-correctness-fix.md)；M0–M4 冻结边界不变，M5 仅按本实验 Slice 的单独授权推进。
+correctness 修复记录（Git History）；M0–M4 冻结边界不变，M5 仅按本实验 Slice 的单独授权推进。
 UI 接受不代表最新代码的完整付费 E2E、部署或发布验收；M6 仍为 TODO，不自动开始后续工作。
-实施前的技术结构与冻结边界保留在 [历史 UI 交接](UI_TASK_G_HANDOFF.md)；
-干净数据库切换由用户按 [本地数据环境说明](LOCAL_DATA_ENVIRONMENTS.md) 决定，不自动清理旧库或副本。
+干净数据库切换由用户决定，不自动清理旧库或副本。
 
 以下保留第一阶段的原始闭环目标和验收流程，不代表继续扩展后端功能：
 
@@ -699,25 +696,24 @@ M4 在 `EXECUTING` / `VERIFYING` 后发生异常时，可以暂留最后完整�
 M5-A 实现范围：同一 Candidate 的明确 Verification FAIL → 保存 VerificationResult →
 VERIFICATION_FAILED；Candidate 与 baseline 保留、lastVerifiedRevision 不推进、后续 Step 被阻止。
 异常 / 未知结果仍 fail closed；M5-A 时点没有 Repair / Retry / Rollback / Recovery 入口。
-实施与回归证据见 [M5-A 验证报告](validation/m5-a-verification-failure-handling.md)。
 
 M5-B 范围：新 Repair 授权 → 保留旧失败快照 → 原 Step / baseline 上从当前 Candidate 修复 →
 完整 Verification；再次 FAIL 保留最新 Candidate，异常保持检查点。实施证据见
-[M5-B 报告](validation/m5-b-candidate-repair.md)。不实现 User Rollback、FAILED Retry、Recovery 或后台任务。
+M5-B 报告（Git History）。不实现 User Rollback、FAILED Retry、Recovery 或后台任务。
 
 M5-C 范围：独立授权当前 VERIFICATION_FAILED 的 User Rollback，精确恢复原 Step 的首次 baseline，
 保留失败及 Repair 历史；恢复未确认则阻塞，不清理额外用户文件。重启残留 ROLLING_BACK 按用户
-裁定保留检查点且不重放。见 [M5-C 报告](validation/m5-c-user-rollback.md)；不实现自动回滚、Retry 或 Recovery。
+裁定保留检查点且不重放。见 M5-C 报告（Git History）；不实现自动回滚、Retry 或 Recovery。
 
 M5-D 范围：明确的受控 Execution Failure → 保存诊断与实际 Diff identity → 系统 Rollback，
 精确恢复后 FAILED，未确认恢复则 RECOVERY_REQUIRED。未发布完整补丁需证明整树和归属；
-未知执行结果和重启未决检查点不重放。见 [M5-D 报告](validation/m5-d-execution-failure-handling.md)。
+未知执行结果和重启未决检查点不重放。见 M5-D 报告（Git History）。
 不实现 FAILED Retry、Recovery 或 Verification 重构。
 
 M5-E 范围：精确恢复的 FAILED → 独立授权 / 历史快照 → READY，随后显式携带 Retry 身份复用
 Execution / Candidate / 全量 Criteria Verification；首次 baseline 不变，历史不覆盖。重复请求、
 并发授权、撤权、旧轮次同 baseline CAS 与未知检查点继续阻塞。见
-[M5-E 报告](validation/m5-e-failed-retry.md)。不实现 Recovery、Verification 重构或测试性能优化。
+M5-E 报告（Git History）。不实现 Recovery、Verification 重构或测试性能优化。
 
 Recovery 当前不开放写入：旧写者停止或失去写能力尚无可接受证明；F1 的 Job + Mutex 存在 WMI 逃逸，
 F1b 的受限 Token、同 SID ACL 与 staging 原型未形成安全隔离。RECOVERY_REQUIRED 与遗留 UNKNOWN
@@ -938,7 +934,7 @@ Milestone 只有满足其 Acceptance Criteria 后才允许进入 `DONE`。
 ## 5. Current Sprint / Iteration
 
 当前完成 §1 的 Java/Maven 兼容性与自动准备；此前集成背景见
-[收尾记录](validation/autonomous-evolution-local-closeout.md)。本轮提交留在独立分支，不合并或推送 main。
+收尾记录（Git History）。本轮提交留在独立分支，不合并或推送 main。
 审查前不增加实现里程碑；本地 main 仅在祖先关系成立且验证通过后 fast-forward-only 整合。
 
 ### Historical iteration — M3/M4/M5/Task G
@@ -961,12 +957,12 @@ M0、M1、M2 与 M3 的完成记录已归档到 §9 Completed Milestones，不�
 
 **M5-C User Rollback：DONE / 本地待审查（2026-10-13）。** 独立授权、原始 baseline 精确恢复、
 保留证据与失败阻塞；重启未知判定留给后续 Recovery Slice。最终后端 1,563 项、前端 145 项、
-typecheck / build PASS。实施、开发期间失败与未测试场景见 [M5-C 报告](validation/m5-c-user-rollback.md)。
+typecheck / build PASS。实施、开发期间失败与未测试场景见 M5-C 报告（Git History）。
 本轮结束后停止，不自动开始下一 Slice。
 
 **M5-B Candidate Repair：DONE / 本地待审查（2026-10-13）。** 仅授权修复当前失败 Candidate，
 保留原 Step / baseline、失败快照与授权事实；未知 / in-flight 状态不重放。最终后端 1,532 项、
-前端 141 项、typecheck / build PASS；证据与未测试场景见 [M5-B 报告](validation/m5-b-candidate-repair.md)。
+前端 141 项、typecheck / build PASS；证据与未测试场景见 M5-B 报告（Git History）。
 M5 整体不标为 DONE，本轮结束后停止。
 
 **M5-A 独立实验：DONE / 本地待审查（2026-10-13）。** 本轮实现明确 FAIL 的保存与阻塞语义，复用既有 M4 检查点、
@@ -975,7 +971,7 @@ M5 整体不标为 DONE，本轮结束后停止。
 
 **Task G 已关闭并冻结（2026-10-12）。** Graphite + Indigo、项目工作台和五工作流页面已由用户接受，
 少量视觉不足有意延后。本地 main 快进整合 G1/G2；最终前端 123 项测试、typecheck / build PASS。
-见 [Task G 最终关闭](validation/task-g-final-frontend-closeout.md)。该接受仅针对 UI，不改变 M1–M4 业务边界，
+见 Task G 最终关闭（Git History）。该接受仅针对 UI，不改变 M1–M4 业务边界，
 不启动新 UI 任务、M5、付费 E2E 或部署。
 
 **M3 已完成并冻结（2026-10-05）。** Task 1 / Task 2、里程碑审查、聚焦修正与真实 Memos
@@ -989,9 +985,9 @@ R1 发现方向、同一资产 R2 重新规划并准备的路径已修复；Pars
 持久化输出与完成文档，没有重跑 smoke。
 
 实际输入、接受的 Plan、准备结果与 Git 隔离证据见
-[M3 focused smoke](validation/m3-evolution-planning-working-copy-smoke.md)；
+M3 focused smoke（Git History）；
 设计修正、过程经验与下一阶段交接见
-[M3 retrospective](retrospectives/m3-evolution-planning-working-copy.md)。
+M3 retrospective（Git History）。
 M3 不再追加优化或 cleanup，除非发现具体阻塞 M4 的正确性问题。
 
 ### Historical M4 Delivery Closeout
@@ -999,17 +995,16 @@ M3 不再追加优化或 cleanup，除非发现具体阻塞 M4 的正确性问�
 M4 已完成一次真实直接 Provider → CodingProposal → WorkingCopy mutation → Candidate B →
 BUILD / TEST / DIFF_CHECK → SUCCEEDED / lastVerifiedRevision=B。成功执行器为
 `9efee445`；其维护修复已通过保留历史的 merge 整合，Candidate B 的业务改动没有合入 main。
-完整业务输入、Plan、代码 diff 和排障过程见 [M4 真实案例](validation/m4-real-provider-verified-evolution-smoke.md)。
 
 当前仅支持受信任、授权、根 Maven Wrapper 离线可运行的小型 Java/Maven Git 仓库及有限技术
 Verification；未知依赖、无法证明的测试选择器和未支持的业务 Criteria 保守拒绝。显式本地
 `m4-local` profile 复用成功 SSE / timeout / token / response 和 Verification 预算，所有 AI 阶段
-共用其预算；默认非流式配置没有同等真实成功证明，详见 [本地使用](M4_LOCAL_USAGE.md)。
+共用其预算；默认非流式配置没有同等真实成功证明，详见 历史 M4 Smoke（Git History）。
 
 完整失败恢复仍属于暂缓的 M5。M4 异常保留 EXECUTING / VERIFYING 最后完整检查点，
 阻止未解决状态上的继续执行，不模拟成功、重试或回滚。Windows 宿主执行不是 OS 沙箱。
 历史 BLOCKED 与 UNKNOWN 继续保留，整合、最终验证和归档见
-[交付关闭记录](validation/m4-delivery-closeout.md)。后端功能开发到此冻结。
+交付关闭记录（Git History）。后端功能开发到此冻结。
 
 ---
 
@@ -1872,8 +1867,8 @@ Repository Profile @ analyzedRevision
 
 两条链路都由自动化测试覆盖，并各自做过真实环境验证：
 
-User Discovery        docs/retrospectives/m1-user-discovery.md
-Repository Analysis   docs/validation/m1-repository-analysis-smoke-test.md
+User Discovery        m1-user-discovery（Git History）
+Repository Analysis   m1-repository-analysis-smoke-test（Git History）
 ```
 
 **Lessons Learned**
@@ -1895,7 +1890,7 @@ Repository Analysis   docs/validation/m1-repository-analysis-smoke-test.md
   但业务实现代码（controller / service 等）覆盖不足，部分大文件因单文件上限被跳过。
   该重访条件随后被真实仓库验证触发，Material Selection 已在 M2 被
   Repository Map + Scout + 定向读取取代（见下一条目）。
-  当时的记录与重访条件：docs/validation/m1-repository-analysis-smoke-test.md §7。
+  当时的记录与重访条件：m1-repository-analysis-smoke-test（Git History） §7。
 - M1 完成时将 Workspace mutation Adapter 留待 M3 的真实调用方；M3 已将准备能力单独实现，
   步骤代码修改 Adapter 与授权作用域继续留给 M4（见 §8.7 与 M3 完成记录）。
 ```
@@ -1924,8 +1919,8 @@ RepositoryProfile @ analyzedRevision
         ↓
 Select / Reject / Supersede 生命周期
 
-M2 复盘                docs/retrospectives/m2-product-direction.md
-Product Direction 端到端 docs/validation/m2-product-direction-e2e-smoke.md
+M2 复盘                m2-product-direction（Git History）
+Product Direction 端到端 m2-product-direction-e2e-smoke（Git History）
 ```
 
 **Lessons Learned**
@@ -1953,7 +1948,7 @@ Product Direction 端到端 docs/validation/m2-product-direction-e2e-smoke.md
   边界打磨（预算标定、有界重试），其中一部分可以更早停止。
 - M3 起改用「一个里程碑 → 一个相对完整的垂直切片 → 一次里程碑级审查 → 一次聚焦 smoke
   → 复盘」的推进方式，优先级为主产品链路与面试可解释性高于边界完备性。
-  详见 docs/retrospectives/m2-product-direction.md §E 与 §H。
+  详见 m2-product-direction（Git History） §E 与 §H。
 
 接受的边界
 - 极端庞大或极宽的仓库（当前实例 langflow）可能在 Scout 预算内无法完成导航，
@@ -1995,8 +1990,8 @@ M3 Deliverables 与 Acceptance Criteria 全部满足，审查问题已修正。�
 全量 verify 通过（1127 tests、0 failure / error / skipped）；同一代码完成真实 Provider
 与真实 Git WorkingCopy 的 focused smoke，源资产不变。此处引用既有验证，不表示文档收尾重新运行。
 
-- 验证记录：[M3 Evolution Planning & Working Copy focused smoke](validation/m3-evolution-planning-working-copy-smoke.md)。
-- 复盘：[M3 Evolution Planning & Working Copy retrospective](retrospectives/m3-evolution-planning-working-copy.md)。
+- 验证记录：M3 Evolution Planning & Working Copy focused smoke（Git History）。
+- 复盘：M3 Evolution Planning & Working Copy retrospective（Git History）。
 
 **Lessons Learned**
 
@@ -2040,9 +2035,9 @@ Verification 900s / 1200s、8 MiB 输出、160 XML。原默认配置保留，未
 测试通过，源码不变，没有调用 Provider 或再执行真实 Smoke。历史数据库 / Verified B 原件保留。
 根目录 28 份忽略且无引用日志带 hash 清单归档到仓库外，九个历史证据目录原地保留。
 
-业务 walkthrough、完整 Plan、关键 diff 与失败链见 [M4 真实案例](validation/m4-real-provider-verified-evolution-smoke.md)；
-版本、验证与外部索引见 [交付关闭记录](validation/m4-delivery-closeout.md)；配置和 API 见
-[本地使用](M4_LOCAL_USAGE.md)。历史 UNKNOWN 不改写；Java/Maven 有限技术验证、Windows
+业务 walkthrough、完整 Plan、关键 diff 与失败链见 M4 真实案例（Git History）；
+版本、验证与外部索引见 交付关闭记录（Git History）；配置和 API 见
+历史 M4 使用说明（Git History）。历史 UNKNOWN 不改写；Java/Maven 有限技术验证、Windows
 宿主文件系统风险与未实现的失败恢复继续是交付限制。
 
 **M4 STATUS: DONE / FROZEN。M5 STATUS: DEFERRED。后端功能开发暂停。**
@@ -2059,7 +2054,7 @@ Verification 900s / 1200s、8 MiB 输出、160 XML。原默认配置保留，未
 验收采用合成 API 前端回归、类型检查、生产构建及新数据库的本机 Proxy 联通；没有新付费
 Provider Smoke 或代码演化，因此不声称通过 Web 完成了第二次真实 Verified B。
 长请求、刷新和断线只查询实际状态，不自动重复 execute；缺失的历史 / diff / 请求任务 API
-如实保留为交互限制，见 [Task B 验证](validation/minimal-web-experience.md) 与
+如实保留为交互限制，见 Task B 验证（Git History） 与
 [前端使用](../frontend/README.md)。
 
 **Task B: DONE。M0–M4 后端继续 FROZEN，M5 继续 DEFERRED。停止新增前后端功能；**
@@ -2073,12 +2068,10 @@ Provider Smoke 或代码演化，因此不声称通过 Web 完成了第二次真
 六区内容与用户依据共同参与充分性判断；普通对话轮满足最低条件仍保持探索，用户显式请求
 审阅才评估并推进 REVIEWING。确认当前版本、Evidence 语义与失败原子性保持不变。
 nextQuestion 统一加入本页聊天并去重，不构造未保存的历史。M2–M4 实现继续冻结，M5 暂缓。
-验证及限制见 [M1 聚焦修复](validation/user-discovery-sufficiency-conversation-fix.md)。
 
 后续真实手动体验暴露“充分即无下一问”的残留契约。另行授权的 Conversation Continuation &
 Review 修复将最低充分性与下一问分开：普通对话仍两次模型调用；用户主动 Continue / Reopen
 后使用仅限当前探索版本的只读提问。审阅展示六区和真实依据，不新增状态或持久化对话。
-验证见 [连续探索与画像审阅修复](validation/user-discovery-conversation-continuation-review-fix.md)。
 M2–M4 实现保持冻结，M5 继续暂缓。
 
 以下为记录格式，供后续 Milestone 使用：
@@ -2127,9 +2120,9 @@ Java/Maven BUILD_READY 演示基线；C3 准备本地 Bundle、Catalog 与 READM
 完整后端 1401 项及前端 34 项通过；C2 三个固定许可来源的独立基线构建通过；C3 三份
 Bundle 均还原到新目录，HEAD/工作树与 manifest 一致，离线 Maven 测试通过。
 三份仅为 BUILD_READY，尚未由真实 Provider 演化；GitHub Release 附件待用户确认发布。
-见 [C1](validation/task-c1-user-discovery-consistency.md)、
-[C2](validation/task-c2-demo-build-readiness.md)、[C3](validation/task-c3-demo-bundle-delivery.md)
-与 [Demo Catalog](demos/README.md)。本任务后等待手动验收，不继续扩展功能或开始 M5。
+见 C1（Git History）、
+C2（Git History）、C3（Git History）
+与 Demo Catalog（Git History）。本任务后等待手动验收，不继续扩展功能或开始 M5。
 
 ### Task D — 规划授权阻塞与资产交互（用户授权修复）
 
@@ -2139,7 +2132,7 @@ Bundle 均还原到新目录，HEAD/工作树与 manifest 一致，离线 Maven 
 引用保持不变；Planning 提交原子核对授权依据，不自动升级权限或重新消费 M1–M2。
 M0–M4 继续 FROZEN，M5 继续 DEFERRED；本任务不调用真实 Provider 或修改 Git / Verification。
 根因、API 契约、确定性回归和现有 GS REST 恢复步骤见
-[Task D 验证记录](validation/task-d-planning-authorization-ux.md)。
+Task D 验证记录（Git History）。
 
 ### Task E — Final E2E UX Polish 与 WorkingCopy 换盘（用户授权修复）
 
@@ -2150,7 +2143,6 @@ M0–M4 继续 FROZEN，M5 继续 DEFERRED；本任务不调用真实 Provider �
 不移动旧副本，不改写历史授权、Plan、Step 或已验证 revision。
 Git Adapter 仅调整存储范围及错误检查，Candidate、Mutation 和 Verification 领域语义不变。
 没有付费 Provider、真实 Smoke 或新演化；M0–M4 继续 FROZEN，M5 继续 DEFERRED。
-实现边界、测试与手动验收见 [Task E 验证记录](validation/task-e-final-e2e-ux-polish.md)。
 
 ### Task F — Project Workspace & History Recovery（用户授权闭环）
 
@@ -2162,7 +2154,7 @@ Git Adapter 仅调整存储范围及错误检查，Candidate、Mutation 和 Veri
 最终 Wrapper verify 1450 项通过，前端 71 项、类型检查与构建通过。现有 GS REST 原库
 只读核对 1/4 成功及 Verified B c822cc3；一致副本上的 API、导航认领、后端重启及 Vite
 Proxy 回读通过，没有新的 Provider / 演化 / Maven 验证请求。用户原库尚未迁移；首次启动
-新版本才应用 V15，升级及手动验收见 [Task F 验证](validation/task-f-project-workspace-history-recovery.md)。
+新版本才应用 V15，升级及手动验收见 Task F 验证（Git History）。
 
 当前画像与历史绑定版本分开显示；未持久化聊天与 CodingProposal 不能恢复。
 Task F 当时保留的全局单 SELECTED 规则已由下述 F-Fix 显式演进；授权、revision、
@@ -2181,7 +2173,7 @@ previousContextId，不替换原 planId。查看历史、切换项目和建立�
 
 F-Fix 首次完整 verify 1457 项 PASS；追加最终 verify 1468 项 PASS，前端 80 项、类型检查
 与构建 PASS。升级前备份及手动验收见
-[软删除与恢复记录](validation/task-f-fix-project-deletion-recovery.md)。没有操作用户数据库，
+软删除与恢复记录（Git History）。没有操作用户数据库，
 没有付费 Provider / 真实 Step 请求，也没有推送远端。
 **M0–M4 继续 FROZEN，M5 继续 DEFERRED；本任务结束后等待用户手动验收，不扩展功能。**
 
@@ -2191,10 +2183,9 @@ F-Fix 首次完整 verify 1457 项 PASS；追加最终 verify 1468 项 PASS，�
 具体被改写条目与刷新后成功原因无法从旧日志恢复。严格事实与 Evidence 规则保持不变，
 仅增加固定失败阶段/原因、Context 版本预检和规划请求/回读边界，没有自动付费重试。
 最终 Maven verify 1474 项、前端 85 项、类型检查和构建 PASS。
-见 [定位与验证记录](validation/final-planning-rejection-fix.md)。没有数据库迁移或真实 Provider /
+见 定位与验证记录（Git History）。没有数据库迁移或真实 Provider /
 Evolution Step 调用。结束业务扩展；数据库归档由用户决定，当时 Task G 尚未实施。
 代码已在 Pre-UI Closeout 快进整合至 main，仅增加文档与交接；
-见 [关闭记录](validation/pre-ui-final-closeout.md) 和 [UI 技术交接](UI_TASK_G_HANDOFF.md)。
 
 ### Task G — UI / UX Polish
 
@@ -2206,5 +2197,5 @@ G2 包含 G1 `508859e`，本地 main 已从 Pre-UI `40538b6` 快进整合全部�
 用户接受当前 Graphite + Indigo 与六页结构，少量视觉不足延后。合成响应和历史截图提供 UI
 交互 / 响应式证据，不代替真实后端 / Provider E2E 或部署接受。六张参考 PNG 保持未跟踪。
 M1–M4 业务边界不变，M5 继续 DEFERRED，M6 继续 TODO；不自动发起下一轮 UI、E2E 或发布。
-实现、组件、证据范围、限制与复盘见 [Task G 最终关闭记录](validation/task-g-final-frontend-closeout.md)；
+实现、组件、证据范围、限制与复盘见 Task G 最终关闭记录（Git History）；
 之前的 G1/G2 提交与报告保留历史意义。本地整合未 push。

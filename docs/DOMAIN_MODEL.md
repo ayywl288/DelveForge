@@ -3,7 +3,7 @@
 **当前入口（2026-10-28）：** MVP 领域合同冻结。本次仅整理说明，不引入新状态、授权或恢复能力。
 现行 Agent / Candidate / Delivery 与 Plan 收尾以下列日期补充及 ADR-0012/0013/0014 为准；
 旧 M4/M5 执行结果与独立 Repair/Rollback 描述保留历史含义。
-技术 Delivery 成功与实际产品验收分开记录，参见 [验证索引](validation/README.md)。
+技术 Delivery 成功与实际产品验收分开记录。
 
 **2026-10-28 Plan 收尾：** 最后一个必需 Step 正式交付后，同一接受事务保存 Plan=COMPLETED、
 WorkingCopy=CLOSED，两个 revision 保持已接受 C。既有已接受实例可通过显式、幂等的收尾命令补齐；
@@ -62,7 +62,7 @@ parent(C)=P、tree(C)=B。下文交付合同的一般 Step 基线用 R 表示；
   SUPERSEDED，Step 标为 CANCELLED；不迁移成新成功事实，不删除原始资产、WorkingCopy 文件或 Candidate。
   未进入旧执行的 M1–M3/READY 规划保持原值。V22/V23 历史迁移不改写。
 
-详见 [运行合同](AUTONOMOUS_AGENT.md) 和 [ADR-0013](decisions/0013-frozen-candidate-delivery.md)。
+详见 [ADR-0012](decisions/0012-autonomous-agent-sandbox-and-frozen-candidate.md) 和 [ADR-0013](decisions/0013-frozen-candidate-delivery.md)。
 下文的旧执行状态图、M4/M5 Domain Operations 与相应 INV 说明为历史模型；其确认、隔离、授权、
 可信版本和历史可追溯的安全目的由以上新合同继续保持，不再作为新 Agent 的前置执行协议。
 
@@ -2791,8 +2791,8 @@ GET、启动、异常处理均不授权或自动执行 Retry；本 Slice 不开�
 **实现状态（2026-10-16，用户已裁定）：Recovery 写入 DEFERRED。** 以下仍为完整领域目标，
 不是已开放能力。当前隔离方案尚不能证明旧写者停止或失去写能力；RECOVERY_REQUIRED 及遗留
 UNKNOWN 保持阻塞，不接管、不重放、不改判，也不据此制造 Recovery Failure 或 UNRECOVERABLE。
-重新开放须独立安全架构设计与实证；见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)
-及 [M5 阶段性收尾](validation/m5-partial-closeout.md)。本说明不删除或放宽下述目标转换与不变量。
+重新开放须独立安全架构设计与实证；见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
+本说明不删除或放宽下述目标转换与不变量。
 
 **Purpose**
 

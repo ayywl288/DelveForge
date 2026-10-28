@@ -42,14 +42,14 @@ RepositoryProfile @ analyzedRevision
 
 它要求的是**可信**（固定 revision、依据可核对、只读），而不是**理解得深**。
 在没有真实使用证据的情况下引入相关性排序或语义检索，等于先造一套自己的质量标准
-（见 `docs/retrospectives/m1-repository-analysis.md` §8）。
+（见 `m1-repository-analysis（Git History）` §8）。
 
 ### 什么证据触发了重访
 
 M2 的真实链路验证触发了 M1 明确写下的重访条件（条件 1）：
 
 ```text
-docs/validation/m2-product-direction-discovery-smoke-test-round1.md §10
+m2-product-direction-discovery-smoke-test-round1（Git History） §10
 M1 Material Selection revisit condition: TRIGGERED
 ```
 
@@ -337,9 +337,9 @@ AGENTS.md
 docs/ARCHITECTURE.md
 docs/DOMAIN_MODEL.md
 docs/ROADMAP.md
-docs/retrospectives/m1-repository-analysis.md            §8 Why We Stop Here / §9 Revisit Conditions
-docs/validation/m1-repository-analysis-smoke-test.md
-docs/validation/m2-product-direction-discovery-smoke-test-round1.md   §10 Revisit condition: TRIGGERED
+m1-repository-analysis（Git History）            §8 Why We Stop Here / §9 Revisit Conditions
+m1-repository-analysis-smoke-test（Git History）
+m2-product-direction-discovery-smoke-test-round1（Git History）   §10 Revisit condition: TRIGGERED
 docs/decisions/0001-separate-workspace-read-and-mutation-capabilities.md
 WorkspaceReadPort
 RepositoryAnalysisMaterialCollector

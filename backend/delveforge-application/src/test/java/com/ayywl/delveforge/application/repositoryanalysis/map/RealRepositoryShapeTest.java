@@ -14,8 +14,7 @@ import org.junit.jupiter.api.Test;
  * <p>下面这份清单是 M1 / M2 端到端验证所用仓库（黑马点评）在
  * {@code analyzedRevision = 18e6b63cf218eca717cd00ecf4e3e0a12dccf5b4} 上的 139 个已提交
  * blob 的快照。它解决的是「启发式只在假想路径上看起来正确」这个问题——
- * M1 的层级筛选就是在替身测试里完全正常、在真实仓库上才暴露的
- * （{@code docs/retrospectives/m1-repository-analysis.md} §5.8）。
+ * M1 的层级筛选就是在替身测试里完全正常、在真实仓库上才暴露的。
  *
  * <p>因此本测试是**故意写死**的：规则变化会让它失败，而失败正是需要被看到的东西。
  *
@@ -55,8 +54,7 @@ class RealRepositoryShapeTest {
     /**
      * 本轮重访要解决的问题：业务实现必须进入源码候选。
      *
-     * <p>M2 smoke Round 1 记录的正是这些文件一个都没有进入分析的依据
-     * （{@code docs/validation/m2-product-direction-discovery-smoke-test-round1.md} §10）。
+     * <p>M2 smoke Round 1 记录的正是这些文件一个都没有进入分析的依据。
      * 它们现在全部是 Scout 源码候选，包括当时因超过单文件预算而被整份跳过的
      * {@code MultiLevelCacheServiceImpl.java}。
      */

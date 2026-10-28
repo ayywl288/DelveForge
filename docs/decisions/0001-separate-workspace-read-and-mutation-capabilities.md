@@ -318,8 +318,8 @@ Repair / User Rollback 也核对父身份，防止同 baseline 请求发生跨�
 状态：Accepted（用户明确裁定）；原有 capability 拆分决策与完整 Recovery 领域目标保留。
 
 **问题与证据：** 后端 CAS、PID 消失、超时、重启和普通锁释放都不能证明旧进程失去副本写能力。
-[F1](../validation/m5-f1-ownership-spike.md) 的真实 WMI 代创建 writer 在 Owner 退出、受管 Job 归零后
-仍可写；[F1b](../validation/m5-f1b-isolation-spike.md) 的原受限进程在 KERNELBASE 初始化失败，
+F1（Git History） 的真实 WMI 代创建 writer 在 Owner 退出、受管 Job 归零后
+仍可写；F1b（Git History） 的原受限进程在 KERNELBASE 初始化失败，
 不能冒充已运行的独立身份。宿主对照中，同 SID ACL 不能撤销预开句柄，也不能只向可信宿主重新放行；
 staging 原型的叶文件校验还遗漏父目录 junction。两轮实验虽经独立审查通过，技术 Gate 均为 NO-GO。
 
@@ -339,4 +339,4 @@ staging 原型的叶文件校验还遗漏父目录 junction。两轮实验虽经
 Recovery 仍需新的独立用户授权，目标只能是原 Step baseline；无法证明安全时继续阻塞。
 
 本决策只记录已授权的延期，不引入新状态机或架构技术。发布影响与后续 Gate 见
-[M5 阶段性收尾](../validation/m5-partial-closeout.md)。
+M5 阶段性收尾（Git History）。

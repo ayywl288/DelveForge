@@ -84,8 +84,7 @@ delveforge:
     # 定向源码通道：Scout 指出的业务实现。
     # 单个文件可以更大（实现类通常比配置文件长），总量也相应放宽。
     #
-    # 取值来自 V3 多仓 Smoke 之后的 A/B 标定
-    # （docs/validation/m2-repository-analysis-v3-stabilization.md）：
+    # 取值来自 V3 多仓 Smoke 之后的历史 A/B 标定：
     #
     #   18 / 163840   三个仓库取到 18，memos 只取到 16 —— 先撞上总量上限，
     #                 也就是说那一档的**文件数有一部分只是理论值**

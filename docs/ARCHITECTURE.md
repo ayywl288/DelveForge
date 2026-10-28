@@ -1,7 +1,6 @@
 # ARCHITECTURE.md
 
 **当前入口（2026-10-28）：** 架构冻结，运行基线 1b9baa6 / 完整证据基线 11c4aa3。
-当前四模块、六工具 Agent 与 Git/SQLite 协议的简图见 [架构概览](release/ARCHITECTURE_OVERVIEW.md)；
 以下有明确日期的补充及 ADR 决定现行合同，旧 M4/M5 段落保留历史含义。
 本次收尾不改变模块依赖、Port、领域状态或交付语义。
 
@@ -490,8 +489,7 @@ Task B 的本地 Web Experience 展示既有 REST 用例。Vue 负责表单与�
 `frontend/src/api/client.ts` 对齐 Controller DTO，`state/session.ts` 协调请求与 GET 恢复，
 不增加后端领域状态。浏览器仅存储对象 ID 和执行等待标记，业务正文只留在页面内存。
 同步 execute 无客户端或 Proxy 短期限；断线和刷新不重放命令。Web Locks 仅协调同 origin
-标签页，不替代后端授权、revision 或 Workspace 检查。实际限制见
-[Web 验证记录](validation/minimal-web-experience.md)。
+标签页，不替代后端授权、revision 或 Workspace 检查。
 
 目的是避免 Frontend 源码绑定具体 Backend 地址：
 
@@ -1357,9 +1355,6 @@ UTF-8 解码替换字符 U+FFFD（含合法编码的同名字符）、NUL、其�
 此拒绝保留既有 EXECUTING 未决检查点，不制造已确认 Execution Failure；恢复阶段拒绝沿用阻塞结果规则。
 
 
-原修复记录见 [M5-001/002 报告](validation/m5-review-findings-fix.md)，后续复审修复见
-[M5-003/004 报告](validation/m5-review-findings-003-004-fix.md)。
-
 V19 仅增加 nullable 授权 / 结果 JSON 槽，旧结果与 Repair 历史不改写。授权及成功检查点沿用
 完整资格 / CAS；失败检查点的 `blockRollback` 只允许匹配已保存授权的 `ROLLING_BACK` 同时
 转为 Step / WorkingCopy `RECOVERY_REQUIRED`，不提供 Workspace 能力。该安全事实写入不因
@@ -1654,8 +1649,7 @@ Evolution Step explicitly confirmed by user
 ---
 
 上述流程保留完整 MVP 目标，当前实现范围以 `ROADMAP.md` 为准。2026-10-10 的历史交付是
-M4 DONE / FROZEN、M5 当时 DEFERRED；显式本地成功配置与 Java/Maven 支持范围见
-[M4 本地使用](M4_LOCAL_USAGE.md)，历史证据见 [M4 交付关闭记录](validation/m4-delivery-closeout.md)。
+M4 DONE / FROZEN、M5 当时 DEFERRED。
 
 2026-10-16 当前实验分支状态为 **M5 PARTIAL / Recovery 写入 DEFERRED**：A～E 的明确验证失败、
 独立 Repair、User Rollback、明确执行失败的系统 Rollback、FAILED Retry 及其修复已通过独立审查，
@@ -1668,8 +1662,7 @@ EXECUTING / VERIFYING / ROLLING_BACK UNKNOWN 保留事实并阻塞，不根据 P
 推断安全。现有 WorkingCopy clone 隔离和调用内清理不是宿主 OS 沙箱。
 
 重新开放 Recovery 写入须独立安全架构设计、真实 OS 正反实验及独立审查；原始 baseline、独立授权
-和历史边界不变。决策见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)，
-已完成能力、长期阻塞状态与集成／发布 Gate 见 [M5 阶段性收尾](validation/m5-partial-closeout.md)。
+和历史边界不变。决策见 [ADR-0001](decisions/0001-separate-workspace-read-and-mutation-capabilities.md)。
 
 ## 9. Architecture Decisions
 

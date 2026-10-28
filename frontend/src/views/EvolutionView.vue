@@ -400,7 +400,7 @@ onUnmounted(deactivate);
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
         <p v-else-if="runPresentation" class="meta">{{ runPresentation.detail }}</p>
         <p v-if="run.reason === 'SANDBOX_PROTOCOL_INCOMPATIBLE'" class="run-failure" role="alert">
-          沙箱工具协议不兼容。请按 docs/AUTONOMOUS_AGENT.md 构建兼容镜像，显式配置镜像后再重启应用。
+          沙箱工具协议不兼容。请按 docs/LOCAL_SETUP.md 的协议排障说明构建兼容镜像，显式配置镜像后再重启应用。
         </p>
         <p v-if="run.reason === 'NO_PROGRESS'" class="run-failure" role="alert">检测到重复的工具循环，且没有新的观察或成功修改，运行已停止。</p>
         <details class="run-technical"><summary>开发者详情 · 运行标识</summary>

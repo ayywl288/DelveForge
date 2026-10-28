@@ -482,7 +482,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         return new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE",
                 "Sandbox tool protocol v3 is required. Build the current agent Dockerfile with a new image tag, "
                         + "configure delveforge.agent.sandbox.images, then explicitly restart the application. "
-                        + "See docs/AUTONOMOUS_AGENT.md.");
+                        + "See docs/LOCAL_SETUP.md (sandbox protocol troubleshooting).");
     }
 
     private static void requireToolSuccess(JsonNode response) {

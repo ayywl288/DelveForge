@@ -1,8 +1,8 @@
 # PRODUCT.md
 
 **当前入口（2026-10-28）：MVP 已冻结用于本地展示与技术交接。**
-现行能力与 FinTrack / Taskarium 不同验收结论见 [README](../README.md) 与
-[验证索引](validation/README.md)。不新增功能、计划或付费实验；Taskarium C4 认证 403 保持失败事实。
+现行能力见下文；FinTrack / Taskarium 的历史验收材料可通过 Git History 查阅。
+不新增功能、计划或付费实验；Taskarium C4 认证 403 保持失败事实。
 下文早期探索假设与旧 M4/M5 产品描述保留为历史，不扩大当前已实现能力。
 
 **2026-10-28 Plan 收尾：** 最后一个必需 Step 正式交付后，同一接受事务保存 Plan=COMPLETED、
@@ -15,7 +15,7 @@ WorkingCopy=CLOSED，两个 revision 保持已接受 C。既有已接受实例�
 才把 Step 标为 SUCCEEDED。失败的 Run 可由用户启动新尝试，不恢复旧对话，也不执行后续 Step。
 用户可查看真实工具与 Maven 活动、文件变化、测试摘要和独立交付状态；刷新和重连读取持久化事件。
 NOT_TESTED 不等于测试通过，已知未解决检查失败不能被接受。普通 Java/Maven 兼容范围仍受 Task 1
-JDK、文件、公开 Central 依赖及隔离限制约束。实现验收见 [Task 2 验收](validation/task2-autonomous-evolution.md)。
+JDK、文件、公开 Central 依赖及隔离限制约束。
 下文旧 M4/M5 一次性提案、独立 Repair/Retry/Rollback 是历史背景，已退出当前产品流程。
 
 > 本文档回答：为什么做这个产品、给谁使用、解决什么问题，以及第一版到底做到哪里。

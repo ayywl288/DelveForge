@@ -5,17 +5,15 @@ Vue 3 + TypeScript + Vite + pnpm。项目工作台与五阶段界面调用当前
 **当前自主演化界面（2026-10-23）：** M1–M3 的画像、仓库、方向和规划保留；实施页已替换为
 逐 Step 确认并启动 Agent、持久化 SSE 活动、冻结 Candidate 差异和独立 Delivery 状态。
 后端正式接受 Git commit 后 Step 才成功；后续 Step 仍需分别确认和启动。
-最新测试证据与范围见 [Task 2 审查修复](../docs/validation/task2-autonomous-evolution.md)；
-本次收尾复验另见 [本地收尾](../docs/validation/autonomous-evolution-local-closeout.md)。
 
 **历史 Task G：DONE / ACCEPTED / FROZEN（2026-10-12，当时发行版 UI）。** 用户已接受 Graphite + Indigo
 和六页交互结构，少量视觉不足有意延后。最终实现 `dd3d24e` 已本地整合至 main，前端 123 项测试、
-typecheck / build PASS；[最终关闭与复盘](../docs/validation/task-g-final-frontend-closeout.md) 区分
-合成 UI 验证、真实业务 E2E 和部署验收。后两者未由本次 UI 接受确立，不自动发起新 UI 任务。
+typecheck / build PASS。合成 UI 验证、真实业务 E2E 和部署验收分别判断；
+后两者未由本次 UI 接受确立，不自动发起新 UI 任务。
 
 ## 本地启动
 
-先按 [当前运行及升级说明](../docs/AUTONOMOUS_AGENT.md#local-startup-and-upgrade) 启动后端。
+先按 [本地安装与升级提醒](../docs/LOCAL_SETUP.md) 启动后端。
 已有数据库第一次启动前先备份数据库和全部托管 WorkingCopy，Flyway 会迁移到 V25 并归档旧执行。
 API Key 只配置在后端，不写入前端 `.env`、聊天或浏览器。数据库与 Workspace 由后端配置，不依赖历史 Smoke ID。
 
@@ -46,8 +44,6 @@ pnpm dev
 localStorage。业务成功后项目关联保存失败仍保留已接受状态，需重新打开项目核对关联，不能重做
 业务请求来修复关联。
 
-本次登记故障与消息反馈的验证范围见 [聚焦修复记录](../docs/validation/frontend-ux-registration-discovery.md)。
-
 仓库分析、方向生成和演化规划在发起区域显示统一的局部等待提示；离开对应页面时才使用全局
 提示。规划页按「概览 → 审阅与准备隔离副本 → 详细路线」排列，准备和各 Step 授权均需明确
 操作。规划与实施页共用当前快照的前提说明，后端仍重查实际授权、revision 和占用。
@@ -65,7 +61,7 @@ localStorage。业务成功后项目关联保存失败仍保留已接受状态�
 
 Delivery 自动消费现有 Candidate；明确阻塞可请求重新核对。`RECOVERY_REQUIRED` 保留现场与预约，
 只有原因 `MUTATION_NOT_STARTED` 且外部冲突已处理、干净 A 与授权重新证明时才提供有限显式重试。
-其它未知/部分写入不能从 UI 清理、硬重置或强制标成功。当前协议详见 [运行合同](../docs/AUTONOMOUS_AGENT.md)。
+其它未知/部分写入不能从 UI 清理、硬重置或强制标成功。当前协议详见 [交付与恢复合同](../docs/decisions/0013-frozen-candidate-delivery.md)。
 
 下文项目导航仍提供背景说明；标注 Task G 历史的操作、等待标记、旧错误码和验收计数均只描述当时版本。
 
@@ -99,7 +95,7 @@ Delivery 自动消费现有 Candidate；明确阻塞可请求重新核对。`REC
 
 AI 操作会调用付费 Provider，只在实际获得授权后验收。本次联通检查仅创建空白画像、纠正无敏感测试条目、注册受限权限资产并 GET；多轮 AI 与代码演化交互只使用自动化合成响应，没有新付费 Smoke。
 
-只使用用户明确授权、受信任、小型 Java / Maven Git 仓库；需根目录 Wrapper 和已缓存的离线构建、测试能力。现有 BUILD / TEST / FOCUSED_TEST / DIFF_CHECK 场景及限制见 [M4 本地使用](../docs/M4_LOCAL_USAGE.md)。Windows 插件与测试在宿主运行，WorkingCopy 不是 OS 沙箱。
+只使用用户明确授权、受信任、小型 Java / Maven Git 仓库；需根目录 Wrapper 和已缓存的离线构建、测试能力。现有 BUILD / TEST / FOCUSED_TEST / DIFF_CHECK 场景及限制见 历史 M4 本地使用（Git History）。Windows 插件与测试在宿主运行，WorkingCopy 不是 OS 沙箱。
 
 ## 刷新、断线与长请求（Task G 历史）
 
@@ -167,17 +163,15 @@ Step DTO 没有独立的规划前提字段，页面只展示原有顺序、Plan 
 模型问题、已接受 CodingProposal 或 Git diff 的历史查询；没有 Plan 的旧孤立 Direction
 不自动拼装为项目，可使用高级 ID 入口查看。返回的是当前 UserProfile，旧 Plan 的画像
 绑定版本另行标明，不能把当前六区当作旧快照。`execution-preparation` 会调用 AI，execute
-仍重新准备，因此本页未增加额外付费预览。Task F 的迁移、测试与恢复边界见
-[项目工作台验证](../docs/validation/task-f-project-workspace-history-recovery.md)。M5 和正式部署未实现。
+仍重新准备，因此本页未增加额外付费预览。M5 和正式部署未实现。
 
 C1：首次真实充分结果显示一次选择弹窗；已有问题的继续探索不追加 AI 调用。
 “本次对话 / 画像审阅”可切换；审阅视图不重复右侧大段画像，依据可折叠。
 审阅 POST 携带 revision，同版服务端充分结果直接复用；无记录才评估，不插入新探索问题。
 刷新只读 review-readiness 恢复提示，不恢复聊天或自动提问。
 
-Task G 的实施入口、素材与不可改变的业务边界见
-[Task G 技术交接](../docs/UI_TASK_G_HANDOFF.md)。新旧数据库与浏览器 ID 的安全切换见
-[本地数据环境](../docs/LOCAL_DATA_ENVIRONMENTS.md)。业务基线保持冻结，不从 UI 整理启动付费 Smoke。
+新旧数据库的备份注意事项见 [本地安装](../docs/LOCAL_SETUP.md#3-默认存储位置)。
+业务基线保持冻结，不从 UI 整理启动付费 Smoke。
 G2 的改动、合成测试与桌面 / 窄屏检查见 [G2 前端验收记录](G2_VALIDATION.md)。
 后续视觉修正统一正文、标题、状态与技术信息的字号，扩展原有 SVG 图标，调整内容列表、
 画像维度、方向条目、路线步骤与验证结果。工作台进度仅使用后端保存的已通过 / 总步骤计数；

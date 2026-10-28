@@ -3,7 +3,7 @@
 Date: 2026-10-24
 
 Status: Accepted for this isolated implementation branch; independent review and merge are separate.
-Validation: [repository compatibility and preparation](../validation/repository-compatibility-and-preparation.md).
+Validation: repository compatibility and preparation（Git History）.
 
 ## Current problem and existing constraint
 

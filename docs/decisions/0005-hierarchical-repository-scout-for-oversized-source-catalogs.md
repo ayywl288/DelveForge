@@ -31,10 +31,10 @@ Date: 2026-10-02
 > 触发本决策的证据：
 >
 > ```text
-> docs/validation/m2-final-multi-repository-smoke-test.md
+> m2-final-multi-repository-smoke-test（Git History）
 >   5 个真实仓库中 4 个因 SCOUT_CATALOG_TOO_LARGE fail-closed
 >   → ADR-0004 Revisit Condition 1 的实质形态
-> docs/validation/m2-hierarchical-scout-design-reconnaissance.md
+> m2-hierarchical-scout-design-reconnaissance（Git History）
 >   结构分析：分层可达，但在这些仓库上只有「窄选」可行
 > ```
 
@@ -155,7 +155,7 @@ maxScoutCatalogBytes = 65,536
 > 而不是为单个仓库放宽整次分析的成本包络。
 > ```
 >
-> 证据与取舍见 `docs/validation/m2-repository-analysis-v3-stabilization.md` §3。
+> 证据与取舍见 `m2-repository-analysis-v3-stabilization（Git History）` §3。
 > 「12 次是否够用」这个问题现在有了数据答案；**是否要在未来放宽，取决于
 > 这类仓库在真实使用中的占比**，而不是取决于能否让它成功。
 
@@ -275,8 +275,8 @@ RepositoryAnalysisExtraction           不变
 ```text
 AGENTS.md
 docs/ARCHITECTURE.md
-docs/validation/m2-final-multi-repository-smoke-test.md              （触发证据：4/5 fail-closed）
-docs/validation/m2-hierarchical-scout-design-reconnaissance.md       （结构分析与守卫取值依据）
+m2-final-multi-repository-smoke-test（Git History）              （触发证据：4/5 fail-closed）
+m2-hierarchical-scout-design-reconnaissance（Git History）       （结构分析与守卫取值依据）
 docs/decisions/0004-two-stage-repository-understanding-with-validated-file-references.md
     Revisit Condition 1（本 ADR 的直接来源）
 RepositoryMap / RepositoryMapBuilder

@@ -12,7 +12,7 @@ Date: 2026-10-02
 > application/repositoryanalysis/workflow/         第二个执行点：交给模型之前净化
 > ```
 >
-> 支撑本决策的代码侦察：`docs/validation/m2-repository-secret-boundary-reconnaissance.md`
+> 支撑本决策的代码侦察：`m2-repository-secret-boundary-reconnaissance（Git History）`
 >
 > 与本 ADR 相邻但**不同**的一条既有决策：ADR-0002（日志的结构化-only 策略）。
 > 本 ADR 不重新设计日志，两件事针对不同的出口。
@@ -524,7 +524,7 @@ docs/decisions/0002-structural-only-exception-logging.md   （相邻但不同的
 docs/decisions/0004-two-stage-repository-understanding-with-validated-file-references.md
 docs/decisions/0005-hierarchical-repository-scout-for-oversized-source-catalogs.md
 
-docs/validation/m2-repository-secret-boundary-reconnaissance.md   （本 ADR 的代码依据）
+m2-repository-secret-boundary-reconnaissance（Git History）   （本 ADR 的代码依据）
 
 application.port.workspace.WorkspaceReadPort.readFile
 application.repositoryanalysis.readplan.RepositoryReadExecutor

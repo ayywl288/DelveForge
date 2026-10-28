@@ -657,7 +657,7 @@ it("an incompatible sandbox shows actionable rollout guidance without starting o
   const { root } = mount([failed]); await settle();
   expect(root.querySelector('[role="alert"]')?.textContent).toContain("沙箱工具协议不兼容");
   expect(root.textContent).toContain("显式配置镜像后再重启应用");
-  expect(root.textContent).toContain("docs/AUTONOMOUS_AGENT.md");
+  expect(root.textContent).toContain("docs/LOCAL_SETUP.md");
   expect(root.querySelector(".run-reason code")?.textContent).toBe("SANDBOX_PROTOCOL_INCOMPATIBLE");
   expect(start).not.toHaveBeenCalled();
   expect(deliver).not.toHaveBeenCalled();
