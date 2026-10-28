@@ -370,6 +370,43 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         org.mockito.Mockito.verifyNoInteractions(aiGateway);
     }
 
+    @Test
+    void explicitQuestionWithActionableGapsReplansAQuestionlessModelResponse() throws Exception {
+        String id = createProfile();
+        given(aiGateway.generate(any())).willReturn("""
+                {"sufficient":false,"missingAreas":["需要明确目标"],"assistantReply":"我们可以开始探索。",
+                 "nextQuestion":null,"questionArea":null,"deferredAreas":[]}
+                """);
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sufficient").value(false))
+                .andExpect(jsonPath("$.nextQuestion").value("你希望这个项目帮助你完成什么成果，或展示什么能力？"));
+        mockMvc.perform(get("/api/user-profiles/{id}", id))
+                .andExpect(jsonPath("$.revision").value(1)).andExpect(jsonPath("$.evidence").isEmpty())
+                .andExpect(jsonPath("$.status").value("EXPLORING"));
+        mockMvc.perform(get("/api/user-profiles/{id}/review-readiness", id))
+                .andExpect(jsonPath("$.sufficient").doesNotExist());
+        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(1)).generate(any());
+    }
+
+    @Test
+    void explicitQuestionWithoutAnyUsableTopicFailsRatherThanReturningEmptySuccess() throws Exception {
+        String id = createProfile();
+        given(aiGateway.generate(any())).willReturn("""
+                {"sufficient":false,"missingAreas":["目标待补充"],"assistantReply":"可以先不讨论这些。",
+                 "nextQuestion":"  ","questionArea":null,
+                 "deferredAreas":["projectGoals","technicalCapabilities","constraints","evidence"]}
+                """);
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":1}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("EXTERNAL_CAPABILITY_UNAVAILABLE"));
+        mockMvc.perform(get("/api/user-profiles/{id}", id))
+                .andExpect(jsonPath("$.revision").value(1)).andExpect(jsonPath("$.evidence").isEmpty());
+        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(1)).generate(any());
+    }
+
     private String createProfile() throws Exception {
         String body = mockMvc.perform(post("/api/user-profiles"))
                 .andExpect(status().isCreated())

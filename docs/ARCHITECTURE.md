@@ -699,7 +699,9 @@ Application 在模型调用前提供 deterministicMissing，最终始终合并�
 `previousQuestions` 可省略；当前实现最多八个非空问题，每个最多 512 字符，仅用于避免重复，
 不是用户事实，不持久化。recentConversation 可省略，最多八条 user/agent 消息，每条 2048 字符；
 Vue 只发送已接受消息和实际 Agent 回复，不包含当前待提交、失败或未决输入；服务端按不可信语境处理，
-不从客户端历史直接建立 Profile / Evidence / 授权。上下文丢失后不假装恢复历史。
+不从客户端历史直接建立 Profile / Evidence / 授权。长 Agent 正文的截断优先为该条消息的
+真实 question 保留位置，使下一轮提取仍能理解回答指代；仍最多八条、每条 2048 字符，
+不增加 REST 字段或聊天持久化。上下文丢失后不假装恢复历史。
 对话结构严格校验 assistantReply、可空问题/目标及跳过维度；非空问题上限 512 字符，并拒绝
 近期完全相同的问题文本。Prompt 引导避免语义重复；没有自动重试。评估失败仍使整轮候选不保存。
 明确的“嗯”“呢”“下一个问题是什么”等附和/流程请求在提取前跳过，只有一次评估调用。
@@ -714,6 +716,11 @@ Vue 只发送已接受消息和实际 Agent 回复，不包含当前待提交、
 响应为 `{revision, sufficient, missingAreas, assistantReply, nextQuestion}`，请求同样可带 recentConversation。仅在 EXPLORING、请求版本等于当前
 revision 时调用一次既有 `ProfileSufficiencyEvaluator`，完全不写入 Profile / Evidence / 状态。
 通过的充分性可以记录为本版元数据；问题与原始响应仍不保存。
+本入口具有主动提问义务，与普通对话可仅回复的契约分开：模型没有给出问题时，统一评估器
+可选择未跳过、未近期问过的确定性缺口问题；已重复的模型问题优先换到其他可用缺口。
+无可用问题（包含全部跳过/耗尽，或充分画像没有新问题提案）返回
+`502 EXTERNAL_CAPABILITY_UNAVAILABLE`，不记录本次充分性元数据、不自动重试，不返回空问题成功。
+仍只有一次模型调用，不保存 Profile / Evidence / revision / status。
 调用后再次读取，若版本或探索状态变化则 409，丢弃旧问题；不接受非整数 revision。
 用户明确索取或主动 Continue / Reopen 后，前端使用此入口；不会伪造输入调用 discovery-turn。
 状态转换与提问是两个请求：转换已经成功但提问失败时，保留真实 EXPLORING，显示错误，

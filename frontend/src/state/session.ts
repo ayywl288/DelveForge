@@ -176,7 +176,15 @@ export function createSession() {
   }
   function recentConversation() {
     return messages.value.filter(message => message.role === "agent" || message.state === "accepted")
-      .slice(-8).map(message => ({ role: message.role, text: message.text.slice(0, 2048) }));
+      .slice(-8).map(message => {
+        let text = message.text.slice(0, 2048);
+        const question = message.role === "agent" ? message.question : undefined;
+        // 实际追问优先于较长正文；保留简短回答的指代，不增加历史或请求字段。
+        if (question && !text.includes(question)) {
+          text = message.text.slice(0, 2048 - question.length - 2).trimEnd() + "\n\n" + question;
+        }
+        return { role: message.role, text };
+      });
   }
   async function refreshProfileAfterFailure() {
     const profileId = ids.profileId;

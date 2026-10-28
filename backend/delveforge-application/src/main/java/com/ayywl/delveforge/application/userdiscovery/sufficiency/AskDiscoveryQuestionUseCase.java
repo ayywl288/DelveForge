@@ -32,8 +32,7 @@ public final class AskDiscoveryQuestionUseCase {
         UserProfile snapshot = UserProfileCandidates.loadCopy(repository, id);
         requireCurrentExploration(snapshot, revision);
 
-        SufficiencyAssessment result = evaluator.evaluateTurn(
-                snapshot, "请提出下一个有价值的问题，尊重已跳过的维度。", questions, context);
+        SufficiencyAssessment result = evaluator.evaluateQuestion(snapshot, questions, context);
 
         // 长 AI 请求期间若画像已变化，丢弃旧版问题；不把旧评估放到新的审阅/确认版本上。
         requireCurrentExploration(UserProfileCandidates.loadCopy(repository, id), revision);

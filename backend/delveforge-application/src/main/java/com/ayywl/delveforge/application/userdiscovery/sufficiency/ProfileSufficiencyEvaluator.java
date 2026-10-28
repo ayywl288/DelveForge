@@ -103,7 +103,9 @@ public final class ProfileSufficiencyEvaluator {
 
     private static final String CONVERSATION_INSTRUCTION = """
             本次为对话轮，还必须输出 assistantReply（非空且不超过2048字符）、questionArea、deferredAreas。
-            nextQuestion 必须提供，可以为 null；没有问题时 questionArea=null。
+            nextQuestion 必须提供，普通轮可以为 null；没有问题时 questionArea=null。
+            questionRequired=true 表示用户专门索取下一问；有可用角度时必须给出一个问题，
+            优先避开近期已问的相同意图，选择尚未讨论且未拒答的真实缺口，不为了提问编造无关话题。
             assistantReply 先回应 currentUserInput，不把下一问再抄入回复；不宣布画像已审阅或确认。
             questionArea 是下一问的维度：interests / behaviors / painPoints / technicalCapabilities /
             projectGoals / constraints / evidence / exploration，仅用于规划，不是事实分类。
@@ -146,24 +148,31 @@ public final class ProfileSufficiencyEvaluator {
      * @throws AiGatewayException        AI 调用失败，或返回内容无法解析
      */
     public SufficiencyAssessment evaluate(UserProfile candidate) {
-        return evaluate(candidate, List.of(), false, null, List.of());
+        return evaluate(candidate, List.of(), false, null, List.of(), false);
     }
 
     /** 同一次评估兼顾回应和问题规划，事实更新仍由提取阶段单独负责。 */
     public SufficiencyAssessment evaluateTurn(UserProfile candidate, String userInput,
             List<String> previousQuestions, List<DiscoveryContext.Message> context) {
-        return evaluate(candidate, previousQuestions, true, userInput, context);
+        return evaluate(candidate, previousQuestions, true, userInput, context, false);
+    }
+
+    /** 专用入口必须取得可用问题；不能把普通轮的仅回复契约当作完成主动提问。 */
+    public SufficiencyAssessment evaluateQuestion(UserProfile candidate, List<String> previousQuestions,
+            List<DiscoveryContext.Message> context) {
+        return evaluate(candidate, previousQuestions, true,
+                "请提出下一个有价值的问题，尊重已跳过的维度。", context, true);
     }
 
     private SufficiencyAssessment evaluate(UserProfile candidate, List<String> previousQuestions,
-            boolean continueExploration, String userInput, List<DiscoveryContext.Message> context) {
+            boolean continueExploration, String userInput, List<DiscoveryContext.Message> context, boolean questionRequired) {
         if (candidate == null) {
             throw new IllegalArgumentException("ProfileSufficiencyEvaluator 必须指定 candidate");
         }
         List<Gap> gaps = minimumGaps(candidate);
         boolean conversation = userInput != null;
         String raw = aiGateway.generate(buildRequest(candidate, previousQuestions, continueExploration,
-                userInput, context, gaps));
+                userInput, context, gaps, questionRequired));
         ProfileSufficiencyProposal proposal = conversation
                 ? proposalParser.parseConversation(raw) : proposalParser.parse(raw);
 
@@ -181,21 +190,30 @@ public final class ProfileSufficiencyEvaluator {
             question = null;
         }
 
+        boolean repeated = question != null && previousQuestions.contains(question.strip());
+        if (questionRequired && repeated) {
+            question = null;
+        }
+
         // 模型不能用肯定措辞抵消确定性缺口；下一问以最终结论为准。
         if (proposal.sufficient() && !gaps.isEmpty()) {
             reply = "目前还需要补充：" + String.join("；", missing) + "。暂时不想讨论的内容可以先跳过。";
         }
-        if (!gaps.isEmpty() && (!conversation || question != null)) {
+        if (!gaps.isEmpty() && (!conversation || question != null || questionRequired)) {
             List<Gap> available = gaps.stream()
-                    .filter(gap -> !proposal.deferredAreas().contains(gap.area())).toList();
-            boolean relevant = conversation && available.stream()
+                    .filter(gap -> !proposal.deferredAreas().contains(gap.area()))
+                    .filter(gap -> !questionRequired || !repeated || !gap.area().equals(proposal.questionArea())).toList();
+            boolean relevant = question != null && conversation && available.stream()
                     .anyMatch(gap -> gap.area().equals(proposal.questionArea()));
-            boolean alternative = conversation && available.isEmpty()
+            boolean alternative = question != null && conversation && available.isEmpty()
                     && "exploration".equals(proposal.questionArea());
             if (!relevant && !alternative) {
                 question = available.stream().map(Gap::question)
                         .filter(value -> !previousQuestions.contains(value)).findFirst().orElse(null);
             }
+        }
+        if (questionRequired && question == null) {
+            throw new AiGatewayException("主动提问未取得未跳过且未重复的可用问题");
         }
         if (question != null) {
             DiscoveryQuestions.requireNewQuestion(question, previousQuestions);
@@ -228,11 +246,13 @@ public final class ProfileSufficiencyEvaluator {
     }
 
     private AiRequest buildRequest(UserProfile profile, List<String> previousQuestions,
-            boolean continueExploration, String userInput, List<DiscoveryContext.Message> context, List<Gap> gaps) {
+            boolean continueExploration, String userInput, List<DiscoveryContext.Message> context,
+            List<Gap> gaps, boolean questionRequired) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("currentUserProfile", ProfilePromptContext.currentContent(profile));
         payload.put("currentEvidence", profile.evidence());
         payload.put("continueExploration", continueExploration);
+        payload.put("questionRequired", questionRequired);
         payload.put("previousQuestions", previousQuestions);
         payload.put("deterministicMissing", gaps);
         if (userInput != null) {
