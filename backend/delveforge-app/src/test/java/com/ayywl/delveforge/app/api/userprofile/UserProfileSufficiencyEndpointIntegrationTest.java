@@ -71,8 +71,10 @@ class UserProfileSufficiencyEndpointIntegrationTest {
         mockMvc.perform(assess(id))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sufficient").value(false))
-                .andExpect(jsonPath("$.missingAreas.length()").value(2))
+                .andExpect(jsonPath("$.missingAreas.length()").value(6))
                 .andExpect(jsonPath("$.missingAreas[0]").value("缺少真实行为"))
+                .andExpect(jsonPath("$.missingAreas[2]").value("还未明确希望通过项目获得的成果"))
+                .andExpect(jsonPath("$.missingAreas[5]").value("缺少可核对的用户输入依据"))
                 .andExpect(jsonPath("$.nextQuestion").doesNotExist())
                 .andExpect(jsonPath("$.profileStatus").value("EXPLORING"));
 

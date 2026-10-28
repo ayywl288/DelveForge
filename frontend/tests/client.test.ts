@@ -68,7 +68,7 @@ describe("真实 DTO 请求契约", () => {
         options.body && JSON.parse(options.body),
       ]),
     ).toEqual([
-      ["/api/user-profiles/p/discovery-turn", "POST", { input: "需求", previousQuestions: [] }],
+      ["/api/user-profiles/p/discovery-turn", "POST", { input: "需求", previousQuestions: [], recentConversation: [] }],
       ["/api/user-profiles/p/confirm", "POST", { revision: 7 }],
       [
         "/api/software-assets",
@@ -142,7 +142,7 @@ describe("真实 DTO 请求契约", () => {
     await api.resumeDiscovery("p", true);
     await api.resumeDiscovery("p", false);
     expect(fetcher.mock.calls.map(([url, options]) => [url, options?.method, options?.body])).toEqual([
-      ["/api/user-profiles/p/discovery-question", "POST", '{"revision":3,"previousQuestions":["已经提过的问题？"]}'],
+      ["/api/user-profiles/p/discovery-question", "POST", '{"revision":3,"previousQuestions":["已经提过的问题？"],"recentConversation":[]}'],
       ["/api/user-profiles/p/reopen-discovery", "POST", undefined],
       ["/api/user-profiles/p/continue-discovery", "POST", undefined],
     ]);

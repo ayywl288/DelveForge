@@ -13,19 +13,29 @@ import java.util.List;
  *
  * <pre>
  * sufficient = true    missingAreas 为空，nextQuestion 可表示继续深入的问题
- * sufficient = false   missingAreas 非空，nextQuestion 非空
+ * sufficient = false   missingAreas 非空；对话可以仅回复，nextQuestion 为空
  * </pre>
  *
  * <p>{@code missingAreas} 里的每一项是一句话，说明还缺哪一类信息。
  *
  * @param sufficient    是否已足够支撑 Product Direction Discovery
  * @param missingAreas  仍缺失的重要信息或维度；足够时为空列表
- * @param nextQuestion  下一问与最低充分性独立；持续探索时非空，显式审阅充分时可为空
+ * @param nextQuestion  下一问与最低充分性独立；普通对话可为空，主动索取时按语境规划
+ * @param assistantReply 对当前输入的回应；不携带生命周期权限
+ * @param questionArea 下一问所面向的维度，仅用于与最终缺口协调
+ * @param deferredAreas 有限语境内拒答的维度，仅用于抑制追问，不作为用户事实保存
  */
 public record ProfileSufficiencyProposal(
         boolean sufficient,
         List<String> missingAreas,
-        String nextQuestion) {
+        String nextQuestion,
+        String assistantReply,
+        String questionArea,
+        List<String> deferredAreas) {
+
+    public ProfileSufficiencyProposal(boolean sufficient, List<String> missingAreas, String nextQuestion) {
+        this(sufficient, missingAreas, nextQuestion, null, null, List.of());
+    }
 
     public ProfileSufficiencyProposal {
         missingAreas = List.copyOf(missingAreas);

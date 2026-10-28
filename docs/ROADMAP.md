@@ -1,6 +1,17 @@
 # ROADMAP.md
 
 **当前目标（2026-10-28）：冻结 MVP，完成本地发布候选与文档交接。**
+
+**同日用户单独授权的有限例外：IMP-001 / IMP-002。** 在独立 `feature/user-discovery-conversation`
+工作树改进 User Discovery 对话与充分性一致性；保留显式审阅/确认、事实依据和失败原子性。
+不扩展其他业务、FinTrack、Agent 编排或基础设施；不合并、不推送。初次实现与独立审查未运行付费 Provider。
+用户后续单独授权修复 UD-IR-001/002，并在自动化回归后进行隔离的约 8–12 轮真实 DeepSeek
+会话验收；不新增人为金额/Token 配额，不无限循环或重试。见
+[复审后修复记录](validation/user-discovery-conversation-post-review-fix.md)。
+最终独立审查发现 UD-FR-001 后，继续在同一功能分支修复复用审阅资格的并发撤销窗口；
+不新增付费调用，见 [审阅资格并发修复](validation/user-discovery-review-readiness-race-fix.md)。
+实现及确定性验收见 [本次记录](validation/user-discovery-conversational-experience.md)。
+以下冻结范围对本例外以外的工作继续有效。
 不新增产品功能、不生成 EvolutionPlan、不运行付费 DeepSeek 实验、不代修 Taskarium；
 不为旧实验全部变绿继续扩张 Agent、sandbox、Delivery 或前端架构。
 只允许修正直接阻止 DelveForge 启动或使发行说明失真的已证实问题。

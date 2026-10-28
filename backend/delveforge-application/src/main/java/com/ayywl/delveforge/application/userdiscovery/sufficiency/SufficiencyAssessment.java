@@ -15,14 +15,21 @@ import java.util.List;
  *
  * @param sufficient    本次评估的结论
  * @param missingAreas  仍缺失的重要信息或维度；足够时为空列表
- * @param nextQuestion  探索时的下一问，与 sufficient 独立；显式审阅充分时可为空
+ * @param nextQuestion  探索时的可选下一问，与 sufficient 独立
  * @param profileStatus 评估结束后 User Profile 的状态
+ * @param assistantReply 对话轮的回应正文；显式审阅评估不生成正文
  */
 public record SufficiencyAssessment(
         boolean sufficient,
         List<String> missingAreas,
         String nextQuestion,
-        UserProfileStatus profileStatus) {
+        UserProfileStatus profileStatus,
+        String assistantReply) {
+
+    public SufficiencyAssessment(boolean sufficient, List<String> missingAreas,
+            String nextQuestion, UserProfileStatus profileStatus) {
+        this(sufficient, missingAreas, nextQuestion, profileStatus, null);
+    }
 
     public SufficiencyAssessment {
         missingAreas = List.copyOf(missingAreas);

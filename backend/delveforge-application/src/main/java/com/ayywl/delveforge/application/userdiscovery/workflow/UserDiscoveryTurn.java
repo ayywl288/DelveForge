@@ -10,7 +10,7 @@ import com.ayywl.delveforge.domain.user.UserProfile;
  *
  * <pre>
  * profile      本轮结束时的 User Profile（内容已更新，状态已由 Domain 决定）
- * sufficiency  同一轮的充分性结论：够不够、缺什么、下一问是什么
+ * sufficiency  同一轮的充分性结论：够不够、缺什么、assistantReply 与可选下一问
  * </pre>
  *
  * <p>两个字段描述的是同一时刻的同一个候选 Profile，因此调用方不需要自己把「更新后的

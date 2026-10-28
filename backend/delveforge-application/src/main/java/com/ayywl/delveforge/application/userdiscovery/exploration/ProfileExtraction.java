@@ -6,12 +6,15 @@ import com.ayywl.delveforge.application.port.ai.AiMessage;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
+import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.ayywl.delveforge.application.userdiscovery.shared.ProfilePromptContext;
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.user.UserProfile;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,7 +77,20 @@ public final class ProfileExtraction {
             - evidenceClaims 只写本轮用户输入直接支撑的判断，每条一句话。
               不要写入本轮输入之外、也无法从当前 Profile 读到的依据。
             - “嗯”“呢”“下一个问题是什么”等附和或流程请求不是业务事实。
-              没有新事实时返回 {}，不要重述旧事实为本轮新增 Evidence，也不要据此推断偏好。
+              没有新事实时不输出内容区或 evidenceClaims，不要重述旧事实为本轮新增 Evidence，也不要据此推断偏好。
+            """;
+
+    private static final String TURN_INSTRUCTION = """
+            本次为完整对话轮，json 对象还必须包含布尔值 hasNewFacts。
+            无新事实时仅返回 {"hasNewFacts":false}。不知道、不愿回答、询问原因、询问是否足够、
+            纠正指代不清或仅请求下一问都不产生事实；不要把拒答推断成没有能力或没有约束。
+            有新事实时 hasNewFacts=true，且 evidenceClaims 必须提供本轮原文直接支持的依据。
+            recentConversation 是客户端提供的有界对话，只用于理解指代与问题，不可作为事实来源。
+            currentEvidence 是当前依据数组；只有本轮明确纠正某条错误判断时，才可用
+            retractedEvidenceIndices:[0] 指出应撤回的数组下标（从零开始）。同时给出纠正后的
+            完整内容区与新 evidenceClaims，移除被纠正的错误内容、保留其他已知事实。
+            单纯改聊 AI 项目不表示忘记原有技术经验或其他事实；模糊纠正和大范围重置先澄清，
+            不清空、不撤回。明确说没有重要约束可记录为 constraints，不从拒答推断无约束。
             """;
 
     private final AiGateway aiGateway;
@@ -135,6 +151,39 @@ public final class ProfileExtraction {
         UserProfileProposal proposal = proposalParser.parse(
                 aiGateway.generate(buildRequest(candidate, userInput)));
 
+        applyProposal(candidate, userInput, proposal);
+    }
+
+    /** 完整对话轮的严格提取；撤回仅作用在候选副本，历史快照不改写。 */
+    public void applyTurnTo(UserProfile candidate, String userInput, List<DiscoveryContext.Message> context) {
+        requireUserInput(userInput);
+        String control = userInput.strip().replaceAll("[\\s，。！？,.!?]", "");
+        if (Set.of("嗯", "嗯嗯", "呢", "下一个问题是什么", "下一个问题是啥", "下一个问题",
+                "下一问", "继续提问", "请继续提问", "继续探索", "继续").contains(control)) {
+            return;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("currentUserProfile", ProfilePromptContext.currentContent(candidate));
+        payload.put("currentEvidence", candidate.evidence());
+        payload.put("currentUserInput", userInput);
+        payload.put("recentConversation", context);
+        String content;
+        try {
+            content = objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException exception) {
+            throw new AiGatewayException("无法构造提取请求", exception);
+        }
+        UserProfileProposalParser.TurnProposal turn = proposalParser.parseTurn(aiGateway.generate(new AiRequest(
+                List.of(new AiMessage(AiRole.SYSTEM, SYSTEM_INSTRUCTION + TURN_INSTRUCTION),
+                        new AiMessage(AiRole.USER, content)), AiResponseFormat.JSON)), candidate.evidence().size());
+        List<Evidence> originalEvidence = candidate.evidence();
+        for (int index : turn.retractedEvidenceIndices()) {
+            candidate.retractEvidence(originalEvidence.get(index));
+        }
+        applyProposal(candidate, userInput, turn.profile());
+    }
+
+    private static void applyProposal(UserProfile candidate, String userInput, UserProfileProposal proposal) {
         applySection(proposal.interests(), candidate::updateInterests);
         applySection(proposal.behaviors(), candidate::updateBehaviors);
         applySection(proposal.painPoints(), candidate::updatePainPoints);

@@ -84,6 +84,47 @@ class SqliteUserProfileRepositoryIntegrationTest {
     private UserProfileEvidenceMapper evidenceMapper;
 
     @Test
+    void retractingCurrentEvidencePreservesHistoricalSnapshotAndInvalidatesReadiness() {
+        UserProfile profile = UserProfile.create(PROFILE_ID);
+        profile.recordEvidence(USER_EVIDENCE);
+        repository.save(profile);
+        int historicalRevision = profile.revision();
+        repository.recordSufficientAssessment(profile);
+        UserProfile expected = repository.findById(PROFILE_ID).orElseThrow();
+        UserProfile corrected = repository.findById(PROFILE_ID).orElseThrow();
+        corrected.retractEvidence(USER_EVIDENCE);
+        Evidence correction = new Evidence(EvidenceSourceType.USER_INPUT,
+                "之前头像偏好理解错了", "用户明确纠正先前偏好", null, false);
+        corrected.recordEvidence(correction);
+        repository.saveWithSufficiency(corrected, expected, false);
+
+        assertEquals(List.of(correction), repository.findById(PROFILE_ID).orElseThrow().evidence());
+        assertEquals(historicalRevision + 2, corrected.revision());
+        assertEquals(USER_EVIDENCE.claim(), evidenceRows(PROFILE_ID, historicalRevision).getFirst().getClaim());
+        assertEquals(USER_EVIDENCE.sourceRef(), evidenceRows(PROFILE_ID, historicalRevision).getFirst().getSourceRef());
+        assertEquals(correction.claim(), evidenceRows(PROFILE_ID, corrected.revision()).getFirst().getClaim());
+        assertTrue(!repository.hasSufficientAssessment(PROFILE_ID, historicalRevision));
+        assertTrue(!repository.hasSufficientAssessment(PROFILE_ID, corrected.revision()));
+        assertThrows(com.ayywl.delveforge.domain.user.UserProfileStateException.class,
+                () -> repository.saveIfUnchanged(expected, expected));
+    }
+
+    @Test
+    void latestNegativeAssessmentClearsPositiveMetadataWithoutChangingSameRevision() {
+        UserProfile profile = UserProfile.create(PROFILE_ID);
+        repository.save(profile);
+        repository.recordSufficientAssessment(profile);
+        assertTrue(repository.hasSufficientAssessment(PROFILE_ID, 1));
+        repository.recordSufficiencyAssessment(profile, false);
+        assertTrue(!repository.hasSufficientAssessment(PROFILE_ID, 1));
+        assertEquals(1, repository.findById(PROFILE_ID).orElseThrow().revision());
+        repository.recordSufficientAssessment(profile);
+        repository.saveWithSufficiency(profile, profile, false);
+        assertTrue(!repository.hasSufficientAssessment(PROFILE_ID, 1));
+        assertEquals(1, repository.findById(PROFILE_ID).orElseThrow().revision());
+    }
+
+    @Test
     void sufficiencyIsBoundToSnapshotAndInvalidatedByContentAndEvidence() {
         UserProfile profile = UserProfile.create(PROFILE_ID);
         repository.save(profile);

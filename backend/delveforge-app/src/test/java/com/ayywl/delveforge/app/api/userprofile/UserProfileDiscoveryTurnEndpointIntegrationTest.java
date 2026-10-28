@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -42,6 +43,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
 
     private static final String EXTRACTION_RESPONSE = """
             {
+              "hasNewFacts": true,
               "interests": ["图片处理"],
               "painPoints": ["头像裁剪麻烦"],
               "technicalCapabilities": ["Java图像处理"],
@@ -52,10 +54,13 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
             """;
 
     private static final String SUFFICIENT_RESPONSE =
-            "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"希望先支持哪一种裁剪场景？\"}";
+            "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"希望先支持哪一种裁剪场景？\",\"assistantReply\":\"可以继续细化裁剪体验。\",\"questionArea\":\"exploration\",\"deferredAreas\":[]}";
 
     private static final String INSUFFICIENT_RESPONSE = """
             {
+              "assistantReply": "为了选择合适的方向，还需要了解技术经验。",
+              "questionArea": "technicalCapabilities",
+              "deferredAreas": [],
               "sufficient": false,
               "missingAreas": ["缺少技术能力"],
               "nextQuestion": "你平时主要用什么语言写代码？"
@@ -124,7 +129,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         String id = createProfile();
         given(aiGateway.generate(any())).willReturn(
                 EXTRACTION_RESPONSE, INSUFFICIENT_RESPONSE,
-                "{\"technicalCapabilities\":[\"Java\"]}", SUFFICIENT_RESPONSE);
+                "{\"hasNewFacts\":true,\"technicalCapabilities\":[\"Java\"],\"evidenceClaims\":[\"用户主要使用Java\"]}", SUFFICIENT_RESPONSE);
 
         String nextQuestion = objectMapper.readTree(
                         mockMvc.perform(turn(id, USER_INPUT))
@@ -206,7 +211,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.profileStatus").value("REVIEWING"));
         mockMvc.perform(post("/api/user-profiles/{id}/continue-discovery", id)).andExpect(status().isOk());
         for (String input : java.util.List.of("希望输出两个尺寸", "还希望保留原图")) {
-            given(aiGateway.generate(any())).willReturn("{}", SUFFICIENT_RESPONSE);
+            given(aiGateway.generate(any())).willReturn("{\"hasNewFacts\":false}", SUFFICIENT_RESPONSE);
             mockMvc.perform(turn(id, input)).andExpect(status().isOk())
                     .andExpect(jsonPath("$.sufficient").value(true))
                     .andExpect(jsonPath("$.profile.status").value("EXPLORING"));
@@ -327,6 +332,79 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":7}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.nextQuestion").doesNotExist());
         org.mockito.Mockito.verifyNoInteractions(aiGateway);
+    }
+
+    @Test
+    void responseOnlyTurnReturnsReplyWithoutInventingFactsOrForcingAQuestion() throws Exception {
+        String id = createProfile();
+        given(aiGateway.generate(any())).willReturn("{\"hasNewFacts\":false}", """
+                {"sufficient":false,"missingAreas":["还需明确目标"],"assistantReply":"技术背景用于判断可行范围，可以先跳过。",
+                 "nextQuestion":null,"questionArea":null,"deferredAreas":["technicalCapabilities"]}
+                """);
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-turn", id)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"input":"为什么需要技术背景？","recentConversation":[
+                                  {"role":"agent","text":"做过什么项目？"}]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.assistantReply").value("技术背景用于判断可行范围，可以先跳过。"))
+                .andExpect(jsonPath("$.nextQuestion").doesNotExist())
+                .andExpect(jsonPath("$.sufficient").value(false))
+                .andExpect(jsonPath("$.profile.revision").value(1))
+                .andExpect(jsonPath("$.profile.evidence").isEmpty())
+                .andExpect(jsonPath("$.profile.status").value("EXPLORING"));
+        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(2)).generate(any());
+    }
+
+    @Test
+    void invalidConversationIsRejectedBeforeAi() throws Exception {
+        String id = createProfile();
+        for (String role : java.util.Arrays.asList("system", null)) {
+            mockMvc.perform(post("/api/user-profiles/{id}/discovery-turn", id)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(new DiscoveryTurnRequest("消息", null,
+                                    java.util.List.of(new DiscoveryContext.Message(role, "历史文本"))))))
+                    .andExpect(status().isBadRequest());
+        }
+        org.mockito.Mockito.verifyNoInteractions(aiGateway);
+    }
+
+    @Test
+    void explicitQuestionWithActionableGapsReplansAQuestionlessModelResponse() throws Exception {
+        String id = createProfile();
+        given(aiGateway.generate(any())).willReturn("""
+                {"sufficient":false,"missingAreas":["需要明确目标"],"assistantReply":"我们可以开始探索。",
+                 "nextQuestion":null,"questionArea":null,"deferredAreas":[]}
+                """);
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":1}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sufficient").value(false))
+                .andExpect(jsonPath("$.nextQuestion").value("你希望这个项目帮助你完成什么成果，或展示什么能力？"));
+        mockMvc.perform(get("/api/user-profiles/{id}", id))
+                .andExpect(jsonPath("$.revision").value(1)).andExpect(jsonPath("$.evidence").isEmpty())
+                .andExpect(jsonPath("$.status").value("EXPLORING"));
+        mockMvc.perform(get("/api/user-profiles/{id}/review-readiness", id))
+                .andExpect(jsonPath("$.sufficient").doesNotExist());
+        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(1)).generate(any());
+    }
+
+    @Test
+    void explicitQuestionWithoutAnyUsableTopicFailsRatherThanReturningEmptySuccess() throws Exception {
+        String id = createProfile();
+        given(aiGateway.generate(any())).willReturn("""
+                {"sufficient":false,"missingAreas":["目标待补充"],"assistantReply":"可以先不讨论这些。",
+                 "nextQuestion":"  ","questionArea":null,
+                 "deferredAreas":["projectGoals","technicalCapabilities","constraints","evidence"]}
+                """);
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":1}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("EXTERNAL_CAPABILITY_UNAVAILABLE"));
+        mockMvc.perform(get("/api/user-profiles/{id}", id))
+                .andExpect(jsonPath("$.revision").value(1)).andExpect(jsonPath("$.evidence").isEmpty());
+        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(1)).generate(any());
     }
 
     private String createProfile() throws Exception {

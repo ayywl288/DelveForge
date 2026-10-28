@@ -62,7 +62,7 @@ describe("Discovery 全部提问入口和可访问消息", () => {
     requested.resolve(question()); await pending; await settle();
     expect(s.discoveryPending).toBe(false);
     expect(root.querySelector(".assistant-waiting")).toBeNull();
-    expect(s.messages).toEqual([{ role: "agent", text: question().nextQuestion }]);
+    expect(s.messages).toEqual([{ role: "agent", text: question().nextQuestion, question: question().nextQuestion }]);
     expect(root.querySelector(".message-author")?.classList.contains("sr-only")).toBe(true);
   });
 

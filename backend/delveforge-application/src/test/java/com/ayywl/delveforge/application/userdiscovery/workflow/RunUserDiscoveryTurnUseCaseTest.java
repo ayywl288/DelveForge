@@ -27,7 +27,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 /**
- * 验证一轮 User Discovery 的编排：提取 → 更新 → 评估 → 必要时进入 Review，
+ * 验证一轮 User Discovery 的编排：提取 → 更新候选 → 评估与回应，
  * 整轮只保存一次，任何一步失败都不留下半轮结果。
  *
  * <p>AI 能力在 Port 边界用替身替代，因此本类不依赖 Spring、不访问网络，
@@ -44,6 +44,7 @@ class RunUserDiscoveryTurnUseCaseTest {
     /** 一次调用返回一个 Profile Proposal 的响应。 */
     private static final String EXTRACTION_RESPONSE = """
             {
+              "hasNewFacts": true,
               "interests": ["图片处理"],
               "painPoints": ["头像裁剪麻烦"],
               "evidenceClaims": ["用户需要频繁处理头像图片"]
@@ -51,10 +52,13 @@ class RunUserDiscoveryTurnUseCaseTest {
             """;
 
     private static final String SUFFICIENT_RESPONSE =
-            "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"希望先支持哪一种裁剪场景？\"}";
+            "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"希望先支持哪一种裁剪场景？\",\"assistantReply\":\"可以继续细化裁剪体验。\",\"questionArea\":\"exploration\",\"deferredAreas\":[]}";
 
     private static final String INSUFFICIENT_RESPONSE = """
             {
+              "assistantReply": "为了选择合适的方向，还需要了解技术经验。",
+              "questionArea": "technicalCapabilities",
+              "deferredAreas": [],
               "sufficient": false,
               "missingAreas": ["缺少技术能力"],
               "nextQuestion": "你平时主要用什么语言写代码？"
@@ -79,7 +83,8 @@ class RunUserDiscoveryTurnUseCaseTest {
         UserDiscoveryTurn turn = useCase.run(PROFILE_ID, USER_INPUT);
 
         assertFalse(turn.sufficiency().sufficient());
-        assertEquals(List.of("缺少技术能力"), turn.sufficiency().missingAreas());
+        assertTrue(turn.sufficiency().missingAreas().contains("缺少技术能力"));
+        assertTrue(turn.sufficiency().missingAreas().contains("还未明确希望通过项目获得的成果"));
         assertEquals("你平时主要用什么语言写代码？", turn.sufficiency().nextQuestion());
         assertEquals(UserProfileStatus.EXPLORING, turn.profile().status());
 
@@ -160,7 +165,7 @@ class RunUserDiscoveryTurnUseCaseTest {
     void failsWithoutSavingWhenContentUpdateIsRejected() {
         UserProfile profile = seedProfile();
         int savesBefore = repository.saveCount();
-        aiGateway.respondWith("{\"interests\":[\"这个区会先被应用\"],\"behaviors\":[\"  \"]}",
+        aiGateway.respondWith("{\"hasNewFacts\":true,\"evidenceClaims\":[\"本轮事实\"],\"interests\":[\"这个区会先被应用\"],\"behaviors\":[\"  \"]}",
                 SUFFICIENT_RESPONSE);
 
         assertThrows(IllegalArgumentException.class, () -> useCase.run(PROFILE_ID, USER_INPUT));
@@ -218,7 +223,7 @@ class RunUserDiscoveryTurnUseCaseTest {
     }
 
     /**
-     * 多轮推进：第一轮不足并给出下一问，用户回答后第二轮进入 REVIEWING。
+     * 多轮推进：第一轮不足并给出下一问，用户回答后第二轮充分，仍保持 EXPLORING。
      */
     @Test
     void advancesAcrossTurnsUntilSufficient() {
@@ -232,7 +237,7 @@ class RunUserDiscoveryTurnUseCaseTest {
         assertEquals("你平时主要用什么语言写代码？", nextQuestion);
 
         // 用户回答上一轮的问题，发起下一轮
-        aiGateway.respondWith("{\"technicalCapabilities\":[\"Java\"]}", SUFFICIENT_RESPONSE);
+        aiGateway.respondWith("{\"hasNewFacts\":true,\"technicalCapabilities\":[\"Java\"],\"evidenceClaims\":[\"用户主要使用Java\"]}", SUFFICIENT_RESPONSE);
         UserDiscoveryTurn second = useCase.run(PROFILE_ID, nextQuestion + " —— 主要用 Java");
 
         assertTrue(second.sufficiency().sufficient());
@@ -345,7 +350,7 @@ class RunUserDiscoveryTurnUseCaseTest {
         new ContinueDiscoveryUseCase(repository).continueDiscovery(PROFILE_ID);
 
         for (String input : List.of("再补充一种输出尺寸", "再补充预览功能")) {
-            aiGateway.respondWith("{}", SUFFICIENT_RESPONSE);
+            aiGateway.respondWith("{\"hasNewFacts\":false}", SUFFICIENT_RESPONSE);
             UserDiscoveryTurn turn = useCase.run(PROFILE_ID, input);
             assertTrue(turn.sufficiency().sufficient());
             assertEquals(UserProfileStatus.EXPLORING, turn.profile().status());

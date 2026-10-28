@@ -142,14 +142,14 @@ public class UserProfileController {
      * 面向产品的一轮 User Discovery：提取 → 更新 → 评估最低审阅条件，保持探索。
      *
      * <p>整轮作用在同一个候选 Profile 上并只保存一次；任何一步失败都不会留下半轮结果。
-     * 无论 {@code sufficient} 是否为 true，调用方都可用 {@code nextQuestion} 向用户提问，
+     * 调用方展示回应正文；{@code nextQuestion} 非空时可继续向用户提问，
      * 拿到回答后再发起下一轮——循环跨 HTTP 请求完成，服务端不等待用户。
      */
     @PostMapping("/{id}/discovery-turn")
     public DiscoveryTurnResponse discoveryTurn(@PathVariable String id,
                                                @RequestBody DiscoveryTurnRequest request) {
         return toResponse(runUserDiscoveryTurnUseCase.run(
-                new UserProfileId(id), request.input(), request.previousQuestions()));
+                new UserProfileId(id), request.input(), request.previousQuestions(), request.recentConversation()));
     }
 
     /** 用户主动索取下一问：只读、一次 AI 调用，不改变画像或探索状态。 */
@@ -160,9 +160,9 @@ public class UserProfileController {
             throw new IllegalArgumentException("下一问请求必须携带所依据的 revision");
         }
         SufficiencyAssessment result = askDiscoveryQuestionUseCase.ask(
-                new UserProfileId(id), request.revision(), request.previousQuestions());
+                new UserProfileId(id), request.revision(), request.previousQuestions(), request.recentConversation());
         return new DiscoveryQuestionResponse(
-                request.revision(), result.sufficient(), result.missingAreas(), result.nextQuestion());
+                request.revision(), result.sufficient(), result.missingAreas(), result.nextQuestion(), result.assistantReply());
     }
 
     /**
@@ -206,7 +206,8 @@ public class UserProfileController {
                 toResponse(turn.profile()),
                 assessment.sufficient(),
                 assessment.missingAreas(),
-                assessment.nextQuestion());
+                assessment.nextQuestion(),
+                assessment.assistantReply());
     }
 
     private static SufficiencyAssessmentResponse toResponse(SufficiencyAssessment assessment) {

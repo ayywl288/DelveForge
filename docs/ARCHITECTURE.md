@@ -634,16 +634,21 @@ sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是�
 
 服务端只保存每份 Profile 当前通过最低充分性检查的 revision（`user_profile_sufficiency`）；
 它依赖既有 ID + revision 内容快照，不保存 Prompt、原始响应、问题或历史评估。
-同版审阅优先复用该结果；内容或 Evidence 更新的事务删除旧记录。只读下一问可记录
+同版审阅优先复用当前通过结果；内容或 Evidence 更新的事务删除旧记录。新的完整评估若为不足，
+同版旧通过标记也原子清除，不保存负面历史或改变 revision。只读下一问可更新
 服务端通过结果，但不保存用户事实。浏览器 sufficient 标志不具有状态转换权限。
-审阅保存、确认以及所有 M1 更新均通过 `saveIfUnchanged` 检查原始版本、状态与快照；
-SQLite 条件 UPDATE 先取得写锁，检查和保存同事务，AI 调用始终在事务外。
+审阅保存、确认以及所有 M1 更新均在提交事务中检查原始版本、状态与快照。
+复用审阅通过 `saveReviewIfSufficient`，在 SQLite 条件 UPDATE 取得写锁后额外核对
+同 ID + revision 的通过记录仍有效，再保存 REVIEWING；不重新创建通过记录。若记录已被撤销，
+返回 `409 CONFLICT`，不保存候选、不隐式调用模型重评。新评估通过仍使用
+`saveWithSufficiency` 原子保存画像与通过结果，其他更新继续通过 `saveIfUnchanged`；
+各路径共享快照核对，检查和保存同事务，AI 调用始终在事务外。
 
 充分性不是六区非空或条目计数：AI 需核对具体动机 / 期望成果、技术基础、约束及用户输入依据；
 兴趣、学习和求职可充分，painPoints 可为空。Application 同时拦截缺失目标、技术基础、约束
 或 USER_INPUT Evidence 的正面建议。该检查不能证明自然语言的语义真实性，仍需要用户审阅。
-探索中一次不足仅返回一个最有价值的问题；充分与下一问不再互斥。显式审阅无论是否充分均返回空问题，
-持续探索时仍提出一个有价值的深入问题，不为了固定轮数或填字段追加问题。
+探索先返回 assistantReply，再按语境选择可选 nextQuestion；不足也可以仅解释、接受跳过或澄清。
+显式审阅无论是否充分均返回空问题；充分性、继续交流与进入审阅保持独立。
 
 **review-readiness 语义**
 
@@ -656,8 +661,9 @@ true 仅表示本版服务端已通过；null 表示没有有效通过记录，�
 面向产品的主要入口：一次请求完成一整轮 User Discovery。
 
 ```text
-请求体    {"input": "<本轮用户输入的原文>", "previousQuestions": ["<本页实际已提问题>"]}
-响应体    {"profile": {…}, "sufficient": …, "missingAreas": […], "nextQuestion": …}
+请求体    {"input": "<本轮用户输入>", "previousQuestions": ["<已提问题>"],
+           "recentConversation": [{"role":"user|agent", "text":"<已接受的本页语境>"}]}
+响应体    {"profile": {…}, "sufficient": …, "missingAreas": […], "assistantReply": "…", "nextQuestion": "…"|null}
 ```
 
 ```text
@@ -665,10 +671,10 @@ true 仅表示本版服务端已通过；null 表示没有有效通过记录，�
      ↓
 提取      当前 Profile + 输入 → AI 提出建议 → 更新候选 Profile
      ↓
-评估      对「本轮已经更新过的候选 Profile」判断信息是否足够
+评估/回应 对候选 Profile 先计算确定性缺口，同一次 AI 调用做语义判断、回应及可选问题规划
      ↓
-insufficient  保存更新后的 Profile，返回 missingAreas + nextQuestion，仍为 EXPLORING
-sufficient    保存更新后的 Profile，返回最低条件已满足与深入下一问，仍为 EXPLORING
+insufficient  保存候选，返回最终缺口、assistantReply 与可选 nextQuestion，仍为 EXPLORING
+sufficient    保存候选，返回最低条件已满足与回应，仍为 EXPLORING
 ```
 
 - **`discovery-turn` 只能从 `EXPLORING` 开始**：`REVIEWING` 与 `CONFIRMED` 下调用直接 409，
@@ -681,15 +687,27 @@ sufficient    保存更新后的 Profile，返回最低条件已满足与深入�
 - **评估针对更新后的候选 Profile**：用户这一轮说的信息必须先进入 Profile 再判断够不够。
 - **失败原子性**：提取的 AI 调用/解析失败、内容更新被 Aggregate 拒绝、评估的 AI 调用/解析
   失败均不会产生持久化副作用。普通对话轮不调用 `beginReview`。
-- **循环跨 HTTP 请求**：一轮返回 `nextQuestion`，调用方据此向用户提问，拿到回答后再发起
+- **循环跨 HTTP 请求**：一轮返回正文及可选问题，调用方展示后由用户继续输入，再发起
   下一轮。服务端不做 `while`、不等待用户、不保存对话记录。
 - `sufficient` 为 true 仅表示最低条件满足，`profile.status` 仍为 `EXPLORING`。
   用户可自然补充多轮，或显式调用 `sufficiency-assessment` 进入审阅；不得自动 Confirm。
 
-普通业务输入仍是两次 Gateway 调用：一次提取、一次评估兼提问，没有第三次追问调用。
+普通业务输入仍是两次 Gateway 调用：一次事实提取、一次语义评估兼回复/问题规划，没有第三次调用。
+整轮提取必须给出 hasNewFacts；false 不能同时修改区块、撤回依据或新增 claims；true 必须有
+本轮原文支持的 claims。明确纠正可引用当前 Evidence 数组的唯一合法下标，经 Domain 操作撤回
+当前错误依据，同时更新相关区块并新增本轮依据；历史快照不变。低层 explore 接口保持旧提取契约。
+Application 在模型调用前提供 deterministicMissing，最终始终合并确定性缺口与语义不足。
+模型误报充分时，服务端改为不足并返回对应缺口说明；问题若偏离必要缺口则选择可用的缺口问题。
+对话提案中 questionArea 与 deferredAreas 仅用于问题规划；已跳过维度不转为事实，也不免除最低条件。
+当前选择用有限语境识别跳过意愿；语义识别仍依赖模型，不宣称自动证明自然语言真实性。
 `previousQuestions` 可省略；当前实现最多八个非空问题，每个最多 512 字符，仅用于避免重复，
-不是用户事实，不持久化。Prompt 引导避免语义重复与无关问题；Application 拒绝近期相同文本、
-空白或超长问题，无自动重试。评估失败仍使整轮候选不保存。
+不是用户事实，不持久化。recentConversation 可省略，最多八条 user/agent 消息，每条 2048 字符；
+Vue 只发送已接受消息和实际 Agent 回复，不包含当前待提交、失败或未决输入；服务端按不可信语境处理，
+不从客户端历史直接建立 Profile / Evidence / 授权。长 Agent 正文的截断优先为该条消息的
+真实 question 保留位置，使下一轮提取仍能理解回答指代；仍最多八条、每条 2048 字符，
+不增加 REST 字段或聊天持久化。上下文丢失后不假装恢复历史。
+对话结构严格校验 assistantReply、可空问题/目标及跳过维度；非空问题上限 512 字符，并拒绝
+近期完全相同的问题文本。Prompt 引导避免语义重复；没有自动重试。评估失败仍使整轮候选不保存。
 明确的“嗯”“呢”“下一个问题是什么”等附和/流程请求在提取前跳过，只有一次评估调用。
 其余自然语言的事实提取仍依靠模型与用户审阅，不宣称此规则能穷举所有非业务输入。
 
@@ -699,9 +717,14 @@ sufficient    保存更新后的 Profile，返回最低条件已满足与深入�
 {"revision": 7, "previousQuestions": ["每周能投入多少时间？"]}
 ```
 
-响应为 `{revision, sufficient, missingAreas, nextQuestion}`。仅在 EXPLORING、请求版本等于当前
+响应为 `{revision, sufficient, missingAreas, assistantReply, nextQuestion}`，请求同样可带 recentConversation。仅在 EXPLORING、请求版本等于当前
 revision 时调用一次既有 `ProfileSufficiencyEvaluator`，完全不写入 Profile / Evidence / 状态。
 通过的充分性可以记录为本版元数据；问题与原始响应仍不保存。
+本入口具有主动提问义务，与普通对话可仅回复的契约分开：模型没有给出问题时，统一评估器
+可选择未跳过、未近期问过的确定性缺口问题；已重复的模型问题优先换到其他可用缺口。
+无可用问题（包含全部跳过/耗尽，或充分画像没有新问题提案）返回
+`502 EXTERNAL_CAPABILITY_UNAVAILABLE`，不记录本次充分性元数据、不自动重试，不返回空问题成功。
+仍只有一次模型调用，不保存 Profile / Evidence / revision / status。
 调用后再次读取，若版本或探索状态变化则 409，丢弃旧问题；不接受非整数 revision。
 用户明确索取或主动 Continue / Reopen 后，前端使用此入口；不会伪造输入调用 discovery-turn。
 状态转换与提问是两个请求：转换已经成功但提问失败时，保留真实 EXPLORING，显示错误，
@@ -1445,13 +1468,13 @@ sequenceDiagram
         UD->>AI: Extract facts from real input
         AI-->>UD: Structured Profile Proposal
         UD->>AI: Assess candidate + Evidence / Propose next question
-        AI-->>UD: Sufficiency + Next question (even when sufficient)
+        AI-->>UD: Final sufficiency + assistantReply + Optional nextQuestion
 
-        UD-->>O: Next Question
-        O-->>U: Ask Question
+        UD-->>O: assistantReply + Optional nextQuestion
+        O-->>U: Reply and optionally ask
 
-        U->>O: Answer
-        O->>UD: Process Answer
+        U->>O: Respond / clarify / skip / correct
+        O->>UD: Process current intent
     end
 
     U->>O: Request review explicitly

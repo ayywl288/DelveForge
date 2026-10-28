@@ -95,7 +95,12 @@ public class AssessProfileSufficiencyUseCase {
         // 只有真的发生了状态转移才写入：信息不足时不产生任何持久化副作用。
         if (assessment.sufficient()) {
             candidate.beginReview();
-            userProfileRepository.saveWithSufficiency(candidate, expected, true);
+            if (reused) {
+                // 同版通过标记可在画像未变时被撤销，必须在提交事务中再次核对资格。
+                userProfileRepository.saveReviewIfSufficient(candidate, expected);
+            } else {
+                userProfileRepository.saveWithSufficiency(candidate, expected, true);
+            }
         }
         return new SufficiencyAssessment(assessment.sufficient(), assessment.missingAreas(),
                 null, candidate.status());

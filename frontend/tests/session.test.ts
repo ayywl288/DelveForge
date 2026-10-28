@@ -132,7 +132,7 @@ describe("M1 问题显示与连续探索", () => {
     expect(s.messages.value).toHaveLength(0);
     vi.spyOn(api, "discoveryTurn").mockResolvedValue({ ...assessment, profile: profile() });
     await s.turn("集卡周期长");
-    expect(s.messages.value.filter(m => m.role === "agent")).toEqual([{ role: "agent", text: assessment.nextQuestion }]);
+    expect(s.messages.value.filter(m => m.role === "agent")).toEqual([{ role: "agent", text: assessment.nextQuestion, question: assessment.nextQuestion }]);
     vi.spyOn(api, "resumeDiscovery").mockResolvedValue(profile());
     s.profile.value = { ...profile(), status: "REVIEWING" };
     vi.spyOn(api, "discoveryQuestion").mockResolvedValue({ ...assessment, revision: 1 });
@@ -193,8 +193,8 @@ describe("持续引导与只读下一问", () => {
     expect(ask).toHaveBeenCalledTimes(1);
     resolve({ revision: 1, sufficient: true, missingAreas: [], nextQuestion: "你希望谁先使用这个项目？" });
     await first;
-    expect(ask).toHaveBeenCalledWith("profile-1", 1, []);
-    expect(s.messages.value).toEqual([{ role: "agent", text: "你希望谁先使用这个项目？" }]);
+    expect(ask).toHaveBeenCalledWith("profile-1", 1, [], []);
+    expect(s.messages.value).toEqual([{ role: "agent", text: "你希望谁先使用这个项目？", question: "你希望谁先使用这个项目？" }]);
     await s.continueExploring();
     expect(ask).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(sessionKey) ?? "").not.toContain("这个项目");

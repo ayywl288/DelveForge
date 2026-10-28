@@ -191,3 +191,117 @@ describe("Discovery 消息反馈与请求边界", () => {
     expect(s.error).toBeTruthy();
   });
 });
+
+
+describe("自然回复、可选问题与有界语境", () => {
+  it("正文与下一问合并显示一次，提问历史只包含问题", async () => {
+    const turn = vi.spyOn(api, "discoveryTurn")
+      .mockResolvedValueOnce({ ...result(), assistantReply: "可以先从熟悉的日常工具想起。" })
+      .mockResolvedValueOnce({ ...result(), assistantReply: "好的，这一轮可以先停在这里。", nextQuestion: null });
+    const { s, root } = setup();
+    await s.turn("不知道");
+    await settle();
+    expect(root.querySelectorAll(".message.agent")).toHaveLength(1);
+    expect(root.querySelector(".message.agent")?.textContent).toContain("可以先从熟悉");
+    expect(root.querySelector(".message.agent")?.textContent?.split(result().nextQuestion!)).toHaveLength(2);
+    await s.turn("我想先想一想");
+    expect(turn.mock.calls[1]?.[2]).toEqual([result().nextQuestion]);
+    expect(turn.mock.calls[1]?.[3]).toEqual([
+      { role: "user", text: "不知道" },
+      { role: "agent", text: "可以先从熟悉的日常工具想起。\n\n" + result().nextQuestion },
+    ]);
+    expect(s.nextQuestion).toBeNull();
+    expect(s.messages.at(-1)?.text).toBe("好的，这一轮可以先停在这里。");
+    expect(localStorage.getItem(sessionKey) ?? "").not.toContain("熟悉");
+  });
+
+  it("正文已经含有下一问时不重复展示，只有回复时仍可主动索取下一问", async () => {
+    vi.spyOn(api, "discoveryTurn").mockResolvedValueOnce({ ...result(),
+      assistantReply: "先换个角度。" + result().nextQuestion }).mockResolvedValueOnce({ ...result(),
+      assistantReply: "技术背景帮助判断可行范围，你也可以跳过。", nextQuestion: null });
+    const ask = vi.spyOn(api, "discoveryQuestion").mockResolvedValue({ revision: 2, sufficient: false,
+      missingAreas: ["场景"], assistantReply: "可以先从使用场景开始。", nextQuestion: "最先给谁用？" });
+    const { s } = setup();
+    await s.turn("换个问题");
+    expect(s.messages.at(-1)?.text).toBe("先换个角度。" + result().nextQuestion);
+    await s.turn("为什么需要技术背景");
+    expect(s.nextQuestion).toBeNull();
+    await s.continueExploring();
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(ask.mock.calls[0]?.[3]?.at(-2)?.text).toBe("为什么需要技术背景");
+    expect(s.messages.at(-1)?.text).toBe("可以先从使用场景开始。\n\n最先给谁用？");
+  });
+
+  it("只发送最近八条已接受语境，排除失败和当前待提交消息", async () => {
+    const turn = vi.spyOn(api, "discoveryTurn").mockResolvedValue({ ...result(),
+      assistantReply: "解释当前问题。", nextQuestion: null });
+    const { s } = setup();
+    for (let i = 0; i < 12; i++) s.messages.push({ role: "user", text: `已接受${i}`, state: "accepted" });
+    s.messages.push({ role: "user", text: "失败消息", state: "failed" });
+    s.messages.push({ role: "agent", text: "x".repeat(3000) });
+    await s.turn("本轮待提交");
+    const context = turn.mock.calls[0]?.[3];
+    expect(context).toHaveLength(8);
+    expect(context?.[0]?.text).toBe("已接受5");
+    expect(context?.at(-1)?.text.length).toBe(2048);
+    expect(context?.some(message => message.text === "失败消息" || message.text === "本轮待提交")).toBe(false);
+  });
+
+  it("长正文截断时保留实际追问，让下一轮短回答仍有提问语境", async () => {
+    const question = "你目前有什么技术经验？";
+    const turn = vi.spyOn(api, "discoveryTurn")
+      .mockResolvedValueOnce({ ...result(), assistantReply: "解释".repeat(1024), nextQuestion: question })
+      .mockResolvedValueOnce({ ...result(), assistantReply: "收到。", nextQuestion: null });
+    const { s } = setup();
+    await s.turn("先问我一个问题");
+    await s.turn("做过几个Spring Boot应用");
+    const context = turn.mock.calls[1]?.[3];
+    expect(context?.at(-1)?.role).toBe("agent");
+    expect(context?.at(-1)?.text).toContain(question);
+    expect(context?.at(-1)?.text.endsWith(question)).toBe(true);
+    expect(context?.at(-1)?.text.length).toBeLessThanOrEqual(2048);
+    expect(context?.length).toBeLessThanOrEqual(8);
+    expect(context?.some(message => message.text === "做过几个Spring Boot应用")).toBe(false);
+    expect(s.messages[1]?.text).toBe("解释".repeat(1024) + "\n\n" + question);
+  });
+
+  it("正文前部已有实际问题时保留原语境，不再追加同一问题", async () => {
+    const question = "你主要使用什么技术？";
+    const reply = question + "解释".repeat(1024);
+    const turn = vi.spyOn(api, "discoveryTurn")
+      .mockResolvedValueOnce({ ...result(), assistantReply: reply, nextQuestion: question })
+      .mockResolvedValueOnce({ ...result(), assistantReply: "收到。", nextQuestion: null });
+    const { s } = setup();
+    await s.turn("可以先聊技术");
+    await s.turn("Spring Boot");
+    const context = turn.mock.calls[1]?.[3]?.at(-1)?.text;
+    expect(context).toBe(reply.slice(0, 2048));
+    expect(context?.split(question)).toHaveLength(2);
+  });
+
+  it("较早的本页问题也去重，回复正文仍然保留", async () => {
+    vi.spyOn(api, "discoveryTurn").mockResolvedValue({ ...result(), assistantReply: "我们可以继续补充其他想法。" });
+    const { s } = setup();
+    s.messages.push({ role: "agent", text: result().nextQuestion!, question: result().nextQuestion! });
+    for (let i = 0; i < 9; i++) s.messages.push({ role: "agent", text: `其他问题${i}`, question: `其他问题${i}` });
+    await s.turn("继续补充");
+    expect(s.messages.at(-1)?.text).toBe("我们可以继续补充其他想法。");
+    expect(s.nextQuestion).toBeNull();
+    expect(s.notice).toContain("已经提过");
+  });
+
+  it("同一画像在等待期间变版时，迟到回复不覆盖状态或显示为成功", async () => {
+    const request = deferred<DiscoveryTurn>();
+    vi.spyOn(api, "discoveryTurn").mockReturnValue(request.promise);
+    const { s } = setup();
+    const pending = s.turn("旧版本输入");
+    s.profile = { ...profile(), revision: 9, status: "REVIEWING" };
+    request.resolve({ ...result(), assistantReply: "旧回复不应显示" });
+    await pending;
+    expect(s.profile.revision).toBe(9);
+    expect(s.profile.status).toBe("REVIEWING");
+    expect(s.messages[0]?.state).toBe("uncertain");
+    expect(s.messages.some(message => message.role === "agent")).toBe(false);
+    expect(s.notice).toContain("迟到");
+  });
+});
