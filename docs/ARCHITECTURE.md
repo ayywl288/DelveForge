@@ -1,5 +1,10 @@
 # ARCHITECTURE.md
 
+**当前入口（2026-10-28）：** 架构冻结，运行基线 1b9baa6 / 完整证据基线 11c4aa3。
+当前四模块、六工具 Agent 与 Git/SQLite 协议的简图见 [架构概览](release/ARCHITECTURE_OVERVIEW.md)；
+以下有明确日期的补充及 ADR 决定现行合同，旧 M4/M5 段落保留历史含义。
+本次收尾不改变模块依赖、Port、领域状态或交付语义。
+
 **2026-10-28 Plan 收尾：** 最后一个必需 Step 正式交付后，同一接受事务保存 Plan=COMPLETED、
 WorkingCopy=CLOSED，两个 revision 保持已接受 C。既有已接受实例可通过显式、幂等的收尾命令补齐；
 须重新证明最终 Git 状态、全部成功 Step 与同一可信 revision，不调用模型或制造交付事实。
@@ -26,7 +31,7 @@ M1–M3 保守出站政策、隔离、用户确认、可信 R/B/C 和失败未�
 规定沙箱与冻结合同；[ADR-0013](decisions/0013-frozen-candidate-delivery.md) 规定正式交付与 Git/SQLite 协调。
 Application 拥有 CodingAgentService 和 CandidateDeliveryService；Infrastructure 实现 Spring AI 1.1.8、
 Docker、SQLite DeliveryStore 和 Workspace 的 CandidateDeliveryPort。Domain 不依赖这些技术。
-Agent 的五个工具只改独立沙箱；Delivery 不调用模型、不依赖存活沙箱、不生成第二份源包。
+Agent 的六个工具只改独立沙箱；Delivery 不调用模型、不依赖存活沙箱、不生成第二份源包。
 持久化意图先于正式 Git 修改；独立 index 重放 D/A→B，核对实际文件/index，创建 parent=A/tree=B 的 C，
 以 update-ref CAS 发布，再在短事务接受 Step、WorkingCopy 两个 revision、完成事件和预约释放。
 启动检查实际 A/B/C 与数据库，不把异常当作事务未提交的证明；不明确的现场保留占用。
@@ -40,7 +45,7 @@ M1–M3 文本 AiGateway 保留；M3 Step 定义只要求 goal/scope/plannedChan
 > 本文档回答：系统准备如何实现，以及最重要的架构选择是什么。
 
 **Status:** Stable
-**Last Updated:** 2026-10-23
+**Last Updated:** 2026-10-28
 
 ## 1. Architecture Goals
 

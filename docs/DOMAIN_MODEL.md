@@ -1,5 +1,10 @@
 # DOMAIN_MODEL.md
 
+**当前入口（2026-10-28）：** MVP 领域合同冻结。本次仅整理说明，不引入新状态、授权或恢复能力。
+现行 Agent / Candidate / Delivery 与 Plan 收尾以下列日期补充及 ADR-0012/0013/0014 为准；
+旧 M4/M5 执行结果与独立 Repair/Rollback 描述保留历史含义。
+技术 Delivery 成功与实际产品验收分开记录，参见 [验证索引](validation/README.md)。
+
 **2026-10-28 Plan 收尾：** 最后一个必需 Step 正式交付后，同一接受事务保存 Plan=COMPLETED、
 WorkingCopy=CLOSED，两个 revision 保持已接受 C。既有已接受实例可通过显式、幂等的收尾命令补齐；
 须重新证明最终 Git 状态、全部成功 Step 与同一可信 revision，不调用模型或制造交付事实。
@@ -64,7 +69,7 @@ parent(C)=P、tree(C)=B。下文交付合同的一般 Step 基线用 R 表示；
 > 本文档回答：DelveForge 内部有哪些核心业务概念，这些概念分别代表什么，以及它们之间如何协作。
 
 **Status:** Stable
-**Last Updated:** 2026-10-23
+**Last Updated:** 2026-10-28
 
 ## 1. Domain Overview
 

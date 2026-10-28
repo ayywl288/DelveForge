@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-28",
+  "implementationBaseline": "11c4aa3cc8efd80314637376b3cdf60669ddb07f",
+  "runtimeSourceCommit": "1b9baa6",
+  "candidateBranch": "codex/mvp-freeze-release",
+  "newlyExecuted": {
+    "backendPackage": {
+      "command": "mvnw.cmd -o -DskipTests package",
+      "result": "PASS",
+      "tests": "SKIPPED_BY_COMMAND"
+    },
+    "frontendTest": {
+      "command": "pnpm --dir frontend test",
+      "result": "PASS",
+      "files": 19,
+      "passed": 269
+    },
+    "frontendBuild": {
+      "command": "pnpm --dir frontend build",
+      "typecheck": "PASS",
+      "productionBuild": "PASS"
+    },
+    "startup": {
+      "mode": "fresh isolated SQLite; Agent disabled; no Provider credential",
+      "backendConnectivity": "PASS",
+      "viteIndexHttp": "PASS",
+      "viteApiProxy": "PASS",
+      "projectList": "empty JSON array",
+      "flywayVersion": "26",
+      "sqliteIntegrity": "ok",
+      "agentRuns": 0,
+      "candidates": 0,
+      "browserRendering": "NOT_EXECUTED",
+      "initialProbe": "PowerShell empty-array wrapping miscounted [] as one item; raw HTTP and JSON equality confirmed empty array; no application change",
+      "ownedSmokeServicesStoppedAfterVerification": true
+    }
+  },
+  "historicalEvidence": {
+    "backendVerify": {
+      "sourceCommit": "1b9baa6",
+      "total": 1735,
+      "executedPassed": 1696,
+      "skipped": 39,
+      "failures": 0,
+      "errors": 0,
+      "rerunForFreeze": false
+    },
+    "fintrack": "retained scoped browser/HTTP/Candidate/Delivery evidence, not rerun",
+    "taskarium": "retained 4/4 Delivery and final 34/34 tests; browser authentication FAIL 403, not rerun"
+  },
+  "paidRunsStarted": 0,
+  "newEvolutionPlans": 0,
+  "jarSha256": "5ff068922f3ac6f3df695ca12ab877a6012faf3d6e5ba8ec59c751bef5869ea4",
+  "mainMerged": false,
+  "pushed": false,
+  "review": {
+    "runtimeSourceUnchangedFromBaseline": true,
+    "onlyCurrentDocsAndSafeSummaryChanged": true,
+    "localMarkdownLinks": "PASS",
+    "specificCredentialPatternScan": "No credentials identified; two unchanged synthetic canary test files explicitly reviewed; not an exhaustive secret audit",
+    "reviewedSyntheticFixtureFiles": 2,
+    "trackedSqliteFiles": 0,
+    "newDocsMachineSpecificPaths": 0,
+    "preservedHistoricalFilesWithMachineSpecificPaths": 46,
+    "historicalReportsRewritten": false,
+    "mainUnchanged": true,
+    "protectedUntrackedDraftFiles": 8,
+    "protectedDraftBytesAndMtimesUnchanged": true,
+    "existingWorktreesPreserved": 6,
+    "mainUntrackedPathOverlap": "NONE"
+  }
+}

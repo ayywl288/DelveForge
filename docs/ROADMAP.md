@@ -1,5 +1,17 @@
 # ROADMAP.md
 
+**当前目标（2026-10-28）：冻结 MVP，完成本地发布候选与文档交接。**
+不新增产品功能、不生成 EvolutionPlan、不运行付费 DeepSeek 实验、不代修 Taskarium；
+不为旧实验全部变绿继续扩张 Agent、sandbox、Delivery 或前端架构。
+只允许修正直接阻止 DelveForge 启动或使发行说明失真的已证实问题。
+
+原四步 Taskarium 已正式交付、Plan COMPLETED；C4 实际登录/注册因 CSRF 403 未通过，
+不提升为完整产品验收成功。FinTrack 核心 CSV 交付与浏览器证据按范围保留。
+当前交付清单、验证、集成与回退见 [MVP 冻结](release/README.md)；UX 反馈只进 [待办](release/UX_BACKLOG.md)。
+旧 Milestone 状态不因本次文档收尾自动改为 DONE，M6 与更广泛能力不启动。
+
+以下 2026-10-26 及更早的执行授权与目标作为历史记录，已由本次冻结范围替代，不是待继续执行的指令。
+
 **2026-10-26 最新执行原则：** 以有意义进展推进至可验证交付，移除累计调用/tokens 与总时长停止配额。
 每次付费启动明确确认预算与费用，显示实际用量并保留可靠取消和技术保障；见 ADR-0018。
 
@@ -11,12 +23,12 @@
 
 > 本文档回答：DelveForge 准备按照什么顺序发展，以及当前阶段最重要的开发目标是什么。
 
-**Status:** Active  
-**Last Updated:** 2026-10-23
+**Status:** MVP Frozen
+**Last Updated:** 2026-10-28
 
 ---
 
-## 1. Current Goal
+## 1. Historical Goals
 
 **2026-10-25 新授权：自主稳定化并完整交付真实 FinTrack CSV 演化。**
 

@@ -1,5 +1,10 @@
 # PRODUCT.md
 
+**当前入口（2026-10-28）：MVP 已冻结用于本地展示与技术交接。**
+现行能力与 FinTrack / Taskarium 不同验收结论见 [README](../README.md) 与
+[验证索引](validation/README.md)。不新增功能、计划或付费实验；Taskarium C4 认证 403 保持失败事实。
+下文早期探索假设与旧 M4/M5 产品描述保留为历史，不扩大当前已实现能力。
+
 **2026-10-28 Plan 收尾：** 最后一个必需 Step 正式交付后，同一接受事务保存 Plan=COMPLETED、
 WorkingCopy=CLOSED，两个 revision 保持已接受 C。既有已接受实例可通过显式、幂等的收尾命令补齐；
 须重新证明最终 Git 状态、全部成功 Step 与同一可信 revision，不调用模型或制造交付事实。
@@ -15,8 +20,8 @@ JDK、文件、公开 Central 依赖及隔离限制约束。实现验收见 [Tas
 
 > 本文档回答：为什么做这个产品、给谁使用、解决什么问题，以及第一版到底做到哪里。
 
-**Status:** Exploring
-**Last Updated:** 2026-10-22
+**Status:** MVP Frozen
+**Last Updated:** 2026-10-28
 
 ## 1. Product Vision
 

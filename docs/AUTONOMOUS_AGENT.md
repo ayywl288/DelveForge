@@ -1,5 +1,10 @@
 # Autonomous Coding Agent and Delivery
 
+**MVP 冻结入口（2026-10-28）：** 现行简图、启动与演示入口见
+[发布候选说明](release/README.md)。本文保留协议/API 细节与带日期的演变记录。
+当前模型有六个受控工具；没有任意 shell 或 Delivery 工具。
+以下历史付费重试记录不授权本轮新实验，Taskarium 浏览器认证失败也不在冻结期修补。
+
 **2026-10-26 验收反馈入口：** `POST /api/evolution-plans/planning` 可选 `planningNotes`，
 供用户提交目标内的补充要求或独立验收反馈。说明经过既有保守凭据净化后作为模型数据输入，
 不成为 Evidence 或授权；所选 Direction、事实来源校验、PROPOSED 计划和逐 Step 确认保持。
@@ -108,7 +113,7 @@ DELIVERY_BLOCKED 表示已知阻塞，可处理原因后显式重新核对；REC
 - Infrastructure：Spring AI **1.1.8** DeepSeek adapter、Docker CLI、容器工具、受控 Central 代理、Git 捕获/重放与 SQLite。
 - App：配置、生命周期装配和本机 REST。既有 M1–M3 文本 AiGateway 保留。
 
-只使用五个模型工具：`list_files`、`search_code`、`read_file`、`edit_file`、`apply_patch`、`run_checks`。
+只使用六个模型工具：`list_files`、`search_code`、`read_file`、`edit_file`、`apply_patch`、`run_checks`。
 工具参数是结构化 JSON；没有 shell、Docker、任意 Maven 参数或 Delivery 工具。
 `apply_patch` 接受标准 unified diff。`run_checks` 支持 compile/test/package/verify、directory、module 与 test selector。
 目录可选择仓库内嵌套 Maven reactor，不要求仓库根 POM，不使用项目 Wrapper。
@@ -420,7 +425,8 @@ SANDBOX_READY 事件保存实际 container/image identity、JDK、Engine 报告�
 仍在在线准备前后比较 Agent 源码 snapshot，不接受其发生变化；在线构建结果不作测试证据，必须再离线检查。
 正式离线检查也使用独立的 `check-source` 副本与无网络容器，原 Agent 源码只读挂载；
 副本执行前的完整 path/mode/hash snapshot 必须与权威源码一致，权威源码检查后也必须保持不变。
-当前仅支持已有、文件名为 `.mv.db` 且头部标识为 H2 MVStore 的数据库在检查副本中的内容变化，
+当前支持已有、文件名为 `.mv.db` 且头部标识为 H2 MVStore 的数据库在检查副本中的内容变化，
+以及其配对且前缀/模式保持的已有 H2 trace 的已验证追加（详见下文 2026-10-27 H2 补充），
 逐项记录 `runtimeChanges` 的相对路径、类别和前后 mode/hash；不把副本状态回写或冻结为 Candidate。
 删除、模式变化、新文件以及源码、配置和其他二进制变化继续以 `CHECK_MUTATED_SOURCE` 拒绝。
 新拒绝可记录检查前后 snapshot、变化总数、意外变化数和最多 8 项相对路径、变化类型及前后 mode/SHA-256。
