@@ -52,6 +52,16 @@ public final class InMemoryUserProfileRepository implements UserProfileRepositor
     }
 
     @Override
+    public synchronized void saveReviewIfSufficient(UserProfile profile, UserProfile expected) {
+        requireUnchanged(expected);
+        if (!profile.id().equals(expected.id()) || profile.revision() != expected.revision()
+                || !hasSufficientAssessment(expected.id(), expected.revision())) {
+            throw new com.ayywl.delveforge.domain.user.UserProfileStateException("审阅所复用的充分性记录已失效");
+        }
+        save(profile);
+    }
+
+    @Override
     public synchronized void recordSufficiencyAssessment(UserProfile expected, boolean sufficient) {
         requireUnchanged(expected);
         if (sufficient) {

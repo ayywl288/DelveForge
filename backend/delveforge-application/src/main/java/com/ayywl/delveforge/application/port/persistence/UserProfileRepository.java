@@ -66,6 +66,12 @@ public interface UserProfileRepository {
     /** 与 Profile 保存同一事务记录服务端通过的最低充分性；不保存问题或评估历史。 */
     void saveWithSufficiency(UserProfile profile, UserProfile expected, boolean sufficient);
 
+    /**
+     * 复用通过结果提交同版审阅；同一事务中核对 expected 快照与仍有效的通过记录。
+     * 通过记录已撤销必须拒绝旧候选，不得根据缓存布尔值重新创建记录。
+     */
+    void saveReviewIfSufficient(UserProfile profile, UserProfile expected);
+
     /** 原子核对当前快照后替换其充分性元数据；不足时删除旧通过标记，不保存评估历史。 */
     void recordSufficiencyAssessment(UserProfile expected, boolean sufficient);
 

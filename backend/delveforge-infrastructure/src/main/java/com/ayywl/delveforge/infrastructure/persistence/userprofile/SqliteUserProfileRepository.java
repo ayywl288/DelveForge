@@ -123,6 +123,20 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
 
     @Override
     @Transactional
+    public void saveReviewIfSufficient(UserProfile profile, UserProfile expected) {
+        // 先取得画像写锁，防止通过标记在资格复核与审阅提交之间被另一请求撤销。
+        requireUnchanged(expected);
+        if (!profile.id().equals(expected.id()) || profile.revision() != expected.revision()) {
+            throw new UserProfileStateException("复用审阅必须基于同一画像版本");
+        }
+        if (userProfileMapper.sufficientCount(expected.id().value(), expected.revision()) != 1) {
+            throw new UserProfileStateException("审阅所复用的充分性记录已失效，请重新请求评估");
+        }
+        save(profile);
+    }
+
+    @Override
+    @Transactional
     public void recordSufficientAssessment(UserProfile expected) {
         recordSufficiencyAssessment(expected, true);
     }

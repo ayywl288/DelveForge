@@ -637,8 +637,12 @@ sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是�
 同版审阅优先复用当前通过结果；内容或 Evidence 更新的事务删除旧记录。新的完整评估若为不足，
 同版旧通过标记也原子清除，不保存负面历史或改变 revision。只读下一问可更新
 服务端通过结果，但不保存用户事实。浏览器 sufficient 标志不具有状态转换权限。
-审阅保存、确认以及所有 M1 更新均通过 `saveIfUnchanged` 检查原始版本、状态与快照；
-SQLite 条件 UPDATE 先取得写锁，检查和保存同事务，AI 调用始终在事务外。
+审阅保存、确认以及所有 M1 更新均在提交事务中检查原始版本、状态与快照。
+复用审阅通过 `saveReviewIfSufficient`，在 SQLite 条件 UPDATE 取得写锁后额外核对
+同 ID + revision 的通过记录仍有效，再保存 REVIEWING；不重新创建通过记录。若记录已被撤销，
+返回 `409 CONFLICT`，不保存候选、不隐式调用模型重评。新评估通过仍使用
+`saveWithSufficiency` 原子保存画像与通过结果，其他更新继续通过 `saveIfUnchanged`；
+各路径共享快照核对，检查和保存同事务，AI 调用始终在事务外。
 
 充分性不是六区非空或条目计数：AI 需核对具体动机 / 期望成果、技术基础、约束及用户输入依据；
 兴趣、学习和求职可充分，painPoints 可为空。Application 同时拦截缺失目标、技术基础、约束
