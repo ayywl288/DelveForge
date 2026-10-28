@@ -3,6 +3,7 @@ import type {
   AssetInput,
   AssetAuthorizationInput,
   DiscoveryTurn,
+  DiscoveryContextMessage,
   DiscoveryQuestion,
   EvolutionPlan,
   StepFinalChanges,
@@ -150,15 +151,19 @@ export const api = {
     ),
   createProfile: () => request<UserProfile>("/user-profiles", "POST"),
   profile: (value: string) => request<UserProfile>(profile(value)),
-  discoveryTurn: (value: string, input: string, previousQuestions: string[] = []) =>
+  discoveryTurn: (value: string, input: string, previousQuestions: string[] = [],
+    recentConversation: DiscoveryContextMessage[] = []) =>
     request<DiscoveryTurn>(`${profile(value)}/discovery-turn`, "POST", {
       input,
       previousQuestions,
+      recentConversation,
     }),
-  discoveryQuestion: (value: string, revision: number, previousQuestions: string[]) =>
+  discoveryQuestion: (value: string, revision: number, previousQuestions: string[],
+    recentConversation: DiscoveryContextMessage[] = []) =>
     request<DiscoveryQuestion>(`${profile(value)}/discovery-question`, "POST", {
       revision,
       previousQuestions,
+      recentConversation,
     }),
   patchProfile: (value: string, patch: ProfilePatch) =>
     request<UserProfile>(profile(value), "PATCH", patch),

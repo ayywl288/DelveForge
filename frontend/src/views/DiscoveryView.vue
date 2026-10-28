@@ -127,7 +127,7 @@ async function save() {
         <p class="meta">当前显示的是保存的画像；刷新不会恢复历史对话。</p>
       </div>
       <div v-if="s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient" class="readiness-banner" role="status">
-        已有足够信息供你审阅。可以继续回答下一问，也可随时进入画像审阅。
+        已有足够信息供你审阅。可以继续补充想法，也可随时进入画像审阅。
         <button class="text-button" :disabled="!!s.busy" @click="enterReview">进入画像审阅</button>
       </div>
       <ProfileReview v-if="activeTab === 'review'" :profile="s.profile" :sufficiency="s.sufficiency"
@@ -163,7 +163,7 @@ async function save() {
           <span class="message-author sr-only">{{
             message.role === "user" ? "你说：" : "DelveForge："
           }}</span>
-          <p>{{ message.text }}</p>
+          <p style="white-space: pre-wrap">{{ message.text }}</p>
           <span v-if="message.state === 'pending'" class="message-state">
             <span class="message-spinner" aria-hidden="true"></span>正在提交
           </span>
@@ -189,7 +189,7 @@ async function save() {
           v-else-if="s.sufficiency?.sufficient && s.profile.status === 'EXPLORING' && !s.nextQuestion"
           class="request-note"
         >
-          已达到最低审阅条件，本页没有可继续回答的下一问。可主动请 Agent 提问，或选择进入画像审阅。
+          已达到最低审阅条件。你可以继续补充想法、主动请 Agent 提问，或选择进入画像审阅。
         </p>
       </div>
       <form v-show="activeTab === 'chat' && s.profile.status === 'EXPLORING'" class="composer" @submit.prevent="send">

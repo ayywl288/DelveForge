@@ -118,16 +118,29 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
     @Transactional
     public void saveWithSufficiency(UserProfile profile, UserProfile expected, boolean sufficient) {
         saveIfUnchanged(profile, expected);
-        if (sufficient) {
-            userProfileMapper.recordSufficient(profile.id().value(), profile.revision());
-        }
+        writeSufficiency(profile, sufficient);
     }
 
     @Override
     @Transactional
     public void recordSufficientAssessment(UserProfile expected) {
+        recordSufficiencyAssessment(expected, true);
+    }
+
+    @Override
+    @Transactional
+    public void recordSufficiencyAssessment(UserProfile expected, boolean sufficient) {
         requireUnchanged(expected);
-        userProfileMapper.recordSufficient(expected.id().value(), expected.revision());
+        writeSufficiency(expected, sufficient);
+    }
+
+    private void writeSufficiency(UserProfile profile, boolean sufficient) {
+        if (sufficient) {
+            userProfileMapper.recordSufficient(profile.id().value(), profile.revision());
+        } else {
+            // 同版无新事实的对话也可能重新判断为不足，不能继续复用旧通过标记。
+            userProfileMapper.clearSufficient(profile.id().value());
+        }
     }
 
     @Override

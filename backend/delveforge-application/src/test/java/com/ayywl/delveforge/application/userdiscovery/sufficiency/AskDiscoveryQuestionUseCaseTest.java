@@ -25,7 +25,8 @@ class AskDiscoveryQuestionUseCaseTest {
 
     private static final UserProfileId ID = new UserProfileId("profile");
     private static final String RESPONSE = """
-            {"sufficient":true,"missingAreas":[],"nextQuestion":"你希望作品首先展示哪一项后端能力？"}
+            {"sufficient":true,"missingAreas":[],"nextQuestion":"你希望作品首先展示哪一项后端能力？",
+             "assistantReply":"我们可以继续细化展示成果。","questionArea":"exploration","deferredAreas":[]}
             """;
     private final InMemoryUserProfileRepository repository = new InMemoryUserProfileRepository();
     private final AtomicInteger calls = new AtomicInteger();
@@ -50,13 +51,13 @@ class AskDiscoveryQuestionUseCaseTest {
     }
 
     @Test
-    void basicMissingGuardRejectsFalseReadinessWithoutOverwritingTheActualQuestion() {
+    void basicMissingGuardReplansQuestionAgainstFinalAssessment() {
         UserProfile empty = UserProfile.create(ID);
         repository.save(empty);
         SufficiencyAssessment result = useCase(request -> RESPONSE).ask(ID, 1, null);
         assertFalse(result.sufficient());
         assertEquals(4, result.missingAreas().size());
-        assertEquals("你希望作品首先展示哪一项后端能力？", result.nextQuestion());
+        assertEquals("你希望这个项目帮助你完成什么成果，或展示什么能力？", result.nextQuestion());
         assertEquals(1, empty.revision());
         assertEquals(List.of(), empty.evidence());
         assertEquals(1, repository.saveCount());
@@ -66,11 +67,25 @@ class AskDiscoveryQuestionUseCaseTest {
     void insufficientProfileStillGetsAQuestion() {
         seed(UserProfileStatus.EXPLORING);
         SufficiencyAssessment result = useCase(request -> """
-                {"sufficient":false,"missingAreas":["使用场景尚不明确"],"nextQuestion":"你准备给谁使用？"}
+                {"sufficient":false,"missingAreas":["使用场景尚不明确"],"nextQuestion":"你准备给谁使用？",
+                 "assistantReply":"还需要了解使用场景。","questionArea":"behaviors","deferredAreas":[]}
                 """).ask(ID, 4, null);
         assertFalse(result.sufficient());
         assertEquals("你准备给谁使用？", result.nextQuestion());
         assertEquals(1, calls.get());
+    }
+
+    @Test
+    void negativeReassessmentCannotLeaveAReusablePositiveResultForTheSameRevision() {
+        UserProfile original = seed(UserProfileStatus.EXPLORING);
+        repository.recordSufficientAssessment(original);
+        useCase(request -> """
+                {"sufficient":false,"missingAreas":["场景仍不明确"],"nextQuestion":null,
+                 "assistantReply":"可以先澄清使用场景。","questionArea":null,"deferredAreas":[]}
+                """).ask(ID, 4, null);
+        assertFalse(repository.hasSufficientAssessment(ID, 4));
+        assertEquals(4, original.revision());
+        assertEquals(1, repository.saveCount());
     }
 
     @Test

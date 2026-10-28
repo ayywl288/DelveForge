@@ -48,13 +48,17 @@ public final class InMemoryUserProfileRepository implements UserProfileRepositor
     @Override
     public synchronized void saveWithSufficiency(UserProfile profile, UserProfile expected, boolean sufficient) {
         saveIfUnchanged(profile, expected);
-        if (sufficient) { recordSufficientAssessment(profile); }
+        recordSufficiencyAssessment(profile, sufficient);
     }
 
     @Override
-    public synchronized void recordSufficientAssessment(UserProfile expected) {
+    public synchronized void recordSufficiencyAssessment(UserProfile expected, boolean sufficient) {
         requireUnchanged(expected);
-        sufficientRevisions.put(expected.id(), expected.revision());
+        if (sufficient) {
+            sufficientRevisions.put(expected.id(), expected.revision());
+        } else {
+            sufficientRevisions.remove(expected.id());
+        }
     }
 
     @Override

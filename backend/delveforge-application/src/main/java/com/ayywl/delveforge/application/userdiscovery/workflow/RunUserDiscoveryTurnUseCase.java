@@ -4,9 +4,10 @@ import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileExtraction;
 import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoundException;
+import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.ayywl.delveforge.application.userdiscovery.shared.UserProfileCandidates;
-import com.ayywl.delveforge.application.userdiscovery.sufficiency.ProfileSufficiencyEvaluator;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.DiscoveryQuestions;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.ProfileSufficiencyEvaluator;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
@@ -15,7 +16,7 @@ import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import java.util.List;
 
 /**
- * 面向产品的一轮 User Discovery：提取 → 更新 → 评估最低审阅条件，保持探索。
+ * 面向产品的一轮 User Discovery：提取 → 更新候选 → 评估最低审阅条件并回应，保持探索。
  *
  * <pre>
  * 本轮用户输入
@@ -24,8 +25,8 @@ import java.util.List;
  *         ↓
  * ProfileSufficiencyEvaluator  对「已经更新过的候选 Profile」评估信息是否足够
  *         ↓
- * insufficient  保存更新后的 Profile，返回 missingAreas + nextQuestion，仍为 EXPLORING
- * sufficient    返回最低条件已满足与深入下一问，仍为 EXPLORING，等待用户显式选择进入审阅
+ * insufficient  保存候选，返回缺口、assistantReply 与可选 nextQuestion，仍为 EXPLORING
+ * sufficient    返回最低条件已满足与对话回复，仍为 EXPLORING，等待用户显式选择进入审阅
  * </pre>
  *
  * <h2>一轮只保存一次</h2>
@@ -49,7 +50,7 @@ import java.util.List;
  *
  * <h2>跨请求的循环</h2>
  *
- * <p>「继续探索」不是服务端的循环：一轮返回 {@code nextQuestion}，用户回答后由调用方发起
+ * <p>「继续探索」不是服务端的循环：一轮返回回复及可选的 {@code nextQuestion}，用户继续输入后由调用方发起
  * 下一轮。本 Use Case 不做 {@code while}、不等待用户、也不保存对话记录。
  *
  * <h2>AI Proposes, Domain Decides</h2>
@@ -100,7 +101,13 @@ public class RunUserDiscoveryTurnUseCase {
     }
 
     public UserDiscoveryTurn run(UserProfileId userProfileId, String userInput, List<String> previousQuestions) {
+        return run(userProfileId, userInput, previousQuestions, List.of());
+    }
+
+    public UserDiscoveryTurn run(UserProfileId userProfileId, String userInput, List<String> previousQuestions,
+            List<DiscoveryContext.Message> recentConversation) {
         ProfileExtraction.requireUserInput(userInput);
+        List<DiscoveryContext.Message> context = DiscoveryContext.validate(recentConversation);
         List<String> questions = DiscoveryQuestions.validate(previousQuestions);
 
         UserProfile expected = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
@@ -111,9 +118,9 @@ public class RunUserDiscoveryTurnUseCase {
         // 这道约束只属于「整轮」入口 —— ExploreUserProfileUseCase 保持原有行为不变。
         candidate.requireExplorationAllowed();
 
-        profileExtraction.applyTo(candidate, userInput);
+        profileExtraction.applyTurnTo(candidate, userInput, context);
         SufficiencyAssessment sufficiency =
-                profileSufficiencyEvaluator.evaluateForExploration(candidate, questions);
+                profileSufficiencyEvaluator.evaluateTurn(candidate, userInput, questions, context);
 
         // 一轮只保存一次：整轮成功后写入，因此任何一步失败都不会留下半轮结果。
         userProfileRepository.saveWithSufficiency(candidate, expected, sufficiency.sufficient());

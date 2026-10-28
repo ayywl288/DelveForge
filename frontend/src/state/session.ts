@@ -30,6 +30,7 @@ export interface SessionIds {
 interface DiscoveryMessage {
   role: "user" | "agent";
   text: string;
+  question?: string;
   state?: "pending" | "accepted" | "failed" | "uncertain";
   profileId?: string;
   failed?: boolean;
@@ -154,20 +155,28 @@ export function createSession() {
     if (!ids.assetIds.includes(asset.id)) ids.assetIds.push(asset.id);
     remember();
   }
-  function appendQuestion(question: string | null) {
+  function appendReply(reply: string | undefined, question: string | null) {
     activeQuestion.value = null;
-    const text = question?.trim();
-    if (!text || !profile.value || profile.value.status !== "EXPLORING") return;
-    if (messages.value.some((message) => message.role === "agent" && message.text.trim() === text)) {
+    if (!profile.value || profile.value.status !== "EXPLORING") return;
+    let followUp = question?.trim() || null;
+    if (followUp && messages.value.some(message => message.role === "agent" && message.question === followUp)) {
       notice.value = "Agent 返回了本页已经提过的问题，未重复插入；可以直接补充想法或按需索取下一问。";
-      return;
+      followUp = null;
     }
-    messages.value.push({ role: "agent", text });
-    activeQuestion.value = { profileId: profile.value.id, revision: profile.value.revision, text };
+    let text = reply?.trim() || "";
+    if (followUp && !text.includes(followUp)) text = [text, followUp].filter(Boolean).join("\n\n");
+    if (text) messages.value.push({ role: "agent", text, ...(followUp ? { question: followUp } : {}) });
+    if (followUp) {
+      activeQuestion.value = { profileId: profile.value.id, revision: profile.value.revision, text: followUp };
+    }
   }
   function previousQuestions() {
-    return messages.value.filter(message => message.role === "agent" && message.text.length <= 512)
-      .map(message => message.text).slice(-8);
+    return messages.value.filter(message => message.role === "agent" && message.question)
+      .map(message => message.question!).slice(-8);
+  }
+  function recentConversation() {
+    return messages.value.filter(message => message.role === "agent" || message.state === "accepted")
+      .slice(-8).map(message => ({ role: message.role, text: message.text.slice(0, 2048) }));
   }
   async function refreshProfileAfterFailure() {
     const profileId = ids.profileId;
@@ -187,7 +196,7 @@ export function createSession() {
     const belongs = () => !disposed && contextEpoch.value === epoch && profile.value?.id === current?.id;
     if (!current || current.status !== "EXPLORING") return;
     try {
-      const result = await api.discoveryQuestion(current.id, current.revision, previousQuestions());
+      const result = await api.discoveryQuestion(current.id, current.revision, previousQuestions(), recentConversation());
       if (!belongs()) return;
       if (profile.value?.id !== current.id || profile.value?.revision !== result.revision ||
         profile.value?.status !== "EXPLORING") {
@@ -195,7 +204,7 @@ export function createSession() {
         return;
       }
       acceptSufficiency(result);
-      appendQuestion(result.nextQuestion);
+      appendReply(result.assistantReply, result.nextQuestion);
     } catch (failure) {
       if (!belongs()) return;
       await refreshProfileAfterFailure();
@@ -637,13 +646,20 @@ export function createSession() {
         messages.value.push(message);
         try {
           activeQuestion.value = null;
-          const result = await api.discoveryTurn(current.id, input, previousQuestions());
+          const result = await api.discoveryTurn(current.id, input, previousQuestions(), recentConversation());
           if (!isCurrent()) return;
+          if (profile.value?.revision !== current.revision || profile.value?.status !== current.status ||
+            result.profile.id !== current.id || result.profile.revision < current.revision) {
+            message.state = "uncertain";
+            message.failed = true;
+            notice.value = "画像版本或状态已经变化，迟到的对话结果未加入当前会话；请查询画像并核对。";
+            return;
+          }
           // 本轮成功响应与随后 run 保存的项目关联是两个结果。
           message.state = "accepted";
           profile.value = result.profile;
           acceptSufficiency(result);
-          appendQuestion(result.nextQuestion);
+          appendReply(result.assistantReply, result.nextQuestion);
         } catch (failure) {
           if (!isCurrent()) return;
           // 仅已知在保存前拒绝的契约可判为失败；断线、未知 5xx 均可能已提交。

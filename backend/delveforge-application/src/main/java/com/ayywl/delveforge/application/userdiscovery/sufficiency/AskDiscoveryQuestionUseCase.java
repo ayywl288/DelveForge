@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.application.userdiscovery.sufficiency;
 
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.ayywl.delveforge.application.userdiscovery.shared.UserProfileCandidates;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
@@ -21,17 +22,22 @@ public final class AskDiscoveryQuestionUseCase {
     }
 
     public SufficiencyAssessment ask(UserProfileId id, int revision, List<String> previousQuestions) {
+        return ask(id, revision, previousQuestions, List.of());
+    }
+
+    public SufficiencyAssessment ask(UserProfileId id, int revision, List<String> previousQuestions,
+            List<DiscoveryContext.Message> recentConversation) {
+        List<DiscoveryContext.Message> context = DiscoveryContext.validate(recentConversation);
         List<String> questions = DiscoveryQuestions.validate(previousQuestions);
         UserProfile snapshot = UserProfileCandidates.loadCopy(repository, id);
         requireCurrentExploration(snapshot, revision);
 
-        SufficiencyAssessment result = evaluator.evaluateForExploration(snapshot, questions);
+        SufficiencyAssessment result = evaluator.evaluateTurn(
+                snapshot, "请提出下一个有价值的问题，尊重已跳过的维度。", questions, context);
 
         // 长 AI 请求期间若画像已变化，丢弃旧版问题；不把旧评估放到新的审阅/确认版本上。
         requireCurrentExploration(UserProfileCandidates.loadCopy(repository, id), revision);
-        if (result.sufficient()) {
-            repository.recordSufficientAssessment(snapshot);
-        }
+        repository.recordSufficiencyAssessment(snapshot, result.sufficient());
         return result;
     }
 

@@ -7,5 +7,6 @@ public record DiscoveryQuestionResponse(
         int revision,
         boolean sufficient,
         List<String> missingAreas,
-        String nextQuestion) {
+        String nextQuestion,
+        String assistantReply) {
 }

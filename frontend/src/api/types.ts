@@ -39,13 +39,20 @@ export interface Sufficiency {
   missingAreas: string[];
   nextQuestion: string | null;
 }
+export interface DiscoveryContextMessage {
+  role: "user" | "agent";
+  text: string;
+}
 export interface DiscoveryTurn extends Sufficiency {
+  // 兼容旧后端响应；新 discovery-turn 总是返回正文。
+  assistantReply?: string;
   profile: UserProfile;
 }
 export interface Assessment extends Sufficiency {
   profileStatus: UserProfile["status"];
 }
 export interface DiscoveryQuestion extends Sufficiency {
+  assistantReply?: string;
   revision: number;
 }
 export type UsageAuthorization = "ALLOWED" | "DENIED" | "UNCLEAR";

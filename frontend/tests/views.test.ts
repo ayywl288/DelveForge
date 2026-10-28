@@ -169,7 +169,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     await settle();
     expect(root.textContent).toContain("重复导出");
     expect(root.querySelectorAll(".message.agent")).toHaveLength(0);
-    expect(root.textContent).toContain("本页没有可继续回答的下一问");
+    expect(root.textContent).toContain("你可以继续补充想法");
     expect(root.querySelector("textarea")?.disabled).toBe(false);
     button(root, "进入画像审阅").click(); await settle();
     const confirm = button(root, "确认当前画像");

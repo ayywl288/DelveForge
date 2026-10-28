@@ -65,7 +65,9 @@ class AssessProfileSufficiencyUseCaseTest {
         SufficiencyAssessment assessment = useCase.assess(PROFILE_ID);
 
         assertFalse(assessment.sufficient());
-        assertEquals(List.of("缺少真实行为", "缺少技术能力"), assessment.missingAreas());
+        assertEquals(List.of("缺少真实行为", "缺少技术能力", "还未明确希望通过项目获得的成果",
+                "还未说明当前可使用的技术基础", "还未说明影响项目范围的重要约束", "缺少可核对的用户输入依据"),
+                assessment.missingAreas());
         assertNull(assessment.nextQuestion(), "审阅请求只反馈缺失信息，不插入新的探索问题");
         assertEquals(UserProfileStatus.EXPLORING, assessment.profileStatus());
 

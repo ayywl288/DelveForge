@@ -461,6 +461,25 @@ class UserProfileTest {
         assertEquals(3, reviewing.revision(), "校验不得推进 revision");
     }
 
+    @Test
+    void retractsOnlyTheSpecifiedCurrentEvidenceAndPreservesConfirmedImmutability() {
+        UserProfile profile = UserProfile.create(PROFILE_ID);
+        Evidence first = new Evidence(EvidenceSourceType.USER_INPUT, "原输入", "错误推断", null, false);
+        Evidence second = new Evidence(EvidenceSourceType.USER_INPUT, "另一个输入", "独立事实", null, false);
+        profile.recordEvidence(first);
+        profile.recordEvidence(second);
+        int revision = profile.revision();
+        profile.retractEvidence(first);
+        assertEquals(List.of(second), profile.evidence());
+        assertEquals(revision + 1, profile.revision());
+        assertThrows(IllegalArgumentException.class, () -> profile.retractEvidence(first));
+        assertEquals(revision + 1, profile.revision());
+        profile.beginReview();
+        profile.confirm(profile.revision());
+        assertThrows(UserProfileStateException.class, () -> profile.retractEvidence(second));
+        assertEquals(List.of(second), profile.evidence());
+    }
+
     /** 只提供 interests，其余内容区与 Evidence 为空的重建输入。 */
     private static UserProfile reconstituteSections(UserProfileStatus status, int revision,
                                                     List<String> interests) {

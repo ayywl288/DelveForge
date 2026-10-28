@@ -10,7 +10,7 @@ import java.util.List;
  * 为 true 只代表最低审阅条件满足，不代表用户已经选择结束探索。
  *
  * <p>{@code missingAreas} 描述最低条件还缺什么；无论充分与否，
- * 调用方用 {@code nextQuestion} 向用户提问，拿到回答后
+ * 调用方展示 {@code assistantReply}，有 {@code nextQuestion} 时再追加提问，拿到回答后
  * 再发起下一轮。循环跨 HTTP 请求完成，服务端不等待用户。
  *
  * <p>本类型是 Interface Adapter 的 DTO，不是领域对象，也不暴露 Persistence 数据对象。
@@ -18,11 +18,13 @@ import java.util.List;
  * @param profile      本轮结束时的 User Profile
  * @param sufficient   本轮的充分性结论
  * @param missingAreas 仍缺失的重要信息或维度；足够时为空数组
- * @param nextQuestion 当前探索的下一问，充分后仍可继续深入
+ * @param nextQuestion 可选的下一问；本轮可以只回应用户
+ * @param assistantReply 对用户本轮输入的回应正文
  */
 public record DiscoveryTurnResponse(
         UserProfileResponse profile,
         boolean sufficient,
         List<String> missingAreas,
-        String nextQuestion) {
+        String nextQuestion,
+        String assistantReply) {
 }

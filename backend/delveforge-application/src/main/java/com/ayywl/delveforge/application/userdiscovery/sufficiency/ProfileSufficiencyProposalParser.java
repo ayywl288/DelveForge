@@ -1,17 +1,19 @@
 package com.ayywl.delveforge.application.userdiscovery.sufficiency;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.ArrayList;
 import java.util.List;
-import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
 
 /**
  * 把 AI 返回的原始文本解析为 {@link ProfileSufficiencyProposal}。
  *
  * <p>除结构之外还校验**结果是否自洽**：模型声明「已足够」却又列出缺失信息、
- * 或声明「不足」却说不出缺什么、也提不出下一个问题，都属于自相矛盾的输出，
+ * 或声明「不足」却说不出缺什么，都属于自相矛盾的输出；对话轮允许仅回复而不提问，
  * 不能被当成合法的评估结果接受。
  *
  * <p>本类只检查结构与自洽性。具体内容由评估器结合 AI 与用户依据判断，
@@ -36,6 +38,14 @@ public final class ProfileSufficiencyProposalParser {
      *                            或 sufficient 与其余字段互相矛盾
      */
     public ProfileSufficiencyProposal parse(String rawAiOutput) {
+        return parse(rawAiOutput, false);
+    }
+
+    public ProfileSufficiencyProposal parseConversation(String rawAiOutput) {
+        return parse(rawAiOutput, true);
+    }
+
+    private ProfileSufficiencyProposal parse(String rawAiOutput, boolean conversation) {
         JsonNode root = reader.read(rawAiOutput);
 
         JsonNode sufficientNode = root.get(FIELD_SUFFICIENT);
@@ -48,6 +58,30 @@ public final class ProfileSufficiencyProposalParser {
 
         List<String> missingAreas = textArray(root, FIELD_MISSING_AREAS);
         String nextQuestion = blankToNull(text(root, FIELD_NEXT_QUESTION));
+        if (nextQuestion != null && nextQuestion.length() > 512) {
+            throw new AiGatewayException("下一问超过有界长度");
+        }
+
+        if (conversation) {
+            String reply = blankToNull(text(root, "assistantReply"));
+            String area = blankToNull(text(root, "questionArea"));
+            List<String> deferred = textArray(root, "deferredAreas");
+            List<String> areas = List.of("interests", "behaviors", "painPoints", "technicalCapabilities",
+                    "projectGoals", "constraints", "evidence", "exploration");
+            if (reply == null || reply.length() > 2048 || !root.has(FIELD_NEXT_QUESTION)
+                    || !root.has("questionArea") || deferred == null
+                    || deferred.stream().anyMatch(value -> !areas.contains(value) || value.equals("exploration"))
+                    || deferred.stream().distinct().count() != deferred.size()
+                    || (nextQuestion == null) != (area == null)
+                    || area != null && !areas.contains(area)) {
+                throw new AiGatewayException("对话回复或问题规划结构不合法");
+            }
+            if (missingAreas == null || sufficientNode.booleanValue() != missingAreas.isEmpty()) {
+                throw new AiGatewayException("充分性与缺失信息矛盾");
+            }
+            return new ProfileSufficiencyProposal(sufficientNode.booleanValue(), missingAreas,
+                    nextQuestion, reply, area, deferred);
+        }
 
         if (sufficientNode.booleanValue()) {
             if (missingAreas != null && !missingAreas.isEmpty()) {

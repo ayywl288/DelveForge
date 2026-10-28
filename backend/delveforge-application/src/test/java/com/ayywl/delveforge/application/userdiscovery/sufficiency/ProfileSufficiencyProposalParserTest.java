@@ -133,4 +133,23 @@ class ProfileSufficiencyProposalParserTest {
         assertThrows(AiGatewayException.class, () -> parser.parse("[true]"));
         assertThrows(AiGatewayException.class, () -> parser.parse("   "));
     }
+
+    @Test
+    void conversationalResponsesRequireCoherentReplyQuestionAndDeferredDimensions() {
+        String valid = """
+                {"sufficient":false,"missingAreas":["需明确成果"],"assistantReply":"可以先解释目标的作用。",
+                 "nextQuestion":null,"questionArea":null,"deferredAreas":["constraints"]}
+                """;
+        assertNull(parser.parseConversation(valid).nextQuestion());
+        for (String invalid : List.of(
+                valid.replace("\"assistantReply\":\"可以先解释目标的作用。\"", "\"assistantReply\":3"),
+                valid.replace("\"questionArea\":null", "\"questionArea\":\"projectGoals\""),
+                valid.replace("[\"constraints\"]", "[\"unknown\"]"),
+                valid.replace("\"sufficient\":false", "\"sufficient\":true"),
+                valid.replace("\"nextQuestion\":null,", ""),
+                valid.replace("[\"constraints\"]", "[\"constraints\",\"constraints\"]"))) {
+            assertThrows(AiGatewayException.class, () -> parser.parseConversation(invalid));
+        }
+    }
+
 }

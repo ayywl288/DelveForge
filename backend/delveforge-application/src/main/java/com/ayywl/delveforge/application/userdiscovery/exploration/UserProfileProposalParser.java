@@ -1,11 +1,13 @@
 package com.ayywl.delveforge.application.userdiscovery.exploration;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.ArrayList;
 import java.util.List;
-import com.ayywl.delveforge.application.port.ai.AiJsonObjectReader;
 
 /**
  * 把 AI 返回的原始文本解析为 {@link UserProfileProposal}。
@@ -52,6 +54,45 @@ public final class UserProfileProposalParser {
                 section(root, SECTION_PROJECT_GOALS),
                 section(root, SECTION_CONSTRAINTS),
                 section(root, FIELD_EVIDENCE_CLAIMS));
+    }
+
+    /** 整轮提取必须明确是否有新事实；无事实与修改/撤回/新增依据不能同时成立。 */
+    public TurnProposal parseTurn(String rawAiOutput, int evidenceCount) {
+        JsonNode root = reader.read(rawAiOutput);
+        JsonNode facts = root.get("hasNewFacts");
+        if (facts == null || !facts.isBoolean()) {
+            throw new AiGatewayException("提取建议缺少布尔值 hasNewFacts");
+        }
+        UserProfileProposal proposal = parse(rawAiOutput);
+        List<Integer> retracted = new ArrayList<>();
+        JsonNode indices = root.get("retractedEvidenceIndices");
+        if (indices != null) {
+            if (!indices.isArray()) {
+                throw new AiGatewayException("retractedEvidenceIndices 必须是数组");
+            }
+            for (JsonNode index : indices) {
+                if (!index.isIntegralNumber() || !index.canConvertToInt() || index.intValue() < 0
+                        || index.intValue() >= evidenceCount || retracted.contains(index.intValue())) {
+                    throw new AiGatewayException("撤回依据必须唯一且指向当前 Evidence");
+                }
+                retracted.add(index.intValue());
+            }
+        }
+        boolean changes = proposal.interests() != null || proposal.behaviors() != null
+                || proposal.painPoints() != null || proposal.technicalCapabilities() != null
+                || proposal.projectGoals() != null || proposal.constraints() != null
+                || !retracted.isEmpty()
+                || proposal.evidenceClaims() != null && !proposal.evidenceClaims().isEmpty();
+        if (!facts.booleanValue() && changes) {
+            throw new AiGatewayException("无新事实的提取不能修改画像或依据");
+        }
+        if (facts.booleanValue() && (proposal.evidenceClaims() == null || proposal.evidenceClaims().isEmpty())) {
+            throw new AiGatewayException("新事实或纠正必须提供本轮输入支持的依据");
+        }
+        return new TurnProposal(proposal, List.copyOf(retracted));
+    }
+
+    public record TurnProposal(UserProfileProposal profile, List<Integer> retractedEvidenceIndices) {
     }
 
     /**

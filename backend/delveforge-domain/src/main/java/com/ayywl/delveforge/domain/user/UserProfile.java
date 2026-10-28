@@ -272,6 +272,18 @@ public class UserProfile {
         advanceRevision();
     }
 
+    /** 撤回当前被用户明确纠正的依据；旧版本由持久化快照保留，不按来源批量覆盖。 */
+    public void retractEvidence(Evidence evidence) {
+        requireProfileUpdateAllowed();
+        if (evidence == null || !this.evidence.contains(evidence)) {
+            throw new IllegalArgumentException("撤回必须指向当前已有 Evidence");
+        }
+        List<Evidence> updated = new ArrayList<>(this.evidence);
+        updated.remove(evidence);
+        this.evidence = List.copyOf(updated);
+        advanceRevision();
+    }
+
     /**
      * 把 Profile 从 {@link UserProfileStatus#EXPLORING} 推进到
      * {@link UserProfileStatus#REVIEWING}（DOMAIN_MODEL.md §6.1）。

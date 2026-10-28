@@ -25,6 +25,9 @@ public interface UserProfileMapper extends BaseMapper<UserProfileDO> {
     @Delete("DELETE FROM user_profile_sufficiency WHERE profile_id = #{id} AND revision <> #{revision}")
     void invalidateSufficiency(@Param("id") String id, @Param("revision") int revision);
 
+    @Delete("DELETE FROM user_profile_sufficiency WHERE profile_id = #{id}")
+    void clearSufficient(@Param("id") String id);
+
     @Select("SELECT COUNT(*) FROM user_profile_sufficiency s JOIN user_profile p ON p.id = s.profile_id "
             + "WHERE s.profile_id = #{id} AND s.revision = #{revision} AND p.revision = s.revision")
     int sufficientCount(@Param("id") String id, @Param("revision") int revision);
