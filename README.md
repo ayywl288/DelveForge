@@ -64,13 +64,13 @@ Coding Agent 另需 Linux Docker Engine API 1.48+；目标构建受控支持 JDK
 DeepSeek 功能需要用户自己的 API key 与额度；不在源码或前端中配置 key。
 
 ```powershell
-git clone https://github.com/ayywl288/DelveForge.git
-cd DelveForge
-# 取得本地已审阅的发布候选后，再按下列文档构建、启动。
+# 在已合入冻结 MVP 的本地 main 仓库根目录执行。
 .\setup-delveforge.ps1
 ```
 
-发布候选尚未推送，公共 clone 不会自动取得本地 `codex/mvp-freeze-release`。
+冻结 MVP 已在 `2753765` 合入本地 `main`，后续仅做文档修正。
+截至 2026-10-28 本次核对，远程 `main` 尚未同步本地提交，仓库为 private；
+请使用已集成的本地仓库，或在单独授权推送后取得远程版本。读取私有仓库需要相应权限。
 启动器会交互获取 key、检查依赖、准备镜像，再启动前后端；
 `.\setup-delveforge.ps1 -DisableAgent` 可关闭 Agent，探索阶段仍需真实模型。
 **无密钥、无 Docker 的启动检查**与可复制的手动配置见 [本地运行](docs/release/LOCAL_SETUP.md)。
@@ -90,7 +90,7 @@ cd DelveForge
 
 ## 文档导航
 
-- [冻结基线、发布候选与安全集成](docs/release/README.md)
+- [冻结基线、本地集成与发布检查](docs/release/README.md)
 - [架构、Agent 与 Git/SQLite Delivery 图](docs/release/ARCHITECTURE_OVERVIEW.md)
 - [环境、构建、启动与排错](docs/release/LOCAL_SETUP.md)
 - [演示路径与面试讲解](docs/release/DEMONSTRATION.md)

@@ -6,8 +6,9 @@ Java 17 是目标工程的受控工具镜像选项，不是运行 DelveForge 的
 
 ## 获取正确代码并构建
 
-候选当前仅在本地 `codex/mvp-freeze-release`，公共 main 尚未集成这批实现。
-从持有该 ref 的仓库取得候选；用 `git rev-parse HEAD` 记录精确版本，不假定公共 clone 已包含它。
+冻结实现已在 `2753765` 合入本地 `main`，之后的收尾只改文档；不必再切换发布候选分支。
+用 `git rev-parse HEAD` 记录实际版本。2026-10-28 只读核对的远程 `main` 仍为 `f460aa6`，
+仓库为 private，本地集成尚未推送；新 clone 需读取权限，且在远程更新前不会包含本地冻结实现。
 所有命令从仓库根目录执行，不需要单独安装数据库服务或宿主 Python。
 
 ```powershell
