@@ -1,6 +1,8 @@
 package com.ayywl.delveforge.application.userdiscovery.sufficiency;
 
+import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
 import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.ayywl.delveforge.application.userdiscovery.shared.UserProfileCandidates;
 import com.ayywl.delveforge.domain.user.UserProfile;
@@ -38,6 +40,15 @@ public final class AskDiscoveryQuestionUseCase {
         requireCurrentExploration(UserProfileCandidates.loadCopy(repository, id), revision);
         repository.recordSufficiencyAssessment(snapshot, result.sufficient());
         return result;
+    }
+
+    /** 使用服务端语境形成问题，不在 AI 完成前写入任何画像或对话。 */
+    public SufficiencyAssessment prepare(UserProfile snapshot,
+            DiscoveryConversationRepository.Memory memory,
+            DiscoveryReadiness readiness) {
+        snapshot.requireExplorationAllowed();
+        return evaluator.evaluateRemembered(snapshot, "请提出下一个有价值的问题，尊重已跳过的维度。",
+                memory, readiness, true);
     }
 
     private static void requireCurrentExploration(UserProfile profile, int revision) {

@@ -1,6 +1,9 @@
 package com.ayywl.delveforge.app.api.userprofile;
 
 import com.ayywl.delveforge.app.api.evidence.EvidencePayload;
+
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+
 import java.util.List;
 
 /**
@@ -29,5 +32,13 @@ public record UserProfilePatchRequest(
         List<String> technicalCapabilities,
         List<String> projectGoals,
         List<String> constraints,
-        List<EvidencePayload> additionalEvidence) {
+        List<EvidencePayload> additionalEvidence,
+        @JsonDeserialize(using = UserProfileRevisionDeserializer.class)
+        Integer revision) {
+
+    public UserProfilePatchRequest(List<String> interests, List<String> behaviors, List<String> painPoints,
+            List<String> technicalCapabilities, List<String> projectGoals, List<String> constraints,
+            List<EvidencePayload> additionalEvidence) {
+        this(interests, behaviors, painPoints, technicalCapabilities, projectGoals, constraints, additionalEvidence, null);
+    }
 }

@@ -1,7 +1,9 @@
 package com.ayywl.delveforge.application.port.persistence;
 
+import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+
 import java.util.Optional;
 
 /**
@@ -66,6 +68,12 @@ public interface UserProfileRepository {
     /** 与 Profile 保存同一事务记录服务端通过的最低充分性；不保存问题或评估历史。 */
     void saveWithSufficiency(UserProfile profile, UserProfile expected, boolean sufficient);
 
+    /** 原子保存完整同版判断；并发已建立的不同判断必须拒绝，不能反转缓存。 */
+    default void saveWithReadiness(UserProfile profile, UserProfile expected,
+            DiscoveryReadiness readiness) {
+        saveWithSufficiency(profile, expected, readiness.sufficient());
+    }
+
     /**
      * 复用通过结果提交同版审阅；同一事务中核对 expected 快照与仍有效的通过记录。
      * 通过记录已撤销必须拒绝旧候选，不得根据缓存布尔值重新创建记录。
@@ -82,4 +90,10 @@ public interface UserProfileRepository {
 
     /** 只匹配当前内容快照；没有记录表示未知，不能解释为 AI 判定不足。 */
     boolean hasSufficientAssessment(UserProfileId id, int revision);
+
+    /** 查询本版已保存的完整判断；空表示尚未评估，不把未知当成不足。 */
+    default Optional<DiscoveryReadiness> findReadinessAssessment(UserProfileId id, int revision) {
+        return Optional.empty();
+    }
+
 }

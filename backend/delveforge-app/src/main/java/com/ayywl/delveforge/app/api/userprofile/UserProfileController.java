@@ -1,19 +1,8 @@
 package com.ayywl.delveforge.app.api.userprofile;
 
 import com.ayywl.delveforge.app.api.evidence.EvidencePayload;
-import com.ayywl.delveforge.domain.evidence.Evidence;
-import com.ayywl.delveforge.domain.user.UserProfile;
-import com.ayywl.delveforge.domain.user.UserProfileId;
-import java.util.List;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PatchMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
-import org.springframework.web.bind.annotation.RestController;
+import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository;
+import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryConversationService;
 import com.ayywl.delveforge.application.userdiscovery.exploration.ExploreUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.profile.CreateUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.profile.GetUserProfileUseCase;
@@ -22,12 +11,29 @@ import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileU
 import com.ayywl.delveforge.application.userdiscovery.review.ConfirmUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.review.ContinueDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.review.ReopenDiscoveryUseCase;
+import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
-import com.ayywl.delveforge.application.userdiscovery.sufficiency.AskDiscoveryQuestionUseCase;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.DiscoveryQuestions;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.GetProfileReviewReadinessUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
-import com.ayywl.delveforge.application.userdiscovery.workflow.RunUserDiscoveryTurnUseCase;
 import com.ayywl.delveforge.application.userdiscovery.workflow.UserDiscoveryTurn;
+import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.user.UserProfile;
+import com.ayywl.delveforge.domain.user.UserProfileId;
+import com.ayywl.delveforge.domain.user.UserProfileStateException;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * User Profile 业务端点。
@@ -51,6 +57,7 @@ import com.ayywl.delveforge.application.userdiscovery.workflow.UserDiscoveryTurn
 @RequestMapping("/api/user-profiles")
 public class UserProfileController {
 
+    private final DiscoveryConversationService conversations;
     private final CreateUserProfileUseCase createUserProfileUseCase;
     private final GetUserProfileUseCase getUserProfileUseCase;
     private final UpdateUserProfileUseCase updateUserProfileUseCase;
@@ -59,21 +66,19 @@ public class UserProfileController {
     private final ConfirmUserProfileUseCase confirmUserProfileUseCase;
     private final ContinueDiscoveryUseCase continueDiscoveryUseCase;
     private final ReopenDiscoveryUseCase reopenDiscoveryUseCase;
-    private final RunUserDiscoveryTurnUseCase runUserDiscoveryTurnUseCase;
-    private final AskDiscoveryQuestionUseCase askDiscoveryQuestionUseCase;
     private final GetProfileReviewReadinessUseCase getProfileReviewReadinessUseCase;
 
     public UserProfileController(CreateUserProfileUseCase createUserProfileUseCase,
-                                 GetUserProfileUseCase getUserProfileUseCase,
-                                 UpdateUserProfileUseCase updateUserProfileUseCase,
-                                 ExploreUserProfileUseCase exploreUserProfileUseCase,
-                                 AssessProfileSufficiencyUseCase assessProfileSufficiencyUseCase,
-                                 ConfirmUserProfileUseCase confirmUserProfileUseCase,
-                                 ContinueDiscoveryUseCase continueDiscoveryUseCase,
-                                 ReopenDiscoveryUseCase reopenDiscoveryUseCase,
-                                 RunUserDiscoveryTurnUseCase runUserDiscoveryTurnUseCase,
-                                 AskDiscoveryQuestionUseCase askDiscoveryQuestionUseCase,
-                                 GetProfileReviewReadinessUseCase getProfileReviewReadinessUseCase) {
+            GetUserProfileUseCase getUserProfileUseCase,
+            UpdateUserProfileUseCase updateUserProfileUseCase,
+            ExploreUserProfileUseCase exploreUserProfileUseCase,
+            AssessProfileSufficiencyUseCase assessProfileSufficiencyUseCase,
+            ConfirmUserProfileUseCase confirmUserProfileUseCase,
+            ContinueDiscoveryUseCase continueDiscoveryUseCase,
+            ReopenDiscoveryUseCase reopenDiscoveryUseCase,
+            GetProfileReviewReadinessUseCase getProfileReviewReadinessUseCase,
+            DiscoveryConversationService conversations) {
+        this.conversations = conversations;
         this.createUserProfileUseCase = createUserProfileUseCase;
         this.getUserProfileUseCase = getUserProfileUseCase;
         this.updateUserProfileUseCase = updateUserProfileUseCase;
@@ -82,8 +87,6 @@ public class UserProfileController {
         this.confirmUserProfileUseCase = confirmUserProfileUseCase;
         this.continueDiscoveryUseCase = continueDiscoveryUseCase;
         this.reopenDiscoveryUseCase = reopenDiscoveryUseCase;
-        this.runUserDiscoveryTurnUseCase = runUserDiscoveryTurnUseCase;
-        this.askDiscoveryQuestionUseCase = askDiscoveryQuestionUseCase;
         this.getProfileReviewReadinessUseCase = getProfileReviewReadinessUseCase;
     }
 
@@ -148,21 +151,67 @@ public class UserProfileController {
     @PostMapping("/{id}/discovery-turn")
     public DiscoveryTurnResponse discoveryTurn(@PathVariable String id,
                                                @RequestBody DiscoveryTurnRequest request) {
-        return toResponse(runUserDiscoveryTurnUseCase.run(
-                new UserProfileId(id), request.input(), request.previousQuestions(), request.recentConversation()));
+        DiscoveryContext.validate(request.recentConversation());
+        DiscoveryQuestions.validate(request.previousQuestions());
+        var operation = conversations.submit(new UserProfileId(id),
+                new DiscoveryConversationRepository.Command(
+                        request.requestId(), "TURN", request.input(), request.revision(), request.projectId()));
+        requireCompleted(operation);
+        UserProfile current = getUserProfileUseCase.get(new UserProfileId(id));
+        if (current.revision() != operation.revision()) {
+            throw new UserProfileStateException("该请求已完成，但画像版本已变化，请查询已保存的请求结果");
+        }
+        return toResponse(new UserDiscoveryTurn(current, operation.result()));
     }
 
-    /** 用户主动索取下一问：只读、一次 AI 调用，不改变画像或探索状态。 */
+    /** 用户主动索取下一问：保存问答和版本判断，不改变画像内容或探索状态。 */
     @PostMapping("/{id}/discovery-question")
     public DiscoveryQuestionResponse discoveryQuestion(@PathVariable String id,
                                                        @RequestBody DiscoveryQuestionRequest request) {
         if (request.revision() == null) {
             throw new IllegalArgumentException("下一问请求必须携带所依据的 revision");
         }
-        SufficiencyAssessment result = askDiscoveryQuestionUseCase.ask(
-                new UserProfileId(id), request.revision(), request.previousQuestions(), request.recentConversation());
+        DiscoveryContext.validate(request.recentConversation());
+        DiscoveryQuestions.validate(request.previousQuestions());
+        var operation = conversations.submit(new UserProfileId(id),
+                new DiscoveryConversationRepository.Command(
+                        request.requestId(), "QUESTION", null, request.revision(), request.projectId()));
+        requireCompleted(operation);
+        SufficiencyAssessment result = operation.result();
         return new DiscoveryQuestionResponse(
                 request.revision(), result.sufficient(), result.missingAreas(), result.nextQuestion(), result.assistantReply());
+    }
+
+    public record OperationResponse(String requestId, String state, Integer revision, SufficiencyAssessment result) {
+    }
+
+    @GetMapping("/{id}/conversation")
+    public DiscoveryConversationRepository.History history(
+            @PathVariable String id,
+            @RequestParam(required = false) String projectId,
+            @RequestParam(required = false) Long before) {
+        return conversations.history(new UserProfileId(id), projectId, before);
+    }
+
+    @GetMapping("/{id}/discovery-requests/{requestId}")
+    public OperationResponse requestStatus(@PathVariable String id, @PathVariable String requestId,
+            @RequestParam(required = false) String projectId) {
+        var operation = conversations.status(new UserProfileId(id), requestId, projectId);
+        return new OperationResponse(operation.requestId(), operation.state(), operation.revision(), operation.result());
+    }
+
+    private static void requireCompleted(
+            DiscoveryConversationRepository.Operation operation) {
+        if (!"COMPLETED".equals(operation.state())) {
+            throw new UserProfileStateException("请查询该探索请求的记录状态");
+        }
+    }
+
+    @PostMapping("/{id}/discovery-requests/{requestId}/cancel")
+    public OperationResponse cancelRequest(@PathVariable String id, @PathVariable String requestId,
+            @RequestParam(required = false) String projectId) {
+        var operation = conversations.cancel(new UserProfileId(id), requestId, projectId);
+        return new OperationResponse(operation.requestId(), operation.state(), operation.revision(), operation.result());
     }
 
     /**
@@ -207,7 +256,7 @@ public class UserProfileController {
                 assessment.sufficient(),
                 assessment.missingAreas(),
                 assessment.nextQuestion(),
-                assessment.assistantReply());
+                assessment.assistantReply(), assessment.previousQuestionState());
     }
 
     private static SufficiencyAssessmentResponse toResponse(SufficiencyAssessment assessment) {
@@ -228,7 +277,7 @@ public class UserProfileController {
                 request.technicalCapabilities(),
                 request.projectGoals(),
                 request.constraints(),
-                toEvidenceList(request.additionalEvidence()));
+                toEvidenceList(request.additionalEvidence()), request.revision());
     }
 
     /** {@code null} 表示本次不新增 Evidence，与内容区的「未提供」语义一致。 */

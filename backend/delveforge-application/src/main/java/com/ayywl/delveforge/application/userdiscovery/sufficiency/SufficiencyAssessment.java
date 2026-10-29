@@ -1,13 +1,14 @@
 package com.ayywl.delveforge.application.userdiscovery.sufficiency;
 
 import com.ayywl.delveforge.domain.user.UserProfileStatus;
+
 import java.util.List;
 
 /**
  * 一次 Profile Sufficiency Assessment 的结果。
  *
- * <p>它是一次评估的结论，不是领域对象，也没有独立身份与生命周期：当前不持久化评估历史，
- * 调用方拿到的就是本次的结果（ROADMAP.md M1 只要求「判断是否足够」，未要求历史）。
+ * <p>它不是领域对象；持久对话入口会将结果与请求、画像版本和消息一起提交，
+ * 同版的最低充分性结论可复用，但不授予审阅或确认权限。
  *
  * <p>{@code profileStatus} 是评估结束后 Profile 的实际状态：信息不足时保持
  * {@code EXPLORING}；普通对话充分时仍为 {@code EXPLORING}，显式审阅请求
@@ -24,7 +25,28 @@ public record SufficiencyAssessment(
         List<String> missingAreas,
         String nextQuestion,
         UserProfileStatus profileStatus,
-        String assistantReply) {
+        String assistantReply,
+        String questionArea,
+        List<String> deferredAreas,
+        String previousQuestionState,
+        List<String> resumedAreas) {
+
+    public SufficiencyAssessment(boolean sufficient, List<String> missingAreas, String nextQuestion,
+            UserProfileStatus profileStatus, String assistantReply, String questionArea, List<String> deferredAreas,
+            String previousQuestionState) {
+        this(sufficient, missingAreas, nextQuestion, profileStatus, assistantReply, questionArea, deferredAreas,
+                previousQuestionState, List.of());
+    }
+
+    public SufficiencyAssessment(boolean sufficient, List<String> missingAreas, String nextQuestion,
+            UserProfileStatus profileStatus, String assistantReply, String questionArea, List<String> deferredAreas) {
+        this(sufficient, missingAreas, nextQuestion, profileStatus, assistantReply, questionArea, deferredAreas, "OPEN");
+    }
+
+    public SufficiencyAssessment(boolean sufficient, List<String> missingAreas, String nextQuestion,
+            UserProfileStatus profileStatus, String assistantReply) {
+        this(sufficient, missingAreas, nextQuestion, profileStatus, assistantReply, null, List.of());
+    }
 
     public SufficiencyAssessment(boolean sufficient, List<String> missingAreas,
             String nextQuestion, UserProfileStatus profileStatus) {
@@ -33,6 +55,8 @@ public record SufficiencyAssessment(
 
     public SufficiencyAssessment {
         missingAreas = List.copyOf(missingAreas);
+        deferredAreas = List.copyOf(deferredAreas);
+        resumedAreas = resumedAreas == null ? List.of() : List.copyOf(resumedAreas);
         if (profileStatus == null) {
             throw new IllegalArgumentException("SufficiencyAssessment 必须包含 profileStatus");
         }

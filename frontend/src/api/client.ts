@@ -1,3 +1,4 @@
+import type { ConversationHistory, DiscoveryOperation, DiscoveryRequestIdentity } from "./types";
 import type {
   Assessment,
   AssetInput,
@@ -152,26 +153,38 @@ export const api = {
   createProfile: () => request<UserProfile>("/user-profiles", "POST"),
   profile: (value: string) => request<UserProfile>(profile(value)),
   discoveryTurn: (value: string, input: string, previousQuestions: string[] = [],
-    recentConversation: DiscoveryContextMessage[] = []) =>
+    recentConversation: DiscoveryContextMessage[] = [], identity?: DiscoveryRequestIdentity) =>
     request<DiscoveryTurn>(`${profile(value)}/discovery-turn`, "POST", {
       input,
       previousQuestions,
       recentConversation,
+      ...identity,
     }),
   discoveryQuestion: (value: string, revision: number, previousQuestions: string[],
-    recentConversation: DiscoveryContextMessage[] = []) =>
+    recentConversation: DiscoveryContextMessage[] = [], identity?: DiscoveryRequestIdentity) =>
     request<DiscoveryQuestion>(`${profile(value)}/discovery-question`, "POST", {
       revision,
       previousQuestions,
       recentConversation,
+      ...identity,
     }),
-  patchProfile: (value: string, patch: ProfilePatch) =>
-    request<UserProfile>(profile(value), "PATCH", patch),
+  conversation: (value: string, before?: number, projectId?: string) => {
+    const query = new URLSearchParams();
+    if (before != null) query.set("before", String(before));
+    if (projectId) query.set("projectId", projectId);
+    return request<ConversationHistory>(`${profile(value)}/conversation?${query}`);
+  },
+  discoveryRequest: (value: string, requestId: string, projectId?: string) =>
+    request<DiscoveryOperation>(`${profile(value)}/discovery-requests/${id(requestId)}${projectId ? `?projectId=${id(projectId)}` : ""}`),
+  cancelDiscoveryRequest: (value: string, requestId: string) =>
+    request<DiscoveryOperation>(`${profile(value)}/discovery-requests/${id(requestId)}/cancel`, "POST"),
+  patchProfile: (value: string, patch: ProfilePatch, revision?: number) =>
+    request<UserProfile>(profile(value), "PATCH", { ...patch, revision }),
   assess: (value: string, revision?: number) =>
     request<Assessment>(`${profile(value)}/sufficiency-assessment`, "POST",
       revision === undefined ? undefined : { revision }),
   reviewReadiness: (value: string) =>
-    request<{ profileId: string; revision: number; sufficient: true | null }>(`${profile(value)}/review-readiness`),
+    request<{ profileId: string; revision: number; sufficient: boolean | null; missingAreas?: string[] }>(`${profile(value)}/review-readiness`),
   confirmProfile: (value: string, revision: number) =>
     request<UserProfile>(`${profile(value)}/confirm`, "POST", { revision }),
   resumeDiscovery: (value: string, confirmed: boolean) =>

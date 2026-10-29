@@ -1,21 +1,27 @@
 package com.ayywl.delveforge.infrastructure.persistence.userprofile;
 
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
-import com.ayywl.delveforge.domain.user.UserProfileStatus;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
+import com.ayywl.delveforge.domain.user.UserProfileStatus;
+
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import org.springframework.stereotype.Repository;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * {@link UserProfileRepository} 的 SQLite / MyBatis-Plus 实现。
@@ -62,6 +68,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Repository
 public class SqliteUserProfileRepository implements UserProfileRepository {
 
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     private final UserProfileMapper userProfileMapper;
     private final UserProfileRevisionMapper revisionMapper;
     private final UserProfileSectionItemMapper sectionItemMapper;
@@ -102,6 +110,7 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
         insertSectionItems(profileId, revision, profile);
         insertEvidence(profileId, revision, profile);
         userProfileMapper.invalidateSufficiency(profileId, revision);
+        userProfileMapper.invalidateReadiness(profileId, revision);
     }
 
     @Override
@@ -119,6 +128,24 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
     public void saveWithSufficiency(UserProfile profile, UserProfile expected, boolean sufficient) {
         saveIfUnchanged(profile, expected);
         writeSufficiency(profile, sufficient);
+    }
+
+    @Override
+    @Transactional
+    public void saveWithReadiness(UserProfile profile, UserProfile expected,
+            DiscoveryReadiness readiness) {
+        requireUnchanged(expected);
+        var established = findReadinessAssessment(profile.id(), profile.revision());
+        if (established.isPresent() && !established.get().equals(readiness)) {
+            throw new UserProfileStateException("本版充分性已由另一请求建立，请重新读取");
+        }
+        saveWithSufficiency(profile, expected, readiness.sufficient());
+        try {
+            userProfileMapper.recordReadiness(profile.id().value(), profile.revision(), readiness.sufficient(),
+                    JSON.writeValueAsString(readiness.missingAreas()));
+        } catch (JsonProcessingException failure) {
+            throw new IllegalStateException("无法保存充分性记录", failure);
+        }
     }
 
     @Override
@@ -149,10 +176,11 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
     }
 
     private void writeSufficiency(UserProfile profile, boolean sufficient) {
+        userProfileMapper.clearReadiness(profile.id().value());
         if (sufficient) {
             userProfileMapper.recordSufficient(profile.id().value(), profile.revision());
         } else {
-            // 同版无新事实的对话也可能重新判断为不足，不能继续复用旧通过标记。
+            // 旧布尔元数据入口显式撤销通过资格；持久对话入口另行保存完整版本判断。
             userProfileMapper.clearSufficient(profile.id().value());
         }
     }
@@ -160,6 +188,23 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
     @Override
     public boolean hasSufficientAssessment(UserProfileId id, int revision) {
         return userProfileMapper.sufficientCount(id.value(), revision) == 1;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<DiscoveryReadiness> findReadinessAssessment(UserProfileId id, int revision) {
+        Map<String, Object> row = userProfileMapper.readiness(id.value(), revision);
+        if (row == null) {
+            return Optional.empty();
+        }
+        try {
+            List<String> missing = JSON.readValue(
+                    (String) row.get("missing_json"), new TypeReference<List<String>>() { });
+            return Optional.of(new DiscoveryReadiness(
+                    ((Number) row.get("sufficient")).intValue() == 1, missing));
+        } catch (JsonProcessingException failure) {
+            throw new IllegalStateException("充分性记录不可读");
+        }
     }
 
     private void requireUnchanged(UserProfile expected) {

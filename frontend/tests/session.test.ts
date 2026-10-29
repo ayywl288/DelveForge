@@ -108,12 +108,12 @@ describe("M1 问题显示与连续探索", () => {
     const ask = vi.spyOn(api, "discoveryQuestion");
     await s.restore();
     expect(s.sufficiency.value?.sufficient).toBe(true);
-    expect(s.reviewChoicePending.value).toBe(false); expect(s.messages.value).toEqual([]);
+    expect(s.messages.value).toEqual([]);
     expect(ask).not.toHaveBeenCalled();
     vi.spyOn(api, "reviewReadiness").mockResolvedValue({ profileId: "profile-1", revision: 0, sufficient: true });
     s.sufficiency.value = null; await s.restore(); expect(s.sufficiency.value).toBeNull();
   });
-  it("恢复尚无充分记录的画像，不抑制后续首次真实充分弹窗", async () => {
+  it("恢复尚无充分记录的画像，后续充分结果仅更新就绪提示", async () => {
     const s = make(); s.ids.profileId = "profile-1";
     vi.spyOn(api, "connectivity").mockResolvedValue({ service: "delveforge", status: "UP", timestamp: "now" });
     vi.spyOn(api, "profile").mockResolvedValue(profile());
@@ -121,7 +121,7 @@ describe("M1 问题显示与连续探索", () => {
     await s.restore();
     vi.spyOn(api, "discoveryTurn").mockResolvedValue({ profile: profile(), sufficient: true,
       missingAreas: [], nextQuestion: "先展示什么能力？" });
-    await s.turn("先展示事务能力"); expect(s.reviewChoicePending.value).toBe(true);
+    await s.turn("先展示事务能力"); expect(s.sufficiency.value?.sufficient).toBe(true);
   });
   it("评估与对话的真实问题只在聊天中插入一次，GET 不生成问题", async () => {
     const s = make(); s.profile.value = profile(); s.ids.profileId = "profile-1";
@@ -181,7 +181,8 @@ describe("持续引导与只读下一问", () => {
     await s.turn("想展示持久化和测试");
     expect(s.messages.value.filter(m => m.role === "agent").map(m => m.text)).toEqual(questions);
     expect(turn).toHaveBeenCalledTimes(3);
-    expect(turn.mock.calls[2]?.[2]).toEqual(questions.slice(0, 2));
+    expect(turn.mock.calls[2]?.[2]).toEqual([]);
+    expect(turn.mock.calls[2]?.[4]).toEqual(expect.objectContaining({ requestId: expect.any(String), revision: 3 }));
     expect(s.profile.value?.status).toBe("EXPLORING");
   });
   it("没有问题时按需调用一次，不伪造用户消息，不并发或自动重试", async () => {
@@ -193,7 +194,7 @@ describe("持续引导与只读下一问", () => {
     expect(ask).toHaveBeenCalledTimes(1);
     resolve({ revision: 1, sufficient: true, missingAreas: [], nextQuestion: "你希望谁先使用这个项目？" });
     await first;
-    expect(ask).toHaveBeenCalledWith("profile-1", 1, [], []);
+    expect(ask).toHaveBeenCalledWith("profile-1", 1, [], [], expect.objectContaining({ requestId: expect.any(String), revision: 1 }));
     expect(s.messages.value).toEqual([{ role: "agent", text: "你希望谁先使用这个项目？", question: "你希望谁先使用这个项目？" }]);
     await s.continueExploring();
     expect(ask).toHaveBeenCalledTimes(1);

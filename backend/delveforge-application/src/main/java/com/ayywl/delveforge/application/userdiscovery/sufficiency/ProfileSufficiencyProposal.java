@@ -31,7 +31,20 @@ public record ProfileSufficiencyProposal(
         String nextQuestion,
         String assistantReply,
         String questionArea,
-        List<String> deferredAreas) {
+        List<String> deferredAreas,
+        String previousQuestionState,
+        List<String> resumedAreas) {
+
+    public ProfileSufficiencyProposal(boolean sufficient, List<String> missingAreas, String nextQuestion,
+            String assistantReply, String questionArea, List<String> deferredAreas, String previousQuestionState) {
+        this(sufficient, missingAreas, nextQuestion, assistantReply, questionArea, deferredAreas,
+                previousQuestionState, List.of());
+    }
+
+    public ProfileSufficiencyProposal(boolean sufficient, List<String> missingAreas, String nextQuestion,
+            String assistantReply, String questionArea, List<String> deferredAreas) {
+        this(sufficient, missingAreas, nextQuestion, assistantReply, questionArea, deferredAreas, "OPEN");
+    }
 
     public ProfileSufficiencyProposal(boolean sufficient, List<String> missingAreas, String nextQuestion) {
         this(sufficient, missingAreas, nextQuestion, null, null, List.of());
@@ -39,5 +52,7 @@ public record ProfileSufficiencyProposal(
 
     public ProfileSufficiencyProposal {
         missingAreas = List.copyOf(missingAreas);
+        deferredAreas = List.copyOf(deferredAreas);
+        resumedAreas = List.copyOf(resumedAreas);
     }
 }

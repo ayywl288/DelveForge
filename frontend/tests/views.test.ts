@@ -48,19 +48,22 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     s.sufficiency = { sufficient: true, missingAreas: [], nextQuestion: null };
     const root = mount(DiscoveryView, s);
     const review = root.querySelector(".profile-review")!;
-    for (const text of ["画像版本 7", "战绩趋势", "每周战队练习", "手工统计耗时", "完成过Java接口", "六周完成可展示作品", "每周五小时", "可投入五小时", "每周五小时做Java作品", "整体画像确认与单条依据核对不同"]) {
+    for (const text of ["版本 7", "战绩趋势", "每周战队练习", "手工统计耗时", "完成过Java接口", "六周完成可展示作品", "每周五小时", "每周五小时做Java作品"]) {
       expect(review.textContent).toContain(text);
     }
-    expect(review.querySelector(".evidence")?.hasAttribute("open")).toBe(false);
+    expect(review.querySelector(".original-descriptions")?.hasAttribute("open")).toBe(false);
+    expect(review.textContent).not.toContain("sourceType");
+    expect(review.textContent).not.toContain("confidence");
+    expect(root.querySelector(".profile-panel")).toBeNull();
     expect(root.querySelector("form")?.style.display).toBe("none");
-    expect(button(root, "返回探索并提问")).toBeTruthy();
-    const check = root.querySelector(".review-box input") as HTMLInputElement;
+    expect(button(root, "继续探索")).toBeTruthy();
+    const check = root.querySelector(".review-actions input") as HTMLInputElement;
     check.checked = true; check.dispatchEvent(new Event("change", { bubbles: true })); await nextTick();
     expect(button(root, "确认当前画像").disabled).toBe(false);
     s.profile = { ...s.profile, revision: 8, constraints: ["改为两小时"] }; s.sufficiency = null; await nextTick();
     expect(button(root, "确认当前画像").disabled).toBe(true);
-    expect(review.textContent).toContain("画像版本 8"); expect(review.textContent).toContain("改为两小时");
-    expect(review.textContent).toContain("不会重构评估结果");
+    expect(review.textContent).toContain("版本 8"); expect(review.textContent).toContain("改为两小时");
+    expect(review.textContent).not.toContain("sourceType");
   });
   it("充分后的两个选择明确，继续探索显示实际问题且不重复请求", async () => {
     const s = session(); s.profile = profile(); s.ids.profileId = "profile-1";
@@ -70,10 +73,10 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     })));
     vi.stubGlobal("fetch", fetcher); const root = mount(DiscoveryView, s);
     expect(button(root, "进入画像审阅")).toBeTruthy();
-    button(root, "继续深入探索").click(); await settle();
+    button(root, "请 Agent 提出下一问").click(); await settle();
     expect(root.querySelector(".chat-log")?.textContent).toContain("你希望先让谁使用这个项目？");
     expect(root.querySelector(".review-box")?.textContent).not.toContain("你希望先让谁使用这个项目？");
-    button(root, "继续深入探索").click(); await settle();
+    button(root, "继续回答已有问题").click(); await settle();
     expect(fetcher).toHaveBeenCalledTimes(1); expect(root.querySelectorAll(".message.agent")).toHaveLength(1);
   });
   it("审阅不足只反馈缺失信息，不将独立评估的问题插入聊天", async () => {
@@ -93,7 +96,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     expect(root.querySelector("textarea")?.disabled).toBe(false);
     expect(root.textContent).toContain("画像版本 1");
   });
-  it("首次真实充分结果只弹一次，继续不调用 AI，审阅与对话可切换", async () => {
+  it("充分结果不打开弹窗或结束探索，审阅与对话可切换", async () => {
     const s = session(); s.profile = profile(); s.ids.profileId = "profile-1";
     s.sufficiency = { sufficient: false, missingAreas: ["目标"], nextQuestion: null };
     let revision = 1;
@@ -103,14 +106,15 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     })));
     vi.stubGlobal("fetch", fetcher); const root = mount(DiscoveryView, s);
     await s.turn("展示Java持久化能力"); await settle();
-    expect(root.querySelector("dialog[open]")?.textContent).toContain("现在可以审阅");
-    button(root.querySelector("dialog[open]") as HTMLElement, "继续深入探索").click(); await settle();
-    expect(s.reviewChoicePending).toBe(false); expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(root.querySelector("dialog[open]")).toBeNull();
+    expect(root.querySelector(".readiness-banner")?.textContent).toContain("审阅");
+    expect(s.profile?.status).toBe("EXPLORING");
+    expect(fetcher).toHaveBeenCalledTimes(1);
     await s.turn("先展示事务能力"); await settle();
-    expect(s.reviewChoicePending).toBe(false); expect(root.querySelector("dialog[open]")).toBeNull();
+    expect(root.querySelector("dialog[open]")).toBeNull();
     s.profile = { ...s.profile!, status: "REVIEWING" }; await settle();
     expect(root.querySelector(".profile-review")).not.toBeNull();
-    expect(root.querySelector(".profile-panel")?.textContent).not.toContain("首先展示哪项能力");
+    expect(root.querySelector(".profile-panel")).toBeNull();
     button(root, "本次对话").click(); await settle();
     expect(root.querySelector(".chat-log")?.textContent).toContain("首先展示哪项能力？");
     expect(root.querySelector(".profile-review")).toBeNull();
@@ -174,7 +178,7 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     button(root, "进入画像审阅").click(); await settle();
     const confirm = button(root, "确认当前画像");
     expect(confirm.disabled).toBe(true);
-    const check = root.querySelector(".review-box input") as HTMLInputElement;
+    const check = root.querySelector(".review-actions input") as HTMLInputElement;
     check.checked = true;
     check.dispatchEvent(new Event("change", { bubbles: true }));
     await nextTick();
@@ -188,13 +192,13 @@ describe("五阶段 Vue 交互（合成 API 夹具）", () => {
     ).toBe(true);
     expect(root.querySelector(".badge")?.textContent?.trim()).toBe("已确认");
     expect(root.querySelector("textarea")?.disabled).toBe(true);
-    expect(root.querySelectorAll(".review-box input")).toHaveLength(0);
-    expect(button(root, "纠正").disabled).toBe(true);
+    expect(root.querySelectorAll(".review-actions input")).toHaveLength(0);
+    expect(button(root, "编辑").disabled).toBe(true);
   });
   it("继续探索并重新进入审阅后，即使版本没变也要重新勾选审阅", async () => {
     const s = session(); s.profile = { ...profile(), status: "REVIEWING" };
     const root = mount(DiscoveryView, s);
-    const check = root.querySelector(".review-box input") as HTMLInputElement;
+    const check = root.querySelector(".review-actions input") as HTMLInputElement;
     check.checked = true; check.dispatchEvent(new Event("change", { bubbles: true })); await nextTick();
     expect(button(root, "确认当前画像").disabled).toBe(false);
     s.profile = profile(); await nextTick();

@@ -115,12 +115,13 @@ describe("长 Evidence 的本地分页", () => {
     });
 });
 
-it("已确认画像和仓库真实使用共享分页，切换分析后不会保留另一份快照页码", async () => {
+it("已确认需求使用原始描述，仓库继续使用共享分页且不保留另一份快照页码", async () => {
     const s = session(); s.profile = longProfile(); s.repositories = [longRepository()];
     const decide = vi.spyOn(s, "decide"), analyze = vi.spyOn(s, "analyze");
     const discovery = mount(DiscoveryView, { s });
-    expect(discovery.querySelectorAll(".evidence-entry")).toHaveLength(6);
-    expect(discovery.querySelector(".evidence .count-pill")?.textContent).toBe("23");
+    expect(discovery.querySelectorAll(".original-descriptions blockquote")).toHaveLength(23);
+    expect(discovery.querySelector(".original-descriptions .count-pill")?.textContent).toBe("23");
+    expect(discovery.querySelector(".evidence")).toBeNull();
     const repo = mount(RepositoryView, { s });
     expect(repo.querySelector(".evidence .count-pill")?.textContent).toBe("27");
     const evidence = repo.querySelector(".evidence")!;

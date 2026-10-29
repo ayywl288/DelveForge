@@ -1,12 +1,13 @@
 package com.ayywl.delveforge.application.userdiscovery.profile;
 
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.userdiscovery.shared.UserProfileCandidates;
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
+
 import java.util.List;
 import java.util.function.Consumer;
-import com.ayywl.delveforge.application.userdiscovery.shared.UserProfileCandidates;
 
 /**
  * 更新一个已存在的 User Profile。
@@ -57,6 +58,9 @@ public class UpdateUserProfileUseCase {
                         .orElseThrow(() -> new UserProfileNotFoundException(request.profileId())));
 
         UserProfile expected = UserProfileCandidates.copyOf(candidate);
+        if (request.expectedRevision() != null && request.expectedRevision() != expected.revision()) {
+            throw new UserProfileStateException("纠正所依据的画像版本已经变化，请重新审阅");
+        }
 
         applySection(request.interests(), candidate::updateInterests);
         applySection(request.behaviors(), candidate::updateBehaviors);

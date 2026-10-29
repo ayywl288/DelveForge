@@ -557,15 +557,15 @@ Frontend 采用 Vitest + jsdom 验证五阶段交互和长请求，夹具不依�
 | ------- | -------------------------------- | ---------------------------------------------------------- | ---- | ---- |
 | `POST`  | `/api/user-profiles`             | 创建一个空的 `EXPLORING` User Profile                      | 201  | —    |
 | `GET`   | `/api/user-profiles/{id}`        | 返回当前（最新）revision 的 Profile                        | 200  | 404  |
-| `PATCH` | `/api/user-profiles/{id}`        | 结构化 partial update，返回更新后的 Profile                | 200  | 400 / 404 |
+| `PATCH` | `/api/user-profiles/{id}`        | 结构化 partial update，可带 revision 拒绝旧编辑             | 200  | 400 / 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/explore`| 提交一轮用户自然语言输入，由 AI 提出建议后更新，返回更新后的 Profile | 200  | 400 / 404 / 502 |
 | `POST`  | `/api/user-profiles/{id}/sufficiency-assessment` | 复用本版服务端充分结果，无记录才评估，显式请求审阅 | 200 | 400 / 404 / 409 / 502 |
-| `GET`   | `/api/user-profiles/{id}/review-readiness` | 读取本版通过记录；无记录为未知，不调用 AI | 200 | 404 |
+| `GET`   | `/api/user-profiles/{id}/review-readiness` | 读取本版判断及缺口；无记录为未知，不调用 AI | 200 | 404 |
 | `POST`  | `/api/user-profiles/{id}/confirm` | 用户确认 Profile（`REVIEWING → CONFIRMED`），请求体须携带所依据的 revision | 200 | 400 / 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/continue-discovery` | 用户选择继续探索（`REVIEWING → EXPLORING`） | 200 | 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/reopen-discovery` | 用户重新开启探索（`CONFIRMED → EXPLORING`） | 200 | 404 / 409 |
 | `POST`  | `/api/user-profiles/{id}/discovery-turn` | 一轮 User Discovery：提取 → 更新 → 评估最低审阅条件，保持探索 | 200 | 400 / 404 / 409 / 502 |
-| `POST`  | `/api/user-profiles/{id}/discovery-question` | 用户按需只读评估并取得下一问，不提取、不保存、不转移状态 | 200 | 400 / 404 / 409 / 502 |
+| `POST`  | `/api/user-profiles/{id}/discovery-question` | 用户按需取得并保存下一问，不提取事实或转移状态 | 200 | 400 / 404 / 409 / 502 |
 | `POST`  | `/api/software-assets`           | 登记元数据；只读规范化位置，并发拒绝重复登记                 | 201  | 400 / 409 |
 | `GET`   | `/api/software-assets/{id}`      | 读取已登记的资产元数据                                     | 200  | 404  |
 | `GET`   | `/api/software-assets?location=...` | 按绝对位置查找既有身份；可能含历史重复，不合并             | 200  | 400 |
@@ -617,117 +617,86 @@ AI 调用失败或返回内容无法解析时返回 502，与其它外部能力�
 响应体    {"sufficient": …, "missingAreas": [...], "nextQuestion": null, "profileStatus": "…"}
 ```
 
-该入口表示用户显式请求进入审阅。系统把当前六区内容与 Evidence（含 sourceRef 原始依据）
-在无本版通过记录时交给 AI Gateway，得到充分性建议。先校验 EXPLORING 与请求 revision；
-有记录则零 AI 调用，无记录才评估一次。充分时才请求状态转换：
+该入口表示用户显式请求进入审阅。先检查 EXPLORING 与请求 revision，复用本版已保存的
+充分性及缺口；没有判断才调用一次 AI。首次不足也保存版本元数据，不改变内容、revision 或状态；
+充分时由 Domain 的 `beginReview()` 决定是否允许进入 REVIEWING，显式审阅始终返回空问题。
+模型不能表达或设置生命周期状态，结构矛盾的输出按 502 拒绝。
+
+服务端 `discovery_readiness` 保存当前 ID + revision 的正面或负面结论及缺口。
+普通无新事实的回复不反转同版结论；六区或 Evidence 变化使旧缓存失效，下轮重新评估。
+AI 语义建议不能覆盖 Application 对目标、技术基础、约束和 USER_INPUT Evidence 的最低检查。
+六区填满不证明具体，兴趣、学习和求职动机均可成立，painPoints 仍可为空，没有固定轮数。
+`user_profile_sufficiency` 继续保留当前正面资格以兼容显式审阅的原子校验。
+复用审阅通过 `saveReviewIfSufficient` 在同一事务核对快照及仍有效的通过记录；
+被撤销的资格不能由旧请求重建。首次结论及持久对话通过 `saveWithReadiness` 原子提交，
+同版并发形成不同结论则拒绝迟到结果。所有 AI 调用都在数据库事务之外。
+
+**持久对话与请求恢复**
+
+决策边界见 [ADR-0019](decisions/0019-durable-discovery-conversations.md)。
+
+Application 的 `DiscoveryConversationService` 是产品对话入口，复用现有提取、评估组件形成
+隔离候选；`DiscoveryConversationRepository` 由 SQLite 适配器实现。V27 增量迁移新增请求、
+消息、跳过话题和当前版本判断表。旧库仅迁移真实正面资格，不从 Evidence 生成聊天。
 
 ```text
-insufficient   Profile 保持 EXPLORING，不写入、不推进 revision
-sufficient     Application 调用 Domain 的状态转移，由 Domain 决定是否允许 EXPLORING → REVIEWING
+POST /api/user-profiles/{id}/discovery-turn
+     {input, requestId, revision, projectId?}
+POST /api/user-profiles/{id}/discovery-question
+     {requestId, revision, projectId?}
+GET  /api/user-profiles/{id}/conversation?before=...&projectId=...
+GET  /api/user-profiles/{id}/discovery-requests/{requestId}?projectId=...
+POST /api/user-profiles/{id}/discovery-requests/{requestId}/cancel?projectId=...
+GET  /api/user-profiles/{id}/review-readiness
 ```
 
-模型输出里没有状态字段：AI 只表达「够不够、缺什么、下一问是什么」，
-`profileStatus` 始终由 Domain 决定。模型输出自相矛盾（例如声明足够却列出缺失信息）
-会被解析层拒绝，按 502 处理且不改变任何状态。
+浏览器在发送前保存随机 requestId，只保存身份，不存正文。同 ID、同输入指纹复用原请求，
+不同内容复用 ID 返回 409；每份画像同时最多一个 PENDING。兼容无 requestId 的旧调用会由
+服务端分配 ID，但可靠断线恢复的调用方必须自己保留 ID。projectId 可省略；提供时必须匹配
+当前未删除项目的画像关联，提交事务再次核对该关联。对话归属于 User Profile，消息另存
+发起时的项目身份；共享同一画像的项目也共享其需求历史，不复制或混入其他画像。
 
-服务端只保存每份 Profile 当前通过最低充分性检查的 revision（`user_profile_sufficiency`）；
-它依赖既有 ID + revision 内容快照，不保存 Prompt、原始响应、问题或历史评估。
-同版审阅优先复用当前通过结果；内容或 Evidence 更新的事务删除旧记录。新的完整评估若为不足，
-同版旧通过标记也原子清除，不保存负面历史或改变 revision。只读下一问可更新
-服务端通过结果，但不保存用户事实。浏览器 sufficient 标志不具有状态转换权限。
-审阅保存、确认以及所有 M1 更新均在提交事务中检查原始版本、状态与快照。
-复用审阅通过 `saveReviewIfSufficient`，在 SQLite 条件 UPDATE 取得写锁后额外核对
-同 ID + revision 的通过记录仍有效，再保存 REVIEWING；不重新创建通过记录。若记录已被撤销，
-返回 `409 CONFLICT`，不保存候选、不隐式调用模型重评。新评估通过仍使用
-`saveWithSufficiency` 原子保存画像与通过结果，其他更新继续通过 `saveIfUnchanged`；
-各路径共享快照核对，检查和保存同事务，AI 调用始终在事务外。
+短事务先登记 PENDING，模型在事务外执行，最后同一事务保存画像、快照、版本判断、消息、
+问题状态与 COMPLETED 结果；任何提交步骤失败整体回滚。失败请求仅记录 FAILED 元数据，
+无法确认时保留 PENDING。显式取消用 CANCELLED 记录阻止未知或执行中请求的迟到提交，
+不能撤销已完成轮次，也不声称取消 Provider 的在途计算。仅在所属进程已退出或 PID 已复用
+时将遗留请求标为 INTERRUPTED；不凭超时或页面刷新假定失败，不自动重试模型。
 
-充分性不是六区非空或条目计数：AI 需核对具体动机 / 期望成果、技术基础、约束及用户输入依据；
-兴趣、学习和求职可充分，painPoints 可为空。Application 同时拦截缺失目标、技术基础、约束
-或 USER_INPUT Evidence 的正面建议。该检查不能证明自然语言的语义真实性，仍需要用户审阅。
-探索先返回 assistantReply，再按语境选择可选 nextQuestion；不足也可以仅解释、接受跳过或澄清。
-显式审阅无论是否充分均返回空问题；充分性、继续交流与进入审阅保持独立。
+状态查询返回 requestId、状态、结果版本和已保存评估，不返回输入指纹或内部进程信息。
+响应丢失后读取同一 ID 恢复结果；旧结果不与更新后的画像版本拼装为成功响应。
+NOT_FOUND 仍不能证明原请求不会到达，用户可继续查询或
+显式放弃后再输入。切换项目以会话版本丢弃迟到响应，并保留原画像的未决请求身份。
 
-**review-readiness 语义**
+消息保存 accepted 用户输入、Agent 正文、独立的精确问题、话题、问答状态、顺序与时间。
+问题专用入口也持久化 Agent 消息，但不新增用户事实、Evidence、revision 或领域状态。
+GET 每页最多 100 条，按原顺序返回，并单独返回最后未回答问题与 PENDING 身份。
+刷新、后端重启和打开项目只读恢复，不自动调用 AI；旧画像无记录显示空历史。
+日志不记录原文、完整模型响应或 Prompt。
 
-`GET /api/user-profiles/{id}/review-readiness` 返回 `{profileId, revision, sufficient: true|null}`。
-true 仅表示本版服务端已通过；null 表示没有有效通过记录，不冒充 AI 不足结论。
-刷新用 GET 恢复非阻塞提示，版本不匹配则丢弃；不恢复问题、不调用 Provider。
+**有界续聊与问题规划**
 
-**discovery-turn 语义**
+普通业务轮仍至多两次 Gateway 调用：提取事实，再评估兼回应及规划可选问题。
+明确附和或流程请求可跳过提取，只有一次评估。hasNewFacts=false 不能修改内容或新增依据；
+明确纠正通过现有 Domain 操作更新当前内容、撤回错误依据并增加本轮依据，历史快照不变。
+普通轮不调用 beginReview；足够也保持 EXPLORING，解释、澄清和接受跳过可仅回复。
 
-面向产品的主要入口：一次请求完成一整轮 User Discovery。
+提取与评估使用服务端最近八条已接受消息（每条最多 2048 字符，优先保留真实问题）、
+最近八个问题、最多八类话题的最新讨论状态和跳过维度，不发送完整历史。
+兼容的客户端 recentConversation / previousQuestions 仍校验形状，但不作为产品续聊来源。
+上一问 ANSWERED / DEFERRED / OPEN 仅描述对话状态；解释为何提问保持 OPEN，未回答问题
+不会被新问题替换。跳过维度跨重启保留，只有真实用户轮主动重开才解除，不据拒答制造事实。
+历史问题全量在本地做规范化及有限的相似文本检查；模型结合话题状态避免语义重复。
+这不是通用语义记忆，也不能证明所有改写都被识别。
 
-```text
-请求体    {"input": "<本轮用户输入>", "previousQuestions": ["<已提问题>"],
-           "recentConversation": [{"role":"user|agent", "text":"<已接受的本页语境>"}]}
-响应体    {"profile": {…}, "sufficient": …, "missingAreas": […], "assistantReply": "…", "nextQuestion": "…"|null}
-```
+questionArea、deferredAreas、resumedAreas 均严格校验为已知维度，不属于 Profile / Evidence。
+主动 discovery-question 只在 EXPLORING 和当前 revision 可用；已有未回答问题时拒绝替换。
+该入口必须给出未跳过且未重复的可用问题，必要时从确定性缺口规划；耗尽则明确 502，
+不保存成功消息、不自动重试。Continue / Reopen 与提问仍是两次请求，提问失败保留真实探索状态。
 
-```text
-本轮用户输入
-     ↓
-提取      当前 Profile + 输入 → AI 提出建议 → 更新候选 Profile
-     ↓
-评估/回应 对候选 Profile 先计算确定性缺口，同一次 AI 调用做语义判断、回应及可选问题规划
-     ↓
-insufficient  保存候选，返回最终缺口、assistantReply 与可选 nextQuestion，仍为 EXPLORING
-sufficient    保存候选，返回最低条件已满足与回应，仍为 EXPLORING
-```
-
-- **`discovery-turn` 只能从 `EXPLORING` 开始**：`REVIEWING` 与 `CONFIRMED` 下调用直接 409，
-  不调用 AI、不改动内容。这道校验由 Domain 提供
-  （`UserProfile.requireExplorationAllowed()`）。AI 对话不能悄悄退出用户审阅，
-  也不能重开已确认的画像；这两个动作仍分别需要显式 Continue / Reopen。
-- **一轮只保存一次**：整轮作用在同一个候选 Profile 上，只在最后写入。它不是把
-  `explore` 与 `sufficiency-assessment` 串起来——那样会在探索结束后先落一次库，
-  随后的评估失败就会留下「本轮只完成一半」的持久化状态。
-- **评估针对更新后的候选 Profile**：用户这一轮说的信息必须先进入 Profile 再判断够不够。
-- **失败原子性**：提取的 AI 调用/解析失败、内容更新被 Aggregate 拒绝、评估的 AI 调用/解析
-  失败均不会产生持久化副作用。普通对话轮不调用 `beginReview`。
-- **循环跨 HTTP 请求**：一轮返回正文及可选问题，调用方展示后由用户继续输入，再发起
-  下一轮。服务端不做 `while`、不等待用户、不保存对话记录。
-- `sufficient` 为 true 仅表示最低条件满足，`profile.status` 仍为 `EXPLORING`。
-  用户可自然补充多轮，或显式调用 `sufficiency-assessment` 进入审阅；不得自动 Confirm。
-
-普通业务输入仍是两次 Gateway 调用：一次事实提取、一次语义评估兼回复/问题规划，没有第三次调用。
-整轮提取必须给出 hasNewFacts；false 不能同时修改区块、撤回依据或新增 claims；true 必须有
-本轮原文支持的 claims。明确纠正可引用当前 Evidence 数组的唯一合法下标，经 Domain 操作撤回
-当前错误依据，同时更新相关区块并新增本轮依据；历史快照不变。低层 explore 接口保持旧提取契约。
-Application 在模型调用前提供 deterministicMissing，最终始终合并确定性缺口与语义不足。
-模型误报充分时，服务端改为不足并返回对应缺口说明；问题若偏离必要缺口则选择可用的缺口问题。
-对话提案中 questionArea 与 deferredAreas 仅用于问题规划；已跳过维度不转为事实，也不免除最低条件。
-当前选择用有限语境识别跳过意愿；语义识别仍依赖模型，不宣称自动证明自然语言真实性。
-`previousQuestions` 可省略；当前实现最多八个非空问题，每个最多 512 字符，仅用于避免重复，
-不是用户事实，不持久化。recentConversation 可省略，最多八条 user/agent 消息，每条 2048 字符；
-Vue 只发送已接受消息和实际 Agent 回复，不包含当前待提交、失败或未决输入；服务端按不可信语境处理，
-不从客户端历史直接建立 Profile / Evidence / 授权。长 Agent 正文的截断优先为该条消息的
-真实 question 保留位置，使下一轮提取仍能理解回答指代；仍最多八条、每条 2048 字符，
-不增加 REST 字段或聊天持久化。上下文丢失后不假装恢复历史。
-对话结构严格校验 assistantReply、可空问题/目标及跳过维度；非空问题上限 512 字符，并拒绝
-近期完全相同的问题文本。Prompt 引导避免语义重复；没有自动重试。评估失败仍使整轮候选不保存。
-明确的“嗯”“呢”“下一个问题是什么”等附和/流程请求在提取前跳过，只有一次评估调用。
-其余自然语言的事实提取仍依靠模型与用户审阅，不宣称此规则能穷举所有非业务输入。
-
-**discovery-question 语义**
-
-```json
-{"revision": 7, "previousQuestions": ["每周能投入多少时间？"]}
-```
-
-响应为 `{revision, sufficient, missingAreas, assistantReply, nextQuestion}`，请求同样可带 recentConversation。仅在 EXPLORING、请求版本等于当前
-revision 时调用一次既有 `ProfileSufficiencyEvaluator`，完全不写入 Profile / Evidence / 状态。
-通过的充分性可以记录为本版元数据；问题与原始响应仍不保存。
-本入口具有主动提问义务，与普通对话可仅回复的契约分开：模型没有给出问题时，统一评估器
-可选择未跳过、未近期问过的确定性缺口问题；已重复的模型问题优先换到其他可用缺口。
-无可用问题（包含全部跳过/耗尽，或充分画像没有新问题提案）返回
-`502 EXTERNAL_CAPABILITY_UNAVAILABLE`，不记录本次充分性元数据、不自动重试，不返回空问题成功。
-仍只有一次模型调用，不保存 Profile / Evidence / revision / status。
-调用后再次读取，若版本或探索状态变化则 409，丢弃旧问题；不接受非整数 revision。
-用户明确索取或主动 Continue / Reopen 后，前端使用此入口；不会伪造输入调用 discovery-turn。
-状态转换与提问是两个请求：转换已经成功但提问失败时，保留真实 EXPLORING，显示错误，
-不回滚已完成的用户决定，也不自动重试。普通对话、Confirm、GET 或刷新不额外调用该入口。
-刷新后没有历史问题；用户可按需取得新问题。浏览器只在内存保留本页问题，不持久化聊天正文。
+review-readiness 返回 `{profileId, revision, sufficient: true|false|null, missingAreas}`：
+null 是未知，false 是已保存不足。界面只显示非阻塞审阅提示，不弹自动邀请、不自动进入审阅。
+审阅采用独立宽布局、六卡片和逐区编辑，确认绑定当前查看版本；PATCH 可带 revision 拒绝旧编辑。
+原始描述可折叠去重展示，Evidence 字段及历史语义不变，不伪造逐条映射。
 
 `explore` 与 `sufficiency-assessment` 保留：前者只提取，后者是显式审阅请求。
 `discovery-turn` 复用同一提取和评估组件，但不组合后者的状态转换副作用。

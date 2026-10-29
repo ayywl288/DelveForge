@@ -2,6 +2,7 @@ package com.ayywl.delveforge.application.userdiscovery.profile;
 
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+
 import java.util.List;
 
 /**
@@ -42,7 +43,14 @@ public record UpdateUserProfileRequest(
         List<String> technicalCapabilities,
         List<String> projectGoals,
         List<String> constraints,
-        List<Evidence> additionalEvidence) {
+        List<Evidence> additionalEvidence, Integer expectedRevision) {
+
+    public UpdateUserProfileRequest(UserProfileId profileId, List<String> interests, List<String> behaviors,
+            List<String> painPoints, List<String> technicalCapabilities, List<String> projectGoals,
+            List<String> constraints, List<Evidence> additionalEvidence) {
+        this(profileId, interests, behaviors, painPoints, technicalCapabilities, projectGoals, constraints,
+                additionalEvidence, null);
+    }
 
     public UpdateUserProfileRequest {
         if (profileId == null) {

@@ -2,9 +2,12 @@ package com.ayywl.delveforge.application.userdiscovery.sufficiency;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
-/** 本页下一问的有界上下文，不是持久化对话历史，也不能作为用户事实保存。 */
+/** 问题形状与近似重复检查；问题历史来自服务端，不能作为用户事实保存。 */
 public final class DiscoveryQuestions {
 
     private DiscoveryQuestions() {
@@ -25,8 +28,38 @@ public final class DiscoveryQuestions {
         if (question == null || question.isBlank() || question.length() > 512) {
             throw new AiGatewayException("探索评估未返回有界的下一问");
         }
-        if (previousQuestions.stream().anyMatch(previous -> previous.strip().equals(question.strip()))) {
+        if (previousQuestions.stream().anyMatch(previous -> equivalent(previous, question))) {
             throw new AiGatewayException("探索评估重复了已提出的问题");
         }
     }
+
+    /** 有限的近似重复检查；语义重复仍由模型结合已讨论话题判断。 */
+    public static boolean equivalent(String first, String second) {
+        String left = normalize(first);
+        String right = normalize(second);
+        if (left.equals(right)) {
+            return true;
+        }
+        if (left.length() < 6 || right.length() < 6) {
+            return false;
+        }
+        Set<String> a = bigrams(left);
+        Set<String> b = bigrams(right);
+        long shared = a.stream().filter(b::contains).count();
+        return shared * 1.0 / (a.size() + b.size() - shared) >= 0.72;
+    }
+
+    private static String normalize(String text) {
+        return text == null ? "" : text.toLowerCase(Locale.ROOT)
+                .replaceAll("[\\p{P}\\p{Z}\\s]", "").replaceAll("[你您呢呀吗]", "");
+    }
+
+    private static Set<String> bigrams(String text) {
+        Set<String> values = new HashSet<>();
+        for (int i = 0; i + 1 < text.length(); i++) {
+            values.add(text.substring(i, i + 2));
+        }
+        return values;
+    }
+
 }

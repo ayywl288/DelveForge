@@ -1,7 +1,9 @@
 package com.ayywl.delveforge.application.userdiscovery.workflow;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
 import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileExtraction;
 import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoundException;
 import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
@@ -51,7 +53,7 @@ import java.util.List;
  * <h2>跨请求的循环</h2>
  *
  * <p>「继续探索」不是服务端的循环：一轮返回回复及可选的 {@code nextQuestion}，用户继续输入后由调用方发起
- * 下一轮。本 Use Case 不做 {@code while}、不等待用户、也不保存对话记录。
+ * 下一轮。本 Use Case 不做 {@code while}、不等待用户、对话记录由产品入口的原子提交端口保存。
  *
  * <h2>AI Proposes, Domain Decides</h2>
  *
@@ -126,4 +128,19 @@ public class RunUserDiscoveryTurnUseCase {
         userProfileRepository.saveWithSufficiency(candidate, expected, sufficiency.sufficient());
         return new UserDiscoveryTurn(candidate, sufficiency);
     }
+
+    /** 只形成候选，由对话提交端口原子保存 Profile、消息和请求结果。 */
+    public UserDiscoveryTurn prepare(UserProfile expected, String input,
+            DiscoveryConversationRepository.Memory memory,
+            DiscoveryReadiness readiness) {
+        ProfileExtraction.requireUserInput(input);
+        UserProfile candidate = UserProfileCandidates.copyOf(expected);
+        candidate.requireExplorationAllowed();
+        profileExtraction.applyTurnTo(candidate, input, memory.recent());
+        var established = candidate.revision() == expected.revision() ? readiness : null;
+        SufficiencyAssessment result = profileSufficiencyEvaluator.evaluateRemembered(
+                candidate, input, memory, established, false);
+        return new UserDiscoveryTurn(candidate, result);
+    }
+
 }

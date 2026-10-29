@@ -56,7 +56,7 @@ class AssessProfileSufficiencyUseCaseTest {
             repository, new ProfileSufficiencyEvaluator(aiGateway, new ObjectMapper()));
 
     @Test
-    void keepsExploringAndReturnsQuestionWhenInsufficient() {
+    void keepsExploringAndRecordsReadinessWithoutChangingContentWhenInsufficient() {
         UserProfile profile = seedProfile();
         int revisionBefore = profile.revision();
         int savesBefore = repository.saveCount();
@@ -73,7 +73,8 @@ class AssessProfileSufficiencyUseCaseTest {
 
         assertEquals(UserProfileStatus.EXPLORING, profile.status(), "信息不足时保持 EXPLORING");
         assertEquals(revisionBefore, profile.revision(), "信息不足不得推进 revision");
-        assertEquals(savesBefore, repository.saveCount(), "信息不足不写入");
+        assertEquals(savesBefore + 1, repository.saveCount(), "保存本版不足元数据，不推进内容版本");
+        assertEquals(profile.interests(), repository.findById(PROFILE_ID).orElseThrow().interests());
     }
 
     @Test

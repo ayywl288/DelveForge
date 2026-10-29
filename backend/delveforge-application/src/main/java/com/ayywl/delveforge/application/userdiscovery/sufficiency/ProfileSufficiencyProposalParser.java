@@ -65,13 +65,21 @@ public final class ProfileSufficiencyProposalParser {
         if (conversation) {
             String reply = blankToNull(text(root, "assistantReply"));
             String area = blankToNull(text(root, "questionArea"));
+            String previousState = root.has("previousQuestionState") ? text(root, "previousQuestionState") : "OPEN";
+            if (!List.of("OPEN", "ANSWERED", "DEFERRED").contains(previousState == null ? "" : previousState)) {
+                throw new AiGatewayException("上一问的对话状态不合法");
+            }
             List<String> deferred = textArray(root, "deferredAreas");
+            List<String> resumed = root.has("resumedAreas") ? textArray(root, "resumedAreas") : List.of();
             List<String> areas = List.of("interests", "behaviors", "painPoints", "technicalCapabilities",
                     "projectGoals", "constraints", "evidence", "exploration");
             if (reply == null || reply.length() > 2048 || !root.has(FIELD_NEXT_QUESTION)
                     || !root.has("questionArea") || deferred == null
                     || deferred.stream().anyMatch(value -> !areas.contains(value) || value.equals("exploration"))
                     || deferred.stream().distinct().count() != deferred.size()
+                    || resumed == null || resumed.stream().anyMatch(value -> !areas.contains(value)
+                            || value.equals("exploration") || deferred.contains(value))
+                    || resumed.stream().distinct().count() != resumed.size()
                     || (nextQuestion == null) != (area == null)
                     || area != null && !areas.contains(area)) {
                 throw new AiGatewayException("对话回复或问题规划结构不合法");
@@ -80,7 +88,7 @@ public final class ProfileSufficiencyProposalParser {
                 throw new AiGatewayException("充分性与缺失信息矛盾");
             }
             return new ProfileSufficiencyProposal(sufficientNode.booleanValue(), missingAreas,
-                    nextQuestion, reply, area, deferred);
+                    nextQuestion, reply, area, deferred, previousState, resumed);
         }
 
         if (sufficientNode.booleanValue()) {

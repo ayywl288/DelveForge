@@ -2,11 +2,14 @@ package com.ayywl.delveforge.application.userdiscovery.sufficiency;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
 import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoundException;
 import com.ayywl.delveforge.application.userdiscovery.shared.UserProfileCandidates;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
+
+import java.util.List;
 
 /**
  * 用户显式请求进入 Review：复用本版服务端充分性；无记录才评估，充分才推进状态（DOMAIN_MODEL.md §6.1）。
@@ -33,11 +36,11 @@ import com.ayywl.delveforge.domain.user.UserProfileStateException;
  *
  * <h2>不产生无意义的改动</h2>
  *
- * <p>信息不足时本 Use Case 不写入任何内容，也不推进 revision——{@code revision} 只由
+ * <p>信息不足时本 Use Case 只记录版本充分性，不改变画像内容或推进 revision——{@code revision} 只由
  * 六个内容区与 Evidence 的实际变化推进（§6.1），状态本身不在其中。
  *
  * <p>本 Use Case 不包含：内容纠正 / Confirm、REVIEWING → CONFIRMED、
- * CONFIRMED → EXPLORING，也不保存评估历史。
+ * CONFIRMED → EXPLORING，只缓存当前版本结论，不建立评估流水账。
  */
 public class AssessProfileSufficiencyUseCase {
 
@@ -83,8 +86,11 @@ public class AssessProfileSufficiencyUseCase {
         // 这是用户显式请求进入审阅的入口，普通对话轮不调用此状态转换。
         candidate.requireExplorationAllowed();
         boolean reused = userProfileRepository.hasSufficientAssessment(userProfileId, expectedRevision);
-        SufficiencyAssessment assessment = reused
-                ? new SufficiencyAssessment(true, java.util.List.of(), null, candidate.status())
+        var established = userProfileRepository.findReadinessAssessment(userProfileId, expectedRevision);
+        reused = reused || established.map(value -> value.sufficient()).orElse(false);
+        SufficiencyAssessment assessment = established.isPresent()
+                ? established.get().assessment(candidate.status())
+                : reused ? new SufficiencyAssessment(true, List.of(), null, candidate.status())
                 : profileSufficiencyEvaluator.evaluate(candidate);
 
         UserProfile current = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
@@ -92,15 +98,21 @@ public class AssessProfileSufficiencyUseCase {
             throw new UserProfileStateException("评估期间画像已经变化，请重新读取");
         }
 
-        // 只有真的发生了状态转移才写入：信息不足时不产生任何持久化副作用。
+        // 结论元数据不推进内容版本；审阅状态仍只由显式请求与 Domain 决定。
         if (assessment.sufficient()) {
             candidate.beginReview();
             if (reused) {
                 // 同版通过标记可在画像未变时被撤销，必须在提交事务中再次核对资格。
                 userProfileRepository.saveReviewIfSufficient(candidate, expected);
             } else {
-                userProfileRepository.saveWithSufficiency(candidate, expected, true);
+                userProfileRepository.saveWithReadiness(candidate, expected,
+                        new DiscoveryReadiness(
+                                true, assessment.missingAreas()));
             }
+        } else if (established.isEmpty()) {
+            userProfileRepository.saveWithReadiness(candidate, expected,
+                    new DiscoveryReadiness(
+                            false, assessment.missingAreas()));
         }
         return new SufficiencyAssessment(assessment.sufficient(), assessment.missingAreas(),
                 null, candidate.status());

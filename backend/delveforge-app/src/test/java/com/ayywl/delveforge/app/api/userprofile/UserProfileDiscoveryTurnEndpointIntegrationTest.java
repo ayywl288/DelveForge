@@ -1,20 +1,13 @@
 package com.ayywl.delveforge.app.api.userprofile;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.BDDMockito.given;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.util.UUID;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -23,7 +16,24 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 验证一轮 User Discovery 在真实 HTTP → Application → Domain → SQLite 链路上的行为。
@@ -210,7 +220,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.profileStatus").value("REVIEWING"));
         mockMvc.perform(post("/api/user-profiles/{id}/continue-discovery", id)).andExpect(status().isOk());
-        for (String input : java.util.List.of("希望输出两个尺寸", "还希望保留原图")) {
+        for (String input : List.of("希望输出两个尺寸", "还希望保留原图")) {
             given(aiGateway.generate(any())).willReturn("{\"hasNewFacts\":false}", SUFFICIENT_RESPONSE);
             mockMvc.perform(turn(id, input)).andExpect(status().isOk())
                     .andExpect(jsonPath("$.sufficient").value(true))
@@ -230,7 +240,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
     @Test
     void questionEndpointReadsTheCurrentProfileWithoutUpdatingIt() throws Exception {
         String id = createProfile();
-        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
+        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE.replace("\"nextQuestion\":\"希望先支持哪一种裁剪场景？\"", "\"nextQuestion\":null").replace("\"questionArea\":\"exploration\"", "\"questionArea\":null"));
         mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
         String before = mockMvc.perform(get("/api/user-profiles/{id}", id)).andReturn()
                 .getResponse().getContentAsString(StandardCharsets.UTF_8);
@@ -244,7 +254,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(jsonPath("$.revision").value(revision))
                 .andExpect(jsonPath("$.sufficient").value(true))
                 .andExpect(jsonPath("$.nextQuestion").value("希望先支持哪一种裁剪场景？"));
-        org.junit.jupiter.api.Assertions.assertEquals(before,
+        Assertions.assertEquals(before,
                 mockMvc.perform(get("/api/user-profiles/{id}", id)).andReturn()
                         .getResponse().getContentAsString(StandardCharsets.UTF_8));
     }
@@ -252,7 +262,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
     @Test
     void questionEndpointRejectsInvalidAndStaleRevisionAndNonExploringStates() throws Exception {
         String id = createProfile();
-        for (String body : java.util.List.of("{}", "{\"revision\":1.5}", "{\"revision\":\"1\"}")) {
+        for (String body : List.of("{}", "{\"revision\":1.5}", "{\"revision\":\"1\"}")) {
             mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
                             .contentType(MediaType.APPLICATION_JSON).content(body))
                     .andExpect(status().isBadRequest());
@@ -260,9 +270,9 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":2}"))
                 .andExpect(status().isConflict());
-        org.mockito.Mockito.verifyNoInteractions(aiGateway);
+        Mockito.verifyNoInteractions(aiGateway);
 
-        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
+        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE.replace("\"nextQuestion\":\"希望先支持哪一种裁剪场景？\"", "\"nextQuestion\":null").replace("\"questionArea\":\"exploration\"", "\"questionArea\":null"));
         mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
         given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
         mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id)).andExpect(status().isOk());
@@ -283,18 +293,18 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.status").value("EXPLORING"))
                 .andExpect(jsonPath("$.revision").value(7));
-        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(3)).generate(any());
+        Mockito.verify(aiGateway, Mockito.times(3)).generate(any());
     }
 
     @Test
     void invalidNextQuestionAndTransportFailureDoNotSaveAHalfTurn() throws Exception {
         String id = createProfile();
-        for (String response : java.util.List.of("{\"sufficient\":true}", SUFFICIENT_RESPONSE)) {
+        for (String response : List.of("{\"sufficient\":true}", SUFFICIENT_RESPONSE.replace("可以继续细化裁剪体验。", "a".repeat(2049)))) {
             given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, response);
             mockMvc.perform(post("/api/user-profiles/{id}/discovery-turn", id)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(new DiscoveryTurnRequest(
-                                    USER_INPUT, java.util.List.of("希望先支持哪一种裁剪场景？")))))
+                                    USER_INPUT, List.of("希望先支持哪一种裁剪场景？")))))
                     .andExpect(status().isBadGateway());
             mockMvc.perform(get("/api/user-profiles/{id}", id))
                     .andExpect(jsonPath("$.revision").value(1))
@@ -323,7 +333,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
         mockMvc.perform(get("/api/user-profiles/{id}/review-readiness", id))
                 .andExpect(jsonPath("$.revision").value(7)).andExpect(jsonPath("$.sufficient").value(true));
-        org.mockito.Mockito.reset(aiGateway);
+        Mockito.reset(aiGateway);
         given(aiGateway.generate(any())).willThrow(new AiGatewayException("不应重新评估"));
         mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":6}"))
@@ -331,7 +341,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":7}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.nextQuestion").doesNotExist());
-        org.mockito.Mockito.verifyNoInteractions(aiGateway);
+        Mockito.verifyNoInteractions(aiGateway);
     }
 
     @Test
@@ -354,20 +364,20 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(jsonPath("$.profile.revision").value(1))
                 .andExpect(jsonPath("$.profile.evidence").isEmpty())
                 .andExpect(jsonPath("$.profile.status").value("EXPLORING"));
-        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(2)).generate(any());
+        Mockito.verify(aiGateway, Mockito.times(2)).generate(any());
     }
 
     @Test
     void invalidConversationIsRejectedBeforeAi() throws Exception {
         String id = createProfile();
-        for (String role : java.util.Arrays.asList("system", null)) {
+        for (String role : Arrays.asList("system", null)) {
             mockMvc.perform(post("/api/user-profiles/{id}/discovery-turn", id)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(new DiscoveryTurnRequest("消息", null,
-                                    java.util.List.of(new DiscoveryContext.Message(role, "历史文本"))))))
+                                    List.of(new DiscoveryContext.Message(role, "历史文本"))))))
                     .andExpect(status().isBadRequest());
         }
-        org.mockito.Mockito.verifyNoInteractions(aiGateway);
+        Mockito.verifyNoInteractions(aiGateway);
     }
 
     @Test
@@ -386,8 +396,8 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(jsonPath("$.revision").value(1)).andExpect(jsonPath("$.evidence").isEmpty())
                 .andExpect(jsonPath("$.status").value("EXPLORING"));
         mockMvc.perform(get("/api/user-profiles/{id}/review-readiness", id))
-                .andExpect(jsonPath("$.sufficient").doesNotExist());
-        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(1)).generate(any());
+                .andExpect(jsonPath("$.sufficient").value(false));
+        Mockito.verify(aiGateway, Mockito.times(1)).generate(any());
     }
 
     @Test
@@ -404,7 +414,73 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(jsonPath("$.code").value("EXTERNAL_CAPABILITY_UNAVAILABLE"));
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.revision").value(1)).andExpect(jsonPath("$.evidence").isEmpty());
-        org.mockito.Mockito.verify(aiGateway, org.mockito.Mockito.times(1)).generate(any());
+        Mockito.verify(aiGateway, Mockito.times(1)).generate(any());
+    }
+
+    @Test
+    void recordedTurnCanBeRetriedAndReadWithoutAnotherAiCallOrDuplicateMessages() throws Exception {
+        String id = createProfile();
+        String requestId = UUID.randomUUID().toString();
+        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
+        String body = objectMapper.writeValueAsString(Map.of(
+                "input", USER_INPUT, "requestId", requestId, "revision", 1));
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(post("/api/user-profiles/{id}/discovery-turn", id)
+                            .contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.profile.revision").value(7));
+        }
+        mockMvc.perform(get("/api/user-profiles/{id}/conversation", id))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.messages.length()").value(2))
+                .andExpect(jsonPath("$.messages[0].role").value("user"))
+                .andExpect(jsonPath("$.messages[0].text").value(USER_INPUT))
+                .andExpect(jsonPath("$.messages[1].createdAt").isNotEmpty())
+                .andExpect(jsonPath("$.unansweredQuestion").value("希望先支持哪一种裁剪场景？"));
+        mockMvc.perform(get("/api/user-profiles/{id}/discovery-requests/{requestId}", id, requestId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("COMPLETED"))
+                .andExpect(jsonPath("$.revision").value(7)).andExpect(jsonPath("$.result.sufficient").value(true))
+                .andExpect(jsonPath("$.fingerprint").doesNotExist());
+        mockMvc.perform(patch("/api/user-profiles/{id}", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"revision\":7,\"constraints\":[\"调整为每周一小时\"]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(8));
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-turn", id)
+                        .contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isConflict());
+        mockMvc.perform(get("/api/user-profiles/{id}/discovery-requests/{requestId}", id, requestId))
+                .andExpect(jsonPath("$.state").value("COMPLETED")).andExpect(jsonPath("$.revision").value(7));
+        Mockito.verify(aiGateway, Mockito.times(2)).generate(any());
+    }
+
+    @Test
+    void unknownRequestCanBeExplicitlyCancelledBeforeItArrives() throws Exception {
+        String id = createProfile();
+        String requestId = UUID.randomUUID().toString();
+        mockMvc.perform(get("/api/user-profiles/{id}/discovery-requests/{requestId}", id, requestId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("NOT_FOUND"));
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-requests/{requestId}/cancel", id, requestId))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("CANCELLED"));
+        mockMvc.perform(post("/api/user-profiles/{id}/discovery-turn", id)
+                        .contentType(MediaType.APPLICATION_JSON).content(objectMapper.writeValueAsString(
+                                Map.of("input", USER_INPUT, "requestId", requestId, "revision", 1))))
+                .andExpect(status().isConflict());
+        mockMvc.perform(get("/api/user-profiles/{id}/conversation", id))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.messages").isEmpty());
+        Mockito.verifyNoInteractions(aiGateway);
+    }
+
+    @Test
+    void correctionFromAnOlderReviewRevisionIsRejected() throws Exception {
+        String id = createProfile();
+        mockMvc.perform(MockMvcRequestBuilders.patch(
+                        "/api/user-profiles/{id}", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"revision\":1,\"interests\":[\"阅读\"]}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(2));
+        mockMvc.perform(MockMvcRequestBuilders.patch(
+                        "/api/user-profiles/{id}", id).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"revision\":1,\"interests\":[\"旧视图覆盖\"]}"))
+                .andExpect(status().isConflict());
+        mockMvc.perform(get("/api/user-profiles/{id}", id))
+                .andExpect(jsonPath("$.interests[0]").value("阅读"));
+        Mockito.verifyNoInteractions(aiGateway);
     }
 
     private String createProfile() throws Exception {
@@ -414,7 +490,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         return objectMapper.readTree(body).path("id").asText();
     }
 
-    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder turn(
+    private MockHttpServletRequestBuilder turn(
             String id, String input) throws Exception {
         return post("/api/user-profiles/{id}/discovery-turn", id)
                 .contentType(MediaType.APPLICATION_JSON)

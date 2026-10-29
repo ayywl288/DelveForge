@@ -1,7 +1,10 @@
 package com.ayywl.delveforge.app.config;
 
 import com.ayywl.delveforge.application.port.ai.AiGateway;
+import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository;
+import com.ayywl.delveforge.application.port.persistence.ProjectContextRepository;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryConversationService;
 import com.ayywl.delveforge.application.userdiscovery.exploration.ExploreUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileExtraction;
 import com.ayywl.delveforge.application.userdiscovery.profile.CreateUserProfileUseCase;
@@ -10,11 +13,12 @@ import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileU
 import com.ayywl.delveforge.application.userdiscovery.review.ConfirmUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.review.ContinueDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.review.ReopenDiscoveryUseCase;
-import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AskDiscoveryQuestionUseCase;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.GetProfileReviewReadinessUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.ProfileSufficiencyEvaluator;
 import com.ayywl.delveforge.application.userdiscovery.workflow.RunUserDiscoveryTurnUseCase;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -111,4 +115,14 @@ public class UserProfileUseCaseConfiguration {
     public ReopenDiscoveryUseCase reopenDiscoveryUseCase(UserProfileRepository userProfileRepository) {
         return new ReopenDiscoveryUseCase(userProfileRepository);
     }
+
+    @Bean
+    public DiscoveryConversationService discoveryConversationService(UserProfileRepository profiles,
+            DiscoveryConversationRepository conversations,
+            ProjectContextRepository projects,
+            RunUserDiscoveryTurnUseCase turns, AskDiscoveryQuestionUseCase questions) {
+        return new DiscoveryConversationService(
+                profiles, conversations, projects, turns, questions);
+    }
+
 }

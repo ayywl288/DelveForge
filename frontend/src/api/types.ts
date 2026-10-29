@@ -44,6 +44,7 @@ export interface DiscoveryContextMessage {
   text: string;
 }
 export interface DiscoveryTurn extends Sufficiency {
+  previousQuestionState?: "OPEN" | "ANSWERED" | "DEFERRED";
   // 兼容旧后端响应；新 discovery-turn 总是返回正文。
   assistantReply?: string;
   profile: UserProfile;
@@ -250,4 +251,33 @@ export interface ResourceSummary {
   assetId: string | null;
   location: string | null;
   analyzedRevision: string | null;
+}
+
+
+export interface ConversationMessage {
+  sequence: number;
+  requestId: string;
+  role: "user" | "agent";
+  text: string;
+  question: string | null;
+  questionState: "ASKED" | "ANSWERED" | "DEFERRED" | null;
+  createdAt: string;
+  projectId: string | null;
+}
+export interface ConversationHistory {
+  messages: ConversationMessage[];
+  before: number | null;
+  pendingRequestId: string | null;
+  unansweredQuestion: string | null;
+}
+export interface DiscoveryRequestIdentity {
+  requestId: string;
+  revision: number;
+  projectId?: string;
+}
+export interface DiscoveryOperation {
+  requestId: string;
+  state: "PENDING" | "COMPLETED" | "FAILED" | "INTERRUPTED" | "CANCELLED" | "NOT_FOUND";
+  revision: number | null;
+  result: (Sufficiency & { assistantReply?: string }) | null;
 }

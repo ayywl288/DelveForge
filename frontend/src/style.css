@@ -1952,3 +1952,28 @@ button .navigation-icon { width: 18px; height: 18px; }
     .step-tabs [role="tab"] { flex: 1 1 28%; padding: 9px 5px; }
     .execution-tab-panel { max-height: none; overflow-y: visible; }
 }
+
+
+/* 审阅使用单一宽版内容区；对话与侧边摘要保留各自职责。 */
+.discovery-layout.review-layout, .discovery-layout.review-layout.inspector-collapsed { display: block; }
+.review-layout .chat-panel { height: auto; max-height: none; overflow: visible; }
+.review-layout .profile-review { max-height: none; overflow: visible; padding: 28px; }
+.profile-review-heading { display: flex; gap: 20px; justify-content: space-between; align-items: start; margin-bottom: 24px; }
+.profile-review-heading h2 { margin: 0 0 10px; font-size: 26px; }
+.profile-review-heading p { margin: 0; color: var(--muted); }
+.profile-review-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.profile-card { padding: 20px; border: 1px solid var(--line); border-radius: 12px; min-width: 0; background: var(--surface, #fff); }
+.profile-card h3 { margin: 0; font-size: 17px; }
+.profile-card li, .original-descriptions blockquote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.profile-card p, .profile-card ul { margin-bottom: 0; }
+.original-descriptions { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 18px; }
+.original-descriptions summary { cursor: pointer; color: var(--muted); }
+.original-descriptions blockquote { margin: 16px 0; padding: 14px 18px; border-left: 3px solid var(--line); font-size: 14px; }
+.review-actions { display: grid; gap: 16px; padding: 24px 28px; border-top: 1px solid var(--line); }
+.review-actions .action-row { display: flex; gap: 12px; flex-wrap: wrap; }
+@media (max-width: 700px) {
+  .profile-review-grid { grid-template-columns: minmax(0, 1fr); }
+  .review-layout .profile-review, .review-actions { padding: 20px 16px; }
+  .profile-review-heading { gap: 10px; }
+  .profile-review-heading h2 { font-size: 22px; }
+}

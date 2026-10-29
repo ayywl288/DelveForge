@@ -26,5 +26,11 @@ public record DiscoveryTurnResponse(
         boolean sufficient,
         List<String> missingAreas,
         String nextQuestion,
-        String assistantReply) {
+        String assistantReply,
+        String previousQuestionState) {
+
+    public DiscoveryTurnResponse(UserProfileResponse profile, boolean sufficient, List<String> missingAreas,
+            String nextQuestion, String assistantReply) {
+        this(profile, sufficient, missingAreas, nextQuestion, assistantReply, "OPEN");
+    }
 }

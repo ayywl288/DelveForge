@@ -34,7 +34,7 @@ class DeliveryMigrationTest {
         }
         new SqliteAgentStore(source).reserve(new AgentProtocol.Run("occupied", "plan", "step", "copy", a,
                 AgentRunState.CREATED, Instant.now(), null, null, null, false, false, 0, 0, null));
-        assertEquals(1, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
+        assertEquals(2, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             try (var rows = statement.executeQuery("SELECT source_revision,current_revision,prepared_revision,preparation_json FROM working_copy")) {
                 rows.next();
@@ -86,7 +86,7 @@ class DeliveryMigrationTest {
                 List.of("Counter.java"), "{\"status\":\"NOT_TESTED\"}", Instant.now());
         store.freeze(frozen);
         store.release("run", false);
-        assertEquals(3, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
+        assertEquals(4, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
         assertEquals(0, Flyway.configure().dataSource(source).load().migrate().migrationsExecuted);
         assertEquals(frozen, new SqliteAgentStore(source).candidate("candidate"));
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
