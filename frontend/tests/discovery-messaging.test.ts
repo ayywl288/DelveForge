@@ -1,7 +1,7 @@
 import { createApp, nextTick, reactive } from "vue";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { api, ApiError } from "../src/api/client";
-import type { DiscoveryTurn, ProjectContext } from "../src/api/types";
+import type { ConversationHistory, DiscoveryTurn, ProjectContext } from "../src/api/types";
 import { createSession, sessionKey } from "../src/state/session";
 import DiscoveryView from "../src/views/DiscoveryView.vue";
 import { profile } from "./fixtures";
@@ -51,6 +51,55 @@ beforeEach(() => {
   }));
 });
 describe("Discovery 消息反馈与请求边界", () => {
+  it("聊天摘要的六区及原始描述参与正常渲染，整体收起后可重新展开", async () => {
+    const { s, root } = setup();
+    s.profile = { ...profile(), interests: ["阅读整理"], evidence: [
+      { sourceType: "USER_INPUT", sourceRef: "想做阅读笔记工具", claim: "需求", confidence: null, confirmed: false },
+    ] };
+    await nextTick();
+    const inspector = root.querySelector<HTMLElement>("#profile-inspector")!;
+    const sections = [...inspector.querySelectorAll(".profile-section")];
+    expect(sections).toHaveLength(6);
+    for (const section of sections) {
+      expect(section.closest("template")).toBeNull();
+      expect(section.querySelector("summary")).not.toBeNull();
+    }
+    expect(inspector.querySelector(".original-descriptions")?.closest("template")).toBeNull();
+    expect(inspector.textContent).toContain("阅读整理");
+    const toggle = root.querySelector<HTMLButtonElement>('[aria-controls="profile-inspector"]')!;
+    toggle.click(); await nextTick(); expect(inspector.style.display).toBe("none");
+    toggle.click(); await nextTick(); expect(inspector.style.display).not.toBe("none");
+  });
+
+  it.each(["表单", "Ctrl+Enter", "会话方法"])("历史加载期间%s不能发送，读完后保留草稿并恢复发送", async entry => {
+    const read = deferred<ConversationHistory>();
+    vi.spyOn(api, "conversation").mockReturnValue(read.promise);
+    const turn = vi.spyOn(api, "discoveryTurn").mockResolvedValue(result());
+    const { s, root, composer } = setup();
+    const loading = s.loadConversation();
+    await write(composer, "历史读完后发送的草稿");
+    const sendButton = [...root.querySelectorAll("button")].find(button => button.textContent?.trim() === "发送")!;
+    expect(sendButton.disabled).toBe(true);
+    if (entry === "表单") submit(root);
+    else if (entry === "Ctrl+Enter") composer.dispatchEvent(new KeyboardEvent("keydown", {
+      key: "Enter", ctrlKey: true, bubbles: true, cancelable: true,
+    }));
+    else await s.turn("直接调用也须等待历史读取");
+    await settle();
+    const callsDuringLoading = turn.mock.calls.length;
+    read.resolve({ messages: [], before: null, pendingRequestId: null, unansweredQuestion: null });
+    await loading; await settle();
+    expect(callsDuringLoading).toBe(0);
+    expect(s.conversationLoading).toBe(false);
+    expect(composer.value).toBe("历史读完后发送的草稿");
+    expect(sendButton.disabled).toBe(false);
+    composer.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
+    await settle();
+    expect(turn).toHaveBeenCalledOnce();
+    expect(root.querySelector(".message.user")?.getAttribute("data-state")).toBe("accepted");
+    expect(s.conversationLoading).toBe(false);
+  });
+
   it("发送立即显示消息并清空输入，等待时可编辑草稿且不能并发发送", async () => {
     const request = deferred<DiscoveryTurn>();
     const turn = vi.spyOn(api, "discoveryTurn").mockReturnValue(request.promise);

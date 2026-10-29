@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from "vue";
+import { computed, ref, watch, nextTick } from "vue";
 import { profileSections, type ProfileSection } from "../api/types";
 import type { WorkspaceSession } from "../state/session";
 import StatusBadge from "../components/StatusBadge.vue";
@@ -10,6 +10,8 @@ import ProfileReview from "../components/ProfileReview.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
 const emit = defineEmits<{ next: [] }>();
 const input = ref("");
+const canSend = computed(() => props.s.profile?.status === "EXPLORING" && !!input.value.trim() &&
+  !props.s.busy && !props.s.discoveryUncertain && !props.s.conversationLoading);
 const reviewed = ref(false);
 const editing = ref<ProfileSection | null>(null);
 const editValue = ref("");
@@ -65,7 +67,7 @@ async function loadOlder() {
   }
 }
 async function send() {
-  if (!input.value.trim() || props.s.busy || props.s.discoveryUncertain) return;
+  if (!canSend.value) return;
   const count = props.s.messages.length;
   const request = props.s.turn(input.value.trim());
   if (props.s.messages.length > count) input.value = "";
@@ -227,9 +229,7 @@ async function save() {
         <div class="composer-footer">
           <span class="meta">{{ s.discoveryPending ? '可继续写草稿，当前轮结束后再发送' : s.discoveryUncertain ? '上一轮结果待核对，暂不发送新一轮' : 'Ctrl + Enter 发送 · 对话保存在本地服务中' }}</span>
           <button
-            :disabled="
-              !!s.busy || s.discoveryUncertain || s.conversationLoading || !input.trim() || s.profile.status !== 'EXPLORING'
-            "
+            :disabled="!canSend"
           >
             发送
           </button>
@@ -254,7 +254,6 @@ async function save() {
       </div>
       <div id="profile-inspector" v-show="inspectorOpen">
       <p class="meta">画像版本 {{ s.profile.revision }} · {{ s.profile.status === 'CONFIRMED' ? '逐项展开查看已确认内容' : '逐项展开查看与纠正' }}</p>
-      <template>
       <details
         v-for="section in profileSections"
         :key="section.key"
@@ -283,7 +282,6 @@ async function save() {
         <p v-else class="muted">{{ section.hint }} · 尚未提取</p>
       </details>
       <OriginalDescriptions :items="s.profile.evidence" />
-      </template>
       </div>
       <div class="review-box">
         <p v-if="s.sufficiency && !s.sufficiency.sufficient" class="muted">{{ s.sufficiency.missingAreas.join('；') }}</p>

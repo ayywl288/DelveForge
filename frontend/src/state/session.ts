@@ -769,7 +769,7 @@ export function createSession() {
       });
     },
     async turn(input: string) {
-      if (!profile.value || profile.value.status !== "EXPLORING" || !input.trim()) return;
+      if (conversationLoading.value || !profile.value || profile.value.status !== "EXPLORING" || !input.trim()) return;
       if (discoveryUncertain.value) {
         error.value = "上一轮结果仍不确定，请先查询画像并核对；不会重复发送或并发提交。";
         return;
