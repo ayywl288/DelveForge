@@ -20,6 +20,11 @@ const historicalDirections = computed(() => props.s.directions.filter(item =>
 const viewed = computed(() => props.s.directions.find(item => item.id === viewedId.value)
   ?? currentDirections.value.find(item => item.status === "SELECTED")
   ?? currentDirections.value[0] ?? historicalDirections.value[0]);
+const evidenceGroups = computed(() => viewed.value ? [
+  { label: "用户需求", bases: viewed.value.evidenceSupport.userNeed },
+  { label: "用户匹配", bases: viewed.value.evidenceSupport.userFit },
+  { label: "复用能力", bases: viewed.value.evidenceSupport.reusableCapability },
+] : []);
 async function viewDirection(id: string) {
   viewedId.value = id;
   await nextTick();
@@ -151,17 +156,7 @@ function decide() {
       <details class="reading-disclosure"><summary>风险 · {{ viewed.risks.length }}</summary>
         <ContentList title="已提出的风险" :items="viewed.risks" />
       </details>
-      <details class="reading-disclosure direction-evidence"><summary>方向依据</summary><EvidenceList
-          :bases="viewed.evidenceSupport.userNeed"
-          title="用户需求依据"
-        /><EvidenceList
-          :bases="viewed.evidenceSupport.userFit"
-          title="用户匹配依据"
-        /><EvidenceList
-          :bases="viewed.evidenceSupport.reusableCapability"
-          title="复用能力依据"
-        />
-      </details>
+      <EvidenceList class="direction-evidence" title="方向依据" :groups="evidenceGroups" />
         <p class="meta">依据画像版本 {{ viewed.userProfileRevision }}</p>
         <details class="object-id">
           <summary>历史绑定</summary>

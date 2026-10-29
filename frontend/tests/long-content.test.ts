@@ -41,7 +41,7 @@ function indices(root: Element) {
 }
 
 describe("长 Evidence 的本地分页", () => {
-    it("逐页保留全部 23 条的顺序、原文与元数据，不发请求或改变原集合", async () => {
+    it("逐页保留全部 23 条的顺序与原文，隐藏内部字段且不改变原集合", async () => {
         const items = userEvidence(), original = structuredClone(items), seen: number[] = [];
         const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
         const root = mount(EvidenceList, { items, title: "画像依据", expanded: true });
@@ -54,8 +54,7 @@ describe("长 Evidence 的本地分页", () => {
                 const item = items[Number(entry.dataset.recordIndex) - 1]!;
                 expect(entry.querySelector(".evidence-claim")?.textContent).toBe(item.claim);
                 expect(entry.querySelector(".source-reference")?.textContent).toBe(item.sourceRef);
-                expect(entry.textContent).toContain(`confirmed=${item.confirmed}`);
-                expect(entry.querySelector(".evidence-record")?.textContent).toContain(`confidence=${item.confidence ?? "null"}`);
+                expect(entry.textContent).not.toMatch(/confirmed=|confidence=|sourceType=/);
             }
             if (page < 4) {
                 button(root, "下一页").click(); await settle();
@@ -70,10 +69,10 @@ describe("长 Evidence 的本地分页", () => {
         expect(items).toEqual(original); expect(fetcher).not.toHaveBeenCalled();
     });
 
-    it("跳转末页与展开记录可检查完整出处，零值元数据和重复依据不会合并", async () => {
+    it("跳转末页与展开记录可检查完整出处，不同判断保留独立条目", async () => {
         const evidence: Evidence = { sourceType: "USER_INPUT", sourceRef: "完整引用\n" + "原始输入".repeat(80),
             claim: "保留完整判断".repeat(20), confidence: 0, confirmed: true };
-        const bases: EvidenceBasis[] = Array.from({ length: 25 }, () => ({ evidence: { ...evidence },
+        const bases: EvidenceBasis[] = Array.from({ length: 25 }, (_, index) => ({ evidence: { ...evidence, claim: evidence.claim + index },
             origin: { kind: "USER_PROFILE", userProfileId: "profile-origin", userProfileRevision: 0, repositoryProfileId: null } }));
         const root = mount(EvidenceList, { bases, items: userEvidence(1), expanded: true });
         const select = root.querySelector("select")!;
@@ -81,11 +80,10 @@ describe("长 Evidence 的本地分页", () => {
         expect(indices(root)).toEqual([25]);
         (root.querySelector(".evidence-record > summary") as HTMLElement).click(); await settle();
         expect(root.querySelector<HTMLDetailsElement>(".evidence-record")?.open).toBe(true);
-        expect(root.querySelector(".evidence-claim")?.textContent).toBe(evidence.claim);
+        expect(root.querySelector(".evidence-claim")?.textContent).toBe(evidence.claim + 24);
         expect(root.querySelector(".source-reference")?.textContent).toBe(evidence.sourceRef);
-        expect(root.textContent).toContain("confidence 0");
-        expect(root.textContent).toContain("profile-origin"); expect(root.textContent).toContain("revision 0");
-        expect(root.textContent).toContain("confirmed=true");
+        expect(root.textContent).not.toMatch(/confidence|confirmed|profile-origin/);
+        expect(root.textContent).toContain("版本 0");
         expect(root.querySelector(".count-pill")?.textContent).toBe("25");
     });
 

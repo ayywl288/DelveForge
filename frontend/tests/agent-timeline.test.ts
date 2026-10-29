@@ -28,6 +28,15 @@ function mount(expandFiles = true) {
     cleanup.push(() => { app.unmount(); root.remove(); });
     return { props, root };
 }
+it("numerical model usage remains diagnostic data without adding timeline actions", async () => {
+    const { root, props } = mount();
+    props.events = [fact(1, "MODEL_REQUEST"), fact(2, "MODEL_USAGE",
+        JSON.stringify({ request: 1, promptTokens: 20, completionTokens: 10, totalTokens: 30 }))];
+    await settle();
+    expect(root.querySelector('[data-sequence="2"]')).toBeNull();
+    expect(root.textContent).not.toContain("promptTokens");
+    expect(root.querySelector(".current-activity")?.textContent).toContain("请求模型");
+});
 it("follows the latest event until the reader scrolls up, then offers an explicit return", async () => {
     const { root, props } = mount();
     const scroll = root.querySelector<HTMLElement>(".timeline-viewport")!;

@@ -1023,7 +1023,7 @@ class CodingAgentServiceTest {
         });
         when(sandbox.finish(anyString(), any())).thenThrow(new AgentException("NO_CHANGES", "No changes"));
         AgentModelPort model = (history, tools) -> {
-            if (history.stream().anyMatch(message -> message.role().equals("system") && message.text().contains("CONTEXT_MISMATCH")
+            if (history.stream().anyMatch(message -> message.role().equals("user") && message.text().contains("CONTEXT_MISMATCH")
                     && message.text().contains("src/Counter.java") && message.text().contains("重新读取"))) {
                 preserved.set(true);
             }
@@ -1073,6 +1073,28 @@ class CodingAgentServiceTest {
     }
 
     @Test
+    void safeNumericalUsageIsPersistedWithoutModelContentOrChangingRunTotals() throws Exception {
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply(
+                "{\"status\":\"completed\",\"summary\":\"private model text\"}", List.of(), 30L,
+                new AgentProtocol.Usage(20L, 10L, 30L, 5L, null));
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.SUCCEEDED, run.state());
+            assertEquals(30L, run.tokens());
+            var event = service.events(id, 0, 100).stream().filter(item -> item.kind().equals("MODEL_USAGE"))
+                    .findFirst().orElseThrow();
+            var fields = new com.fasterxml.jackson.databind.ObjectMapper().readTree(event.summary());
+            assertEquals(20L, fields.path("promptTokens").asLong());
+            assertEquals(10L, fields.path("completionTokens").asLong());
+            assertEquals(5L, fields.path("cacheHitTokens").asLong());
+            assertTrue(fields.path("cacheMissTokens").isNull());
+            assertFalse(event.summary().contains("private"));
+        }
+    }
+
+    @Test
     void usageOverflowDoesNotWrapOrFreeze() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true}");
@@ -1100,7 +1122,7 @@ class CodingAgentServiceTest {
         AtomicInteger requests = new AtomicInteger();
         AtomicBoolean scopedSummarySeen = new AtomicBoolean();
         AgentModelPort observing = (history, tools) -> {
-            if (history.stream().anyMatch(message -> message.role().equals("system")
+            if (history.stream().anyMatch(message -> message.role().equals("user")
                     && message.text().contains("\"directory\":\"nested\"")
                     && message.text().contains("\"module\":\"library\"")
                     && message.text().contains("\"selectedTest\":\"CounterTest\"")
@@ -1118,6 +1140,7 @@ class CodingAgentServiceTest {
             String id = service.start("plan", "step", null).id();
             assertEquals(AgentRunState.SUCCEEDED, awaitTerminal(service, id, 10).state());
             assertTrue(scopedSummarySeen.get(), "Compressed context lost the actual Maven check scope");
+            verify(sandbox, times(5)).tool(anyString(), any(), any());
             assertTrue(service.events(id, 0, 100).stream().anyMatch(event -> event.kind().equals("TOOL_FINISHED")
                     && event.summary().contains("\"directory\":\"nested\"")));
         }

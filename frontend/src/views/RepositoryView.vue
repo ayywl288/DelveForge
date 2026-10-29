@@ -86,7 +86,7 @@ function viewSection(id: string) {
         <section id="repository-section-overview" v-show="sectionId === 'overview'">
           <h3 class="section-heading"><NavigationIcon name="file" />仓库用途</h3><p class="reading-text">{{ repository.purpose }}</p>
           <ContentList title="技术栈" :items="repository.techStack" variant="tags" icon="code" />
-          <ContentList title="已有能力" :items="repository.capabilities" icon="layers" />
+          <ContentList title="已有能力" :items="repository.capabilities" variant="cards" icon="layers" />
           <details class="object-id">
             <summary>快照与资产绑定</summary>
             <p>RepositoryProfile <code>{{ repository.id }}</code></p>
@@ -98,18 +98,16 @@ function viewSection(id: string) {
           <ContentList title="模块" :items="repository.modules" variant="modules" icon="repository" />
         </section>
         <section id="repository-section-capabilities" v-show="sectionId === 'capabilities'">
-          <ContentList title="已有能力" :items="repository.capabilities" icon="layers" />
+          <ContentList title="已有能力" :items="repository.capabilities" variant="cards" icon="layers" />
         </section>
         <section id="repository-section-reuse" v-show="sectionId === 'reuse'">
-          <ContentList title="可复用资产" :items="repository.reusableAssets" icon="reuse" />
+          <ContentList title="可复用资产" :items="repository.reusableAssets" variant="cards" icon="reuse" />
         </section>
         <section id="repository-section-risks" v-show="sectionId === 'risks'">
-          <ContentList title="限制" :items="repository.limitations" icon="lock" />
+          <ContentList title="限制" :items="repository.limitations" variant="cards" icon="lock" />
           <ContentList title="风险" :items="repository.risks" variant="risks" icon="warning" />
         </section>
         <section id="repository-section-evidence" v-show="sectionId === 'evidence'">
-          <h3>原始分析依据</h3>
-          <p class="meta">保存结果没有逐条结论与依据的关联字段；以下按原文完整展示。</p>
           <EvidenceList :items="repository.evidence" title="源码与分析依据" expanded />
         </section>
       </div>

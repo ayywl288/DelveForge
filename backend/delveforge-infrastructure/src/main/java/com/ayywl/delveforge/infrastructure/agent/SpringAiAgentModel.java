@@ -33,6 +33,8 @@ import java.util.List;
 /** 只交换模型消息，不执行工具；禁用框架循环并用不可执行 Callback 防止双重派发。 */
 public final class SpringAiAgentModel implements AgentModelPort {
     private static final ObjectMapper JSON = new ObjectMapper();
+    // UTF-8 请求字节上界有意保守，另预留响应额度；这不是精确 token 计数或模型容量声明。
+    private static final int MAX_REQUEST_BYTES = 900000;
     private final DeepSeekChatModel model;
     private final DeepSeekProperties properties;
     private final int responseTokens;
@@ -49,7 +51,11 @@ public final class SpringAiAgentModel implements AgentModelPort {
                     // 当前消息合同不携带提供者 reasoning_content，显式关闭默认 thinking，避免不完整的工具会话。
                     ObjectNode payload = (ObjectNode) JSON.readTree(body);
                     payload.set("thinking", JSON.createObjectNode().put("type", "disabled"));
-                    return execution.execute(request, JSON.writeValueAsBytes(payload));
+                    byte[] assembled = JSON.writeValueAsBytes(payload);
+                    if ((long) assembled.length + responseTokens > MAX_REQUEST_BYTES) {
+                        throw new AgentException("CONTEXT_LIMIT", "Serialized Agent request exceeds safe transport budget");
+                    }
+                    return execution.execute(request, assembled);
                 })).build();
         model = DeepSeekChatModel.builder().deepSeekApi(api)
                 .defaultOptions(DeepSeekChatOptions.builder().model(properties.model())
@@ -92,6 +98,11 @@ public final class SpringAiAgentModel implements AgentModelPort {
             response = model.call(new Prompt(messages, DeepSeekChatOptions.builder()
                     .toolCallbacks(callbacks).internalToolExecutionEnabled(false).build()));
         } catch (RuntimeException failure) {
+            for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+                if (cause instanceof AgentException rejected && rejected.code().equals("CONTEXT_LIMIT")) {
+                    throw rejected;
+                }
+            }
             // 不传播提供者错误正文，其中可能包含请求或凭据。
             throw new AgentModelFailure(AgentModelFailure.Reason.PROVIDER_CALL_FAILED);
         }
@@ -143,6 +154,17 @@ public final class SpringAiAgentModel implements AgentModelPort {
             }
             calls.add(new AgentProtocol.ToolCall(call.id(), call.name(), call.arguments()));
         }
-        return new AgentProtocol.Reply(output.getText() == null ? "" : output.getText(), calls, tokens);
+        Long cached = null;
+        if (usage != null && usage.getNativeUsage() instanceof DeepSeekApi.Usage nativeUsage
+                && nativeUsage.promptTokensDetails() != null) {
+            cached = numerical(nativeUsage.promptTokensDetails().cachedTokens());
+        }
+        AgentProtocol.Usage reported = tokens == null ? null : new AgentProtocol.Usage(
+                numerical(usage.getPromptTokens()), numerical(usage.getCompletionTokens()), tokens, cached, null);
+        return new AgentProtocol.Reply(output.getText() == null ? "" : output.getText(), calls, tokens, reported);
+    }
+
+    private Long numerical(Integer value) {
+        return value == null || value < 0 ? null : value.longValue();
     }
 }

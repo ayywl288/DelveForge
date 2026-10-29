@@ -6,6 +6,7 @@ import NavigationIcon from "./NavigationIcon.vue";
 const props = defineProps<{
     items?: Evidence[];
     bases?: EvidenceBasis[];
+    groups?: { label: string; bases: EvidenceBasis[] }[];
     title?: string;
     friendly?: boolean;
     expanded?: boolean;
@@ -14,7 +15,23 @@ const pageSize = 6;
 const page = ref(1);
 const openRecord = ref<number | null>(null);
 const pageStatus = ref<HTMLElement>();
-const records = computed(() => props.bases ?? (props.items ?? []).map(evidence => ({ evidence, origin: null })));
+const records = computed(() => {
+    const entries = props.groups
+        ? props.groups.flatMap(group => group.bases.map(basis => ({ ...basis, categories: [group.label] })))
+        : (props.bases ?? (props.items ?? []).map(evidence => ({ evidence, origin: null })))
+            .map(basis => ({ ...basis, categories: [] as string[] }));
+    const unique = new Map<string, typeof entries[number]>();
+    for (const entry of entries) {
+        const { evidence, origin } = entry;
+        const key = JSON.stringify([evidence.sourceType, evidence.sourceRef, evidence.claim,
+            evidence.confidence, evidence.confirmed, origin?.kind, origin?.userProfileId,
+            origin?.userProfileRevision, origin?.repositoryProfileId]);
+        const existing = unique.get(key);
+        if (existing) existing.categories = [...new Set([...existing.categories, ...entry.categories])];
+        else unique.set(key, { ...entry });
+    }
+    return [...unique.values()];
+});
 const pageCount = computed(() => Math.max(1, Math.ceil(records.value.length / pageSize)));
 const firstIndex = computed(() => (page.value - 1) * pageSize);
 const visibleRecords = computed(() => records.value.slice(firstIndex.value, firstIndex.value + pageSize)
@@ -58,30 +75,27 @@ function toggleRecord(index: number, event: Event) {
             <p ref="pageStatus" class="evidence-page-status meta" tabindex="-1" aria-live="polite">
                 <template v-if="pageCount > 1">第 {{ page }} / {{ pageCount }} 页 ·
                     第 {{ firstIndex + 1 }}–{{ Math.min(firstIndex + pageSize, records.length) }} 条 · </template>
-                共 {{ records.length }} 条，展开查看原文与技术详情
+                共 {{ records.length }} 条
             </p>
             <article v-for="item in visibleRecords" :key="item.index" class="evidence-entry"
                     :data-record-index="item.index + 1">
                 <div class="evidence-source meta">
                     <NavigationIcon :name="item.evidence.sourceType === 'REPOSITORY' ? 'file' : 'discovery'" />
                     {{ sources[item.evidence.sourceType] ?? "其他来源" }}
-                    <span v-if="item.evidence.confidence != null">
-                        · {{ friendly ? "推断可信程度" : "confidence" }} {{ item.evidence.confidence }}
-                    </span>
+                    <span v-for="category in item.categories" :key="category" class="evidence-category">{{ category }}</span>
                 </div>
                 <details class="evidence-record" :open="openRecord === item.index"
                         @toggle="toggleRecord(item.index, $event)">
                     <summary>
                         <span class="evidence-record-index">{{ item.index + 1 }}</span>
-                        <span class="evidence-preview">{{ item.evidence.claim }}</span>
+                        <span class="evidence-preview evidence-claim">{{ item.evidence.claim }}</span>
                     </summary>
-                    <p class="evidence-claim">{{ item.evidence.claim }}</p>
-                    <code class="source-reference">{{ item.evidence.sourceRef }}</code>
-                    <p class="meta">confirmed 表示单条依据是否核对，与整体画像确认及方向选择不同；本界面不提供逐条确认操作。</p>
-                    <code>sourceType={{ item.evidence.sourceType }} · confidence={{ item.evidence.confidence ?? 'null' }} · confirmed={{ item.evidence.confirmed }}</code>
+                    <p class="meta">{{ item.evidence.sourceType === 'USER_INPUT' ? '原始描述' : '来源引用' }}</p>
+                    <blockquote v-if="item.evidence.sourceType === 'USER_INPUT'" class="source-reference">{{ item.evidence.sourceRef }}</blockquote>
+                    <code v-else class="source-reference">{{ item.evidence.sourceRef }}</code>
                     <p v-if="item.origin" class="meta">
-                        {{ item.origin.kind }} · {{ item.origin.userProfileId ?? item.origin.repositoryProfileId }}
-                        <span v-if="item.origin.userProfileRevision != null"> · revision {{ item.origin.userProfileRevision }}</span>
+                        {{ item.origin.kind === 'USER_PROFILE' ? '用户画像' : '仓库分析' }}
+                        <span v-if="item.origin.userProfileRevision != null"> · 版本 {{ item.origin.userProfileRevision }}</span>
                     </p>
                 </details>
             </article>

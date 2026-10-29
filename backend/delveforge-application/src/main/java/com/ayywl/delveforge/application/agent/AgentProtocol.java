@@ -23,7 +23,15 @@ public final class AgentProtocol {
         }
     }
 
-    public record Reply(String text, List<ToolCall> calls, Long tokens) {
+    public record Usage(Long promptTokens, Long completionTokens, Long totalTokens,
+            Long cacheHitTokens, Long cacheMissTokens) {
+    }
+
+    public record Reply(String text, List<ToolCall> calls, Long tokens, Usage usage) {
+        public Reply(String text, List<ToolCall> calls, Long tokens) {
+            this(text, calls, tokens, null);
+        }
+
         public Reply {
             calls = List.copyOf(calls);
         }
@@ -54,7 +62,7 @@ public final class AgentProtocol {
 
         public static Limits defaults() {
             // 累计用量与总时长不作停止门槛；技术材料、单次检查和错误恢复仍有界。
-            return new Limits(180000, 24000, 131072, 262144, 2097152, 10000, 180, 2);
+            return new Limits(500000, 24000, 131072, 262144, 2097152, 10000, 180, 2);
         }
     }
 }

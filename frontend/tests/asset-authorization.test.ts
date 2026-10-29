@@ -35,7 +35,7 @@ const input = async (element: HTMLInputElement | HTMLTextAreaElement, value: str
 };
 
 describe("资产授权和展示", () => {
-  it("Evidence 默认只描述来源，原始确认字段在技术详情中且不修改数据", () => {
+  it("Evidence 展示结论与来源，内部字段不进入用户界面且不修改数据", () => {
     const items = [{ sourceType: "USER_INPUT", sourceRef: "原始描述", claim: "用户想做Java项目",
       confidence: 0.8, confirmed: false }, { sourceType: "REPOSITORY", sourceRef: "pom.xml", claim: "使用Maven",
       confidence: null, confirmed: false }];
@@ -45,8 +45,9 @@ describe("资产授权和展示", () => {
     expect(meta.textContent).not.toMatch(/confirmed|未确认|待核对|USER_INPUT/);
     const details = root.querySelector("article > details")!;
     expect(details.hasAttribute("open")).toBe(false);
-    expect(details.textContent).toContain("confirmed=false");
-    expect(details.textContent).toContain("与整体画像确认及方向选择不同");
+    expect(details.textContent).toContain("原始描述");
+    expect(details.textContent).not.toMatch(/confirmed|confidence|sourceType/);
+    expect(root.textContent?.split("用户想做Java项目")).toHaveLength(2);
     expect(root.querySelectorAll("article > .meta")[1]?.textContent).toContain("来自仓库文件");
     expect(items[0]?.confirmed).toBe(false);
   });

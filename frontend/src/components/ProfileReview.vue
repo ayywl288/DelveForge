@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { profileSections, type ProfileSection, type Sufficiency, type UserProfile } from "../api/types";
 import OriginalDescriptions from "./OriginalDescriptions.vue";
+import NavigationIcon, { type NavigationIconName } from "./NavigationIcon.vue";
+const sectionIcons: Record<ProfileSection, NavigationIconName> = {
+  interests: "heart", behaviors: "activity", technicalCapabilities: "code", painPoints: "warning",
+  projectGoals: "target", constraints: "clock",
+};
 defineProps<{ profile: UserProfile; sufficiency: Sufficiency | null; busy: boolean }>();
 defineEmits<{ edit: [section: ProfileSection] }>();
 </script>
@@ -13,8 +18,8 @@ defineEmits<{ edit: [section: ProfileSection] }>();
     </header>
     <div class="profile-review-grid">
       <section v-for="section in profileSections" :key="section.key" class="profile-card"
-        :aria-labelledby="`review-${section.key}`">
-        <div class="section-row"><h3 :id="`review-${section.key}`">{{ section.label }}</h3>
+        :aria-labelledby="`review-${section.key}`" :class="{ 'profile-card-empty': !profile[section.key].length }">
+        <div class="section-row"><h3 :id="`review-${section.key}`"><span class="profile-card-icon"><NavigationIcon :name="sectionIcons[section.key]" /></span>{{ section.label }}</h3>
           <button class="text-button" :disabled="busy" :aria-label="`审阅时纠正${section.label}`"
             @click="$emit('edit', section.key)">编辑</button></div>
         <ul v-if="profile[section.key].length"><li v-for="(item, index) in profile[section.key]" :key="index">{{ item }}</li></ul>

@@ -838,8 +838,9 @@ Windows 大小写、分隔符、`.` / `..` 与末尾分隔符作保守比较；�
 Planning 的 409 进一步区分 `ASSET_LICENSE_INFORMATION_REQUIRED`、
 `ASSET_USAGE_AUTHORIZATION_REQUIRED`、`ASSET_READ_PERMISSION_REQUIRED` 与
 `ASSET_TYPE_UNSUPPORTED`；只返回固定文案，不输出许可证、异常 message 或 Provider 内容。
-前端共用 EvidenceList 默认说明依据来源，原始 `confirmed` 与出处在技术详情中保留；
-没有逐条确认入口，也不会把它解释为整个 Profile / Direction 的状态。
+前端共用 EvidenceList 展示一次判断，展开后显示原始描述或源码引用；不显示内部字段和身份标识。
+完全相同的依据及出处可以合并展示并保留支持类别，持久数据不变；没有逐条确认入口，
+也不会把单条依据解释为整个 Profile / Direction 的状态。
 
 **Repository Analysis 语义**
 

@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentModelFailure;
+import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentTools;
 import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
@@ -95,6 +96,44 @@ class SpringAiAgentModelTest {
         assertEquals("disabled", request.path("thinking").path("type").asText());
         assertEquals("fixture-model", request.path("model").asText());
         assertEquals(8192, request.path("max_tokens").asInt());
+    }
+
+    @Test
+    void returnsOnlyNumericalUsageAndSupportedNativeCacheMetadata() throws Exception {
+        var payload = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(
+                response("stop", List.of(), "completed", true));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) payload.path("usage"))
+                .putObject("prompt_tokens_details").put("cached_tokens", 10);
+        body = payload.toString();
+        var reply = model.call(history(), AgentTools.definitions());
+        assertEquals(20L, reply.usage().promptTokens());
+        assertEquals(8192L, reply.usage().completionTokens());
+        assertEquals(8212L, reply.usage().totalTokens());
+        assertEquals(10L, reply.usage().cacheHitTokens());
+        assertNull(reply.usage().cacheMissTokens());
+        assertFalse(json.writeValueAsString(reply.usage()).contains("completed"));
+    }
+
+    @Test
+    void moderateHistoryAboveOldBoundaryStillReachesProvider() throws Exception {
+        body = response("stop", List.of(), "completed", false);
+        model.call(List.of(AgentProtocol.Message.text("system", "x".repeat(200000))), AgentTools.definitions());
+        assertEquals(1, requests.size());
+    }
+
+    @Test
+    void serializedEscapingAndToolDefinitionsAreCheckedBeforeNetworkSubmission() {
+        var escaped = List.of(AgentProtocol.Message.text("system", "\u0001".repeat(200000)));
+        var first = assertThrows(AgentException.class, () -> model.call(escaped, AgentTools.definitions()));
+        assertEquals("CONTEXT_LIMIT", first.code());
+        var second = assertThrows(AgentException.class, () -> model.call(history(), List.of(
+                new AgentProtocol.ToolSpec("large", "x".repeat(910000), "{}"))));
+        assertEquals("CONTEXT_LIMIT", second.code());
+        var expanded = new ArrayList<>(history());
+        expanded.add(AgentProtocol.Message.text("system", "x".repeat(910000)));
+        assertEquals("CONTEXT_LIMIT", assertThrows(AgentException.class,
+                () -> model.call(expanded, AgentTools.definitions())).code());
+        assertTrue(requests.isEmpty());
     }
 
     @Test

@@ -150,7 +150,7 @@ export function activityState(events: AgentEvent[], run: AgentRun) {
 }
 
 export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActivity[] {
-    const facts = events.filter(event => event.runId === run.id);
+    const facts = events.filter(event => event.runId === run.id && event.kind !== "MODEL_USAGE");
     const starts = new Map<string, AgentEvent[]>();
     const finishes = new Map<string, AgentEvent[]>();
     for (const event of facts) {
