@@ -1,200 +1,58 @@
-# Frontend visual redesign — validation and handoff
+# Frontend V2 — 最终验证与维护记录
 
-2026-10-31 · local review candidate · not final visual acceptance
+2026-10-31。最终实现见 [视觉规范](FRONTEND_VISUAL_IDENTITY.md)，运行方式见 [前端说明](../../frontend/README.md)。
+本轮集成起点为 `codex/frontend-experience-v2` / `6c99096adbc160bf2aff232d018cc24c7217f28b`，
+本地 main 起点为 `a3a48c41254c0173c370580d818d8774cf765fc9`。清理不重写已有提交历史。
 
-## Revision and scope
+## 检查边界
 
-- Starting branch/HEAD: `main`, `a3a48c41254c0173c370580d818d8774cf765fc9`, upstream `origin/main`.
-- Tracked files were clean. Existing untracked `frontend/design/` and `grilling/` were protected.
-- Work branch: `codex/frontend-visual-identity`. Implementation commit: `faa5497`.
-- Changes are Vue presentation, shared CSS, SVG identity, HTML metadata, a small responsive
-  focus workflow, regression coverage, isolated visual fixtures and visual documentation.
-- Backend Java, migrations, API clients, session business logic, provider prompts, Agent
-  protocol, Candidate/Delivery states and authorization requirements were not changed.
-- No paid AI requests, production database access, Working Copy mutation, push, merge,
-  publication or deployment occurred.
+V2 改动限于 Vue 展示、CSS、SVG、导航焦点、确定性测试和隔离审阅工具。
+最终集成再次核对相对 main 的变更：没有 Java、迁移、API 合约、session 业务逻辑、资产授权、
+Agent 执行或 Candidate/Delivery 语义变更。本轮不进行新设计，不调用付费模型或真实 Agent。
 
-## Review package
+本地生产夹具拦截全部 `/api/` 请求，不代理真实后端，非 GET 操作返回 409。
+延迟拒绝仅用于显示真实前端等待状态。示例项目、路径、文件、用量、revision 和事件均为合成数据，
+不能证明真实后端、持久化、模型执行、正式交付或恢复的端到端正确性。
 
-Open [the screenshot gallery](review-20261031/index.html). It includes 27 final screenshots:
-all nine views at 1440×900, 1280×800 and 420×900, with the latter two values describing the
-viewport rather than the full-page image height. Four representative baseline screenshots,
-the brand exploration/size sheet, empty/deleted/error states, text scaling and long-evidence
-checks are included. The committed package is approximately 4.1 MB; transient browser
-profiles, inspector films, tool checkouts and executables remain outside Git under `target/`.
+## 最终清理后复验
 
-All screenshots are **fixture-backed renders of the real application**. After screenshots
-use the production `dist/` build, original Vue components and the existing API/session code.
-The local fixture server intercepts every `/api` request, refuses mutations and never proxies
-to the user's backend. No screenshot is evidence of a real backend or Provider run.
+从仓库采用的 `pnpm@12.9.1` 与 package.json 脚本运行，原有 300 项前端测试保持启用。
 
-Synthetic content uses Report Kit, CLI log reader and API contract examples, `/sample/…`
-paths, fixed timestamps and repeated synthetic revisions. Candidate explicitly retains
-`NOT_TESTED`; a blocked Delivery and formally accepted Delivery are separate scenarios.
-The accepted fixture has consistent Step and WorkingCopy revisions. The baseline fixture's
-navigation counts were subsequently corrected; differences in synthetic deletion warnings
-must not be interpreted as a product behavior change.
-
-The complete baseline set remains in
-`target/frontend-visual-identity-20261031/before-corrected/` (27 screenshots). Final full
-captures are in `production-final/`; older `before/`, `after-round1/` and `final/` captures
-are intermediate evidence and must not be used as the final state.
-
-## Actual checks
-
-| Check | Result and scope |
+| 检查 | 本轮结果 |
 |---|---|
-| Baseline `pnpm test` | 21 files, 298 tests passed |
-| Final `pnpm test` | 22 files, 299 tests passed; new mobile-menu/focus regression |
-| `pnpm typecheck` | Passed |
-| `pnpm build` | Passed; Vue/TypeScript and Vite 8.3.0 |
-| Final production bundle | 267.06 kB JS / 92.86 kB gzip; 95.60 kB CSS / 18.63 kB gzip |
-| `git diff --check` | Passed |
-| Final browser captures | 27/27 without document horizontal overflow or JavaScript exceptions |
-| Additional independent browser review | Nine states at 320px, five at 768px; no document overflow or unnamed sampled buttons |
-| Native confirmation dialog | Direction confirmation opened; focus was inside; Escape closed it; original button regained focus |
-| Mobile and breakpoint focus | Menu expands/collapses, stage selection focuses main; desktop-to-mobile focuses visible menu, reverse transition focuses brand |
-| Keyboard entry | Tab reaches skip link; Enter focuses main content |
-| Text scaling | All nine states at 1440×900 with computed text sizes doubled; no document overflow. This is text-only enlargement, not a claim of browser-menu zoom testing |
-| Long source reference | 769-character unbroken evidence path remained complete and did not overflow at 420px |
-| Large Evidence collection | 25 records / 5 pages; six records per page; complete 610-character source; next-page action focused the page-status text without overflow at 420px |
-| Reduced motion | Real media preference emulated; zero infinite animations; current activity text remained visible |
-| Empty/deleted/error | Real project components rendered empty state, restore action, and HTTP 503 feedback at 420px |
-| Visible text contrast | Independent computed foreground/opaque-background checks across nine states found no visible AA failures; clipped `.sr-only` false positives excluded |
+| `pnpm test` | 22 文件、300/300 通过 |
+| `pnpm typecheck` | 通过 |
+| `pnpm build` | Vue/TypeScript 与 Vite 生产构建通过 |
+| `git diff --check` | 通过 |
+| 文档与脚本 | 15 个本地文档链接有效，无已删除图库引用；两份截图工具语法检查通过 |
 
-Final build and test logs are in the isolated `target/frontend-visual-identity-20261031/`
-directory. No backend Maven run was needed for this frontend-only task.
+回归覆盖项目创建/继续/删除恢复、画像 revision 确认和会话连续性、仓库授权与完整 Evidence、
+方向选择/拒绝、WorkingCopy 准备、Step 授权、费用勾选、Run 停止、SSE、Candidate 与正式文件、
+NOT_TESTED、失败和未知状态，以及手机同阶段选择与跨断点焦点迁移。
+代码复核保留初始配置优先、事件在统计之前、代码结果在底部和连接 Step 时间线。
 
-The collection screenshot and record are [here](review-20261031/checks/evidence-collection-420.png)
-and [here](review-20261031/checks/evidence-collection.json).
+## 上轮设计审查的有效结论
 
-### Regression scenario mapping
+Taste Skill 2.1.5 App Screen 和 Impeccable 4.8.0 的独立设计/技术审查已完成。
+设计分 30/40、技术分 16/20 是有限范围判断，不是全面设计认可或无障碍认证。
+已修正手机菜单水平溢出、继续入口过深，以及深色项目卡焦点圈与新流程说明的对比度，
+后两者的计算比值分别从 1.99 提高至 7.65、从 4.49 提高至 5.45。
+Taste 的画像手机留白 FAIL 经收紧消除；不同任务列不齐底、少量分区/页尾留白和语义警告底色有意保留。
 
-The full existing suite remains active. `projects`, `session` and `app` tests cover project
-create/open/delete/restore, navigation and restored contexts. Discovery messaging/continuity
-and view tests cover conversation, review and revision-bound confirmation. Asset authorization,
-repository compatibility, workflow and Step authorization tests cover registration, read-only
-analysis entry, Select/Reject confirmation, preparation and explicit Step decisions.
-Agent workflow/timeline/result tests cover start/stop, persistent activity/reconnect,
-Candidate vs Delivery, accepted changes, failures and uncertainty. Evidence and long-content
-tests retain complete disclosures and collection navigation. These are deterministic frontend
-regressions; they do not substitute for a new live backend end-to-end run.
+上一轮实际浏览器检查覆盖五种宽度、原生对话框、长来源及 25 条 Evidence / 5 页、
+真实延迟 pending、三点动画与 reduced motion 静态替代，还检查了 200%文字放大。
+193 张 DPR 2 PNG 曾完成散列与解码验收，属于已完成的临时接受材料，此处仅保留验证结论。
+这些历史结果不替代上表的本轮测试。
 
-## Upstream tool security and actual use
+Impeccable 原生 IAB 注入预检失败，改用 CDP，没有成功的 overlay。
+未覆盖 NVDA/JAWS、强制色彩、Safari/Firefox、实体触屏或节流设备性能。
+200%文字样式测试不等同所有浏览器缩放模式，Chromium 合成触摸不等同实体设备。
+业务结果 NOT_TESTED 与前端回归是否通过分别判断。
 
-Sources were read from the current upstream repositories, including installers, scripts and
-relevant references:
+## 可复用工具与产物策略
 
-- [Taste Skill](https://github.com/Leonxlnx/taste-skill), reviewed commit
-  `12af471f627f866411b4bd785b19646d3672784c`, plugin version **2.1.5**.
-- [Impeccable](https://github.com/pbakaus/impeccable), reviewed commit
-  `df3a4abe7d0840d5f60324812c432e00b66a4e75`, skill **4.8.0**, engine **0.1.18**.
-
-Environment: Node **22.16.0**, pnpm **12.9.1**, Codex CLI **0.153.4**, installed Chrome and Edge.
-Codex exposes the plugin marketplace/add commands, but Taste's plugin route requires a fresh
-session. The reviewed skill-copy route was used instead.
-
-Taste's official `skills` npm package **1.7.4** was packed with scripts disabled and inspected
-before execution. Its shipped CLI, dependency declarations and copy behavior were reviewed.
-The direct unpacked CLI first failed because dependencies were absent; the fixed-version
-`npx --yes --ignore-scripts skills@1.7.4 add <reviewed-local-checkout> --skill
-design-taste-frontend --agent codex --global --copy --yes` installation then succeeded with
-telemetry disabled. The installer warned that it declares Node ≥22.20.0; this machine has
-22.16.0. Installation, the installed `draw.mjs --app`, and installed browser inspector all
-actually completed. No Node upgrade or runtime frontend dependency was added.
-
-Impeccable's official `install --providers=codex --scope=global` route was verified against
-the current Rust installer. The actual command added `--no-hooks --yes` and used the reviewed
-native engine. The Windows executable's SHA-256 was checked before execution:
-`8f61e96b0c97001546a824d79b44f46b423b560f3eb1a0cc44a8695a1b395d9f`.
-An interrupted download was resumed and verified. The native installer and global payload
-installation completed with exit 0. It installed skill 4.8.0 and engine 0.1.18.
-
-Both skills reside under `C:/Users/28226/.agents/skills/`. No automatic hook was enabled.
-Upstream documents Codex project-hook trust approval and Windows limitations, so manual
-detection was used. No Impeccable initialization, root `PRODUCT.md`, root `DESIGN.md`,
-competing product record, global npm install or package/lockfile change was introduced.
-
-Actual invocations:
-
-| Capability | Evidence |
-|---|---|
-| Taste App Screen | Installed `draw.mjs --app --list kinds`/App sheet; `framed-sheet`, seed 31031, brand palette/type preserved |
-| Taste browser inspector | `inspect.mjs --app URL --widths 1440,1280,420 --out …`; all nine production views covered |
-| Impeccable context | Installed launcher `context --target frontend/src/App.vue`, exit 0; correctly resolved `docs/PRODUCT.md` |
-| Impeccable source detector | Installed launcher `detect frontend/src/ --json`, exit 0, `[]` |
-| Impeccable browser detector | Attempted production Evolution URL at 420×900; exit 1: `Navigation timeout of 30000 ms exceeded`. Continuous SSE is present; the exact cause was not established |
-| Critique and audit | Two isolated assessments followed the installed playbooks; design assessment was completed before detector synthesis |
-| Shape and refinements | Shape principles produced the internal brief from the supplied request; distill/polish/typeset/layout/adapt/harden informed targeted changes. No interactive shape approval or unrelated init flow was run |
-
-The context tool reported its own `product-schema-legacy` diagnostic. The existing project
-document remains authoritative and was preserved as explicitly requested; no schema rewrite
-was inferred from that tool diagnostic.
-
-## Critique, audit and corrections
-
-Independent design assessment scored the then-current UI **28/40** across the ten Nielsen
-heuristics. It identified stronger delivery navigation, fewer competing scroll regions,
-more readable consequential copy, and quieter replanning as useful improvements. The primary
-implementation pass addressed all four: direct files/Delivery link, naturally growing
-direction panes, 13px important supporting text, and a secondary replanning disclosure.
-This is not a new acceptance score for the corrected UI.
-
-The independent technical audit and direct checks found no verified blocking issue in the
-sampled states. Bounded audit assessment: accessibility 3/4, performance 4/4, theming 3/4,
-responsive 3/4, implementation integrity 3/4 (**16/20**); a complete accessibility conformance
-claim is not made.
-
-The first static detector reported eight thick-side-border warnings and one overshooting
-easing advisory. Borders and easing were corrected; the final source scan is empty.
-The browser inspector found a local-navigation shadow and inconsistent monospace families;
-both were corrected. A contrast warning on hidden new-project form labels led to an explicit
-light form surface. A 320px refresh-label wrap was fixed without dropping its meaning.
-
-Latest relevant Taste reports have **zero FAIL findings**. Remaining aesthetic warnings are
-retained with their context; no broad detector ignores were added:
-
-- Discovery's conversation and independently useful inspector have different natural heights.
-  Aligning to the top avoids inserting empty stretched space.
-- Repository `hero-void` is a page-oriented heuristic applied to a technical reading pane;
-  the screenshot retains real purpose, capability rows and revision context rather than
-  adding fabricated content. The pale warm surface is an authorization/risk notice, not
-  the page canvas (`palette-cream`).
-- Execution's stronger top rules distinguish activity from accepted files; the remaining
-  `heavy-borders` warning describes these group markers and the graphite navigation separator.
-- A `panel-void` warning on accepted-file results corresponds to separation before test evidence.
-  The complete result and `NOT_TESTED` text remain visible.
-
-Some source file-type metadata retains 11px text. Physical touch, a full screen-reader pass,
-and a new live backend/paid Agent run were not performed. These limits do not change the
-existing automated business regression results. Final visual acceptance remains exclusively
-the user's decision.
-
-## Preservation and reproduction
-
-SHA-256 inventories of all eight pre-existing files in `frontend/design/` and `grilling/`
-matched after implementation. Neither directory was deleted, moved, overwritten, staged or
-committed. No `git clean` or destructive reset was used. All screenshot content was inspected
-for actual local paths, credentials and identities; committed images contain synthetic data.
-
-From the repository root:
-
-```powershell
-node frontend/scripts/visual-review.mjs
-# http://127.0.0.1:4178/?visual=projects
-```
-
-For production verification, run the existing `pnpm build` in `frontend/`, then:
-
-```powershell
-node frontend/scripts/visual-review.mjs --production
-# http://127.0.0.1:4179/?visual=projects
-```
-
-Other fixture values: `discovery`, `review`, `repository`, `directions`, `planning`,
-`evolution`, `candidate`, `delivery`, `empty`, `deleted`, `error`, `stress`.
-The server is loopback-only and uses its own origin; it clears storage only on that
-dedicated fixture origin. Stop it with Ctrl+C. Review servers started during this task
-are stopped before handoff; no service is deployed.
-
-Questions skipped: the supplied brief already fixed the scope and design direction.
+- 保留 visual fixtures、visual-review、capture-final-review 和 validate-final-review 工具。
+- 完整图库默认写入 `target/frontend-visual-review/`，预览写入其 `preview/`；图片、清单、进度和测量均被已有 `target/` 规则忽略。
+- 工具链接本规范与本验证记录，不依赖历史图库。重新采集需要本地安装的 Taste 浏览器 helper，可用 `TASTE_SKILL_HOME` 指定位置。
+- 日期审阅目录从当前文件树移除，不新增屏蔽合法设计文档的规则，也不重写历史清除旧提交对象。
+- 临时日志和详细测量留在忽略目录，提交可复用测试及简明工程文档。

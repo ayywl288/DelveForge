@@ -2,11 +2,11 @@
 
 Vue 3 + TypeScript + Vite + pnpm。项目工作台与五阶段界面调用当前后端 REST API，没有模拟运行结果或浏览器内 Provider 客户端。
 
-**2026-10-31 V2 体验改版候选：** Precision Room，采用横向石墨产品栏、独立项目卡、靛蓝操作、
-按任务组成的对话/仓库/决策/规划与执行工作面。V1 已被产品负责人拒绝，保留作历史比较。
-业务状态与授权合同保持；V2 视觉接受由用户独立审阅后决定。
+**2026-10-31 V2：** Precision Room，采用横向石墨产品栏、独立项目卡、靛蓝操作，
+保留双向对话、真实等待反馈和连接 Step 时间线；执行初始先准备，运行时先事件、后统计，代码结果在底部。
+业务状态与授权合同保持。
 见 [视觉规范](../docs/design/FRONTEND_VISUAL_IDENTITY.md) 与
-[验证和截图](../docs/design/review-v2-20261031/VALIDATION.md)。下文 Task G 是历史记录。
+[验证记录](../docs/design/FRONTEND_VISUAL_VALIDATION.md)。下文 Task G 是历史记录。
 
 **当前自主演化界面（2026-10-23）：** M1–M3 的画像、仓库、方向和规划保留；实施页已替换为
 逐 Step 确认并启动 Agent、持久化 SSE 活动、冻结 Candidate 差异和独立 Delivery 状态。
@@ -124,6 +124,25 @@ AI 操作会调用付费 Provider，只在实际获得授权后验收。本次�
 底层 Evidence、快照与共享 EvidenceList 在其他业务页面保持原语义。
 
 ## 工程与测试
+
+可复用视觉检查从仓库根目录运行，不需要真实后端或付费模型。先完成生产构建，再在一个终端启动隔离夹具：
+
+```powershell
+pnpm --dir frontend build
+node frontend/scripts/visual-review.mjs --production
+```
+
+在另一终端、已提交前端源码后运行：
+
+```powershell
+node frontend/scripts/capture-final-review.mjs
+node frontend/scripts/validate-final-review.mjs
+```
+
+默认图库及清单位于 `target/frontend-visual-review/`，被已有 `target/` 规则忽略；
+`capture-final-review.mjs --preview` 可在未提交时生成其 `preview/` 预览，不作为源码冻结证据。
+截图工具需要本地 Taste 的浏览器 helper，支持 `TASTE_SKILL_HOME`，不引入前端运行依赖。
+长期提交规范和测试，图片、测量 JSON 与临时日志保留在忽略目录。
 
 ```powershell
 pnpm test

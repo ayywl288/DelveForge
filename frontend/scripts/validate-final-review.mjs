@@ -6,7 +6,7 @@ import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const root = resolve('docs/design/review-v2-final-20261031');
+const root = resolve('target/frontend-visual-review');
 const manifest = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8'));
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const fail = message => { throw Error(message); };
