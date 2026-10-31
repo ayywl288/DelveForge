@@ -1,0 +1,93 @@
+// 仅用于真实浏览器视觉审阅；所有名字、路径、时间和运行证据均为合成数据。
+import { asset, copy, direction, plan, profile, repository } from './fixtures';
+
+const revision = 'a'.repeat(40);
+const evidence = { sourceType: 'REPOSITORY', sourceRef: 'src/main/java/reports/ReportService.java:24-68',
+    claim: 'ReportService 已提供按日期范围导出 CSV 的能力，可作为周期报表的复用基础。', confidence: 0.9, confirmed: false };
+
+export function visualFixture(scenario: string, path: string): unknown {
+    const user = { ...profile(), revision: 4, status: scenario === 'discovery' ? 'EXPLORING' : scenario === 'review' ? 'REVIEWING' : 'CONFIRMED',
+        interests: ['让重复工作变得简单，保留对代码的理解与控制。'], behaviors: ['每周五整理项目数据，手动导出报表并核对。'],
+        painPoints: ['重复导出容易遗漏，缺少可追溯的执行记录。'], technicalCapabilities: ['熟悉 Java、Spring Boot 与 Maven，能够维护现有服务。'],
+        projectGoals: ['在已有报表工具上增加周期调度与可靠记录。'], constraints: ['先支持本地运行；每一步都需要明确范围与验证。'],
+        evidence: [{ ...evidence, sourceType: 'USER_STATEMENT', sourceRef: 'conversation:2', claim: '每周都需要重复导出并手动核对报表。', confirmed: true }] };
+    const a = { ...asset(), location: '/sample/workspace/report-kit' };
+    const repo = { ...repository(), purpose: 'Report Kit · 本地报表服务', techStack: ['Java 21', 'Spring Boot', 'Maven', 'SQLite'],
+        modules: ['reports — 报表生成与 CSV 导出', 'storage — 本地任务与记录', 'api — REST 接口'],
+        capabilities: ['按日期范围生成报表', '导出标准 CSV 文件', '记录导出任务与结果'],
+        reusableAssets: ['ReportService：导出与数据汇总', 'ExportRepository：本地记录持久化'],
+        limitations: ['目前只能手动触发导出', '缺少周期配置与调度失败记录'], risks: ['调度时区需要明确', '重复触发必须避免重复写入'], evidence: [evidence] };
+    if (scenario === 'stress') repo.evidence = Array.from({ length: 25 }, (_, index) => ({ ...evidence,
+        claim: `合成依据 ${index + 1}：完整保存模块、能力与来源之间的对应关系。`,
+        sourceRef: 'src/' + 'long-unbroken-repository-path'.repeat(20) + `/ReportService${index + 1}.java:24-68` }));
+    const selected = { ...direction(), userProfileRevision: 4, title: '让每周报表按时完成', status: 'SELECTED',
+        targetProduct: '基于 Report Kit 的周期报表工作台', problem: '每周重复手动导出，难以知道哪些报表已成功生成。',
+        userFit: '沿用你熟悉的 Java 服务，把时间花在数据核对而不是重复操作上。',
+        differentiation: '保留现有导出逻辑，以小步调度能力和执行记录补齐闭环。', technicalValue: '练习可测试的调度边界、幂等执行与失败追踪。',
+        evidenceSupport: { userNeed: [{ evidence: user.evidence[0], origin: { kind: 'USER_PROFILE', userProfileId: user.id, userProfileRevision: 4, repositoryProfileId: null } }],
+            userFit: [], reusableCapability: [{ evidence, origin: { kind: 'REPOSITORY_PROFILE', userProfileId: null, userProfileRevision: null, repositoryProfileId: repo.id } }] } };
+    const alternatives = [{ ...selected, id: 'direction-2', title: '报表差异核对助手', status: 'CANDIDATE', problem: '比较两次导出，快速定位数据变化。' },
+        { ...selected, id: 'direction-3', title: '轻量导出任务中心', status: 'CANDIDATE', problem: '集中查看手动任务与历史导出文件。' }];
+    const p = plan();
+    p.currentState = { summary: '按需生成，手动导出', capabilities: repo.capabilities, modules: repo.modules, limitations: repo.limitations };
+    p.targetState = { problem: selected.problem, targetProduct: selected.targetProduct, differentiation: selected.differentiation };
+    p.evidence = selected.evidenceSupport.reusableCapability;
+    p.risks = repo.risks;
+    p.steps = [
+        { ...p.steps[0]!, goal: '建立周期配置与校验', scope: 'reports / scheduling configuration', status: 'SUCCEEDED', baselineRevision: revision, deliveryRevision: 'c'.repeat(40), plannedChanges: ['新增周期与时区配置', '为配置边界添加单元测试'] },
+        { ...p.steps[0]!, id: 'step-2', goal: '连接调度与现有导出能力', scope: 'reports / scheduler and export service', status: scenario === 'delivery' ? 'SUCCEEDED' : 'READY', baselineRevision: scenario === 'delivery' ? 'c'.repeat(40) : null, deliveryRevision: scenario === 'delivery' ? 'd'.repeat(40) : null,
+            plannedChanges: ['复用 ReportService，不重写现有导出', '记录调度触发与失败原因', '验证重复触发和时区边界'] },
+        { ...p.steps[0]!, id: 'step-3', goal: '提供执行记录与验收入口', scope: 'api / report execution history', status: 'PENDING_CONFIRMATION', plannedChanges: ['展示真实执行结果', '补充端到端接口回归'] },
+    ];
+    if (scenario === 'delivery') p.steps = p.steps.slice(0, 2);
+    const wc = { ...copy(), location: '/sample/isolated/report-kit', currentRevision: 'c'.repeat(40), lastVerifiedRevision: 'c'.repeat(40) };
+    if (scenario === 'delivery') {
+        p.status = 'COMPLETED';
+        wc.status = 'CLOSED';
+        wc.currentRevision = wc.lastVerifiedRevision = 'd'.repeat(40);
+    }
+    const stage = ({ discovery: 'DISCOVERY', review: 'DISCOVERY', repository: 'REPOSITORY', stress: 'REPOSITORY', directions: 'DIRECTION', planning: 'PLANNING' } as Record<string, string>)[scenario] ?? 'EVOLUTION';
+    const context = { id: 'visual-project', name: 'Report Kit · 周期报表', userProfileId: user.id, assetIds: [a.id], repositoryProfileIds: [repo.id], directionIds: [selected.id, ...alternatives.map(d => d.id)], planId: p.id,
+        createdAt: '2026-10-30T08:00:00Z', updatedAt: '2026-10-31T02:20:00Z', version: 2, flowId: 'visual-flow', previousContextId: null, deletedAt: null };
+    const summary = { key: 'project:visual-project', name: context.name, legacy: false, stage: 'EVOLUTION', direction: selected.targetProduct,
+        repositories: [{ assetId: a.id, location: a.location }], lastActivity: context.updatedAt, totalSteps: p.steps.length, succeededSteps: p.steps.filter(step => step.status === 'SUCCEEDED').length,
+        stepCounts: { SUCCEEDED: 1, READY: 1, PENDING_CONFIRMATION: 1 }, planId: p.id, planStatus: p.status, workingCopyId: wc.id,
+        currentRevision: wc.currentRevision, lastVerifiedRevision: wc.lastVerifiedRevision, issues: [], version: 2, deletedAt: null };
+    const run = { id: 'run-visual-1', planId: p.id, stepId: 'step-2', workingCopyId: wc.id, baseline: 'c'.repeat(40),
+        state: scenario === 'evolution' ? 'RUNNING' : 'SUCCEEDED', startedAt: '2026-10-31T02:15:00Z', endedAt: scenario === 'evolution' ? null : '2026-10-31T02:18:00Z',
+        reason: null, candidateId: scenario === 'evolution' ? null : 'candidate-visual-1', cancelRequested: false, retained: false, modelCalls: 4, toolCalls: 12, tokens: 8620 };
+    if (path === '/system/connectivity') return { service: 'visual-fixture', status: 'UP', timestamp: context.updatedAt };
+    if (path === '/system/workspace-configuration') return { root: '/sample/isolated', existingRoots: [] };
+    if (path === '/projects' && scenario === 'empty') return [];
+    if (path === '/projects' && scenario === 'deleted') return [{ ...summary, deletedAt: '2026-10-31T03:00:00Z', stepCounts: { SUCCEEDED: 1, PENDING_CONFIRMATION: 2 } }];
+    if (path === '/projects') return [summary, { ...summary, key: 'project:archive', name: 'CLI 日志阅读器', direction: '从日志中找到故障线索', stage: 'PLANNING', planStatus: 'PROPOSED', totalSteps: 2, succeededSteps: 0, stepCounts: { PENDING_CONFIRMATION: 2 }, planId: 'plan-archive', workingCopyId: null },
+        { ...summary, key: 'project:research', name: 'API 契约检查', direction: null, stage: 'DISCOVERY', planId: null, planStatus: null, totalSteps: 0, succeededSteps: 0, stepCounts: {} }];
+    if (path.includes('/rounds') || path === '/projects/resources') return [];
+    if (path.startsWith('/projects/')) return { key: summary.key, context, legacy: false, userProfile: user, assets: [a], repositoryProfiles: [repo], directions: [selected, ...alternatives], plan: p, workingCopy: wc, stage, boundUserProfileRevision: 4, issues: [] };
+    if (path.endsWith('/review-readiness')) return { profileId: user.id, revision: 4, sufficient: true, missingAreas: [] };
+    if (path.includes('/conversation')) return { messages: [
+        { sequence: 1, requestId: 'request-1', role: 'agent', text: '从最近一次重复工作开始吧。你最想省下哪一部分时间？', question: null, questionState: null, createdAt: '2026-10-31T01:00:00Z', projectId: context.id },
+        { sequence: 2, requestId: 'request-2', role: 'user', text: '每周五都要手动导出报表，然后逐项核对有没有遗漏。我已经有一个 Java 报表服务，希望先在现有代码上加周期调度。', question: null, questionState: null, createdAt: '2026-10-31T01:01:00Z', projectId: context.id },
+        { sequence: 3, requestId: 'request-2', role: 'agent', text: '保留已有服务是很清楚的起点。除了按时导出，你希望如何确认一次任务确实完成？', question: '你希望如何确认一次任务确实完成？', questionState: 'ASKED', createdAt: '2026-10-31T01:02:00Z', projectId: context.id },
+    ], before: null, pendingRequestId: null, unansweredQuestion: '你希望如何确认一次任务确实完成？' };
+    if (path.startsWith('/user-profiles/')) return user;
+    if (path.endsWith('/compatibility')) return { revision, status: 'COMPATIBLE', policyVersion: 'fixture', mavenDirectory: '.', modules: ['reports'], buildJdk: 21, sourceBytes: 45200, files: 24, textFiles: 24, opaqueFiles: 0, generatedPaths: [], immutablePaths: [], issues: [] };
+    if (path.startsWith('/software-assets/')) return a;
+    if (path.startsWith('/repository-profiles/')) return repo;
+    if (path.startsWith('/product-directions/')) return selected;
+    if (path.endsWith('/agent-runs')) return [run];
+    if (path.endsWith('/stream')) return [
+        { kind: 'RUNNING', summary: '隔离沙箱已准备，开始当前 Step。' },
+        { kind: 'TOOL_FINISHED', summary: JSON.stringify({ tool: 'read_file', path: 'src/main/java/reports/ReportService.java', durationMs: 12, ok: true }) },
+        { kind: 'TOOL_FINISHED', summary: JSON.stringify({ tool: 'apply_patch', path: 'src/main/java/reports/ReportScheduler.java', durationMs: 18, ok: true, classification: 'PATCH_APPLIED' }) },
+        { kind: 'MODEL_REQUEST', summary: '正在结合现有导出接口准备下一次检查。' },
+    ].map((event, i) => ({ ...event, sequence: i + 1, runId: run.id, at: '2026-10-31T02:16:00Z' }));
+    if (path.startsWith('/agent-runs/')) return run;
+    if (path.endsWith('/delivery')) return { candidateId: run.candidateId, state: scenario === 'delivery' ? 'COMPLETED' : 'DELIVERY_BLOCKED', revision: scenario === 'delivery' ? 'd'.repeat(40) : null, reason: scenario === 'delivery' ? null : 'WORKING_COPY_BUSY' };
+    if (path.endsWith('/diff')) return 'diff --git a/src/main/java/reports/ReportScheduler.java b/src/main/java/reports/ReportScheduler.java\nnew file mode 100644\n--- /dev/null\n+++ b/src/main/java/reports/ReportScheduler.java\n@@ -0,0 +1 @@\n+class ReportScheduler {}\n';
+    if (path.startsWith('/agent-candidates/')) return { id: run.candidateId, runId: run.id, baseline: run.baseline, expectedTree: 'b'.repeat(40), sha256: 'f'.repeat(64), changedPaths: ['src/main/java/reports/ReportScheduler.java', 'src/test/java/reports/ReportSchedulerTest.java'], diffBytes: 1340, testEvidence: '{"status":"NOT_TESTED"}', createdAt: run.endedAt };
+    if (path.endsWith('/final-changes')) return { planId: p.id, stepId: 'step-2', baselineRevision: 'c'.repeat(40), verifiedRevision: 'd'.repeat(40), availability: 'AVAILABLE', reason: null, baselineTree: 'b'.repeat(40), verifiedTree: 'e'.repeat(40), files: [{ path: 'src/main/java/reports/ReportScheduler.java', changeType: 'ADDED' }], counts: { added: 1, modified: 0, deleted: 0 } };
+    if (path.startsWith('/evolution-plans/')) return p;
+    if (path.startsWith('/working-copies/')) return wc;
+    return undefined;
+}

@@ -1,0 +1,78 @@
+[
+  {
+    "name": "native-confirm-dialog",
+    "open": true,
+    "title": "选择这个产品方向？",
+    "focusInside": true,
+    "closed": true,
+    "focusRestored": true
+  },
+  {
+    "name": "mobile-navigation-and-breakpoint-focus",
+    "collapsed": true,
+    "focusedMain": true,
+    "focusOnMobileToggle": true,
+    "focusOnVisibleBrand": true
+  },
+  {
+    "name": "200-percent-text-projects",
+    "overflow": false,
+    "h1": "项目工作台Projects"
+  },
+  {
+    "name": "200-percent-text-discovery",
+    "overflow": false,
+    "h1": "需求探索User Discovery"
+  },
+  {
+    "name": "200-percent-text-review",
+    "overflow": false,
+    "h1": "需求探索User Discovery"
+  },
+  {
+    "name": "200-percent-text-repository",
+    "overflow": false,
+    "h1": "理解仓库Repository Understanding"
+  },
+  {
+    "name": "200-percent-text-directions",
+    "overflow": false,
+    "h1": "产品方向Product Direction"
+  },
+  {
+    "name": "200-percent-text-planning",
+    "overflow": false,
+    "h1": "演化规划Evolution Planning"
+  },
+  {
+    "name": "200-percent-text-evolution",
+    "overflow": false,
+    "h1": "实施演化Autonomous Evolution"
+  },
+  {
+    "name": "200-percent-text-candidate",
+    "overflow": false,
+    "h1": "实施演化Autonomous Evolution"
+  },
+  {
+    "name": "200-percent-text-delivery",
+    "overflow": false,
+    "h1": "实施演化Autonomous Evolution"
+  },
+  {
+    "name": "long-path-and-evidence",
+    "overflow": false,
+    "completeCharacters": 769
+  },
+  {
+    "name": "reduced-motion",
+    "preference": true,
+    "infiniteAnimations": 0,
+    "currentActivity": "正在请求模型"
+  },
+  {
+    "name": "keyboard-skip-link",
+    "skipFocused": true,
+    "mainFocused": true
+  }
+]
