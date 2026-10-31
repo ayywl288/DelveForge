@@ -94,13 +94,15 @@ function decide() {
   <div v-if="!s.directions.length" class="empty panel">
     尚无候选。选定分析快照后，开始发现。
   </div>
-  <div v-if="viewed" class="direction-workspace">
+  <div v-if="viewed" class="direction-workspace decision-bench">
     <aside id="direction-list" class="panel direction-list" aria-label="方向列表">
-      <h2 class="section-heading"><NavigationIcon name="direction" />候选与已选方向 <span class="count-pill">{{ currentDirections.length }}</span></h2>
-      <p class="meta">点击查看详情，选择需单独确认。</p>
+      <div class="direction-index-heading"><h2 class="section-heading"><NavigationIcon name="direction" />候选与已选方向 <span class="count-pill">{{ currentDirections.length }}</span></h2>
+      <p class="meta">当前查看与正式选择分开；选择需单独确认。</p></div>
       <div class="direction-list-scroll" tabindex="0" role="region" aria-label="候选与历史方向列表">
+      <div class="direction-candidate-grid">
       <DirectionListEntry v-for="(direction, index) in currentDirections" :key="direction.id"
         :direction="direction" :index="index" :active="viewed.id === direction.id" @view="viewDirection(direction.id)" />
+      </div>
       <p v-if="!currentDirections.length" class="empty">当前只有历史方向。</p>
       <details v-if="historicalDirections.length" class="direction-history"
         :open="viewed.status === 'REJECTED' || viewed.status === 'SUPERSEDED'">
@@ -116,6 +118,7 @@ function decide() {
       <div class="panel-header">
         <h2>{{ viewed.title }}</h2><StatusBadge :status="viewed.status" />
       </div>
+      <p class="direction-basis-line">画像版本 {{ viewed.userProfileRevision }} · {{ viewed.repositoryProfileIds.length }} 个分析快照</p>
       <p v-if="stale(viewed)" class="inline-note">
         当前画像与此候选的依据版本不同。历史内容保留，不能用作本页的新规划输入。
       </p>
@@ -146,14 +149,21 @@ function decide() {
       </div>
       </div>
       <div class="direction-detail-body" tabindex="0" role="region" aria-label="方向原文与依据">
+      <div class="direction-brief-main">
+      <div class="direction-proposition">
       <section class="reading-section problem-section"><h3 class="section-heading"><NavigationIcon name="discovery" />要解决的问题</h3><p>{{ viewed.problem }}</p></section>
       <section class="reading-section target-section"><h3 class="section-heading"><NavigationIcon name="target" />目标产品</h3><p>{{ viewed.targetProduct }}</p></section>
+      </div>
+      <div class="direction-reasoning">
       <details class="reading-disclosure" open><summary><NavigationIcon name="user" />为什么适合你</summary><p>{{ viewed.userFit }}</p></details>
-      <details class="reading-disclosure"><summary>差异化</summary><p>{{ viewed.differentiation }}</p></details>
-      <details class="reading-disclosure"><summary><NavigationIcon name="code" />技术价值与复杂度</summary>
+      <details class="reading-disclosure" open><summary>差异化</summary><p>{{ viewed.differentiation }}</p></details>
+      <details class="reading-disclosure" open><summary><NavigationIcon name="code" />技术价值与复杂度</summary>
         <p>{{ viewed.technicalValue }}</p><h3>预估复杂度</h3><p>{{ viewed.estimatedComplexity }}</p>
       </details>
-      <details class="reading-disclosure"><summary>风险 · {{ viewed.risks.length }}</summary>
+      </div>
+      </div>
+      <aside class="direction-proof" aria-label="风险与方向依据">
+      <details class="reading-disclosure" open><summary>风险 · {{ viewed.risks.length }}</summary>
         <ContentList title="已提出的风险" :items="viewed.risks" />
       </details>
       <EvidenceList class="direction-evidence" title="方向依据" :groups="evidenceGroups" />
@@ -177,6 +187,7 @@ function decide() {
       <p v-if="viewed.status === 'REJECTED' || viewed.status === 'SUPERSEDED'" class="context-note">
         历史方向仅供查看，不能从此处恢复为已选择状态。
       </p>
+      </aside>
       </div>
     </article>
   </div>

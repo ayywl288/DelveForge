@@ -97,7 +97,7 @@ async function save() {
 }
 </script>
 <template>
-  <div v-if="!s.profile" class="welcome panel">
+  <div v-if="!s.profile" class="welcome panel discovery-welcome">
     <h2>从你的日常开始。</h2>
     <p>
       说说你想改善什么、习惯怎样工作，以及想做成什么。Agent
@@ -110,8 +110,9 @@ async function save() {
       开始需求探索 <span aria-hidden="true">↗</span>
     </button>
   </div>
-  <div v-else class="discovery-layout" :class="{ 'inspector-collapsed': !inspectorOpen, 'review-layout': activeTab === 'review' }">
-    <section class="panel chat-panel" aria-labelledby="chat-heading">
+  <div v-else class="discovery-layout discovery-workspace" :class="{ 'inspector-collapsed': !inspectorOpen, 'review-layout': activeTab === 'review' }">
+    <section class="panel chat-panel transcript-surface" :class="{ 'review-dossier': activeTab === 'review' }" aria-labelledby="chat-heading">
+      <div class="transcript-toolbar">
       <div class="panel-header">
         <h2 id="chat-heading">{{ s.profile.status === 'CONFIRMED' ? '已确认的需求' : activeTab === 'review' ? '项目需求' : '需求对话' }}</h2>
         <StatusBadge :status="s.profile.status" :show-code="false" />
@@ -121,9 +122,6 @@ async function save() {
         <button v-if="s.profile.status !== 'CONFIRMED'" class="secondary" :aria-pressed="activeTab === 'review'" @click="activeTab = 'review'">画像审阅</button>
         <button v-else class="secondary" :aria-pressed="activeTab === 'review'" @click="activeTab = 'review'">查看已确认需求</button>
       </div>
-      <div v-if="activeTab === 'chat' && s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient" class="readiness-banner" role="status">
-        已有足够信息供你审阅。可以继续补充想法，也可随时进入画像审阅。
-        <button class="text-button" :disabled="!!s.busy" @click="enterReview">进入画像审阅</button>
       </div>
       <ProfileReview v-if="activeTab === 'review'" :profile="s.profile" :sufficiency="s.sufficiency"
         :busy="!!s.busy || s.profile.status === 'CONFIRMED'" @edit="edit" />
@@ -150,7 +148,7 @@ async function save() {
       <p v-if="s.conversationLoading && activeTab === 'chat'" class="request-note" role="status">正在读取已保存的对话…</p>
       <p v-if="s.conversationError && activeTab === 'chat'" class="inline-note" role="alert">{{ s.conversationError }}
         <button class="text-button" :disabled="!!s.busy" @click="s.loadConversation()">重新读取对话</button></p>
-      <p v-if="s.discoveryUncertain && activeTab === 'chat'" class="request-note">
+      <p v-if="s.discoveryUncertain && !s.discoveryPending && activeTab === 'chat'" class="request-note">
         上一轮结果待核对。<button class="text-button" :disabled="!!s.busy" @click="s.checkDiscoveryStatus">查询本轮结果</button>
         <button class="text-button" :disabled="!!s.busy" @click="s.abandonDiscovery">放弃未完成的本轮</button>
       </p>
@@ -183,11 +181,14 @@ async function save() {
           :class="[message.role, message.state]"
           :data-state="message.state"
         >
+          <header class="message-turn-header">
           <span class="message-author sr-only">{{
             message.role === "user" ? "你说：" : "DelveForge："
           }}</span>
-          <p style="white-space: pre-wrap">{{ message.text }}</p>
+          <span class="message-speaker" aria-hidden="true">{{ message.role === 'user' ? '你' : 'DelveForge' }}</span>
           <time v-if="message.createdAt" class="meta" :datetime="message.createdAt">{{ new Date(message.createdAt).toLocaleString('zh-CN') }}</time>
+          </header>
+          <p style="white-space: pre-wrap">{{ message.text }}</p>
           <span v-if="message.state === 'pending'" class="message-state">
             <span class="message-spinner" aria-hidden="true"></span>正在提交
           </span>
@@ -204,6 +205,7 @@ async function save() {
         </article>
         <div v-if="s.discoveryPending" class="message agent assistant-waiting">
           <span class="sr-only">DelveForge 正在整理你的想法…</span>
+          <span class="waiting-label" aria-hidden="true">正在整理你的想法</span>
           <span class="waiting-dots" aria-hidden="true"><i></i><i></i><i></i></span>
         </div>
         <p v-else-if="s.busy" class="request-note" role="status">
@@ -246,14 +248,25 @@ async function save() {
         </button>
       </div>
     </section>
-    <aside v-if="activeTab === 'chat'" class="panel profile-panel" aria-labelledby="profile-heading">
+    <aside v-if="activeTab === 'chat'" class="panel profile-panel revision-notebook" aria-labelledby="profile-heading">
+      <div class="notebook-heading">
       <div class="panel-header">
         <h2 id="profile-heading">需求摘要</h2>
         <button class="text-button" :aria-expanded="inspectorOpen" aria-controls="profile-inspector"
           @click="inspectorOpen = !inspectorOpen">{{ inspectorOpen ? '收起画像' : '展开画像' }}</button>
       </div>
-      <div id="profile-inspector" v-show="inspectorOpen">
       <p class="meta">画像版本 {{ s.profile.revision }} · {{ s.profile.status === 'CONFIRMED' ? '逐项展开查看已确认内容' : '逐项展开查看与纠正' }}</p>
+      <div class="review-box notebook-review">
+        <div v-if="s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient" class="readiness-banner" role="status">
+          已有足够信息供你审阅。可以继续补充想法，也可随时进入画像审阅。
+        </div>
+        <p v-if="s.sufficiency && !s.sufficiency.sufficient" class="muted">{{ s.sufficiency.missingAreas.join('；') }}</p>
+        <button v-if="s.profile.status === 'EXPLORING'" :disabled="!!s.busy || s.discoveryUncertain" @click="enterReview">进入画像审阅</button>
+        <button v-if="s.profile.status === 'EXPLORING'" class="secondary" :disabled="!!s.busy || s.discoveryUncertain" @click="continueExploring">
+          {{ s.nextQuestion ? '继续回答已有问题' : '请 Agent 提出下一问' }}</button>
+      </div>
+      </div>
+      <div id="profile-inspector" v-show="inspectorOpen">
       <details
         v-for="section in profileSections"
         :key="section.key"
@@ -282,12 +295,6 @@ async function save() {
         <p v-else class="muted">{{ section.hint }} · 尚未提取</p>
       </details>
       <OriginalDescriptions :items="s.profile.evidence" />
-      </div>
-      <div class="review-box">
-        <p v-if="s.sufficiency && !s.sufficiency.sufficient" class="muted">{{ s.sufficiency.missingAreas.join('；') }}</p>
-        <button v-if="s.profile.status === 'EXPLORING'" :disabled="!!s.busy || s.discoveryUncertain" @click="enterReview">进入画像审阅</button>
-        <button v-if="s.profile.status === 'EXPLORING'" class="secondary" :disabled="!!s.busy || s.discoveryUncertain" @click="continueExploring">
-          {{ s.nextQuestion ? '继续回答已有问题' : '请 Agent 提出下一问' }}</button>
       </div>
       <details class="object-id">
         <summary>画像 ID · 用于恢复</summary>

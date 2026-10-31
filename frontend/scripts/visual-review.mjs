@@ -32,6 +32,15 @@ function fixtureApi(req, res, next) {
         return;
     }
     if (req.method !== 'GET') {
+        // 仅延迟拒绝合成场景，供真实页面展示请求等待；不调用 Provider、不接受任何写入。
+        if (scenario === 'discovery-waiting') {
+            const timer = setTimeout(() => {
+                res.writeHead(409, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ code: 'VISUAL_FIXTURE_READ_ONLY' }));
+            }, 6000);
+            res.on('close', () => clearTimeout(timer));
+            return;
+        }
         res.writeHead(409, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ code: 'VISUAL_FIXTURE_READ_ONLY' }));
     }

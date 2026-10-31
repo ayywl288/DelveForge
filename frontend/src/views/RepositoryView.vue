@@ -56,7 +56,8 @@ function viewSection(id: string) {
 }
 </script>
 <template>
-  <section v-if="repository" id="repository-explorer" class="panel repository-explorer">
+  <section v-if="repository" id="repository-explorer" class="panel repository-explorer repository-dossier">
+    <header class="dossier-masthead">
     <div class="panel-header explorer-heading">
       <div class="repository-identity"><span class="feature-symbol"><NavigationIcon name="repository" /></span><div>
         <h2>{{ repository.purpose }}</h2>
@@ -64,7 +65,7 @@ function viewSection(id: string) {
       </div></div>
       <span class="tag">只读分析快照</span>
     </div>
-    <div class="snapshot-context">
+    <div class="snapshot-context dossier-revision">
       <label v-if="s.repositories.length > 1" for="repository-snapshot">查看分析快照</label>
       <select v-if="s.repositories.length > 1" id="repository-snapshot" :value="repository.id"
         @change="viewRepository(($event.target as HTMLSelectElement).value)">
@@ -75,18 +76,25 @@ function viewSection(id: string) {
       <RevisionText label="分析版本 · analyzedRevision" :value="repository.analyzedRevision" />
       <p class="meta">保存的分析不代表仓库当前代码；完整授权信息位于下方「仓库登记与授权」。</p>
     </div>
-    <div class="explorer-layout">
-      <div class="local-navigation-rail"><nav class="local-navigation" aria-label="仓库分析分区">
+    </header>
+      <nav class="local-navigation dossier-navigation" aria-label="仓库分析分区">
         <button v-for="section in sections" :key="section.id" class="local-nav-button"
           :aria-pressed="sectionId === section.id" :aria-controls="`repository-section-${section.id}`"
           @click="viewSection(section.id)"><NavigationIcon :name="section.icon" />{{ section.label }}</button>
-      </nav></div>
-      <div class="explorer-reading" :id="`repository-${repository.id}`">
+      </nav>
+    <div class="explorer-layout dossier-layout">
+      <div class="explorer-reading dossier-reading" :id="`repository-${repository.id}`">
         <div id="repository-reading-start" class="reading-start" aria-hidden="true"></div>
         <section id="repository-section-overview" v-show="sectionId === 'overview'">
+          <div class="dossier-overview">
+          <div class="repository-purpose">
           <h3 class="section-heading"><NavigationIcon name="file" />仓库用途</h3><p class="reading-text">{{ repository.purpose }}</p>
           <ContentList title="技术栈" :items="repository.techStack" variant="tags" icon="code" />
+          </div>
+          <div class="repository-capabilities">
           <ContentList title="已有能力" :items="repository.capabilities" variant="cards" icon="layers" />
+          </div>
+          </div>
           <details class="object-id">
             <summary>快照与资产绑定</summary>
             <p>RepositoryProfile <code>{{ repository.id }}</code></p>
@@ -114,7 +122,7 @@ function viewSection(id: string) {
     </div>
   </section>
   <ProjectResourcePicker :s="s" />
-  <details class="panel repository-setup" :open="!s.repositories.length || !!authorizationTargetId || s.aiActivity?.kind === 'repository'">
+  <details class="panel repository-setup repository-operations" :open="!s.repositories.length || !!authorizationTargetId || s.aiActivity?.kind === 'repository'">
     <summary>{{ s.repositories.length ? '仓库登记与授权' : '连接仓库并明确授权' }} <span class="meta">{{ s.assets.length }} 个已登记资产</span></summary>
   <div class="two-column">
     <section>

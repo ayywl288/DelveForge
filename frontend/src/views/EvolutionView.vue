@@ -4,10 +4,8 @@ import { api } from "../api/client";
 import type { AgentCandidate, AgentEvent, AgentRun, Delivery } from "../api/agentTypes";
 import type { WorkspaceSession } from "../state/session";
 import StatusBadge from "../components/StatusBadge.vue";
-import StepFinalChanges from "../components/StepFinalChanges.vue";
+import AgentResultSurface from "../components/AgentResultSurface.vue";
 import AgentTimeline from "../components/AgentTimeline.vue";
-import AgentTestEvidence from "../components/AgentTestEvidence.vue";
-import FileChangeSummary from "../components/FileChangeSummary.vue";
 import { candidateFileChanges, presentRun, type PresentedFileChange, type RunPresentation } from "../components/agentResultPresentation";
 import NavigationIcon from "../components/NavigationIcon.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
@@ -23,6 +21,15 @@ const runs = ref<AgentRun[]>([]);
 const run = ref<AgentRun | null>(null);
 const candidate = ref<AgentCandidate | null>(null);
 const delivery = ref<Delivery | null>(null);
+const runStateLabels: Record<AgentRun["state"], string> = {
+  CREATED: "已创建运行", PREPARING: "准备沙箱", RUNNING: "编码中", FINALIZING: "正在冻结结果",
+  SUCCEEDED: "编码结果已冻结", FAILED: "本次运行失败", CANCELLED: "运行已取消", INTERRUPTED: "运行已中断",
+};
+const deliveryStateLabels: Record<Delivery["state"], string> = {
+  INTENT: "交付意图已保存", APPLIED: "正式差异已应用", COMMIT_READY: "交付提交已准备",
+  PUBLISHED: "交付提交已发布", COMPLETED: "正式交付已完成", DELIVERY_BLOCKED: "正式交付受阻",
+  RECOVERY_REQUIRED: "正式副本需要核对",
+};
 const events = ref<AgentEvent[]>([]);
 const candidateFiles = ref<PresentedFileChange[]>([]);
 const filesLoading = ref(false);
@@ -333,9 +340,72 @@ onUnmounted(deactivate);
 <template>
   <section v-if="!s.plan" class="panel"><h2>实施演化步骤</h2><p>先创建并激活演化计划。</p>
     <button @click="emit('planning')">前往规划</button></section>
-  <template v-else>
+  <div v-else class="evolution-workspace">
+    <ol class="execution-chain" aria-label="编码与交付边界">
+      <li><span>Agent Run</span><strong>{{ run ? runStateLabels[run.state] : '尚未读到运行' }}</strong></li>
+      <li><span>Frozen Candidate</span><strong>{{ candidate ? '已冻结编码结果' : run?.candidateId ? '冻结详情待读取' : '尚无冻结结果' }}</strong></li>
+      <li><span>Formal Delivery</span><strong>{{ delivery ? deliveryStateLabels[delivery.state] : (run?.candidateId ? '交付状态未读回' : '尚无正式交付') }}</strong></li>
+    </ol>
+    <a v-if="activeRun" class="activity-jump" href="#agent-run-workspace">查看当前活动与停止控制 <NavigationIcon name="arrow" /></a>
+    <a v-else-if="candidate" class="activity-jump" href="#agent-changes-title">查看冻结文件、检查证据与正式交付 <NavigationIcon name="arrow" /></a>
+    <div class="operations-workspace">
+
+    <section id="agent-run-workspace" class="panel agent-run-panel" aria-label="运行与实际活动" tabindex="-1">
+      <div class="section-row"><h3>运行记录</h3><button class="secondary compact-button" :disabled="pending" @click="loadRuns()">刷新记录</button></div>
+      <p v-if="!runs.length" class="workbench-empty">此步骤还没有编码记录。开始后可在此查看实际运行与活动。</p>
+      <div v-else class="run-workspace">
+      <details class="run-history"><summary>运行历史 · {{ runs.length }} 次已读取</summary>
+        <ul><li v-for="(item, index) in runs" :key="item.id"><button class="text-button run-choice" :aria-pressed="run?.id === item.id"
+          @click="selectRun(item)"><span class="run-choice-heading"><strong>{{ presentRun(item, item.candidateId ? runDeliveries[item.candidateId] : null).label }}</strong><small v-if="index === 0">最新</small></span>
+            <time :datetime="item.startedAt">{{ new Date(item.startedAt).toLocaleString() }}</time>
+            <span>模型 {{ item.modelCalls }} · 工具 {{ item.toolCalls }}</span></button></li></ul>
+        <p v-if="historyDeliveryError" class="meta" role="status">部分历史交付状态尚未读取，刷新记录可重试。</p>
+        <button v-if="runs.length >= 50" class="secondary" @click="loadRuns(true)">读取更早的运行</button>
+      </details>
+      <div class="selected-run">
+      <div v-if="activeRun" class="monitor-stop" aria-label="当前运行控制">
+        <div><strong>当前步骤正在运行</strong><p v-if="run?.id !== activeRun.id" class="meta">正在查看历史记录；停止操作针对本步骤当前运行。</p>
+          <p id="run-stop-status" class="meta" role="status">{{ stopPending ? '停止请求发送中' : stopConfirmed ? '停止请求已接受，正在等待实际终态；模型或沙箱可能不会立即返回。' : '可停止当前 Run；不支持暂停或续跑。' }}</p>
+          <p v-if="stopError" role="alert" class="error">{{ stopError }}</p></div>
+        <button class="stop-run compact-button" :disabled="stopPending || stopConfirmed" :aria-busy="stopPending || stopConfirmed"
+          aria-describedby="run-stop-status" @click="cancelRun"><NavigationIcon name="stop" />{{ stopPending || stopConfirmed ? '正在停止' : '停止运行' }}</button>
+      </div>
+      <template v-if="run">
+        <AgentTimeline :key="run.id" :events="events" :run="run" :connection="connection" :presentation="runPresentation ?? undefined" :show-usage="false" />
+        <div class="run-summary" :data-state="run.state">
+        <div class="section-row run-status-row"><h3 v-if="runPresentation" class="run-status" :data-state="run.state" :data-tone="runPresentation.tone" role="status"><NavigationIcon :name="runIcon(runPresentation)" />{{ runPresentation.label }}</h3>
+          </div>
+        <dl class="run-statistics" aria-label="已保存运行统计">
+          <div><dt>模型调用</dt><dd>{{ numberText(run.modelCalls) }} <span>次</span></dd></div>
+          <div><dt>工具调用</dt><dd>{{ numberText(run.toolCalls) }} <span>次</span></dd></div>
+          <div><dt>累计 tokens</dt><dd>{{ run.tokens === null ? '未报告' : numberText(run.tokens) }}</dd></div>
+        </dl>
+        <p class="meta">模型统计按已返回调用累计；失败响应的已报告用量见活动诊断，未报告用量不估算。</p>
+        <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
+        <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
+        <p v-else-if="runPresentation" class="meta">{{ runPresentation.detail }}</p>
+        <a v-if="candidate" class="delivery-jump" href="#agent-changes-title">核对文件、检查证据与交付 <NavigationIcon name="arrow" /></a>
+        <p v-if="run.reason === 'SANDBOX_PROTOCOL_INCOMPATIBLE'" class="run-failure" role="alert">
+          沙箱工具协议不兼容。请按 docs/LOCAL_SETUP.md 的协议排障说明构建兼容镜像，显式配置镜像后再重启应用。
+        </p>
+        <p v-if="run.reason === 'NO_PROGRESS'" class="run-failure" role="alert">检测到重复的工具循环，且没有新的观察或成功修改，运行已停止。</p>
+        <details class="run-technical"><summary>开发者详情 · 运行标识</summary>
+          <p><span>Run</span> <code>{{ run.id }}</code></p>
+          <p><span>运行状态</span> <code>{{ run.state }}</code></p>
+          <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
+        <dl class="run-times">
+          <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
+          <div><dt>结束时间</dt><dd><time v-if="run.endedAt" :datetime="run.endedAt">{{ new Date(run.endedAt).toLocaleString() }}</time><span v-else>未记录</span></dd></div>
+        </dl>
+        </details>
+        </div>
+        <p v-if="resourceBlocked" class="resource-warning" role="alert"><NavigationIcon name="warning" />资源协调待核对：所属资源或保留材料尚未完成核对。请先检查 Docker 与后端安全诊断，再判断能否重新运行。</p>
+        <p v-if="run.retained && terminal(run)" class="meta">最终化材料已保留，请核对失败原因。</p>
+      </template>
+      </div></div>
+    </section>
     <section class="panel agent-controls" aria-labelledby="agent-controls-title">
-      <div class="workbench-heading"><div><h2 id="agent-controls-title">执行工作台</h2></div>
+      <div class="workbench-heading"><div><h2 id="agent-controls-title">步骤与运行配置</h2></div>
         <span class="meta"><NavigationIcon name="lock" />隔离编码 · 逐步授权</span></div>
       <p class="workbench-intro">Agent 在隔离沙箱中编码与检查，冻结结果通过校验后自动交付。</p>
       <div class="step-configuration"><label for="agent-step">当前步骤</label>
@@ -366,84 +436,13 @@ onUnmounted(deactivate);
       <p class="agent-usage-notice">执行会产生外部 API 费用；模型、工具次数和 tokens 按实际报告展示，不按累计用量或总时长自动停止。可随时停止；停止不是暂停，当前不支持断点续跑。单次操作超时、沙箱资源限制与重复无进展检测仍生效。</p>
       <p v-if="error || syncError" role="alert" class="error">{{ error || syncError }}</p>
     </section>
-    <section class="panel agent-run-panel" aria-label="运行与实际活动">
-      <div class="section-row"><h3>运行记录</h3><button class="secondary compact-button" :disabled="pending" @click="loadRuns()">刷新记录</button></div>
-      <p v-if="!runs.length" class="workbench-empty">此步骤还没有编码记录。开始后可在此查看实际运行与活动。</p>
-      <div v-else class="run-workspace">
-      <aside class="run-history" aria-label="历史运行"><p class="workbench-eyebrow">运行历史 · {{ runs.length }}</p>
-        <ul><li v-for="(item, index) in runs" :key="item.id"><button class="text-button run-choice" :aria-pressed="run?.id === item.id"
-          @click="selectRun(item)"><span class="run-choice-heading"><strong>{{ presentRun(item, item.candidateId ? runDeliveries[item.candidateId] : null).label }}</strong><small v-if="index === 0">最新</small></span>
-            <time :datetime="item.startedAt">{{ new Date(item.startedAt).toLocaleString() }}</time>
-            <span>模型 {{ item.modelCalls }} · 工具 {{ item.toolCalls }}</span></button></li></ul>
-        <p v-if="historyDeliveryError" class="meta" role="status">部分历史交付状态尚未读取，刷新记录可重试。</p>
-        <button v-if="runs.length >= 50" class="secondary" @click="loadRuns(true)">读取更早的运行</button>
-      </aside>
-      <div class="selected-run">
-      <div v-if="activeRun" class="monitor-stop" aria-label="当前运行控制">
-        <div><strong>当前步骤正在运行</strong><p v-if="run?.id !== activeRun.id" class="meta">正在查看历史记录；停止操作针对本步骤当前运行。</p>
-          <p id="run-stop-status" class="meta" role="status">{{ stopPending ? '停止请求发送中' : stopConfirmed ? '停止请求已接受，正在等待实际终态；模型或沙箱可能不会立即返回。' : '可停止当前 Run；不支持暂停或续跑。' }}</p>
-          <p v-if="stopError" role="alert" class="error">{{ stopError }}</p></div>
-        <button class="stop-run compact-button" :disabled="stopPending || stopConfirmed" :aria-busy="stopPending || stopConfirmed"
-          aria-describedby="run-stop-status" @click="cancelRun"><NavigationIcon name="stop" />{{ stopPending || stopConfirmed ? '正在停止' : '停止运行' }}</button>
-      </div>
-      <template v-if="run">
-        <div class="run-summary" :data-state="run.state">
-        <div class="section-row run-status-row"><h3 v-if="runPresentation" class="run-status" :data-state="run.state" :data-tone="runPresentation.tone" role="status"><NavigationIcon :name="runIcon(runPresentation)" />{{ runPresentation.label }}</h3>
-          </div>
-        <dl class="run-statistics" aria-label="已保存运行统计">
-          <div><dt>模型调用</dt><dd>{{ numberText(run.modelCalls) }} <span>次</span></dd></div>
-          <div><dt>工具调用</dt><dd>{{ numberText(run.toolCalls) }} <span>次</span></dd></div>
-          <div><dt>累计 tokens</dt><dd>{{ run.tokens === null ? '未报告' : numberText(run.tokens) }}</dd></div>
-        </dl>
-        <p class="meta">模型统计按已返回调用累计；失败响应的已报告用量见活动诊断，未报告用量不估算。</p>
-        <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
-        <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
-        <p v-else-if="runPresentation" class="meta">{{ runPresentation.detail }}</p>
-        <a v-if="candidate" class="delivery-jump" href="#agent-changes-title">核对文件、检查证据与交付 <NavigationIcon name="arrow" /></a>
-        <p v-if="run.reason === 'SANDBOX_PROTOCOL_INCOMPATIBLE'" class="run-failure" role="alert">
-          沙箱工具协议不兼容。请按 docs/LOCAL_SETUP.md 的协议排障说明构建兼容镜像，显式配置镜像后再重启应用。
-        </p>
-        <p v-if="run.reason === 'NO_PROGRESS'" class="run-failure" role="alert">检测到重复的工具循环，且没有新的观察或成功修改，运行已停止。</p>
-        <details class="run-technical"><summary>开发者详情 · 运行标识</summary>
-          <p><span>Run</span> <code>{{ run.id }}</code></p>
-          <p><span>运行状态</span> <code>{{ run.state }}</code></p>
-          <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
-        </details>
-        <dl class="run-times">
-          <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
-          <div><dt>结束时间</dt><dd><time v-if="run.endedAt" :datetime="run.endedAt">{{ new Date(run.endedAt).toLocaleString() }}</time><span v-else>未记录</span></dd></div>
-        </dl>
-        </div>
-        <p v-if="resourceBlocked" class="resource-warning" role="alert"><NavigationIcon name="warning" />资源协调待核对：所属资源或保留材料尚未完成核对。请先检查 Docker 与后端安全诊断，再判断能否重新运行。</p>
-        <p v-if="run.retained && terminal(run)" class="meta">最终化材料已保留，请核对失败原因。</p>
-        <AgentTimeline :key="run.id" :events="events" :run="run" :connection="connection" :presentation="runPresentation ?? undefined" :show-usage="false" />
-      </template>
-      </div></div>
-    </section>
-    <section class="panel agent-changes" aria-labelledby="agent-changes-title">
-      <div class="section-row"><h3 id="agent-changes-title" tabindex="-1">代码变更与交付</h3><span v-if="candidate && runPresentation" class="meta">{{ runPresentation.label }}</span></div>
-      <p v-if="!candidate" class="workbench-empty">{{ run?.candidateId
-        ? '此 Run 已记录冻结 Candidate，但详情尚未读回。请刷新记录核对，暂不展示文件列表。'
-        : run ? '此 Run 尚无冻结 Candidate，因此没有 Candidate 文件列表。'
-          : '选择或开始运行后，可在此查看冻结 Candidate 的文件、检查证据与交付结果。' }}</p>
-      <template v-else>
-      <StepFinalChanges v-if="officialStep && step" :plan-id="s.plan.id" :step="step" />
-      <p v-else-if="completedDelivery" role="status">交付已完成，正在同步步骤的正式版本与文件清单。</p>
-      <div v-else class="candidate-overview">
-        <h4>候选变更</h4><p class="meta">以下是本次保存的编码结果，尚未完成正式交付。</p>
-        <p v-if="filesLoading" role="status" class="meta">正在读取候选文件分类…</p>
-        <FileChangeSummary :key="candidate.id" :files="candidateFiles" />
-        <p v-if="filesUnavailable" class="meta" role="status">文件分类暂未读回，可刷新记录重试。</p>
-      </div>
-      <p v-if="delivery?.state === 'RECOVERY_REQUIRED'" class="resource-warning" role="alert">正式副本状态需要核对，后续执行已停止。请查看开发者详情。</p>
-      <p v-else-if="delivery?.state === 'DELIVERY_BLOCKED'" class="resource-warning" role="alert">正式交付受阻，编码结果已保留。</p>
-      <button v-if="!delivery || ['DELIVERY_BLOCKED', 'PUBLISHED', 'COMMIT_READY', 'APPLIED'].includes(delivery.state)
-        || delivery.state === 'RECOVERY_REQUIRED' && delivery.reason === 'MUTATION_NOT_STARTED'" :disabled="pending"
-        @click="deliverCandidate">重新核对并交付已有结果</button>
-      <AgentTestEvidence :evidence="candidate.testEvidence" />
-      </template>
-    </section>
-  </template>
+
+    </div>
+    <AgentResultSurface :plan-id="s.plan.id" :step="step" :run="run" :candidate="candidate"
+      :delivery="delivery" :run-presentation="runPresentation" :official-step="!!officialStep"
+      :completed-delivery="!!completedDelivery" :candidate-files="candidateFiles" :files-loading="filesLoading"
+      :files-unavailable="filesUnavailable" :pending="pending" @deliver="deliverCandidate" />
+  </div>
   <ConfirmDialog :open="startReview" title="确认 API 费用与预算" confirm-label="确认费用并开始"
     :disabled="!budgetAcknowledged || !canStart" @close="startReview = false; budgetAcknowledged = false" @confirm="startRun">
     <p>Agent 会调用已配置的外部模型 API，发送当前步骤目标和必要的已净化仓库材料，并持续编码、测试至可验证交付。</p>

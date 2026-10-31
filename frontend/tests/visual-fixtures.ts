@@ -6,7 +6,7 @@ const evidence = { sourceType: 'REPOSITORY', sourceRef: 'src/main/java/reports/R
     claim: 'ReportService 已提供按日期范围导出 CSV 的能力，可作为周期报表的复用基础。', confidence: 0.9, confirmed: false };
 
 export function visualFixture(scenario: string, path: string): unknown {
-    const user = { ...profile(), revision: 4, status: scenario === 'discovery' ? 'EXPLORING' : scenario === 'review' ? 'REVIEWING' : 'CONFIRMED',
+    const user = { ...profile(), revision: 4, status: scenario.startsWith('discovery') ? 'EXPLORING' : scenario === 'review' ? 'REVIEWING' : 'CONFIRMED',
         interests: ['让重复工作变得简单，保留对代码的理解与控制。'], behaviors: ['每周五整理项目数据，手动导出报表并核对。'],
         painPoints: ['重复导出容易遗漏，缺少可追溯的执行记录。'], technicalCapabilities: ['熟悉 Java、Spring Boot 与 Maven，能够维护现有服务。'],
         projectGoals: ['在已有报表工具上增加周期调度与可靠记录。'], constraints: ['先支持本地运行；每一步都需要明确范围与验证。'],
@@ -46,7 +46,7 @@ export function visualFixture(scenario: string, path: string): unknown {
         wc.status = 'CLOSED';
         wc.currentRevision = wc.lastVerifiedRevision = 'd'.repeat(40);
     }
-    const stage = ({ discovery: 'DISCOVERY', review: 'DISCOVERY', repository: 'REPOSITORY', stress: 'REPOSITORY', directions: 'DIRECTION', planning: 'PLANNING' } as Record<string, string>)[scenario] ?? 'EVOLUTION';
+    const stage = ({ discovery: 'DISCOVERY', 'discovery-waiting': 'DISCOVERY', review: 'DISCOVERY', repository: 'REPOSITORY', stress: 'REPOSITORY', directions: 'DIRECTION', planning: 'PLANNING' } as Record<string, string>)[scenario] ?? 'EVOLUTION';
     const context = { id: 'visual-project', name: 'Report Kit · 周期报表', userProfileId: user.id, assetIds: [a.id], repositoryProfileIds: [repo.id], directionIds: [selected.id, ...alternatives.map(d => d.id)], planId: p.id,
         createdAt: '2026-10-30T08:00:00Z', updatedAt: '2026-10-31T02:20:00Z', version: 2, flowId: 'visual-flow', previousContextId: null, deletedAt: null };
     const summary = { key: 'project:visual-project', name: context.name, legacy: false, stage: 'EVOLUTION', direction: selected.targetProduct,

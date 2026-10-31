@@ -1,141 +1,68 @@
-# DelveForge Frontend Visual Identity
+# DelveForge frontend — V2 Precision Room
 
-2026-10-31 · Editorial Engineering Workbench · local review candidate
+2026-10-31 · 本地视觉审阅候选，尚不代表产品负责人接受
 
-This specification owns presentation choices only. [PRODUCT.md](../PRODUCT.md),
-[ARCHITECTURE.md](../ARCHITECTURE.md), and [DOMAIN_MODEL.md](../DOMAIN_MODEL.md)
-remain authoritative for product behavior, boundaries, authorization, and state.
+V1 的 Editorial Engineering Workbench 已被产品负责人以审美与结构质量为由拒绝。
+原规范完整保留于 [V1 记录](review-v2-20261031/V1_VISUAL_IDENTITY.md)，原截图目录不变。
+V2 的产品行为仍由 PRODUCT、ARCHITECTURE、DOMAIN_MODEL 与现有实现决定。
+本文件仅记录视觉与展示结构，不引入领域合同。
 
-## Brief and direction
+设计探索：[三个方案与选择](review-v2-20261031/EXPLORATION.md)。
+审阅入口：[V1 / V2 截图画廊](review-v2-20261031/index.html)。
+证据：[验证报告](review-v2-20261031/VALIDATION.md) · [独立审查](review-v2-20261031/CRITIQUE.md)。
 
-The Evolution Workbench makes code evolution legible through paths, evidence,
-decisions, and trusted results. The audience is a developer spending a sustained
-session understanding an existing repository and making explicit engineering decisions.
-The interface operates and reads; it does not promote or simulate a finished product.
+## 空间与组件语言
 
-Three directions were compared:
+顶部横向石墨产品栏放品牌、真实项目/阶段和连接状态。216px 浅灰蓝导航内保留独立项目卡、
+真实 Plan 状态或画像版本，阶段入口有文字、顺序和原有结果提示。900px 以下折叠菜单，
+手机页面保持真实项目名；同阶段重选也关闭菜单并聚焦主内容。
 
-| Direction | Strength | Decision |
-|---|---|---|
-| Editorial engineering workbench | Light reading surfaces, quiet structure, persistent graphite navigation, clear technical context | Selected for long Chinese/English reading and controlled decisions |
-| Dark data terminal | Strong live-operation focus and concise technical density | Useful reference for the activity console; unsuitable as the whole reading experience |
-| Quiet productivity ledger | Familiar neutral lists and forms | Clear but gives the evidence-to-evolution path too little identity |
+1440px 下，216 导航 + 两侧各 28 留白 + 1168 工作区。内容列使用 minmax(0, …)，
+中间宽度首先保护工作面；可变内容不为整齐而拉伸制造空白。
 
-Taste's `framed-sheet` App Screen sheet (seed 31031) informed flat surfaces,
-aligned edges, and subdued chrome. The user's graphite navigation and light canvas
-take precedence over that sheet's light L-frame. No dealt charts, vanity metrics,
-search controls, or unrelated signature elements were introduced.
+- 项目对象：两列有身份的项目卡，目标/阶段/真实接受 Step 数/时间按语义分组，底部是继续入口。
+- 对话与画像：左右角色气泡与 revision 笔记分工；真实等待请求显示思考反馈，审阅转换为宽幅文档，不把充分性变成虚构百分比。
+- 仓库案卷：身份与保存的分析版本并置，横向分区导航，技术栈与已有能力各有阅读区。
+- 决策简报：候选索引上置，主论证配风险/依据栏，查看态和正式选择态分别表达。
+- 规划：现状/目标与准备区并排；有序步骤用连接时间线呈现，范围与前提在对应节点内展开，准备不代替授权。
+- 控制室：Run、Candidate、Delivery 三个边界始终分别展示。运行面在配置之前；
+  执行事件始终是主体，统计随后，文件、检查和正式交付统一在底部，顶部保留状态与跳转入口。深色活动区域只显示真实事件，不制造终端输出。
 
-| Surface | First question | Leading material |
-|---|---|---|
-| Projects | Where can I continue? | Project identity, saved stage, accepted Step count and open action |
-| Discovery | What problem am I trying to solve? | Saved conversation and six-dimension inspector |
-| Profile Review | Is this revision accurate? | Six editable sections, revision, explicit confirmation |
-| Repository | What can this code support? | Repository identity, analyzed revision, sections and source evidence |
-| Directions | Which direction deserves investment? | Candidate list, selected state, rationale and explicit decision |
-| Planning | What is the next bounded increment? | Current/target comparison, ordered Steps and prerequisites |
-| Evolution | What actually happened, and what can I do? | Authorized Step, Run activity, Candidate, Delivery and accepted files |
+## 视觉 tokens
 
-## Color and contrast
+identity.css 是 V2 的身份与壳层，替换 V1 的身份层；workflows-v2.css 与 decisions-v2.css
+按页面范围组织对话/仓库与方向/规划的组成。style.css 保留既有控件与兼容布局基础。
+没有新的运行依赖、外部字体请求或全局主题切换。
 
-`frontend/src/identity.css` is the current identity layer, loaded after the existing
-layout stylesheet. Shared semantic variables also govern component-scoped styles.
+| 角色 | 值 |
+|---|---|
+| 正文 / 石墨产品栏 | #252936 / #20232E |
+| 画布 / 阅读面 / 导航面 | #F2F3F8 / #FFFFFF / #E9ECF3 |
+| 操作 / hover | #4F58B8 / #3D469D |
+| 选中面 | #EEF0FC |
+| 次要文字 / 分隔 / 控件边界 | #606A7E / #DFE3ED / #8B94A7 |
+| 成功 | #2C7152 on #EDF7F1，仅业务成功语义 |
+| 警告 / 危险 | #805619 on #FFF7E8 / #AD3442 on #FFF1F2 |
+| 活动区域 | #222632，正文 #EEF1FA，次要文字 #BBC4D9 |
 
-| Role | Token/value | Usage |
-|---|---|---|
-| Ink / navigation | `--ink`, `--nav`: `#17282C` | Primary text, graphite shell, project open action |
-| Canvas | `--canvas`: `#F5F6F3` | Working background |
-| Surface | `--surface`: `#FFFFFF` | Reading and form surfaces |
-| Primary action | `--accent`: `#176E67` | Deliberate action, links, selected route |
-| Hover | `--accent-hover`: `#11564F` | Action hover and selected text |
-| Secondary text | `--muted`: `#5A686A` | Supporting text and metadata |
-| Selection | `--selection`: `#EAF2EE` | Subdued selected content |
-| Warning | `--warning`: `#855025` on `#FBF3E9` | Constraints, uncertain results and risk |
-| Danger | `--danger`: `#B54145` on `#FFF1F1` | Destructive controls and failures |
-| Success | `--success`: `#276849` on `#EDF5EE` | Accepted facts; text always names the fact |
-| Navigation secondary | `--nav-muted`: `#B9C8C5` | Readable text on graphite |
-| Control border | `--control-line`: `#80918C` | Inputs and outlined refresh control |
+主界面用 Segoe UI / PingFang SC / Microsoft YaHei；Cascadia Code / Consolas 用于路径、revision、
+标识与真实数字。没有营销展示字体。页标题 22–23px，内容标题 16–24px，阅读正文 15–17px，
+辅助信息 12–13px，侧栏英文 11px。使用 4px 节奏，组内 8/12/16，工作面间 20，正文内留白 24/28。
+平面通过明度、1px 边界和语义关系分开；主面板 8–12px、控件 5px，不使用光晕、装饰渐变或玻璃。
 
-Normal text targets at least 4.5:1; essential control boundaries and focus indicators
-target at least 3:1. Structural separators may be quieter because they are not the
-only sign of interaction. Color never carries status alone. Disabled controls retain
-legible text and existing explanations. No dark-mode switch is introduced.
+## 品牌
 
-## Typography and rhythm
+保留原创 Branch-to-Path 几何，因其表达既有起点、多个方向与明确选择的路径。
+改为靛蓝/灰紫适配新壳层。symbol、wordmark、primary-logo、monochrome 和 favicon 保持同一构造。
+接口是主交付物，标志不是改版的替代物。
 
-- UI: Segoe UI, PingFang SC, Microsoft YaHei, sans-serif; no external font requests.
-- Code, paths and revisions: Cascadia Code, Consolas, SFMono-Regular, monospace.
-- Page title 26px / 23px narrow; section title 18–20px; body 15px with generous Chinese
-  leading; supporting copy 13–14px; compact metadata 12px. Small native status/file
-  labels retain their existing compact treatment. Tabular figures keep counts stable.
-- English stage names support the Chinese title and wrap below it when necessary.
-- Spacing follows a 4px base: 8/12px within groups, 16/24px between related blocks,
-  28/32px for separation, 40px desktop content gutters.
-- At 1440px: 224px navigation + two 40px gutters + 1136px working content.
-  Flexible columns use `minmax(0, …)` and preserve the same content edges.
+## 交互与可访问性
 
-## Surfaces and interaction
+本地可折叠菜单、原生按钮/对话框/详情、跳至内容、明显焦点边框、Escape 关闭与焦点恢复保留。
+断点隐藏焦点时处理浏览器先回退 body 的情况；监听器在卸载时清理。DOM 阅读顺序对应当前任务：
+运行/停止先于配置，代码结果统一位于执行事件下方。选择、拒绝、确认画像版本、准备、Step 授权、
+费用确认、停止、交付重核对的原逻辑不变。
 
-- Resting panels: a quiet 1px rule, 6px radius, no shadow. Controls: 4px radius.
-  Dialogs: 8px radius with a true backdrop. No glass, glow, or decorative gradient.
-- Navigation uses a neutral brightness change. Ordered stage numbers express an
-  actual workflow; stage result dots retain their original accessible text.
-- Project rows prioritize identity and real accepted Step counts; the progress bar
-  represents the actual count. No invented usage metrics or completion estimates.
-- The new-project disclosure is the strongest workspace entry. Expanded forms use
-  a light surface. Deleted, empty, conflicting and historical records retain text.
-- Profile review uses two editorial columns with rules rather than six nested cards.
-  Editing, revision-bound review acknowledgement, and explicit confirmation stay intact.
-- Repository content is a technical reading surface. Lists use simple rows; source
-  evidence remains fully expandable and paginated with its original references.
-- Directions use a list/detail relationship. Both panes grow with the document so
-  a short laptop viewport does not create three competing scroll areas.
-- Planning uses a current/target comparison and the existing ordered Step path.
-  Replanning is a quiet disclosure. Preparation and Step authorization remain separate.
-- The execution console groups configuration beside cost/stop context on desktop.
-  Actual Run statistics, event connection and activity retain their own labels.
-  A non-mutating link takes readers from a Candidate-bearing Run to files and Delivery.
-- Candidate, Delivery, accepted Step and `NOT_TESTED` remain distinct. Risk and recovery
-  restrictions are never hidden to create a cleaner screenshot.
-
-## Accessibility, long content and adaptation
-
-Native buttons, labels, details and dialogs remain the interaction foundation. The skip
-link and visible 2px focus indicators are retained. Confirmation dialogs use their
-existing focus return and Escape handling.
-
-At 640px and below navigation folds behind a labelled button with `aria-expanded` and
-`aria-controls`. Selecting a stage closes the menu and focuses the main content. If a
-breakpoint hides a focused navigation item or the menu button, focus moves to a visible
-menu control or brand link. Desktop navigation remains continuously available.
-
-At intermediate widths layouts stack before columns become unreadable. Narrow screens
-use 16px gutters, 44px minimum button/disclosure targets and 16px form text. Repository
-section navigation may scroll locally; the document must not scroll horizontally.
-
-Unbroken paths and SHA values wrap. Complete evidence, technical identities and
-historical details stay reachable through existing disclosures. Long collections retain
-their existing pagination/load-more contracts. Text may expand without fixed-height
-clipping. The existing component-specific reduced-motion alternatives keep status text
-and a static activity indicator; no new entrance animation is added.
-
-## Brand assets
-
-The original Branch-to-Path construction has a bounded starting node, two quieter
-alternative routes, and one straight chosen route continuing forward. Three compact
-constructions were compared: rounded three-way path (selected), angular fork, and
-enclosing route frame. The selected one retains separation at 16/24/32px without a
-Git diamond, robot, hammer, brain or sparkle motif.
-
-Assets are in `frontend/public/brand/`: `primary-logo.svg`, `symbol.svg`,
-`wordmark.svg`, `monochrome.svg`. `frontend/public/favicon.svg` uses the inverse mark
-on graphite. The navigation's `BrandSymbol.vue` uses the same geometry.
-
-The wordmark uses live system-font text; exported SVG text can vary slightly on machines
-without Segoe UI. Prefer the supplied compact symbol at small sizes. Monochrome SVG uses
-`currentColor` when inline; when embedded as an image it defaults to black. Keep at least
-4px clear space at a 32px symbol size. No third-party visual assets or runtime icon/image
-libraries were added; existing authored outline navigation icons are retained.
-
-See [validation and evidence](FRONTEND_VISUAL_VALIDATION.md). Final visual acceptance
-belongs to the user after independent review.
+完整路径、SHA、来源与原始条目可以换行和展开，不为截图删除内容。Evidence 沿原分页。
+小屏减少并排而非缩小正文；触控主要按钮至少 44px；放大文字后容器随内容增长。
+动态效果仅沿用实际活动反馈，减少动态效果时有静态状态，不增加入场表演。

@@ -165,6 +165,11 @@ it("a saved Candidate is displayed with honest NOT_TESTED evidence and never sta
   expect(root.querySelector(".evidence-status")?.textContent).toContain("未运行测试");
   expect(root.textContent).toContain("交付受阻");
   expect(button(root, "重新核对并交付已有结果")).toBeDefined();
+  const activity = root.querySelector(".activity-section")!;
+  const changes = root.querySelector(".agent-changes")!;
+  expect(root.querySelectorAll(".agent-changes")).toHaveLength(1);
+  expect(activity.compareDocumentPosition(changes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(activity.compareDocumentPosition(root.querySelector(".run-statistics")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(start).not.toHaveBeenCalled();
 });
 
