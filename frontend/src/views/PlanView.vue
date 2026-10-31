@@ -89,11 +89,11 @@ function confirmSelectedStep() {
 }
 </script>
 <template>
-  <section v-if="s.plan && ['PROPOSED', 'ACTIVE'].includes(s.plan.status)" class="panel inline-note">
-    <h2>需要重新拆分计划？</h2>
+  <details v-if="s.plan && ['PROPOSED', 'ACTIVE'].includes(s.plan.status)" class="panel replan-notice">
+    <summary>需要重新拆分计划？</summary>
     <p>将当前计划保留为历史，在同一已选方向开启新一轮规划。</p>
     <button class="secondary" :disabled="!!s.busy || !s.projectContext" @click="replanOpen = true">重新规划</button>
-  </section>
+  </details>
   <section v-if="s.plan?.status === 'SUPERSEDED'" class="panel inline-note">
     <h2>这份计划已失效，保留为历史记录</h2>
     <p>它的方向已被替代，或历史迁移已标记失效，不能继续授权或执行。原步骤、WorkingCopy 和验证结果保留。</p>

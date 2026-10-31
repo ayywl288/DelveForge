@@ -335,7 +335,7 @@ onUnmounted(deactivate);
     <button @click="emit('planning')">前往规划</button></section>
   <template v-else>
     <section class="panel agent-controls" aria-labelledby="agent-controls-title">
-      <div class="workbench-heading"><div><p class="workbench-eyebrow">CODING AGENT</p><h2 id="agent-controls-title">执行工作台</h2></div>
+      <div class="workbench-heading"><div><h2 id="agent-controls-title">执行工作台</h2></div>
         <span class="meta"><NavigationIcon name="lock" />隔离编码 · 逐步授权</span></div>
       <p class="workbench-intro">Agent 在隔离沙箱中编码与检查，冻结结果通过校验后自动交付。</p>
       <div class="step-configuration"><label for="agent-step">当前步骤</label>
@@ -399,6 +399,7 @@ onUnmounted(deactivate);
         <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
         <p v-else-if="runPresentation" class="meta">{{ runPresentation.detail }}</p>
+        <a v-if="candidate" class="delivery-jump" href="#agent-changes-title">核对文件、检查证据与交付 <NavigationIcon name="arrow" /></a>
         <p v-if="run.reason === 'SANDBOX_PROTOCOL_INCOMPATIBLE'" class="run-failure" role="alert">
           沙箱工具协议不兼容。请按 docs/LOCAL_SETUP.md 的协议排障说明构建兼容镜像，显式配置镜像后再重启应用。
         </p>
@@ -420,7 +421,7 @@ onUnmounted(deactivate);
       </div></div>
     </section>
     <section class="panel agent-changes" aria-labelledby="agent-changes-title">
-      <div class="section-row"><h3 id="agent-changes-title">代码变更与交付</h3><span v-if="candidate && runPresentation" class="meta">{{ runPresentation.label }}</span></div>
+      <div class="section-row"><h3 id="agent-changes-title" tabindex="-1">代码变更与交付</h3><span v-if="candidate && runPresentation" class="meta">{{ runPresentation.label }}</span></div>
       <p v-if="!candidate" class="workbench-empty">{{ run?.candidateId
         ? '此 Run 已记录冻结 Candidate，但详情尚未读回。请刷新记录核对，暂不展示文件列表。'
         : run ? '此 Run 尚无冻结 Candidate，因此没有 Candidate 文件列表。'

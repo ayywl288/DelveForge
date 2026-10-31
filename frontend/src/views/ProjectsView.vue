@@ -117,7 +117,6 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
         :data-plan-status="project.planStatus" :data-deleted="!!project.deletedAt">
         <div class="project-row-main">
           <div class="project-identity">
-            <span class="project-symbol"><NavigationIcon name="projects" /></span>
             <div>
               <div class="project-title"><h3>{{ project.name }}</h3></div>
               <p v-if="project.direction && project.direction !== project.name" class="project-description muted">{{ project.direction }}</p>

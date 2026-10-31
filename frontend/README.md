@@ -2,6 +2,11 @@
 
 Vue 3 + TypeScript + Vite + pnpm。项目工作台与五阶段界面调用当前后端 REST API，没有模拟运行结果或浏览器内 Provider 客户端。
 
+**2026-10-31 视觉改版候选：** Editorial Engineering Workbench，采用石墨导航、浅色阅读面、
+青绿色操作与原创 Branch-to-Path 标志。业务状态与授权合同保持；视觉接受由用户独立审阅后决定。
+见 [视觉规范](../docs/design/FRONTEND_VISUAL_IDENTITY.md) 与
+[验证和截图](../docs/design/FRONTEND_VISUAL_VALIDATION.md)。下文 Task G 是历史记录。
+
 **当前自主演化界面（2026-10-23）：** M1–M3 的画像、仓库、方向和规划保留；实施页已替换为
 逐 Step 确认并启动 Agent、持久化 SSE 活动、冻结 Candidate 差异和独立 Delivery 状态。
 后端正式接受 Git commit 后 Step 才成功；后续 Step 仍需分别确认和启动。
