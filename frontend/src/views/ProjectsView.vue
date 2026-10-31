@@ -66,7 +66,6 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
 </script>
 <template>
   <div class="projects-workspace">
-  <div class="workspace-introduction"><h2>从上次保存的地方继续。</h2><p>每个项目保留自己的方向、规划与交付记录。</p></div>
   <details class="panel new-project">
     <summary class="new-project-trigger"><NavigationIcon name="plus" />开始新流程<span class="meta">新建用户画像，或复用已确认画像</span></summary>
     <form class="stack" @submit.prevent="create">
@@ -117,7 +116,7 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
     <div v-if="s.projects.length" class="project-list" :aria-busy="s.historyLoading">
       <article v-for="project in s.projects" :key="project.key" class="project-row" :aria-label="project.name"
         :data-plan-status="project.planStatus" :data-deleted="!!project.deletedAt">
-        <div class="project-card-heading"><span class="project-monogram" aria-hidden="true">{{ project.name.trim().slice(0, 2).toUpperCase() }}</span><span class="meta">{{ project.planId ? 'Evolution project' : 'Discovery project' }}</span><button class="text-button" :aria-label="`查看${project.name}的项目详情`" @click="inspectedKey = project.key">项目详情 <NavigationIcon name="arrow" /></button></div>
+        <div class="project-card-heading"><span class="project-monogram" aria-hidden="true">{{ project.name.trim().slice(0, 2).toUpperCase() }}</span><span class="meta project-location" :aria-label="`当前工作流位置：${stageLabels[project.stage]}`">{{ project.deletedAt ? '已删除' : '继续' }} · {{ stageLabels[project.stage] }}</span><button class="text-button" :aria-label="`查看${project.name}的项目详情`" @click="inspectedKey = project.key">项目详情 <NavigationIcon name="arrow" /></button></div>
         <div class="project-row-main">
           <div class="project-identity">
             <div>
@@ -131,7 +130,6 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
               <p v-if="project.legacy" class="meta">旧 Plan 历史投影 · 继续后建立导航身份</p>
             </div>
           </div>
-          <div class="project-stage"><span class="meta">继续阶段</span><span>{{ stageLabels[project.stage] }}</span><span class="project-stage-track" aria-hidden="true"><i v-for="index in 5" :key="index" :class="{ current: index - 1 === stageIndex(project.stage) }" /></span></div>
           <div class="project-activity">
             <p v-if="project.planId && project.totalSteps" class="project-progress"><strong>{{ project.succeededSteps }}/{{ project.totalSteps }}</strong> 个 Step 已完成交付</p>
             <progress v-if="project.planId && project.totalSteps" :max="project.totalSteps" :value="project.succeededSteps"

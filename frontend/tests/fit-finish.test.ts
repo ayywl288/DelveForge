@@ -32,6 +32,8 @@ function projects() {
 it("Inspector 删除先退出阅读面板，仅单独确认后提交；取消回到项目入口", async () => {
     projects(); const s = session(), remove = vi.spyOn(s, "deleteProject").mockResolvedValue(false);
     const root = mount(ProjectsView, { s }); await settle();
+    expect(root.querySelector('.project-location')?.textContent).toContain('继续');
+    expect(root.querySelector('.project-stage-track')).toBeNull();
     const trigger = button(root, "项目详情"); trigger.focus(); trigger.click(); await settle();
     button(root.querySelector(".detail-panel")!, "删除项目").click(); await settle();
     const panels = [...root.querySelectorAll<HTMLDialogElement>("dialog")];

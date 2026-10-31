@@ -12,7 +12,7 @@ const annotate = html => html.replace('<head>', `<head><script>
     if (!['projects', 'empty', 'deleted', 'error'].includes(new URLSearchParams(location.search).get('visual'))) {
         localStorage.setItem('delveforge.project.v1', 'visual-project');
     }
-    </script>`).replace('</body>', `<div style="position:fixed;bottom:6px;right:8px;z-index:9999;background:#17282c;color:white;font:11px/1.5 'Segoe UI',sans-serif;padding:3px 8px;border-radius:3px;pointer-events:none">SYNTHETIC FIXTURE · 视觉审阅</div></body>`);
+    </script>`).replace('</body>', `<footer style="padding:8px 24px;color:#606a7e;font:12px/1.5 'Segoe UI',sans-serif;background:#f2f3f8">合成数据 · 隔离界面审阅 · 非真实后端执行结果</footer></body>`);
 function fixtureApi(req, res, next) {
     if (!req.url?.startsWith('/api/')) return next();
     const scenario = new URL(req.headers.referer ?? 'http://localhost').searchParams.get('visual') ?? 'projects';
@@ -22,7 +22,7 @@ function fixtureApi(req, res, next) {
         res.writeHead(503, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ code: 'SERVICE_UNAVAILABLE' }));
     }
-    const data = fixtures(scenario, path);
+    const data = fixtures(scenario, path, url.searchParams);
     res.setHeader('Cache-Control', 'no-store');
     if (path.endsWith('/stream')) {
         res.writeHead(200, { 'Content-Type': 'text/event-stream' });

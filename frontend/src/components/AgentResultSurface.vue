@@ -5,6 +5,7 @@ import type { PresentedFileChange, RunPresentation } from "./agentResultPresenta
 import StepFinalChanges from "./StepFinalChanges.vue";
 import AgentTestEvidence from "./AgentTestEvidence.vue";
 import FileChangeSummary from "./FileChangeSummary.vue";
+import RevisionText from "./RevisionText.vue";
 
 // 仅组合冻结结果与正式交付的阅读面；接受条件与重试操作仍由原执行页拥有。
 defineProps<{
@@ -32,9 +33,19 @@ const emit = defineEmits<{ deliver: [] }>();
           : '选择或开始运行后，可在此查看冻结 Candidate 的文件、检查证据与交付结果。' }}</p>
       <template v-else>
       <StepFinalChanges v-if="officialStep && step" :plan-id="planId" :step="step" />
+      <div v-if="officialStep && step" class="accepted-revisions" aria-label="正式接受的版本">
+        <RevisionText label="正式接受版本 · deliveryRevision" :value="step.deliveryRevision" />
+        <RevisionText label="本步骤基线 · baselineRevision" :value="step.baselineRevision" />
+      </div>
       <p v-else-if="completedDelivery" role="status">交付已完成，正在同步步骤的正式版本与文件清单。</p>
       <div v-else class="candidate-overview">
         <h4>候选变更</h4><p class="meta">以下是本次保存的编码结果，尚未完成正式交付。</p>
+        <details class="candidate-identity"><summary>冻结版本与完整性</summary>
+          <p>Candidate <code>{{ candidate.id }}</code></p>
+          <RevisionText label="冻结基线 · baseline" :value="candidate.baseline" />
+          <RevisionText label="预期文件树 · expectedTree" :value="candidate.expectedTree" />
+          <p>SHA-256 <code>{{ candidate.sha256 }}</code></p>
+        </details>
         <p v-if="filesLoading" role="status" class="meta">正在读取候选文件分类…</p>
         <FileChangeSummary :key="candidate.id" :files="candidateFiles" />
         <p v-if="filesUnavailable" class="meta" role="status">文件分类暂未读回，可刷新记录重试。</p>

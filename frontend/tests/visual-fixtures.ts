@@ -5,12 +5,13 @@ const revision = 'a'.repeat(40);
 const evidence = { sourceType: 'REPOSITORY', sourceRef: 'src/main/java/reports/ReportService.java:24-68',
     claim: 'ReportService 已提供按日期范围导出 CSV 的能力，可作为周期报表的复用基础。', confidence: 0.9, confirmed: false };
 
-export function visualFixture(scenario: string, path: string): unknown {
-    const user = { ...profile(), revision: 4, status: scenario.startsWith('discovery') ? 'EXPLORING' : scenario === 'review' ? 'REVIEWING' : 'CONFIRMED',
+export function visualFixture(scenario: string, path: string, query?: URLSearchParams): unknown {
+    const user = { ...profile(), revision: 4, status: scenario.startsWith('discovery') ? 'EXPLORING' : scenario.startsWith('review') ? 'REVIEWING' : 'CONFIRMED',
         interests: ['让重复工作变得简单，保留对代码的理解与控制。'], behaviors: ['每周五整理项目数据，手动导出报表并核对。'],
         painPoints: ['重复导出容易遗漏，缺少可追溯的执行记录。'], technicalCapabilities: ['熟悉 Java、Spring Boot 与 Maven，能够维护现有服务。'],
         projectGoals: ['在已有报表工具上增加周期调度与可靠记录。'], constraints: ['先支持本地运行；每一步都需要明确范围与验证。'],
         evidence: [{ ...evidence, sourceType: 'USER_STATEMENT', sourceRef: 'conversation:2', claim: '每周都需要重复导出并手动核对报表。', confirmed: true }] };
+    if (scenario === 'review-incomplete') { user.status = 'EXPLORING'; user.constraints = []; user.painPoints = []; }
     const a = { ...asset(), location: '/sample/workspace/report-kit' };
     const repo = { ...repository(), purpose: 'Report Kit · 本地报表服务', techStack: ['Java 21', 'Spring Boot', 'Maven', 'SQLite'],
         modules: ['reports — 报表生成与 CSV 导出', 'storage — 本地任务与记录', 'api — REST 接口'],
@@ -40,31 +41,42 @@ export function visualFixture(scenario: string, path: string): unknown {
         { ...p.steps[0]!, id: 'step-3', goal: '提供执行记录与验收入口', scope: 'api / report execution history', status: 'PENDING_CONFIRMATION', plannedChanges: ['展示真实执行结果', '补充端到端接口回归'] },
     ];
     if (scenario === 'delivery') p.steps = p.steps.slice(0, 2);
+    if (scenario === 'initial-authorization' || scenario === 'planning-authorize') p.steps[1]!.status = 'PENDING_CONFIRMATION';
+    if (scenario === 'plan-proposed') {
+        p.status = 'PROPOSED'; p.workingCopyId = null;
+        p.steps = p.steps.map(step => ({ ...step, status: 'PENDING_CONFIRMATION' as const, baselineRevision: null, deliveryRevision: null }));
+    }
     const wc = { ...copy(), location: '/sample/isolated/report-kit', currentRevision: 'c'.repeat(40), lastVerifiedRevision: 'c'.repeat(40) };
     if (scenario === 'delivery') {
         p.status = 'COMPLETED';
         wc.status = 'CLOSED';
         wc.currentRevision = wc.lastVerifiedRevision = 'd'.repeat(40);
     }
-    const stage = ({ discovery: 'DISCOVERY', 'discovery-waiting': 'DISCOVERY', review: 'DISCOVERY', repository: 'REPOSITORY', stress: 'REPOSITORY', directions: 'DIRECTION', planning: 'PLANNING' } as Record<string, string>)[scenario] ?? 'EVOLUTION';
+    const stage = ({ discovery: 'DISCOVERY', 'discovery-waiting': 'DISCOVERY', review: 'DISCOVERY', 'review-incomplete': 'DISCOVERY', repository: 'REPOSITORY', stress: 'REPOSITORY', directions: 'DIRECTION', planning: 'PLANNING', 'planning-authorize': 'PLANNING', 'plan-proposed': 'PLANNING' } as Record<string, string>)[scenario] ?? 'EVOLUTION';
     const context = { id: 'visual-project', name: 'Report Kit · 周期报表', userProfileId: user.id, assetIds: [a.id], repositoryProfileIds: [repo.id], directionIds: [selected.id, ...alternatives.map(d => d.id)], planId: p.id,
         createdAt: '2026-10-30T08:00:00Z', updatedAt: '2026-10-31T02:20:00Z', version: 2, flowId: 'visual-flow', previousContextId: null, deletedAt: null };
     const summary = { key: 'project:visual-project', name: context.name, legacy: false, stage: 'EVOLUTION', direction: selected.targetProduct,
         repositories: [{ assetId: a.id, location: a.location }], lastActivity: context.updatedAt, totalSteps: p.steps.length, succeededSteps: p.steps.filter(step => step.status === 'SUCCEEDED').length,
-        stepCounts: { SUCCEEDED: 1, READY: 1, PENDING_CONFIRMATION: 1 }, planId: p.id, planStatus: p.status, workingCopyId: wc.id,
+        stepCounts: p.steps.reduce((counts, step) => ({ ...counts, [step.status]: (counts[step.status] ?? 0) + 1 }), {} as Record<string, number>), planId: p.id, planStatus: p.status, workingCopyId: p.workingCopyId,
         currentRevision: wc.currentRevision, lastVerifiedRevision: wc.lastVerifiedRevision, issues: [], version: 2, deletedAt: null };
     const run = { id: 'run-visual-1', planId: p.id, stepId: 'step-2', workingCopyId: wc.id, baseline: 'c'.repeat(40),
         state: scenario === 'evolution' ? 'RUNNING' : 'SUCCEEDED', startedAt: '2026-10-31T02:15:00Z', endedAt: scenario === 'evolution' ? null : '2026-10-31T02:18:00Z',
         reason: null, candidateId: scenario === 'evolution' ? null : 'candidate-visual-1', cancelRequested: false, retained: false, modelCalls: 4, toolCalls: 12, tokens: 8620 };
+    if (scenario === 'execution-failed') Object.assign(run, { state: 'FAILED', candidateId: null, reason: 'NO_PROGRESS' });
     if (path === '/system/connectivity') return { service: 'visual-fixture', status: 'UP', timestamp: context.updatedAt };
     if (path === '/system/workspace-configuration') return { root: '/sample/isolated', existingRoots: [] };
     if (path === '/projects' && scenario === 'empty') return [];
     if (path === '/projects' && scenario === 'deleted') return [{ ...summary, deletedAt: '2026-10-31T03:00:00Z', stepCounts: { SUCCEEDED: 1, PENDING_CONFIRMATION: 2 } }];
     if (path === '/projects') return [summary, { ...summary, key: 'project:archive', name: 'CLI 日志阅读器', direction: '从日志中找到故障线索', stage: 'PLANNING', planStatus: 'PROPOSED', totalSteps: 2, succeededSteps: 0, stepCounts: { PENDING_CONFIRMATION: 2 }, planId: 'plan-archive', workingCopyId: null },
         { ...summary, key: 'project:research', name: 'API 契约检查', direction: null, stage: 'DISCOVERY', planId: null, planStatus: null, totalSteps: 0, succeededSteps: 0, stepCounts: {} }];
-    if (path.includes('/rounds') || path === '/projects/resources') return [];
-    if (path.startsWith('/projects/')) return { key: summary.key, context, legacy: false, userProfile: user, assets: [a], repositoryProfiles: [repo], directions: [selected, ...alternatives], plan: p, workingCopy: wc, stage, boundUserProfileRevision: 4, issues: [] };
-    if (path.endsWith('/review-readiness')) return { profileId: user.id, revision: 4, sufficient: true, missingAreas: [] };
+    if (path.includes('/rounds')) return [];
+    if (path === '/projects/resources') {
+        const kind = query?.get('kind') ?? 'USER_PROFILE';
+        if (kind === 'USER_PROFILE') return [{ id: user.id, status: 'CONFIRMED', revision: 4, summary: '周期报表需求画像', assetId: null, location: null, analyzedRevision: null }];
+        return [{ id: kind === 'SOFTWARE_ASSET' ? a.id : repo.id, summary: repo.purpose, status: 'AVAILABLE', revision: null, assetId: a.id, location: a.location, analyzedRevision: repo.analyzedRevision }];
+    }
+    if (path.startsWith('/projects/')) return { key: summary.key, context, legacy: false, userProfile: user, assets: [a], repositoryProfiles: [repo], directions: [selected, ...alternatives], plan: p, workingCopy: scenario === 'plan-proposed' ? null : wc, stage, boundUserProfileRevision: 4, issues: [] };
+    if (path.endsWith('/review-readiness')) return { profileId: user.id, revision: 4, sufficient: scenario !== 'review-incomplete', missingAreas: scenario === 'review-incomplete' ? ['需要进一步明确约束与使用场景。'] : [] };
     if (path.includes('/conversation')) return { messages: [
         { sequence: 1, requestId: 'request-1', role: 'agent', text: '从最近一次重复工作开始吧。你最想省下哪一部分时间？', question: null, questionState: null, createdAt: '2026-10-31T01:00:00Z', projectId: context.id },
         { sequence: 2, requestId: 'request-2', role: 'user', text: '每周五都要手动导出报表，然后逐项核对有没有遗漏。我已经有一个 Java 报表服务，希望先在现有代码上加周期调度。', question: null, questionState: null, createdAt: '2026-10-31T01:01:00Z', projectId: context.id },
@@ -75,7 +87,7 @@ export function visualFixture(scenario: string, path: string): unknown {
     if (path.startsWith('/software-assets/')) return a;
     if (path.startsWith('/repository-profiles/')) return repo;
     if (path.startsWith('/product-directions/')) return selected;
-    if (path.endsWith('/agent-runs')) return [run];
+    if (path.endsWith('/agent-runs')) return scenario.startsWith('initial') ? [] : [run];
     if (path.endsWith('/stream')) return [
         { kind: 'RUNNING', summary: '隔离沙箱已准备，开始当前 Step。' },
         { kind: 'TOOL_FINISHED', summary: JSON.stringify({ tool: 'read_file', path: 'src/main/java/reports/ReportService.java', durationMs: 12, ok: true }) },
@@ -83,7 +95,7 @@ export function visualFixture(scenario: string, path: string): unknown {
         { kind: 'MODEL_REQUEST', summary: '正在结合现有导出接口准备下一次检查。' },
     ].map((event, i) => ({ ...event, sequence: i + 1, runId: run.id, at: '2026-10-31T02:16:00Z' }));
     if (path.startsWith('/agent-runs/')) return run;
-    if (path.endsWith('/delivery')) return { candidateId: run.candidateId, state: scenario === 'delivery' ? 'COMPLETED' : 'DELIVERY_BLOCKED', revision: scenario === 'delivery' ? 'd'.repeat(40) : null, reason: scenario === 'delivery' ? null : 'WORKING_COPY_BUSY' };
+    if (path.endsWith('/delivery')) return { candidateId: run.candidateId, state: scenario === 'delivery' ? 'COMPLETED' : scenario === 'recovery' ? 'RECOVERY_REQUIRED' : 'DELIVERY_BLOCKED', revision: scenario === 'delivery' ? 'd'.repeat(40) : null, reason: scenario === 'delivery' ? null : scenario === 'recovery' ? 'MUTATION_STATE_UNKNOWN' : 'WORKING_COPY_BUSY' };
     if (path.endsWith('/diff')) return 'diff --git a/src/main/java/reports/ReportScheduler.java b/src/main/java/reports/ReportScheduler.java\nnew file mode 100644\n--- /dev/null\n+++ b/src/main/java/reports/ReportScheduler.java\n@@ -0,0 +1 @@\n+class ReportScheduler {}\n';
     if (path.startsWith('/agent-candidates/')) return { id: run.candidateId, runId: run.id, baseline: run.baseline, expectedTree: 'b'.repeat(40), sha256: 'f'.repeat(64), changedPaths: ['src/main/java/reports/ReportScheduler.java', 'src/test/java/reports/ReportSchedulerTest.java'], diffBytes: 1340, testEvidence: '{"status":"NOT_TESTED"}', createdAt: run.endedAt };
     if (path.endsWith('/final-changes')) return { planId: p.id, stepId: 'step-2', baselineRevision: 'c'.repeat(40), verifiedRevision: 'd'.repeat(40), availability: 'AVAILABLE', reason: null, baselineTree: 'b'.repeat(40), verifiedTree: 'e'.repeat(40), files: [{ path: 'src/main/java/reports/ReportScheduler.java', changeType: 'ADDED' }], counts: { added: 1, modified: 0, deleted: 0 } };

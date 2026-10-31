@@ -76,6 +76,9 @@ function savedCandidate(id = "candidate-1", runId = "run-1"): AgentCandidate {
 it("only an explicit start sends the request; real tool events are ordered and deduplicated", async () => {
   const start = vi.spyOn(api, "startAgent").mockResolvedValue(running());
   const { root } = mount(); await settle();
+  expect(root.querySelector('.operations-workspace')?.getAttribute('data-task-state')).toBe('prepare');
+  expect(root.querySelector('.agent-controls')!.compareDocumentPosition(root.querySelector('.agent-run-panel')!)
+    & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(start).not.toHaveBeenCalled();
   button(root, "开始 Agent").click(); await settle();
   expect(root.querySelector("dialog")!.textContent).toContain("API 调用会产生费用");
@@ -83,6 +86,9 @@ it("only an explicit start sends the request; real tool events are ordered and d
   button(root, "确认费用并开始").dispatchEvent(new MouseEvent("click", { bubbles: true })); await settle();
   expect(start).not.toHaveBeenCalled();
   await acknowledgeBudget(root);
+  expect(root.querySelector('.operations-workspace')?.getAttribute('data-task-state')).toBe('activity');
+  expect(root.querySelector('.agent-run-panel')!.compareDocumentPosition(root.querySelector('.agent-controls')!)
+    & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", true, undefined);
   const stream = Events.instances.at(-1)!;
   expect(stream.url).toContain("/agent-runs/run-1/stream?after=0");

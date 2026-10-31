@@ -147,6 +147,7 @@ function confirmSelectedStep() {
           <h2 class="section-heading"><NavigationIcon name="planning" />演化计划</h2>
         </div>
         <StatusBadge :status="s.plan.status" />
+        <button v-if="s.plan.status === 'ACTIVE'" class="secondary" @click="emit('next')">查看执行工作台</button>
       </div>
       <p class="meta">以下是保存的规划输入与目标。实现和验证结果请在「实施演化」查看。</p>
       <div class="state-comparison">

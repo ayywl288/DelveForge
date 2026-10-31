@@ -177,6 +177,7 @@
     .revision-notebook #profile-inspector { padding-inline: 16px; }
     .review-dossier .profile-review, .review-dossier .review-actions { padding: 20px 16px; }
     .review-dossier .profile-review-grid { grid-template-columns: minmax(0, 1fr); }
+    .review-dossier .profile-card { padding-block: 16px; }
     .review-dossier .profile-review-heading { gap: 12px; }
     .review-dossier .profile-review-heading h2 { font-size: 21px; }
     .discovery-welcome { padding: 24px 20px; }

@@ -5,6 +5,7 @@ import type { AgentCandidate, AgentEvent, AgentRun, Delivery } from "../api/agen
 import type { WorkspaceSession } from "../state/session";
 import StatusBadge from "../components/StatusBadge.vue";
 import AgentResultSurface from "../components/AgentResultSurface.vue";
+import ExecutionWorkspace from "../components/ExecutionWorkspace.vue";
 import AgentTimeline from "../components/AgentTimeline.vue";
 import { candidateFileChanges, presentRun, type PresentedFileChange, type RunPresentation } from "../components/agentResultPresentation";
 import NavigationIcon from "../components/NavigationIcon.vue";
@@ -19,6 +20,7 @@ const step = computed(() => props.s.plan?.steps.find(item => item.id === stepId.
   ?? props.s.plan?.steps.find(item => item.status !== "SUCCEEDED") ?? props.s.plan?.steps.at(-1));
 const runs = ref<AgentRun[]>([]);
 const run = ref<AgentRun | null>(null);
+const initialLayout = computed(() => !run.value && runs.value.length === 0);
 const candidate = ref<AgentCandidate | null>(null);
 const delivery = ref<Delivery | null>(null);
 const runStateLabels: Record<AgentRun["state"], string> = {
@@ -341,14 +343,15 @@ onUnmounted(deactivate);
   <section v-if="!s.plan" class="panel"><h2>实施演化步骤</h2><p>先创建并激活演化计划。</p>
     <button @click="emit('planning')">前往规划</button></section>
   <div v-else class="evolution-workspace">
-    <ol class="execution-chain" aria-label="编码与交付边界">
+    <ol v-if="!initialLayout" class="execution-chain" aria-label="编码与交付边界">
       <li><span>Agent Run</span><strong>{{ run ? runStateLabels[run.state] : '尚未读到运行' }}</strong></li>
       <li><span>Frozen Candidate</span><strong>{{ candidate ? '已冻结编码结果' : run?.candidateId ? '冻结详情待读取' : '尚无冻结结果' }}</strong></li>
       <li><span>Formal Delivery</span><strong>{{ delivery ? deliveryStateLabels[delivery.state] : (run?.candidateId ? '交付状态未读回' : '尚无正式交付') }}</strong></li>
     </ol>
     <a v-if="activeRun" class="activity-jump" href="#agent-run-workspace">查看当前活动与停止控制 <NavigationIcon name="arrow" /></a>
-    <a v-else-if="candidate" class="activity-jump" href="#agent-changes-title">查看冻结文件、检查证据与正式交付 <NavigationIcon name="arrow" /></a>
-    <div class="operations-workspace">
+    <a v-else-if="candidate" class="activity-jump" href="#agent-changes-title">{{ delivery?.state === 'DELIVERY_BLOCKED' || delivery?.state === 'RECOVERY_REQUIRED' ? '交付需核对：查看原因、证据与代码结果' : '查看冻结文件、检查证据与正式交付' }} <NavigationIcon name="arrow" /></a>
+    <ExecutionWorkspace :initial="initialLayout">
+    <template #activity>
 
     <section id="agent-run-workspace" class="panel agent-run-panel" aria-label="运行与实际活动" tabindex="-1">
       <div class="section-row"><h3>运行记录</h3><button class="secondary compact-button" :disabled="pending" @click="loadRuns()">刷新记录</button></div>
@@ -404,8 +407,10 @@ onUnmounted(deactivate);
       </template>
       </div></div>
     </section>
+    </template>
+    <template #controls>
     <section class="panel agent-controls" aria-labelledby="agent-controls-title">
-      <div class="workbench-heading"><div><h2 id="agent-controls-title">步骤与运行配置</h2></div>
+      <div class="workbench-heading"><div><h2 id="agent-controls-title">{{ initialLayout ? '准备执行当前步骤' : '步骤与运行配置' }}</h2></div>
         <span class="meta"><NavigationIcon name="lock" />隔离编码 · 逐步授权</span></div>
       <p class="workbench-intro">Agent 在隔离沙箱中编码与检查，冻结结果通过校验后自动交付。</p>
       <div class="step-configuration"><label for="agent-step">当前步骤</label>
@@ -436,8 +441,8 @@ onUnmounted(deactivate);
       <p class="agent-usage-notice">执行会产生外部 API 费用；模型、工具次数和 tokens 按实际报告展示，不按累计用量或总时长自动停止。可随时停止；停止不是暂停，当前不支持断点续跑。单次操作超时、沙箱资源限制与重复无进展检测仍生效。</p>
       <p v-if="error || syncError" role="alert" class="error">{{ error || syncError }}</p>
     </section>
-
-    </div>
+    </template>
+    </ExecutionWorkspace>
     <AgentResultSurface :plan-id="s.plan.id" :step="step" :run="run" :candidate="candidate"
       :delivery="delivery" :run-presentation="runPresentation" :official-step="!!officialStep"
       :completed-delivery="!!completedDelivery" :candidate-files="candidateFiles" :files-loading="filesLoading"
