@@ -1,6 +1,0 @@
-{
-  "initNativeExit": 1,
-  "loaderNativeExit": 0,
-  "isolationNativeExit": 1,
-  "note": "NO-GO: initialization failure preserved; exit 1 is not PASS"
-}
