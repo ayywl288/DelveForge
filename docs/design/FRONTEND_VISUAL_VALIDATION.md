@@ -25,6 +25,8 @@ Agent 执行或 Candidate/Delivery 语义变更。本轮不进行新设计，不
 | `pnpm build` | Vue/TypeScript 与 Vite 生产构建通过 |
 | `git diff --check` | 通过 |
 | 文档与脚本 | 15 个本地文档链接有效，无已删除图库引用；两份截图工具语法检查通过 |
+| 清理提交后的生产夹具 | 50 个场景/宽度组合无页面水平溢出或记录到的运行时异常；初始/运行阅读顺序断言通过 |
+| 忽略目录中的产物 | 从 `db0aeb6` 重新生成 193 张 PNG；全部散列、尺寸和 Chromium 解码通过，图库 12 个布局/过滤组合及本地链接有效 |
 
 回归覆盖项目创建/继续/删除恢复、画像 revision 确认和会话连续性、仓库授权与完整 Evidence、
 方向选择/拒绝、WorkingCopy 准备、Step 授权、费用勾选、Run 停止、SSE、Candidate 与正式文件、
