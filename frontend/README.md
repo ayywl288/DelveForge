@@ -2,6 +2,12 @@
 
 Vue 3 + TypeScript + Vite + pnpm。项目工作台与五阶段界面调用当前后端 REST API，没有模拟运行结果或浏览器内 Provider 客户端。
 
+**2026-10-31 V2：** Precision Room，采用横向石墨产品栏、独立项目卡、靛蓝操作，
+保留双向对话、真实等待反馈和连接 Step 时间线；执行初始先准备，运行时先事件、后统计，代码结果在底部。
+业务状态与授权合同保持。
+见 [视觉规范](../docs/design/FRONTEND_VISUAL_IDENTITY.md) 与
+[验证记录](../docs/design/FRONTEND_VISUAL_VALIDATION.md)。下文 Task G 是历史记录。
+
 **当前自主演化界面（2026-10-23）：** M1–M3 的画像、仓库、方向和规划保留；实施页已替换为
 逐 Step 确认并启动 Agent、持久化 SSE 活动、冻结 Candidate 差异和独立 Delivery 状态。
 后端正式接受 Git commit 后 Step 才成功；后续 Step 仍需分别确认和启动。
@@ -35,7 +41,7 @@ pnpm dev
 
 需求探索的同步请求会立即显示用户消息并清空输入框；等待期间可以继续写草稿，但不能发送并发
 轮次。对话内的三点等待动画覆盖普通对话、主动下一问、返回探索和重新开启探索，并尊重系统
-减少动态效果设置。气泡作者对读屏保留，界面通过左右布局区分；本轮成功响应后才显示双勾图标，
+减少动态效果设置。对话作者对读屏保留，界面通过左右气泡、说话者与回合区分；本轮成功响应后才显示双勾图标，
 其含义是服务端接受本轮请求，不表示送达或已读回执。画像同身份的版本或状态变化不会清空草稿。
 
 明确拒绝与结果未知分别在消息内显示。发送前只在 localStorage 保存请求身份，服务端原子提交
@@ -118,6 +124,25 @@ AI 操作会调用付费 Provider，只在实际获得授权后验收。本次�
 底层 Evidence、快照与共享 EvidenceList 在其他业务页面保持原语义。
 
 ## 工程与测试
+
+可复用视觉检查从仓库根目录运行，不需要真实后端或付费模型。先完成生产构建，再在一个终端启动隔离夹具：
+
+```powershell
+pnpm --dir frontend build
+node frontend/scripts/visual-review.mjs --production
+```
+
+在另一终端、已提交前端源码后运行：
+
+```powershell
+node frontend/scripts/capture-final-review.mjs
+node frontend/scripts/validate-final-review.mjs
+```
+
+默认图库及清单位于 `target/frontend-visual-review/`，被已有 `target/` 规则忽略；
+`capture-final-review.mjs --preview` 可在未提交时生成其 `preview/` 预览，不作为源码冻结证据。
+截图工具需要本地 Taste 的浏览器 helper，支持 `TASTE_SKILL_HOME`，不引入前端运行依赖。
+长期提交规范和测试，图片、测量 JSON 与临时日志保留在忽略目录。
 
 ```powershell
 pnpm test

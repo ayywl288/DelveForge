@@ -65,6 +65,7 @@ async function open(key: string) {
 onMounted(() => { props.s.loadProjects(); loadProfiles(); });
 </script>
 <template>
+  <div class="projects-workspace">
   <details class="panel new-project">
     <summary class="new-project-trigger"><NavigationIcon name="plus" />开始新流程<span class="meta">新建用户画像，或复用已确认画像</span></summary>
     <form class="stack" @submit.prevent="create">
@@ -115,9 +116,9 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
     <div v-if="s.projects.length" class="project-list" :aria-busy="s.historyLoading">
       <article v-for="project in s.projects" :key="project.key" class="project-row" :aria-label="project.name"
         :data-plan-status="project.planStatus" :data-deleted="!!project.deletedAt">
+        <div class="project-card-heading"><span class="project-monogram" aria-hidden="true">{{ project.name.trim().slice(0, 2).toUpperCase() }}</span><span class="meta project-location" :aria-label="`当前工作流位置：${stageLabels[project.stage]}`">{{ project.deletedAt ? '已删除' : '继续' }} · {{ stageLabels[project.stage] }}</span><button class="text-button" :aria-label="`查看${project.name}的项目详情`" @click="inspectedKey = project.key">项目详情 <NavigationIcon name="arrow" /></button></div>
         <div class="project-row-main">
           <div class="project-identity">
-            <span class="project-symbol"><NavigationIcon name="projects" /></span>
             <div>
               <div class="project-title"><h3>{{ project.name }}</h3></div>
               <p v-if="project.direction && project.direction !== project.name" class="project-description muted">{{ project.direction }}</p>
@@ -129,7 +130,6 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
               <p v-if="project.legacy" class="meta">旧 Plan 历史投影 · 继续后建立导航身份</p>
             </div>
           </div>
-          <div class="project-stage"><span class="meta">当前阶段</span><span>{{ stageLabels[project.stage] }}</span></div>
           <div class="project-activity">
             <p v-if="project.planId && project.totalSteps" class="project-progress"><strong>{{ project.succeededSteps }}/{{ project.totalSteps }}</strong> 个 Step 已完成交付</p>
             <progress v-if="project.planId && project.totalSteps" :max="project.totalSteps" :value="project.succeededSteps"
@@ -140,8 +140,6 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
           <div class="project-actions">
             <button v-if="!project.deletedAt" class="project-open" :disabled="!!s.busy" @click="open(project.key)">打开并继续<NavigationIcon name="arrow" /></button>
             <button v-else class="secondary" :disabled="!!s.busy" @click="s.restoreProject(project)">恢复到工作台</button>
-            <button class="secondary project-inspect" :aria-label="`查看${project.name}的项目详情`"
-              @click="inspectedKey = project.key">项目详情</button>
           </div>
         </div>
         <div class="project-row-secondary">
@@ -157,6 +155,7 @@ onMounted(() => { props.s.loadProjects(); loadProfiles(); });
     </div>
     <button v-if="s.historyMore" class="secondary" :disabled="s.historyLoading" @click="s.loadProjects(true)">更多历史项目</button>
   </section>
+  </div>
   <DetailPanel :open="!!inspected" :title="inspected?.name ?? '项目详情'"
     description="已保存的项目元数据。查看不会调用 AI、选择方向或执行 Step。"
     :fallback-focus="historyHeading" @close="inspectedKey = null">

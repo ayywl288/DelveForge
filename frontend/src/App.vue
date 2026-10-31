@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { createSession } from "./state/session";
 import DiscoveryView from "./views/DiscoveryView.vue";
 import RepositoryView from "./views/RepositoryView.vue";
@@ -9,9 +9,45 @@ import EvolutionView from "./views/EvolutionView.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import ProjectsView from "./views/ProjectsView.vue";
 import NavigationIcon, { type NavigationIconName } from "./components/NavigationIcon.vue";
+import BrandSymbol from "./components/BrandSymbol.vue";
 import { stageIndex, projectIssueText } from "./state/projectPresentation";
 const s = reactive(createSession());
 const stage = ref(-1);
+const navigationExpanded = ref(false);
+const navigationToggle = ref<HTMLButtonElement>();
+const navigationContent = ref<HTMLElement>();
+const brandLink = ref<HTMLAnchorElement>();
+let navigationMedia: MediaQueryList | undefined;
+let lastNavigationFocus: "content" | "toggle" | null = null;
+function trackNavigationFocus(event: FocusEvent) {
+  const target = event.target;
+  if (target instanceof Node && navigationContent.value?.contains(target)) lastNavigationFocus = "content";
+  else if (target === navigationToggle.value) lastNavigationFocus = "toggle";
+  else if (target !== document.body) lastNavigationFocus = null;
+}
+function adaptNavigation() {
+  // 断点切换隐藏导航或菜单按钮时，把焦点交回可见控件。
+  const focused = document.activeElement;
+  const collapsedFocus = focused === document.body ? lastNavigationFocus : null;
+  if (navigationMedia?.matches && !navigationExpanded.value && (collapsedFocus === "content"
+      || focused instanceof Node && navigationContent.value?.contains(focused))) {
+    navigationToggle.value?.focus();
+  } else if (!navigationMedia?.matches && (focused === navigationToggle.value || collapsedFocus === "toggle")) {
+    brandLink.value?.focus();
+  }
+}
+async function navigate(value: number) {
+  stage.value = value;
+  await closeNavigation();
+}
+async function closeNavigation() {
+  if (navigationMedia?.matches && navigationExpanded.value) {
+    navigationExpanded.value = false;
+    await nextTick();
+    document.getElementById("main-content")?.focus();
+  }
+}
+watch(stage, closeNavigation);
 const activityStages = { discovery: 0, repository: 1, directions: 2, planning: 3 };
 const localBusyVisible = computed(() => s.aiActivity && activityStages[s.aiActivity.kind] === stage.value);
 const currentProjectName = computed(() => s.projectContext?.name ?? s.plan?.targetState.targetProduct ?? "尚未打开项目");
@@ -104,6 +140,9 @@ function restoreIds() {
   });
 }
 onMounted(async () => {
+  navigationMedia = window.matchMedia?.("(max-width: 900px)");
+  navigationMedia?.addEventListener("change", adaptNavigation);
+  document.addEventListener("focusin", trackNavigationFocus);
   const restored = await s.initialize();
   if (restored) stage.value = stageIndex(restored);
   else if (s.plan) stage.value = 4;
@@ -112,23 +151,34 @@ onMounted(async () => {
   else if (s.profile?.status === "CONFIRMED") stage.value = 1;
   else if (s.profile) stage.value = 0;
 });
-onUnmounted(s.dispose);
+onUnmounted(() => {
+  navigationMedia?.removeEventListener("change", adaptNavigation);
+  document.removeEventListener("focusin", trackNavigationFocus);
+  s.dispose();
+});
 </script>
 <template>
   <a href="#main-content" class="skip-link">跳至主要内容</a>
   <div class="app-shell">
-    <aside class="sidebar">
+    <header class="workspace-masthead">
       <a
+        ref="brandLink"
         class="brand"
         href="#"
         aria-label="DelveForge 首页"
-        @click.prevent="stage = -1"
-        ><span class="brand-mark" aria-hidden="true">df</span
-        ><span>DelveForge</span></a
+        @click.prevent="navigate(-1)"
+        ><BrandSymbol /><span class="brand-wordmark">DelveForge<small>The Evolution Workbench</small></span></a
       >
+      <div class="masthead-context"><NavigationIcon name="repository" /><span>{{ stage === -1 ? '本地工作空间' : currentProjectName }}</span><span class="masthead-separator" aria-hidden="true">/</span><span>{{ stage === -1 ? '项目' : stages[stage]?.title }}</span></div>
+      <span class="masthead-connection"><span class="connection-dot" :class="{ online: s.connected }" aria-hidden="true" />{{ s.connected ? '后端已连接' : '后端未连接' }}</span>
+      <button ref="navigationToggle" class="mobile-navigation-toggle" :aria-expanded="navigationExpanded"
+        aria-controls="workspace-navigation" @click="navigationExpanded = !navigationExpanded">{{ navigationExpanded ? '收起导航' : '项目与阶段' }}</button>
+    </header>
+    <aside class="sidebar">
+      <div id="workspace-navigation" ref="navigationContent" class="sidebar-content" :class="{ expanded: navigationExpanded }">
       <nav class="app-navigation" aria-label="工作空间">
         <button class="nav-stage project-entry" :class="{ active: stage === -1 }"
-          :aria-current="stage === -1 ? 'page' : undefined" @click="stage = -1">
+          :aria-current="stage === -1 ? 'page' : undefined" @click="navigate(-1)">
           <NavigationIcon name="projects" /><span>项目工作台</span>
         </button>
       </nav>
@@ -136,7 +186,9 @@ onUnmounted(s.dispose);
         <span class="sidebar-project-icon"><NavigationIcon name="repository" /></span>
         <div class="sidebar-project-identity"><span class="nav-label">当前项目</span>
           <p id="current-project-name" class="sidebar-project" :title="currentProjectName" tabindex="0">{{ currentProjectName }}</p></div>
+        <div class="sidebar-project-context"><span v-if="s.plan">Plan · {{ s.plan.status }}</span><span v-else-if="s.profile">画像 · r{{ s.profile.revision }}</span><span v-else>打开项目后继续已保存进度</span></div>
       </div>
+      <p class="workflow-label">演化流程</p>
       <nav class="workflow-navigation" aria-label="演化阶段">
         <button
           v-for="(item, index) in stages"
@@ -144,9 +196,10 @@ onUnmounted(s.dispose);
           class="nav-stage"
           :class="{ active: stage === index }"
           :aria-current="stage === index ? 'step' : undefined"
-          @click="stage = index"
+          @click="navigate(index)"
         >
-          <NavigationIcon :name="item.icon" /><span>{{ item.title }}</span>
+          <span class="nav-sequence" aria-hidden="true">{{ String(index + 1).padStart(2, '0') }}</span>
+          <NavigationIcon :name="item.icon" /><span class="nav-stage-name">{{ item.title }}<small lang="en">{{ item.en }}</small></span>
           <span v-if="done[index]" class="nav-result"><span class="sr-only">已有阶段结果</span></span>
         </button>
       </nav>
@@ -167,11 +220,12 @@ onUnmounted(s.dispose);
         </button></details>
         <p class="meta">本地 Coding Agent<br />隔离编码 · 自动交付</p>
       </div>
+      </div>
     </aside>
-    <main id="main-content" class="main-content" tabindex="-1">
+    <main id="main-content" class="main-content" :data-stage="stage" tabindex="-1">
       <header class="page-header">
         <div>
-          <h1>{{ stage === -1 ? '项目工作台' : stages[stage]?.title }}</h1>
+          <h1>{{ stage === -1 ? '项目工作台' : stages[stage]?.title }}<span class="page-title-en" lang="en">{{ stage === -1 ? 'Projects' : stages[stage]?.en }}</span></h1>
           <p>{{ stage === -1 ? '管理已保存的演化流程，继续上次进度。' : stages[stage]?.description }}</p>
         </div>
         <button
@@ -183,6 +237,7 @@ onUnmounted(s.dispose);
           <NavigationIcon name="refresh" />刷新已知对象
         </button>
       </header>
+      <p v-if="stage !== -1" class="mobile-project-context"><NavigationIcon name="repository" /><span>当前项目 · {{ currentProjectName }}</span></p>
       <div v-if="s.error" class="alert" role="alert">
         <strong>操作需要核对</strong>
         <p>{{ s.error }}</p>

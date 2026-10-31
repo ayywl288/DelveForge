@@ -89,11 +89,6 @@ function confirmSelectedStep() {
 }
 </script>
 <template>
-  <section v-if="s.plan && ['PROPOSED', 'ACTIVE'].includes(s.plan.status)" class="panel inline-note">
-    <h2>需要重新拆分计划？</h2>
-    <p>将当前计划保留为历史，在同一已选方向开启新一轮规划。</p>
-    <button class="secondary" :disabled="!!s.busy || !s.projectContext" @click="replanOpen = true">重新规划</button>
-  </section>
   <section v-if="s.plan?.status === 'SUPERSEDED'" class="panel inline-note">
     <h2>这份计划已失效，保留为历史记录</h2>
     <p>它的方向已被替代，或历史迁移已标记失效，不能继续授权或执行。原步骤、WorkingCopy 和验证结果保留。</p>
@@ -145,12 +140,14 @@ function confirmSelectedStep() {
       <button class="secondary" @click="emit('directions')">前往产品方向</button></div>
   </section>
   <template v-else>
-    <section class="panel">
+    <div class="planning-overview">
+    <section class="panel plan-trajectory">
       <div class="panel-header">
         <div>
           <h2 class="section-heading"><NavigationIcon name="planning" />演化计划</h2>
         </div>
         <StatusBadge :status="s.plan.status" />
+        <button v-if="s.plan.status === 'ACTIVE'" class="secondary" @click="emit('next')">查看执行工作台</button>
       </div>
       <p class="meta">以下是保存的规划输入与目标。实现和验证结果请在「实施演化」查看。</p>
       <div class="state-comparison">
@@ -166,17 +163,25 @@ function confirmSelectedStep() {
         </section>
       </div>
       <button class="text-button plan-more" @click="detail = 'basis'">规划改动、风险、依据与基础绑定 <NavigationIcon name="arrow" /></button>
+      <details v-if="['PROPOSED', 'ACTIVE'].includes(s.plan.status)" class="replan-notice">
+        <summary>需要重新拆分计划？</summary>
+        <p>将当前计划保留为历史，在同一已选方向开启新一轮规划。</p>
+        <button class="secondary" :disabled="!!s.busy || !s.projectContext" @click="replanOpen = true">重新规划</button>
+      </details>
     </section>
     <section v-if="['PROPOSED', 'ACTIVE'].includes(s.plan.status)" id="prepare-working-copy"
-      class="panel prepare-box" aria-labelledby="prepare-heading">
+      class="panel prepare-box" :class="{ 'prepared-environment': s.plan.status === 'ACTIVE' }" aria-labelledby="prepare-heading">
       <div class="panel-header">
         <h2 id="prepare-heading">审阅计划与准备隔离环境</h2>
         <StatusBadge v-if="s.copy" :status="s.copy.status" :show-code="false" />
       </div>
       <p class="meta">先审阅目标与路线，再明确准备隔离副本，最后逐个授权 Step。</p>
+      <details class="preparation-diagnostics" :open="s.plan.status === 'PROPOSED'">
+      <summary>兼容性、准备来源与版本</summary>
       <RepositoryCompatibility :asset-id="s.plan.baseAssetId"
         :revision="s.repositories.find(item => item.id === s.plan?.baseRepositoryProfileId)?.analyzedRevision ?? ''"
         :copy="s.copy" />
+      </details>
       <template v-if="s.plan.status === 'PROPOSED'">
         <div class="workspace-configuration">
           <p class="meta">新 WorkingCopy 存储根目录：<code>{{ workspaceConfiguration?.root ?? '尚未读取' }}</code></p>
@@ -199,6 +204,7 @@ function confirmSelectedStep() {
         <p class="meta">计划已激活。请在下方核对各 Step 的操作前提，再明确授权。</p>
       </template>
     </section>
+    </div>
     <section class="panel roadmap" aria-labelledby="roadmap-heading">
     <div class="panel-header"><h2 id="roadmap-heading" class="section-heading"><NavigationIcon name="planning" />演化路线</h2><span class="meta">{{ s.plan.steps.length }} 个步骤 · 按顺序验证</span></div>
     <p v-if="!s.plan.steps.length" class="empty">此计划未提供步骤。</p>

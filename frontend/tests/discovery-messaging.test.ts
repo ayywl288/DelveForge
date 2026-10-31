@@ -112,6 +112,7 @@ describe("Discovery 消息反馈与请求边界", () => {
     expect(root.querySelector(".message-spinner")).not.toBeNull();
     expect(root.querySelector(".assistant-waiting")?.textContent).toContain("DelveForge 正在整理你的想法…");
     expect(root.querySelectorAll(".waiting-dots i")).toHaveLength(3);
+    expect(root.textContent).not.toContain("上一轮结果待核对");
     expect(composer.value).toBe("");
     expect(composer.disabled).toBe(false);
     await write(composer, "正在写的下一条草稿");

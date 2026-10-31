@@ -76,6 +76,9 @@ function savedCandidate(id = "candidate-1", runId = "run-1"): AgentCandidate {
 it("only an explicit start sends the request; real tool events are ordered and deduplicated", async () => {
   const start = vi.spyOn(api, "startAgent").mockResolvedValue(running());
   const { root } = mount(); await settle();
+  expect(root.querySelector('.operations-workspace')?.getAttribute('data-task-state')).toBe('prepare');
+  expect(root.querySelector('.agent-controls')!.compareDocumentPosition(root.querySelector('.agent-run-panel')!)
+    & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(start).not.toHaveBeenCalled();
   button(root, "开始 Agent").click(); await settle();
   expect(root.querySelector("dialog")!.textContent).toContain("API 调用会产生费用");
@@ -83,6 +86,9 @@ it("only an explicit start sends the request; real tool events are ordered and d
   button(root, "确认费用并开始").dispatchEvent(new MouseEvent("click", { bubbles: true })); await settle();
   expect(start).not.toHaveBeenCalled();
   await acknowledgeBudget(root);
+  expect(root.querySelector('.operations-workspace')?.getAttribute('data-task-state')).toBe('activity');
+  expect(root.querySelector('.agent-run-panel')!.compareDocumentPosition(root.querySelector('.agent-controls')!)
+    & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", true, undefined);
   const stream = Events.instances.at(-1)!;
   expect(stream.url).toContain("/agent-runs/run-1/stream?after=0");
@@ -165,6 +171,11 @@ it("a saved Candidate is displayed with honest NOT_TESTED evidence and never sta
   expect(root.querySelector(".evidence-status")?.textContent).toContain("未运行测试");
   expect(root.textContent).toContain("交付受阻");
   expect(button(root, "重新核对并交付已有结果")).toBeDefined();
+  const activity = root.querySelector(".activity-section")!;
+  const changes = root.querySelector(".agent-changes")!;
+  expect(root.querySelectorAll(".agent-changes")).toHaveLength(1);
+  expect(activity.compareDocumentPosition(changes) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(activity.compareDocumentPosition(root.querySelector(".run-statistics")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(start).not.toHaveBeenCalled();
 });
 

@@ -1,0 +1,193 @@
+/* 对话、画像与仓库各自使用适合内容的工作面，不承担业务状态。 */
+.discovery-workspace {
+    /* 1136 内容宽度 = 720 对话 + 20 间隔 + 396 画像；列宽随工作区收缩。 */
+    grid-template-columns: minmax(0, 1.8fr) minmax(290px, 1fr);
+    gap: 20px;
+}
+.discovery-workspace.inspector-collapsed {
+    grid-template-columns: minmax(0, 1fr) 290px;
+}
+.discovery-workspace > .transcript-surface {
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    box-shadow: none;
+    overflow: hidden;
+}
+.transcript-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px 24px;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--line);
+}
+.transcript-toolbar .panel-header { margin: 0; gap: 16px; }
+.transcript-toolbar .panel-header h2 { margin: 0; font-size: 16px; }
+.transcript-toolbar .discovery-tabs { padding: 0; gap: 16px; }
+.transcript-toolbar .discovery-tabs button.secondary { padding: 7px 0; min-height: 36px; font-size: 13px; }
+.transcript-surface .chat-log {
+    height: clamp(360px, 48vh, 510px);
+    padding: 24px;
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+.transcript-surface .chat-log.empty-conversation { min-height: 310px; height: auto; }
+.transcript-surface .message,
+.transcript-surface .message.agent,
+.transcript-surface .message.user {
+    width: fit-content;
+    max-width: 92%;
+    padding: 16px 18px;
+    margin: 0;
+    flex: none;
+    background: #f6f7fb;
+    border: 1px solid var(--line);
+    border-radius: 12px 12px 12px 4px;
+    animation: none;
+}
+.transcript-surface .message.user { margin-left: auto; max-width: 86%; background: var(--selection); border-color: #d7dcf3; border-radius: 12px 12px 4px 12px; }
+.message-turn-header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; margin-bottom: 10px; }
+.message-turn-header .message-speaker { color: var(--ink); font-size: 13px; font-weight: 650; }
+.message-turn-header time { color: var(--muted); font-size: 12px; }
+.transcript-surface .message.user .message-speaker { color: var(--accent); }
+.transcript-surface .message p { max-width: 70ch; font-size: 15px; line-height: 1.9; }
+.transcript-surface .message .message-state { font-size: 12px; }
+.transcript-surface .accepted-state { justify-content: flex-end; }
+.transcript-surface .assistant-waiting { display: flex; align-items: center; gap: 12px; padding: 16px 18px; min-height: 52px; color: var(--muted); }
+.waiting-label { font-size: 13px; line-height: 1.6; }
+.transcript-surface .composer {
+    margin: 0;
+    padding: 20px 24px;
+    background: #f8f9fc;
+    border-top: 1px solid var(--line);
+}
+.transcript-surface .composer textarea { min-height: 90px; border-radius: 8px; background: var(--surface); }
+.transcript-surface .composer-footer { align-items: center; gap: 12px; }
+.transcript-surface .composer-footer .meta { font-size: 12px; }
+.transcript-surface .discovery-resume { background: #f8f9fc; }
+.discovery-workspace > .revision-notebook {
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #f8f9fd;
+    box-shadow: none;
+    overflow: hidden;
+}
+.notebook-heading { padding: 20px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.notebook-heading .panel-header { margin: 0 0 8px; gap: 8px; }
+.notebook-heading .panel-header h2 { font-size: 16px; }
+.notebook-heading > .meta { margin: 0; font-size: 12px; }
+.notebook-review { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.notebook-review .readiness-banner,
+.notebook-review > p { flex-basis: 100%; margin: 0 0 4px; padding: 0; border: 0; background: transparent; font-size: 13px; line-height: 1.7; }
+.notebook-review > button { margin: 0; min-height: 36px; padding: 8px 10px; font-size: 12px; }
+.revision-notebook #profile-inspector { padding: 4px 20px 16px; }
+.revision-notebook .profile-section { margin: 0; padding: 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.revision-notebook .profile-section > summary { grid-template-columns: 18px minmax(0, 1fr) 10px; gap: 4px 10px; padding: 16px 0; }
+.revision-notebook .profile-section > summary > .navigation-icon { width: 18px; height: 18px; margin: 3px 0 0; padding: 0; border-radius: 0; background: transparent; color: var(--muted); }
+.revision-notebook .dimension-name { font-size: 14px; }
+.revision-notebook .dimension-count { font-size: 12px; margin-left: 6px; }
+.revision-notebook .dimension-preview { font-size: 13px; line-height: 1.75; }
+.revision-notebook .profile-section > .section-row { padding: 8px 0 0; }
+.revision-notebook .profile-section > ul { padding-left: 20px; }
+.revision-notebook .profile-section > p { padding: 0; }
+.revision-notebook > .object-id { margin: 0; padding: 16px 20px; border-top: 1px solid var(--line); }
+.revision-notebook .original-descriptions { margin-top: 16px; }
+.discovery-workspace.review-layout { display: block; }
+.review-dossier .profile-review { max-height: none; overflow: visible; padding: 28px 32px; }
+.review-dossier .profile-review-heading { padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.review-dossier .profile-review-heading h2 { font-size: 24px; }
+.review-dossier .profile-review-grid { gap: 0 40px; }
+.review-dossier .profile-card { padding: 22px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; box-shadow: none; }
+.review-dossier .profile-card-icon { padding: 0; background: transparent; color: var(--muted); }
+.review-dossier .profile-card h3 { font-size: 16px; }
+.review-dossier .review-actions { padding: 24px 32px; background: #f8f9fc; }
+.discovery-welcome { padding: 40px; border-radius: 12px; }
+.discovery-welcome h2 { max-width: 24ch; font-size: 28px; }
+
+.repository-dossier.panel { padding: 0; border-radius: 12px; overflow: hidden; }
+.dossier-masthead { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 32px; padding: 28px; }
+.dossier-masthead .explorer-heading { display: block; margin: 0; }
+.dossier-masthead .repository-identity { gap: 14px; align-items: center; }
+.dossier-masthead .repository-identity .feature-symbol { display: inline-flex; width: 28px; height: 28px; color: var(--muted); }
+.dossier-masthead .repository-identity h2 { margin: 0; font-size: 21px; line-height: 1.6; }
+.dossier-masthead .repository-identity .path { margin: 8px 0 0; font-family: var(--font-mono); font-size: 13px; overflow-wrap: anywhere; }
+.dossier-masthead .explorer-heading > .tag { display: inline-flex; margin: 18px 0 0 42px; font-size: 12px; background: var(--canvas); color: var(--muted); }
+.dossier-masthead .dossier-revision { padding: 0; min-width: 0; }
+.dossier-revision .revision { margin: 0; padding: 0; }
+.dossier-revision .revision > span { margin-bottom: 8px; color: var(--muted); font-size: 12px; }
+.dossier-revision .revision > code { display: block; width: 100%; padding: 10px 12px; background: var(--canvas); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); font-size: 13px; overflow-wrap: anywhere; }
+.dossier-revision .meta { margin: 10px 0 0; font-size: 12px; line-height: 1.7; }
+.repository-dossier .dossier-navigation { position: static; display: flex; flex-wrap: wrap; gap: 0 20px; padding: 0 28px; border-block: 1px solid var(--line); background: #fafbfe; }
+.dossier-navigation .local-nav-button { width: auto; min-width: 0; min-height: 48px; gap: 8px; padding: 12px 0; margin: 0; border: 0; border-bottom: 2px solid transparent; border-radius: 0; font-size: 13px; }
+.dossier-navigation .local-nav-button .navigation-icon { width: 16px; height: 16px; }
+.dossier-navigation .local-nav-button[aria-pressed="true"],
+.dossier-navigation .local-nav-button[aria-pressed="true"]:hover { color: var(--accent); border-color: var(--accent); background: transparent; font-weight: 600; }
+.repository-dossier .dossier-layout { display: block; border: 0; }
+.repository-dossier .dossier-reading { padding: 28px; }
+.dossier-overview { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 40px; }
+.dossier-overview .repository-capabilities { padding-left: 32px; border-left: 1px solid var(--line); min-width: 0; }
+.dossier-reading .section-heading { color: var(--ink); font-size: 16px; }
+.dossier-reading .section-heading .navigation-icon { color: var(--muted); width: 18px; height: 18px; }
+.dossier-reading .reading-text { font-size: 16px; line-height: 1.85; }
+.dossier-reading .content-list { margin: 24px 0; }
+.dossier-overview .repository-capabilities > .content-list { margin-top: 0; }
+.dossier-reading .content-cards li,
+.dossier-reading .content-modules li { padding: 12px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.dossier-reading .content-list li span { font-size: 14px; line-height: 1.85; }
+.dossier-reading .content-tags li { background: var(--canvas); border-color: var(--line); color: var(--ink); border-radius: 4px; }
+.dossier-reading .content-tags li span { font-size: 12px; }
+.dossier-reading .content-risks li { border-radius: 6px; }
+.dossier-reading .object-id { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--line); }
+.repository-operations .two-column { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.repository-operations .two-column > section + section { padding-left: 28px; border-left: 1px solid var(--line); }
+.repository-operations .asset-card { border-radius: 8px; box-shadow: none; }
+
+@media (max-width: 1180px) {
+    .transcript-toolbar { align-items: flex-start; flex-direction: column; gap: 8px; padding-block: 16px; }
+    .transcript-toolbar .panel-header { width: 100%; justify-content: space-between; }
+    .transcript-toolbar .discovery-tabs { width: 100%; }
+    .discovery-workspace { grid-template-columns: minmax(0, 1.55fr) minmax(280px, 1fr); }
+    .dossier-masthead { gap: 24px; }
+    .repository-dossier .dossier-navigation { gap: 0 16px; }
+}
+@media (max-width: 960px) {
+    .discovery-workspace,
+    .discovery-workspace.inspector-collapsed { grid-template-columns: minmax(0, 1fr); }
+    .discovery-workspace > .revision-notebook { margin-bottom: 0; }
+    .dossier-masthead { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+    .dossier-overview { gap: 24px; }
+    .dossier-overview .repository-capabilities { padding-left: 24px; }
+    .repository-operations .two-column { grid-template-columns: minmax(0, 1fr); }
+    .repository-operations .two-column > section + section { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 640px) {
+    .transcript-toolbar { padding: 16px; }
+    .transcript-surface .chat-log { height: auto; max-height: 58vh; min-height: 250px; padding: 20px 16px; gap: 16px; }
+    .transcript-surface .message { padding: 14px; max-width: 96%; }
+    .transcript-surface .message.user { max-width: 91%; }
+    .message-turn-header { flex-wrap: wrap; gap: 4px 12px; }
+    .transcript-surface .composer { padding: 16px; }
+    .transcript-surface .composer textarea { font-size: 16px; }
+    .notebook-heading { padding: 20px 16px; }
+    .notebook-review > button { min-height: 44px; font-size: 13px; }
+    .revision-notebook #profile-inspector { padding-inline: 16px; }
+    .review-dossier .profile-review, .review-dossier .review-actions { padding: 20px 16px; }
+    .review-dossier .profile-review-grid { grid-template-columns: minmax(0, 1fr); }
+    .review-dossier .profile-card { padding-block: 16px; }
+    .review-dossier .profile-review-heading { gap: 12px; }
+    .review-dossier .profile-review-heading h2 { font-size: 21px; }
+    .discovery-welcome { padding: 24px 20px; }
+    .discovery-welcome h2 { font-size: 24px; }
+    .dossier-masthead { padding: 20px 16px; }
+    .dossier-masthead .repository-identity h2 { font-size: 19px; }
+    .repository-dossier .dossier-navigation { gap: 0 16px; padding: 0 16px; }
+    .dossier-navigation .local-nav-button { min-height: 44px; font-size: 12px; }
+    .repository-dossier .dossier-reading { padding: 24px 16px; }
+    .dossier-overview { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+    .dossier-overview .repository-capabilities { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+    .dossier-masthead .explorer-heading > .tag { margin-left: 0; }
+}
