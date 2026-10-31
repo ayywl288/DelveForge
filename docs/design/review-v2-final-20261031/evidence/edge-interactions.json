@@ -1,0 +1,222 @@
+[
+  {
+    "test": "fee-modal",
+    "width": 1440,
+    "open": true,
+    "text": "确认 API 费用与预算\n\nAgent 会调用已配置的外部模型 API，发送当前步骤目标和必要的已净化仓库材料，并持续编码、测试至可验证交付。\n\nAPI 调用会产生费用，实际费用以服务商账单为准。累计调用、tokens 与总运行时长没有自动停止门槛；取消不能撤回已发生的费用。\n\n我确认有足够的 API 预算，并愿意承担本次运行的实际费用。\n返回审阅\n确认费用并开始",
+    "confirmDisabled": true,
+    "focus": "返回审阅",
+    "dialog": {
+      "x": 425,
+      "y": 295.90625,
+      "width": 590,
+      "height": 308.1875,
+      "top": 295.90625,
+      "right": 1015,
+      "bottom": 604.09375,
+      "left": 425
+    },
+    "scrollWidth": 1440,
+    "axDialogs": [
+      {
+        "name": "确认 API 费用与预算",
+        "properties": [
+          {
+            "name": "focusable",
+            "value": {
+              "type": "booleanOrUndefined",
+              "value": true
+            }
+          },
+          {
+            "name": "modal",
+            "value": {
+              "type": "boolean",
+              "value": true
+            }
+          },
+          {
+            "name": "labelledby",
+            "value": {
+              "type": "nodeList",
+              "relatedNodes": [
+                {
+                  "backendDOMNodeId": 214,
+                  "idref": "v-3",
+                  "text": "确认 API 费用与预算"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "test": "fee-modal",
+    "width": 768,
+    "open": true,
+    "text": "确认 API 费用与预算\n\nAgent 会调用已配置的外部模型 API，发送当前步骤目标和必要的已净化仓库材料，并持续编码、测试至可验证交付。\n\nAPI 调用会产生费用，实际费用以服务商账单为准。累计调用、tokens 与总运行时长没有自动停止门槛；取消不能撤回已发生的费用。\n\n我确认有足够的 API 预算，并愿意承担本次运行的实际费用。\n返回审阅\n确认费用并开始",
+    "confirmDisabled": true,
+    "focus": "返回审阅",
+    "dialog": {
+      "x": 89,
+      "y": 295.90625,
+      "width": 590,
+      "height": 308.1875,
+      "top": 295.90625,
+      "right": 679,
+      "bottom": 604.09375,
+      "left": 89
+    },
+    "scrollWidth": 768,
+    "axDialogs": [
+      {
+        "name": "确认 API 费用与预算",
+        "properties": [
+          {
+            "name": "focusable",
+            "value": {
+              "type": "booleanOrUndefined",
+              "value": true
+            }
+          },
+          {
+            "name": "modal",
+            "value": {
+              "type": "boolean",
+              "value": true
+            }
+          },
+          {
+            "name": "labelledby",
+            "value": {
+              "type": "nodeList",
+              "relatedNodes": [
+                {
+                  "backendDOMNodeId": 536,
+                  "idref": "v-3",
+                  "text": "确认 API 费用与预算"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "test": "fee-modal",
+    "width": 420,
+    "open": true,
+    "text": "确认 API 费用与预算\n\nAgent 会调用已配置的外部模型 API，发送当前步骤目标和必要的已净化仓库材料，并持续编码、测试至可验证交付。\n\nAPI 调用会产生费用，实际费用以服务商账单为准。累计调用、tokens 与总运行时长没有自动停止门槛；取消不能撤回已发生的费用。\n\n我确认有足够的 API 预算，并愿意承担本次运行的实际费用。\n返回审阅\n确认费用并开始",
+    "confirmDisabled": true,
+    "focus": "返回审阅",
+    "dialog": {
+      "x": 18,
+      "y": 260.609375,
+      "width": 384,
+      "height": 378.78125,
+      "top": 260.609375,
+      "right": 402,
+      "bottom": 639.390625,
+      "left": 18
+    },
+    "scrollWidth": 420,
+    "axDialogs": [
+      {
+        "name": "确认 API 费用与预算",
+        "properties": [
+          {
+            "name": "focusable",
+            "value": {
+              "type": "booleanOrUndefined",
+              "value": true
+            }
+          },
+          {
+            "name": "modal",
+            "value": {
+              "type": "boolean",
+              "value": true
+            }
+          },
+          {
+            "name": "labelledby",
+            "value": {
+              "type": "nodeList",
+              "relatedNodes": [
+                {
+                  "backendDOMNodeId": 864,
+                  "idref": "v-3",
+                  "text": "确认 API 费用与预算"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "test": "fee-modal",
+    "width": 320,
+    "open": true,
+    "text": "确认 API 费用与预算\n\nAgent 会调用已配置的外部模型 API，发送当前步骤目标和必要的已净化仓库材料，并持续编码、测试至可验证交付。\n\nAPI 调用会产生费用，实际费用以服务商账单为准。累计调用、tokens 与总运行时长没有自动停止门槛；取消不能撤回已发生的费用。\n\n我确认有足够的 API 预算，并愿意承担本次运行的实际费用。\n返回审阅\n确认费用并开始",
+    "confirmDisabled": true,
+    "focus": "返回审阅",
+    "dialog": {
+      "x": 18,
+      "y": 236.8125,
+      "width": 284,
+      "height": 426.375,
+      "top": 236.8125,
+      "right": 302,
+      "bottom": 663.1875,
+      "left": 18
+    },
+    "scrollWidth": 320,
+    "axDialogs": [
+      {
+        "name": "确认 API 费用与预算",
+        "properties": [
+          {
+            "name": "focusable",
+            "value": {
+              "type": "booleanOrUndefined",
+              "value": true
+            }
+          },
+          {
+            "name": "modal",
+            "value": {
+              "type": "boolean",
+              "value": true
+            }
+          },
+          {
+            "name": "labelledby",
+            "value": {
+              "type": "nodeList",
+              "relatedNodes": [
+                {
+                  "backendDOMNodeId": 1182,
+                  "idref": "v-3",
+                  "text": "确认 API 费用与预算"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "test": "long-evidence-open",
+    "width": 320,
+    "scrollWidth": 320,
+    "textLength": 704,
+    "evidence": "源码与分析依据\n25\n\n第 1 / 5 页 · 第 1–6 条 · 共 25 条\n\n来自仓库文件\n1\n合成依据 1：完整保存模块、能力与来源之间的对应关系。\n来自仓库文件\n2\n合成依据 2：完整保存模块、能力与来源之间的对应关系。\n来自仓库文件\n3\n合成依据 3：完整保存模块、能力与来源之间的对应关系。\n来自仓库文件\n4\n合成依据 4：完整保存模块、能力与来源之间的对应关系。\n来自仓库文件\n5\n合成依据 5：完整保存模块、能力与来源之间的对应关系。\n来自仓库文件\n6\n合成依据 6：完整保存模块、能力与来源之间的对应关系。\n上一页\n页码\n1 / 5\n2 / 5\n3 / 5\n4 / 5\n5 / 5\n下一页",
+    "pageText": "整保存模块、能力与来源之间的对应关系。\n来自仓库文件\n3\n合成依据 3：完整保存模块、能力与来源之间的对应关系。\n来自仓库文件\n4\n合成依据 4：完整保存模块、能力与来源之间的对应关系。\n来自仓库文件\n5\n合成依据 5：完整保存模块、能力与来源之间的对应关系。\n来自仓库文件\n6\n合成依据 6：完整保存模块、能力与来源之间的对应关系。\n上一页\n页码\n1 / 5\n2 / 5\n3 / 5\n4 / 5\n5 / 5\n下一页\n选择已有仓库或已保存的分析\n仓库登记与授权\n1 个已登记资产\n\n用已确认画像与这些分析快照，探索候选产品方向。\n\n探索产品方向 →\n合成数据 · 隔离界面审阅 · 非真实后端执行结果"
+  }
+]

@@ -1,0 +1,169 @@
+[
+  {
+    "name": "projects",
+    "code": 0,
+    "findings": [
+      {
+        "level": "WARN",
+        "id": "panel-void",
+        "width": 1440,
+        "message": "1 card(s) hold a blank band inside: 48px in \"CLI 日志阅读器\".",
+        "fix": "A card stretches to its neighbour only when it has content to fill. Keep a legend or a note directly under its chart (only an action or a total may sit at a stretched card's foot), let a short card keep its own height (align-items: start), and let a filtered block shrink to its rows."
+      }
+    ]
+  },
+  {
+    "name": "discovery",
+    "code": 0,
+    "findings": []
+  },
+  {
+    "name": "review",
+    "code": 1,
+    "findings": [
+      {
+        "level": "WARN",
+        "id": "panel-void",
+        "width": 1440,
+        "message": "1 card(s) hold a blank band inside: 46px in \"项目需求\".",
+        "fix": "A card stretches to its neighbour only when it has content to fill. Keep a legend or a note directly under its chart (only an action or a total may sit at a stretched card's foot), let a short card keep its own height (align-items: start), and let a filtered block shrink to its rows."
+      },
+      {
+        "level": "FAIL",
+        "id": "blank-gap",
+        "width": 320,
+        "message": "2 stretch(es) of the page hold nothing at all: 88px at 1540px; 84px at 1724px (the screen is 200px tall).",
+        "fix": "Close the gap: a section gap is 120–240px on desktop and 72–112px on a phone. Look for a min-height: 100vh on a short section, an empty grid row, a hidden element still holding its space, or a reveal that never fired. A deliberate rest is a placed picture or colour field, not nothing."
+      }
+    ]
+  },
+  {
+    "name": "repository",
+    "code": 0,
+    "findings": [
+      {
+        "level": "WARN",
+        "id": "palette-cream",
+        "width": 420,
+        "message": "Yellow-cream background (section #fff7e8).",
+        "fix": "Use the drawn palette. If you want warmth, take a low-chroma stone or bone, not a yellow cream.",
+        "alsoAt": [
+          320
+        ]
+      },
+      {
+        "level": "WARN",
+        "id": "blank-gap",
+        "width": 320,
+        "message": "A 84px stretch at 1252px holds nothing.",
+        "fix": "Check that it is a deliberate rest (once per page at most); otherwise close it to the normal section gap."
+      }
+    ]
+  },
+  {
+    "name": "directions",
+    "code": 0,
+    "findings": [
+      {
+        "level": "WARN",
+        "id": "blank-gap",
+        "width": 320,
+        "message": "A 92px stretch at 1804px holds nothing.",
+        "fix": "Check that it is a deliberate rest (once per page at most); otherwise close it to the normal section gap."
+      }
+    ]
+  },
+  {
+    "name": "planning",
+    "code": 0,
+    "findings": [
+      {
+        "level": "WARN",
+        "id": "ragged-row",
+        "width": 1440,
+        "message": "1 pair(s) of cards in one row end at different heights (by 114px).",
+        "fix": "Cards that share a row share a bottom edge: balance them by their content (the same number of rows, a block of similar height beside it), or stack them. In testing, ragged rows were marked down every time."
+      }
+    ]
+  },
+  {
+    "name": "initial",
+    "code": 0,
+    "findings": [
+      {
+        "level": "WARN",
+        "id": "ragged-row",
+        "width": 1440,
+        "message": "1 pair(s) of cards in one row end at different heights (by 198px).",
+        "fix": "Cards that share a row share a bottom edge: balance them by their content (the same number of rows, a block of similar height beside it), or stack them. In testing, ragged rows were marked down every time."
+      },
+      {
+        "level": "WARN",
+        "id": "blank-gap",
+        "width": 320,
+        "message": "A 84px stretch at 1416px holds nothing.",
+        "fix": "Check that it is a deliberate rest (once per page at most); otherwise close it to the normal section gap."
+      }
+    ]
+  },
+  {
+    "name": "evolution",
+    "code": 0,
+    "findings": [
+      {
+        "level": "WARN",
+        "id": "ragged-row",
+        "width": 1440,
+        "message": "1 pair(s) of cards in one row end at different heights (by 303px).",
+        "fix": "Cards that share a row share a bottom edge: balance them by their content (the same number of rows, a block of similar height beside it), or stack them. In testing, ragged rows were marked down every time."
+      },
+      {
+        "level": "WARN",
+        "id": "blank-gap",
+        "width": 320,
+        "message": "A 84px stretch at 2560px holds nothing.",
+        "fix": "Check that it is a deliberate rest (once per page at most); otherwise close it to the normal section gap."
+      }
+    ]
+  },
+  {
+    "name": "candidate",
+    "code": 0,
+    "findings": [
+      {
+        "level": "WARN",
+        "id": "ragged-row",
+        "width": 1440,
+        "message": "1 pair(s) of cards in one row end at different heights (by 297px).",
+        "fix": "Cards that share a row share a bottom edge: balance them by their content (the same number of rows, a block of similar height beside it), or stack them. In testing, ragged rows were marked down every time."
+      },
+      {
+        "level": "WARN",
+        "id": "blank-gap",
+        "width": 320,
+        "message": "A 96px stretch at 3056px holds nothing.",
+        "fix": "Check that it is a deliberate rest (once per page at most); otherwise close it to the normal section gap."
+      }
+    ]
+  },
+  {
+    "name": "delivery",
+    "code": 0,
+    "findings": [
+      {
+        "level": "WARN",
+        "id": "ragged-row",
+        "width": 1440,
+        "message": "1 pair(s) of cards in one row end at different heights (by 487px).",
+        "fix": "Cards that share a row share a bottom edge: balance them by their content (the same number of rows, a block of similar height beside it), or stack them. In testing, ragged rows were marked down every time."
+      },
+      {
+        "level": "WARN",
+        "id": "blank-gap",
+        "width": 320,
+        "message": "A 92px stretch at 2808px holds nothing.",
+        "fix": "Check that it is a deliberate rest (once per page at most); otherwise close it to the normal section gap."
+      }
+    ]
+  }
+]

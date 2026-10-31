@@ -1,0 +1,1496 @@
+{
+ "url": "http://127.0.0.1:4179/?visual=review",
+ "at": "2026-10-31T12:50:55.964Z",
+ "allow": [],
+ "viewports": [
+  {
+   "width": 1440,
+   "height": 900,
+   "load": "load",
+   "screens": 2,
+   "filled": [
+    0.89,
+    0.93
+   ],
+   "motion": {
+    "elements": 3,
+    "css": 0,
+    "transitions": 3,
+    "scripted": 0,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "page": {
+     "height": 1042,
+     "screens": 1.2,
+     "words": 93,
+     "img": 0,
+     "video": 0,
+     "canvas": 0,
+     "svg": 19,
+     "sections": 8,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 0,
+     "uiAbuse": false,
+     "realPictures": 0,
+     "videoCount": 0,
+     "uiPictures": 0,
+     "pictureSamples": [],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "需求探索 User Discovery",
+     "words": 3,
+     "chars": 19,
+     "lines": 1,
+     "size": 23,
+     "vw": 1.6,
+     "font": "Segoe UI",
+     "weight": 650,
+     "tracking": -0.02,
+     "leading": 1.35,
+     "top": 86,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "h1": {
+     "text": "需求探索User Discovery",
+     "words": 2,
+     "lines": 1,
+     "size": 23,
+     "font": "Segoe UI"
+    },
+    "headings": [],
+    "headingSummary": {
+     "count": 0,
+     "maxLines": 0,
+     "over2Lines": 0,
+     "statements": 0,
+     "centered": 0,
+     "medianWords": null,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "Segoe UI",
+       "share": 0.98,
+       "mono": false
+      },
+      {
+       "family": "Cascadia Code",
+       "share": 0.02,
+       "mono": true
+      }
+     ],
+     "familyCount": 2,
+     "sizes": [
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      18,
+      23,
+      24
+     ],
+     "sizeCount": 9,
+     "notLoaded": [],
+     "body": null,
+     "measureChars": null,
+     "max": {
+      "size": 24,
+      "vw": 1.7,
+      "font": "Segoe UI",
+      "text": "审阅你的项目需求"
+     },
+     "monoShare": 0.02,
+     "monoProseShare": 0.02,
+     "monoFamilies": [
+      "Cascadia Code"
+     ],
+     "monoSamples": [
+      "01",
+      "02",
+      "03",
+      "04",
+      "05"
+     ],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0,
+     "centerShare": 0.07,
+     "smallText": 9
+    },
+    "eyebrows": [],
+    "numbered": [
+     {
+      "text": "01",
+      "size": 12,
+      "top": 338
+     },
+     {
+      "text": "02",
+      "size": 12,
+      "top": 417
+     },
+     {
+      "text": "03",
+      "size": 12,
+      "top": 497
+     },
+     {
+      "text": "04",
+      "size": 12,
+      "top": 567
+     },
+     {
+      "text": "05",
+      "size": 12,
+      "top": 638
+     }
+    ],
+    "color": {
+     "bodyBg": "#f2f3f8",
+     "bodyBgHsl": {
+      "h": 230,
+      "s": 0.3,
+      "l": 0.96
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#f2f3f8",
+       "top": 0,
+       "hsl": {
+        "h": 230,
+        "s": 0.3,
+        "l": 0.96
+       }
+      },
+      {
+       "color": "#ffffff",
+       "top": 171,
+       "hsl": {
+        "h": 0,
+        "s": 0,
+        "l": 1
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#252936",
+       "share": 0.35
+      },
+      {
+       "color": "#606a7e",
+       "share": 0.23
+      },
+      {
+       "color": "#586379",
+       "share": 0.16
+      },
+      {
+       "color": "#f4f5fa",
+       "share": 0.07
+      },
+      {
+       "color": "#535d73",
+       "share": 0.04
+      }
+     ],
+     "button": {
+      "bg": "#ffffff",
+      "hsl": {
+       "h": 0,
+       "s": 0,
+       "l": 1
+      },
+      "fg": "#4f58b8"
+     },
+     "lowContrast": []
+    },
+    "buttons": {
+     "count": 11,
+     "inHero": 11,
+     "radius": 5,
+     "height": 59,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": [
+      "跳至主要内容",
+      "项目工作台",
+      "01 需求探索 User Discovery",
+      "02 理解仓库 Repository Understanding 已有阶段结果",
+      "03 产品方向 Product Direction 已有阶段结果"
+     ]
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 0,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 11,
+     "hairlineSamples": [
+      "header.workspace-masthead 1440px",
+      "aside.sidebar 216px",
+      "div.transcript-toolbar 1166px",
+      "header.profile-review-heading 1102px",
+      "section.profile-card 531px"
+     ],
+     "outlinedBoxes": 2,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 2,
+     "boxRadius": 8,
+     "squareMedia": 0,
+     "roundedMedia": 0,
+     "mediaRadius": 0,
+     "textShadow": 0,
+     "cardRows": []
+    },
+    "heroMedia": [],
+    "nav": {
+     "links": 1,
+     "fixed": false,
+     "height": 58,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": []
+   },
+   "layout": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "pageH": 1042,
+    "margins": {
+     "left": 12,
+     "right": 43
+    },
+    "sections": [
+     {
+      "sel": "section.profile-review",
+      "tag": "section",
+      "top": 246,
+      "height": 558,
+      "words": 26,
+      "media": 0,
+      "middle": 93,
+      "heading": {
+       "text": "审阅你的项目需求",
+       "size": 24,
+       "tag": "h2"
+      },
+      "left": 277,
+      "right": 61,
+      "textLeft": 277,
+      "textRight": 70,
+      "fullBleed": false,
+      "footer": false,
+      "hero": true,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "div.review-actions",
+      "tag": "div",
+      "top": 804,
+      "height": 155,
+      "words": 4,
+      "media": 0,
+      "middle": 0,
+      "heading": null,
+      "left": 277,
+      "right": 942,
+      "textLeft": 292,
+      "textRight": 942,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [],
+    "h1s": [
+     {
+      "text": "需求探索User Discovery",
+      "size": 23,
+      "top": 86,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 303,
+      "n": 3
+     },
+     {
+      "x": 874,
+      "n": 3
+     },
+     {
+      "x": 269,
+      "n": 2
+     },
+     {
+      "x": 244,
+      "n": 1
+     }
+    ],
+    "leftBlocks": 9,
+    "bodySize": 16,
+    "stage": false,
+    "explains": false,
+    "slivers": [],
+    "voidShare": 0.1,
+    "voidBox": {
+     "x": 720,
+     "y": 120,
+     "w": 540,
+     "h": 240
+    }
+   },
+   "app": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "dark": false,
+    "ground": "#f2f3f8",
+    "sidebar": {
+     "w": 216,
+     "tag": "aside",
+     "links": 7,
+     "share": 0.15
+    },
+    "topbar": {
+     "h": 58
+    },
+    "canvas": {
+     "left": 28,
+     "right": 28
+    },
+    "hero": {
+     "text": "需求探索 User Discovery",
+     "words": 3,
+     "chars": 19,
+     "lines": 1,
+     "size": 23,
+     "vw": 1.6,
+     "font": "Segoe UI",
+     "weight": 650,
+     "tracking": -0.02,
+     "leading": 1.35,
+     "top": 86,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "charts": 0,
+    "layout": {
+     "panels": 2,
+     "firstScreen": 2,
+     "ragged": [],
+     "voids": [
+      {
+       "gap": 46,
+       "at": 371,
+       "panel": "项目需求"
+      }
+     ]
+    },
+    "tiles": 0,
+    "panels": {
+     "count": 4,
+     "radii": [
+      [
+       0,
+       2
+      ],
+      [
+       8,
+       1
+      ],
+      [
+       12,
+       1
+      ]
+     ],
+     "heavyBorders": 0,
+     "borderSamples": [],
+     "heavyShadows": 0,
+     "softShadows": 0,
+     "shadowSamples": [],
+     "glass": 0
+    },
+    "chips": {
+     "count": 0,
+     "hues": 0,
+     "samples": []
+    },
+    "numbers": {
+     "cells": 0,
+     "leftAligned": 0,
+     "figures": 5,
+     "tabularShare": 1,
+     "kpiMax": 12
+    },
+    "rows": null,
+    "chartHues": 0,
+    "placeholders": [],
+    "type": {
+     "under13": 0.26,
+     "tiny": 0,
+     "tinySamples": [],
+     "sizes": [
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      18,
+      23,
+      24
+     ]
+    },
+    "title": {
+     "text": "需求探索User Discovery",
+     "size": 23,
+     "top": 86
+    },
+    "colourShare": 0
+   },
+   "consoleErrors": []
+  },
+  {
+   "width": 420,
+   "height": 263,
+   "load": "load",
+   "screens": 6,
+   "filled": [
+    0.55,
+    0.92,
+    0.92,
+    0.92,
+    0.92,
+    0.69
+   ],
+   "motion": {
+    "elements": 1,
+    "css": 0,
+    "transitions": 1,
+    "scripted": 0,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 420,
+     "h": 263
+    },
+    "page": {
+     "height": 1550,
+     "screens": 5.9,
+     "words": 54,
+     "img": 0,
+     "video": 0,
+     "canvas": 0,
+     "svg": 19,
+     "sections": 8,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 0,
+     "uiAbuse": false,
+     "realPictures": 0,
+     "videoCount": 0,
+     "uiPictures": 0,
+     "pictureSamples": [],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "需求探索 User Discovery",
+     "words": 3,
+     "chars": 19,
+     "lines": 2,
+     "size": 22,
+     "vw": 5.2,
+     "font": "Segoe UI",
+     "weight": 650,
+     "tracking": -0.02,
+     "leading": 1.35,
+     "top": 118,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "h1": {
+     "text": "需求探索 User Discovery",
+     "words": 3,
+     "lines": 2,
+     "size": 22,
+     "font": "Segoe UI"
+    },
+    "headings": [
+     {
+      "text": "需求探索 User Discovery",
+      "words": 3,
+      "chars": 19,
+      "lines": 2,
+      "size": 22,
+      "vw": 5.2,
+      "font": "Segoe UI",
+      "weight": 650,
+      "tracking": -0.018,
+      "leading": 1.35,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "left",
+      "widthRatio": 0.66,
+      "top": 118,
+      "tag": "h1",
+      "kind": "heading"
+     }
+    ],
+    "headingSummary": {
+     "count": 1,
+     "maxLines": 2,
+     "over2Lines": 0,
+     "statements": 0,
+     "centered": 0,
+     "medianWords": null,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "Segoe UI",
+       "share": 1,
+       "mono": false
+      }
+     ],
+     "familyCount": 1,
+     "sizes": [
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      21,
+      22
+     ],
+     "sizeCount": 9,
+     "notLoaded": [],
+     "body": null,
+     "measureChars": null,
+     "max": {
+      "size": 22,
+      "vw": 5.2,
+      "font": "Segoe UI",
+      "text": "需求探索"
+     },
+     "monoShare": 0,
+     "monoProseShare": 0,
+     "monoFamilies": [],
+     "monoSamples": [],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0,
+     "centerShare": 0.11,
+     "smallText": 3
+    },
+    "eyebrows": [],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#f2f3f8",
+     "bodyBgHsl": {
+      "h": 230,
+      "s": 0.3,
+      "l": 0.96
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#f2f3f8",
+       "top": 0,
+       "hsl": {
+        "h": 230,
+        "s": 0.3,
+        "l": 0.96
+       }
+      },
+      {
+       "color": "#20232e",
+       "top": 0,
+       "hsl": {
+        "h": 227,
+        "s": 0.18,
+        "l": 0.15
+       }
+      },
+      {
+       "color": "#ffffff",
+       "top": 252,
+       "hsl": {
+        "h": 0,
+        "s": 0,
+        "l": 1
+       }
+      },
+      {
+       "color": "#f8f9fc",
+       "top": 1308,
+       "hsl": {
+        "h": 225,
+        "s": 0.4,
+        "l": 0.98
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#252936",
+       "share": 0.53
+      },
+      {
+       "color": "#606a7e",
+       "share": 0.32
+      },
+      {
+       "color": "#4f58b8",
+       "share": 0.05
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.04
+      },
+      {
+       "color": "#5d6576",
+       "share": 0.02
+      }
+     ],
+     "button": {
+      "bg": "#ffffff",
+      "hsl": {
+       "h": 0,
+       "s": 0,
+       "l": 1
+      },
+      "fg": "#4f58b8"
+     },
+     "lowContrast": []
+    },
+    "buttons": {
+     "count": 5,
+     "inHero": 3,
+     "radius": 5,
+     "height": 44,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": [
+      "跳至主要内容",
+      "项目与阶段",
+      "刷新已知对象"
+     ]
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 0,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 11,
+     "hairlineSamples": [
+      "header.workspace-masthead 420px",
+      "div.transcript-toolbar 386px",
+      "div.discovery-tabs 354px",
+      "header.profile-review-heading 354px",
+      "section.profile-card 354px"
+     ],
+     "outlinedBoxes": 1,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 1,
+     "boxRadius": 12,
+     "squareMedia": 0,
+     "roundedMedia": 0,
+     "mediaRadius": 0,
+     "textShadow": 0,
+     "cardRows": []
+    },
+    "heroMedia": [],
+    "nav": {
+     "links": 1,
+     "fixed": false,
+     "height": 96,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": []
+   },
+   "layout": {
+    "viewport": {
+     "w": 420,
+     "h": 263
+    },
+    "pageH": 1550,
+    "margins": {
+     "left": 16,
+     "right": 16
+    },
+    "sections": [
+     {
+      "sel": "section.profile-review",
+      "tag": "section",
+      "top": 361,
+      "height": 947,
+      "words": 26,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "审阅你的项目需求",
+       "size": 21,
+       "tag": "h2"
+      },
+      "left": 33,
+      "right": 33,
+      "textLeft": 33,
+      "textRight": 36,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "div.review-actions",
+      "tag": "div",
+      "top": 1308,
+      "height": 151,
+      "words": 4,
+      "media": 0,
+      "middle": 0,
+      "heading": null,
+      "left": 33,
+      "right": 166,
+      "textLeft": 48,
+      "textRight": 166,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [
+     {
+      "top": 1260,
+      "height": 80
+     },
+     {
+      "top": 1440,
+      "height": 84
+     }
+    ],
+    "h1s": [
+     {
+      "text": "需求探索 User Discovery",
+      "size": 22,
+      "top": 118,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 59,
+      "n": 6
+     },
+     {
+      "x": 33,
+      "n": 2
+     },
+     {
+      "x": 16,
+      "n": 1
+     }
+    ],
+    "leftBlocks": 9,
+    "bodySize": 16,
+    "stage": false,
+    "explains": false,
+    "slivers": [],
+    "voidShare": 0,
+    "voidBox": null
+   },
+   "app": {
+    "viewport": {
+     "w": 420,
+     "h": 263
+    },
+    "dark": false,
+    "ground": "#f2f3f8",
+    "sidebar": null,
+    "topbar": {
+     "h": 96
+    },
+    "canvas": {
+     "left": 16,
+     "right": 16
+    },
+    "hero": {
+     "text": "需求探索 User Discovery",
+     "words": 3,
+     "chars": 19,
+     "lines": 2,
+     "size": 22,
+     "vw": 5.2,
+     "font": "Segoe UI",
+     "weight": 650,
+     "tracking": -0.02,
+     "leading": 1.35,
+     "top": 118,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "charts": 0,
+    "layout": {
+     "panels": 1,
+     "firstScreen": 0,
+     "ragged": [],
+     "voids": []
+    },
+    "tiles": 0,
+    "panels": {
+     "count": 2,
+     "radii": [
+      [
+       12,
+       1
+      ],
+      [
+       0,
+       1
+      ]
+     ],
+     "heavyBorders": 0,
+     "borderSamples": [],
+     "heavyShadows": 0,
+     "softShadows": 0,
+     "shadowSamples": [],
+     "glass": 0
+    },
+    "chips": {
+     "count": 0,
+     "hues": 0,
+     "samples": []
+    },
+    "numbers": {
+     "cells": 0,
+     "leftAligned": 0,
+     "figures": 0,
+     "tabularShare": null,
+     "kpiMax": null
+    },
+    "rows": null,
+    "chartHues": 0,
+    "placeholders": [],
+    "type": {
+     "under13": 0.26,
+     "tiny": 0,
+     "tinySamples": [],
+     "sizes": [
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      21,
+      22
+     ]
+    },
+    "title": {
+     "text": "需求探索\nUser Discovery",
+     "size": 22,
+     "top": 118
+    },
+    "colourShare": 0
+   },
+   "consoleErrors": []
+  },
+  {
+   "width": 320,
+   "height": 200,
+   "load": "load",
+   "screens": 9,
+   "filled": [
+    0.68,
+    0.59,
+    0.92,
+    0.92,
+    0.92,
+    0.92,
+    0.92,
+    0.92,
+    0.6
+   ],
+   "motion": {
+    "elements": 1,
+    "css": 0,
+    "transitions": 1,
+    "scripted": 0,
+    "videos": 0,
+    "playingVideos": 0
+   },
+   "metrics": {
+    "viewport": {
+     "w": 320,
+     "h": 200
+    },
+    "page": {
+     "height": 1762,
+     "screens": 8.8,
+     "words": 54,
+     "img": 0,
+     "video": 0,
+     "canvas": 0,
+     "svg": 19,
+     "sections": 8,
+     "horizontalOverflow": 0,
+     "overflowCulprits": [],
+     "uiFragments": 0,
+     "uiAbuse": false,
+     "realPictures": 0,
+     "videoCount": 0,
+     "uiPictures": 0,
+     "pictureSamples": [],
+     "blendText": 0,
+     "sideScrollers": 0,
+     "brokenImages": [],
+     "emoji": [],
+     "videosNoPoster": 0
+    },
+    "hero": {
+     "text": "需求探索 User Discovery",
+     "words": 3,
+     "chars": 19,
+     "lines": 2,
+     "size": 22,
+     "vw": 6.9,
+     "font": "Segoe UI",
+     "weight": 650,
+     "tracking": -0.02,
+     "leading": 1.35,
+     "top": 118,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "h1": {
+     "text": "需求探索 User Discovery",
+     "words": 3,
+     "lines": 2,
+     "size": 22,
+     "font": "Segoe UI"
+    },
+    "headings": [
+     {
+      "text": "需求探索 User Discovery",
+      "words": 3,
+      "chars": 19,
+      "lines": 2,
+      "size": 22,
+      "vw": 6.9,
+      "font": "Segoe UI",
+      "weight": 650,
+      "tracking": -0.018,
+      "leading": 1.35,
+      "upper": false,
+      "italic": false,
+      "mono": false,
+      "align": "left",
+      "position": "center",
+      "widthRatio": 0.86,
+      "top": 118,
+      "tag": "h1",
+      "kind": "heading"
+     }
+    ],
+    "headingSummary": {
+     "count": 1,
+     "maxLines": 2,
+     "over2Lines": 0,
+     "statements": 0,
+     "centered": 0,
+     "medianWords": null,
+     "mixedFontHeadings": 0
+    },
+    "type": {
+     "families": [
+      {
+       "family": "Segoe UI",
+       "share": 1,
+       "mono": false
+      }
+     ],
+     "familyCount": 1,
+     "sizes": [
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      21,
+      22
+     ],
+     "sizeCount": 9,
+     "notLoaded": [],
+     "body": null,
+     "measureChars": null,
+     "max": {
+      "size": 22,
+      "vw": 6.9,
+      "font": "Segoe UI",
+      "text": "需求探索"
+     },
+     "monoShare": 0,
+     "monoProseShare": 0,
+     "monoFamilies": [],
+     "monoSamples": [],
+     "microLabels": 0,
+     "microLabelShare": 0,
+     "microSamples": [],
+     "upperShare": 0,
+     "centerShare": 0.11,
+     "smallText": 3
+    },
+    "eyebrows": [],
+    "numbered": [],
+    "color": {
+     "bodyBg": "#f2f3f8",
+     "bodyBgHsl": {
+      "h": 230,
+      "s": 0.3,
+      "l": 0.96
+     },
+     "dark": false,
+     "sectionBgs": [
+      {
+       "color": "#f2f3f8",
+       "top": 0,
+       "hsl": {
+        "h": 230,
+        "s": 0.3,
+        "l": 0.96
+       }
+      },
+      {
+       "color": "#20232e",
+       "top": 0,
+       "hsl": {
+        "h": 227,
+        "s": 0.18,
+        "l": 0.15
+       }
+      },
+      {
+       "color": "#ffffff",
+       "top": 308,
+       "hsl": {
+        "h": 0,
+        "s": 0,
+        "l": 1
+       }
+      },
+      {
+       "color": "#f8f9fc",
+       "top": 1521,
+       "hsl": {
+        "h": 225,
+        "s": 0.4,
+        "l": 0.98
+       }
+      }
+     ],
+     "textColors": [
+      {
+       "color": "#252936",
+       "share": 0.53
+      },
+      {
+       "color": "#606a7e",
+       "share": 0.32
+      },
+      {
+       "color": "#4f58b8",
+       "share": 0.05
+      },
+      {
+       "color": "#ffffff",
+       "share": 0.04
+      },
+      {
+       "color": "#5d6576",
+       "share": 0.02
+      }
+     ],
+     "button": {
+      "bg": "#ffffff",
+      "hsl": {
+       "h": 0,
+       "s": 0,
+       "l": 1
+      },
+      "fg": "#4f58b8"
+     },
+     "lowContrast": []
+    },
+    "buttons": {
+     "count": 5,
+     "inHero": 2,
+     "radius": 5,
+     "height": 44,
+     "withShadow": 0,
+     "withGradient": 0,
+     "mono": 0,
+     "upper": 0,
+     "heroLabels": [
+      "跳至主要内容",
+      "项目与阶段"
+     ]
+    },
+    "surfaces": {
+     "shadowStatic": 0,
+     "shadowOverlay": 0,
+     "shadowSamples": [],
+     "gradients": 0,
+     "scrims": 0,
+     "gradientSamples": [],
+     "gradientText": 0,
+     "hairlines": 11,
+     "hairlineSamples": [
+      "header.workspace-masthead 320px",
+      "div.transcript-toolbar 286px",
+      "div.discovery-tabs 254px",
+      "header.profile-review-heading 254px",
+      "section.profile-card 254px"
+     ],
+     "outlinedBoxes": 1,
+     "dashed": 0,
+     "blurred": 0,
+     "roundedBoxes": 1,
+     "boxRadius": 12,
+     "squareMedia": 0,
+     "roundedMedia": 0,
+     "mediaRadius": 0,
+     "textShadow": 0,
+     "cardRows": []
+    },
+    "heroMedia": [],
+    "nav": {
+     "links": 1,
+     "fixed": false,
+     "height": 96,
+     "floatingPill": false,
+     "blur": false
+    },
+    "fontsLoaded": []
+   },
+   "layout": {
+    "viewport": {
+     "w": 320,
+     "h": 200
+    },
+    "pageH": 1762,
+    "margins": {
+     "left": 16,
+     "right": 27
+    },
+    "sections": [
+     {
+      "sel": "header.page-header",
+      "tag": "header",
+      "top": 118,
+      "height": 134,
+      "words": 5,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "需求探索",
+       "size": 22,
+       "tag": "h1"
+      },
+      "left": 16,
+      "right": 28,
+      "textLeft": 16,
+      "textRight": 28,
+      "fullBleed": false,
+      "footer": false,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     },
+     {
+      "sel": "div.discovery-layout.discovery-workspace",
+      "tag": "div",
+      "top": 308,
+      "height": 1364,
+      "words": 34,
+      "media": 0,
+      "middle": 0,
+      "heading": {
+       "text": "审阅你的项目需求",
+       "size": 21,
+       "tag": "h2"
+      },
+      "left": 33,
+      "right": 33,
+      "textLeft": 33,
+      "textRight": 41,
+      "fullBleed": false,
+      "footer": true,
+      "hero": false,
+      "continues": false,
+      "pinned": false
+     }
+    ],
+    "gaps": [
+     {
+      "top": 552,
+      "height": 64
+     },
+     {
+      "top": 1476,
+      "height": 80
+     },
+     {
+      "top": 1652,
+      "height": 84
+     }
+    ],
+    "h1s": [
+     {
+      "text": "需求探索 User Discovery",
+      "size": 22,
+      "top": 118,
+      "firstScreen": true
+     }
+    ],
+    "edgeText": [],
+    "edges": [
+     {
+      "x": 59,
+      "n": 6
+     },
+     {
+      "x": 33,
+      "n": 2
+     },
+     {
+      "x": 16,
+      "n": 1
+     }
+    ],
+    "leftBlocks": 9,
+    "bodySize": 16,
+    "stage": false,
+    "explains": false,
+    "slivers": [],
+    "voidShare": 0,
+    "voidBox": null
+   },
+   "app": {
+    "viewport": {
+     "w": 320,
+     "h": 200
+    },
+    "dark": false,
+    "ground": "#f2f3f8",
+    "sidebar": null,
+    "topbar": {
+     "h": 96
+    },
+    "canvas": {
+     "left": 16,
+     "right": 27
+    },
+    "hero": {
+     "text": "需求探索 User Discovery",
+     "words": 3,
+     "chars": 19,
+     "lines": 2,
+     "size": 22,
+     "vw": 6.9,
+     "font": "Segoe UI",
+     "weight": 650,
+     "tracking": -0.02,
+     "leading": 1.35,
+     "top": 118,
+     "tag": "h1",
+     "kind": "heading",
+     "align": "left",
+     "position": "left"
+    },
+    "charts": 0,
+    "layout": {
+     "panels": 1,
+     "firstScreen": 0,
+     "ragged": [],
+     "voids": []
+    },
+    "tiles": 0,
+    "panels": {
+     "count": 2,
+     "radii": [
+      [
+       12,
+       1
+      ],
+      [
+       0,
+       1
+      ]
+     ],
+     "heavyBorders": 0,
+     "borderSamples": [],
+     "heavyShadows": 0,
+     "softShadows": 0,
+     "shadowSamples": [],
+     "glass": 0
+    },
+    "chips": {
+     "count": 0,
+     "hues": 0,
+     "samples": []
+    },
+    "numbers": {
+     "cells": 0,
+     "leftAligned": 0,
+     "figures": 0,
+     "tabularShare": null,
+     "kpiMax": null
+    },
+    "rows": null,
+    "chartHues": 0,
+    "placeholders": [],
+    "type": {
+     "under13": 0.26,
+     "tiny": 0,
+     "tinySamples": [],
+     "sizes": [
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      21,
+      22
+     ]
+    },
+    "title": {
+     "text": "需求探索\nUser Discovery",
+     "size": 22,
+     "top": 118
+    },
+    "colourShare": 0.001
+   },
+   "consoleErrors": []
+  }
+ ],
+ "findings": [
+  {
+   "level": "WARN",
+   "id": "panel-void",
+   "width": 1440,
+   "message": "1 card(s) hold a blank band inside: 46px in \"项目需求\".",
+   "fix": "A card stretches to its neighbour only when it has content to fill. Keep a legend or a note directly under its chart (only an action or a total may sit at a stretched card's foot), let a short card keep its own height (align-items: start), and let a filtered block shrink to its rows."
+  },
+  {
+   "level": "WARN",
+   "id": "blank-gap",
+   "width": 320,
+   "message": "A 84px stretch at 1652px holds nothing.",
+   "fix": "Check that it is a deliberate rest (once per page at most); otherwise close it to the normal section gap."
+  }
+ ],
+ "images": [
+  {
+   "viewport": "desktop",
+   "width": 1440,
+   "fold": "E:\\develop\\DelveForge\\target\\frontend-v2-final-20261031\\taste\\review-final\\desktop-fold.jpg",
+   "pages": [
+    "E:\\develop\\DelveForge\\target\\frontend-v2-final-20261031\\taste\\review-final\\desktop-page-01.jpg"
+   ],
+   "film": []
+  },
+  {
+   "viewport": "mobile",
+   "width": 420,
+   "fold": "E:\\develop\\DelveForge\\target\\frontend-v2-final-20261031\\taste\\review-final\\mobile-420-fold.jpg",
+   "pages": [
+    "E:\\develop\\DelveForge\\target\\frontend-v2-final-20261031\\taste\\review-final\\mobile-420-page-01.jpg"
+   ],
+   "film": []
+  },
+  {
+   "viewport": "mobile",
+   "width": 320,
+   "fold": "E:\\develop\\DelveForge\\target\\frontend-v2-final-20261031\\taste\\review-final\\mobile-320-fold.jpg",
+   "pages": [
+    "E:\\develop\\DelveForge\\target\\frontend-v2-final-20261031\\taste\\review-final\\mobile-320-page-01.jpg",
+    "E:\\develop\\DelveForge\\target\\frontend-v2-final-20261031\\taste\\review-final\\mobile-320-page-02.jpg"
+   ],
+   "film": []
+  }
+ ]
+}

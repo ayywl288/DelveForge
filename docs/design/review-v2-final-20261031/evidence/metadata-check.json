@@ -1,0 +1,44 @@
+[
+  {
+    "width": 1440,
+    "scenario": "candidate",
+    "scrollWidth": 1440,
+    "identity": "冻结版本与完整性\n\nCandidate candidate-visual-1\n\n冻结基线 · baseline\ncccccccccccccccccccccccccccccccccccccccc\n预期文件树 · expectedTree\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n\nSHA-256 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "jump": "交付需核对：查看原因、证据与代码结果",
+    "diagnostic": "后端记录的交付原因：WORKING_COPY_BUSY",
+    "focus": "agent-changes-title",
+    "hash": "#agent-changes-title",
+    "overflow": []
+  },
+  {
+    "width": 1440,
+    "scenario": "delivery",
+    "scrollWidth": 1440,
+    "revisions": "正式接受版本 · deliveryRevision\ndddddddddddddddddddddddddddddddddddddddd\n本步骤基线 · baselineRevision\ncccccccccccccccccccccccccccccccccccccccc",
+    "jump": "查看冻结文件、检查证据与正式交付",
+    "focus": "agent-changes-title",
+    "hash": "#agent-changes-title",
+    "overflow": []
+  },
+  {
+    "width": 320,
+    "scenario": "candidate",
+    "scrollWidth": 320,
+    "identity": "冻结版本与完整性\n\nCandidate candidate-visual-1\n\n冻结基线 · baseline\ncccccccccccccccccccccccccccccccccccccccc\n预期文件树 · expectedTree\nbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n\nSHA-256 ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "jump": "交付需核对：查看原因、证据与代码结果",
+    "diagnostic": "后端记录的交付原因：WORKING_COPY_BUSY",
+    "focus": "agent-changes-title",
+    "hash": "#agent-changes-title",
+    "overflow": []
+  },
+  {
+    "width": 320,
+    "scenario": "delivery",
+    "scrollWidth": 320,
+    "revisions": "正式接受版本 · deliveryRevision\ndddddddddddddddddddddddddddddddddddddddd\n本步骤基线 · baselineRevision\ncccccccccccccccccccccccccccccccccccccccc",
+    "jump": "查看冻结文件、检查证据与正式交付",
+    "focus": "agent-changes-title",
+    "hash": "#agent-changes-title",
+    "overflow": []
+  }
+]

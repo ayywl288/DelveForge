@@ -1,0 +1,124 @@
+{
+  "imageCount": 193,
+  "allDecoded": true,
+  "allHashesMatch": true,
+  "allLocalLinksExist": true,
+  "sourceCommit": "03a7c8e4f62153911d49a87d60291d9b1ff65020",
+  "frontendTree": "92becb37c574224e99ddb810d23c63d371381e41",
+  "buildHashes": {
+    "/index.html": "431e1dadb42a7639d8f41b52e06407185118f4463a57a8c620c824d33847f600",
+    "/assets/index-Cnonin-S.js": "0482f7307a1080ff88d1b20ae61c368ec6a698fcf228977ac45e5e37ef363bf6",
+    "/assets/index-RbqjaT1B.css": "2ab6b5afa0ac0b779cbfd21615dd17e9cea63a8591bafb3022921d99033b6c9c"
+  },
+  "totalBytes": 31445687,
+  "checks": [
+    {
+      "width": 1440,
+      "filter": "all",
+      "overflow": false,
+      "visible": 193,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 1440,
+      "filter": "1440",
+      "overflow": false,
+      "visible": 84,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 1440,
+      "filter": "420",
+      "overflow": false,
+      "visible": 84,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 1440,
+      "filter": "320",
+      "overflow": false,
+      "visible": 25,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 420,
+      "filter": "all",
+      "overflow": false,
+      "visible": 193,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 420,
+      "filter": "1440",
+      "overflow": false,
+      "visible": 84,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 420,
+      "filter": "420",
+      "overflow": false,
+      "visible": 84,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 420,
+      "filter": "320",
+      "overflow": false,
+      "visible": 25,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 320,
+      "filter": "all",
+      "overflow": false,
+      "visible": 193,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 320,
+      "filter": "1440",
+      "overflow": false,
+      "visible": 84,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 320,
+      "filter": "420",
+      "overflow": false,
+      "visible": 84,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    },
+    {
+      "width": 320,
+      "filter": "320",
+      "overflow": false,
+      "visible": 25,
+      "mismatches": 0,
+      "sections": 9,
+      "upscaled": 0
+    }
+  ]
+}

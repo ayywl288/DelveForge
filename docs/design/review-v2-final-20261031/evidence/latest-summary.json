@@ -1,0 +1,12 @@
+{
+  "screens": 65,
+  "dpr": [
+    1
+  ],
+  "textChecks": 3637,
+  "controlTextChecks": 1095,
+  "controlContrastFailures": [],
+  "overflow": [],
+  "unnamed": [],
+  "errors": []
+}
