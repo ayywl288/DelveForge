@@ -1,0 +1,22 @@
+$ vitest run
+
+ RUN  v4.1.9 E:/develop/DelveForge/frontend
+
+
+ Test Files  22 passed (22)
+      Tests  300 passed (300)
+   Start at  19:32:38
+   Duration  19.45s (transform 930ms, setup 211ms, import 2.62s, tests 4.39s, environment 9.00s)
+
+$ vue-tsc -b
+$ vue-tsc -b && vite build
+vite v8.3.0 building client environment for production...
+transforming...
+✓ 91 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.69 kB │ gzip:  0.48 kB
+dist/assets/index-C7fRjlHm.css  119.19 kB │ gzip: 22.61 kB
+dist/assets/index-CLUG_RNN.js   273.02 kB │ gzip: 94.50 kB
+
+✓ built in 401ms

@@ -1,0 +1,34 @@
+[
+  {
+    "width": 1440,
+    "normal": {
+      "pending": true,
+      "dots": 3,
+      "animations": 3,
+      "label": "正在整理你的想法",
+      "recoveryNotice": false,
+      "overflow": false
+    },
+    "reduced": {
+      "pending": true,
+      "animations": 0,
+      "label": "正在整理你的想法"
+    }
+  },
+  {
+    "width": 420,
+    "normal": {
+      "pending": true,
+      "dots": 3,
+      "animations": 3,
+      "label": "正在整理你的想法",
+      "recoveryNotice": false,
+      "overflow": false
+    },
+    "reduced": {
+      "pending": true,
+      "animations": 0,
+      "label": "正在整理你的想法"
+    }
+  }
+]
