@@ -183,6 +183,39 @@ public final class SqliteDeliveryStore implements DeliveryStore {
     }
 
     @Override
+    public boolean hasOnlyInitialInspectionFailures(Delivery delivery) {
+        if (delivery.state() != Delivery.State.RECOVERY_REQUIRED || delivery.revision() != null
+                || !Delivery.UNPROVEN_INSPECTION.equals(delivery.reason())) {
+            return false;
+        }
+        try (Connection connection = source.getConnection()) {
+            require(delivery.equals(read(connection, delivery.candidateId())));
+            try (var statement = connection.prepareStatement("""
+                    SELECT kind,summary FROM agent_event WHERE run_id=? AND kind GLOB 'DELIVERY_*'
+                    ORDER BY sequence
+                    """)) {
+                bind(statement, delivery.runId());
+                try (ResultSet rows = statement.executeQuery()) {
+                    if (!rows.next() || !rows.getString("kind").equals("DELIVERY_INTENT")) {
+                        return false;
+                    }
+                    boolean inspected = false;
+                    while (rows.next()) {
+                        if (!rows.getString("kind").equals("DELIVERY_RECOVERY_REQUIRED")
+                                || !Delivery.UNPROVEN_INSPECTION.equals(rows.getString("summary"))) {
+                            return false;
+                        }
+                        inspected = true;
+                    }
+                    return inspected;
+                }
+            }
+        } catch (SQLException failure) {
+            throw new AgentException("PERSISTENCE_FAILURE", "Cannot prove pre-mutation Delivery history", failure);
+        }
+    }
+
+    @Override
     public Delivery advance(Delivery expected, Delivery.State next, String revision, String reason) {
         boolean terminalBlock = next == Delivery.State.DELIVERY_BLOCKED || next == Delivery.State.RECOVERY_REQUIRED;
         boolean permitted = next == expected.state() || terminalBlock || switch (expected.state()) {

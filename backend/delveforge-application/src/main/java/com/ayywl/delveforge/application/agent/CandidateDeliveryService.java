@@ -117,10 +117,11 @@ public final class CandidateDeliveryService implements AutoCloseable {
                 if (position == CandidateDeliveryPort.Position.UNKNOWN) {
                     return store.advance(delivery, Delivery.State.RECOVERY_REQUIRED, delivery.revision(),
                             "MUTATION_NOT_STARTED".equals(delivery.reason()) ? delivery.reason()
-                                    : "Official Git/index/content cannot be proven; preserved for inspection");
+                                    : Delivery.UNPROVEN_INSPECTION);
                 }
+                boolean initialInspectionRetry = store.hasOnlyInitialInspectionFailures(delivery);
                 if (delivery.state() == Delivery.State.RECOVERY_REQUIRED
-                        && "MUTATION_NOT_STARTED".equals(delivery.reason())
+                        && ("MUTATION_NOT_STARTED".equals(delivery.reason()) || initialInspectionRetry)
                         && position != CandidateDeliveryPort.Position.BASELINE) {
                     // 已记录的外部冲突不能因现场后来碰巧等于 B 而变成一次成功写入。
                     return delivery;
@@ -129,7 +130,7 @@ public final class CandidateDeliveryService implements AutoCloseable {
                     boolean rejectedBeforeMutation = delivery.state() == Delivery.State.RECOVERY_REQUIRED
                             && "MUTATION_NOT_STARTED".equals(delivery.reason());
                     if (delivery.state() != Delivery.State.INTENT && delivery.state() != Delivery.State.DELIVERY_BLOCKED
-                            && !rejectedBeforeMutation) {
+                            && !rejectedBeforeMutation && !initialInspectionRetry) {
                         return store.advance(delivery, Delivery.State.RECOVERY_REQUIRED, delivery.revision(),
                                 "Official state regressed after a proven mutation");
                     }

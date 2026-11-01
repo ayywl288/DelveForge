@@ -1,5 +1,9 @@
 # DOMAIN_MODEL.md
 
+**2026-11-01 用户授权的 Delivery 修复：** 允许对初始检查阻塞显式重试：持久历史必须只有 INTENT
+及写入前检查失败，revision 为空；重新证明完整干净 R、无不完整写入标记并重查原授权后，才可重放同一
+Candidate。任何已写入/待协调历史、回退现场或碰巧等于 B 均不适用；不自动启动恢复。见 ADR-0013。
+
 **当前入口（2026-10-28）：** MVP 领域合同冻结。本次仅整理说明，不引入新状态、授权或恢复能力。
 现行 Agent / Candidate / Delivery 与 Plan 收尾以下列日期补充及 ADR-0012/0013/0014 为准；
 旧 M4/M5 执行结果与独立 Repair/Rollback 描述保留历史含义。
@@ -47,7 +51,7 @@ parent(C)=P、tree(C)=B。下文交付合同的一般 Step 基线用 R 表示；
 - Delivery：INTENT→APPLIED→COMMIT_READY→PUBLISHED→COMPLETED。应用或发布后的日志落盘中断可从
   实际 Git 事实恢复，允许跳过已经证明完成的阶段。DELIVERY_BLOCKED 表示明确阻塞；RECOVERY_REQUIRED
   表示安全现场不能证明，继续保留独占预约。不自动硬重置、清理、重打补丁或推进信任。
-  2026-10-23：只有原生边界已证明未开始正式文件/index 写入的冲突，才允许在外部冲突处理后、
+  2026-10-23（2026-11-01 初始检查阻塞补充见页首）：原生边界已证明未开始正式文件/index 写入的冲突，允许在外部冲突处理后、
   再次完整证明干净 R 且重新核对授权的显式 Delivery 重试中恢复。部分写入标记或碰巧等于 B
   不能绕过已记录的冲突；RECOVERY_REQUIRED 不由启动协调自动重试。
 - 正式 C 必须 parent=R 且 tree(C)=B。成功接受在同一 SQLite 事务保存 Step.baselineRevision=R、

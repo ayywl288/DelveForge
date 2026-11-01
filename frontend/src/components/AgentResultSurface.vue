@@ -50,11 +50,11 @@ const emit = defineEmits<{ deliver: [] }>();
         <FileChangeSummary :key="candidate.id" :files="candidateFiles" />
         <p v-if="filesUnavailable" class="meta" role="status">文件分类暂未读回，可刷新记录重试。</p>
       </div>
-      <p v-if="delivery?.state === 'RECOVERY_REQUIRED'" class="resource-warning" role="alert">正式副本状态需要核对，后续执行已停止。请查看开发者详情。</p>
+      <p v-if="delivery?.state === 'RECOVERY_REQUIRED'" class="resource-warning" role="alert">正式副本状态需要核对，后续执行已停止。可重新核对已有结果；只有版本、文件内容和交付历史均通过安全检查才会继续，不会重新编码。</p>
       <p v-else-if="delivery?.state === 'DELIVERY_BLOCKED'" class="resource-warning" role="alert">正式交付受阻，编码结果已保留。</p>
       <p v-if="delivery?.reason" class="delivery-diagnostic">后端记录的交付原因：<code>{{ delivery.reason }}</code></p>
       <button v-if="!delivery || ['DELIVERY_BLOCKED', 'PUBLISHED', 'COMMIT_READY', 'APPLIED'].includes(delivery.state)
-        || delivery.state === 'RECOVERY_REQUIRED' && delivery.reason === 'MUTATION_NOT_STARTED'" :disabled="pending"
+        || delivery.state === 'RECOVERY_REQUIRED'" :disabled="pending"
         @click="emit('deliver')">重新核对并交付已有结果</button>
       <AgentTestEvidence :evidence="candidate.testEvidence" />
       </template>

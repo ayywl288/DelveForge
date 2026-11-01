@@ -16,6 +16,9 @@ public interface DeliveryStore {
 
     void requireAuthorized(Delivery delivery);
 
+    /** 仅有初始 INTENT 及写入前检查失败；任何已写入、待协调或其他失败历史均不符合。 */
+    boolean hasOnlyInitialInspectionFailures(Delivery delivery);
+
     Delivery advance(Delivery expected, Delivery.State next, String revision, String reason);
 
     void accept(Delivery delivery);
