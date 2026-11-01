@@ -1,5 +1,10 @@
 # ARCHITECTURE.md
 
+**2026-11-01 Delivery 修复：** Workspace 接受 provision 合法继承的普通 shallow 边界文件，
+不把它视为未完成 Git 操作；C 的唯一父、树、index、全部文件内容及原生写入检查保持。
+Application 通过 DeliveryStore 核对持久事件，显式恢复仅有初始检查失败且重新证明 R 的同一交付；
+RECOVERY_REQUIRED 不由启动协调自动重试。无模块、数据库结构或模型调用变更，见 ADR-0013。
+
 **当前入口（2026-10-28）：** 架构冻结，运行基线 1b9baa6 / 完整证据基线 11c4aa3。
 以下有明确日期的补充及 ADR 决定现行合同，旧 M4/M5 段落保留历史含义。
 本次收尾不改变模块依赖、Port、领域状态或交付语义。

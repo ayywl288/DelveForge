@@ -222,10 +222,18 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
         try {
             for (String path : List.of("index.lock", "HEAD.lock", "MERGE_HEAD", "REBASE_HEAD", "CHERRY_PICK_HEAD",
                     "REVERT_HEAD", "rebase-merge", "rebase-apply", "sequencer", "info/grafts", "refs/replace",
-                    "shallow", "info/sparse-checkout")) {
+                    "info/sparse-checkout")) {
                 if (Files.exists(target.resolve(".git").resolve(path), LinkOption.NOFOLLOW_LINKS)) {
-                    throw new WorkingCopyBasisChangedException("Unresolved Git operation prevents Delivery");
+                    throw new WorkingCopyBasisChangedException("Unresolved Git operation prevents Delivery: " + path);
                 }
+            }
+            // provision 会继承浅克隆边界；它不是未完成操作，不妨碍以 R 为父创建并证明 C。
+            // 仍拒绝非普通 shallow 文件；发布时的完整父列表/树/index/内容检查不变。
+            Path shallow = target.resolve(".git/shallow");
+            if (Files.exists(shallow, LinkOption.NOFOLLOW_LINKS)
+                    && (!Files.isRegularFile(shallow, LinkOption.NOFOLLOW_LINKS)
+                    || !shallow.toRealPath().equals(shallow))) {
+                throw new WorkingCopyBasisChangedException("Shallow boundary file identity cannot be proven");
             }
             String head = Files.readString(target.resolve(".git/HEAD")).strip();
             if (!head.matches("[0-9a-f]{40}")) {
@@ -268,6 +276,8 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
             requireDeliveryTree(copy, original, head, delivery.baseline());
             return Position.BASELINE;
         } catch (WorkspaceException | WorkingCopyBasisChangedException failure) {
+            log.warn("operation=delivery.inspect candidate={} result=UNKNOWN reason={}",
+                    delivery.candidateId(), failure.getMessage());
             return Position.UNKNOWN;
         }
     }

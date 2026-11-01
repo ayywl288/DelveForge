@@ -390,12 +390,18 @@ it("background Candidate arrival invalidates an old Cancel result without strand
   expect(button(root, "重新核对并交付已有结果").disabled).toBe(false);
 });
 
-it.each(["MUTATION_NOT_STARTED", "DELIVERY_FAILURE"])("recovery retry is offered only for a proven untouched rejection (%s)", async reason => {
+it.each(["MUTATION_NOT_STARTED", "DELIVERY_FAILURE", "Official Git/index/content cannot be proven; preserved for inspection"])("offers an explicit server-guarded recheck without starting another Run (%s)", async reason => {
   const frozen: AgentRun = { ...running(), state: "SUCCEEDED", candidateId: "candidate-1" };
   vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
   vi.spyOn(api, "delivery").mockResolvedValue({ candidateId: "candidate-1", state: "RECOVERY_REQUIRED", revision: null, reason });
   const { root } = mount([frozen]); await settle();
-  expect(Boolean(button(root, "重新核对并交付已有结果"))).toBe(reason === "MUTATION_NOT_STARTED");
+  const deliver = vi.spyOn(api, "deliver").mockResolvedValue({ candidateId: "candidate-1", state: "RECOVERY_REQUIRED", revision: null, reason });
+  const start = vi.spyOn(api, "startAgent");
+  expect(root.textContent).toContain("只有版本、文件内容和交付历史均通过安全检查才会继续");
+  button(root, "重新核对并交付已有结果").click(); await settle();
+  expect(deliver).toHaveBeenCalledExactlyOnceWith("candidate-1");
+  expect(start).not.toHaveBeenCalled();
+  expect(root.querySelector(".agent-changes .resource-warning")?.textContent).toContain("后续执行已停止");
 });
 
 it("ignores late file classification after switching to another Candidate", async () => {

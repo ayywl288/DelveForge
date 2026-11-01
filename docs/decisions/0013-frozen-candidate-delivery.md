@@ -105,3 +105,25 @@ Application 要求该最终 Delivery 已 COMPLETED，并在 Workspace 原生锁�
 Domain 验证所有 Step 与最终可信 revision，短事务再次校验步骤、占用与 CAS 后完成 Plan/WorkingCopy。
 重复调用幂等，完成事件单独记录当前时间。没有模型、补丁重放、新提交、原数据迁移或启动时批量改写；
 原 Candidate、Delivery、Run 与 Step 历史保持。任何不明 Git 状态或事务失败都不能形成部分收尾。
+
+## 2026-11-01：浅克隆与初始检查阻塞的显式恢复
+
+实际摄影案例中，兼容性检查及 provision 接受原仓库的浅克隆，并按 Git 合法行为继承 shallow 文件。
+Delivery 却将该文件与未完成合并、锁等一并拒绝；在第一次 inspect 中返回 UNKNOWN，尚未调用 replay/apply。
+完整 tracked 字节/index/HEAD 仍为 R，没有 incomplete 标记；原日志仅有 INTENT 和初始检查阻塞。
+这不是原生写入失败，也不能冒充 MUTATION_NOT_STARTED。
+
+移除对普通 shallow 文件的无条件拒绝，仍拒绝其链接/非普通文件；不移除或改写浅克隆边界。
+新 C 的完整单父列表必须等于 C/R，tree/index/content 必须等于 B。若 C 本身被外部设为 shallow，
+父列表无法证明，仍为 UNKNOWN。既有未完成操作、外部属性、锁及 incomplete 检查不变。
+
+有意补充 2026-10-23 的恢复规则：显式 Delivery POST 可恢复初始检查阻塞，条件为同一预约及授权、
+revision 为空，持久事件必须恰为一次 DELIVERY_INTENT 后仅有该写入前检查失败（保留旧版原因字符串），
+实际状态重新完整证明为 BASELINE，且无 incomplete 标记。任何 APPLIED/PENDING/其他失败事件均拒绝；
+历史没有证明写入，却碰巧发现 B，也不能接受。查询失败保留阻塞。startup 仍不提交 RECOVERY_REQUIRED。
+在原生锁内重新核对，沿用原 Candidate/Diff/Delivery；后续 replay/apply/commit/CAS/接受事务全部不变。
+
+仅删除 shallow 检查无法恢复已经保存的 RECOVERY_REQUIRED；放开所有干净 R 会丢失已写入历史的意义；
+外部删除 shallow、重建 Candidate 或直接改数据库会破坏现场及身份。因此采用只读历史证明加显式重试。
+代价是缺少完整初始事件的旧记录仍然阻塞，不推断它从未写入。UI 对恢复状态提供重新核对入口，说明只有
+安全证明通过才继续；不启动 Agent、不保证恢复成功，不新增通用 Recovery 工作流或数据库迁移。

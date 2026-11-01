@@ -7,6 +7,9 @@ public record Delivery(String candidateId, String runId, String planId, String s
         String baseline, String expectedTree, String location, String originalLocation, State state,
         String revision, String reason, Instant createdAt) {
 
+    public static final String UNPROVEN_INSPECTION =
+            "Official Git/index/content cannot be proven; preserved for inspection";
+
     public enum State {
         INTENT, APPLIED, COMMIT_READY, PUBLISHED, COMPLETED, DELIVERY_BLOCKED, RECOVERY_REQUIRED
     }

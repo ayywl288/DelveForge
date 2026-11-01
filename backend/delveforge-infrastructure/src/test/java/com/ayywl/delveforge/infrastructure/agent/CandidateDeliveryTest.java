@@ -131,6 +131,85 @@ class CandidateDeliveryTest {
         return deliveries.reserve(candidate, agents.get(candidate.runId()), copy.toString(), original.toString());
     }
 
+    @Test
+    void shallowSourceIsProvisionedAndDeliveredWithoutRemovingBoundary() throws Exception {
+        Files.writeString(original.resolve(".git/shallow"), baseline + "\n");
+        copy = Path.of(workspace.provision(new WorkspaceRef(original.toString()), baseline, "shallow-copy")
+                .workspace().value());
+        assertEquals(baseline + "\n", Files.readString(copy.resolve(".git/shallow")));
+        sql("UPDATE working_copy SET location='" + escape(copy.toString()) + "'");
+        eligibility = CodingAgentServiceTest.eligibility(baseline, copy, workspace, original);
+        deliveries = new SqliteDeliveryStore(source, eligibility);
+        try (var service = service()) {
+            assertAccepted(service.deliver(candidate.id()));
+        }
+        assertEquals(baseline + "\n", Files.readString(copy.resolve(".git/shallow")));
+    }
+
+    @Test
+    void explicitRetryRecoversInitialInspectionFailureUsingSameJournal() throws Exception {
+        GitWorkspaceAdapter unavailableInspection = new GitWorkspaceAdapter(managed) {
+            @Override
+            public Position inspect(Delivery delivery) {
+                return Position.UNKNOWN;
+            }
+        };
+        Delivery blocked;
+        try (var service = new CandidateDeliveryService(agents, deliveries, unavailableInspection, eligibility)) {
+            blocked = service.deliver(candidate.id());
+        }
+        assertEquals(Delivery.State.RECOVERY_REQUIRED, blocked.state());
+        assertTrue(deliveries.unfinished().isEmpty());
+        assertEquals(baseline, git(copy, "rev-parse", "HEAD").strip());
+        try (var service = service()) {
+            Delivery recovered = service.deliver(candidate.id());
+            assertAccepted(recovered);
+            assertEquals(blocked.createdAt(), recovered.createdAt());
+            assertEquals(candidate, agents.candidate(candidate.id()));
+            assertEquals("1", scalar("SELECT count(*) FROM candidate_delivery"));
+            assertEquals(recovered, service.deliver(candidate.id()));
+        }
+    }
+
+    @Test
+    void inspectionFailureCannotEraseEarlierMutationCheckpoint() throws Exception {
+        Delivery reserved = intent();
+        Delivery applied = deliveries.advance(reserved, Delivery.State.APPLIED, null, null);
+        deliveries.advance(applied, Delivery.State.RECOVERY_REQUIRED, null,
+                "Official Git/index/content cannot be proven; preserved for inspection");
+        try (var service = service()) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertEquals(baseline, git(copy, "rev-parse", "HEAD").strip());
+        assertEquals("READY", scalar("SELECT status FROM evolution_step"));
+    }
+
+    @Test
+    void initialInspectionFailureCannotAcceptAnExternallyAppliedCandidateTree() throws Exception {
+        Delivery reserved = intent();
+        deliveries.advance(reserved, Delivery.State.RECOVERY_REQUIRED, null, Delivery.UNPROVEN_INSPECTION);
+        workspace.replay(reserved, candidate);
+        workspace.apply(reserved, candidate);
+        assertEquals(CandidateDeliveryPort.Position.APPLIED, workspace.inspect(reserved));
+        try (var service = service()) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertEquals(baseline, git(copy, "rev-parse", "HEAD").strip());
+        assertEquals("READY", scalar("SELECT status FROM evolution_step"));
+        assertEquals("1", scalar("SELECT occupied FROM candidate_delivery"));
+    }
+
+    @Test
+    void pendingMutationHistoryCannotBeMistakenForInitialInspectionFailure() throws Exception {
+        Delivery reserved = intent();
+        agents.event(candidate.runId(), "DELIVERY_PENDING", "PERSISTENCE_FAILURE; durable checkpoint retained");
+        deliveries.advance(reserved, Delivery.State.RECOVERY_REQUIRED, null, Delivery.UNPROVEN_INSPECTION);
+        try (var service = service()) {
+            assertEquals(Delivery.State.RECOVERY_REQUIRED, service.deliver(candidate.id()).state());
+        }
+        assertEquals("READY", scalar("SELECT status FROM evolution_step"));
+    }
+
     private void withAddedFile(String path) throws Exception {
         Path result = temporary.resolve("result");
         Files.createDirectories(result.resolve(path).getParent());
