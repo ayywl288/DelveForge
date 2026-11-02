@@ -1140,6 +1140,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             diagnostic += sanitize(docker(List.of("logs", "--tail", "20", name(id, "proxy")), null,
                     CONTROL_TIMEOUT, 8192, () -> false).text());
             session.lastPreparation = diagnostic.substring(Math.max(0, diagnostic.length() - 10000));
+        } catch (AgentException failure) {
+            if (!failure.code().equals("TIME_LIMIT")) {
+                throw failure;
+            }
+            // 先停止项目进程，再读取有界诊断；原 TIME_LIMIT 及失败状态不变，清理仍由 finally 执行。
+            stopContainer(name(id, "prepare"));
+            session.lastPreparation = mavenPreparationTimeoutDiagnostic(session);
+            throw new AgentException("TIME_LIMIT", session.lastPreparation, failure);
         } finally {
             removeContainer(name(id, "prepare"));
             removeVolume(name(id, "prepare-source"));
@@ -1151,6 +1159,39 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (!before.equals(after.path("result").path("snapshot").asText())) {
             throw new AgentException("DEPENDENCY_PREPARATION_MUTATED_SOURCE", "Dependency preparation changed source files");
         }
+    }
+
+    private String mavenPreparationTimeoutDiagnostic(Session session) {
+        String id = session.task.runId();
+        ObjectNode diagnostic = json.createObjectNode().put("phase", "MAVEN_DEPENDENCY_PREPARATION")
+                .put("outcome", "TIME_LIMIT").put("limitSeconds", session.limits.checkSeconds() * 3L);
+        try {
+            String log = sanitize(docker(List.of("logs", "--tail", "80", name(id, "prepare")),
+                    null, CONTROL_TIMEOUT, 65536, () -> false).text());
+            String lastPhase = log.lines().filter(line -> line.startsWith("[INFO] ---"))
+                    .reduce((previous, current) -> current).orElse("NOT_OBSERVED");
+            diagnostic.put("lastMavenPhase", lastPhase.substring(0, Math.min(lastPhase.length(), 512)));
+        } catch (AgentException unavailable) {
+            diagnostic.put("mavenLogUnavailable", unavailable.code());
+        }
+        try {
+            byte[] bytes = docker(List.of("exec", name(id, "proxy"), "python3", "-c",
+                    "import pathlib,sys; p=pathlib.Path('/tmp/delveforge-maven-progress.json'); "
+                            + "sys.stdout.buffer.write(p.read_bytes()[:32769] if p.is_file() else b'{}')"),
+                    null, CONTROL_TIMEOUT, 32768, () -> false).bytes();
+            diagnostic.set("proxyProgress", sanitizeNode(parse(bytes)));
+        } catch (AgentException unavailable) {
+            diagnostic.put("proxyProgressUnavailable", unavailable.code());
+        }
+        try {
+            JsonNode state = parse(docker(List.of("inspect", "--format", "{{json .State}}", name(id, "prepare")),
+                    null, CONTROL_TIMEOUT, 8192, () -> false).bytes());
+            diagnostic.put("oomKilled", state.path("OOMKilled").asBoolean());
+            diagnostic.put("stoppedExitCode", state.path("ExitCode").asInt());
+        } catch (AgentException unavailable) {
+            diagnostic.put("containerStateUnavailable", unavailable.code());
+        }
+        return diagnostic.toString();
     }
 
     private Session requireSession(String id) {

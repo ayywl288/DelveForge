@@ -1,5 +1,10 @@
 # ARCHITECTURE.md
 
+**2026-11-02 Maven 有界诊断修正：** 准备超时保留 TIME_LIMIT；先停止项目进程，再在清理前读取净化的最后阶段、
+可信代理的有限工件/缓存/重试指标及 OOM 标记。不记录原始 URL、凭据、响应体或完整进程环境。
+代理在工件摘要核对成功后原子缓存其 SHA-1 旁文件，供 Maven 的后续请求复用；失败摘要不发布工件或新旁文件。
+网络、源副本、内容能力、检查证据及 Candidate/Delivery 边界不变，无新 Port、协议版本或领域状态。
+
 **2026-11-02 仓库内容能力边界：** Infrastructure 的 RepositoryContentPolicy 分开判定原 Git 保留、模型披露、
 执行可用和修改能力。正式 WorkingCopy 与可信 R 完整保留；只有执行树 E 删除必须留在主机的条目。
 E 是显式执行投影，不是新的领域 baseline 或字节相同的完整 checkout。Java 为资源绑定原 path/mode/SHA-256，

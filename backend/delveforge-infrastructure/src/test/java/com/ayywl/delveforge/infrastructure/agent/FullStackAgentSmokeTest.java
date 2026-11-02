@@ -146,10 +146,13 @@ class FullStackAgentSmokeTest {
                     : new AgentProtocol.Reply("{\"status\":\"completed\",\"summary\":\"Counter increment\"}", List.of(), 1L);
         };
         String candidateId;
+        AgentProtocol.Limits limits = AgentProtocol.Limits.defaults();
+        // 混合场景含故意损坏摘要和恢复后的两次安装；总等待须容纳两个已有准备时限及离线检查。
+        int workflowSeconds = mixed ? 2 * limits.checkSeconds() * 3 + limits.checkSeconds() : 600;
         try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
-                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+                new DeterministicRepositorySecretPolicy(), limits)) {
             var run = agent.start("plan", "step", 21);
-            var terminal = CodingAgentServiceTest.awaitTerminal(agent, run.id(), 600);
+            var terminal = CodingAgentServiceTest.awaitTerminal(agent, run.id(), workflowSeconds);
             assertEquals(AgentRunState.SUCCEEDED, terminal.state(), terminal.reason()
                     + "\n" + String.join("\n", observations));
             candidateId = terminal.candidateId();
