@@ -743,6 +743,22 @@ class CandidateDeliveryTest {
         assertEquals("", git(copy, "status", "--porcelain"));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {".env.example", ".npmrc", "sensitive.properties"})
+    void independentDeliveryRejectsForgedResourceChangesBeforeOfficialMutation(String path) throws Exception {
+        String content = path.equals(".npmrc") ? "registry=https://registry.npmjs.org/\n"
+                : path.equals(".env.example") ? "API_URL=https://example.com\n" : "password=private-fixture\n";
+        Files.writeString(temporary.resolve("result").resolve(path), content);
+        refreshCandidate();
+        try (var service = service()) {
+            assertEquals(Delivery.State.DELIVERY_BLOCKED, service.deliver(candidate.id()).state());
+        }
+        assertEquals(baseline, git(copy, "rev-parse", "HEAD").strip());
+        assertEquals(baseline, scalar("SELECT last_verified_revision FROM working_copy"));
+        assertEquals("", git(copy, "status", "--porcelain"));
+        assertFalse(Files.exists(copy.resolve(path)));
+    }
+
     @Test
     void corruptedDiffIsRejectedWithoutOfficialMutation() throws Exception {
         sql("DROP TRIGGER agent_candidate_immutable_update");

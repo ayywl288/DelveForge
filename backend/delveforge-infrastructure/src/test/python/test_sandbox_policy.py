@@ -86,7 +86,7 @@ class SandboxPolicyTest(unittest.TestCase):
                                 capture_output=True, cwd=self.root, check=False)
         self.assertEqual(0, result.returncode)
         self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
-            'protocol': 'delveforge-sandbox', 'version': 5}},
+            'protocol': 'delveforge-sandbox', 'version': 6}},
             {k: v for k, v in json.loads(result.stdout).items() if k != 'durationMs'})
         self.assertEqual(before, list(self.root.iterdir()))
         self.assertEqual(b'', result.stderr)

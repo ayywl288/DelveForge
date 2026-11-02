@@ -20,6 +20,9 @@ public final class AgentCheckEvidence {
         boolean versioned = evidence.path("evidenceVersion").asInt() >= 2;
         String snapshot = evidence.path("finalSnapshot").asText();
         boolean tested = false;
+        if (evidence.has("sourceView")) {
+            requireSourceView(evidence.path("sourceView"));
+        }
         if (versioned && !snapshot.matches("[0-9a-f]{64}")) {
             throw new AgentException("EVIDENCE_INVALID", "Final source snapshot is required");
         }
@@ -37,6 +40,15 @@ public final class AgentCheckEvidence {
             boolean passed = Set.of("TESTS_PASSED", "BUILD_PASSED_NOT_TESTED").contains(status);
             boolean current = !check.path("stale").asBoolean(true)
                     && (!versioned || snapshot.equals(check.path("snapshot").asText()));
+            if (evidence.has("sourceView") && passed && current) {
+                requireSourceView(check.path("sourceView"));
+                if (!evidence.path("sourceView").equals(check.path("sourceView"))) {
+                    throw new AgentException("EVIDENCE_INVALID", "Check execution view differs from final source view");
+                }
+                if (evidence.path("sourceView").path("withheldSourceCount").asInt() > 0) {
+                    throw new AgentException("EVIDENCE_INVALID", "Withheld executable source cannot produce passing checks");
+                }
+            }
             if (versioned) {
                 for (String field : Set.of("tests", "executedTests", "failures", "errors", "skipped", "reports")) {
                     if (!check.path(field).isIntegralNumber() || !check.path(field).canConvertToInt()
@@ -78,6 +90,23 @@ public final class AgentCheckEvidence {
         }
         if (versioned && tested != evidence.path("status").asText().equals("TESTED")) {
             throw new AgentException("EVIDENCE_INVALID", "Evidence summary does not match current test execution");
+        }
+    }
+
+    private static void requireSourceView(JsonNode view) {
+        if (!view.isObject() || !Set.of("FULL", "PROJECTED").contains(view.path("kind").asText())) {
+            throw new AgentException("EVIDENCE_INVALID", "Execution view is missing or unsupported");
+        }
+        for (String field : Set.of("preservedOnlyCount", "readOnlyResourceCount", "withheldSourceCount")) {
+            if (!view.path(field).isIntegralNumber() || !view.path(field).canConvertToInt() || view.path(field).asInt() < 0) {
+                throw new AgentException("EVIDENCE_INVALID", "Execution resource counts must be bounded integers");
+            }
+        }
+        if (view.path("kind").asText().equals("PROJECTED") != (view.path("preservedOnlyCount").asInt() > 0)) {
+            throw new AgentException("EVIDENCE_INVALID", "Execution projection contradicts its omitted resources");
+        }
+        if (view.path("withheldSourceCount").asInt() > view.path("preservedOnlyCount").asInt()) {
+            throw new AgentException("EVIDENCE_INVALID", "Withheld source exceeds preserved resources");
         }
     }
 }

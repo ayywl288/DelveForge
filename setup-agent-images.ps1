@@ -49,23 +49,23 @@ print(json.dumps({'handshake':r,'hashes':{n:hashlib.sha256(pathlib.Path('/opt/de
 '@
     $result = Invoke-DfDocker $Docker @('run', '--rm', '--network=none', '--read-only', '--cap-drop=ALL',
         '--security-opt=no-new-privileges', '--pids-limit=64', '--memory=256m', '--cpus=1',
-        '--label', 'com.delveforge.bootstrap=protocol-v5', $imageId, 'python3', '-c', $probe)
+        '--label', 'com.delveforge.bootstrap=protocol-v6', $imageId, 'python3', '-c', $probe)
     if ($result.Code -ne 0) { Stop-DfSetup "Agent JDK $Jdk image probe failed. Rebuild the current trusted context using a new identity." }
     try { $data = $result.Output | ConvertFrom-Json } catch { Stop-DfSetup "Agent JDK $Jdk image returned an invalid probe." }
     $handshake = $data.handshake
     if ($handshake.ok -isnot [bool] -or $handshake.ok -cne $true -or $handshake.tool -cne 'protocol' -or
             $handshake.result.protocol -cne 'delveforge-sandbox' -or
             ($handshake.result.version -isnot [long] -and $handshake.result.version -isnot [int]) -or
-            $handshake.result.version -ne 5 -or $data.java -notmatch ('version "' + $Jdk + '\.') -or
+            $handshake.result.version -ne 6 -or $data.java -notmatch ('version "' + $Jdk + '\.') -or
             $data.tools.node -cne 'v22.16.0' -or $data.tools.npm -cne '10.9.2' -or $data.tools.pnpm -cne '12.9.1') {
-        Stop-DfSetup "Agent JDK $Jdk image is incompatible with protocol v5 or the selected JDK. Use a new current image."
+        Stop-DfSetup "Agent JDK $Jdk image is incompatible with protocol v6 or the selected JDK. Use a new current image."
     }
     foreach ($name in @('sandbox.py', 'frontend.py', 'proxy.py', 'offline-settings.xml')) {
         if ($data.hashes.$name -cne (Get-FileHash -LiteralPath (Join-Path $Context $name) -Algorithm SHA256).Hash.ToLowerInvariant()) {
             Stop-DfSetup "Agent JDK $Jdk image has stale tool contents. Build the current context with a new identity."
         }
     }
-    Write-Host "Verified Agent JDK ${Jdk}: $imageId (protocol v5)."
+    Write-Host "Verified Agent JDK ${Jdk}: $imageId (protocol v6)."
     return $imageId
 }
 
@@ -92,7 +92,7 @@ function Initialize-DfAgentImages {
         if ($jdk -eq 17) { $override = $Image17 }
         $tag = $override
         if (-not $tag) {
-            $tag = "delveforge-agent:protocol-v5-jdk$jdk-$($inputs.Digest)"
+            $tag = "delveforge-agent:protocol-v6-jdk$jdk-$($inputs.Digest)"
             $existing = Invoke-DfDocker $docker @('image', 'ls', '--quiet', '--no-trunc', '--filter', "reference=$tag")
             if ($existing.Code -ne 0) { Stop-DfSetup 'Cannot list Docker images. Check Engine availability.' }
             if (-not $existing.Output) {

@@ -305,6 +305,15 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
                     if (value.isEmpty() || value.equals("Bearer ") || value.equals("Basic ")) {
                         continue;
                     }
+                    // 仅识别 JS 模板中完整的引用；普通引号里的 ${...} 仍是直接字面量。
+                    // Fetch credentials 的三个标准枚举不是凭据，不解释任意表达式或豁免测试路径。
+                    boolean placeholder = templateReference(extension, matcher, content, value);
+                    String assignmentPrefix = matcher.group(1);
+                    boolean credentialsMode = Set.of("omit", "same-origin", "include").contains(value)
+                            && assignmentPrefix.matches("(?s).*(?:\\.credentials[\\s]*=|[\"']?credentials[\"']?\\s*:)\\s*");
+                    if (placeholder || credentialsMode) {
+                        continue;
+                    }
                 }
                 int start = assignment ? matcher.start(2) : matcher.start();
                 while (cursor < start) {
@@ -321,6 +330,19 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
             }
         }
         return List.copyOf(lines);
+    }
+
+    private static boolean templateReference(String extension, Matcher literal, String content, String value) {
+        if (!Set.of("js", "ts", "jsx", "tsx", "vue").contains(extension) || value.length() > 256
+                || !value.matches("\\$\\{[A-Za-z_$][A-Za-z0-9_$]*(?:\\.[A-Za-z_$][A-Za-z0-9_$]*)*}")
+                || literal.end(2) >= content.length() || content.charAt(literal.end(2)) != '`') {
+            return false;
+        }
+        // 封闭的头部模板：反引号、有限纯文本、带引号的完整引用、结束反引号；不解析 JS。
+        int start = content.lastIndexOf('`', literal.start(2) - 1);
+        return start >= 0 && literal.start(2) - start <= 129
+                && (start == 0 || content.charAt(start - 1) != '\\')
+                && content.substring(start, literal.start(2)).matches("`[A-Za-z0-9_ .:=/-]{0,128}");
     }
 
     /** Agent 配置编辑允许不含值的引用；M1–M3 净化和已知秘密格式规则保持独立。 */

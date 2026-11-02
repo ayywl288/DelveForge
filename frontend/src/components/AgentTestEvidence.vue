@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { presentTestEvidence, presentCheckRows } from "./agentResultPresentation";
+import { presentTestEvidence, presentCheckRows, presentSourceView } from "./agentResultPresentation";
 const props = defineProps<{ evidence: string }>();
 const result = computed(() => presentTestEvidence(props.evidence));
 const checks = computed(() => presentCheckRows(props.evidence));
+const sourceView = computed(() => presentSourceView(props.evidence));
 </script>
 <template>
     <section class="candidate-evidence" aria-label="测试结果" :data-tone="result.tone">
         <div class="evidence-heading"><h4>测试结果</h4><strong class="evidence-status">{{ result.label }}</strong></div>
         <p class="verification-outcome">{{ result.outcome }}<span v-if="result.scope" class="evidence-scope"> · {{ result.scope }}</span></p>
+        <p v-if="sourceView" class="evidence-scope">{{ sourceView }}</p>
         <dl v-if="result.counts" class="test-counts">
             <div><dt>已执行</dt><dd>{{ result.counts.executed }}</dd></div>
             <div><dt>通过</dt><dd>{{ result.counts.passed ?? '未记录' }}</dd></div>

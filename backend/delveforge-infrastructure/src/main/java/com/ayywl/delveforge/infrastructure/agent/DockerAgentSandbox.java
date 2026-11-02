@@ -11,6 +11,7 @@ import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicR
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.agent.Candidate;
 import com.ayywl.delveforge.infrastructure.workspace.GitRepositoryCompatibility;
+import com.ayywl.delveforge.infrastructure.workspace.RepositoryContentPolicy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,6 +59,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         final Map<String, Entry> baseline = new LinkedHashMap<>();
         final List<JsonNode> checks = new ArrayList<>();
         final Map<String, String> baselineHashes = new LinkedHashMap<>();
+        final Map<String, Map<String, Object>> resourceCapabilities = new LinkedHashMap<>();
+        String executionBaselineTree;
         String mavenDirectory;
         List<String> mavenModules = List.of();
         String image;
@@ -198,6 +201,39 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
         session.mavenDirectory = inspection.report().mavenDirectory() == null ? "." : inspection.report().mavenDirectory();
         session.mavenModules = inspection.report().modules();
+        for (var resource : inspection.resources().entrySet()) {
+            var entry = inspection.entries().get(resource.getKey());
+            byte[] bytes = sourceGit(session, null, "cat-file", "blob", entry.objectId());
+            session.resourceCapabilities.put(resource.getKey(), Map.of("kind", resource.getValue().kind().name(),
+                    "mode", entry.mode(), "sha256", sourceDigest(bytes), "size", entry.size(),
+                    "settings", resource.getValue().settings(), "blocksChecks", !resource.getValue().executionAvailable()
+                            && RepositoryContentPolicy.buildInput(resource.getKey())));
+        }
+    }
+
+    private static String sourceDigest(byte[] bytes) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (java.security.NoSuchAlgorithmException failure) {
+            throw new AgentException("SOURCE_DIGEST", "SHA-256 is unavailable", failure);
+        }
+    }
+
+    /** E 仅为执行视图；可信 R 和所有保留 blob 始终留在主机 Git，不给项目进程。 */
+    private String executionTree(Session session) {
+        Map<String, String> index = Map.of("GIT_INDEX_FILE", session.directory.resolve("execution.index").toString());
+        git(session, index, null, "read-tree", session.task.baseline());
+        StringBuilder removals = new StringBuilder();
+        session.resourceCapabilities.forEach((path, resource) -> {
+            if (resource.get("kind").equals("PRESERVED_ONLY")) {
+                removals.append("0 ").append("0".repeat(40)).append('\t').append(path).append('\0');
+            }
+        });
+        if (!removals.isEmpty()) {
+            git(session, index, removals.toString().getBytes(StandardCharsets.UTF_8), "update-index", "-z", "--index-info");
+        }
+        session.executionBaselineTree = gitText(session, index, null, "write-tree");
+        return session.executionBaselineTree;
     }
 
     @Override
@@ -249,7 +285,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 throw new AgentException("SANDBOX_IMAGE_UNAVAILABLE", "Cannot pin the controlled sandbox image identity");
             }
             Files.write(session.directory.resolve("source.tar"), git(session, Map.of(), null,
-                    "archive", "--format=tar", task.baseline()));
+                    "archive", "--format=tar", executionTree(session)));
             ensureVolume(name(task.runId(), "source"), task.runId());
             ensureVolume(name(task.runId(), "m2"), task.runId());
             ensureVolume(properties.cacheVolume(), "shared-cache");
@@ -295,7 +331,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             int tab = line.indexOf('\t');
             String[] metadata = line.substring(0, tab).split(" ");
             String path = line.substring(tab + 1);
-            requirePath(path);
+            if (!GitRepositoryCompatibility.safePath(path)) {
+                throw new AgentException("GIT_PATH_UNSUPPORTED", "Unsupported baseline path");
+            }
             if (!Set.of("100644", "100755").contains(metadata[0]) || !metadata[1].equals("blob")
                     || !folded.add(path.toLowerCase(Locale.ROOT))) {
                 throw new AgentException("GIT_TYPE_UNSUPPORTED", "Baseline contains unsupported modes, paths or tracked build output");
@@ -422,7 +460,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     private JsonNode invoke(Session session, String name, JsonNode arguments, BooleanSupplier cancelled) {
         try {
             byte[] input = json.writeValueAsBytes(Map.of("name", name, "arguments", arguments,
-                    "baselinePaths", session.baseline.keySet()));
+                    "baselinePaths", session.baseline.keySet(), "resourceCapabilities", session.resourceCapabilities));
             int maxBytes = Set.of("snapshot", "inspect_patch", "search_code").contains(name) ? Math.max(session.limits.maxCandidateBytes() * 16, 33554432)
                     : Math.max(session.limits.maxFileBytes() * 8, 2097152);
             if (name.equals("run_frontend_checks")) {
@@ -581,7 +619,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 "import os,shutil;shutil.copytree('/source','/workspace',dirs_exist_ok=True);"
                         + "os.execvp('python3',['python3','/opt/delveforge/sandbox.py'])"));
         byte[] request = json.writeValueAsBytes(Map.of("name", tool, "arguments", arguments,
-                "baselinePaths", session.baseline.keySet()));
+                "baselinePaths", session.baseline.keySet(), "resourceCapabilities", session.resourceCapabilities));
         return parse(docker(launch, request, Duration.ofSeconds(session.limits.checkSeconds() * 3L + 30L),
                 maxBytes, cancelled).bytes());
     }
@@ -592,14 +630,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 || !response.path("result").path("protocol").asText().equals("delveforge-sandbox")
                 || !response.path("result").path("version").isIntegralNumber()
                 || !response.path("result").path("version").canConvertToInt()
-                || response.path("result").path("version").asInt() != 5) {
+                || response.path("result").path("version").asInt() != 6) {
             throw incompatibleProtocol();
         }
     }
 
     private static AgentException incompatibleProtocol() {
         return new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE",
-                "Sandbox tool protocol v5 is required. Build the current agent Dockerfile with a new image tag, "
+                "Sandbox tool protocol v6 is required. Build the current agent Dockerfile with a new image tag, "
                         + "configure delveforge.agent.sandbox.images, then explicitly restart the application. "
                         + "See docs/LOCAL_SETUP.md (sandbox protocol troubleshooting).");
     }
@@ -776,6 +814,10 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             return "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
         }
         if (arguments.has("path") && !arguments.path("path").asText().equals(".")) {
+            if (session.resourceCapabilities.containsKey(arguments.path("path").asText())) {
+                throw new AgentPolicyRejection(AgentPolicyRejection.Rule.RESOURCE_CAPABILITY,
+                        AgentPolicyRejection.Stage.PATH_VALIDATION);
+            }
             requirePath(arguments.path("path").asText());
         }
         if (call.name().equals("edit_file")) {
@@ -1154,7 +1196,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         JsonNode snapshot;
         try {
             byte[] request = json.valueToTree(Map.of("name", "snapshot", "arguments",
-                    Map.of("content", true, "baseline", session.baselineHashes))).toString().getBytes(StandardCharsets.UTF_8);
+                    Map.of("content", true, "baseline", session.baselineHashes),
+                    "resourceCapabilities", session.resourceCapabilities)).toString().getBytes(StandardCharsets.UTF_8);
             snapshot = parse(docker(List.of("exec", "-i", name(runId, "capture"), "python3",
                     "/opt/delveforge/sandbox.py"), request, CONTROL_TIMEOUT,
                     Math.max(session.limits.maxCandidateBytes() * 16, 33554432), cancelled).bytes());
@@ -1175,7 +1218,16 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         List<String> changed = new ArrayList<>();
         for (JsonNode file : snapshot.path("files")) {
             String path = file.path("path").asText();
-            requirePath(path);
+            if (session.resourceCapabilities.containsKey(path)) {
+                Map<String, Object> resource = session.resourceCapabilities.get(path);
+                if (file.has("content") || !file.path("mode").asText().equals(resource.get("mode"))
+                        || !file.path("sha256").asText().equals(resource.get("sha256"))
+                        || file.path("preservedOnly").asBoolean() != resource.get("kind").equals("PRESERVED_ONLY")) {
+                    throw new AgentException("RESOURCE_INTEGRITY", "Protected baseline resource changed");
+                }
+            } else {
+                requirePath(path);
+            }
             if (!actual.add(path)) {
                 throw new AgentException("GIT_PATH_CONFLICT", "Duplicate final source path");
             }
@@ -1221,6 +1273,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
         for (String deleted : session.baseline.keySet()) {
             if (!actual.contains(deleted)) {
+                if (session.resourceCapabilities.containsKey(deleted)) {
+                    throw new AgentException("RESOURCE_INTEGRITY", "Protected baseline resource was removed");
+                }
                 candidateText(git(session, Map.of(), null, "cat-file", "blob", session.baseline.get(deleted).objectId()));
                 changed.add(deleted);
                 byte[] removal = ("0 " + "0".repeat(40) + "\t" + deleted + "\0").getBytes(StandardCharsets.UTF_8);
@@ -1325,6 +1380,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     "selectedTest", check.path("selectedTest").asText("")));
             record.put("directory", directory);
             record.put("checkType", check.path("checkType").asText("MAVEN"));
+            if (check.has("sourceView")) {
+                record.put("sourceView", check.path("sourceView").deepCopy());
+            }
             if (Set.of("npm", "pnpm").contains(check.path("packageManager").asText())) {
                 record.put("packageManager", check.path("packageManager").asText());
             }
@@ -1342,6 +1400,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
         try {
             JsonNode evidence = json.valueToTree(Map.of("evidenceVersion", 2, "finalSnapshot", finalSnapshot,
+                    "sourceView", snapshot.path("sourceView"),
+                    "executionBaselineTree", session.executionBaselineTree,
                     "checks", records, "status", records.stream().anyMatch(record -> !((boolean) record.get("stale"))
                             && record.get("classification").equals("TESTS_PASSED")) ? "TESTED" : "NOT_TESTED"));
             AgentCheckEvidence.requireAcceptable(evidence);

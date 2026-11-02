@@ -4,6 +4,24 @@ import FileChangeSummary from "../src/components/FileChangeSummary.vue";
 import AgentTestEvidence from "../src/components/AgentTestEvidence.vue";
 import type { PresentedFileChange } from "../src/components/agentResultPresentation";
 const cleanup:(()=>void)[]=[];
+
+it("explains projected checks without implying full-checkout execution or exposing resource content", async () => {
+    const props = reactive({ evidence: JSON.stringify({ status: "NOT_TESTED", sourceView: {
+        kind: "PROJECTED", preservedOnlyCount: 2, readOnlyResourceCount: 1 } }) });
+    const root = document.createElement("div");
+    const app = createApp({ render: () => h(AgentTestEvidence, props) });
+    app.mount(root); cleanup.push(() => app.unmount()); await settle();
+    expect(root.textContent).toContain("检查使用执行投影；2 项资源保留在原仓库，未进入执行环境。");
+    expect(root.textContent).toContain("未运行测试");
+    props.evidence = JSON.stringify({ status: "NOT_TESTED", sourceView: {
+        kind: "FULL", preservedOnlyCount: 0, readOnlyResourceCount: 1 } });
+    await settle();
+    expect(root.textContent).toContain("1 项只读资源");
+    expect(root.textContent).not.toContain("检查使用执行投影");
+    props.evidence = '{"status":"NOT_TESTED","sourceView":{"kind":"PROJECTED","preservedOnlyCount":-1}}';
+    await settle();
+    expect(root.textContent).toContain("执行材料范围待核对。");
+});
 afterEach(()=>cleanup.splice(0).forEach(fn=>fn()));
 async function settle(){await nextTick();await nextTick();}
 it("shows distinct change kinds with accurate counts, readable full paths and an expandable complete list",async()=>{

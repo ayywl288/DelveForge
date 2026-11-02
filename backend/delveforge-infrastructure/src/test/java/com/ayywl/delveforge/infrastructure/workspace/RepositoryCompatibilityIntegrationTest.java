@@ -233,10 +233,15 @@ class RepositoryCompatibilityIntegrationTest {
     }
 
     @Test
-    void protectedPathsAndSpecialModesAreExplicitBlockers() throws Exception {
+    void sensitivePathsArePreservedOnlyWhileSpecialModesRemainExplicitBlockers() throws Exception {
         Path source = repositories.createCommitted("original", Map.of("pom.xml", POM, ".env", "PRIVATE=canary"));
-        assertTrue(compatibility.inspect(source, GitTestRepositories.headRevision(source)).report().issues()
-                .stream().anyMatch(issue -> issue.code().equals("PROTECTED_CREDENTIAL_PATH")));
+        var inspection = compatibility.inspect(source, GitTestRepositories.headRevision(source));
+        assertTrue(inspection.report().supported());
+        assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY, inspection.resources().get(".env").kind());
+        assertFalse(inspection.resources().get(".env").executionAvailable());
+        assertFalse(inspection.resources().get(".env").modelVisible());
+        assertTrue(inspection.report().issues().stream().anyMatch(issue -> issue.code().equals("PRESERVED_ONLY_RESOURCE")));
+        assertEquals("PRIVATE=canary", GitTestRepositories.runGit(source, "show", "HEAD:.env").trim());
         String object = GitTestRepositories.runGit(source, "rev-parse", "HEAD:pom.xml").trim();
         GitTestRepositories.runGit(source, "update-index", "--add", "--cacheinfo", "120000," + object + ",link");
         GitTestRepositories.commit(source, "unsafe symbolic entry");
@@ -253,6 +258,18 @@ class RepositoryCompatibilityIntegrationTest {
         GitTestRepositories.commit(source, "case-conflicting directories");
         assertTrue(compatibility.inspect(source, GitTestRepositories.headRevision(source)).report().issues()
                 .stream().anyMatch(issue -> issue.code().equals("GIT_PATH_UNSUPPORTED")));
+    }
+
+    @Test
+    void withholdingContentCannotBypassGitTransformOrReservedDirectoryRules() throws Exception {
+        Path source = repositories.createCommitted("content-cannot-grant-structural-access", Map.of("pom.xml", POM,
+                ".gitattributes", "* filter=unsafe\n# password=private-fixture\n"));
+        var report = compatibility.inspect(source, GitTestRepositories.headRevision(source)).report();
+        assertFalse(report.supported());
+        assertTrue(report.issues().stream().anyMatch(issue -> issue.code().equals("GIT_ATTRIBUTES_UNSUPPORTED")));
+        assertFalse(GitRepositoryCompatibility.safePath(".npmrc/hidden.txt"));
+        assertFalse(GitRepositoryCompatibility.safePath(".env/.env"));
+        assertTrue(GitRepositoryCompatibility.safePath(".env.example"));
     }
     @Test
     void pomAndTargetDirectoriesInsideTestResourcesRemainImmutableOriginalAssets() throws Exception {

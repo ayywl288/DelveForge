@@ -38,6 +38,46 @@ class AgentCheckEvidenceTest {
     }
 
     @Test
+    void projectionEvidenceCannotBorrowPassesFromAnotherExecutionView() {
+        var full = json.createObjectNode().put("kind", "FULL").put("preservedOnlyCount", 0)
+                .put("readOnlyResourceCount", 1).put("withheldSourceCount", 0);
+        var projected = full.deepCopy().put("kind", "PROJECTED").put("preservedOnlyCount", 1);
+        var passed = check("FRONTEND", ".", "test", "TESTS_PASSED", false);
+        passed.set("sourceView", full);
+        var result = evidence(passed);
+        result.set("sourceView", projected);
+        assertEquals("EVIDENCE_INVALID", assertThrows(AgentException.class,
+                () -> AgentCheckEvidence.requireAcceptable(result)).code());
+        passed.set("sourceView", projected);
+        assertDoesNotThrow(() -> AgentCheckEvidence.requireAcceptable(result));
+        result.set("sourceView", projected.deepCopy().put("preservedOnlyCount", 0));
+        assertEquals("EVIDENCE_INVALID", assertThrows(AgentException.class,
+                () -> AgentCheckEvidence.requireAcceptable(result)).code());
+    }
+
+    @Test
+    void malformedOrWithheldExecutableScopeCannotSupportPassingEvidence() {
+        var passed = check("FRONTEND", ".", "build", "BUILD_PASSED_NOT_TESTED", false);
+        for (ObjectNode view : new ObjectNode[] {
+                json.createObjectNode().put("kind", "PROJECTED").put("preservedOnlyCount", 1)
+                        .put("readOnlyResourceCount", 0),
+                json.createObjectNode().put("kind", "PROJECTED").put("preservedOnlyCount", 1)
+                        .put("readOnlyResourceCount", 0).put("withheldSourceCount", "0"),
+                json.createObjectNode().put("kind", "PROJECTED").put("preservedOnlyCount", 1)
+                        .put("readOnlyResourceCount", 0).put("withheldSourceCount", -1),
+                json.createObjectNode().put("kind", "PROJECTED").put("preservedOnlyCount", 1)
+                        .put("readOnlyResourceCount", 0).put("withheldSourceCount", 2),
+                json.createObjectNode().put("kind", "PROJECTED").put("preservedOnlyCount", 1)
+                        .put("readOnlyResourceCount", 0).put("withheldSourceCount", 1)}) {
+            passed.set("sourceView", view);
+            var result = evidence(passed);
+            result.set("sourceView", view);
+            assertEquals("EVIDENCE_INVALID", assertThrows(AgentException.class,
+                    () -> AgentCheckEvidence.requireAcceptable(result)).code());
+        }
+    }
+
+    @Test
     void frontendFailureRequiresSameTypeDirectoryAndGoalWithActualTests() {
         var failed = check("FRONTEND", "frontend", "test", "TESTS_FAILED", true);
         blocked(evidence(failed, check("MAVEN", "frontend", "test", "TESTS_PASSED", false)));

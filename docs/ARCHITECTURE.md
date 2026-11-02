@@ -1,10 +1,18 @@
 # ARCHITECTURE.md
 
+**2026-11-02 仓库内容能力边界：** Infrastructure 的 RepositoryContentPolicy 分开判定原 Git 保留、模型披露、
+执行可用和修改能力。正式 WorkingCopy 与可信 R 完整保留；只有执行树 E 删除必须留在主机的条目。
+E 是显式执行投影，不是新的领域 baseline 或字节相同的完整 checkout。Java 为资源绑定原 path/mode/SHA-256，
+容器消费能力清单，模型读取/补丁、源码快照、Candidate 和独立 Delivery 使用相同边界。
+WorkspaceReadPort 的模型材料读取可返回不可披露；分析记录跳过，不用占位源码伪造 Evidence。
+检查证据记录 sourceView 与 executionBaselineTree，保留项只能沿用原 blob；缺失源码/测试/构建描述不能产生 PASS。
+协议升级为 v6，无新 Aggregate、模块、数据库结构或授权生命周期。详见 [ADR-0020](decisions/0020-repository-content-capabilities.md)。
+
 **2026-11-02 全栈执行上下文与前端检查：** Application 从当前 Plan 的 TargetState 投影有界、净化的解释性上下文，
 不增加 Step 授权。现有 AgentSandboxPort 新增统一前端检查工具，Infrastructure 支持固定 npm/pnpm，
 分别执行冻结安装；联网依赖准备与无网络脚本执行分容器，复用依赖仅只读，正式源副本保持独立。
 冻结与 Delivery 共用检查适用性规则，证据按类型、工程和目标区分；没有新模块、数据库迁移或生命周期。
-工具镜像协议为 v5，详见 [前端检查说明](AGENT_FRONTEND_CHECKS.md) 和 ADR-0012 补充。
+工具镜像协议为 v6，详见 [前端检查说明](AGENT_FRONTEND_CHECKS.md) 和 ADR-0012/0020 补充。
 Workspace 在隔离源内发现 Maven 入口及 Vue/Vite 工程的检查声明；Application 只把有界声明作为解释性数据传给模型，
 不据此授予写权限或生成验证成功。缺少可选前端检查不影响纯 Maven 资格，实际失败仍受冻结守卫约束。
 

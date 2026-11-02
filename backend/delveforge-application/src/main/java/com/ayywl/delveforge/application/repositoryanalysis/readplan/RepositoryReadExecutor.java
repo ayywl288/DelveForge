@@ -7,13 +7,14 @@ import com.ayywl.delveforge.application.repositoryanalysis.map.RepositoryMapEntr
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 执行一份可信的读取计划：按计划把真实文件读进来，形成分析材料。
  *
  * <pre>
  * RepositoryReadPlan + WorkspaceRef
- *         ↓  逐条 readFile（同一 analyzedRevision）
+ *         ↓  逐条 readModelFile（同一 analyzedRevision；不可披露项记跳过）
  * 执行期尺寸复核（依据**真实内容**的 UTF-8 字节数）
  *         ↓
  * RepositoryReadResult（材料 + 执行期诊断）
@@ -131,8 +132,13 @@ public final class RepositoryReadExecutor {
         long acceptedBytes = 0;
 
         for (RepositoryMapEntry entry : entries) {
-            String content = this.workspace.readFile(
+            Optional<String> visible = this.workspace.readModelFile(
                     workspace, analyzedRevision, entry.relativePath());
+            if (visible.isEmpty()) {
+                skipped.add(new SkippedReadCandidate(entry, RepositoryReadSkipReason.EXCLUDED_BY_SECRET_POLICY));
+                continue;
+            }
+            String content = visible.get();
 
             long actualBytes = utf8Length(content);
             if (actualBytes > budget.maxFileBytes()) {

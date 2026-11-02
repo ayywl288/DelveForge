@@ -170,6 +170,9 @@ def describe(sandbox):
     for directory in projects[:20]:
         goals = {}
         for goal in SCRIPTS:
+            if sandbox.source_view()['withheldSourceCount']:
+                goals[goal] = 'UNAVAILABLE'
+                continue
             try:
                 metadata(sandbox, {'directory': directory, 'goal': goal}, validate_lock=False)
                 goals[goal] = 'DECLARED_SUPPORTED'
@@ -184,10 +187,12 @@ def describe(sandbox):
     maven = sorted(directory for directory in sandbox.maven_module_roots()
                    if (sandbox.ROOT / directory / 'pom.xml').is_file())
     return {'frontendProjects': frontend, 'frontendProjectCount': len(projects),
-            'mavenDirectories': maven[:50], 'mavenProjectCount': len(maven)}
+            'mavenDirectories': maven[:50], 'mavenProjectCount': len(maven), 'sourceView': sandbox.source_view()}
 
 
 def metadata(sandbox, args, validate_lock=True):
+    if sandbox.source_view()['withheldSourceCount']:
+        raise CheckUnavailable('Executable source or build configuration is withheld; checks cannot attest this view')
     goal = args.get('goal')
     if goal not in SCRIPTS or set(args) - {'goal', 'directory'}:
         raise sandbox.CheckArgumentError('Choose typecheck, build or test without command arguments')
@@ -208,8 +213,14 @@ def metadata(sandbox, args, validate_lock=True):
         configuration = parent / 'pnpm-workspace.yaml'
         if configuration.exists():
             root_only_configuration(configuration)
+        registry = parent / '.npmrc'
+        registry_path = registry.relative_to(sandbox.ROOT).as_posix()
+        if registry.exists() and not sandbox.approved_resource(registry_path) \
+                or registry_path in sandbox.RESOURCE_CAPABILITIES \
+                    and sandbox.RESOURCE_CAPABILITIES[registry_path]['kind'] == 'PRESERVED_ONLY':
+            raise Unsupported('Project npm configuration is withheld or is not a validated public resource')
         if any((parent / name).exists() for name in (
-                '.pnpmfile.cjs', 'pnpmfile.cjs', '.npmrc',
+                '.pnpmfile.cjs', 'pnpmfile.cjs',
                 'yarn.lock', 'npm-shrinkwrap.json')):
             raise Unsupported('Workspace, hooks, custom registry configuration or mixed lockfiles are unsupported')
     try:
@@ -340,7 +351,8 @@ def result(identity, classification, output='', code=None, **counts):
 def prepare(sandbox, args):
     project, relative, goal, _, manifest, manager, lockfile = metadata(sandbox, args)
     identity = {'checkType': 'FRONTEND', 'directory': relative, 'goal': goal,
-                'snapshot': sandbox.snapshot()['snapshot'], 'module': None, 'selectedTest': None, 'packageManager': manager}
+                'snapshot': sandbox.snapshot()['snapshot'], 'module': None, 'selectedTest': None, 'packageManager': manager,
+                'sourceView': sandbox.source_view()}
     # 无源码、无项目 hooks、无生命周期脚本的临时目录；只有固定 registry 代理可达。
     preparation = PREPARATION
     if preparation.exists():
@@ -359,6 +371,15 @@ def prepare(sandbox, args):
         command = ['npm', 'ci', '--ignore-scripts', '--registry=http://df-artifacts:8080/npm/',
                    '--maxsockets=2',
                    '--cache=/workspace/.df-frontend-npm-cache', '--no-audit', '--no-fund', '--update-notifier=false']
+    else:
+        for parent in [project, *project.parents]:
+            if not parent.is_relative_to(sandbox.ROOT):
+                break
+            registry = (parent / '.npmrc').relative_to(sandbox.ROOT).as_posix()
+            resource = sandbox.RESOURCE_CAPABILITIES.get(registry, {})
+            for name, value in resource.get('settings', {}).items():
+                if name in ('shamefully-hoist', 'auto-install-peers', 'strict-peer-dependencies'):
+                    command.append('--config.' + name + '=' + value)
     code, output = sandbox.run_bounded(command, timeout=int(os.environ.get('DF_CHECK_SECONDS', '180')) * 3,
                                        cwd=preparation)
     if code:
@@ -372,7 +393,8 @@ def check(sandbox, args):
     project, relative, goal, commands, _, manager, _ = metadata(sandbox, args)
     before = sandbox.snapshot()
     identity = {'checkType': 'FRONTEND', 'directory': relative, 'goal': goal,
-                'snapshot': before['snapshot'], 'module': None, 'selectedTest': None, 'packageManager': manager}
+                'snapshot': before['snapshot'], 'module': None, 'selectedTest': None, 'packageManager': manager,
+                'sourceView': sandbox.source_view()}
     preparation = DEPENDENCIES
     modules = preparation / 'node_modules'
     if not modules.is_dir():
@@ -423,7 +445,7 @@ def dispatch(sandbox, args, preparing=False):
         raise sandbox.PolicyError('FRONTEND_ISOLATION', 'Frontend checks require a disposable copy')
     identity = {'checkType': 'FRONTEND', 'directory': args.get('directory', '.'),
                 'goal': args.get('goal', ''), 'snapshot': sandbox.snapshot()['snapshot'],
-                'module': None, 'selectedTest': None}
+                'module': None, 'selectedTest': None, 'sourceView': sandbox.source_view()}
     try:
         # 工具版本探针不进入项目目录，不允许项目的包管理器配置参与探针初始化。
         code, node = sandbox.run_bounded(['node', '--version'], cwd=pathlib.Path('/tmp'))

@@ -1,5 +1,12 @@
 # ROADMAP.md
 
+**2026-11-02 最新用户授权：Safe Repository Admission Boundary & Real-Repository Validation。**
+从本地 353920a 在当前分支完成一个贯通准入、模型材料、执行投影、不可变资源与正式交付的内容能力边界。
+重跑安全负例、完整后端、真实 Maven/npm/pnpm Docker 交付及原有 26 个公开样本的分层验证，保留全部拒绝与失败。
+不改目标仓库、不引入自由命令或包管理器、不合并或推送。只有工程门槛通过才进入独立完整产品验证；
+本轮附件明确要求在新的付费试验前建立数字费用上限，先完成确定性工程门槛，不启动无界模型重试。
+下方日期相同的较早授权保留历史含义，以本段为当前范围。
+
 **2026-11-02 最新用户授权：Generalized Repository Compatibility and Authentic Full-Product Evolution。**
 在 `codex/full-stack-evolution-checks` 用预先声明的 26 个公开仓库检查通用兼容性，失败保留在分母内，
 分别记录静态识别、隔离准备、依赖、实际检查和 Candidate/Delivery，明确回归纯 Maven 路径。

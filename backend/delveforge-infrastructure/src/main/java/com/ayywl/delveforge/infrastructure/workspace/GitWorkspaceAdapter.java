@@ -53,6 +53,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -317,6 +318,7 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
                 }
                 requireDeliveryPath(path);
             }
+            requireMutableCandidatePaths(target, delivery.baseline(), candidate.expectedTree(), paths);
             requireSafePaths(new WorkspaceRef(delivery.location()), paths);
             requireSafeTreeAttributes(target, candidate.expectedTree());
         } catch (IOException failure) {
@@ -494,17 +496,24 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
     }
 
     private static void requireDeliveryPath(String path) {
-        if (path == null || path.isBlank() || path.startsWith("/") || path.contains("\\") || path.length() > 512
-                || path.contains(":") || path.contains("\n") || path.contains("\r") || path.contains("\t")
-                || path.contains("\"")
-                || new DeterministicRepositorySecretPolicy().excludes(path)) {
+        if (!GitRepositoryCompatibility.safePath(path)) {
             throw new AgentException("TREE_MISMATCH", "Candidate contains an unsupported or protected source path");
         }
-        for (String part : path.split("/")) {
-            if (part.isEmpty() || part.equals(".") || part.equals("..") || part.equalsIgnoreCase(".git")
-                    || part.equalsIgnoreCase(".hg") || part.equalsIgnoreCase(".svn") || part.endsWith(" ") || part.endsWith(".")
-                    || part.matches("(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?")) {
-                throw new AgentException("TREE_MISMATCH", "Candidate source path escapes the controlled Git tree");
+    }
+
+    /** 独立交付复核同一内容政策；不可变资源只能沿用 R 中的原 blob 和 mode。 */
+    private void requireMutableCandidatePaths(Path target, String baseline, String next, List<String> paths) {
+        var policy = new RepositoryContentPolicy(new DeterministicRepositorySecretPolicy());
+        Map<String, String[]> before = deliveryEntries(target, baseline);
+        Map<String, String[]> after = deliveryEntries(target, next);
+        for (String path : paths) {
+            for (String revision : List.of(baseline, next)) {
+                if ((revision.equals(baseline) ? before : after).containsKey(path)) {
+                    byte[] bytes = CompatibilityGit.run(target, null, Map.of(), "cat-file", "blob", revision + ":" + path);
+                    if (!policy.classify(path, bytes).mutable()) {
+                        throw new AgentException("RESOURCE_INTEGRITY", "Candidate changes a protected repository resource");
+                    }
+                }
             }
         }
     }
@@ -1281,6 +1290,16 @@ public class GitWorkspaceAdapter implements WorkspaceReadPort, WorkingCopyProvis
                             + path + " @ " + commitId + " " + describe(repository, result));
         }
         return result.stdoutText();
+    }
+
+    @Override
+    public Optional<String> readModelFile(WorkspaceRef workspace, String revision, String relativePath) {
+        String content = readFile(workspace, revision, relativePath);
+        var policy = new RepositoryContentPolicy(new DeterministicRepositorySecretPolicy());
+        if (!policy.classify(relativePath, content.getBytes(StandardCharsets.UTF_8)).modelVisible()) {
+            return Optional.empty();
+        }
+        return Optional.of(content);
     }
 
     /**

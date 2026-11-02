@@ -46,6 +46,10 @@ class FullStackAgentSmokeTest {
         fixture.temporary = Files.createDirectories(temporary.resolve("asset"));
         Path original = fixture.fixture();
         boolean mixed = !manager.equals("maven");
+        String privateFixture = "fixture-" + java.util.UUID.randomUUID();
+        Files.writeString(original.resolve(".env.example"), "API_URL=https://example.com\nAPI_TOKEN=${API_TOKEN}\n");
+        Files.writeString(original.resolve(".env.local"), "DB_PASSWORD=" + privateFixture + "\n");
+        Files.writeString(original.resolve(".npmrc"), "registry=https://registry.npmjs.org/\nignore-scripts=true\n");
         String legacyIntegrity = "sha1-6opqRauysGIOfUeTGc6ENLVWUM8=";
         String corruptIntegrity = "sha1-AAAAAAAAAAAAAAAAAAAAAAAAAAA=";
         if (mixed) {
@@ -151,6 +155,7 @@ class FullStackAgentSmokeTest {
             candidateId = terminal.candidateId();
         }
         String observed = String.join("\n", observations);
+        assertFalse(observed.contains(privateFixture));
         assertTrue(observed.contains("TESTS_FAILED"));
         if (mixed) {
             assertTrue(observed.contains("TYPECHECK_FAILED"));
@@ -167,6 +172,8 @@ class FullStackAgentSmokeTest {
         }
         assertTrue(candidate.changedPaths().contains("src/main/java/example/Counter.java"));
         assertEquals(2, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
+        assertEquals("PROJECTED", json.readTree(candidate.testEvidence()).path("sourceView").path("kind").asText());
+        assertEquals(1, json.readTree(candidate.testEvidence()).path("sourceView").path("preservedOnlyCount").asInt());
         assertFalse(candidate.diff().contains("INSTALL_SCRIPT_RAN"));
         List<List<String>> containers = org.mockito.Mockito.mockingDetails(process).getInvocations().stream()
                 .filter(invocation -> invocation.getMethod().getName().equals("run"))
@@ -199,6 +206,9 @@ class FullStackAgentSmokeTest {
         Files.createDirectories(Path.of("target"));
         Files.writeString(Path.of("target/fullstack-smoke-" + manager + ".json"), proof.toPrettyString());
         assertEquals("", officialStatus);
+        assertEquals("DB_PASSWORD=" + privateFixture + "\n", Files.readString(official.resolve(".env.local")));
+        assertEquals(Files.readString(original.resolve(".env.example")), Files.readString(official.resolve(".env.example")));
+        assertEquals(Files.readString(original.resolve(".npmrc")), Files.readString(official.resolve(".npmrc")));
         assertFalse(Files.exists(official.resolve("frontend/node_modules")));
         assertEquals(baseline, fixture.git(original, "rev-parse", "HEAD"));
         assertTrue(fixture.git(original, "status", "--porcelain").isEmpty());

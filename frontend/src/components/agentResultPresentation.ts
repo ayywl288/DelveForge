@@ -39,6 +39,23 @@ function record(value: unknown): value is Record<string, unknown> {
 function count(value: unknown): number | null {
     return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
+
+export function presentSourceView(raw: string): string {
+    try {
+        const value: unknown = JSON.parse(raw);
+        if (!record(value) || !record(value.sourceView)) return "";
+        const view = value.sourceView;
+        const omitted = count(view.preservedOnlyCount);
+        const readOnly = count(view.readOnlyResourceCount);
+        if (view.kind === "PROJECTED" && omitted !== null && omitted > 0) {
+            return `检查使用执行投影；${omitted} 项资源保留在原仓库，未进入执行环境。`;
+        }
+        if (view.kind === "FULL" && omitted === 0 && readOnly !== null) {
+            return readOnly > 0 ? `检查包含 ${readOnly} 项只读资源；这些资源未向模型披露，也未获修改授权。` : "";
+        }
+        return "执行材料范围待核对。";
+    } catch { return ""; }
+}
 export interface TestPresentation {
     label: string;
     outcome: string;

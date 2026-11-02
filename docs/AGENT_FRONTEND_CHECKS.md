@@ -53,7 +53,10 @@ npm 锁的根依赖必须与 manifest 一致；两种安装器也独立执行各
 没有对应脚本或可选工具时返回 `CHECK_NOT_AVAILABLE`，不安装额外工具、不记失败或 PASS，可保持 NOT_TESTED。
 已声明工具却未成功准备属于 `DEPENDENCY_MISSING`；不识别的既有脚本仍是配置不支持；实际执行失败仍记录失败。
 仅根包的 `pnpm-workspace.yaml` 可以含 packages（空或 `.`）及依赖安装构建许可列表；许可不复制到安装目录，始终禁用安装脚本。
-多包 workspace、其他 pnpm 设置、pnpmfile、项目 `.npmrc`、混用锁文件及不支持的脚本或工具链版本均明确拒绝。
+项目 `.npmrc` 只在内容能力策略校验为公开只读资源时可用：固定公共 registry、关闭安装脚本，以及受限布尔设置。
+受校验的 pnpm peer/hoist 设置通过固定参数进入安装器；原配置文件不复制到联网安装目录，源与关闭脚本的约束不可覆盖。
+未知或敏感 `.npmrc` 留在主机，前端检查明确不可用/不支持，不会启用私有 registry、凭据或 hooks。
+多包 workspace、其他 pnpm 设置、pnpmfile、混用锁文件及不支持的脚本或工具链版本仍明确拒绝。
 需要安装期脚本或 native build 才能工作的依赖可能无法使用；不会放开生命周期脚本来修复它们。
 
 ## 依赖与执行隔离
@@ -79,6 +82,11 @@ CPU/内存/PID、输出和单次超时限制继续生效。宿主取消或超时
 
 ## 证据与诊断
 
+v6 将完整 Git 保留与实际执行材料分开。sourceView 明确 FULL / PROJECTED、仅主机保留与公开只读资源的数量，
+executionBaselineTree 记录初始执行树 E；可信 R 仍是 Candidate baseline。快照同时绑定实际材料摘要与不可物化原条目的身份，
+不把 E 称为完整字节相同 checkout。被保留文件若属于源码、测试或构建描述，当前视图不能生成检查 PASS。
+UI 展示投影范围；类型/构建/测试成功均只限于实际执行视图，不能推断被保留内容已执行。
+
 执行前模型收到当前工程的有界检查声明：Maven 目录、Vue/Vite 目录和每个 goal 的
 DECLARED_SUPPORTED / ABSENT / UNSUPPORTED / UNAVAILABLE。声明不验证完整锁文件或安装结果，不是 PASS。
 错误目录或无可选检查返回 CHECK_NOT_AVAILABLE 并附可用目录；前端独立工程不制造 Maven 配置。
@@ -102,16 +110,20 @@ UI 展示独立工程/目标、实际计数和旧源码标签；总览中的测�
 
 ## 镜像更新与验证
 
-工具协议已升至 **v5**。新 Java 会在传入源码前拒绝旧镜像。正常启动使用 `setup-delveforge.ps1`，
+工具协议已升至 **v6**。新 Java 会在传入源码前拒绝旧镜像。正常启动使用 `setup-delveforge.ps1`，
 其 `setup-agent-images.ps1` 根据当前构建输入选择新标签、构建 17/21 镜像、核对脚本内容并固定 image ID。
 自定义镜像须从当前 `backend/delveforge-infrastructure/src/main/resources/agent/Dockerfile` 用新标签构建，
 再通过 `-AgentImage21` / `-AgentImage17` 或对应配置显式使用并重启应用。不要覆盖正在使用的旧镜像标签。
 
 可执行回归包括 `AgentCheckEvidenceTest`、`AgentContextTest`、`FrontendPolicyTest`、`FrontendProxyTest`、
 `RepositoryCompatibilityIntegrationTest` 和 `FullStackAgentSmokeTest`。后者设置 `DELVEFORGE_AGENT_DOCKER=true`、
-`DELVEFORGE_AGENT_IMAGE_21=<当前v5镜像>` 后运行，分别实际执行纯 Maven、npm/pnpm 安装、失败检查、源码修正、
+`DELVEFORGE_AGENT_IMAGE_21=<当前v6镜像>` 后运行，分别实际执行纯 Maven、npm/pnpm 安装、失败检查、源码修正、
 Maven/Vue 检查、Candidate 冻结和 Git/SQLite Delivery。模型动作是确定性脚本，检查结果不是替身；不调用付费模型。
 实际执行结果见下方记录；仅有这些测试文件不代表运行通过。
+
+v6 资源能力回归另含 `RepositoryContentPolicyTest`、独立 Delivery 的资源伪造负例与
+`test_resource_capabilities.py`。本轮真实运行及未通过的公开样本见
+[安全仓库接入验证](validation/safe-admission-boundary-20261102.md)；下方 v4/v5 记录保留历史范围。
 
 ## 2026-11-02 初次 v4 实现验证记录（历史）
 
