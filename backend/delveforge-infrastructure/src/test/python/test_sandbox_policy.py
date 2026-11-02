@@ -30,6 +30,17 @@ def witnessed(patch_text):
 
 
 class SandboxPolicyTest(unittest.TestCase):
+    def test_frontend_generated_names_do_not_hide_or_forbid_maven_source(self):
+        path = self.root / 'src/main/java/dist/Counter.java'
+        path.parent.mkdir(parents=True)
+        path.write_text('class Counter {}\n')
+        diff = '--- a/src/main/java/dist/Counter.java\n+++ b/src/main/java/dist/Counter.java\n@@ -1 +1 @@\n-class Counter {}\n+class Counter { int n; }\n'
+        self.assertEqual(['src/main/java/dist/Counter.java'], sandbox.patch_paths(diff))
+        (self.root / 'package.json').write_text('{}')
+        (self.root / 'dist').mkdir()
+        (self.root / 'dist/output.js').write_text('generated')
+        self.assert_policy('GENERATED_PATH', sandbox.snapshot)
+
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
@@ -75,7 +86,7 @@ class SandboxPolicyTest(unittest.TestCase):
                                 capture_output=True, cwd=self.root, check=False)
         self.assertEqual(0, result.returncode)
         self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
-            'protocol': 'delveforge-sandbox', 'version': 3}},
+            'protocol': 'delveforge-sandbox', 'version': 4}},
             {k: v for k, v in json.loads(result.stdout).items() if k != 'durationMs'})
         self.assertEqual(before, list(self.root.iterdir()))
         self.assertEqual(b'', result.stderr)

@@ -10,6 +10,24 @@ Date: 2026-10-21
 
 ## Decision
 
+### 2026-11-02：现有隔离模式扩展到 npm/pnpm 前端检查
+
+用户授权在同一 Agent 工具协议增加 `run_frontend_checks`，没有新 Agent 框架或通用 shell。
+固定 Node/npm/pnpm，独立联网准备目录只接收筛选后的 manifest 与冻结锁；关闭生命周期脚本与 pnpm hooks。
+仅固定 registry 代理可达；检查脚本只在新源副本、无网络容器中执行，依赖卷只读，Maven 缓存只读。
+同一 Run 可在 manifest/锁文件不变时复用准备结果；项目执行者不能写入该卷。其他源码副作用拒绝，生成树仅在检查副本分类。
+完整 source snapshot 继续覆盖所有源码，最终 Candidate 不接收依赖和输出，正式写入仍仅由 Delivery 执行。
+
+Application 共用检查证据规则区分类型、工程及目标；前端失败不由 Maven 或不同目标成功清除。
+v2 证据保持旧 Maven 记录可读。技术检查不构成产品验收，不增加领域状态或隐含授权。
+产品上下文只从已保存 TargetState 投影，并与唯一授权 Step 分开作为净化数据传递。
+
+相较让 Node 在 Agent 权威卷安装或执行脚本，一次性副本和分离网络增加复制及容器成本，
+但无需放宽原快照和 Delivery 合同。相比一次性开放通用包管理器，明确支持固定 npm/pnpm、公共 registry、
+标准 Vue/Vite/vue-tsc/Vitest scripts；workspace、私有源、安装期构建和其他配置拒绝，代价是兼容范围有限。
+镜像增加 Node/npm/pnpm 和 YAML 安全解析器；未改变模块依赖或持久化技术。协议升到 v4，启动器核对脚本及镜像 ID。
+详细行为和验证命令见 [受控前端检查](../AGENT_FRONTEND_CHECKS.md)。
+
 - Domain 维护 AgentRun 与不可变 Candidate 事实；Application 拥有逐轮模型调用与工具调度。
 - Infrastructure 使用发布的 Spring AI 1.1.x，关闭内部工具执行；保留 M1–M3 的文本 AiGateway。
 - 每次 Run 使用独立 Docker Linux 容器和源副本，正式 WorkingCopy 只读提供可信 A。

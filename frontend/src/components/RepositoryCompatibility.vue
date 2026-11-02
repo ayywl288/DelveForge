@@ -33,6 +33,7 @@ onBeforeUnmount(() => { epoch++; });
     <template v-if="result">
       <p>{{ result.status === 'BLOCKED' ? '需要处理下列限制' : result.generatedPaths.length ? '可自动准备隔离副本' : '当前结构可进入准备流程' }}</p>
       <p v-if="result.mavenDirectory" class="meta">Maven 项目：{{ result.mavenDirectory === '.' ? '仓库根目录' : result.mavenDirectory }}；构建 JDK {{ result.buildJdk }}；{{ result.files }} 个文件，约 {{ (result.sourceBytes / 1048576).toFixed(1) }} MiB。</p>
+      <p v-else-if="result.status !== 'BLOCKED'" class="meta">前端工程：{{ result.files }} 个文件，约 {{ (result.sourceBytes / 1048576).toFixed(1) }} MiB；npm/pnpm 依赖、锁文件与脚本将在受控检查时核对。</p>
       <p v-if="result.generatedPaths.length">准备时自动排除 {{ result.generatedPaths.length }} 个已确认的 Maven 生成物，原仓库保持不变。</p>
       <p v-if="result.immutablePaths.length" class="meta">{{ result.immutablePaths.length }} 个资源或受保护文件仅保留原样，不作为可编辑源码。</p>
       <details v-if="result.generatedPaths.length"><summary>自动准备明细</summary><ul><li v-for="path in result.generatedPaths" :key="path"><code>{{ path }}</code></li></ul></details>

@@ -10,6 +10,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AgentToolsProtocolTest {
     @Test
+    void sharedFrontendToolAcceptsOnlyBoundedGoalsAndNoModelCommands() {
+        for (String goal : List.of("typecheck", "build", "test")) {
+            AgentTools.validate(new AgentProtocol.ToolCall("id", "run_frontend_checks",
+                    "{\"goal\":\"" + goal + "\",\"directory\":\"frontend\"}"), AgentProtocol.Limits.defaults());
+        }
+        for (String arguments : List.of("{}", "{\"goal\":\"install\"}",
+                "{\"goal\":\"test;curl evil\"}", "{\"goal\":\"test\",\"command\":\"echo passed\"}")) {
+            assertEquals("INVALID_ARGUMENTS", assertThrows(AgentException.class, () -> AgentTools.validate(
+                    new AgentProtocol.ToolCall("id", "run_frontend_checks", arguments), AgentProtocol.Limits.defaults())).code());
+        }
+    }
+
+    @Test
     void invalidToolProtocolHasSpecificReasonsIncludingNullNameWithoutNullPointerFailure() {
         var calls = List.of(new AgentProtocol.ToolCall(null, "read_file", "{}"),
                 new AgentProtocol.ToolCall("id", null, "{}"), new AgentProtocol.ToolCall("id", "unknown", "{}"),

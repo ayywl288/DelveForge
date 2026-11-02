@@ -19,7 +19,7 @@ const names: Record<string, string> = {
 const outcomes = { running: "进行中", completed: "完成", failed: "失败", conflict: "冲突", unknown: "结果未记录或待核对",
     recorded: "已记录", blocked: "需要核对", interrupted: "已中断或取消" };
 const toolIcons: Record<string, NavigationIconName> = {
-    read_file: "file", list_files: "repository", search_code: "evidence", apply_patch: "code", edit_file: "code", run_checks: "check",
+    read_file: "file", list_files: "repository", search_code: "evidence", apply_patch: "code", edit_file: "code", run_checks: "check", run_frontend_checks: "check",
 };
 function icon(activity: AgentActivity): NavigationIconName {
     if (["blocked", "conflict"].includes(activity.outcome)) return "lock";

@@ -1,6 +1,8 @@
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import { verificationLabel } from "./agentResultPresentation";
 
+export const isCheckTool = (tool: string | undefined): boolean => tool === "run_checks" || tool === "run_frontend_checks";
+
 export const isPatchTool = (tool: string | undefined): boolean => tool === "apply_patch" || tool === "edit_file";
 
 export type ActivityOutcome = "running" | "completed" | "failed" | "conflict" | "unknown" | "recorded" | "blocked" | "interrupted";
@@ -20,7 +22,7 @@ export interface AgentActivity {
 }
 export const toolNames: Record<string, string> = {
     list_files: "浏览文件", read_file: "读取文件", search_code: "搜索代码", apply_patch: "应用代码修改", edit_file: "精确编辑代码",
-    run_checks: "运行 Maven 检查",
+    run_checks: "运行 Maven 检查", run_frontend_checks: "运行前端检查",
 };
 const activeKinds: Partial<Record<AgentRun["state"], string[]>> = {
     CREATED: ["CREATED"], PREPARING: ["PREPARING"], RUNNING: ["MODEL_REQUEST", "RUNNING"],
@@ -31,7 +33,7 @@ const policyRules = new Set(["STORAGE_LOCATION", "PATH_FORMAT", "PROTECTED_CREDE
     "AMBIGUOUS_GENERATED_PATH", "SOURCE_ENTRY_TYPE", "SOURCE_PROTECTED_ENTRY", "SOURCE_CASE_CONFLICT", "SOURCE_ENTRY_LIMIT",
     "SOURCE_FILE_LIMIT", "SOURCE_CAPTURE_LIMIT", "PATCH_SIZE", "PATCH_PREIMAGE", "PATCH_TYPE", "PATCH_DIFF_PATHS", "PATCH_FILE_MODE", "PATCH_PATH_FORMAT",
     "GENERATED_PATH", "SOURCE_CREDENTIALS", "PATCH_CREDENTIALS", "COMMAND_BUDGET", "REPORT_COUNT_LIMIT", "UNSAFE_REPORT", "REPORT_COUNTS",
-    "MAVEN_OPTIONS", "UNSAFE_REPORT_DIRECTORY", "CHECK_MUTATED_SOURCE", "BASELINE_FILE_LIMIT", "BASELINE_FILE_TYPE", "UNKNOWN_TOOL", "UNCLASSIFIED_POLICY"]);
+    "MAVEN_OPTIONS", "FRONTEND_ISOLATION", "UNSAFE_REPORT_DIRECTORY", "CHECK_MUTATED_SOURCE", "BASELINE_FILE_LIMIT", "BASELINE_FILE_TYPE", "UNKNOWN_TOOL", "UNCLASSIFIED_POLICY"]);
 const policyStages = new Set(["ARGUMENTS", "STORAGE", "PATH_VALIDATION", "PATCH_INSPECTION", "PATCH_SOURCE", "PATCH_CONTENT",
     "PATCH_APPLICATION", "SOURCE_CAPTURE", "TOOL_EXECUTION"]);
 const credentialShape = /\b(?:(?:AKIA|ASIA)[0-9A-Z]{16}|(?:gh[pousr]|github_pat)_[A-Za-z0-9_]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{30,}|ya29\.[0-9A-Za-z_-]{20,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})\b/;
@@ -124,10 +126,10 @@ function resultOutcome(event: AgentEvent, tool?: string): ActivityOutcome {
     if (['PATCH_REPEATED_CONFLICT', 'PATCH_CORRECTION_LIMIT'].includes(code ?? '')) return 'conflict';
     if (data.resultRecorded === false) return code === "POLICY_REJECTED" ? "blocked" : "unknown";
     if (code === "PATCH_CONFLICT") return "conflict";
-    if (data.ok === false || code && /(FAILED|FAILURE|ERROR|LIMIT|UNAVAILABLE|MISSING|REJECTED|MISMATCH|TIMEOUT)/.test(code)) return "failed";
+    if (data.ok === false || code && /(FAILED|FAILURE|ERROR|LIMIT|UNAVAILABLE|MISSING|REJECTED|MISMATCH|TIMEOUT|UNSUPPORTED|INVALID)/.test(code)) return "failed";
     if (data.ok !== true || !tool) return "unknown";
     if (isPatchTool(tool)) return code === "PATCH_APPLIED" ? "completed" : "unknown";
-    if (tool === "run_checks") return ["TESTS_PASSED", "BUILD_PASSED_NOT_TESTED"].includes(code ?? "")
+    if (isCheckTool(tool)) return ["TESTS_PASSED", "BUILD_PASSED_NOT_TESTED"].includes(code ?? "")
         && !(numeric(data, "failures") || numeric(data, "errors")) ? "completed" : "unknown";
     return "completed";
 }
@@ -228,7 +230,7 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
             title: "正在请求模型" + (ordinal ? ` · 第 ${ordinal} 次请求` : ""), detail: "等待模型响应" };
     }
     if (active?.tool) return { ...staticState, active: true, tone: "running",
-        title: ({ read_file: "正在读取文件", list_files: "正在浏览目录", search_code: "正在搜索代码", apply_patch: "正在应用代码修改", edit_file: "正在精确编辑代码", run_checks: "正在执行 Maven 检查" } as Record<string, string>)[active.tool] ?? "工具操作进行中",
+        title: ({ read_file: "正在读取文件", list_files: "正在浏览目录", search_code: "正在搜索代码", apply_patch: "正在应用代码修改", edit_file: "正在精确编辑代码", run_checks: "正在执行 Maven 检查", run_frontend_checks: "正在执行前端检查" } as Record<string, string>)[active.tool] ?? "工具操作进行中",
         detail: active.target ?? (active.targetWithheld ? "目标已隐藏" : "目标未记录") };
     if (active) return { ...staticState, active: true, tone: "running",
         title: ({ CREATED: "运行已预约", PREPARING: "正在准备 Docker 沙箱", RUNNING: "开始编码", FINALIZING: "正在冻结 Candidate" } as Record<string, string>)[active.event.kind] ?? "运行进行中" };
@@ -268,7 +270,7 @@ export function patchSummary(activities: AgentActivity[], runId: string) {
         }))].slice(-4) };
 }
 export function checkSummary(activities: AgentActivity[], runId: string) {
-    const checks = activities.filter(activity => activity.tool === "run_checks");
+    const checks = activities.filter(activity => isCheckTool(activity.tool));
     const latest = checks.at(-1);
     const data = latest ? summaryFields(latest.finish ?? latest.event) : {};
     const executing = checks.some(activity => activity.active);
@@ -349,7 +351,13 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
         addNumber("nanoCpus", "CPU", " 核", 1e9); addNumber("pidsLimit", "PID 上限");
         if (["none", "bridge", "host"].includes(String(data.networkMode))) rows.push({ label: "网络", value: String(data.networkMode) });
         if (typeof data.readOnlyRoot === "boolean") rows.push({ label: "只读根文件系统", value: data.readOnlyRoot ? "是" : "否" });
-    } else if (activity.tool === "run_checks" && event.kind === "TOOL_FINISHED") {
+    } else if (isCheckTool(activity.tool) && event.kind === "TOOL_FINISHED") {
+        if (["typecheck", "build", "test", "compile", "package", "verify"].includes(String(data.goal))) {
+            rows.push({ label: "检查目标", value: String(data.goal) });
+        }
+        if (["npm", "pnpm"].includes(String(data.packageManager))) {
+            rows.push({ label: "包管理器", value: String(data.packageManager) });
+        }
         if (numeric(data, "executedTests") || numeric(data, "tests") || numeric(data, "failures") || numeric(data, "errors")) {
             for (const [key, label] of [["executedTests", "已执行测试"], ["failures", "失败"], ["errors", "错误"], ["skipped", "跳过"]] as const) addNumber(key, label);
         }

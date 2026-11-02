@@ -152,8 +152,8 @@ function viewSection(id: string) {
           aria-describedby="path-help"
         />
         <p id="path-help" class="meta">
-          注册会只读规范化路径以防重复；分析时才检查 Git 和源码。请输入受信任的小型 Java
-          / Maven 项目；本版登记不接收 UNC 共享或设备路径。
+          注册会只读规范化路径以防重复；分析时才检查 Git 和源码。受控演化支持 Java / Maven
+          或 Vue 3 / Vite / TypeScript（npm/pnpm）工程；本版登记不接收 UNC 共享或设备路径。
         </p>
         <p v-if="location && !absolute" class="field-error">请输入绝对路径。</p>
         <label for="read-permission">读取与分析权限</label
@@ -234,8 +234,8 @@ function viewSection(id: string) {
           class="secondary" :disabled="!!s.busy" @click="emit('returnPlanning')">返回演化规划 →</button>
       </article>
       <div class="inline-note">
-        分析结果不代表任意仓库可安全执行。M4 验证只支持既有 Java / Maven
-        场景；Windows 宿主执行没有系统级沙箱。
+        当前支持 Java / Maven 与规定的 npm/pnpm 前端检查，锁文件和脚本须通过受控校验。
+        分析结果不代表构建、测试或功能已经通过。
       </div>
     </section>
   </div>

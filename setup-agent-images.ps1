@@ -16,7 +16,7 @@ function Get-DfDockerExecutable {
 function Get-DfAgentInputs {
     param([string] $Root)
     $context = Join-Path $Root 'backend/delveforge-infrastructure/src/main/resources/agent'
-    foreach ($name in @('Dockerfile', 'sandbox.py', 'proxy.py', 'offline-settings.xml')) {
+    foreach ($name in @('Dockerfile', 'sandbox.py', 'frontend.py', 'proxy.py', 'offline-settings.xml')) {
         if (-not (Test-Path -LiteralPath (Join-Path $context $name) -PathType Leaf)) {
             Stop-DfSetup "Agent build input missing: $name. Restore the trusted checkout."
         }
@@ -45,26 +45,27 @@ function Assert-DfAgentImage {
 import hashlib,json,pathlib,subprocess
 p=subprocess.run(['python3','/opt/delveforge/sandbox.py'],input=json.dumps(dict(name='protocol',arguments={})).encode(),stdout=subprocess.PIPE,check=True)
 r=json.loads(p.stdout)
-print(json.dumps({'handshake':r,'hashes':{n:hashlib.sha256(pathlib.Path('/opt/delveforge',n).read_bytes()).hexdigest() for n in ['sandbox.py','proxy.py','offline-settings.xml']},'java':subprocess.run(['java','-version'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=True).stdout.decode()}))
+print(json.dumps({'handshake':r,'hashes':{n:hashlib.sha256(pathlib.Path('/opt/delveforge',n).read_bytes()).hexdigest() for n in ['sandbox.py','frontend.py','proxy.py','offline-settings.xml']},'java':subprocess.run(['java','-version'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=True).stdout.decode(),'tools':{n:subprocess.run([n,'--version'],stdout=subprocess.PIPE,check=True).stdout.decode().strip() for n in ['node','npm','pnpm']}}))
 '@
     $result = Invoke-DfDocker $Docker @('run', '--rm', '--network=none', '--read-only', '--cap-drop=ALL',
         '--security-opt=no-new-privileges', '--pids-limit=64', '--memory=256m', '--cpus=1',
-        '--label', 'com.delveforge.bootstrap=protocol-v3', $imageId, 'python3', '-c', $probe)
+        '--label', 'com.delveforge.bootstrap=protocol-v4', $imageId, 'python3', '-c', $probe)
     if ($result.Code -ne 0) { Stop-DfSetup "Agent JDK $Jdk image probe failed. Rebuild the current trusted context using a new identity." }
     try { $data = $result.Output | ConvertFrom-Json } catch { Stop-DfSetup "Agent JDK $Jdk image returned an invalid probe." }
     $handshake = $data.handshake
     if ($handshake.ok -isnot [bool] -or $handshake.ok -cne $true -or $handshake.tool -cne 'protocol' -or
             $handshake.result.protocol -cne 'delveforge-sandbox' -or
             ($handshake.result.version -isnot [long] -and $handshake.result.version -isnot [int]) -or
-            $handshake.result.version -ne 3 -or $data.java -notmatch ('version "' + $Jdk + '\.')) {
-        Stop-DfSetup "Agent JDK $Jdk image is incompatible with protocol v3 or the selected JDK. Use a new current image."
+            $handshake.result.version -ne 4 -or $data.java -notmatch ('version "' + $Jdk + '\.') -or
+            $data.tools.node -cne 'v22.16.0' -or $data.tools.npm -cne '10.9.2' -or $data.tools.pnpm -cne '12.9.1') {
+        Stop-DfSetup "Agent JDK $Jdk image is incompatible with protocol v4 or the selected JDK. Use a new current image."
     }
-    foreach ($name in @('sandbox.py', 'proxy.py', 'offline-settings.xml')) {
+    foreach ($name in @('sandbox.py', 'frontend.py', 'proxy.py', 'offline-settings.xml')) {
         if ($data.hashes.$name -cne (Get-FileHash -LiteralPath (Join-Path $Context $name) -Algorithm SHA256).Hash.ToLowerInvariant()) {
             Stop-DfSetup "Agent JDK $Jdk image has stale tool contents. Build the current context with a new identity."
         }
     }
-    Write-Host "Verified Agent JDK ${Jdk}: $imageId (protocol v3)."
+    Write-Host "Verified Agent JDK ${Jdk}: $imageId (protocol v4)."
     return $imageId
 }
 
@@ -91,7 +92,7 @@ function Initialize-DfAgentImages {
         if ($jdk -eq 17) { $override = $Image17 }
         $tag = $override
         if (-not $tag) {
-            $tag = "delveforge-agent:protocol-v3-jdk$jdk-$($inputs.Digest)"
+            $tag = "delveforge-agent:protocol-v4-jdk$jdk-$($inputs.Digest)"
             $existing = Invoke-DfDocker $docker @('image', 'ls', '--quiet', '--no-trunc', '--filter', "reference=$tag")
             if ($existing.Code -ne 0) { Stop-DfSetup 'Cannot list Docker images. Check Engine availability.' }
             if (-not $existing.Output) {

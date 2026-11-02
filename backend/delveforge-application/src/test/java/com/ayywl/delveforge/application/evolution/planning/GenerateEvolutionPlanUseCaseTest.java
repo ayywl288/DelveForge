@@ -341,6 +341,9 @@ class GenerateEvolutionPlanUseCaseTest {
         assertTrue(instruction.contains("代码增量及其自动化验证"));
         assertTrue(instruction.contains("不得把分析、设计、确定契约或阅读仓库独立列为 Step"));
         assertTrue(instruction.contains("纵向功能切片"));
+        assertTrue(instruction.contains("前端、后端、持久化、集成和自动化测试"));
+        assertTrue(instruction.contains("仅实现后端 API 不能称为完成"));
+        assertTrue(instruction.contains("CLI、SDK、API-only"));
     }
 
     @Test

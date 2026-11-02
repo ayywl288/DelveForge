@@ -88,6 +88,8 @@ class DirectionDiscoveryExtractionTest {
         AiRequest request = aiGateway.lastRequest();
         assertEquals(AiResponseFormat.JSON, request.responseFormat());
         assertEquals(AiRole.SYSTEM, request.messages().get(0).role());
+        assertTrue(request.messages().get(0).content().contains("目标用户、实际工作流"));
+        assertTrue(request.messages().get(0).content().contains("API-only 产品仍是有效方向"));
         assertTrue(request.messages().get(0).content().contains("json"),
                 "提示词必须包含 json 字样：Provider 的 JSON 模式依赖它");
         assertEquals(AiRole.USER, request.messages().get(1).role());

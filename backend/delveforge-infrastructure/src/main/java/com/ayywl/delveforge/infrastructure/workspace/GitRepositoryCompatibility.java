@@ -6,6 +6,9 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
@@ -142,9 +145,15 @@ public final class GitRepositoryCompatibility {
         try {
             layout = MavenRepositoryLayout.inspect(buildPoms);
         } catch (MavenRepositoryLayout.Unsupported failure) {
-            issues.add(new Issue(failure.code().equals("MAVEN_REQUIRED") || failure.code().equals("JDK_UNSUPPORTED")
-                    ? "GENUINELY_UNSUPPORTED" : "REQUIRES_EXPLICIT_USER_DECISION", failure.code(), "",
-                    failure.getMessage(), true));
+            if (!failure.code().equals("MAVEN_REQUIRED") || !hasFrontendProject(repository, entries)) {
+                boolean frontendMetadata = failure.code().equals("MAVEN_REQUIRED") && entries.keySet().stream()
+                        .anyMatch(path -> path.equals("package.json") || path.endsWith("/package.json"));
+                issues.add(new Issue(failure.code().equals("MAVEN_REQUIRED") || failure.code().equals("JDK_UNSUPPORTED")
+                        ? "GENUINELY_UNSUPPORTED" : "REQUIRES_EXPLICIT_USER_DECISION",
+                        frontendMetadata ? "FRONTEND_CONFIGURATION" : failure.code(), "",
+                        frontendMetadata ? "前端工程需要 Vue/Vite/TypeScript、唯一 npm/pnpm 锁文件及兼容的 packageManager；不支持混用或 workspace。"
+                                : failure.getMessage(), true));
+            }
         }
         Map<String, byte[]> modulePoms = new LinkedHashMap<>();
         if (layout != null) {
@@ -232,6 +241,45 @@ public final class GitRepositoryCompatibility {
                 layout == null ? null : layout.recommendedJdk(), bytes, entries.size(), textFiles, opaqueFiles,
                 generated.stream().sorted().toList(), immutable.stream().sorted().toList(), issues);
         return new Inspection(report, entries, modulePoms);
+    }
+
+    /** 只认固定 Git tree 中的 Vue 工程元数据；具体锁文件与脚本仍由隔离检查工具验证。 */
+    private boolean hasFrontendProject(Path repository, Map<String, Entry> entries) {
+        for (var item : entries.entrySet()) {
+            String path = item.getKey();
+            if (!(path.equals("package.json") || path.endsWith("/package.json"))
+                    || item.getValue().size() > EDITABLE_FILE_BYTES || path.contains("/node_modules/")) {
+                continue;
+            }
+            String prefix = path.substring(0, path.length() - "package.json".length());
+            boolean npm = entries.containsKey(prefix + "package-lock.json");
+            boolean pnpm = entries.containsKey(prefix + "pnpm-lock.yaml");
+            if (npm == pnpm || entries.containsKey(prefix + "yarn.lock")
+                    || entries.containsKey(prefix + "pnpm-workspace.yaml")) {
+                continue;
+            }
+            try {
+                JsonNode manifest = new ObjectMapper().readTree(blob(repository, item.getValue().objectId()));
+                String managerPattern = npm ? "npm@(9|10)" : "pnpm@(9|10|11|12)";
+                if (manifest == null || !manifest.isObject()
+                        || manifest.has("packageManager") && !manifest.path("packageManager").asText()
+                                .matches(managerPattern + "\\.\\d+\\.\\d+(\\+sha(224|512)\\.[a-f0-9]+)?")
+                        || manifest.has("workspaces")) {
+                    continue;
+                }
+                boolean supported = true;
+                for (String dependency : List.of("vue", "vite", "typescript")) {
+                    supported &= manifest.path("dependencies").has(dependency)
+                            || manifest.path("devDependencies").has(dependency);
+                }
+                if (supported) {
+                    return true;
+                }
+            } catch (java.io.IOException invalid) {
+                // 无效元数据不构成放行依据；保留原缺少受支持构建入口的拒绝。
+            }
+        }
+        return false;
     }
 
     public static boolean safePath(String path) {

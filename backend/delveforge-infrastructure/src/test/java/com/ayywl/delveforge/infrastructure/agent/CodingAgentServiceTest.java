@@ -94,6 +94,11 @@ class CodingAgentServiceTest {
 
     static ExecutionPreparationState eligibility(String baseline, Path official, WorkingCopyInspectionPort inspection,
             Path original, com.ayywl.delveforge.domain.evolution.PreparationProvenance provenance) {
+        return eligibility(baseline, official, inspection, original, provenance, false);
+    }
+
+    static ExecutionPreparationState eligibility(String baseline, Path official, WorkingCopyInspectionPort inspection,
+            Path original, com.ayywl.delveforge.domain.evolution.PreparationProvenance provenance, boolean fullStack) {
         var assetId = new SoftwareAssetId("asset");
         var profileId = new RepositoryProfileId("profile");
         var planId = new EvolutionPlanId("plan");
@@ -104,7 +109,8 @@ class CodingAgentServiceTest {
         EvolutionPlan plan = EvolutionPlan.reconstitute(planId, new ProductDirectionId("direction"), assetId, profileId,
                 new CurrentState("current", List.of(), List.of(), List.of()), new TargetState("problem", "target", "difference"),
                 List.of(), List.of("修复递增逻辑"), List.of(EvolutionStep.reconstitute(stepId, planId,
-                        "先运行现有测试观察失败，再修复 Counter.next(n) 返回 n+1，新增边界测试并重跑完整测试", "Counter",
+                        "先运行现有测试观察失败，再修复 Counter.next(n) 返回 n+1，新增边界测试并重跑完整测试",
+                        fullStack ? "Counter 后端与 Vue 计数交互及相关自动化测试" : "Counter",
                         List.of("发现实际文件并修改", "增加独立的边界测试类", "运行完整Maven测试"),
                         EvolutionStepStatus.READY)), List.of(), List.of(evidence), copyId, EvolutionPlanStatus.ACTIVE);
         WorkingCopy copy = WorkingCopy.reconstitute(copyId, assetId, provenance.originalRevision(), official.toString(), baseline,
@@ -136,6 +142,28 @@ class CodingAgentServiceTest {
         sandbox = mock(AgentSandboxPort.class);
         when(sandbox.identity(anyString())).thenReturn(new AgentSandboxPort.Identity("container", "image", 21,
                 2147483648L, 2000000000L, 256, "none", true));
+    }
+
+    @Test
+    void transfersPersistedTargetStateWithoutLoadingUnrelatedPlanningHistory() throws Exception {
+        var captured = new java.util.concurrent.atomic.AtomicReference<List<AgentProtocol.Message>>();
+        AgentModelPort model = (history, tools) -> {
+            captured.set(history);
+            return new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"fixture stop\"}", List.of(), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            var run = service.start("plan", "step", 21);
+            awaitTerminal(service, run.id(), 10);
+            var task = org.mockito.ArgumentCaptor.forClass(AgentSandboxPort.Task.class);
+            verify(sandbox).prepare(task.capture(), any(), any());
+            assertEquals(new AgentSandboxPort.ProductContext("problem", "target", "difference"),
+                    task.getValue().productContext());
+            String user = captured.get().get(1).text();
+            assertTrue(user.contains("\"targetProduct\":\"target\""));
+            assertTrue(user.contains("authorizedStep"));
+            assertFalse(user.contains("userProfile"));
+            assertFalse(user.contains("repositoryProfile"));
+        }
     }
 
     CodingAgentService service(AgentModelPort model, AgentProtocol.Limits limits) {

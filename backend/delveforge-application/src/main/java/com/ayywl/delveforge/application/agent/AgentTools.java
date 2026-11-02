@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** 五个固定工具的协议。Schema 说明不替代 Application 对实际参数的校验。 */
+/** 固定工具的协议。Schema 说明不替代 Application 对实际参数的校验。 */
 public final class AgentTools {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Map<String, Set<String>> FIELDS = Map.of(
@@ -17,7 +17,8 @@ public final class AgentTools {
             "read_file", Set.of("path", "start_line", "line_count"),
             "apply_patch", Set.of("patch"),
             "edit_file", Set.of("path", "old_text", "new_text"),
-            "run_checks", Set.of("goal", "directory", "module", "test"));
+            "run_checks", Set.of("goal", "directory", "module", "test"),
+            "run_frontend_checks", Set.of("goal", "directory"));
 
     private AgentTools() {
     }
@@ -48,7 +49,12 @@ public final class AgentTools {
                 spec("run_checks", "离线Maven检查。goal可为compile/test/package/verify，默认test；module为相对模块路径，test为测试选择器。环境缺依赖由系统有界准备。",
                         "\"goal\":{\"type\":\"string\",\"enum\":[\"compile\",\"test\",\"package\",\"verify\"]},"
                                 + "\"directory\":{\"type\":\"string\",\"description\":\"Maven工程目录，默认仓库根；可选择嵌套reactor\"},"
-                                + "\"module\":{\"type\":\"string\"},\"test\":{\"type\":\"string\"}", ""));
+                        + "\"module\":{\"type\":\"string\"},\"test\":{\"type\":\"string\"}", ""),
+                spec("run_frontend_checks", "受控 Vue/Vite/TypeScript + npm/pnpm 检查。directory 指定工程，默认 frontend；"
+                        + "goal 为 typecheck/build/test。依赖冻结准备，检查无网络；构建不等于运行测试。"
+                        + "缺少可选工具或脚本返回 CHECK_NOT_AVAILABLE，不要求改写项目。",
+                        "\"goal\":{\"type\":\"string\",\"enum\":[\"typecheck\",\"build\",\"test\"]},"
+                                + "\"directory\":{\"type\":\"string\"}", "\"goal\""));
     }
 
     public static void validate(AgentProtocol.ToolCall call, AgentProtocol.Limits limits) {
@@ -79,6 +85,7 @@ public final class AgentTools {
                 }
             }
             String required = switch (call.name()) {
+                case "run_frontend_checks" -> "goal";
                 case "search_code" -> "query";
                 case "read_file", "edit_file" -> "path";
                 case "apply_patch" -> "patch";
@@ -97,6 +104,10 @@ public final class AgentTools {
                     throw new AgentPolicyRejection(AgentPolicyRejection.Rule.MAVEN_OPTIONS,
                             AgentPolicyRejection.Stage.ARGUMENTS);
                 }
+            }
+            if (call.name().equals("run_frontend_checks")
+                    && !Set.of("typecheck", "build", "test").contains(args.path("goal").asText())) {
+                throw new AgentException("INVALID_ARGUMENTS", "Unsupported frontend check goal");
             }
         } catch (IOException failure) {
             throw new AgentException("INVALID_ARGUMENTS", "Invalid JSON tool arguments");

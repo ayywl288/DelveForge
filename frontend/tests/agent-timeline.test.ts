@@ -11,6 +11,18 @@ const identity = "9d52e412-e03d-4419-a2fb-56322848b598";
 const tool = (sequence: number, kind: string, fields: Record<string, unknown> = {}) => fact(sequence, kind,
     JSON.stringify({ metadataVersion: 1, toolCallId: identity, tool: "read_file", path: "src/Counter.java", ...fields }));
 const important = (sequence: number) => fact(sequence, "TOOL_FINISHED", '{"tool":"run_checks","ok":true,"classification":"TESTS_PASSED"}');
+it("groups frontend checks with Maven checks and displays real failures and counts", async () => {
+    const { root, props } = mount();
+    props.events = [tool(1, "TOOL_STARTED", { tool: "run_frontend_checks", path: undefined,
+        directory: "frontend", goal: "typecheck" }), tool(2, "TOOL_FINISHED", { tool: "run_frontend_checks",
+        path: undefined, directory: "frontend", goal: "typecheck", ok: true, classification: "TYPECHECK_FAILED" })];
+    await settle(); await expandChecks(root);
+    const rows = root.querySelectorAll('[data-kind="run_frontend_checks"]');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).toContain("运行前端检查");
+    expect(rows[0]?.getAttribute("data-tone")).toBe("failed");
+    expect(root.querySelector(".check-summary")?.textContent).toContain("前端类型检查未通过");
+});
 async function settle() { await nextTick(); await nextTick(); }
 async function expandChecks(root: HTMLElement) {
     root.querySelector<HTMLElement>(".check-summary summary")!.click(); await settle();

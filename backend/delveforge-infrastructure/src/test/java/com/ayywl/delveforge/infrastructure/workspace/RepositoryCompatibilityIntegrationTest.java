@@ -22,6 +22,31 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RepositoryCompatibilityIntegrationTest {
+    @ParameterizedTest
+    @ValueSource(strings = {"npm", "pnpm"})
+    void standaloneVueProjectCanBePreparedWithoutInventingAMavenBackend(String manager) throws Exception {
+        String version = manager.equals("npm") ? "9.9.4" : "9.11.0";
+        String lock = manager.equals("npm") ? "package-lock.json" : "pnpm-lock.yaml";
+        String manifest = "{\"packageManager\":\"" + manager + "@" + version
+                + "\",\"dependencies\":{\"vue\":\"3.5.17\"},\"devDependencies\":{\"vite\":\"6.3.5\","
+                + "\"typescript\":\"5.8.3\"},\"scripts\":{\"build\":\"vite build\"}}";
+        Path source = repositories.createCommitted("vue-only", Map.of("package.json", manifest, lock, "{}",
+                "src/main.ts", "export const value = 1;\n"));
+        String baseline = GitTestRepositories.headRevision(source);
+        var assessment = compatibility.inspect(source, baseline).report();
+        assertTrue(assessment.supported());
+        assertTrue(assessment.modules().isEmpty());
+        var workspace = new GitWorkspaceAdapter(repositories.directory("managed"));
+        var copy = workspace.provision(new WorkspaceRef(source.toString()), baseline, "copy");
+        assertEquals(baseline, copy.revision());
+        assertEquals("", GitTestRepositories.runGit(Path.of(copy.workspace().value()), "status", "--porcelain"));
+        workspace.discard(copy);
+        GitTestRepositories.writeFile(source, manager.equals("npm") ? "pnpm-lock.yaml" : "package-lock.json", "{}");
+        GitTestRepositories.runGit(source, "add", ".");
+        GitTestRepositories.commit(source, "conflicting locks");
+        assertFalse(compatibility.inspect(source, GitTestRepositories.headRevision(source)).report().supported());
+    }
+
     private static final String POM = "<project><modelVersion>4.0.0</modelVersion><groupId>fixture</groupId>"
             + "<artifactId>compatible</artifactId><version>1</version><properties><maven.compiler.release>17"
             + "</maven.compiler.release></properties></project>";

@@ -34,3 +34,44 @@ it("renders TESTED counts and NOT_TESTED honestly without rendering original JSO
   expect(root.querySelector(".test-counts")).toBeNull();
   expect(root.querySelector(".verification-outcome")?.textContent).not.toContain("通过");
 });
+
+it("shows independent Maven and npm/pnpm checks with goals and stale source labels", async () => {
+    const snapshot = "a".repeat(64);
+    const check = { snapshot, stale: false, executedTests: 0, tests: 0, failures: 0, errors: 0 };
+    const evidence = JSON.stringify({ status: "TESTED", finalSnapshot: snapshot, checks: [
+        { ...check, checkType: "FRONTEND", directory: "web", goal: "test", classification: "TESTS_FAILED", stale: true },
+        { ...check, checkType: "MAVEN", directory: "backend", goal: "test", classification: "TESTS_PASSED", executedTests: 2 },
+        { ...check, checkType: "FRONTEND", directory: "web", goal: "typecheck", classification: "BUILD_PASSED_NOT_TESTED" },
+        { ...check, checkType: "FRONTEND", directory: "web", goal: "build", classification: "BUILD_PASSED_NOT_TESTED" },
+        { ...check, checkType: "FRONTEND", directory: "web", goal: "test", classification: "TESTS_PASSED", executedTests: 3 },
+    ] });
+    const root = document.createElement("div");
+    const app = createApp({ render: () => h(AgentTestEvidence, { evidence }) });
+    app.mount(root); cleanup.push(() => app.unmount()); await settle();
+    const rows = [...root.querySelectorAll(".check-evidence-list li")].map(row => row.textContent);
+    expect(rows).toHaveLength(5);
+    expect(rows[0]).toContain("旧源码结果");
+    expect(rows[1]).toContain("Maven · backend · test");
+    expect(rows[2]).toContain("前端 · web · typecheck");
+    expect(rows[2]).toContain("未运行测试");
+    expect(rows[2]).not.toContain("测试通过");
+    expect(root.querySelector(".evidence-scope")?.textContent).toContain("前端 · web · test");
+});
+
+it("keeps unavailable optional checks distinct from failed or passing tests", async () => {
+    const snapshot = "c".repeat(64);
+    const evidence = JSON.stringify({ status: "NOT_TESTED", finalSnapshot: snapshot, checks: [{
+        checkType: "FRONTEND", directory: ".", goal: "test", classification: "CHECK_NOT_AVAILABLE",
+        snapshot, stale: false, executedTests: 0, tests: 0, reports: 0, failures: 0, errors: 0, skipped: 0,
+    }] });
+    const root = document.createElement("div");
+    const app = createApp({ render: () => h(AgentTestEvidence, { evidence }) });
+    app.mount(root);
+    cleanup.push(() => app.unmount());
+    await settle();
+    expect(root.textContent).toContain("未运行测试");
+    expect(root.textContent).toContain("项目未提供此项受支持检查");
+    expect(root.textContent).not.toContain("测试通过");
+    expect(root.textContent).not.toContain("测试未通过");
+    expect(root.querySelector(".test-counts")).toBeNull();
+});

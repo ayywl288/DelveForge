@@ -22,10 +22,11 @@ BASELINE_FILE_LIMIT = int(os.environ.get('DF_BASELINE_FILE_BYTES', '16777216'))
 BASELINE_TOTAL_LIMIT = int(os.environ.get('DF_BASELINE_TOTAL_BYTES', '134217728'))
 # v1 约定检查冲突的未修改证据、应用阶段未知及应用后捕获阶段；旧工具不能推断兼容。
 PROTOCOL_NAME = 'delveforge-sandbox'
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2', '.npmrc', '.netrc', '.pypirc'}
 GENERATED = {'target'}
 BASELINE_PATHS = set()
+FRONTEND_OUTPUT_ROOT = None
 
 
 class PolicyError(Exception):
@@ -155,9 +156,24 @@ def all_files(modules=None, retained=()):
             parent = parent.parent
     for directory, dirs, filenames in os.walk(ROOT, followlinks=False):
         parent = pathlib.Path(directory)
+        if FRONTEND_OUTPUT_ROOT is None and (parent / 'package.json').is_file() \
+                and any(name in dirs for name in ('dist', 'coverage', '.vite')):
+            raise PolicyError('GENERATED_PATH', 'Frontend build output is not authoritative source')
+        if FRONTEND_OUTPUT_ROOT is not None and parent.is_relative_to(FRONTEND_OUTPUT_ROOT):
+            from frontend import GENERATED as FRONTEND_GENERATED
+            # 仅检查副本跳过生成树；不遍历 node_modules 内的合法依赖符号链接。
+            for name in list(dirs):
+                if parent == FRONTEND_OUTPUT_ROOT and name in FRONTEND_GENERATED:
+                    if (parent / name).is_symlink():
+                        raise PolicyError('SOURCE_ENTRY_TYPE', 'Generated root must not be a symlink')
+                    dirs.remove(name)
+            filenames = [name for name in filenames if not name.endswith('.tsbuildinfo')]
         for name in dirs + filenames:
             path = parent / name
             relative = path.relative_to(ROOT).as_posix()
+            if FRONTEND_OUTPUT_ROOT is None and (name in ('node_modules', '.df-check', '.df-frontend-dependencies',
+                                                         '.df-frontend-store', '.df-frontend-npm-cache') or name.endswith('.tsbuildinfo')):
+                raise PolicyError('GENERATED_PATH', 'Frontend dependencies and generated artifacts are not source')
             if path.is_symlink() or not (path.is_file() or path.is_dir()):
                 raise PolicyError('SOURCE_ENTRY_TYPE', 'Unsupported symlink or special file')
             if name.casefold() in PROTECTED:
@@ -256,7 +272,13 @@ def patch_paths(patch):
                 raise PolicyError('PATCH_PATH_FORMAT', 'Expected plain a/ and b/ patch paths')
             relative = value[2:]
             path_for(relative)
-            if build_output(relative):
+            frontend_output = False
+            candidate = ROOT / relative
+            for parent in candidate.parents:
+                if parent.is_relative_to(ROOT) and (parent / 'package.json').is_file():
+                    frontend_output |= candidate.relative_to(parent).parts[0] in ('dist', 'coverage', '.vite')
+            if build_output(relative) or frontend_output or any(part in ('node_modules', '.df-check')
+                                             for part in relative.split('/')) or relative.endswith('.tsbuildinfo'):
                 raise PolicyError('GENERATED_PATH', 'Generated paths are not editable')
             paths.add(relative)
     if old_remaining or new_remaining or not paths or len(paths) > 64:
@@ -679,6 +701,9 @@ def dispatch(name, args):
         return {'classification': 'PATCH_APPLIED', 'paths': paths, 'snapshot': captured}
     if name == 'run_checks':
         return checks(args)
+    if name in ('run_frontend_checks', 'prepare_frontend_dependencies'):
+        import frontend
+        return frontend.dispatch(sys.modules[__name__], args, name == 'prepare_frontend_dependencies')
     raise PolicyError('UNKNOWN_TOOL', 'Unknown tool')
 
 
