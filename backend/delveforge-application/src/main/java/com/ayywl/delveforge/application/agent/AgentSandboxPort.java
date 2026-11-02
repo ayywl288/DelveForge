@@ -28,6 +28,11 @@ public interface AgentSandboxPort {
 
     Identity identity(String runId);
 
+    /** 只读的当前工程检查声明，不构成依赖已准备或验证通过的证据。 */
+    default String checkCapabilities(String runId, BooleanSupplier cancelled) {
+        return null;
+    }
+
     String tool(String runId, AgentProtocol.ToolCall call, BooleanSupplier cancelled);
 
     Candidate finish(String runId, BooleanSupplier cancelled);

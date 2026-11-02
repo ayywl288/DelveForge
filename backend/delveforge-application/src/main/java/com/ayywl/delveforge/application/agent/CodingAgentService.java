@@ -219,6 +219,13 @@ public final class CodingAgentService implements AutoCloseable {
         List<AgentProtocol.Message> history = new ArrayList<>();
         history.add(AgentProtocol.Message.text("system", SYSTEM));
         history.add(AgentProtocol.Message.text("user", executionContext(task)));
+        String capabilities = sandbox.checkCapabilities(task.runId(), cancelled);
+        if (capabilities != null && !capabilities.isBlank()) {
+            String safeCapabilities = safe(capabilities);
+            history.add(AgentProtocol.Message.text("user", "基线只读检查能力（不是验证结果或额外授权）："
+                    + safeCapabilities.substring(0, Math.min(safeCapabilities.length(), 12000))
+                    + "\n按工程目录和已声明检查选择工具；无 Maven 入口时不调用 Maven。源码配置变化后以工具反馈为准。"));
+        }
         Map<String, AgentProtocol.ToolCall> identities = new HashMap<>();
         Map<String, String> completed = new HashMap<>();
         int toolCalls = 0;

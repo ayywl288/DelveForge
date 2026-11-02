@@ -146,6 +146,8 @@ class CodingAgentServiceTest {
 
     @Test
     void transfersPersistedTargetStateWithoutLoadingUnrelatedPlanningHistory() throws Exception {
+        when(sandbox.checkCapabilities(anyString(), any())).thenReturn(
+                "{\"mavenDirectories\":[\".\"],\"frontendProjects\":[],\"frontendProjectCount\":0}");
         var captured = new java.util.concurrent.atomic.AtomicReference<List<AgentProtocol.Message>>();
         AgentModelPort model = (history, tools) -> {
             captured.set(history);
@@ -163,6 +165,9 @@ class CodingAgentServiceTest {
             assertTrue(user.contains("authorizedStep"));
             assertFalse(user.contains("userProfile"));
             assertFalse(user.contains("repositoryProfile"));
+            assertTrue(captured.get().get(2).text().contains("mavenDirectories"));
+            assertTrue(captured.get().get(2).text().contains("不是验证结果或额外授权"));
+            verify(sandbox).checkCapabilities(eq(run.id()), any());
         }
     }
 

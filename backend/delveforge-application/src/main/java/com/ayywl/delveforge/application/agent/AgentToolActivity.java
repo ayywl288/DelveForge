@@ -225,7 +225,7 @@ public final class AgentToolActivity {
                 summary.put("goal", args.path("goal").asText("test"));
                 for (String key : List.of("module", "directory")) {
                     String path = args.path(key).asText(key.equals("directory")
-                            ? call.name().equals("run_frontend_checks") ? "frontend" : "." : "");
+                            ? call.name().equals("run_frontend_checks") ? "" : "." : "");
                     if (displayPath(path, true)) {
                         summary.put(key, path);
                     } else if (!path.isEmpty()) {

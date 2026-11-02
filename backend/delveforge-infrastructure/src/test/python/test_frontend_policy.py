@@ -1,5 +1,6 @@
 """前端检查协议、冻结元数据和副本完整性；真实工具执行另由 FullStackAgentSmokeTest 覆盖。"""
 import importlib.util
+import base64
 import json
 import os
 import pathlib
@@ -80,7 +81,7 @@ class FrontendPolicyTest(unittest.TestCase):
                 del manifest['packageManager']
                 (self.project / 'package.json').write_text(json.dumps(manifest))
                 self.assertEqual(manager, frontend.metadata(sandbox, {'goal': 'build'})[-2])
-                for declared in (None, 'yarn@1.0.0', 'pnpm@8.15.0', 'npm@11.0.0', manager + '@^10.0.0',
+                for declared in (None, 'yarn@1.0.0', 'pnpm@8.15.0', 'npm@12.0.0', manager + '@^10.0.0',
                                  'pnpm@10.0.0' if manager == 'npm' else 'npm@10.0.0'):
                     manifest['packageManager'] = declared
                     (self.project / 'package.json').write_text(json.dumps(manifest))
@@ -90,6 +91,76 @@ class FrontendPolicyTest(unittest.TestCase):
         (self.project / 'package-lock.json').write_text('{}')
         with self.assertRaises(frontend.Unsupported):
             frontend.metadata(sandbox, {'goal': 'build'})
+
+    def test_capabilities_discover_root_nested_and_maven_without_inventing_checks(self):
+        self.assertEqual([], frontend.describe(sandbox)['frontendProjects'])
+        fixture = self.root / 'src/test/resources/example/pom.xml'
+        fixture.parent.mkdir(parents=True)
+        fixture.write_text('<project/>')
+        self.assertEqual([], frontend.describe(sandbox)['mavenDirectories'])
+        (self.root / 'pom.xml').write_text('<project/>')
+        self.assertEqual(['.'], frontend.describe(sandbox)['mavenDirectories'])
+        self.project_metadata()
+        described = frontend.describe(sandbox)
+        self.assertEqual('frontend', described['frontendProjects'][0]['directory'])
+        self.assertEqual('DECLARED_SUPPORTED', described['frontendProjects'][0]['goals']['build'])
+        self.assertEqual('frontend', frontend.metadata(sandbox, {'goal': 'build'})[1])
+        with self.assertRaises(frontend.CheckUnavailable):
+            frontend.metadata(sandbox, {'directory': 'missing', 'goal': 'test'})
+        for path in list(self.project.iterdir()):
+            if path.is_file() and path.name != 'source.ts':
+                path.rename(self.root / path.name)
+        self.assertEqual('.', frontend.metadata(sandbox, {'goal': 'build'})[1])
+        self.project_metadata()
+        with self.assertRaises(frontend.CheckUnavailable):
+            frontend.metadata(sandbox, {'goal': 'build'})
+        self.assertEqual(2, frontend.describe(sandbox)['frontendProjectCount'])
+
+    def test_supported_script_families_are_parsed_without_shell_or_arbitrary_delegation(self):
+        scripts = {'type-check': 'vue-tsc --build', 'build-only': 'vite build --mode production',
+                   'test:unit': 'vitest --environment jsdom'}
+        self.assertEqual([['vue-tsc', '--build'], ['vite', 'build', '--mode', 'production']],
+            frontend.supported_commands('run-p type-check "build-only {@}" --', scripts, 'build'))
+        self.assertEqual([['vitest', 'run', '--environment', 'jsdom']],
+            frontend.supported_commands('npm run test:unit', scripts, 'test'))
+        self.assertEqual([['vue-tsc', '--noEmit', '-p', 'tsconfig.vitest.json', '--composite', 'false']],
+            frontend.supported_commands('vue-tsc --noEmit -p tsconfig.vitest.json --composite false', {}, 'typecheck'))
+        commands = frontend.supported_commands(
+            'vue-tsc --noEmit && NODE_OPTIONS=--max_old_space_size=2048 vite build', {}, 'build')
+        self.assertEqual(['node', '--max-old-space-size=2048', 'node_modules/vite/bin/vite.js', 'build'], commands[1])
+        for script in ('vue-tsc --noEmit && NODE_OPTIONS=--require=evil vite build',
+                       'vue-tsc --noEmit && NODE_OPTIONS=--max_old_space_size=8192 vite build',
+                       'node evil.js', 'vite build; echo owned', 'run-p arbitrary build-only'):
+            with self.assertRaises(frontend.Unsupported):
+                frontend.supported_commands(script, scripts, 'build')
+        for script in ('vue-tsc -p ../outside.json', 'vue-tsc --outDir src', 'vue-tsc --project /tmp/evil'):
+            with self.assertRaises(frontend.Unsupported):
+                frontend.supported_commands(script, {}, 'typecheck')
+
+    def test_integrity_requires_valid_complete_digest_for_each_supported_algorithm(self):
+        for algorithm, size in (('sha1', 20), ('sha256', 32), ('sha384', 48), ('sha512', 64)):
+            value = algorithm + '-' + base64.b64encode(bytes(range(size))).decode()
+            self.assertTrue(frontend.registry_integrity(value))
+            self.assertFalse(frontend.registry_integrity(value[:-3]))
+        for value in ('', 'md5-' + 'A' * 24, 'sha1-' + 'A' * 86 + '==', 'sha512-not-a-digest',
+                      'sha1-' + 'A' * 27 + '= sha512-' + 'A' * 86 + '=='):
+            self.assertFalse(frontend.registry_integrity(value))
+
+    def test_single_project_build_allowances_never_enable_installation_scripts_or_workspaces(self):
+        manifest = self.project_metadata()
+        manifest['devDependencies'].pop('typescript')
+        (self.project / 'package.json').write_text(json.dumps(manifest))
+        config = self.project / 'pnpm-workspace.yaml'
+        config.write_text('packages: ["."]\nallowBuilds: {esbuild: true}\n')
+        with patch.object(sandbox, 'run_bounded', side_effect=self.fake_run) as run:
+            self.assertEqual('DEPENDENCIES_PREPARED', frontend.prepare(sandbox, {'goal': 'build'})['classification'])
+        self.assertIn('--ignore-scripts', run.call_args.args[0])
+        self.assertFalse((self.prepare_dir / 'pnpm-workspace.yaml').exists())
+        for raw in ('packages: ["packages/*"]', 'registry: https://untrusted.invalid',
+                    'allowBuilds: {esbuild: "echo bad"}', 'allowBuilds: &builds {esbuild: true}'):
+            config.write_text(raw)
+            with self.assertRaises(frontend.Unsupported):
+                frontend.metadata(sandbox, {'goal': 'build'})
 
     def test_both_installers_strip_lifecycle_and_use_reproducible_installation(self):
         for manager in ('npm', 'pnpm'):
@@ -115,7 +186,7 @@ class FrontendPolicyTest(unittest.TestCase):
                 self.assertEqual(before, sandbox.snapshot()['snapshot'])
 
     def test_existing_manager_versions_and_optional_checks_do_not_reject_buildable_projects(self):
-        for manager, version in (('npm', '9.9.4'), ('pnpm', '9.11.0'), ('pnpm', '10.13.1')):
+        for manager, version in (('npm', '9.9.4'), ('npm', '11.6.2'), ('pnpm', '9.11.0'), ('pnpm', '10.13.1')):
             self.reset_outputs()
             manifest = self.project_metadata(manager)
             manifest['packageManager'] = manager + '@' + version

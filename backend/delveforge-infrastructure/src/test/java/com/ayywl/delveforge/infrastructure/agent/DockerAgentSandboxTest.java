@@ -37,8 +37,8 @@ class DockerAgentSandboxTest {
     private final AgentProcess process = new AgentProcess();
 
     static AgentSandboxProperties properties(Path root) {
-        return new AgentSandboxProperties(root, "docker", Map.of(21, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_21", "delveforge-agent:protocol-v4-jdk21"),
-                17, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_17", "delveforge-agent:protocol-v4-jdk17")), 21, "delveforge-compatibility-tests",
+        return new AgentSandboxProperties(root, "docker", Map.of(21, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_21", "delveforge-agent:protocol-v5-jdk21"),
+                17, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_17", "delveforge-agent:protocol-v5-jdk17")), 21, "delveforge-compatibility-tests",
                 "delveforge-compatibility-20261024-cache", "2g", "2", 256);
     }
 

@@ -16,7 +16,8 @@ CLI、SDK、API-only 产品仍有效，不强制增加 UI 或视觉重设计。J
 ## 支持范围与工具
 
 同一 `run_frontend_checks({"directory":"frontend","goal":"typecheck|build|test"})` 支持 npm 和 pnpm。
-目录默认 `frontend`，根工程显式使用 `.`。工程必须声明 Vue 3、Vite、TypeScript；vue-tsc 和 Vitest 是对应检查的可选工具。
+省略目录时只在唯一 Vue/Vite 工程下自动选择，多工程必须明确指定；根工程使用 `.`。
+工程必须声明 Vue 3、Vite；TypeScript、vue-tsc 和 Vitest 是对应检查的可选工具。
 允许独立前端仓库，也允许与 Maven/Spring Boot 组合；没有 Maven 时不制造 POM。兼容性预检只识别固定 Git tree
 中的前端元数据，实际脚本和锁文件仍在沙箱内校验；预检通过不是依赖安装或测试通过。
 
@@ -28,26 +29,31 @@ CLI、SDK、API-only 产品仍有效，不强制增加 UI 或视觉重设计。J
 | npm | `package-lock.json`，lockfileVersion 3 | `npm ci --ignore-scripts` |
 | pnpm | `pnpm-lock.yaml`，lockfileVersion 9 | `pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --no-runtime` |
 
-`packageManager` 可省略并由唯一锁文件确定；若存在，必须声明与锁对应的明确版本，当前接受 npm 9/10 或 pnpm 9–12。
+`packageManager` 可省略并由唯一锁文件确定；若存在，必须声明与锁对应的明确版本，当前接受 npm 9–11 或 pnpm 9–12。
 镜像实际执行版本仍固定，准备 manifest 不携带 `packageManager`，不会自动下载仓库指定的包管理器。
 兼容性判断依据受支持锁格式，不再要求仓库元数据与镜像版本逐字符相同；版本范围、未知工具或不匹配的工具仍拒绝。
 pnpm 12 的双文档锁可以包含同版本 pnpm 工具链文档，但不能包含 configDependencies。
-所有包必须具有 SHA-512 integrity；仅支持公共 npm registry 的常规包，不支持本地、git、URL、link 或私有来源。
+所有包必须具有规范、摘要长度正确的单一 SHA-1/256/384/512 SRI，并由真实安装器校验；缺失或不匹配不放行。
+历史 SHA-1 不提供现代抗碰撞或发布者真实性保证，依赖仍作为不可信代码隔离；固定 Git/SHA-256 快照不替代包摘要校验。
+仅支持公共 npm registry 的常规包，不支持本地、git、URL、link 或私有来源。
 npm 锁的根依赖必须与 manifest 一致；两种安装器也独立执行各自的冻结一致性校验。
 
 仅接纳以下既有 scripts；不执行模型提供的命令，不替项目改写 scripts：
 
 | goal | 接纳的 script |
 | --- | --- |
-| typecheck | `vue-tsc`、`vue-tsc -b`、`vue-tsc --noEmit`、`vue-tsc --noEmit --skipLibCheck` |
-| build | `vite build`，或 `vue-tsc` / `vue-tsc -b` / `vue-tsc --noEmit` 后接 `&& vite build` |
-| test | `vitest run` 或 `vitest`（固定转换为单次 run） |
+| typecheck | `vue-tsc`，允许 build/noEmit/skipLibCheck、布尔 composite 和根目录 tsconfig 的 project 参数 |
+| build | `vite build` 可带有界 mode；可前接一次受控 vue-tsc，或官方 `run-p type-check "build-only {@}" --` 包装 |
+| test | `vitest run` 或 `vitest`（固定单次 run），允许 node/jsdom/happy-dom 环境或关闭 watch；允许单层 npm/pnpm 转调 test:unit |
 
 实际调用已安装的本地二进制及固定参数，build 的两个阶段顺序执行。Vitest 使用新建 JSON report。
-类型脚本名称支持 `typecheck` / `type-check`，测试名称支持 `test` / `test:unit`，同一目标优先使用前者。
+类型脚本名称支持 `typecheck` / `type-check`，构建支持 `build` / `build-only`，测试支持 `test` / `test:unit`。
+同一目标优先使用前者。typecheck 后接 Vite 时可识别唯一 128–4096 MiB Node heap 参数，转成固定 Vite 入口调用；
+不执行任意 Node、环境赋值、shell 管道或多层转调。
 没有对应脚本或可选工具时返回 `CHECK_NOT_AVAILABLE`，不安装额外工具、不记失败或 PASS，可保持 NOT_TESTED。
 已声明工具却未成功准备属于 `DEPENDENCY_MISSING`；不识别的既有脚本仍是配置不支持；实际执行失败仍记录失败。
-workspace、自定义 pnpm 配置、pnpmfile、项目 `.npmrc`、混用锁文件、其他脚本及工具链版本均明确拒绝。
+仅根包的 `pnpm-workspace.yaml` 可以含 packages（空或 `.`）及依赖安装构建许可列表；许可不复制到安装目录，始终禁用安装脚本。
+多包 workspace、其他 pnpm 设置、pnpmfile、项目 `.npmrc`、混用锁文件及不支持的脚本或工具链版本均明确拒绝。
 需要安装期脚本或 native build 才能工作的依赖可能无法使用；不会放开生命周期脚本来修复它们。
 
 ## 依赖与执行隔离
@@ -73,6 +79,11 @@ CPU/内存/PID、输出和单次超时限制继续生效。宿主取消或超时
 
 ## 证据与诊断
 
+执行前模型收到当前工程的有界检查声明：Maven 目录、Vue/Vite 目录和每个 goal 的
+DECLARED_SUPPORTED / ABSENT / UNSUPPORTED / UNAVAILABLE。声明不验证完整锁文件或安装结果，不是 PASS。
+错误目录或无可选检查返回 CHECK_NOT_AVAILABLE 并附可用目录；前端独立工程不制造 Maven 配置。
+Maven 声明沿用受控入口和 reactor 角色，不把测试资源内的 POM 当作可执行工程。
+
 新 Candidate 使用 `evidenceVersion: 2`，每条记录包含 checkType（MAVEN/FRONTEND）、directory、goal、packageManager
 （前端）、classification、测试/报告计数、snapshot 与 stale。旧记录缺少类型时仅按 Maven 解释，不迁移或重写历史。
 
@@ -86,22 +97,26 @@ CPU/内存/PID、输出和单次超时限制继续生效。宿主取消或超时
 
 UI 展示独立工程/目标、实际计数和旧源码标签；总览中的测试结果明确限定到所显示的检查范围。
 
+本轮 v5 的通用修正、26 个固定公开样本、Maven-only / npm / pnpm 交付回归和现存接入限制见
+[通用兼容性审查](validation/general-compatibility-20261102.md)。该审查明确区分当前技术验证、保留的旧运行和未启动的真实产品试验。
+
 ## 镜像更新与验证
 
-工具协议已升至 **v4**。新 Java 会在传入源码前拒绝旧镜像。正常启动使用 `setup-delveforge.ps1`，
+工具协议已升至 **v5**。新 Java 会在传入源码前拒绝旧镜像。正常启动使用 `setup-delveforge.ps1`，
 其 `setup-agent-images.ps1` 根据当前构建输入选择新标签、构建 17/21 镜像、核对脚本内容并固定 image ID。
 自定义镜像须从当前 `backend/delveforge-infrastructure/src/main/resources/agent/Dockerfile` 用新标签构建，
 再通过 `-AgentImage21` / `-AgentImage17` 或对应配置显式使用并重启应用。不要覆盖正在使用的旧镜像标签。
 
 可执行回归包括 `AgentCheckEvidenceTest`、`AgentContextTest`、`FrontendPolicyTest`、`FrontendProxyTest`、
 `RepositoryCompatibilityIntegrationTest` 和 `FullStackAgentSmokeTest`。后者设置 `DELVEFORGE_AGENT_DOCKER=true`、
-`DELVEFORGE_AGENT_IMAGE_21=<当前v4镜像>` 后运行，分别实际执行 npm/pnpm 安装、失败检查、源码修正、
+`DELVEFORGE_AGENT_IMAGE_21=<当前v5镜像>` 后运行，分别实际执行纯 Maven、npm/pnpm 安装、失败检查、源码修正、
 Maven/Vue 检查、Candidate 冻结和 Git/SQLite Delivery。模型动作是确定性脚本，检查结果不是替身；不调用付费模型。
 实际执行结果见下方记录；仅有这些测试文件不代表运行通过。
 
-## 2026-11-02 实际验证记录
+## 2026-11-02 初次 v4 实现验证记录（历史）
 
-实现分支为 `codex/full-stack-evolution-checks`。以下均为本任务本地运行，未调用付费模型或操作真实业务数据库、
+实现分支为 `codex/full-stack-evolution-checks`。以下为初次实现时的本地运行，不是后续 v5 的重新执行结果。
+该批验证未调用付费模型或操作真实业务数据库、
 WorkingCopy；Git/SQLite 交付使用测试创建的隔离 fixture。
 
 | 检查 | 实际结果 |

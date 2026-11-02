@@ -151,7 +151,7 @@ public final class GitRepositoryCompatibility {
                 issues.add(new Issue(failure.code().equals("MAVEN_REQUIRED") || failure.code().equals("JDK_UNSUPPORTED")
                         ? "GENUINELY_UNSUPPORTED" : "REQUIRES_EXPLICIT_USER_DECISION",
                         frontendMetadata ? "FRONTEND_CONFIGURATION" : failure.code(), "",
-                        frontendMetadata ? "前端工程需要 Vue/Vite/TypeScript、唯一 npm/pnpm 锁文件及兼容的 packageManager；不支持混用或 workspace。"
+                        frontendMetadata ? "前端工程需要 Vue 3/Vite、唯一 npm/pnpm 锁文件及兼容的 packageManager；不支持混用或多包 workspace。"
                                 : failure.getMessage(), true));
             }
         }
@@ -254,13 +254,12 @@ public final class GitRepositoryCompatibility {
             String prefix = path.substring(0, path.length() - "package.json".length());
             boolean npm = entries.containsKey(prefix + "package-lock.json");
             boolean pnpm = entries.containsKey(prefix + "pnpm-lock.yaml");
-            if (npm == pnpm || entries.containsKey(prefix + "yarn.lock")
-                    || entries.containsKey(prefix + "pnpm-workspace.yaml")) {
+            if (npm == pnpm || entries.containsKey(prefix + "yarn.lock")) {
                 continue;
             }
             try {
                 JsonNode manifest = new ObjectMapper().readTree(blob(repository, item.getValue().objectId()));
-                String managerPattern = npm ? "npm@(9|10)" : "pnpm@(9|10|11|12)";
+                String managerPattern = npm ? "npm@(9|10|11)" : "pnpm@(9|10|11|12)";
                 if (manifest == null || !manifest.isObject()
                         || manifest.has("packageManager") && !manifest.path("packageManager").asText()
                                 .matches(managerPattern + "\\.\\d+\\.\\d+(\\+sha(224|512)\\.[a-f0-9]+)?")
@@ -268,7 +267,7 @@ public final class GitRepositoryCompatibility {
                     continue;
                 }
                 boolean supported = true;
-                for (String dependency : List.of("vue", "vite", "typescript")) {
+                for (String dependency : List.of("vue", "vite")) {
                     supported &= manifest.path("dependencies").has(dependency)
                             || manifest.path("devDependencies").has(dependency);
                 }

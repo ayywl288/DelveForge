@@ -50,7 +50,8 @@ public final class AgentTools {
                         "\"goal\":{\"type\":\"string\",\"enum\":[\"compile\",\"test\",\"package\",\"verify\"]},"
                                 + "\"directory\":{\"type\":\"string\",\"description\":\"Maven工程目录，默认仓库根；可选择嵌套reactor\"},"
                         + "\"module\":{\"type\":\"string\"},\"test\":{\"type\":\"string\"}", ""),
-                spec("run_frontend_checks", "受控 Vue/Vite/TypeScript + npm/pnpm 检查。directory 指定工程，默认 frontend；"
+                spec("run_frontend_checks", "受控 Vue/Vite + npm/pnpm 检查。directory 缺省时选择唯一前端工程；"
+                        + "多个工程必须从能力描述中明确选择目录，不猜测 frontend。"
                         + "goal 为 typecheck/build/test。依赖冻结准备，检查无网络；构建不等于运行测试。"
                         + "缺少可选工具或脚本返回 CHECK_NOT_AVAILABLE，不要求改写项目。",
                         "\"goal\":{\"type\":\"string\",\"enum\":[\"typecheck\",\"build\",\"test\"]},"

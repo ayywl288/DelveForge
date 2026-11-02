@@ -22,7 +22,7 @@ BASELINE_FILE_LIMIT = int(os.environ.get('DF_BASELINE_FILE_BYTES', '16777216'))
 BASELINE_TOTAL_LIMIT = int(os.environ.get('DF_BASELINE_TOTAL_BYTES', '134217728'))
 # v1 约定检查冲突的未修改证据、应用阶段未知及应用后捕获阶段；旧工具不能推断兼容。
 PROTOCOL_NAME = 'delveforge-sandbox'
-PROTOCOL_VERSION = 4
+PROTOCOL_VERSION = 5
 PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2', '.npmrc', '.netrc', '.pypirc'}
 GENERATED = {'target'}
 BASELINE_PATHS = set()
@@ -452,7 +452,9 @@ def checks(args):
     directory = args.get('directory', '.')
     project = path_for(directory, True)
     if not (project / 'pom.xml').is_file():
-        raise CheckArgumentError('No pom.xml in selected Maven directory; choose directory containing the project POM')
+        import frontend
+        raise CheckArgumentError('No Maven entry in selected directory. Available check declarations: '
+                                 + json.dumps(frontend.describe(sys.modules[__name__])))
     if project != ROOT:
         command += ['-f', directory + '/pom.xml']
     module = args.get('module')
@@ -599,6 +601,9 @@ def dispatch(name, args):
         return snapshot()
     if name == 'snapshot':
         return snapshot(args.get('content', False), args.get('baseline'))
+    if name == 'describe_checks':
+        import frontend
+        return frontend.describe(sys.modules[__name__])
     if name == 'list_files':
         prefix = args.get('path', '.')
         path = path_for(prefix, True)

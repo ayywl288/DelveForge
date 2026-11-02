@@ -4,7 +4,9 @@
 不增加 Step 授权。现有 AgentSandboxPort 新增统一前端检查工具，Infrastructure 支持固定 npm/pnpm，
 分别执行冻结安装；联网依赖准备与无网络脚本执行分容器，复用依赖仅只读，正式源副本保持独立。
 冻结与 Delivery 共用检查适用性规则，证据按类型、工程和目标区分；没有新模块、数据库迁移或生命周期。
-工具镜像协议为 v4，详见 [前端检查说明](AGENT_FRONTEND_CHECKS.md) 和 ADR-0012 补充。
+工具镜像协议为 v5，详见 [前端检查说明](AGENT_FRONTEND_CHECKS.md) 和 ADR-0012 补充。
+Workspace 在隔离源内发现 Maven 入口及 Vue/Vite 工程的检查声明；Application 只把有界声明作为解释性数据传给模型，
+不据此授予写权限或生成验证成功。缺少可选前端检查不影响纯 Maven 资格，实际失败仍受冻结守卫约束。
 
 **2026-11-01 Delivery 修复：** Workspace 接受 provision 合法继承的普通 shallow 边界文件，
 不把它视为未完成 Git 操作；C 的唯一父、树、index、全部文件内容及原生写入检查保持。

@@ -489,7 +489,26 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         JsonNode before = invoke(session, "snapshot", json.createObjectNode(), cancelled);
         requireToolSuccess(before);
         String expected = before.path("result").path("snapshot").asText();
-        String selectedDirectory = arguments.path("directory").asText("frontend");
+        ObjectNode selectedArguments = ((ObjectNode) arguments).deepCopy();
+        if (!selectedArguments.has("directory")) {
+            JsonNode declared = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
+            requireToolSuccess(declared);
+            JsonNode capabilities = declared.path("result");
+            if (capabilities.path("frontendProjectCount").asInt() != 1) {
+                ObjectNode unavailable = json.createObjectNode().put("checkType", "FRONTEND")
+                        .put("directory", ".").put("goal", arguments.path("goal").asText())
+                        .put("snapshot", expected).put("classification", "CHECK_NOT_AVAILABLE")
+                        .put("tests", 0).put("executedTests", 0).put("skipped", 0).put("failures", 0)
+                        .put("errors", 0).put("reports", 0)
+                        .put("output", "Select one declared frontend project; do not invent Maven metadata");
+                unavailable.set("availableChecks", capabilities);
+                return json.createObjectNode().put("ok", true).put("tool", "run_frontend_checks")
+                        .set("result", unavailable);
+            }
+            selectedArguments.put("directory", capabilities.path("frontendProjects").get(0)
+                    .path("directory").asText());
+        }
+        String selectedDirectory = selectedArguments.path("directory").asText();
         if (!selectedDirectory.equals(".")) {
             requirePath(selectedDirectory);
         }
@@ -513,7 +532,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 ensureVolume(name(id, "frontend-prepare-source"), id);
                 String network = dependencyNetwork(session, cancelled, true);
                 response = frontendContainer(session, "frontend-prepare", network,
-                        "prepare_frontend_dependencies", arguments, maxBytes, cancelled);
+                        "prepare_frontend_dependencies", selectedArguments, maxBytes, cancelled);
                 removeContainer(name(id, "frontend-prepare"));
                 stopContainer(name(id, "frontend-proxy"));
                 if (response.path("result").path("classification").asText().equals("DEPENDENCIES_PREPARED")) {
@@ -522,7 +541,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             }
             if (dependencyKey.equals(session.frontendDependencyKey)) {
                 response = frontendContainer(session, "frontend-check", "none", "run_frontend_checks",
-                        arguments, maxBytes, cancelled);
+                        selectedArguments, maxBytes, cancelled);
             }
         } finally {
             // 先销毁所有写入者，再回读权威源码；取消与超时也必须走相同清理路径。
@@ -573,14 +592,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 || !response.path("result").path("protocol").asText().equals("delveforge-sandbox")
                 || !response.path("result").path("version").isIntegralNumber()
                 || !response.path("result").path("version").canConvertToInt()
-                || response.path("result").path("version").asInt() != 4) {
+                || response.path("result").path("version").asInt() != 5) {
             throw incompatibleProtocol();
         }
     }
 
     private static AgentException incompatibleProtocol() {
         return new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE",
-                "Sandbox tool protocol v4 is required. Build the current agent Dockerfile with a new image tag, "
+                "Sandbox tool protocol v5 is required. Build the current agent Dockerfile with a new image tag, "
                         + "configure delveforge.agent.sandbox.images, then explicitly restart the application. "
                         + "See docs/LOCAL_SETUP.md (sandbox protocol troubleshooting).");
     }
@@ -1098,6 +1117,13 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             throw new AgentException("RUN_CONFLICT", "No live sandbox session; start a fresh Run");
         }
         return session;
+    }
+
+    @Override
+    public String checkCapabilities(String runId, BooleanSupplier cancelled) {
+        JsonNode response = invoke(requireSession(runId), "describe_checks", json.createObjectNode(), cancelled);
+        requireToolSuccess(response);
+        return response.path("result").toString();
     }
 
     @Override
