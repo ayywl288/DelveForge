@@ -6,6 +6,11 @@
 通过正常 API 进行一次真实试验。旧失败历史完整保留；外部不代修 Homer、不改领域数据库、不推送或合并。
 分别报告 ENGINEERING_READY / AUTONOMOUS_DELIVERY_READY / PRODUCT_READY；本段为当前任务，后续较早结果保留历史含义。
 
+**2026-11-03 本任务最终实测：** 工程与真实自主交付门槛通过，原 Homer 计划四步均正式交付，
+最终修订 `72003f5edb0f993301ab432f3467a71f9d758941`，Plan COMPLETED、WorkingCopy CLOSED。
+独立浏览器确认本机事项、完成/提醒、JSON/YAML 导入及持久化，但默认导航地址被误作数据源，
+读取失败后家人汇总仍可能提示无需操作；下载文件内容也未取得独立证明。因此 PRODUCT_READY=NO，
+不宣称完整产品验收成功，不再发起付费重试。见 [继续执行与独立验收](validation/autonomous-homeops-continuation-20261103.md)。
 
 **2026-11-03 本任务阶段结果：** 项目脚本/Node/Vitest 工程回归通过；首次真实重试因只读查询 node_modules 被终止，0/4、无 Candidate/Delivery。
 已补充环境可见性与可恢复只读拒绝，完整后端及真实 Node 交付重新通过。旧失败历史不改写。
