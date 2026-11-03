@@ -22,7 +22,7 @@ BASELINE_FILE_LIMIT = int(os.environ.get('DF_BASELINE_FILE_BYTES', '16777216'))
 BASELINE_TOTAL_LIMIT = int(os.environ.get('DF_BASELINE_TOTAL_BYTES', '134217728'))
 # v1 约定检查冲突的未修改证据、应用阶段未知及应用后捕获阶段；旧工具不能推断兼容。
 PROTOCOL_NAME = 'delveforge-sandbox'
-PROTOCOL_VERSION = 6
+PROTOCOL_VERSION = 7
 PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2', '.npmrc', '.netrc', '.pypirc'}
 GENERATED = {'target'}
 BASELINE_PATHS = set()
@@ -323,12 +323,12 @@ def patch_paths(patch):
     return sorted(paths)
 
 
-def run_bounded(command, input_bytes=None, timeout=180, maximum=1048576, cwd=ROOT):
+def run_bounded(command, input_bytes=None, timeout=180, maximum=1048576, cwd=ROOT, env=None):
     # 文件输出有硬上限监控，不能把无界日志积存在内存或磁盘。
     import tempfile
     with tempfile.TemporaryFile() as output:
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT,
-                                   cwd=cwd, start_new_session=True)
+                                   cwd=cwd, env=env, start_new_session=True)
         try:
             if input_bytes:
                 process.stdin.write(input_bytes)

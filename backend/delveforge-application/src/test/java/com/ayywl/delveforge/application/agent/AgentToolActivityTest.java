@@ -26,6 +26,26 @@ class AgentToolActivityTest {
     }
 
     @Test
+    void frontendActivityPreservesExecutionIdentityWithoutPersistingReportBodies() throws Exception {
+        var response = json.createObjectNode().put("ok", true);
+        var result = response.putObject("result").put("classification", "TEST_EXECUTION_UNVERIFIED")
+                .put("executionStatus", "EXECUTED").put("runner", "node-junit")
+                .put("configurationSnapshot", "a".repeat(64)).put("configurationChanged", true)
+                .put("output", "private diagnostic body");
+        var tool = call("run_frontend_checks", Map.of("goal", "test"));
+        String encoded = activity.finished(tool, identity, response.toString());
+        var summary = json.readTree(encoded);
+        assertEquals("EXECUTED", summary.path("executionStatus").asText());
+        assertEquals("node-junit", summary.path("runner").asText());
+        assertTrue(summary.path("configurationChanged").asBoolean());
+        assertFalse(encoded.contains("private diagnostic body"));
+        result.put("runner", "arbitrary-body").put("executionStatus", "arbitrary-body");
+        summary = json.readTree(activity.finished(tool, identity, response.toString()));
+        assertFalse(summary.has("runner"));
+        assertFalse(summary.has("executionStatus"));
+    }
+
+    @Test
     void sourceChangesPersistOnlyBoundedSafeMetadataAndClearlyMarkMissingDiagnostics() throws Exception {
         var before = new AgentPolicyRejection.SourceFileState("100644", "a".repeat(64));
         var after = new AgentPolicyRejection.SourceFileState("100644", "b".repeat(64));

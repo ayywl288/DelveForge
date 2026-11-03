@@ -18,6 +18,7 @@ public final class AgentCheckEvidence {
         Set<String> unresolved = new HashSet<>();
         Set<String> failedTests = new HashSet<>();
         boolean versioned = evidence.path("evidenceVersion").asInt() >= 2;
+        boolean scriptEvidence = evidence.path("evidenceVersion").asInt() >= 3;
         String snapshot = evidence.path("finalSnapshot").asText();
         boolean tested = false;
         if (evidence.has("sourceView")) {
@@ -37,6 +38,14 @@ public final class AgentCheckEvidence {
             String key = type + ":" + check.path("directory").asText(".")
                     + (type.equals("FRONTEND") ? ":" + goal : "");
             String status = check.path("classification").asText();
+            String execution = check.path("executionStatus").asText();
+            String runner = check.path("runner").asText();
+            if (scriptEvidence && type.equals("FRONTEND")
+                    && (!Set.of("NOT_STARTED", "EXECUTED", "UNKNOWN").contains(execution)
+                        || !runner.isEmpty() && !Set.of("node-junit", "vitest-json", "node-junit+vitest-json")
+                            .contains(runner))) {
+                throw new AgentException("EVIDENCE_INVALID", "Frontend execution identity is required");
+            }
             boolean passed = Set.of("TESTS_PASSED", "BUILD_PASSED_NOT_TESTED").contains(status);
             boolean current = !check.path("stale").asBoolean(true)
                     && (!versioned || snapshot.equals(check.path("snapshot").asText()));
@@ -63,26 +72,60 @@ public final class AgentCheckEvidence {
                         || type.equals("FRONTEND") && !goal.equals("test"))) {
                 throw new AgentException("EVIDENCE_INVALID", "Passing tests require actual test execution");
             }
+            if (scriptEvidence && type.equals("FRONTEND") && status.equals("TESTS_PASSED")
+                    && (!execution.equals("EXECUTED") || runner.isEmpty() || check.path("reports").asInt() <= 0
+                        || runner.contains("+") && check.path("reports").asInt() < 2
+                        || check.path("tests").asInt() != check.path("executedTests").asInt()
+                            + check.path("skipped").asInt())) {
+                throw new AgentException("EVIDENCE_INVALID", "Passing frontend tests require an attested runner report");
+            }
             tested |= current && status.equals("TESTS_PASSED");
             boolean unavailable = type.equals("FRONTEND") && status.equals("CHECK_NOT_AVAILABLE");
-            if (unavailable && (check.path("tests").asInt() != 0 || check.path("executedTests").asInt() != 0
+            boolean configurationRejected = scriptEvidence && type.equals("FRONTEND")
+                    && execution.equals("NOT_STARTED")
+                    && Set.of("UNSUPPORTED_FRONTEND_CONFIGURATION", "FRONTEND_ENVIRONMENT_MISMATCH").contains(status);
+            boolean unverified = scriptEvidence && type.equals("FRONTEND")
+                    && execution.equals("EXECUTED") && status.equals("TEST_EXECUTION_UNVERIFIED");
+            if (unverified && (check.path("executedTests").asInt() != 0
+                    || check.path("failures").asInt() != 0 || check.path("errors").asInt() != 0)) {
+                throw new AgentException("EVIDENCE_INVALID", "Unverified execution cannot hide executed or failed tests");
+            }
+            if ((unavailable || configurationRejected) && (check.path("tests").asInt() != 0 || check.path("executedTests").asInt() != 0
                     || check.path("reports").asInt() != 0 || check.path("failures").asInt() != 0
                     || check.path("errors").asInt() != 0 || check.path("skipped").asInt() != 0)) {
                 throw new AgentException("EVIDENCE_INVALID", "Unavailable checks cannot contain execution evidence");
             }
-            if (!passed && !unavailable) {
-                unresolved.add(key);
+            if (!passed && !unavailable && !configurationRejected && !unverified) {
+                Set<String> failureKeys = new HashSet<>();
+                if (scriptEvidence && type.equals("FRONTEND") && !runner.isEmpty()) {
+                    for (String report : runner.split("\\+")) {
+                        failureKeys.add(key + ":" + report);
+                    }
+                } else {
+                    failureKeys.add(key);
+                }
+                unresolved.addAll(failureKeys);
                 if (Set.of("TESTS_FAILED", "CHECK_RESULT_UNAVAILABLE").contains(status)
-                        && (!type.equals("FRONTEND") || goal.equals("test"))) {
-                    failedTests.add(key);
+                        && (!type.equals("FRONTEND") || goal.equals("test"))
+                        || scriptEvidence && type.equals("FRONTEND") && goal.equals("test")
+                            && !execution.equals("NOT_STARTED")) {
+                    failedTests.addAll(failureKeys);
                 }
             } else if (passed && current && (type.equals("FRONTEND")
                     || Set.of("test", "verify").contains(goal)
                         && check.path("module").asText("").isBlank()
-                        && check.path("selectedTest").asText("").isBlank())
-                    && (!failedTests.contains(key) || status.equals("TESTS_PASSED"))) {
-                unresolved.remove(key);
-                failedTests.remove(key);
+                        && check.path("selectedTest").asText("").isBlank())) {
+                Set<String> matching = new HashSet<>();
+                matching.add(key);
+                for (String report : runner.split("\\+")) {
+                    matching.add(key + ":" + report);
+                }
+                for (String resolved : matching) {
+                    if (!failedTests.contains(resolved) || status.equals("TESTS_PASSED")) {
+                        unresolved.remove(resolved);
+                        failedTests.remove(resolved);
+                    }
+                }
             }
         }
         if (!unresolved.isEmpty()) {

@@ -126,6 +126,9 @@ function resultOutcome(event: AgentEvent, tool?: string): ActivityOutcome {
     if (['PATCH_REPEATED_CONFLICT', 'PATCH_CORRECTION_LIMIT'].includes(code ?? '')) return 'conflict';
     if (data.resultRecorded === false) return code === "POLICY_REJECTED" ? "blocked" : "unknown";
     if (code === "PATCH_CONFLICT") return "conflict";
+    if (isCheckTool(tool) && data.ok === true && (code === "CHECK_NOT_AVAILABLE" || code === "TEST_EXECUTION_UNVERIFIED"
+        || data.executionStatus === "NOT_STARTED"
+            && ["UNSUPPORTED_FRONTEND_CONFIGURATION", "FRONTEND_ENVIRONMENT_MISMATCH"].includes(code ?? ""))) return "recorded";
     if (data.ok === false || code && /(FAILED|FAILURE|ERROR|LIMIT|UNAVAILABLE|MISSING|REJECTED|MISMATCH|TIMEOUT|UNSUPPORTED|INVALID)/.test(code)) return "failed";
     if (data.ok !== true || !tool) return "unknown";
     if (isPatchTool(tool)) return code === "PATCH_APPLIED" ? "completed" : "unknown";

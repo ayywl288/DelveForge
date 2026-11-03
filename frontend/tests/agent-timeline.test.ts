@@ -23,6 +23,20 @@ it("groups frontend checks with Maven checks and displays real failures and coun
     expect(rows[0]?.getAttribute("data-tone")).toBe("failed");
     expect(root.querySelector(".check-summary")?.textContent).toContain("前端类型检查未通过");
 });
+it("distinguishes unavailable and unattested scripts from executed test failures", async () => {
+    for (const [classification, executionStatus, label] of [
+        ["UNSUPPORTED_FRONTEND_CONFIGURATION", "NOT_STARTED", "前端配置暂不支持"],
+        ["TEST_EXECUTION_UNVERIFIED", "EXECUTED", "脚本已结束，测试执行未获验证"],
+    ]) {
+        const { root, props } = mount();
+        props.events = [tool(1, "TOOL_STARTED", { tool: "run_frontend_checks", path: undefined, goal: "test" }),
+            tool(2, "TOOL_FINISHED", { tool: "run_frontend_checks", path: undefined, goal: "test", ok: true,
+                classification, executionStatus })];
+        await settle(); await expandChecks(root);
+        expect(root.querySelector('[data-kind="run_frontend_checks"]')?.getAttribute("data-tone")).toBe("recorded");
+        expect(root.querySelector(".check-summary")?.textContent).toContain(label);
+    }
+});
 async function settle() { await nextTick(); await nextTick(); }
 async function expandChecks(root: HTMLElement) {
     root.querySelector<HTMLElement>(".check-summary summary")!.click(); await settle();

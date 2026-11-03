@@ -31,6 +31,7 @@ export function verificationLabel(code?: string): string {
         TYPECHECK_FAILED: "前端类型检查未通过", FRONTEND_BUILD_FAILED: "前端构建未通过",
         LOCKFILE_INVALID: "前端锁文件不匹配或无效", UNSUPPORTED_FRONTEND_CONFIGURATION: "前端配置暂不支持",
         FRONTEND_ENVIRONMENT_MISMATCH: "前端工具环境不匹配", CHECK_TIMEOUT: "检查超时或输出超限",
+        TEST_EXECUTION_UNVERIFIED: "脚本已结束，测试执行未获验证", CHECK_PROCESS_FAILED: "检查进程未成功结束",
         CHECK_NOT_AVAILABLE: "项目未提供此项受支持检查", CHECK_RESULT_UNAVAILABLE: "检查结果待核对" } as Record<string, string>)[code ?? ""] ?? "检查结果待核对";
 }
 function record(value: unknown): value is Record<string, unknown> {

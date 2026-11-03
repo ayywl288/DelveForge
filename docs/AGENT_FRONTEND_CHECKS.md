@@ -17,7 +17,7 @@ CLI、SDK、API-only 产品仍有效，不强制增加 UI 或视觉重设计。J
 
 同一 `run_frontend_checks({"directory":"frontend","goal":"typecheck|build|test"})` 支持 npm 和 pnpm。
 省略目录时只在唯一 Vue/Vite 工程下自动选择，多工程必须明确指定；根工程使用 `.`。
-工程必须声明 Vue 3、Vite；TypeScript、vue-tsc 和 Vitest 是对应检查的可选工具。
+工程必须声明 Vue 3、Vite；TypeScript、vue-tsc 和 Vitest 不作为整体准入前提；Node 原生测试不需要 Vitest。
 允许独立前端仓库，也允许与 Maven/Spring Boot 组合；没有 Maven 时不制造 POM。兼容性预检只识别固定 Git tree
 中的前端元数据，实际脚本和锁文件仍在沙箱内校验；预检通过不是依赖安装或测试通过。
 
@@ -38,25 +38,25 @@ pnpm 12 的双文档锁可以包含同版本 pnpm 工具链文档，但不能包
 仅支持公共 npm registry 的常规包，不支持本地、git、URL、link 或私有来源。
 npm 锁的根依赖必须与 manifest 一致；两种安装器也独立执行各自的冻结一致性校验。
 
-仅接纳以下既有 scripts；不执行模型提供的命令，不替项目改写 scripts：
+项目 scripts 作为不可信代码在一次性、无网络容器中执行，使用固定 npm/pnpm 的 `run <声明脚本名>`。
+不解析脚本语法来证明安全；允许现有 wrapper、shell 组合及项目工具。Agent 只能选择目标和工程，不能提交宿主命令。
+类型脚本名称支持 `typecheck` / `type-check`，构建支持 `build` / `build-only`，测试支持 `test` / `test:unit`，优先使用前者。
+没有脚本时返回 `CHECK_NOT_AVAILABLE`；声明脚本的工具缺失会形成实际执行失败，不自动添加依赖或改写配置。
 
-| goal | 接纳的 script |
-| --- | --- |
-| typecheck | `vue-tsc`，允许 build/noEmit/skipLibCheck、布尔 composite 和根目录 tsconfig 的 project 参数 |
-| build | `vite build` 可带有界 mode；可前接一次受控 vue-tsc，或官方 `run-p type-check "build-only {@}" --` 包装 |
-| test | `vitest run` 或 `vitest`（固定单次 run），允许 node/jsdom/happy-dom 环境或关闭 watch；允许单层 npm/pnpm 转调 test:unit |
+测试由镜像内 `frontend-report.cjs` 通过 NODE_OPTIONS 在实际 Node/Vitest CLI 入口附加报告：
+Node --test 使用内置 JUnit，Vitest 使用单次运行的 JSON。保留 NODE_OPTIONS 的多层 npm/pnpm、shell 和 Node 子进程包装可以采集。
+每次 runner 使用新文件，报告数量最多 32、每份最多 2 MiB，验证退出状态和计数；Vitest 汇总须匹配 assertionResults，
+Node 按 test case 计数，嵌套 suite 不重复累计。主脚本成功不能掩盖已采集 runner 的失败。
+固定 Node 22.16.0 实测 `node --test tests/` 会 MODULE_NOT_FOUND，Agent 应根据真实诊断改为有效测试文件或 glob，检查器不代修源码。
 
-实际调用已安装的本地二进制及固定参数，build 的两个阶段顺序执行。Vitest 使用新建 JSON report。
-类型脚本名称支持 `typecheck` / `type-check`，构建支持 `build` / `build-only`，测试支持 `test` / `test:unit`。
-同一目标优先使用前者。typecheck 后接 Vite 时可识别唯一 128–4096 MiB Node heap 参数，转成固定 Vite 入口调用；
-不执行任意 Node、环境赋值、shell 管道或多层转调。
-没有对应脚本或可选工具时返回 `CHECK_NOT_AVAILABLE`，不安装额外工具、不记失败或 PASS，可保持 NOT_TESTED。
-已声明工具却未成功准备属于 `DEPENDENCY_MISSING`；不识别的既有脚本仍是配置不支持；实际执行失败仍记录失败。
+其他声明脚本也执行，但没有可验证报告时，成功退出为 `TEST_EXECUTION_UNVERIFIED`，不生成 `TESTS_PASSED` 或虚构计数。
+覆盖 NODE_OPTIONS 的包装、程序化 runner API 和其他框架可能无法采集；反馈明确说明可用路径，不要求已有仓库安装 Vitest。
+
 仅根包的 `pnpm-workspace.yaml` 可以含 packages（空或 `.`）及依赖安装构建许可列表；许可不复制到安装目录，始终禁用安装脚本。
 项目 `.npmrc` 只在内容能力策略校验为公开只读资源时可用：固定公共 registry、关闭安装脚本，以及受限布尔设置。
 受校验的 pnpm peer/hoist 设置通过固定参数进入安装器；原配置文件不复制到联网安装目录，源与关闭脚本的约束不可覆盖。
 未知或敏感 `.npmrc` 留在主机，前端检查明确不可用/不支持，不会启用私有 registry、凭据或 hooks。
-多包 workspace、其他 pnpm 设置、pnpmfile、混用锁文件及不支持的脚本或工具链版本仍明确拒绝。
+多包 workspace、其他 pnpm 设置、pnpmfile、混用锁文件及不支持的工具链版本仍明确拒绝。
 需要安装期脚本或 native build 才能工作的依赖可能无法使用；不会放开生命周期脚本来修复它们。
 
 ## 依赖与执行隔离
@@ -67,17 +67,18 @@ npm 锁的根依赖必须与 manifest 一致；两种安装器也独立执行各
 代理不执行项目代码。新增镜像内 `python3-yaml` 用于安全解析 pnpm 锁；标准库不能解析 YAML，手写行匹配不能可靠校验它。
 采用 SafeLoader，并拒绝 alias、anchor 和显式 tag；没有新增 Maven 或前端应用依赖。
 
-同一 Run、同一目录及相同 manifest/锁文件快照可复用已准备依赖。准备写入者停止后，后续检查只读挂载该卷；
-项目代码不能污染复用依赖或 Maven 缓存。元数据变化立即销毁重建，Run 清理时移除私有依赖与缓存。
+同一 Run、同一目录及相同 manifest/锁文件/受支持配置快照可复用已准备依赖。准备写入者停止后，后续检查只读挂载该卷；
+项目代码不能污染复用依赖；前端容器不挂载 Maven 缓存。pnpm 12 以 pnpm_config_pm_on_fail=ignore 关闭自动包管理器下载，并设置 pnpm_config_verify_deps_before_run=false，禁止执行前自动重装已冻结依赖。元数据变化立即销毁重建，Run 清理时移除私有依赖与缓存。
 共享代理缓存只存公开 artifact，不能替代锁文件 integrity 校验。
 
 每次检查在新的完整源副本中执行，网络为 `none`，非 root、只读容器根、cap-drop、no-new-privileges、
-CPU/内存/PID、输出和单次超时限制继续生效。宿主取消或超时后销毁容器及检查卷，停止所有容器内写入者。
+CPU/内存/PID、输出和单次超时限制继续生效。关闭 core dump；PID 1 工具在报告与源码核对前杀死、回收剩余进程，包括 detached 子进程。
+宿主取消或超时后销毁容器及检查卷，停止所有容器内写入者。
 正式 WorkingCopy 不挂载给容器，也不接收依赖、生成输出或测试产物。
 
 输入和权威源码快照不能包含前端依赖及已分类的前端生成物。只有一次性检查副本可跳过所选工程的 node_modules、dist、coverage、
 .vite、.df-check 及 tsbuildinfo；生成目录根不能是符号链接。依赖树内部链接因此无需放宽权威源的链接规则。
-检查副本的其他源码变化触发 `CHECK_MUTATED_SOURCE`，即使构建成功也拒绝结果。权威源在检查前后再次完整核对。
+检查前后快照中出现的其他源码变化触发 `CHECK_MUTATED_SOURCE`，即使构建成功也拒绝结果。权威源在检查前后再次完整核对。
 修改源码会改变完整 snapshot；旧检查不能证明新源码通过。最终冻结、凭据保护、独立 index 重放及 Delivery 守卫保持。
 
 ## 证据与诊断
@@ -88,18 +89,20 @@ executionBaselineTree 记录初始执行树 E；可信 R 仍是 Candidate baseli
 UI 展示投影范围；类型/构建/测试成功均只限于实际执行视图，不能推断被保留内容已执行。
 
 执行前模型收到当前工程的有界检查声明：Maven 目录、Vue/Vite 目录和每个 goal 的
-DECLARED_SUPPORTED / ABSENT / UNSUPPORTED / UNAVAILABLE。声明不验证完整锁文件或安装结果，不是 PASS。
+DECLARED_SUPPORTED / ABSENT / UNSUPPORTED / UNAVAILABLE，以及管理器、脚本名、具体不可用原因和报告采集说明。
+configurationSnapshot 绑定配置身份，检查反馈重读能力并指示配置变化；声明不验证完整锁文件或安装结果，不是 PASS。
 错误目录或无可选检查返回 CHECK_NOT_AVAILABLE 并附可用目录；前端独立工程不制造 Maven 配置。
 Maven 声明沿用受控入口和 reactor 角色，不把测试资源内的 POM 当作可执行工程。
 
-新 Candidate 使用 `evidenceVersion: 2`，每条记录包含 checkType（MAVEN/FRONTEND）、directory、goal、packageManager
-（前端）、classification、测试/报告计数、snapshot 与 stale。旧记录缺少类型时仅按 Maven 解释，不迁移或重写历史。
+新 Candidate 使用 `evidenceVersion: 3`，每条记录包含 checkType（MAVEN/FRONTEND）、directory、goal、packageManager
+（前端）、classification、测试/报告计数、snapshot 与 stale；新增 executionStatus、runner 与 configurationSnapshot。旧记录缺少类型时仅按 Maven 解释，不迁移或重写历史。
 
 - typecheck/build 成功记录 `BUILD_PASSED_NOT_TESTED`，不生成测试通过事实。
-- 只有新 Vitest report 记录实际执行数大于零且退出成功，才记 `TESTS_PASSED`；零测试、报告缺失和测试失败分开处理。
+- 只有新 Node JUnit / Vitest JSON report 记录实际执行数大于零且退出成功，才记 `TESTS_PASSED`；零测试、报告缺失和测试失败分开处理。
 - 类型、构建、测试、锁文件、缺依赖、不支持配置、超时和无法确认结果分别返回结构化分类；输出先净化再给模型。
-- 前端失败按类型、目录、goal 独立追踪，必须用当前源码的同一检查修复。Maven 成功不能清除前端失败，build 不能清除 test 失败。
-- `CHECK_NOT_AVAILABLE` 不产生执行证据，也不能清除任何已有失败；删除脚本或测试工具不能绕过冻结守卫。
+- 前端失败按类型、目录、goal 及已知 runner 独立追踪，必须用当前源码的同一检查修复。Maven 成功不能清除前端失败，build 不能清除 test 失败。
+- 新证据明确 `NOT_STARTED` 的配置/环境拒绝保留历史但不制造已执行测试失败；旧 v1/v2 保持原保守解释。
+- `CHECK_NOT_AVAILABLE` 与 `TEST_EXECUTION_UNVERIFIED` 不产生通过证据，也不能清除任何已有失败；删除脚本或测试工具不能绕过冻结守卫。
 - Maven 原有同目录完整 test/verify 重验规则保留。已知测试失败不能由零测试的构建结果清除。
 - 冻结和 Delivery 共用 `AgentCheckEvidence` 规则；未解决失败阻止接受。没有执行检查可保持 NOT_TESTED，不伪造 PASS。
 
@@ -110,14 +113,14 @@ UI 展示独立工程/目标、实际计数和旧源码标签；总览中的测�
 
 ## 镜像更新与验证
 
-工具协议已升至 **v6**。新 Java 会在传入源码前拒绝旧镜像。正常启动使用 `setup-delveforge.ps1`，
-其 `setup-agent-images.ps1` 根据当前构建输入选择新标签、构建 17/21 镜像、核对脚本内容并固定 image ID。
+工具协议已升至 **v7**。新 Java 会在传入源码前拒绝旧镜像。正常启动使用 `setup-delveforge.ps1`，
+其 `setup-agent-images.ps1` 根据当前构建输入选择新标签、构建 17/21 镜像、核对脚本内容并固定 image ID，核验包含新增报告 preload。
 自定义镜像须从当前 `backend/delveforge-infrastructure/src/main/resources/agent/Dockerfile` 用新标签构建，
 再通过 `-AgentImage21` / `-AgentImage17` 或对应配置显式使用并重启应用。不要覆盖正在使用的旧镜像标签。
 
 可执行回归包括 `AgentCheckEvidenceTest`、`AgentContextTest`、`FrontendPolicyTest`、`FrontendProxyTest`、
-`RepositoryCompatibilityIntegrationTest` 和 `FullStackAgentSmokeTest`。后者设置 `DELVEFORGE_AGENT_DOCKER=true`、
-`DELVEFORGE_AGENT_IMAGE_21=<当前v6镜像>` 后运行，分别实际执行纯 Maven、npm/pnpm 安装、失败检查、源码修正、
+`RepositoryCompatibilityIntegrationTest`、`NativeFrontendDeliverySmokeTest` 和 `FullStackAgentSmokeTest`。后者设置 `DELVEFORGE_AGENT_DOCKER=true`、
+`DELVEFORGE_AGENT_IMAGE_21=<当前v7镜像>` 后运行，分别实际执行纯 Maven、npm/pnpm 安装、失败检查、源码修正、
 Maven/Vue 检查、Candidate 冻结和 Git/SQLite Delivery。模型动作是确定性脚本，检查结果不是替身；不调用付费模型。
 实际执行结果见下方记录；仅有这些测试文件不代表运行通过。
 

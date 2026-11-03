@@ -1,5 +1,11 @@
 # ARCHITECTURE.md
 
+**2026-11-03 项目脚本执行：** 前端按目标调用固定 npm/pnpm 的项目声明脚本，安全依赖无网络一次性容器，
+不再以脚本字符串白名单代替隔离。联网准备仍不执行项目/安装脚本；Node JUnit 与 Vitest JSON 独立采集、归一化。
+工具协议 v7，evidenceVersion=3 区分未启动、已执行与未知结果，旧证据保守兼容。配置摘要驱动能力刷新和安装复用。
+无新模块、Port、依赖或迁移，正式 Delivery 和可信 revision 不变，见 [ADR-0021](decisions/0021-sandbox-enforced-project-scripts-and-test-evidence.md)。
+
+
 **2026-11-02 Maven 有界诊断修正：** 准备超时保留 TIME_LIMIT；先停止项目进程，再在清理前读取净化的最后阶段、
 可信代理的有限工件/缓存/重试指标及 OOM 标记。不记录原始 URL、凭据、响应体或完整进程环境。
 代理在工件摘要核对成功后原子缓存其 SHA-1 旁文件，供 Maven 的后续请求复用；失败摘要不发布工件或新旁文件。

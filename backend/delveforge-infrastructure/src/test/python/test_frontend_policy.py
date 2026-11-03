@@ -116,26 +116,22 @@ class FrontendPolicyTest(unittest.TestCase):
             frontend.metadata(sandbox, {'goal': 'build'})
         self.assertEqual(2, frontend.describe(sandbox)['frontendProjectCount'])
 
-    def test_supported_script_families_are_parsed_without_shell_or_arbitrary_delegation(self):
-        scripts = {'type-check': 'vue-tsc --build', 'build-only': 'vite build --mode production',
-                   'test:unit': 'vitest --environment jsdom'}
-        self.assertEqual([['vue-tsc', '--build'], ['vite', 'build', '--mode', 'production']],
-            frontend.supported_commands('run-p type-check "build-only {@}" --', scripts, 'build'))
-        self.assertEqual([['vitest', 'run', '--environment', 'jsdom']],
-            frontend.supported_commands('npm run test:unit', scripts, 'test'))
-        self.assertEqual([['vue-tsc', '--noEmit', '-p', 'tsconfig.vitest.json', '--composite', 'false']],
-            frontend.supported_commands('vue-tsc --noEmit -p tsconfig.vitest.json --composite false', {}, 'typecheck'))
-        commands = frontend.supported_commands(
-            'vue-tsc --noEmit && NODE_OPTIONS=--max_old_space_size=2048 vite build', {}, 'build')
-        self.assertEqual(['node', '--max-old-space-size=2048', 'node_modules/vite/bin/vite.js', 'build'], commands[1])
-        for script in ('vue-tsc --noEmit && NODE_OPTIONS=--require=evil vite build',
-                       'vue-tsc --noEmit && NODE_OPTIONS=--max_old_space_size=8192 vite build',
-                       'node evil.js', 'vite build; echo owned', 'run-p arbitrary build-only'):
-            with self.assertRaises(frontend.Unsupported):
-                frontend.supported_commands(script, scripts, 'build')
-        for script in ('vue-tsc -p ../outside.json', 'vue-tsc --outDir src', 'vue-tsc --project /tmp/evil'):
-            with self.assertRaises(frontend.Unsupported):
-                frontend.supported_commands(script, {}, 'typecheck')
+    def test_scripts_are_project_code_not_a_security_syntax_whitelist(self):
+        manifest = self.project_metadata()
+        manifest['devDependencies'].pop('vitest')
+        scripts = ('node --test tests/', 'npm run unit && node scripts/summary.mjs',
+                   'pnpm run nested', 'NODE_OPTIONS=--max_old_space_size=2048 vite build',
+                   'node scripts/verify.mjs; echo done', 'vitest --environment jsdom')
+        for script in scripts:
+            manifest['scripts']['test'] = script
+            (self.project / 'package.json').write_text(json.dumps(manifest))
+            self.assertEqual('test', frontend.metadata(sandbox, {'goal': 'test'})[3])
+        with patch.object(sandbox, 'run_bounded', return_value=(0, '')) as run:
+            result = frontend.check(sandbox, {'goal': 'test'})
+        self.assertEqual(['pnpm', 'run', 'test'], run.call_args.args[0])
+        self.assertEqual('TEST_EXECUTION_UNVERIFIED', result['classification'])
+        self.assertIn('--require=', run.call_args.kwargs['env']['NODE_OPTIONS'])
+        self.assertEqual('false', run.call_args.kwargs['env']['pnpm_config_verify_deps_before_run'])
 
     def test_integrity_requires_valid_complete_digest_for_each_supported_algorithm(self):
         for algorithm, size in (('sha1', 20), ('sha256', 32), ('sha384', 48), ('sha512', 64)):
@@ -200,7 +196,7 @@ class FrontendPolicyTest(unittest.TestCase):
                 data = json.loads(lock.read_text())
                 data['packages']['']['devDependencies'] = manifest['devDependencies']
                 lock.write_text(json.dumps(data))
-            self.assertEqual([['vite', 'build']], frontend.metadata(sandbox, {'goal': 'build'})[3])
+            self.assertEqual('build', frontend.metadata(sandbox, {'goal': 'build'})[3])
             for goal in ('test', 'typecheck'):
                 with patch.object(sandbox, 'run_bounded', side_effect=self.fake_run) as run:
                     result = frontend.dispatch(sandbox, {'goal': goal})
@@ -208,19 +204,15 @@ class FrontendPolicyTest(unittest.TestCase):
                 self.assertEqual(0, result['executedTests'])
                 self.assertEqual(3, run.call_count)
 
-    def test_common_script_names_and_fixed_commands_do_not_execute_shells(self):
+    def test_script_aliases_resolve_to_declared_names_without_rewriting_their_body(self):
         self.project_metadata()
         manifest_path = self.project / 'package.json'
         manifest = json.loads(manifest_path.read_text())
-        for name, script, goal, commands in (
-                ('build', 'vue-tsc && vite build', 'build', [['vue-tsc'], ['vite', 'build']]),
-                ('build', 'vue-tsc --noEmit && vite build', 'build', [['vue-tsc', '--noEmit'], ['vite', 'build']]),
-                ('type-check', 'vue-tsc --noEmit', 'typecheck', [['vue-tsc', '--noEmit']]),
-                ('test:unit', 'vitest', 'test', [['vitest', 'run']])):
-            manifest['scripts'] = {name: script}
+        for goal, name in (('typecheck', 'type-check'), ('build', 'build-only'), ('test', 'test:unit')):
+            manifest['scripts'] = {name: 'node scripts/custom-wrapper.cjs && echo finished'}
             manifest_path.write_text(json.dumps(manifest))
-            self.assertEqual(commands, frontend.metadata(sandbox, {'goal': goal})[3])
-        for script in (None, 17, 'vite build; touch owned', 'vite build && node evil.js', 'vitest --watch', 'npm run arbitrary'):
+            self.assertEqual(name, frontend.metadata(sandbox, {'goal': goal})[3])
+        for script in (None, 17, '', ' '):
             manifest['scripts'] = {'build': script}
             manifest_path.write_text(json.dumps(manifest))
             with self.assertRaises(frontend.Unsupported) as failure:
@@ -277,10 +269,17 @@ class FrontendPolicyTest(unittest.TestCase):
     def execute(self, manager, goal, code=0, report=None, mutation=False):
         self.project_metadata(manager)
         def run(command, **kwargs):
+            nonlocal report
             if mutation:
                 (self.project / 'source.ts').write_text('mutated')
             if report is not None:
+                report = dict(report)
+                report.setdefault('testResults', [{'assertionResults': (
+                    [{'status': 'passed'}] * max(0, report.get('numPassedTests', 0))
+                    + [{'status': 'failed'}] * max(0, report.get('numFailedTests', 0)))}])
                 (self.project / '.df-check/vitest.json').write_text(json.dumps(report))
+                (self.project / '.df-check/test.receipt').write_text(json.dumps(
+                    {'runner': 'vitest-json', 'report': 'vitest.json', 'exitCode': code}))
             return code, 'actual diagnostic'
         with patch.object(sandbox, 'run_bounded', side_effect=run):
             return frontend.check(sandbox, {'goal': goal})
@@ -289,10 +288,10 @@ class FrontendPolicyTest(unittest.TestCase):
         scenarios = [('typecheck', 0, None, 'BUILD_PASSED_NOT_TESTED'),
                      ('typecheck', 1, None, 'TYPECHECK_FAILED'), ('build', 0, None, 'BUILD_PASSED_NOT_TESTED'),
                      ('build', 1, None, 'FRONTEND_BUILD_FAILED'),
-                     ('test', 0, {'numTotalTests': 1, 'numPassedTests': 1}, 'TESTS_PASSED'),
-                     ('test', 1, {'numTotalTests': 1, 'numFailedTests': 1}, 'TESTS_FAILED'),
-                     ('test', 0, {'numTotalTests': 0}, 'BUILD_PASSED_NOT_TESTED'),
-                     ('test', 1, None, 'CHECK_RESULT_UNAVAILABLE')]
+                     ('test', 0, {'numTotalTests': 1, 'numPassedTests': 1, 'success': True}, 'TESTS_PASSED'),
+                     ('test', 1, {'numTotalTests': 1, 'numFailedTests': 1, 'success': False}, 'TESTS_FAILED'),
+                     ('test', 0, {'numTotalTests': 0, 'success': True}, 'TEST_EXECUTION_UNVERIFIED'),
+                     ('test', 1, None, 'CHECK_PROCESS_FAILED')]
         for manager in ('npm', 'pnpm'):
             for goal, code, report, expected in scenarios:
                 with self.subTest(manager=manager, goal=goal, expected=expected):
@@ -330,7 +329,7 @@ class FrontendPolicyTest(unittest.TestCase):
         with patch.dict(os.environ, {'DF_FRONTEND_COPY': 'false'}), self.assertRaises(sandbox.PolicyError):
             frontend.dispatch(sandbox, {'goal': 'build'})
         def run(command, **kwargs):
-            if command[0] in ('node', 'npm', 'pnpm'):
+            if command[1:] == ['--version']:
                 return self.fake_run(command, **kwargs)
             raise sandbox.PolicyError('COMMAND_BUDGET', 'bounded')
         with patch.object(sandbox, 'run_bounded', side_effect=run):
@@ -381,6 +380,132 @@ class FrontendPolicyTest(unittest.TestCase):
                     frontend.check(sandbox, {'goal': 'build'})
                 self.assertEqual('CHECK_MUTATED_SOURCE', rejected.exception.rule)
                 self.assertNotEqual(before, sandbox.snapshot()['snapshot'])
+
+    def test_native_runner_wrappers_execute_fail_correct_and_report_real_counts(self):
+        for manager in ('npm', 'pnpm'):
+            with self.subTest(manager=manager):
+                self.reset_outputs()
+                manifest = self.project_metadata(manager)
+                del manifest['devDependencies']['vitest']
+                manifest['scripts']['test'] = manager + ' run native && node -e "process.exit(0)"'
+                manifest['scripts']['native'] = 'node wrapper.cjs'
+                (self.project / 'package.json').write_text(json.dumps(manifest))
+                if manager == 'npm':
+                    lock = self.project / 'package-lock.json'
+                    data = json.loads(lock.read_text())
+                    data['packages']['']['devDependencies'] = manifest['devDependencies']
+                    lock.write_text(json.dumps(data))
+                (self.project / 'wrapper.cjs').write_text(
+                    "const {spawnSync}=require('node:child_process');"
+                    "process.exit(spawnSync(process.execPath,['--test','tests/value.test.cjs'],"
+                    "{stdio:'inherit',env:process.env}).status);\n")
+                tests = self.project / 'tests'
+                tests.mkdir(exist_ok=True)
+                target = tests / 'value.test.cjs'
+                target.write_text("const {test,describe}=require('node:test');"
+                    "const assert=require('node:assert/strict');"
+                    "describe('due dates',()=>{test('overdue',()=>assert.equal(1,2));"
+                    "test('due today',()=>assert.equal(3,3));"
+                    "test('pending',{skip:true},()=>{});});\n")
+                failed = frontend.check(sandbox, {'goal': 'test'})
+                self.assertEqual('TESTS_FAILED', failed['classification'], failed)
+                self.assertEqual('node-junit', failed['runner'])
+                self.assertEqual(2, failed['executedTests'])
+                self.assertEqual(1, failed['failures'])
+                self.assertEqual(1, failed['skipped'])
+                target.write_text(target.read_text().replace('assert.equal(1,2)', 'assert.equal(2,2)'))
+                import shutil
+                shutil.rmtree(self.project / 'node_modules')
+                shutil.rmtree(self.project / '.df-check')
+                sandbox.FRONTEND_OUTPUT_ROOT = None
+                passed = frontend.check(sandbox, {'goal': 'test'})
+                self.assertEqual('TESTS_PASSED', passed['classification'], passed)
+                self.assertEqual(2, passed['executedTests'])
+                self.assertNotEqual(failed['snapshot'], passed['snapshot'])
+
+    def test_missing_forged_or_malformed_report_never_becomes_pass(self):
+        for report, expected in ((None, 'TEST_EXECUTION_UNVERIFIED'),
+                ({'numTotalTests': 2, 'numPassedTests': 1, 'success': True}, 'CHECK_RESULT_UNAVAILABLE'),
+                ({'numTotalTests': -1, 'success': True}, 'CHECK_RESULT_UNAVAILABLE'),
+                ({'numTotalTests': 1, 'numPassedTests': 1, 'success': False}, 'CHECK_RESULT_UNAVAILABLE')):
+            self.reset_outputs()
+            self.assertEqual(expected, self.execute('npm', 'test', report=report)['classification'])
+
+    def test_capabilities_change_with_scripts_and_explain_available_path(self):
+        manifest = self.project_metadata()
+        first = frontend.describe(sandbox)
+        manifest['scripts']['test'] = 'node --test tests/'
+        (self.project / 'package.json').write_text(json.dumps(manifest))
+        second = frontend.describe(sandbox)
+        self.assertNotEqual(first['configurationSnapshot'], second['configurationSnapshot'])
+        project = second['frontendProjects'][0]
+        self.assertEqual('pnpm', project['packageManager'])
+        self.assertEqual('test', project['goalDetails']['test']['script'])
+        self.assertIn('node-junit', second['testReporters'])
+
+    def test_real_offline_scripts_cannot_read_credentials_or_reach_network(self):
+        self.project_metadata('npm')
+        manifest = self.project / 'package.json'
+        data = json.loads(manifest.read_text())
+        data['scripts']['build'] = 'node security.cjs'
+        manifest.write_text(json.dumps(data))
+        (self.project / 'security.cjs').write_text("""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const net = require('node:net');
+assert.equal(process.env.DEEPSEEK_API_KEY, undefined);
+assert.equal(fs.existsSync('/var/run/docker.sock'), false);
+assert.equal(fs.existsSync('/home/agent/.ssh/id_rsa'), false);
+assert.throws(() => fs.writeFileSync('/opt/delveforge/injected', 'bad'));
+const socket = net.connect({host: '1.1.1.1', port: 443});
+socket.on('connect', () => { throw new Error('Network access was available'); });
+socket.on('error', () => { console.log('NETWORK_DENIED'); });
+socket.setTimeout(1000, () => { socket.destroy(); console.log('NETWORK_UNAVAILABLE'); });
+""")
+        checked = frontend.check(sandbox, {'goal': 'build'})
+        self.assertEqual('BUILD_PASSED_NOT_TESTED', checked['classification'], checked)
+        self.assertTrue('NETWORK_DENIED' in checked['output'] or 'NETWORK_UNAVAILABLE' in checked['output'])
+
+    def test_real_detached_process_is_killed_before_source_is_inspected(self):
+        if os.getpid() != 1:
+            self.skipTest('Requires actual disposable container PID namespace')
+        self.project_metadata('npm')
+        manifest = self.project / 'package.json'
+        data = json.loads(manifest.read_text())
+        data['scripts']['build'] = 'node background.cjs'
+        manifest.write_text(json.dumps(data))
+        marker = pathlib.Path(self.temporary.name) / 'escaped'
+        payload = "setTimeout(()=>require('node:fs').writeFileSync(" + json.dumps(str(marker)) + ", 'bad'),500)"
+        (self.project / 'background.cjs').write_text(
+            "require('node:child_process').spawn(process.execPath,['-e'," + json.dumps(payload)
+            + "],{detached:true,stdio:'ignore'}).unref();")
+        checked = frontend.check(sandbox, {'goal': 'build'})
+        self.assertEqual('BUILD_PASSED_NOT_TESTED', checked['classification'], checked)
+        import time
+        time.sleep(0.8)
+        self.assertFalse(marker.exists())
+
+    def test_real_script_timeout_and_heap_exhaustion_are_failures(self):
+        self.project_metadata('npm')
+        manifest = self.project / 'package.json'
+        data = json.loads(manifest.read_text())
+        data['scripts']['build'] = 'node limit.cjs'
+        manifest.write_text(json.dumps(data))
+        (self.project / 'limit.cjs').write_text('while(true) {}')
+        with patch.dict(os.environ, {'DF_CHECK_SECONDS': '1'}):
+            timed = frontend.dispatch(sandbox, {'goal': 'build'})
+        self.assertEqual('CHECK_TIMEOUT', timed['classification'], timed)
+        self.assertEqual('UNKNOWN', timed['executionStatus'])
+        import shutil
+        shutil.rmtree(self.project / 'node_modules')
+        shutil.rmtree(self.project / '.df-check')
+        sandbox.FRONTEND_OUTPUT_ROOT = None
+        data['scripts']['build'] = 'node --max-old-space-size=16 limit.cjs'
+        manifest.write_text(json.dumps(data))
+        (self.project / 'limit.cjs').write_text('const memory=[];while(true) memory.push(new Array(100000).fill(1));')
+        checked = frontend.check(sandbox, {'goal': 'build'})
+        self.assertEqual('FRONTEND_BUILD_FAILED', checked['classification'], checked)
+        self.assertNotEqual(0, checked['exitCode'])
 
 
 if __name__ == '__main__':

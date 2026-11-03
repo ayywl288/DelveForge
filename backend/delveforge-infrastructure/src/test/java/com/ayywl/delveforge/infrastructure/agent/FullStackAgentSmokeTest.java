@@ -154,6 +154,9 @@ class FullStackAgentSmokeTest {
             var run = agent.start("plan", "step", 21);
             var terminal = CodingAgentServiceTest.awaitTerminal(agent, run.id(), workflowSeconds);
             assertEquals(AgentRunState.SUCCEEDED, terminal.state(), terminal.reason()
+                    + "\n" + database.store.events(run.id(), 0, 200).stream()
+                        .filter(event -> event.kind().equals("TOOL_FINISHED"))
+                        .map(AgentProtocol.Event::summary).toList()
                     + "\n" + String.join("\n", observations));
             candidateId = terminal.candidateId();
         }
@@ -174,7 +177,7 @@ class FullStackAgentSmokeTest {
             assertFalse(candidate.testEvidence().contains("FRONTEND"));
         }
         assertTrue(candidate.changedPaths().contains("src/main/java/example/Counter.java"));
-        assertEquals(2, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
+        assertEquals(3, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
         assertEquals("PROJECTED", json.readTree(candidate.testEvidence()).path("sourceView").path("kind").asText());
         assertEquals(1, json.readTree(candidate.testEvidence()).path("sourceView").path("preservedOnlyCount").asInt());
         assertFalse(candidate.diff().contains("INSTALL_SCRIPT_RAN"));

@@ -1,5 +1,12 @@
 # ROADMAP.md
 
+**2026-11-03 当前用户任务：Restore Reliable Autonomous Product Evolution。**
+修复前端语法白名单与证据归类根因：复用既有隔离执行，支持 npm/pnpm 项目脚本、Node/Vitest 结构化报告及配置能力反馈。
+先完成确定性失败→修正→重验→冻结→Delivery、安全负例与 Maven 回归，再在本轮费用授权明确时复用原 Homer 四步计划，
+通过正常 API 进行一次真实试验。旧失败历史完整保留；外部不代修 Homer、不改领域数据库、不推送或合并。
+分别报告 ENGINEERING_READY / AUTONOMOUS_DELIVERY_READY / PRODUCT_READY；本段为当前任务，后续较早结果保留历史含义。
+
+
 **2026-11-02 当前用户任务：Final Maven Diagnostics and Authentic Full-Product Evolution。**
 沿用 2396d1a 的仓库内容能力设计，仅补充已证实的 Maven 诊断/缓存问题，完成有界工程门槛后进入一次独立完整产品试验。
 公开仓库的完整测试失败与受支持检查范围分别保留；不改目标项目、不接入 Docker 套接字、不扩大包管理器或执行权限。

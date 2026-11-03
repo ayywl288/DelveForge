@@ -1,5 +1,11 @@
 # DOMAIN_MODEL.md
 
+**2026-11-03 技术证据契约：** 新前端证据区分 NOT_STARTED / EXECUTED / UNKNOWN，并记录 runner 与配置摘要。
+明确未启动的配置拒绝保留历史，但不等于失败测试；未采集测试的成功退出不是 TESTS_PASSED，也不能解决已知失败。
+实际测试失败须由同工程、同目标、匹配 runner、最终源码 snapshot 的有效测试通过解决；删除脚本、换工程、构建成功均无效。
+旧证据按原合同保守解释，不重写历史。Candidate/Delivery、Step 授权、WorkingCopy 与可信 revision 状态机不变，见 ADR-0021。
+
+
 **2026-11-02 执行材料范围：** 资源能力政策不改变原始/准备 revision、WorkingCopy、Step、Candidate 或 Delivery 状态机。
 正式 R 和交付 B 保留原 Git 条目；执行投影 E 仅是技术材料视图，不可冒充新的可信 baseline。
 证据须区分实际执行材料和仅在主机保留的条目；构建/测试只证明所记录执行视图，不能推断未物化内容已执行。

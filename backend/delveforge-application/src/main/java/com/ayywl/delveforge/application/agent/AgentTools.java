@@ -50,10 +50,10 @@ public final class AgentTools {
                         "\"goal\":{\"type\":\"string\",\"enum\":[\"compile\",\"test\",\"package\",\"verify\"]},"
                                 + "\"directory\":{\"type\":\"string\",\"description\":\"Maven工程目录，默认仓库根；可选择嵌套reactor\"},"
                         + "\"module\":{\"type\":\"string\"},\"test\":{\"type\":\"string\"}", ""),
-                spec("run_frontend_checks", "受控 Vue/Vite + npm/pnpm 检查。directory 缺省时选择唯一前端工程；"
+                spec("run_frontend_checks", "Vue/Vite 项目声明的 npm/pnpm 脚本检查。directory 缺省时选择唯一前端工程；"
                         + "多个工程必须从能力描述中明确选择目录，不猜测 frontend。"
                         + "goal 为 typecheck/build/test。依赖冻结准备，检查无网络；构建不等于运行测试。"
-                        + "缺少可选工具或脚本返回 CHECK_NOT_AVAILABLE，不要求改写项目。",
+                        + "缺少脚本返回 CHECK_NOT_AVAILABLE；Node --test 和 Vitest 支持结构化报告，包装须保留 NODE_OPTIONS。其他脚本可执行，未取得实际测试报告时为 TEST_EXECUTION_UNVERIFIED。反馈含当前能力及配置变化。",
                         "\"goal\":{\"type\":\"string\",\"enum\":[\"typecheck\",\"build\",\"test\"]},"
                                 + "\"directory\":{\"type\":\"string\"}", "\"goal\""));
     }

@@ -145,4 +145,33 @@ class AgentCheckEvidenceTest {
         assertEquals("EVIDENCE_INVALID", assertThrows(AgentException.class,
                 () -> AgentCheckEvidence.requireAcceptable(unversioned)).code());
     }
+
+    @Test
+    void scriptEvidenceDistinguishesConfigurationRejectionFromExecutedFailures() {
+        var rejected = check("FRONTEND", ".", "test", "UNSUPPORTED_FRONTEND_CONFIGURATION", true)
+                .put("executionStatus", "NOT_STARTED").put("tests", 0).put("executedTests", 0).put("reports", 0);
+        var unverified = check("FRONTEND", ".", "test", "TEST_EXECUTION_UNVERIFIED", false)
+                .put("executionStatus", "EXECUTED").put("tests", 0).put("executedTests", 0).put("reports", 0);
+        assertDoesNotThrow(() -> AgentCheckEvidence.requireAcceptable(evidence(rejected, unverified)
+                .put("evidenceVersion", 3)));
+        var failed = check("FRONTEND", ".", "test", "TESTS_FAILED", true)
+                .put("executionStatus", "EXECUTED").put("runner", "node-junit");
+        blocked(evidence(failed, rejected, unverified).put("evidenceVersion", 3));
+        var passed = check("FRONTEND", ".", "test", "TESTS_PASSED", false)
+                .put("executionStatus", "EXECUTED").put("runner", "vitest-json");
+        blocked(evidence(failed, passed).put("evidenceVersion", 3));
+        passed.put("runner", "node-junit");
+        assertDoesNotThrow(() -> AgentCheckEvidence.requireAcceptable(evidence(failed, passed)
+                .put("evidenceVersion", 3)));
+        passed.put("runner", "node-junit+vitest-json").put("reports", 2);
+        assertDoesNotThrow(() -> AgentCheckEvidence.requireAcceptable(evidence(failed, passed)
+                .put("evidenceVersion", 3)));
+        var removed = rejected.deepCopy().put("classification", "CHECK_NOT_AVAILABLE");
+        blocked(evidence(failed, removed).put("evidenceVersion", 3));
+        passed.put("reports", 0);
+        assertEquals("EVIDENCE_INVALID", assertThrows(AgentException.class,
+                () -> AgentCheckEvidence.requireAcceptable(evidence(passed).put("evidenceVersion", 3))).code());
+        // 旧证据不具备未启动的证明，保持历史保守解释。
+        blocked(evidence(rejected));
+    }
 }

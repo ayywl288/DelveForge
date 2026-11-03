@@ -68,6 +68,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         String lastPreparation;
         // 只有联网准备写入，检查容器只读挂载；依赖元数据变化即销毁并重建。
         String frontendDependencyKey;
+        String frontendCapabilities;
 
         Session(Task task, AgentProtocol.Limits limits, Path directory) {
             this.task = task;
@@ -384,6 +385,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 "delveforge.owner=" + properties.owner(), "--label", "delveforge.run=" + runId,
                 "--network", network, "--user", "11000:11000", "--cap-drop", "ALL", "--security-opt",
                 "no-new-privileges", "--read-only", "--pids-limit", Integer.toString(properties.pids()),
+                "--ulimit", "core=0:0",
                 "--memory", properties.memory(), "--cpus", properties.cpus(), "--tmpfs",
                 "/tmp:rw,exec,nosuid,size=256m", "--tmpfs", "/home/agent:rw,nosuid,size=32m,uid=11000,gid=11000",
                 "--mount", "type=volume,source=" + name(runId, sourceVolume) + ",target=/workspace",
@@ -536,6 +538,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 ObjectNode unavailable = json.createObjectNode().put("checkType", "FRONTEND")
                         .put("directory", ".").put("goal", arguments.path("goal").asText())
                         .put("snapshot", expected).put("classification", "CHECK_NOT_AVAILABLE")
+                        .put("executionStatus", "NOT_STARTED")
                         .put("tests", 0).put("executedTests", 0).put("skipped", 0).put("failures", 0)
                         .put("errors", 0).put("reports", 0)
                         .put("output", "Select one declared frontend project; do not invent Maven metadata");
@@ -550,11 +553,12 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (!selectedDirectory.equals(".")) {
             requirePath(selectedDirectory);
         }
-        String prefix = selectedDirectory.equals(".") ? "" : selectedDirectory + "/";
         List<String> dependencyInputs = new ArrayList<>(List.of(selectedDirectory));
         for (JsonNode file : before.path("result").path("files")) {
-            if (Set.of(prefix + "package.json", prefix + "pnpm-lock.yaml", prefix + "package-lock.json")
-                    .contains(file.path("path").asText())) {
+            String path = file.path("path").asText();
+            String filename = path.substring(path.lastIndexOf('/') + 1);
+            if (Set.of("package.json", "pnpm-lock.yaml", "package-lock.json", "pnpm-workspace.yaml", ".npmrc")
+                    .contains(filename)) {
                 dependencyInputs.add(file.toString());
             }
         }
@@ -599,6 +603,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     && !expected.equals(response.path("result").path("snapshot").asText())) {
             throw new AgentException("SNAPSHOT_INTEGRITY", "Frontend check does not attest authoritative source");
         }
+        JsonNode capabilities = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
+        requireToolSuccess(capabilities);
+        String configuration = capabilities.path("result").path("configurationSnapshot").asText();
+        if (response.path("result") instanceof ObjectNode check) {
+            check.put("configurationChanged", !configuration.equals(session.frontendCapabilities));
+            check.set("availableChecks", capabilities.path("result"));
+        }
+        session.frontendCapabilities = configuration;
         return response;
     }
 
@@ -612,7 +624,10 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
         for (int index = 0; index < launch.size(); index++) {
             if (launch.get(index).endsWith("target=/m2")) {
-                launch.set(index, launch.get(index) + ",readonly");
+                // 前端检查不需要 Maven 缓存，也不向项目脚本暴露这项独立能力。
+                launch.remove(index);
+                launch.remove(index - 1);
+                break;
             }
         }
         launch.addAll(List.of("-i", "--env", "DF_FRONTEND_COPY=true", session.image, "python3", "-c",
@@ -630,14 +645,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 || !response.path("result").path("protocol").asText().equals("delveforge-sandbox")
                 || !response.path("result").path("version").isIntegralNumber()
                 || !response.path("result").path("version").canConvertToInt()
-                || response.path("result").path("version").asInt() != 6) {
+                || response.path("result").path("version").asInt() != 7) {
             throw incompatibleProtocol();
         }
     }
 
     private static AgentException incompatibleProtocol() {
         return new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE",
-                "Sandbox tool protocol v6 is required. Build the current agent Dockerfile with a new image tag, "
+                "Sandbox tool protocol v7 is required. Build the current agent Dockerfile with a new image tag, "
                         + "configure delveforge.agent.sandbox.images, then explicitly restart the application. "
                         + "See docs/LOCAL_SETUP.md (sandbox protocol troubleshooting).");
     }
@@ -1204,7 +1219,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
 
     @Override
     public String checkCapabilities(String runId, BooleanSupplier cancelled) {
-        JsonNode response = invoke(requireSession(runId), "describe_checks", json.createObjectNode(), cancelled);
+        Session session = requireSession(runId);
+        JsonNode response = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
+        session.frontendCapabilities = response.path("result").path("configurationSnapshot").asText();
         requireToolSuccess(response);
         return response.path("result").toString();
     }
@@ -1421,6 +1438,11 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     "selectedTest", check.path("selectedTest").asText("")));
             record.put("directory", directory);
             record.put("checkType", check.path("checkType").asText("MAVEN"));
+            for (String field : List.of("executionStatus", "runner", "configurationSnapshot")) {
+                if (check.has(field)) {
+                    record.put(field, check.path(field).asText());
+                }
+            }
             if (check.has("sourceView")) {
                 record.put("sourceView", check.path("sourceView").deepCopy());
             }
@@ -1440,7 +1462,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             records.add(record);
         }
         try {
-            JsonNode evidence = json.valueToTree(Map.of("evidenceVersion", 2, "finalSnapshot", finalSnapshot,
+            JsonNode evidence = json.valueToTree(Map.of("evidenceVersion", 3, "finalSnapshot", finalSnapshot,
                     "sourceView", snapshot.path("sourceView"),
                     "executionBaselineTree", session.executionBaselineTree,
                     "checks", records, "status", records.stream().anyMatch(record -> !((boolean) record.get("stale"))

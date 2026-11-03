@@ -93,6 +93,18 @@ public final class AgentToolActivity {
                 if (Set.of("npm", "pnpm").contains(details.path("packageManager").asText())) {
                     summary.put("packageManager", details.path("packageManager").asText());
                 }
+                if (Set.of("NOT_STARTED", "EXECUTED", "UNKNOWN").contains(details.path("executionStatus").asText())) {
+                    summary.put("executionStatus", details.path("executionStatus").asText());
+                }
+                if (Set.of("node-junit", "vitest-json", "node-junit+vitest-json").contains(details.path("runner").asText())) {
+                    summary.put("runner", details.path("runner").asText());
+                }
+                if (details.path("configurationSnapshot").asText().matches("[0-9a-f]{64}")) {
+                    summary.put("configurationSnapshot", details.path("configurationSnapshot").asText());
+                }
+                if (details.path("configurationChanged").isBoolean()) {
+                    summary.put("configurationChanged", details.path("configurationChanged").asBoolean());
+                }
             }
             // 只取成功应用后受控工具返回的已检查路径，绝不解析 patch 文本。
             JsonNode paths = details.path("paths");
