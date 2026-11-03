@@ -67,3 +67,5 @@ v1–v3 保守兼容，不改写历史 Candidate、Run 或 Delivery。工具协�
 安全资源保留、外部服务、安装期构建和未知配置的既有限制不通过放宽隔离来解决。
 
 原生行为参考：[Maven dependency-plugin 3.8.1 go-offline](https://maven.apache.org/plugins-archives/maven-dependency-plugin-3.8.1/go-offline-mojo.html)。
+
+当前运行与工程选择说明统一维护于 [LOCAL_SETUP](../LOCAL_SETUP.md#agent-build-preflight)；本 ADR 保留设计理由及当时版本语境。

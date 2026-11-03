@@ -56,3 +56,5 @@ Agent 应根据实际错误修正为有效文件、shell 展开的 glob 或 Node
 参考：[Node 测试报告](https://nodejs.org/download/release/v22.16.0/docs/api/test.html)、
 [Vitest reporters](https://vitest.dev/guide/reporters.html)、
 [pnpm 11 配置变化](https://pnpm.io/blog/releases/11.0)。真实验证结果另记，不由本 ADR 预先宣称通过。
+
+当前运行与工程选择说明统一维护于 [LOCAL_SETUP](../LOCAL_SETUP.md#agent-build-preflight)；本 ADR 保留设计理由及当时版本语境。

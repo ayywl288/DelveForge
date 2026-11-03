@@ -140,4 +140,4 @@ gs-rest-service 首次实际探针阻塞：坐标解析错误把本项目身份�
 
 原资产只读、不可变 Candidate、snapshot、生成物和秘密保护、受控 WorkingCopy 来源及 Git/SQLite Delivery 守卫保留。
 本轮不改领域生命周期、数据库结构、付费 Provider 策略，不增加 shell 工具、通用目标模型或外部服务编排。
-设计见 [ADR-0022](../decisions/0022-native-build-environment-preflight.md)，使用见 [环境预检](../AGENT_ENVIRONMENT_PREFLIGHT.md)。
+设计见 [ADR-0022](../decisions/0022-native-build-environment-preflight.md)，使用见 [环境预检](../LOCAL_SETUP.md#agent-build-preflight)。

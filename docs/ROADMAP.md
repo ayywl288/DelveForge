@@ -1,5 +1,7 @@
 # ROADMAP.md
 
+**2026-11-04 当前授权任务：** 本地合并已验证原生预检实现、安全清理与文档归并；固定客观候选池后随机抽取一个真实 Java/Maven + Vue3/Vite 仓库，通过正常产品流程至成功或首个真实阻塞。授权正常付费确认与受限真实模型试验，不推送、不代修目标、不为通过而换库或修系统。下方较早任务授权与结果保留历史含义。
+
 **2026-11-03 当前授权任务：Native Build Compatibility & Preflight Readiness。** 安全准入与原生环境就绪分离，首次 Coding Agent 模型调用前完成实际探针；明确源码失败可修复。仅确定性与非 LLM Docker 验证，不启动新付费演化试验，不改变 Candidate/Delivery 生命周期或未来里程碑。实际验收另记，未以此段标记完成。
 
 实现与实际验收证据见 [Native Build Preflight 验证记录](validation/native-build-preflight-20261103.md)。
@@ -55,7 +57,7 @@
 **2026-11-02 当前用户授权任务：Full-Stack Evolution Context & Controlled Frontend Verification。**
 仅增强方向/规划的完整产品意图、已保存 TargetState 的有界上下文，以及 Vue/Vite/TypeScript 的 npm/pnpm 受控检查。
 包含相应证据、Delivery、活动展示、回归和文档；不启动 M5 或其他未来功能。实现与技术验证已完成，
-不以技术构建成功替代业务验收。范围与实际运行结果见 [前端检查说明](AGENT_FRONTEND_CHECKS.md)。
+不以技术构建成功替代业务验收。范围与实际运行结果见 [前端检查说明](LOCAL_SETUP.md#agent-build-preflight)。
 
 **2026-11-01 用户单独授权：** 修复摄影演示已证实的浅克隆 Delivery 阻塞及受控恢复入口，先运行确定性
 回归，再恢复原 Candidate/Delivery，按原画像、方向和三步 Plan 继续真实 Agent 流程及独立验收。

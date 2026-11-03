@@ -33,6 +33,9 @@ Git 固定版本及 SHA-256 源快照、隔离网络、禁用安装脚本、离�
 
 ### 2026-11-02：现有隔离模式扩展到 npm/pnpm 前端检查
 
+本节记录初次 v4 决定；其中单锁、workspace 与脚本范围已由 ADR-0021/0022 的 v8 原生准备和隔离执行扩展。
+当前操作范围以 [LOCAL_SETUP](../LOCAL_SETUP.md#agent-build-preflight) 为准，下面保留当时取舍。
+
 用户授权在同一 Agent 工具协议增加 `run_frontend_checks`，没有新 Agent 框架或通用 shell。
 固定 Node/npm/pnpm，独立联网准备目录只接收筛选后的 manifest 与冻结锁；关闭生命周期脚本与 pnpm hooks。
 仅固定 registry 代理可达；检查脚本只在新源副本、无网络容器中执行，依赖卷只读，Maven 缓存只读。
@@ -47,7 +50,7 @@ v2 证据保持旧 Maven 记录可读。技术检查不构成产品验收，不�
 但无需放宽原快照和 Delivery 合同。相比一次性开放通用包管理器，明确支持固定 npm/pnpm、公共 registry、
 标准 Vue/Vite/vue-tsc/Vitest scripts；workspace、私有源、安装期构建和其他配置拒绝，代价是兼容范围有限。
 镜像增加 Node/npm/pnpm 和 YAML 安全解析器；未改变模块依赖或持久化技术。协议升到 v4，启动器核对脚本及镜像 ID。
-详细行为和验证命令见 [受控前端检查](../AGENT_FRONTEND_CHECKS.md)。
+详细行为和验证命令见 [受控前端检查](../LOCAL_SETUP.md#agent-build-preflight)。
 
 - Domain 维护 AgentRun 与不可变 Candidate 事实；Application 拥有逐轮模型调用与工具调度。
 - Infrastructure 使用发布的 Spring AI 1.1.x，关闭内部工具执行；保留 M1–M3 的文本 AiGateway。
