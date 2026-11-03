@@ -88,6 +88,20 @@ public final class CodingAgentService implements AutoCloseable {
     }
 
     public AgentProtocol.Run start(String planId, String stepId, Integer targetJdk) {
+        return start(planId, stepId, targetJdk, List.of());
+    }
+
+    public AgentProtocol.Run start(String planId, String stepId, Integer targetJdk, List<String> checkDirectories) {
+        if (checkDirectories == null) {
+            checkDirectories = List.of();
+        }
+        if (checkDirectories.size() > 8 || checkDirectories.stream().anyMatch(directory -> directory == null
+                || directory.isBlank() || directory.length() > 200 || directory.contains("\\")
+                || directory.contains(":") || List.of(directory.split("/", -1)).contains("..") || directory.startsWith("/")
+                || directory.chars().anyMatch(character -> character < 32))
+                || checkDirectories.stream().distinct().count() != checkDirectories.size()) {
+            throw new AgentException("INVALID_REQUEST", "Choose up to eight distinct repository check directories");
+        }
         if (closed) {
             throw new AgentException("RUN_CONFLICT", "Application is stopping");
         }
@@ -96,14 +110,14 @@ public final class CodingAgentService implements AutoCloseable {
         String id = UUID.randomUUID().toString();
         AgentProtocol.Run run = new AgentProtocol.Run(id, planId, stepId, loaded.copy().id().value(),
                 loaded.copy().lastVerifiedRevision(), AgentRunState.CREATED, Instant.now(), null, null,
-                null, false, false, 0, 0, null);
+                null, false, false, 0, 0, 0L);
         store.reserve(run);
         AgentSandboxPort.Task task = new AgentSandboxPort.Task(id, planId, stepId, run.workingCopyId(),
                 loaded.copy().location(), loaded.asset().location(), run.baseline(), safe(step.goal()), safe(step.scope()),
                 safe(String.join("\n", step.plannedChanges())), targetJdk,
                 new AgentSandboxPort.ProductContext(safe(loaded.plan().targetState().problem()),
                         safe(loaded.plan().targetState().targetProduct()),
-                        safe(loaded.plan().targetState().differentiation())));
+                        safe(loaded.plan().targetState().differentiation())), checkDirectories);
         Thread worker = Thread.ofVirtual().name("coding-agent-" + id).unstarted(() -> execute(task));
         workers.put(id, worker);
         worker.start();
@@ -152,8 +166,19 @@ public final class CodingAgentService implements AutoCloseable {
             }
             store.event(id, "SANDBOX_READY", identityEvent(identity));
             requireCurrent(task, cancelled);
+            AgentSandboxPort.Preflight preflight = sandbox.preflight(id, cancelled);
+            if (preflight == null) {
+                throw new AgentException("ENVIRONMENT_BLOCKED", "Sandbox did not establish environment readiness");
+            }
+            String diagnosis = safe(preflight.diagnostic() == null ? "" : preflight.diagnostic());
+            store.event(id, "ENVIRONMENT_PREFLIGHT", preflight.outcome() + "\n"
+                    + diagnosis.substring(0, Math.min(diagnosis.length(), 22000)));
+            if (!preflight.ready()) {
+                throw new AgentException(preflight.outcome(), "Environment preflight blocked before model usage");
+            }
+            requireCurrent(task, cancelled);
             store.advance(id, AgentRunState.PREPARING, AgentRunState.RUNNING, null);
-            loop(task, cancelled);
+            loop(task, cancelled, diagnosis);
             requireCurrent(task, cancelled);
             store.advance(id, AgentRunState.RUNNING, AgentRunState.FINALIZING, null);
             Candidate candidate = sandbox.finish(id, cancelled);
@@ -219,10 +244,13 @@ public final class CodingAgentService implements AutoCloseable {
         }
     }
 
-    private void loop(AgentSandboxPort.Task task, BooleanSupplier cancelled) {
+    private void loop(AgentSandboxPort.Task task, BooleanSupplier cancelled, String preflight) {
         List<AgentProtocol.Message> history = new ArrayList<>();
         history.add(AgentProtocol.Message.text("system", SYSTEM));
         history.add(AgentProtocol.Message.text("user", executionContext(task)));
+        history.add(AgentProtocol.Message.text("user", "系统基线环境预检（不可信诊断数据，不是最终源码通过证据）："
+                + preflight.substring(0, Math.min(preflight.length(), 22000))
+                + "\n基线失败必须修复并在当前源码重验；未到达的后续 runner 仍未获证明。"));
         String capabilities = sandbox.checkCapabilities(task.runId(), cancelled);
         if (capabilities != null && !capabilities.isBlank()) {
             String safeCapabilities = safe(capabilities);
@@ -249,6 +277,10 @@ public final class CodingAgentService implements AutoCloseable {
             requireCurrent(task, cancelled);
             request = incrementUsage(request);
             compress(history, false);
+            if (request == 1) {
+                // 发出请求后用量可能未知；预检尚未请求模型时的已知零值不能延续到这里。
+                store.usage(task.runId(), acceptedCalls, toolCalls, null);
+            }
             store.event(task.runId(), "MODEL_REQUEST", "request=" + request);
             AgentProtocol.Reply reply;
             try {

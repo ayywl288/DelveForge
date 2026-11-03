@@ -8,6 +8,7 @@ import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicR
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -66,7 +67,7 @@ class DockerDependencyPreparationTest {
     private void prepareDependencies(DockerAgentSandbox sandbox, String id) throws Exception {
         try {
             method("prepareDependencies").invoke(sandbox, session(sandbox, id),
-                    json.createObjectNode().put("goal", "test"), (BooleanSupplier) () -> false);
+                    artifactRequest(), (BooleanSupplier) () -> false);
             var diagnostic = session(sandbox, id).getClass().getDeclaredField("lastPreparation");
             diagnostic.setAccessible(true);
             assertTrue(diagnostic.get(session(sandbox, id)).toString().contains("BUILD SUCCESS"),
@@ -79,8 +80,14 @@ class DockerDependencyPreparationTest {
         }
     }
 
+    private ObjectNode artifactRequest() {
+        var request = json.createObjectNode();
+        request.putArray("artifacts").add("org.junit.jupiter:junit-jupiter:5.11.4:jar");
+        return request;
+    }
+
     @Test
-    void timeoutCapturesBoundedSanitizedProgressBeforeCleanupAndKeepsSourceUntouched() throws Exception {
+    void onlinePreparationDoesNotExecuteTestsAndOfflineTimeoutKeepsSourceUntouched() throws Exception {
         var fixture = new DockerAgentSandboxTest();
         fixture.temporary = temporary;
         Path official = fixture.fixture();
@@ -100,23 +107,24 @@ class DockerDependencyPreparationTest {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(defaults.maxContextChars(), defaults.maxOutputBytes(),
                 defaults.maxPatchBytes(), defaults.maxFileBytes(), defaults.maxCandidateBytes(),
-                defaults.maxFiles(), 1, defaults.dependencyRetries());
+                defaults.maxFiles(), 5, defaults.dependencyRetries());
         DockerAgentSandbox sandbox = sandbox();
         String id = UUID.randomUUID().toString();
         try {
             sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", baseline,
-                    "timeout diagnostic", "no edits", "no edits", 21), limits, () -> false);
+                    "timeout diagnostic", "no edits", "no edits", 21), defaults, () -> false);
             JsonNode before = snapshot(sandbox, id);
-            InvocationTargetException wrapped = assertThrows(InvocationTargetException.class,
-                    () -> method("prepareDependencies").invoke(sandbox, session(sandbox, id),
-                            json.createObjectNode().put("goal", "test"), (BooleanSupplier) () -> false));
-            var failure = (AgentException) wrapped.getCause();
-            assertEquals("TIME_LIMIT", failure.code());
-            JsonNode diagnostic = json.readTree(failure.getMessage());
-            assertEquals("MAVEN_DEPENDENCY_PREPARATION", diagnostic.path("phase").asText());
-            assertEquals(3, diagnostic.path("limitSeconds").asInt());
-            assertTrue(diagnostic.has("lastMavenPhase") || diagnostic.has("mavenLogUnavailable"));
-            assertTrue(diagnostic.has("proxyProgress") || diagnostic.has("proxyProgressUnavailable"));
+            prepareDependencies(sandbox, id);
+            var diagnostic = session(sandbox, id).getClass().getDeclaredField("lastPreparation");
+            diagnostic.setAccessible(true);
+            assertFalse(diagnostic.get(session(sandbox, id)).toString().contains("deliberateWait"));
+            assertEquals(before, snapshot(sandbox, id));
+            sandbox.cleanup(id);
+            sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", baseline,
+                    "offline timeout", "no edits", "no edits", 21), limits, () -> false);
+            var failure = assertThrows(AgentPolicyRejection.class, () -> sandbox.tool(id,
+                    new AgentProtocol.ToolCall("bounded-test", "run_checks", "{\"goal\":\"test\"}"), () -> false));
+            assertEquals("COMMAND_BUDGET", failure.rule().name());
             assertFalse(failure.getMessage().contains(secret));
             assertTrue(failure.getMessage().length() < 32768);
             assertEquals(before, snapshot(sandbox, id));

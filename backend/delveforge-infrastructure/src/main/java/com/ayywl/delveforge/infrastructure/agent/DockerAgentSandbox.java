@@ -11,6 +11,7 @@ import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicR
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.agent.Candidate;
 import com.ayywl.delveforge.infrastructure.workspace.GitRepositoryCompatibility;
+import com.ayywl.delveforge.infrastructure.workspace.MavenRepositoryLayout;
 import com.ayywl.delveforge.infrastructure.workspace.RepositoryContentPolicy;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -58,17 +59,21 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         final Path directory;
         final Map<String, Entry> baseline = new LinkedHashMap<>();
         final List<JsonNode> checks = new ArrayList<>();
+        final List<JsonNode> baselineFailures = new ArrayList<>();
         final Map<String, String> baselineHashes = new LinkedHashMap<>();
         final Map<String, Map<String, Object>> resourceCapabilities = new LinkedHashMap<>();
         String executionBaselineTree;
         String mavenDirectory;
         List<String> mavenModules = List.of();
+        List<String> mavenRoots = List.of();
         String image;
         int jdk;
         String lastPreparation;
+        String mavenDependencyKey;
         // 只有联网准备写入，检查容器只读挂载；依赖元数据变化即销毁并重建。
         String frontendDependencyKey;
         String frontendCapabilities;
+        JsonNode frontendResolution;
 
         Session(Task task, AgentProtocol.Limits limits, Path directory) {
             this.task = task;
@@ -270,11 +275,15 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 throw new AgentException("BASELINE_MISMATCH", "Sandbox baseline differs from trusted revision");
             }
             Map<String, byte[]> poms = inspectBaseline(session);
-            int jdk;
-            if (poms.isEmpty()) {
-                jdk = task.targetJdk() == null ? properties.defaultJdk() : task.targetJdk();
-            } else {
-                jdk = new MavenJdkSelector().select(poms, task.targetJdk(), properties);
+            session.mavenRoots = new MavenJdkSelector().roots(poms);
+            List<String> selectedMaven = task.checkDirectories().isEmpty()
+                    ? session.mavenRoots.size() == 1 ? session.mavenRoots : List.of()
+                    : session.mavenRoots.stream().filter(task.checkDirectories()::contains).toList();
+            int jdk = task.targetJdk() == null ? properties.defaultJdk() : task.targetJdk();
+            for (String directory : selectedMaven) {
+                int requiredJdk = new MavenJdkSelector().select(poms, task.targetJdk(), properties, directory);
+                jdk = selectedMaven.size() == 1 ? requiredJdk : Math.max(jdk, requiredJdk);
+                session.mavenDirectory = directory;
             }
             if (!properties.images().containsKey(jdk)) {
                 throw new AgentException("JDK_UNSUPPORTED", "No controlled image for the selected runtime");
@@ -468,7 +477,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             if (name.equals("run_frontend_checks")) {
                 return invokeFrontendChecks(session, arguments, maxBytes, cancelled);
             }
-            if (name.equals("run_checks")) {
+            if (Set.of("run_checks", "probe_maven_dependencies").contains(name)) {
                 return invokeChecks(session, input, maxBytes, cancelled);
             }
             return parse(docker(List.of("exec", "-i", "--env", modulesEnvironment(session),
@@ -557,7 +566,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         for (JsonNode file : before.path("result").path("files")) {
             String path = file.path("path").asText();
             String filename = path.substring(path.lastIndexOf('/') + 1);
-            if (Set.of("package.json", "pnpm-lock.yaml", "package-lock.json", "pnpm-workspace.yaml", ".npmrc")
+            if (Set.of("package.json", "pnpm-lock.yaml", "package-lock.json", "npm-shrinkwrap.json",
+                    "pnpm-workspace.yaml", ".npmrc", ".pnpmfile.cjs", "pnpmfile.cjs", ".yarnrc", ".yarnrc.yml")
                     .contains(filename)) {
                 dependencyInputs.add(file.toString());
             }
@@ -579,6 +589,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 stopContainer(name(id, "frontend-proxy"));
                 if (response.path("result").path("classification").asText().equals("DEPENDENCIES_PREPARED")) {
                     session.frontendDependencyKey = dependencyKey;
+                    session.frontendResolution = response.path("result").deepCopy();
                 }
             }
             if (dependencyKey.equals(session.frontendDependencyKey)) {
@@ -609,6 +620,11 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (response.path("result") instanceof ObjectNode check) {
             check.put("configurationChanged", !configuration.equals(session.frontendCapabilities));
             check.set("availableChecks", capabilities.path("result"));
+            if (session.frontendResolution != null && dependencyKey.equals(session.frontendDependencyKey)) {
+                for (String field : List.of("reproducibility", "resolutionSha256", "packageManagerVersion")) {
+                    check.set(field, session.frontendResolution.path(field));
+                }
+            }
         }
         session.frontendCapabilities = configuration;
         return response;
@@ -645,14 +661,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 || !response.path("result").path("protocol").asText().equals("delveforge-sandbox")
                 || !response.path("result").path("version").isIntegralNumber()
                 || !response.path("result").path("version").canConvertToInt()
-                || response.path("result").path("version").asInt() != 7) {
+                || response.path("result").path("version").asInt() != 8) {
             throw incompatibleProtocol();
         }
     }
 
     private static AgentException incompatibleProtocol() {
         return new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE",
-                "Sandbox tool protocol v7 is required. Build the current agent Dockerfile with a new image tag, "
+                "Sandbox tool protocol v8 is required. Build the current agent Dockerfile with a new image tag, "
                         + "configure delveforge.agent.sandbox.images, then explicitly restart the application. "
                         + "See docs/LOCAL_SETUP.md (sandbox protocol troubleshooting).");
     }
@@ -898,33 +914,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 throw rejection;
             }
         }
-        JsonNode response = invoke(session, call.name().equals("edit_file") ? "apply_patch" : call.name(), arguments, cancelled);
+        JsonNode response = call.name().equals("run_checks") ? mavenChecks(session, arguments, cancelled)
+                : invoke(session, call.name().equals("edit_file") ? "apply_patch" : call.name(), arguments, cancelled);
         if (call.name().equals("run_checks")) {
-            // 只采纳工具已解析且实际启动检查的入口；基线资源身份始终独立保留，不随目录角色消失。
-            JsonNode checkedDirectory = response.path("result").path("directory");
-            if (checkedDirectory.isTextual() && !session.mavenModules.contains(checkedDirectory.asText())) {
-                List<String> modules = new ArrayList<>(session.mavenModules);
-                modules.add(checkedDirectory.asText());
-                session.mavenModules = List.copyOf(modules);
-            }
-            // stop/start 杀死整个容器中的后台进程，防止测试退出后仍有写入者。
-            restartAgent(runId, cancelled);
-            if (response.path("result").path("classification").asText().equals("DEPENDENCY_MISSING")) {
-                for (int retry = 0; retry < session.limits.dependencyRetries(); retry++) {
-                    prepareDependencies(session, arguments, cancelled);
-                    response = invoke(session, call.name(), arguments, cancelled);
-                    restartAgent(runId, cancelled);
-                    if (!response.path("result").path("classification").asText().equals("DEPENDENCY_MISSING")) {
-                        break;
-                    }
-                }
-                if (response.path("result").path("classification").asText().equals("DEPENDENCY_MISSING")) {
-                    ((ObjectNode) response.path("result")).put("preparationDiagnostic", session.lastPreparation);
-                }
-            }
-            if (response.path("result").path("classification").asText().equals("JDK_ENVIRONMENT_MISMATCH")) {
-                throw new AgentException("JDK_ENVIRONMENT_MISMATCH", "Configure a compatible targetJdk and start a fresh Run");
-            }
             if (response.path("ok").asBoolean()) {
                 session.checks.add(response.path("result").deepCopy());
             } else if (!response.path("classification").asText().equals("INVALID_ARGUMENTS")) {
@@ -1105,6 +1097,87 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         return dependencyNetwork(session, cancelled, false);
     }
 
+    private JsonNode mavenChecks(Session session, JsonNode arguments, BooleanSupplier cancelled) {
+        JsonNode source = invoke(session, "snapshot", json.createObjectNode(), cancelled);
+        requireToolSuccess(source);
+        List<String> inputs = new ArrayList<>();
+        inputs.add(arguments.path("directory").asText("."));
+        for (JsonNode file : source.path("result").path("files")) {
+            String path = file.path("path").asText();
+            if (path.equals("pom.xml") || path.endsWith("/pom.xml")
+                    || path.startsWith(".mvn/") || path.contains("/.mvn/")) {
+                inputs.add(file.toString());
+            }
+        }
+        String key = Candidate.digest(String.join("\n", inputs));
+        boolean changed = !key.equals(session.mavenDependencyKey);
+        if (changed) {
+            session.mavenDependencyKey = null;
+        }
+        JsonNode response = invoke(session, "run_checks", arguments, cancelled);
+        Set<String> fetched = new HashSet<>();
+        for (int attempt = 0; attempt < Math.min(8, Math.max(1, session.limits.dependencyRetries()) * 4)
+                && response.path("result").path("classification").asText().equals("DEPENDENCY_MISSING"); attempt++) {
+            Set<String> missing = missingMavenArtifacts(response.path("result").path("output").asText());
+            if (missing.isEmpty()) {
+                JsonNode offline = invoke(session, "probe_maven_dependencies", arguments, cancelled);
+                missing.addAll(missingMavenArtifacts(offline.path("result").path("output").asText()));
+            }
+            missing.removeAll(fetched);
+            if (missing.isEmpty() || fetched.size() + missing.size() > 32) {
+                break;
+            }
+            fetched.addAll(missing);
+            ObjectNode request = json.createObjectNode();
+            request.set("artifacts", json.valueToTree(missing.stream().sorted().toList()));
+            prepareDependencies(session, request, cancelled);
+            response = invoke(session, "run_checks", arguments, cancelled);
+        }
+        if (!response.path("result").path("classification").asText().equals("DEPENDENCY_MISSING")) {
+            session.mavenDependencyKey = key;
+        } else if (response.path("result") instanceof ObjectNode check) {
+            check.put("preparationDiagnostic", session.lastPreparation == null
+                    ? "No bounded missing artifact identities could be established" : session.lastPreparation);
+        }
+        if (response.path("result") instanceof ObjectNode check) {
+            check.put("configurationSnapshot", key);
+            check.put("configurationChanged", changed);
+            // 保留实际已解析入口的生成目录角色，不改变基线资源能力。
+            JsonNode directory = check.path("directory");
+            if (directory.isTextual() && !session.mavenModules.contains(directory.asText())) {
+                List<String> modules = new ArrayList<>(session.mavenModules);
+                modules.add(directory.asText());
+                session.mavenModules = List.copyOf(modules);
+            }
+        }
+        return response;
+    }
+
+    static Set<String> missingMavenArtifacts(String output) {
+        Set<String> result = new HashSet<>();
+        var coordinates = java.util.regex.Pattern.compile(
+                "(?<![A-Za-z0-9_.-])([A-Za-z0-9_][A-Za-z0-9_.-]*):([A-Za-z0-9_][A-Za-z0-9_.-]*):"
+                        + "(jar|pom|war|zip|test-jar):(?:([A-Za-z0-9_.-]+):)?([A-Za-z0-9_][A-Za-z0-9_.+\\-]*)")
+                .matcher(output);
+        while (coordinates.find() && result.size() < 33) {
+            String before = output.substring(Math.max(0, coordinates.start() - 100), coordinates.start());
+            String after = output.substring(coordinates.end(), Math.min(output.length(), coordinates.end() + 80));
+            // 错误上下文的 “for project g:a:jar:v” 是本项目身份，不能当成待下载工件。
+            if (after.matches("(?s)^\\s*\\(absent\\).*|^\\s+has not been downloaded.*")
+                    || before.matches("(?s).*(?:artifact |The POM for )$")) {
+                result.add(coordinates.group(1) + ":" + coordinates.group(2) + ":" + coordinates.group(5)
+                        + ":" + coordinates.group(3) + (coordinates.group(4) == null ? "" : ":" + coordinates.group(4)));
+            }
+        }
+        var plugins = java.util.regex.Pattern.compile(
+                "Plugin ([A-Za-z0-9_.-]+):([A-Za-z0-9_.-]+):([A-Za-z0-9_.+\\-]+) (?:or|could)")
+                .matcher(output);
+        while (plugins.find() && result.size() < 33) {
+            result.add(plugins.group(1) + ":" + plugins.group(2) + ":" + plugins.group(3) + ":jar");
+        }
+        return result;
+    }
+
     private String dependencyNetwork(Session session, BooleanSupplier cancelled, boolean frontend) {
         String id = session.task.runId();
         String network = name(id, "network");
@@ -1148,34 +1221,21 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         try {
             ensureVolume(name(id, "prepare-source"), id);
             String network = dependencyNetwork(session, cancelled);
-            // 在线准备可能执行测试并产生数据库等副作用；只在一次性副本中运行，不回写 Agent 源码。
-            // 原源码卷只读挂载且仍核对前后快照；只有每 Run 的 Maven 缓存被后续离线检查复用。
+            // 联网进程只在固定空 POM 上获取坐标，不加载项目 POM、配置、插件或生命周期。
             List<String> launch = baseRun(id, "prepare", session.image, network, false);
-            launch.addAll(List.of(session.image, "python3", "-c",
-                    "import os,shutil,sys;shutil.copytree('/source','/workspace/project');"
-                            + "os.chdir('/workspace/project');os.execvp(sys.argv[1],sys.argv[1:])",
-                    "mvn", "-B", "-ntp", "-U", "-s", "/opt/delveforge/offline-settings.xml",
-                    "-Dmaven.repo.local=/m2", "-Dstyle.color=never"));
-            if (args.hasNonNull("directory") && !args.path("directory").asText().equals(".")) {
-                requirePath(args.path("directory").asText());
-                launch.addAll(List.of("-f", args.path("directory").asText() + "/pom.xml"));
-            }
-            if (args.hasNonNull("module")) {
-                launch.addAll(List.of("-pl", args.path("module").asText(), "-am"));
-            }
-            if (args.hasNonNull("test")) {
-                launch.addAll(List.of("-Dtest=" + args.path("test").asText(), "-Dsurefire.failIfNoSpecifiedTests=false"));
-            }
-            launch.add(args.path("goal").asText("test"));
-            // 非零可能是预先存在的编译/测试失败；只把后续离线 check 当作测试证据。
+            launch.addAll(List.of("-i", session.image, "python3", "/opt/delveforge/sandbox.py"));
+            // 准备诊断不构成检查证据；只有随后离线探针能证明实际项目阶段。
             List<String> command = new ArrayList<>(List.of(properties.docker()));
             command.addAll(launch);
-            var prepared = commands.run(command, null, null, Duration.ofSeconds(session.limits.checkSeconds() * 3L),
+            byte[] request = json.writeValueAsBytes(Map.of("name", "fetch_maven_dependencies", "arguments", args));
+            var prepared = commands.run(command, null, request, Duration.ofSeconds(session.limits.checkSeconds() * 3L),
                     2097152, cancelled, Map.of());
             String diagnostic = sanitize(prepared.text() + prepared.diagnostic());
             diagnostic += sanitize(docker(List.of("logs", "--tail", "20", name(id, "proxy")), null,
                     CONTROL_TIMEOUT, 8192, () -> false).text());
             session.lastPreparation = diagnostic.substring(Math.max(0, diagnostic.length() - 10000));
+        } catch (IOException failure) {
+            throw new AgentException("TOOL_PROTOCOL", "Cannot encode artifact preparation", failure);
         } catch (AgentException failure) {
             if (!failure.code().equals("TIME_LIMIT")) {
                 throw failure;
@@ -1236,6 +1296,137 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             throw new AgentException("RUN_CONFLICT", "No live sandbox session; start a fresh Run");
         }
         return session;
+    }
+
+    @Override
+    public Preflight preflight(String runId, BooleanSupplier cancelled) {
+        Session session = requireSession(runId);
+        JsonNode declared = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
+        requireToolSuccess(declared);
+        JsonNode capabilities = declared.path("result");
+        List<String> frontend = new ArrayList<>();
+        capabilities.path("frontendProjects").forEach(project -> frontend.add(project.path("directory").asText()));
+        Set<String> available = new TreeSet<>(session.mavenRoots);
+        available.addAll(frontend);
+        List<String> selected = session.task.checkDirectories();
+        ObjectNode diagnosis = json.createObjectNode();
+        diagnosis.put("baseline", session.task.baseline());
+        diagnosis.set("availableDirectories", json.valueToTree(available));
+        if (selected.isEmpty()) {
+            if (session.mavenRoots.size() > 1 || frontend.size() > 1) {
+                diagnosis.put("reason", "Choose checkDirectories from the exact entries; no model was requested");
+                return preflightResult("SELECTION_REQUIRED", diagnosis);
+            }
+            selected = List.copyOf(available);
+        }
+        if (selected.isEmpty() || !available.containsAll(selected)) {
+            diagnosis.put("reason", "No supported check entry was selected; use availableDirectories");
+            return preflightResult(selected.isEmpty() ? "ENVIRONMENT_BLOCKED" : "SELECTION_REQUIRED", diagnosis);
+        }
+        diagnosis.set("availableDirectories", json.valueToTree(selected));
+        var probes = diagnosis.putArray("probes");
+        boolean baselineFailure = false;
+        try {
+            for (String directory : selected) {
+                if (session.mavenRoots.contains(directory)) {
+                    ObjectNode args = json.createObjectNode().put("directory", directory).put("goal", "test");
+                    JsonNode response = mavenChecks(session, args, cancelled);
+                    rejectPolicy(response, AgentPolicyRejection.Stage.TOOL_EXECUTION);
+                    requireToolSuccess(response);
+                    JsonNode result = response.path("result");
+                    String readiness = EnvironmentReadiness.classify(result);
+                    probes.add(preflightProbe(result, readiness));
+                    if (readiness.equals("ENVIRONMENT_BLOCKED")) {
+                        return preflightResult(readiness, diagnosis);
+                    }
+                    if (readiness.equals("READY_BASELINE_FAILURE")) {
+                        baselineFailure = true;
+                        session.baselineFailures.add(result.deepCopy());
+                    }
+                }
+                for (JsonNode project : capabilities.path("frontendProjects")) {
+                    if (!directory.equals(project.path("directory").asText())) {
+                        continue;
+                    }
+                    int executed = 0;
+                    for (String goal : List.of("typecheck", "build", "test")) {
+                        if (project.path("goals").path(goal).asText().equals("ABSENT")) {
+                            probes.addObject().put("checkType", "FRONTEND").put("directory", directory)
+                                    .put("goal", goal).put("readiness", "NOT_DECLARED");
+                            continue;
+                        }
+                        ObjectNode args = json.createObjectNode().put("directory", directory).put("goal", goal);
+                        JsonNode response = invoke(session, "run_frontend_checks", args, cancelled);
+                        rejectPolicy(response, AgentPolicyRejection.Stage.TOOL_EXECUTION);
+                        requireToolSuccess(response);
+                        JsonNode result = response.path("result");
+                        String readiness = EnvironmentReadiness.classify(result);
+                        probes.add(preflightProbe(result, readiness));
+                        if (readiness.equals("ENVIRONMENT_BLOCKED")) {
+                            return preflightResult(readiness, diagnosis);
+                        }
+                        executed++;
+                        if (readiness.equals("READY_BASELINE_FAILURE")) {
+                            baselineFailure = true;
+                            session.baselineFailures.add(result.deepCopy());
+                        }
+                    }
+                    if (executed == 0) {
+                        diagnosis.put("reason", "Selected frontend has no declared supported check");
+                        return preflightResult("ENVIRONMENT_BLOCKED", diagnosis);
+                    }
+                }
+            }
+        } catch (AgentException failure) {
+            if (cancelled.getAsBoolean()) {
+                throw failure;
+            }
+            diagnosis.put("reason", failure.code()).put("diagnostic", sanitize(failure.getMessage()));
+            return preflightResult(failure instanceof AgentPolicyRejection rejection
+                    && rejection.rule() != AgentPolicyRejection.Rule.COMMAND_BUDGET
+                    ? "SECURITY_BLOCKED" : "ENVIRONMENT_BLOCKED", diagnosis);
+        }
+        return preflightResult(baselineFailure ? "READY_BASELINE_FAILURE" : "READY", diagnosis);
+    }
+
+    private Preflight preflightResult(String outcome, ObjectNode diagnosis) {
+        // 保留全部工程/阶段身份，必要时压缩较早输出，符合既有单事件 24K 的预算。
+        if (diagnosis.toString().length() > 22000) {
+            JsonNode probes = diagnosis.path("probes");
+            for (int i = 0; i < probes.size() - 1; i++) {
+                ((ObjectNode) probes.get(i)).remove("output");
+            }
+            diagnosis.put("outputTruncated", true);
+        }
+        return new Preflight(outcome, sanitize(diagnosis.toString()));
+    }
+
+    private JsonNode preflightProbe(JsonNode check, String readiness) {
+        ObjectNode probe = json.createObjectNode().put("readiness", readiness);
+        for (String field : List.of("checkType", "directory", "goal", "classification", "observedPhase", "runner",
+                "unprovenCapabilities", "executedTests", "failures", "errors", "reports", "snapshot",
+                "reproducibility", "resolutionSha256", "packageManagerVersion")) {
+            if (check.has(field)) {
+                JsonNode value = check.path(field);
+                if (value.isTextual()) {
+                    probe.put(field, value.asText().substring(0, Math.min(value.asText().length(), 200)));
+                } else {
+                    probe.set(field, value);
+                }
+            }
+        }
+        if (!readiness.equals("READY")) {
+            String output = check.path("output").asText();
+            probe.put("output", output.substring(Math.max(0, output.length() - 600)));
+            if (readiness.equals("ENVIRONMENT_BLOCKED")) {
+                probe.put("readinessReason", "Required pathway is unproven; missing environment or source failure cannot safely be distinguished");
+                String preparation = check.path("preparationDiagnostic").asText();
+                if (!preparation.isEmpty()) {
+                    probe.put("preparationDiagnostic", preparation.substring(Math.max(0, preparation.length() - 500)));
+                }
+            }
+        }
+        return probe;
     }
 
     @Override
@@ -1459,7 +1650,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     "selectedTest", check.path("selectedTest").asText("")));
             record.put("directory", directory);
             record.put("checkType", check.path("checkType").asText("MAVEN"));
-            for (String field : List.of("executionStatus", "runner", "configurationSnapshot")) {
+            for (String field : List.of("executionStatus", "runner", "configurationSnapshot",
+                    "reproducibility", "resolutionSha256", "packageManagerVersion")) {
                 if (check.has(field)) {
                     record.put(field, check.path(field).asText());
                 }
@@ -1483,9 +1675,16 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             records.add(record);
         }
         try {
-            JsonNode evidence = json.valueToTree(Map.of("evidenceVersion", 3, "finalSnapshot", finalSnapshot,
+            List<JsonNode> baselineFailures = session.baselineFailures.stream().map(check -> {
+                ObjectNode baseline = check.deepCopy();
+                baseline.remove(List.of("output", "availableChecks", "preparationDiagnostic"));
+                baseline.put("stale", true);
+                return (JsonNode) baseline;
+            }).toList();
+            JsonNode evidence = json.valueToTree(Map.of("evidenceVersion", 4, "finalSnapshot", finalSnapshot,
                     "sourceView", snapshot.path("sourceView"),
                     "executionBaselineTree", session.executionBaselineTree,
+                    "baselineFailures", baselineFailures,
                     "checks", records, "status", records.stream().anyMatch(record -> !((boolean) record.get("stale"))
                             && record.get("classification").equals("TESTS_PASSED")) ? "TESTED" : "NOT_TESTED"));
             AgentCheckEvidence.requireAcceptable(evidence);

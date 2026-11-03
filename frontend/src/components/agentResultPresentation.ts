@@ -6,6 +6,11 @@ export interface RunPresentation {
     tone: "completed" | "failed" | "blocked" | "recorded";
 }
 export function presentRun(run: AgentRun, delivery?: Delivery | null): RunPresentation {
+    if (run.state === "FAILED" && run.modelCalls === 0 && run.tokens === 0
+        && ["SELECTION_REQUIRED", "ENVIRONMENT_BLOCKED", "SECURITY_BLOCKED"].includes(run.reason ?? "")) {
+        return { label: run.reason === "SELECTION_REQUIRED" ? "需要选择检查工程" : "运行前预检受阻",
+            detail: "本次尚未调用模型。请查看环境预检诊断后重新开始。", tone: "blocked" };
+    }
     if (run.state === "FAILED") return { label: "本次运行失败", detail: "本次尝试没有完成交付。", tone: "failed" };
     if (run.state === "CANCELLED" || run.state === "INTERRUPTED") return {
         label: run.state === "CANCELLED" ? "运行已取消" : "运行已中断", detail: "本次尝试没有完成交付。", tone: "recorded" };

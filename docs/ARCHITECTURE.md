@@ -1,5 +1,7 @@
 # ARCHITECTURE.md
 
+**2026-11-03 当前运行路径：** 既有 PREPARING 中增加 AgentSandboxPort.preflight，真实隔离探针就绪后才调用模型。Maven 项目始终离线执行，联网准备仅用固定空 POM 获取受限工件身份；npm/pnpm 原生准备与脚本执行继续隔离。协议 v8、证据 v4，无新模块/Port 接口或迁移。见 [ADR-0022](decisions/0022-native-build-environment-preflight.md)。
+
 **2026-11-03 项目脚本执行：** 前端按目标调用固定 npm/pnpm 的项目声明脚本，安全依赖无网络一次性容器，
 不再以脚本字符串白名单代替隔离。联网准备仍不执行项目/安装脚本；Node JUnit 与 Vitest JSON 独立采集、归一化。
 工具协议 v7，evidenceVersion=3 区分未启动、已执行与未知结果，旧证据保守兼容。配置摘要驱动能力刷新和安装复用。

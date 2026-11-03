@@ -82,7 +82,10 @@ public class CodingAgentController {
         return delivery.completePlan(id);
     }
 
-    public record StartRequest(Integer targetJdk, boolean paidUsageAcknowledged) {
+    public record StartRequest(Integer targetJdk, boolean paidUsageAcknowledged, List<String> checkDirectories) {
+        public StartRequest(Integer targetJdk, boolean paidUsageAcknowledged) {
+            this(targetJdk, paidUsageAcknowledged, List.of());
+        }
     }
 
     @PostMapping("/api/evolution-plans/{planId}/steps/{stepId}/agent-runs")
@@ -91,7 +94,7 @@ public class CodingAgentController {
         if (!request.paidUsageAcknowledged()) {
             throw new AgentException("PAID_USAGE_ACK_REQUIRED", "请确认本次 API 费用及可用预算");
         }
-        return ResponseEntity.accepted().body(service.start(planId, stepId, request.targetJdk()));
+        return ResponseEntity.accepted().body(service.start(planId, stepId, request.targetJdk(), request.checkDirectories()));
     }
 
     @GetMapping("/api/agent-runs/{id}")

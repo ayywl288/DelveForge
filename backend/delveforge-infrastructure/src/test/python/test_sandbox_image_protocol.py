@@ -103,7 +103,7 @@ class SandboxImageProtocolTest(unittest.TestCase):
                                 json.dumps({'name': 'protocol', 'arguments': {}}).encode())
         response = json.loads(output)
         self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
-            'protocol': 'delveforge-sandbox', 'version': 7}},
+            'protocol': 'delveforge-sandbox', 'version': 8}},
             {k: v for k, v in response.items() if k != 'durationMs'})
 
     def test_successful_patch_changes_exact_fixture_bytes(self):

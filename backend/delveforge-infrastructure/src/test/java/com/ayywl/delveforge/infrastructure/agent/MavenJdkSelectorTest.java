@@ -15,6 +15,28 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class MavenJdkSelectorTest {
     @Test
+    void discoveryBudgetIsAnExplicitEnvironmentDiagnostic() {
+        Map<String, byte[]> poms = new java.util.HashMap<>();
+        for (int i = 0; i < 129; i++) {
+            poms.put("module-" + i + "/pom.xml", "<project/>".getBytes(StandardCharsets.UTF_8));
+        }
+        assertEquals("MAVEN_MODULE_LIMIT", assertThrows(AgentException.class,
+                () -> new MavenJdkSelector().roots(poms)).code());
+    }
+
+    @Test
+    void profileUsesHighestAvailableJdkEvenWhenBaseLevelIsEight() {
+        var defaults = DockerAgentSandboxTest.properties(Path.of("data/unused"));
+        var properties = new AgentSandboxProperties(defaults.root(), defaults.docker(), defaults.images(), 17,
+                defaults.owner(), defaults.cacheVolume(), defaults.memory(), defaults.cpus(), defaults.pids());
+        var poms = Map.of("pom.xml", DockerAgentSandboxTest.pom(8).replace("</project>",
+                "<profiles><profile><id>ordinary</id></profile></profiles></project>")
+                .getBytes(StandardCharsets.UTF_8));
+        assertEquals(21, new MavenJdkSelector().select(poms, null, properties));
+        assertEquals(17, new MavenJdkSelector().select(poms, 17, properties));
+    }
+
+    @Test
     void standardReleaseAndExplicitOverrideUseControlledImages() {
         var selector = new MavenJdkSelector();
         var poms = Map.of("pom.xml", DockerAgentSandboxTest.pom(17).getBytes(StandardCharsets.UTF_8));

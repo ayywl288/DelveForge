@@ -27,18 +27,18 @@ onBeforeUnmount(() => { epoch++; });
 </script>
 <template>
   <section class="repository-compatibility" aria-label="仓库兼容性">
-    <h3>演化环境检查</h3>
-    <p v-if="loading">正在检查固定版本的构建结构与准备条件…</p>
+    <h3>仓库安全与副本准备</h3>
+    <p v-if="loading">正在检查固定版本的源码边界与准备条件…</p>
     <p v-if="error" role="status">{{ error }}</p>
     <template v-if="result">
       <p>{{ result.status === 'BLOCKED' ? '需要处理下列限制' : result.generatedPaths.length ? '可自动准备隔离副本' : '当前结构可进入准备流程' }}</p>
-      <p v-if="result.mavenDirectory" class="meta">Maven 项目：{{ result.mavenDirectory === '.' ? '仓库根目录' : result.mavenDirectory }}；构建 JDK {{ result.buildJdk }}；{{ result.files }} 个文件，约 {{ (result.sourceBytes / 1048576).toFixed(1) }} MiB。</p>
-      <p v-else-if="result.status !== 'BLOCKED'" class="meta">前端工程：{{ result.files }} 个文件，约 {{ (result.sourceBytes / 1048576).toFixed(1) }} MiB；npm/pnpm 依赖、锁文件与脚本将在受控检查时核对。</p>
+      <p v-if="result.mavenDirectory" class="meta">Maven 项目：{{ result.mavenDirectory === '.' ? '仓库根目录' : result.mavenDirectory }}；建议 JDK {{ result.buildJdk }}；{{ result.files }} 个文件，约 {{ (result.sourceBytes / 1048576).toFixed(1) }} MiB。</p>
+      <p v-else-if="result.status !== 'BLOCKED'" class="meta">{{ result.files }} 个文件，约 {{ (result.sourceBytes / 1048576).toFixed(1) }} MiB；尚未确定唯一 Maven 入口，实际检查入口与环境将在运行前预检。</p>
       <p v-if="result.generatedPaths.length">准备时自动排除 {{ result.generatedPaths.length }} 个已确认的 Maven 生成物，原仓库保持不变。</p>
       <p v-if="result.immutablePaths.length" class="meta">{{ result.immutablePaths.length }} 个资源或受保护文件仅保留原样，不作为可编辑源码。</p>
       <details v-if="result.generatedPaths.length"><summary>自动准备明细</summary><ul><li v-for="path in result.generatedPaths" :key="path"><code>{{ path }}</code></li></ul></details>
       <ul v-if="result.issues.length"><li v-for="(issue, index) in result.issues" :key="index">{{ issue.action }} <code v-if="issue.path">{{ issue.path }}</code></li></ul>
-      <p class="meta">这是环境与结构检查。实际构建、测试和功能结果将在执行后分别记录；准备不会启动 AI 或授权 Step。</p>
+      <p class="meta">这是固定版本的安全准入与副本准备诊断，不证明检查环境就绪。首次 Coding Agent 模型调用前还会实际预检；准备不会启动 AI 或授权 Step。</p>
     </template>
     <p v-if="copy" class="meta">原始版本：<code>{{ copy.sourceRevision.slice(0, 12) }}</code>；准备版本：<code>{{ (copy.preparedRevision ?? copy.sourceRevision).slice(0, 12) }}</code>。</p>
     <p v-if="copy?.preparation && copy.preparation.policyVersion !== 'IDENTITY'" class="meta">准备策略 {{ copy.preparation.policyVersion }}，完整来源记录已保存。</p>

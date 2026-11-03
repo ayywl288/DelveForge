@@ -1,0 +1,1419 @@
+{
+  "date": "2026-11-03",
+  "branch": "codex/native-build-preflight",
+  "baseMerge": "7f74810",
+  "paidProviderRequests": 0,
+  "modelImplementation": "Deterministic local test fixtures; fixture tokens do not represent a paid provider call",
+  "finalImages": {
+    "jdk21": "sha256:17acc970ff133c1979fa4338da7c477c6cf3e14055e31efd93ca61a9e69307f8",
+    "jdk17": "sha256:04e620c63aaa21697baf9162f982569dc79b36415dd83aaa9d5954f4b050f20c"
+  },
+  "verification": {
+    "fullStackDeliveriesPassed": 3,
+    "nativeFrontendDeliveriesPassed": 2,
+    "additionalNativeV2Passed": 1,
+    "dependencyPreparation": {
+      "passed": 3,
+      "skipped": 2
+    },
+    "backend": {
+      "errors": 0,
+      "failures": 0,
+      "skipped": 52,
+      "log": "target/preflight-verify-after-recovery-bounded.log",
+      "tests": 1859
+    },
+    "frontend": {
+      "build": "PASSED",
+      "typecheck": "PASSED",
+      "tests": 308
+    },
+    "pythonPolicyPassed": 84,
+    "preflightDockerTestsPassed": 10,
+    "realImageProtocolPassed": 7
+  },
+  "scenarios": [
+    {
+      "scenario": "npm2",
+      "baseline": "2be9468347512494611ced02b086266cc387c0c0",
+      "fixtureRunState": "FAILED",
+      "fixtureRunReason": "MODEL_INCOMPLETE",
+      "modelCalls": 1,
+      "tokens": 1,
+      "actualModelRequestEvents": 1,
+      "preflightSequence": 4,
+      "outcome": "READY",
+      "diagnostic": {
+        "baseline": "2be9468347512494611ced02b086266cc387c0c0",
+        "availableDirectories": [
+          "."
+        ],
+        "probes": [
+          {
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "typecheck",
+            "readiness": "NOT_DECLARED"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "build",
+            "classification": "BUILD_PASSED_NOT_TESTED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "unprovenCapabilities": [],
+            "executedTests": 0,
+            "failures": 0,
+            "errors": 0,
+            "reports": 0,
+            "snapshot": "4e0cb5866e9a5cd721f91566218b1f7e815b18b8a8095887aa2fd41ee1c93e82",
+            "reproducibility": "SOURCE_LOCK",
+            "resolutionSha256": "80f8bb4fdacd47f3bdaa1ec30a429e58af8206409be6011a3098ec391cc2bcd6",
+            "packageManagerVersion": "10.9.2"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "test",
+            "classification": "TESTS_PASSED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "runner": "node-junit",
+            "unprovenCapabilities": [],
+            "executedTests": 2,
+            "failures": 0,
+            "errors": 0,
+            "reports": 1,
+            "snapshot": "4e0cb5866e9a5cd721f91566218b1f7e815b18b8a8095887aa2fd41ee1c93e82",
+            "reproducibility": "SOURCE_LOCK",
+            "resolutionSha256": "80f8bb4fdacd47f3bdaa1ec30a429e58af8206409be6011a3098ec391cc2bcd6",
+            "packageManagerVersion": "10.9.2"
+          }
+        ]
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    },
+    {
+      "scenario": "lockless",
+      "baseline": "7e7851df50dd6b7b3d5f5c811fa86a389b4ba9cd",
+      "fixtureRunState": "FAILED",
+      "fixtureRunReason": "MODEL_INCOMPLETE",
+      "modelCalls": 1,
+      "tokens": 1,
+      "actualModelRequestEvents": 1,
+      "preflightSequence": 4,
+      "outcome": "READY",
+      "diagnostic": {
+        "baseline": "7e7851df50dd6b7b3d5f5c811fa86a389b4ba9cd",
+        "availableDirectories": [
+          "."
+        ],
+        "probes": [
+          {
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "typecheck",
+            "readiness": "NOT_DECLARED"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "build",
+            "classification": "BUILD_PASSED_NOT_TESTED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "unprovenCapabilities": [],
+            "executedTests": 0,
+            "failures": 0,
+            "errors": 0,
+            "reports": 0,
+            "snapshot": "7734897cc83afe2d4fae476986cd4ea5aabd636e6de5b0e8e7db93327a760136",
+            "reproducibility": "RUN_FROZEN_RESOLUTION",
+            "resolutionSha256": "16c34dfd2b2b69d6c85ba23ee0f6b91066e064f586d811e09fe2434a96f917e0",
+            "packageManagerVersion": "10.9.2"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "test",
+            "classification": "TESTS_PASSED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "runner": "node-junit",
+            "unprovenCapabilities": [],
+            "executedTests": 2,
+            "failures": 0,
+            "errors": 0,
+            "reports": 1,
+            "snapshot": "7734897cc83afe2d4fae476986cd4ea5aabd636e6de5b0e8e7db93327a760136",
+            "reproducibility": "RUN_FROZEN_RESOLUTION",
+            "resolutionSha256": "16c34dfd2b2b69d6c85ba23ee0f6b91066e064f586d811e09fe2434a96f917e0",
+            "packageManagerVersion": "10.9.2"
+          }
+        ]
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    },
+    {
+      "scenario": "shrinkwrap",
+      "baseline": "079ec18c934b4c10779b429ea4cd227ae7c58f0e",
+      "fixtureRunState": "FAILED",
+      "fixtureRunReason": "MODEL_INCOMPLETE",
+      "modelCalls": 1,
+      "tokens": 1,
+      "actualModelRequestEvents": 1,
+      "preflightSequence": 4,
+      "outcome": "READY",
+      "diagnostic": {
+        "baseline": "079ec18c934b4c10779b429ea4cd227ae7c58f0e",
+        "availableDirectories": [
+          "."
+        ],
+        "probes": [
+          {
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "typecheck",
+            "readiness": "NOT_DECLARED"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "build",
+            "classification": "BUILD_PASSED_NOT_TESTED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "unprovenCapabilities": [],
+            "executedTests": 0,
+            "failures": 0,
+            "errors": 0,
+            "reports": 0,
+            "snapshot": "4a15d7474a0e883ecd1f6a85ccf097116a24e42610755728efd2091e55d2bbc4",
+            "reproducibility": "SOURCE_LOCK",
+            "resolutionSha256": "24ab247b5798c1f7fba28418300a593d3bda575c01a146af03cbc0f644f44c1e",
+            "packageManagerVersion": "10.9.2"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "test",
+            "classification": "TESTS_PASSED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "runner": "node-junit",
+            "unprovenCapabilities": [],
+            "executedTests": 2,
+            "failures": 0,
+            "errors": 0,
+            "reports": 1,
+            "snapshot": "4a15d7474a0e883ecd1f6a85ccf097116a24e42610755728efd2091e55d2bbc4",
+            "reproducibility": "SOURCE_LOCK",
+            "resolutionSha256": "24ab247b5798c1f7fba28418300a593d3bda575c01a146af03cbc0f644f44c1e",
+            "packageManagerVersion": "10.9.2"
+          }
+        ]
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    },
+    {
+      "scenario": "pnpm6",
+      "baseline": "fea4d1784ee45b5f9c93241bec42e070ae514e20",
+      "fixtureRunState": "FAILED",
+      "fixtureRunReason": "MODEL_INCOMPLETE",
+      "modelCalls": 1,
+      "tokens": 1,
+      "actualModelRequestEvents": 1,
+      "preflightSequence": 4,
+      "outcome": "READY",
+      "diagnostic": {
+        "baseline": "fea4d1784ee45b5f9c93241bec42e070ae514e20",
+        "availableDirectories": [
+          "."
+        ],
+        "probes": [
+          {
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "typecheck",
+            "readiness": "NOT_DECLARED"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "build",
+            "classification": "BUILD_PASSED_NOT_TESTED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "unprovenCapabilities": [],
+            "executedTests": 0,
+            "failures": 0,
+            "errors": 0,
+            "reports": 0,
+            "snapshot": "3483c0a3de8278db67b134d977c5c9edcea5aff13b91e44c3a700f5731604953",
+            "reproducibility": "SOURCE_LOCK",
+            "resolutionSha256": "22300b307683b624446da8140824b2bee308992e41abc54adf959a30c70cfb19",
+            "packageManagerVersion": "8.15.9"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "test",
+            "classification": "TESTS_PASSED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "runner": "node-junit",
+            "unprovenCapabilities": [],
+            "executedTests": 2,
+            "failures": 0,
+            "errors": 0,
+            "reports": 1,
+            "snapshot": "3483c0a3de8278db67b134d977c5c9edcea5aff13b91e44c3a700f5731604953",
+            "reproducibility": "SOURCE_LOCK",
+            "resolutionSha256": "22300b307683b624446da8140824b2bee308992e41abc54adf959a30c70cfb19",
+            "packageManagerVersion": "8.15.9"
+          }
+        ]
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    },
+    {
+      "scenario": "workspace",
+      "baseline": "ffdd4f1dae1e696d1badbc93ed883b2c816ac7d1",
+      "fixtureRunState": "FAILED",
+      "fixtureRunReason": "MODEL_INCOMPLETE",
+      "modelCalls": 1,
+      "tokens": 1,
+      "actualModelRequestEvents": 1,
+      "preflightSequence": 4,
+      "outcome": "READY",
+      "diagnostic": {
+        "baseline": "ffdd4f1dae1e696d1badbc93ed883b2c816ac7d1",
+        "availableDirectories": [
+          "apps/web"
+        ],
+        "probes": [
+          {
+            "checkType": "FRONTEND",
+            "directory": "apps/web",
+            "goal": "typecheck",
+            "readiness": "NOT_DECLARED"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": "apps/web",
+            "goal": "build",
+            "classification": "BUILD_PASSED_NOT_TESTED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "unprovenCapabilities": [],
+            "executedTests": 0,
+            "failures": 0,
+            "errors": 0,
+            "reports": 0,
+            "snapshot": "f22a903f8d528d1a5c403b079e70ba6d7c239a0a58cfcf084ea8dba6c1e6f810",
+            "reproducibility": "RUN_FROZEN_RESOLUTION",
+            "resolutionSha256": "2d1c4ad8d0f3e9f1bdd5dc600aeadc2c9b3bda432e6d6c336dff7dad608345fe",
+            "packageManagerVersion": "12.9.1"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": "apps/web",
+            "goal": "test",
+            "classification": "TESTS_PASSED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "runner": "node-junit",
+            "unprovenCapabilities": [],
+            "executedTests": 2,
+            "failures": 0,
+            "errors": 0,
+            "reports": 1,
+            "snapshot": "f22a903f8d528d1a5c403b079e70ba6d7c239a0a58cfcf084ea8dba6c1e6f810",
+            "reproducibility": "RUN_FROZEN_RESOLUTION",
+            "resolutionSha256": "2d1c4ad8d0f3e9f1bdd5dc600aeadc2c9b3bda432e6d6c336dff7dad608345fe",
+            "packageManagerVersion": "12.9.1"
+          }
+        ]
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    },
+    {
+      "scenario": "multiple-selection",
+      "baseline": "b43b72047f2f81f0ef57b059fe7aec24f257f506",
+      "fixtureRunState": "FAILED",
+      "fixtureRunReason": "SELECTION_REQUIRED",
+      "modelCalls": 0,
+      "tokens": 0,
+      "actualModelRequestEvents": 0,
+      "preflightSequence": 4,
+      "outcome": "SELECTION_REQUIRED",
+      "diagnostic": {
+        "baseline": "b43b72047f2f81f0ef57b059fe7aec24f257f506",
+        "availableDirectories": [
+          "server",
+          "unrelated"
+        ],
+        "reason": "Choose checkDirectories from the exact entries; no model was requested"
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    },
+    {
+      "scenario": "multiple-selected",
+      "baseline": "b43b72047f2f81f0ef57b059fe7aec24f257f506",
+      "fixtureRunState": "FAILED",
+      "fixtureRunReason": "MODEL_INCOMPLETE",
+      "modelCalls": 1,
+      "tokens": 1,
+      "actualModelRequestEvents": 1,
+      "preflightSequence": 9,
+      "outcome": "READY",
+      "diagnostic": {
+        "baseline": "b43b72047f2f81f0ef57b059fe7aec24f257f506",
+        "availableDirectories": [
+          "server"
+        ],
+        "probes": [
+          {
+            "readiness": "READY",
+            "directory": "server",
+            "goal": "test",
+            "classification": "TESTS_PASSED",
+            "observedPhase": "[INFO] --- surefire:3.5.4:test (default-test) @ ordinary-maven ---",
+            "unprovenCapabilities": [],
+            "executedTests": 1,
+            "failures": 0,
+            "errors": 0,
+            "reports": 1,
+            "snapshot": "5bca920894f5f10cd53d31d5da20c158f92b975788205fc54b9402cc22addccd"
+          }
+        ]
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    },
+    {
+      "scenario": "compilation-repair",
+      "baseline": "4be9ae0bf0c019fea59dec06bd2419121771b530",
+      "fixtureRunState": "SUCCEEDED",
+      "fixtureRunReason": "CANDIDATE_FROZEN",
+      "modelCalls": 3,
+      "tokens": 3,
+      "actualModelRequestEvents": 3,
+      "preflightSequence": 4,
+      "outcome": "READY_BASELINE_FAILURE",
+      "diagnostic": {
+        "baseline": "4be9ae0bf0c019fea59dec06bd2419121771b530",
+        "availableDirectories": [
+          "server"
+        ],
+        "probes": [
+          {
+            "readiness": "READY_BASELINE_FAILURE",
+            "directory": "server",
+            "goal": "test",
+            "classification": "COMPILATION_FAILED",
+            "observedPhase": "[INFO] --- compiler:3.13.0:compile (default-compile) @ ordinary-maven ---",
+            "unprovenCapabilities": [
+              "TEST_RUNNER"
+            ],
+            "executedTests": 0,
+            "failures": 0,
+            "errors": 0,
+            "reports": 0,
+            "snapshot": "ccb95cb766fcf5aab5d4b8b3cba907dac27101f0c5353fbdea1f3f9256a63b01",
+            "output": "s:maven-compiler-plugin:3.13.0:compile (default-compile) on project ordinary-maven: Compilation failure\n[ERROR] /workspace/server/src/main/java/example/Counter.java:[1,1] class, interface, enum, or record expected\n[ERROR] -> [Help 1]\n[ERROR] \n[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.\n[ERROR] Re-run Maven using the -X switch to enable full debug logging.\n[ERROR] \n[ERROR] For more information about the errors and possible solutions, please read the following articles:\n[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException\n"
+          }
+        ]
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    },
+    {
+      "scenario": "dependency-edit",
+      "baseline": "a8eedce9144a3cec5afdb083e38f3c372b895049",
+      "fixtureRunState": "SUCCEEDED",
+      "fixtureRunReason": "CANDIDATE_FROZEN",
+      "modelCalls": 3,
+      "tokens": 3,
+      "actualModelRequestEvents": 3,
+      "preflightSequence": 4,
+      "outcome": "READY",
+      "diagnostic": {
+        "baseline": "a8eedce9144a3cec5afdb083e38f3c372b895049",
+        "availableDirectories": [
+          "."
+        ],
+        "probes": [
+          {
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "typecheck",
+            "readiness": "NOT_DECLARED"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "build",
+            "classification": "BUILD_PASSED_NOT_TESTED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "unprovenCapabilities": [],
+            "executedTests": 0,
+            "failures": 0,
+            "errors": 0,
+            "reports": 0,
+            "snapshot": "7734897cc83afe2d4fae476986cd4ea5aabd636e6de5b0e8e7db93327a760136",
+            "reproducibility": "RUN_FROZEN_RESOLUTION",
+            "resolutionSha256": "16c34dfd2b2b69d6c85ba23ee0f6b91066e064f586d811e09fe2434a96f917e0",
+            "packageManagerVersion": "10.9.2"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "test",
+            "classification": "TESTS_PASSED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "runner": "node-junit",
+            "unprovenCapabilities": [],
+            "executedTests": 2,
+            "failures": 0,
+            "errors": 0,
+            "reports": 1,
+            "snapshot": "7734897cc83afe2d4fae476986cd4ea5aabd636e6de5b0e8e7db93327a760136",
+            "reproducibility": "RUN_FROZEN_RESOLUTION",
+            "resolutionSha256": "16c34dfd2b2b69d6c85ba23ee0f6b91066e064f586d811e09fe2434a96f917e0",
+            "packageManagerVersion": "10.9.2"
+          }
+        ]
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    },
+    {
+      "scenario": "missing",
+      "baseline": "cce17c5df3c35560e84642dd408f2b27baf34b70",
+      "fixtureRunState": "FAILED",
+      "fixtureRunReason": "ENVIRONMENT_BLOCKED",
+      "modelCalls": 0,
+      "tokens": 0,
+      "actualModelRequestEvents": 0,
+      "preflightSequence": 4,
+      "outcome": "ENVIRONMENT_BLOCKED",
+      "diagnostic": {
+        "baseline": "cce17c5df3c35560e84642dd408f2b27baf34b70",
+        "availableDirectories": [
+          "."
+        ],
+        "probes": [
+          {
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "typecheck",
+            "readiness": "NOT_DECLARED"
+          },
+          {
+            "readiness": "ENVIRONMENT_BLOCKED",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "build",
+            "classification": "DEPENDENCY_MISSING",
+            "executedTests": 0,
+            "failures": 0,
+            "errors": 0,
+            "reports": 0,
+            "snapshot": "14d382d3bcd7de3448b9659664ef64fdcd0904eb0138d79f201808a9587f0915",
+            "reproducibility": "RUN_FROZEN_RESOLUTION",
+            "packageManagerVersion": "10.9.2",
+            "output": "npm error code E502\nnpm error 502 Bad Gateway - GET http://df-artifacts:8080/npm/delveforge-nonexistent-preflight-fixture-20261103\nnpm error A complete log of this run can be found in: /workspace/.df-frontend-npm-cache/_logs/2026-11-03T12_38_55_423Z-debug-0.log\n",
+            "readinessReason": "Required pathway is unproven; missing environment or source failure cannot safely be distinguished"
+          }
+        ]
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    },
+    {
+      "scenario": "malicious",
+      "baseline": "4b90555057cf264cb4ef2c99b9856b75ac65694a",
+      "fixtureRunState": "FAILED",
+      "fixtureRunReason": "ENVIRONMENT_BLOCKED",
+      "modelCalls": 0,
+      "tokens": 0,
+      "actualModelRequestEvents": 0,
+      "preflightSequence": 4,
+      "outcome": "ENVIRONMENT_BLOCKED",
+      "diagnostic": {
+        "baseline": "4b90555057cf264cb4ef2c99b9856b75ac65694a",
+        "availableDirectories": [
+          "."
+        ],
+        "probes": [
+          {
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "typecheck",
+            "readiness": "NOT_DECLARED"
+          },
+          {
+            "readiness": "ENVIRONMENT_BLOCKED",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "build",
+            "classification": "UNSUPPORTED_FRONTEND_CONFIGURATION",
+            "executedTests": 0,
+            "failures": 0,
+            "errors": 0,
+            "reports": 0,
+            "snapshot": "ddd7989447429be65de334f36529f6b7ef143e8d0092754f55beb706a9cab6e8",
+            "output": "Only identity-preserving known public registry tarballs are available",
+            "readinessReason": "Required pathway is unproven; missing environment or source failure cannot safely be distinguished"
+          }
+        ]
+      },
+      "sourceImmutabilityAndCleanupAssertions": "PASSED"
+    }
+  ],
+  "deliveries": [
+    {
+      "proofFile": "fullstack-smoke-maven.json",
+      "candidateId": "41e23a36-14a5-4445-b371-86846801c30c",
+      "baseline": "5ffee2d0bc0a22517584cec6ee5f746bbf2f09cd",
+      "revision": "e01bc14b18a0d95d4f998592b16e2c2a656863f1",
+      "delivery": "COMPLETED",
+      "evidenceVersion": 4,
+      "finalSnapshot": "a50b409cdc3ae813a9adf8b28b8043066709b0bad479b5ba4dc774c5f96c7935",
+      "baselineFailures": [
+        {
+          "classification": "TESTS_FAILED",
+          "exitCode": 1,
+          "snapshot": "b80474d12b82a9f785681efb48bc10f50849ffd42789b2bb561b50e2b105abce",
+          "runtimeChanges": [],
+          "sourceView": {
+            "kind": "PROJECTED",
+            "preservedOnlyCount": 1,
+            "readOnlyResourceCount": 2,
+            "withheldSourceCount": 0
+          },
+          "observedPhase": "[INFO] --- surefire:3.5.4:test (default-test) @ ordinary-maven ---",
+          "unprovenCapabilities": [],
+          "goal": "test",
+          "directory": ".",
+          "module": null,
+          "selectedTest": null,
+          "reports": 1,
+          "tests": 1,
+          "executedTests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skipped": 0,
+          "configurationSnapshot": "1d1becf8aca5733f7b9dafd869838476113cddec86273ed5f72e01f5f8e42c16",
+          "configurationChanged": true,
+          "stale": true
+        }
+      ],
+      "checks": [
+        {
+          "checkType": "MAVEN",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_FAILED",
+          "snapshot": "b80474d12b82a9f785681efb48bc10f50849ffd42789b2bb561b50e2b105abce",
+          "stale": true,
+          "runner": null,
+          "executedTests": 1,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "MAVEN",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_PASSED",
+          "snapshot": "a50b409cdc3ae813a9adf8b28b8043066709b0bad479b5ba4dc774c5f96c7935",
+          "stale": false,
+          "runner": null,
+          "executedTests": 1,
+          "failures": 0,
+          "errors": 0,
+          "reports": 1
+        }
+      ],
+      "originalAndOfficialGitAssertions": "PASSED"
+    },
+    {
+      "proofFile": "fullstack-smoke-npm.json",
+      "candidateId": "515aafa2-38c8-4517-999c-466a89030527",
+      "baseline": "c7673cd91f34decd31ffa3c4da551869871309b5",
+      "revision": "55e4e07713fe9467452ff4dd2c3e4724d1287528",
+      "delivery": "COMPLETED",
+      "evidenceVersion": 4,
+      "finalSnapshot": "ce62e4ebf1ce4fd97be729536dd024fd917e57d69cb66981e7829caa55a501d9",
+      "baselineFailures": [
+        {
+          "classification": "TESTS_FAILED",
+          "exitCode": 1,
+          "snapshot": "6535551c8181fd53864b8f6b213113360ee3f1b54d670f7cf007b31b2017210c",
+          "runtimeChanges": [],
+          "sourceView": {
+            "kind": "PROJECTED",
+            "preservedOnlyCount": 1,
+            "readOnlyResourceCount": 2,
+            "withheldSourceCount": 0
+          },
+          "observedPhase": "[INFO] --- surefire:3.5.4:test (default-test) @ ordinary-maven ---",
+          "unprovenCapabilities": [],
+          "goal": "test",
+          "directory": ".",
+          "module": null,
+          "selectedTest": null,
+          "reports": 1,
+          "tests": 1,
+          "executedTests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skipped": 0,
+          "configurationSnapshot": "1d1becf8aca5733f7b9dafd869838476113cddec86273ed5f72e01f5f8e42c16",
+          "configurationChanged": true,
+          "stale": true
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "test",
+          "snapshot": "6535551c8181fd53864b8f6b213113360ee3f1b54d670f7cf007b31b2017210c",
+          "module": null,
+          "selectedTest": null,
+          "packageManager": "npm",
+          "sourceView": {
+            "kind": "PROJECTED",
+            "preservedOnlyCount": 1,
+            "readOnlyResourceCount": 2,
+            "withheldSourceCount": 0
+          },
+          "executionStatus": "EXECUTED",
+          "configurationSnapshot": "d726ad746be870ef72d2e9ccaf63f121e4eebc7359eaf52223137a2ce62e9355",
+          "checkExecutions": 2,
+          "observedPhase": "PROJECT_NODE_PROCESS",
+          "unprovenCapabilities": [],
+          "runner": "vitest-json",
+          "classification": "TESTS_FAILED",
+          "exitCode": 1,
+          "tests": 1,
+          "executedTests": 1,
+          "skipped": 0,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1,
+          "configurationChanged": false,
+          "reproducibility": "SOURCE_LOCK",
+          "resolutionSha256": "836e6d606e9c6728ffea68ddab073dfea8189f0f5074912d2ff618c1dba88527",
+          "packageManagerVersion": "10.9.2",
+          "stale": true
+        }
+      ],
+      "checks": [
+        {
+          "checkType": "MAVEN",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_FAILED",
+          "snapshot": "6535551c8181fd53864b8f6b213113360ee3f1b54d670f7cf007b31b2017210c",
+          "stale": true,
+          "runner": null,
+          "executedTests": 1,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "test",
+          "classification": "LOCKFILE_INVALID",
+          "snapshot": "a346db20c34c205a727eae4320298429dfd59886cf9bcbee275cbf2215e566a0",
+          "stale": true,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "test",
+          "classification": "LOCKFILE_INVALID",
+          "snapshot": "b68b5adf6937f3bd0586d83c55184cedf84ba637e9f2e34a23faba6417b9f467",
+          "stale": true,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "test",
+          "classification": "TESTS_FAILED",
+          "snapshot": "6535551c8181fd53864b8f6b213113360ee3f1b54d670f7cf007b31b2017210c",
+          "stale": true,
+          "runner": "vitest-json",
+          "executedTests": 1,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "typecheck",
+          "classification": "TYPECHECK_FAILED",
+          "snapshot": "3df774c6b9d9587b838287c768547d763040b014e8ea01c9ce4874f1bd7fad43",
+          "stale": true,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "MAVEN",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_PASSED",
+          "snapshot": "ce62e4ebf1ce4fd97be729536dd024fd917e57d69cb66981e7829caa55a501d9",
+          "stale": false,
+          "runner": null,
+          "executedTests": 1,
+          "failures": 0,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "typecheck",
+          "classification": "BUILD_PASSED_NOT_TESTED",
+          "snapshot": "ce62e4ebf1ce4fd97be729536dd024fd917e57d69cb66981e7829caa55a501d9",
+          "stale": false,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "build",
+          "classification": "FRONTEND_BUILD_FAILED",
+          "snapshot": "c13a68f398c5d74b52c70c5933b7429d30f3e94d7179dfaa0f461aecb363730e",
+          "stale": true,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "build",
+          "classification": "BUILD_PASSED_NOT_TESTED",
+          "snapshot": "ce62e4ebf1ce4fd97be729536dd024fd917e57d69cb66981e7829caa55a501d9",
+          "stale": false,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "test",
+          "classification": "TESTS_PASSED",
+          "snapshot": "ce62e4ebf1ce4fd97be729536dd024fd917e57d69cb66981e7829caa55a501d9",
+          "stale": false,
+          "runner": "vitest-json",
+          "executedTests": 1,
+          "failures": 0,
+          "errors": 0,
+          "reports": 1
+        }
+      ],
+      "originalAndOfficialGitAssertions": "PASSED"
+    },
+    {
+      "proofFile": "fullstack-smoke-pnpm.json",
+      "candidateId": "bcf1c179-78da-4c4f-a467-13f38b97d9cf",
+      "baseline": "ffa7a12d4d4a715d857ccb275cf518638976f44e",
+      "revision": "418e65067be21f7cf6c04d749fe11499f38fef87",
+      "delivery": "COMPLETED",
+      "evidenceVersion": 4,
+      "finalSnapshot": "b79c3d087c8d88bc9ee672a1dae0bcd829bc2e6dcb7a7920a15293f037fe2c48",
+      "baselineFailures": [
+        {
+          "classification": "TESTS_FAILED",
+          "exitCode": 1,
+          "snapshot": "4fde8d7ccd94ee12ccc747c20bcf5ffc4813fd43cd4a2e52f2fc92f10e0c8fbf",
+          "runtimeChanges": [],
+          "sourceView": {
+            "kind": "PROJECTED",
+            "preservedOnlyCount": 1,
+            "readOnlyResourceCount": 2,
+            "withheldSourceCount": 0
+          },
+          "observedPhase": "[INFO] --- surefire:3.5.4:test (default-test) @ ordinary-maven ---",
+          "unprovenCapabilities": [],
+          "goal": "test",
+          "directory": ".",
+          "module": null,
+          "selectedTest": null,
+          "reports": 1,
+          "tests": 1,
+          "executedTests": 1,
+          "failures": 1,
+          "errors": 0,
+          "skipped": 0,
+          "configurationSnapshot": "1d1becf8aca5733f7b9dafd869838476113cddec86273ed5f72e01f5f8e42c16",
+          "configurationChanged": true,
+          "stale": true
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "test",
+          "snapshot": "4fde8d7ccd94ee12ccc747c20bcf5ffc4813fd43cd4a2e52f2fc92f10e0c8fbf",
+          "module": null,
+          "selectedTest": null,
+          "packageManager": "pnpm",
+          "sourceView": {
+            "kind": "PROJECTED",
+            "preservedOnlyCount": 1,
+            "readOnlyResourceCount": 2,
+            "withheldSourceCount": 0
+          },
+          "executionStatus": "EXECUTED",
+          "configurationSnapshot": "f777111630f55bcc62ec0dd4cd4d1dff6f00f90ea2c80be15dfb249b555fb2ed",
+          "checkExecutions": 2,
+          "observedPhase": "PROJECT_NODE_PROCESS",
+          "unprovenCapabilities": [],
+          "runner": "vitest-json",
+          "classification": "TESTS_FAILED",
+          "exitCode": 1,
+          "tests": 1,
+          "executedTests": 1,
+          "skipped": 0,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1,
+          "configurationChanged": false,
+          "reproducibility": "SOURCE_LOCK",
+          "resolutionSha256": "94bcefc0b2acd812b90dc83e53a4f9fe41e7f01c809c2c96d088c00e6405e49e",
+          "packageManagerVersion": "12.9.1",
+          "stale": true
+        }
+      ],
+      "checks": [
+        {
+          "checkType": "MAVEN",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_FAILED",
+          "snapshot": "4fde8d7ccd94ee12ccc747c20bcf5ffc4813fd43cd4a2e52f2fc92f10e0c8fbf",
+          "stale": true,
+          "runner": null,
+          "executedTests": 1,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "test",
+          "classification": "LOCKFILE_INVALID",
+          "snapshot": "af2e4621b74432b729f837bcb73afc96db9cb45e04f1ed2dc578d2e5d7ed9a79",
+          "stale": true,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "test",
+          "classification": "LOCKFILE_INVALID",
+          "snapshot": "606036fbaca5587ca12c4467bfbdbace2ac1137edac65c513f1b68f01595a21e",
+          "stale": true,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "test",
+          "classification": "TESTS_FAILED",
+          "snapshot": "4fde8d7ccd94ee12ccc747c20bcf5ffc4813fd43cd4a2e52f2fc92f10e0c8fbf",
+          "stale": true,
+          "runner": "vitest-json",
+          "executedTests": 1,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "typecheck",
+          "classification": "TYPECHECK_FAILED",
+          "snapshot": "1c21cb740c1279aafdc71d0455dfb313ba41dfd42ad957b467fd256bb2becbae",
+          "stale": true,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "MAVEN",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_PASSED",
+          "snapshot": "b79c3d087c8d88bc9ee672a1dae0bcd829bc2e6dcb7a7920a15293f037fe2c48",
+          "stale": false,
+          "runner": null,
+          "executedTests": 1,
+          "failures": 0,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "typecheck",
+          "classification": "BUILD_PASSED_NOT_TESTED",
+          "snapshot": "b79c3d087c8d88bc9ee672a1dae0bcd829bc2e6dcb7a7920a15293f037fe2c48",
+          "stale": false,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "build",
+          "classification": "FRONTEND_BUILD_FAILED",
+          "snapshot": "0d11e202471758a35c9abde5881b117704eb3d86a746670834b7b2882489f671",
+          "stale": true,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "build",
+          "classification": "BUILD_PASSED_NOT_TESTED",
+          "snapshot": "b79c3d087c8d88bc9ee672a1dae0bcd829bc2e6dcb7a7920a15293f037fe2c48",
+          "stale": false,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": "frontend",
+          "goal": "test",
+          "classification": "TESTS_PASSED",
+          "snapshot": "b79c3d087c8d88bc9ee672a1dae0bcd829bc2e6dcb7a7920a15293f037fe2c48",
+          "stale": false,
+          "runner": "vitest-json",
+          "executedTests": 1,
+          "failures": 0,
+          "errors": 0,
+          "reports": 1
+        }
+      ],
+      "originalAndOfficialGitAssertions": "PASSED"
+    },
+    {
+      "proofFile": "native-frontend-delivery-npm.json",
+      "candidateId": "c9975139-34b6-4dee-9456-92b8b47a0ce6",
+      "baseline": "18771564158c9a94a8230b3aedf7500960f57798",
+      "revision": "2e61a4faec31249108669a959ae889e995b0ffb2",
+      "delivery": "COMPLETED",
+      "evidenceVersion": 4,
+      "finalSnapshot": "62309caedea8fb89d30bdc406d3615a797ccd9eeda9335d6832105a816a29516",
+      "baselineFailures": [
+        {
+          "checkType": "FRONTEND",
+          "directory": ".",
+          "goal": "test",
+          "snapshot": "500980c91c61478c72e9b60c9d1cd73b9e1df571bf918087c3b67dd0a2bd07b8",
+          "module": null,
+          "selectedTest": null,
+          "packageManager": "npm",
+          "sourceView": {
+            "kind": "PROJECTED",
+            "preservedOnlyCount": 1,
+            "readOnlyResourceCount": 0,
+            "withheldSourceCount": 0
+          },
+          "executionStatus": "EXECUTED",
+          "configurationSnapshot": "c1685fd1bd5e30ae0f373756aad28c8ad731c13417217300f7650e51a9830e16",
+          "checkExecutions": 3,
+          "observedPhase": "PROJECT_NODE_PROCESS",
+          "unprovenCapabilities": [],
+          "runner": "node-junit",
+          "classification": "TESTS_FAILED",
+          "exitCode": 1,
+          "tests": 1,
+          "executedTests": 1,
+          "skipped": 0,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1,
+          "configurationChanged": false,
+          "reproducibility": "SOURCE_LOCK",
+          "resolutionSha256": "24ab247b5798c1f7fba28418300a593d3bda575c01a146af03cbc0f644f44c1e",
+          "packageManagerVersion": "10.9.2",
+          "stale": true
+        }
+      ],
+      "checks": [
+        {
+          "checkType": "FRONTEND",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_FAILED",
+          "snapshot": "500980c91c61478c72e9b60c9d1cd73b9e1df571bf918087c3b67dd0a2bd07b8",
+          "stale": true,
+          "runner": "node-junit",
+          "executedTests": 1,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_FAILED",
+          "snapshot": "ab5e41b0d0c9d21dbe1d332cce21d9404580b0e432cdc185ec79424d9f1f24b4",
+          "stale": true,
+          "runner": "node-junit",
+          "executedTests": 2,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_PASSED",
+          "snapshot": "62309caedea8fb89d30bdc406d3615a797ccd9eeda9335d6832105a816a29516",
+          "stale": false,
+          "runner": "node-junit",
+          "executedTests": 3,
+          "failures": 0,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": ".",
+          "goal": "build",
+          "classification": "BUILD_PASSED_NOT_TESTED",
+          "snapshot": "62309caedea8fb89d30bdc406d3615a797ccd9eeda9335d6832105a816a29516",
+          "stale": false,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        }
+      ],
+      "originalAndOfficialGitAssertions": "PASSED"
+    },
+    {
+      "proofFile": "native-frontend-delivery-pnpm.json",
+      "candidateId": "7bc41f80-e5db-4bb4-9ed5-f3d45dd00d23",
+      "baseline": "d544d6bb6d6ae9c059e8b3b3f682740800708105",
+      "revision": "bba4469527a48d75d2a464e18372f28b1ff8c9b1",
+      "delivery": "COMPLETED",
+      "evidenceVersion": 4,
+      "finalSnapshot": "be8ad10523299998c649b5e27d046c6d21986cfe17cfcea0e8665f51a1f29991",
+      "baselineFailures": [
+        {
+          "checkType": "FRONTEND",
+          "directory": ".",
+          "goal": "test",
+          "snapshot": "61d263be97bfa19945ec6674e40dbd78ee7825b46cab4377502d7a2aa7cba16d",
+          "module": null,
+          "selectedTest": null,
+          "packageManager": "pnpm",
+          "sourceView": {
+            "kind": "PROJECTED",
+            "preservedOnlyCount": 1,
+            "readOnlyResourceCount": 0,
+            "withheldSourceCount": 0
+          },
+          "executionStatus": "EXECUTED",
+          "configurationSnapshot": "644dcbbe60f87c7f5e58856ab6107f0d0d478a6f8d6182c05624faf972d6d054",
+          "checkExecutions": 3,
+          "observedPhase": "PROJECT_NODE_PROCESS",
+          "unprovenCapabilities": [],
+          "runner": "node-junit",
+          "classification": "TESTS_FAILED",
+          "exitCode": 1,
+          "tests": 1,
+          "executedTests": 1,
+          "skipped": 0,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1,
+          "configurationChanged": false,
+          "reproducibility": "SOURCE_LOCK",
+          "resolutionSha256": "9efef9699050b4d4426c235169427451b999cea331ec7bc01da82db23ce0d465",
+          "packageManagerVersion": "12.9.1",
+          "stale": true
+        }
+      ],
+      "checks": [
+        {
+          "checkType": "FRONTEND",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_FAILED",
+          "snapshot": "61d263be97bfa19945ec6674e40dbd78ee7825b46cab4377502d7a2aa7cba16d",
+          "stale": true,
+          "runner": "node-junit",
+          "executedTests": 1,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_FAILED",
+          "snapshot": "56ca8d3cfb0afd5125b465999b630ea49ba052b4d10adb3e1a2ecddaa3db1bc1",
+          "stale": true,
+          "runner": "node-junit",
+          "executedTests": 2,
+          "failures": 1,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": ".",
+          "goal": "test",
+          "classification": "TESTS_PASSED",
+          "snapshot": "be8ad10523299998c649b5e27d046c6d21986cfe17cfcea0e8665f51a1f29991",
+          "stale": false,
+          "runner": "node-junit",
+          "executedTests": 3,
+          "failures": 0,
+          "errors": 0,
+          "reports": 1
+        },
+        {
+          "checkType": "FRONTEND",
+          "directory": ".",
+          "goal": "build",
+          "classification": "BUILD_PASSED_NOT_TESTED",
+          "snapshot": "be8ad10523299998c649b5e27d046c6d21986cfe17cfcea0e8665f51a1f29991",
+          "stale": false,
+          "runner": null,
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0
+        }
+      ],
+      "originalAndOfficialGitAssertions": "PASSED"
+    }
+  ],
+  "publicSamples": [
+    {
+      "sample": "gs-rest-service",
+      "revision": "e15fec6773dc1eb6028055630e3e68cbd8653240",
+      "modelRequests": 0,
+      "tokens": 0,
+      "admission": "PREPARED",
+      "preparation": "SANDBOX_PREPARED",
+      "execution": "READY",
+      "sourceResult": "OBSERVED_CHECKS_PASSED",
+      "preparedRevision": "e15fec6773dc1eb6028055630e3e68cbd8653240",
+      "identity": {
+        "containerId": "85e1ae9a49eb8a8a91f5daff37348b186ddc57cc60692d231d9d66526bf51e07",
+        "imageId": "sha256:42818f62831a58f75c44cdb53cb28667176805977817af50f00c9b6dd140fc2c",
+        "targetJdk": 17,
+        "memoryBytes": 2147483648,
+        "nanoCpus": 2000000000,
+        "pidsLimit": 256,
+        "networkMode": "none",
+        "readOnlyRoot": true
+      },
+      "diagnostic": {
+        "baseline": "e15fec6773dc1eb6028055630e3e68cbd8653240",
+        "availableDirectories": [
+          "complete"
+        ],
+        "probes": [
+          {
+            "readiness": "READY",
+            "directory": "complete",
+            "goal": "test",
+            "classification": "TESTS_PASSED",
+            "observedPhase": "[INFO] --- surefire:3.5.6:test (default-test) @ rest-service-complete ---",
+            "unprovenCapabilities": [],
+            "executedTests": 2,
+            "failures": 0,
+            "errors": 0,
+            "reports": 1,
+            "snapshot": "c013ef9fdec84a081cd75fca9aa4f92f38339998fe6d829889bd443a771bff08"
+          }
+        ]
+      },
+      "sourceUnchanged": true
+    },
+    {
+      "sample": "homer",
+      "revision": "daa017dfe1ea8d0875697aede091319b6134bb4b",
+      "modelRequests": 0,
+      "tokens": 0,
+      "admission": "PREPARED",
+      "preparation": "SANDBOX_PREPARED",
+      "execution": "READY",
+      "sourceResult": "OBSERVED_CHECKS_PASSED",
+      "preparedRevision": "daa017dfe1ea8d0875697aede091319b6134bb4b",
+      "identity": {
+        "containerId": "3393440bec313047f1d279a4523b6c4b5ee9b4291980df5a4a23d667b5189c06",
+        "imageId": "sha256:55ecbd6b3a0f875b0e6f3ca4d231369ab27743bda385ed06d8df156adff75206",
+        "targetJdk": 21,
+        "memoryBytes": 2147483648,
+        "nanoCpus": 2000000000,
+        "pidsLimit": 256,
+        "networkMode": "none",
+        "readOnlyRoot": true
+      },
+      "diagnostic": {
+        "baseline": "daa017dfe1ea8d0875697aede091319b6134bb4b",
+        "availableDirectories": [
+          "."
+        ],
+        "probes": [
+          {
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "typecheck",
+            "readiness": "NOT_DECLARED"
+          },
+          {
+            "readiness": "READY",
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "build",
+            "classification": "BUILD_PASSED_NOT_TESTED",
+            "observedPhase": "PROJECT_NODE_PROCESS",
+            "unprovenCapabilities": [],
+            "executedTests": 0,
+            "failures": 0,
+            "errors": 0,
+            "reports": 0,
+            "snapshot": "0bed4e8de8f3a0d6c943787dfdc2451c68c67ae39b25f81c2e261b5616d5d1e8",
+            "reproducibility": "SOURCE_LOCK",
+            "resolutionSha256": "2b441cd5dcc06dd6bbae0ca80ee0b43fd6081bb894f18fbafd4e6ebe3ea991dd",
+            "packageManagerVersion": "12.9.1"
+          },
+          {
+            "checkType": "FRONTEND",
+            "directory": ".",
+            "goal": "test",
+            "readiness": "NOT_DECLARED"
+          }
+        ]
+      },
+      "sourceUnchanged": true
+    },
+    {
+      "sample": "sa-token",
+      "revision": "cb191342372cec5045a8c26f38c61a6ea2147ff8",
+      "modelRequests": 0,
+      "tokens": 0,
+      "admission": "PREPARED",
+      "preparation": "BLOCKED",
+      "execution": "NOT_RUN",
+      "sourceResult": "UNPROVEN",
+      "preparedRevision": "cb191342372cec5045a8c26f38c61a6ea2147ff8",
+      "failureType": "Unsupported",
+      "reason": "Maven 描述超过 128 个或 8 KiB 路径元数据预算。",
+      "sourceUnchanged": true
+    }
+  ],
+  "preservedFirstMavenAttempt": {
+    "sample": "gs-rest-service",
+    "revision": "e15fec6773dc1eb6028055630e3e68cbd8653240",
+    "modelRequests": 0,
+    "tokens": 0,
+    "admission": "PREPARED",
+    "preparation": "SANDBOX_PREPARED",
+    "execution": "ENVIRONMENT_BLOCKED",
+    "sourceResult": "UNPROVEN",
+    "preparedRevision": "e15fec6773dc1eb6028055630e3e68cbd8653240",
+    "identity": {
+      "containerId": "00ee995231bf67456d6aa903d91719479187ed0b1b03b8164963b5f9cb46de0a",
+      "imageId": "sha256:42818f62831a58f75c44cdb53cb28667176805977817af50f00c9b6dd140fc2c",
+      "targetJdk": 17,
+      "memoryBytes": 2147483648,
+      "nanoCpus": 2000000000,
+      "pidsLimit": 256,
+      "networkMode": "none",
+      "readOnlyRoot": true
+    },
+    "diagnostic": {
+      "baseline": "e15fec6773dc1eb6028055630e3e68cbd8653240",
+      "availableDirectories": [
+        "complete"
+      ],
+      "probes": [
+        {
+          "readiness": "ENVIRONMENT_BLOCKED",
+          "directory": "complete",
+          "goal": "test",
+          "classification": "DEPENDENCY_MISSING",
+          "observedPhase": "NOT_OBSERVED",
+          "unprovenCapabilities": [
+            "TEST_RUNNER"
+          ],
+          "executedTests": 0,
+          "failures": 0,
+          "errors": 0,
+          "reports": 0,
+          "snapshot": "c013ef9fdec84a081cd75fca9aa4f92f38339998fe6d829889bd443a771bff08",
+          "output": "not access delveforge-central (http://df-artifacts:8080/maven2/) in offline mode and the artifact org.springframework.boot:spring-boot-starter-webmvc-test:jar:4.0.9 has not been downloaded from it before.\n[ERROR] -> [Help 1]\n[ERROR] \n[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.\n[ERROR] Re-run Maven using the -X switch to enable full debug logging.\n[ERROR] \n[ERROR] For more information about the errors and possible solutions, please read the following articles:\n[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/DependencyResolutionException\n",
+          "readinessReason": "Required pathway is unproven; missing environment or source failure cannot safely be distinguished",
+          "preparationDiagnostic": "te:jar:0.0.1-SNAPSHOT (absent): Could not find artifact com.example:rest-service-complete:jar:0.0.1-SNAPSHOT -> [Help 1]\\n[ERROR] \\n[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.\\n[ERROR] Re-run Maven using the -X switch to enable full debug logging.\\n[ERROR] \\n[ERROR] For more information about the errors and possible solutions, please read the following articles:\\n[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoExecutionException\\n\"}}\n"
+        }
+      ]
+    },
+    "sourceUnchanged": true
+  }
+}

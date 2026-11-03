@@ -1,5 +1,7 @@
 # DOMAIN_MODEL.md
 
+**2026-11-03 基线预检证据：** 预检不推进可信 revision，不改变 Step/WorkingCopy/Candidate/Delivery 状态机。证据 v4 单独保留 baselineFailures，必须由当前源码的匹配重验解决；基线通过不构成最终通过。旧证据不改写，见 ADR-0022。
+
 **2026-11-03 技术证据契约：** 新前端证据区分 NOT_STARTED / EXECUTED / UNKNOWN，并记录 runner 与配置摘要。
 明确未启动的配置拒绝保留历史，但不等于失败测试；未采集测试的成功退出不是 TESTS_PASSED，也不能解决已知失败。
 实际测试失败须由同工程、同目标、匹配 runner、最终源码 snapshot 的有效测试通过解决；删除脚本、换工程、构建成功均无效。

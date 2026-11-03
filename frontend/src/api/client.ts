@@ -249,8 +249,8 @@ export const api = {
     request<WorkingCopy>(`/working-copies/${id(value)}`),
   agentRuns: (value: string, step: string, before?: string) =>
     request<AgentRun[]>(`${plan(value)}/steps/${id(step)}/agent-runs?limit=50${before ? `&before=${id(before)}` : ""}`),
-  startAgent: (value: string, step: string, paidUsageAcknowledged: boolean, targetJdk?: number) =>
-    request<AgentRun>(`${plan(value)}/steps/${id(step)}/agent-runs`, "POST", { targetJdk, paidUsageAcknowledged }),
+  startAgent: (value: string, step: string, paidUsageAcknowledged: boolean, targetJdk?: number, checkDirectories?: string[]) =>
+    request<AgentRun>(`${plan(value)}/steps/${id(step)}/agent-runs`, "POST", { targetJdk, paidUsageAcknowledged, checkDirectories }),
   agentRun: (value: string) => request<AgentRun>(`/agent-runs/${id(value)}`),
   cancelAgent: (value: string) => request<AgentRun>(`/agent-runs/${id(value)}/cancel`, "POST"),
   candidate: (value: string) => request<AgentCandidate>(`/agent-candidates/${id(value)}`),
