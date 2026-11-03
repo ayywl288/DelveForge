@@ -4,7 +4,7 @@ import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import NavigationIcon from "./NavigationIcon.vue";
 import AgentActivityRow from "./AgentActivityRow.vue";
 import type { RunPresentation } from "./agentResultPresentation";
-import { activityState, buildActivities, currentActivity, checkSummary, explorationSummary, isExploration, isPatchTool, patchSummary, toolNames } from "./agentEventPresentation";
+import { activityState, buildActivities, currentActivity, checkSummary, explorationSummary, isExploration, isPatchTool, isCheckTool, patchSummary, toolNames } from "./agentEventPresentation";
 
 const props = withDefaults(defineProps<{ events: AgentEvent[]; run: AgentRun; connection: string; presentation?: RunPresentation; showUsage?: boolean }>(), { showUsage: true });
 const viewport = ref<HTMLElement>();
@@ -28,7 +28,7 @@ const checks = computed(() => checkSummary(activities.value, props.run.id));
 const checksExpanded = ref(false);
 const checkCount = ref(40);
 const visibleChecks = computed(() => checks.value.activities.slice(0, checkCount.value));
-const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && !isPatchTool(activity.tool) && activity.tool !== "run_checks" && activity.event.kind !== "MODEL_REQUEST"));
+const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && !isPatchTool(activity.tool) && !isCheckTool(activity.tool) && activity.event.kind !== "MODEL_REQUEST"));
 const visible = computed(() => chronological.value.slice(-visibleCount.value));
 const fileCount = ref(40);
 const filesExpanded = ref(false);

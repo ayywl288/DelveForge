@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentException;
+import com.ayywl.delveforge.application.agent.AgentCheckEvidence;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentTools;
@@ -10,6 +11,7 @@ import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicR
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.agent.Candidate;
 import com.ayywl.delveforge.infrastructure.workspace.GitRepositoryCompatibility;
+import com.ayywl.delveforge.infrastructure.workspace.RepositoryContentPolicy;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -57,11 +59,16 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         final Map<String, Entry> baseline = new LinkedHashMap<>();
         final List<JsonNode> checks = new ArrayList<>();
         final Map<String, String> baselineHashes = new LinkedHashMap<>();
+        final Map<String, Map<String, Object>> resourceCapabilities = new LinkedHashMap<>();
+        String executionBaselineTree;
         String mavenDirectory;
         List<String> mavenModules = List.of();
         String image;
         int jdk;
         String lastPreparation;
+        // 只有联网准备写入，检查容器只读挂载；依赖元数据变化即销毁并重建。
+        String frontendDependencyKey;
+        String frontendCapabilities;
 
         Session(Task task, AgentProtocol.Limits limits, Path directory) {
             this.task = task;
@@ -193,8 +200,41 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (inspection.report().files() > session.limits.maxFiles()) {
             throw new AgentException("SOURCE_LIMIT", "基线文件数超过本次 Run 的资源预算。");
         }
-        session.mavenDirectory = inspection.report().mavenDirectory();
+        session.mavenDirectory = inspection.report().mavenDirectory() == null ? "." : inspection.report().mavenDirectory();
         session.mavenModules = inspection.report().modules();
+        for (var resource : inspection.resources().entrySet()) {
+            var entry = inspection.entries().get(resource.getKey());
+            byte[] bytes = sourceGit(session, null, "cat-file", "blob", entry.objectId());
+            session.resourceCapabilities.put(resource.getKey(), Map.of("kind", resource.getValue().kind().name(),
+                    "mode", entry.mode(), "sha256", sourceDigest(bytes), "size", entry.size(),
+                    "settings", resource.getValue().settings(), "blocksChecks", !resource.getValue().executionAvailable()
+                            && RepositoryContentPolicy.buildInput(resource.getKey())));
+        }
+    }
+
+    private static String sourceDigest(byte[] bytes) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (java.security.NoSuchAlgorithmException failure) {
+            throw new AgentException("SOURCE_DIGEST", "SHA-256 is unavailable", failure);
+        }
+    }
+
+    /** E 仅为执行视图；可信 R 和所有保留 blob 始终留在主机 Git，不给项目进程。 */
+    private String executionTree(Session session) {
+        Map<String, String> index = Map.of("GIT_INDEX_FILE", session.directory.resolve("execution.index").toString());
+        git(session, index, null, "read-tree", session.task.baseline());
+        StringBuilder removals = new StringBuilder();
+        session.resourceCapabilities.forEach((path, resource) -> {
+            if (resource.get("kind").equals("PRESERVED_ONLY")) {
+                removals.append("0 ").append("0".repeat(40)).append('\t').append(path).append('\0');
+            }
+        });
+        if (!removals.isEmpty()) {
+            git(session, index, removals.toString().getBytes(StandardCharsets.UTF_8), "update-index", "-z", "--index-info");
+        }
+        session.executionBaselineTree = gitText(session, index, null, "write-tree");
+        return session.executionBaselineTree;
     }
 
     @Override
@@ -230,7 +270,15 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 throw new AgentException("BASELINE_MISMATCH", "Sandbox baseline differs from trusted revision");
             }
             Map<String, byte[]> poms = inspectBaseline(session);
-            int jdk = new MavenJdkSelector().select(poms, task.targetJdk(), properties);
+            int jdk;
+            if (poms.isEmpty()) {
+                jdk = task.targetJdk() == null ? properties.defaultJdk() : task.targetJdk();
+            } else {
+                jdk = new MavenJdkSelector().select(poms, task.targetJdk(), properties);
+            }
+            if (!properties.images().containsKey(jdk)) {
+                throw new AgentException("JDK_UNSUPPORTED", "No controlled image for the selected runtime");
+            }
             session.jdk = jdk;
             session.image = docker(List.of("image", "inspect", "--format", "{{.Id}}", properties.images().get(jdk)),
                     null, CONTROL_TIMEOUT, 8192, cancelled).text().strip();
@@ -238,7 +286,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 throw new AgentException("SANDBOX_IMAGE_UNAVAILABLE", "Cannot pin the controlled sandbox image identity");
             }
             Files.write(session.directory.resolve("source.tar"), git(session, Map.of(), null,
-                    "archive", "--format=tar", task.baseline()));
+                    "archive", "--format=tar", executionTree(session)));
             ensureVolume(name(task.runId(), "source"), task.runId());
             ensureVolume(name(task.runId(), "m2"), task.runId());
             ensureVolume(properties.cacheVolume(), "shared-cache");
@@ -284,7 +332,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             int tab = line.indexOf('\t');
             String[] metadata = line.substring(0, tab).split(" ");
             String path = line.substring(tab + 1);
-            requirePath(path);
+            if (!GitRepositoryCompatibility.safePath(path)) {
+                throw new AgentException("GIT_PATH_UNSUPPORTED", "Unsupported baseline path");
+            }
             if (!Set.of("100644", "100755").contains(metadata[0]) || !metadata[1].equals("blob")
                     || !folded.add(path.toLowerCase(Locale.ROOT))) {
                 throw new AgentException("GIT_TYPE_UNSUPPORTED", "Baseline contains unsupported modes, paths or tracked build output");
@@ -300,10 +350,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 }
             }
         }
-        if (poms.isEmpty()) {
-            throw new AgentException("MAVEN_CONFIGURATION", "A Maven pom.xml is required; Wrapper is optional");
-        }
-
+        requireFrontendSourcePaths(session.baseline.keySet());
         return poms;
     }
 
@@ -322,18 +369,23 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 throw new AgentPolicyRejection(AgentPolicyRejection.Rule.FORBIDDEN_PATH,
                         AgentPolicyRejection.Stage.PATH_VALIDATION);
             }
+            if (Set.of("node_modules", ".df-check", ".df-frontend-dependencies",
+                    ".df-frontend-store", ".df-frontend-npm-cache").contains(part) || part.endsWith(".tsbuildinfo")) {
+                throw new AgentException("GENERATED_OUTPUT_AMBIGUITY", "Frontend generated material is not source");
+            }
         }
     }
 
     private List<String> baseRun(String runId, String suffix, String image, String network, boolean detached) {
         Session session = sessions.get(runId);
         AgentProtocol.Limits limits = session.limits;
-        boolean isolatedCopy = Set.of("prepare", "check").contains(suffix);
+        boolean isolatedCopy = Set.of("prepare", "check", "frontend-prepare", "frontend-check").contains(suffix);
         String sourceVolume = isolatedCopy ? suffix + "-source" : "source";
         List<String> result = new ArrayList<>(List.of("run", "--name", name(runId, suffix), "--label",
                 "delveforge.owner=" + properties.owner(), "--label", "delveforge.run=" + runId,
                 "--network", network, "--user", "11000:11000", "--cap-drop", "ALL", "--security-opt",
                 "no-new-privileges", "--read-only", "--pids-limit", Integer.toString(properties.pids()),
+                "--ulimit", "core=0:0",
                 "--memory", properties.memory(), "--cpus", properties.cpus(), "--tmpfs",
                 "/tmp:rw,exec,nosuid,size=256m", "--tmpfs", "/home/agent:rw,nosuid,size=32m,uid=11000,gid=11000",
                 "--mount", "type=volume,source=" + name(runId, sourceVolume) + ",target=/workspace",
@@ -410,9 +462,12 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     private JsonNode invoke(Session session, String name, JsonNode arguments, BooleanSupplier cancelled) {
         try {
             byte[] input = json.writeValueAsBytes(Map.of("name", name, "arguments", arguments,
-                    "baselinePaths", session.baseline.keySet()));
+                    "baselinePaths", session.baseline.keySet(), "resourceCapabilities", session.resourceCapabilities));
             int maxBytes = Set.of("snapshot", "inspect_patch", "search_code").contains(name) ? Math.max(session.limits.maxCandidateBytes() * 16, 33554432)
                     : Math.max(session.limits.maxFileBytes() * 8, 2097152);
+            if (name.equals("run_frontend_checks")) {
+                return invokeFrontendChecks(session, arguments, maxBytes, cancelled);
+            }
             if (name.equals("run_checks")) {
                 return invokeChecks(session, input, maxBytes, cancelled);
             }
@@ -467,20 +522,137 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         requireCompatibleProtocol(response);
     }
 
+    /** 前端依赖与脚本分两个容器；联网阶段不执行项目代码，离线阶段只消费其只读依赖卷。 */
+    private JsonNode invokeFrontendChecks(Session session, JsonNode arguments, int maxBytes,
+            BooleanSupplier cancelled) throws IOException {
+        String id = session.task.runId();
+        JsonNode before = invoke(session, "snapshot", json.createObjectNode(), cancelled);
+        requireToolSuccess(before);
+        String expected = before.path("result").path("snapshot").asText();
+        ObjectNode selectedArguments = ((ObjectNode) arguments).deepCopy();
+        if (!selectedArguments.has("directory")) {
+            JsonNode declared = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
+            requireToolSuccess(declared);
+            JsonNode capabilities = declared.path("result");
+            if (capabilities.path("frontendProjectCount").asInt() != 1) {
+                ObjectNode unavailable = json.createObjectNode().put("checkType", "FRONTEND")
+                        .put("directory", ".").put("goal", arguments.path("goal").asText())
+                        .put("snapshot", expected).put("classification", "CHECK_NOT_AVAILABLE")
+                        .put("executionStatus", "NOT_STARTED")
+                        .put("tests", 0).put("executedTests", 0).put("skipped", 0).put("failures", 0)
+                        .put("errors", 0).put("reports", 0)
+                        .put("output", "Select one declared frontend project; do not invent Maven metadata");
+                unavailable.set("availableChecks", capabilities);
+                return json.createObjectNode().put("ok", true).put("tool", "run_frontend_checks")
+                        .set("result", unavailable);
+            }
+            selectedArguments.put("directory", capabilities.path("frontendProjects").get(0)
+                    .path("directory").asText());
+        }
+        String selectedDirectory = selectedArguments.path("directory").asText();
+        if (!selectedDirectory.equals(".")) {
+            requirePath(selectedDirectory);
+        }
+        List<String> dependencyInputs = new ArrayList<>(List.of(selectedDirectory));
+        for (JsonNode file : before.path("result").path("files")) {
+            String path = file.path("path").asText();
+            String filename = path.substring(path.lastIndexOf('/') + 1);
+            if (Set.of("package.json", "pnpm-lock.yaml", "package-lock.json", "pnpm-workspace.yaml", ".npmrc")
+                    .contains(filename)) {
+                dependencyInputs.add(file.toString());
+            }
+        }
+        String dependencyKey = Candidate.digest(String.join("\n", dependencyInputs));
+        stopContainer(name(id, "agent"));
+        JsonNode response;
+        try {
+            ensureVolume(name(id, "frontend-check-source"), id);
+            response = null;
+            if (!dependencyKey.equals(session.frontendDependencyKey)) {
+                session.frontendDependencyKey = null;
+                removeVolume(name(id, "frontend-prepare-source"));
+                ensureVolume(name(id, "frontend-prepare-source"), id);
+                String network = dependencyNetwork(session, cancelled, true);
+                response = frontendContainer(session, "frontend-prepare", network,
+                        "prepare_frontend_dependencies", selectedArguments, maxBytes, cancelled);
+                removeContainer(name(id, "frontend-prepare"));
+                stopContainer(name(id, "frontend-proxy"));
+                if (response.path("result").path("classification").asText().equals("DEPENDENCIES_PREPARED")) {
+                    session.frontendDependencyKey = dependencyKey;
+                }
+            }
+            if (dependencyKey.equals(session.frontendDependencyKey)) {
+                response = frontendContainer(session, "frontend-check", "none", "run_frontend_checks",
+                        selectedArguments, maxBytes, cancelled);
+            }
+        } finally {
+            // 先销毁所有写入者，再回读权威源码；取消与超时也必须走相同清理路径。
+            removeContainer(name(id, "frontend-check"));
+            removeContainer(name(id, "frontend-prepare"));
+            stopContainer(name(id, "frontend-proxy"));
+            removeVolume(name(id, "frontend-check-source"));
+            if (session.frontendDependencyKey == null) {
+                removeVolume(name(id, "frontend-prepare-source"));
+            }
+            docker(List.of("start", name(id, "agent")), null, CONTROL_TIMEOUT, 8192, () -> false);
+        }
+        JsonNode after = invoke(session, "snapshot", json.createObjectNode(), cancelled);
+        requireToolSuccess(after);
+        if (!expected.equals(after.path("result").path("snapshot").asText())
+                || response.path("ok").asBoolean()
+                    && !expected.equals(response.path("result").path("snapshot").asText())) {
+            throw new AgentException("SNAPSHOT_INTEGRITY", "Frontend check does not attest authoritative source");
+        }
+        JsonNode capabilities = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
+        requireToolSuccess(capabilities);
+        String configuration = capabilities.path("result").path("configurationSnapshot").asText();
+        if (response.path("result") instanceof ObjectNode check) {
+            check.put("configurationChanged", !configuration.equals(session.frontendCapabilities));
+            check.set("availableChecks", capabilities.path("result"));
+        }
+        session.frontendCapabilities = configuration;
+        return response;
+    }
+
+    private JsonNode frontendContainer(Session session, String suffix, String network, String tool,
+            JsonNode arguments, int maxBytes, BooleanSupplier cancelled) throws IOException {
+        String id = session.task.runId();
+        List<String> launch = baseRun(id, suffix, session.image, network, false);
+        if (suffix.equals("frontend-check")) {
+            launch.addAll(List.of("--mount", "type=volume,source=" + name(id, "frontend-prepare-source")
+                    + ",target=/dependencies,readonly"));
+        }
+        for (int index = 0; index < launch.size(); index++) {
+            if (launch.get(index).endsWith("target=/m2")) {
+                // 前端检查不需要 Maven 缓存，也不向项目脚本暴露这项独立能力。
+                launch.remove(index);
+                launch.remove(index - 1);
+                break;
+            }
+        }
+        launch.addAll(List.of("-i", "--env", "DF_FRONTEND_COPY=true", session.image, "python3", "-c",
+                "import os,shutil;shutil.copytree('/source','/workspace',dirs_exist_ok=True);"
+                        + "os.execvp('python3',['python3','/opt/delveforge/sandbox.py'])"));
+        byte[] request = json.writeValueAsBytes(Map.of("name", tool, "arguments", arguments,
+                "baselinePaths", session.baseline.keySet(), "resourceCapabilities", session.resourceCapabilities));
+        return parse(docker(launch, request, Duration.ofSeconds(session.limits.checkSeconds() * 3L + 30L),
+                maxBytes, cancelled).bytes());
+    }
+
     static void requireCompatibleProtocol(JsonNode response) {
         if (response == null || !response.path("ok").isBoolean() || !response.path("ok").asBoolean()
                 || !response.path("tool").asText().equals("protocol")
                 || !response.path("result").path("protocol").asText().equals("delveforge-sandbox")
                 || !response.path("result").path("version").isIntegralNumber()
                 || !response.path("result").path("version").canConvertToInt()
-                || response.path("result").path("version").asInt() != 3) {
+                || response.path("result").path("version").asInt() != 7) {
             throw incompatibleProtocol();
         }
     }
 
     private static AgentException incompatibleProtocol() {
         return new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE",
-                "Sandbox tool protocol v3 is required. Build the current agent Dockerfile with a new image tag, "
+                "Sandbox tool protocol v7 is required. Build the current agent Dockerfile with a new image tag, "
                         + "configure delveforge.agent.sandbox.images, then explicitly restart the application. "
                         + "See docs/LOCAL_SETUP.md (sandbox protocol troubleshooting).");
     }
@@ -657,7 +829,32 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             return "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
         }
         if (arguments.has("path") && !arguments.path("path").asText().equals(".")) {
-            requirePath(arguments.path("path").asText());
+            if (session.resourceCapabilities.containsKey(arguments.path("path").asText())) {
+                throw new AgentPolicyRejection(AgentPolicyRejection.Rule.RESOURCE_CAPABILITY,
+                        AgentPolicyRejection.Stage.PATH_VALIDATION);
+            }
+            try {
+                requirePath(arguments.path("path").asText());
+            } catch (AgentException failure) {
+                if (!failure.code().equals("GENERATED_OUTPUT_AMBIGUITY")
+                        || !Set.of("list_files", "read_file", "search_code").contains(call.name())) {
+                    throw failure;
+                }
+                // 只读询问未进入文件系统；返回环境事实，不把依赖目录视为可读或可写源码。
+                JsonNode declared = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
+                requireToolSuccess(declared);
+                ObjectNode feedback = json.createObjectNode().put("ok", false).put("tool", call.name())
+                        .put("classification", "CHECK_MATERIAL_UNAVAILABLE")
+                        .put("instruction", "依赖和检查产物只在一次性检查环境中可用，不属于 Agent 源码视图。"
+                                + "不要浏览 node_modules；通过 run_frontend_checks 运行项目脚本并读取实际检查反馈。"
+                                + "锁文件不一致应核对 package.json 与锁文件的依赖声明；Node 内置测试无需新增 Vitest 依赖。");
+                feedback.set("availableChecks", declared.path("result"));
+                if (feedback.toString().getBytes(StandardCharsets.UTF_8).length > session.limits.maxOutputBytes()) {
+                    feedback.remove("availableChecks");
+                    feedback.put("capabilitiesTruncated", true);
+                }
+                return sanitize(feedback.toString());
+            }
         }
         if (call.name().equals("edit_file")) {
             try {
@@ -742,11 +939,15 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 session.checks.add(missing);
             }
         }
+        if (call.name().equals("run_frontend_checks") && response.path("ok").asBoolean()) {
+            ((ObjectNode) response).put("tool", call.name());
+            session.checks.add(response.path("result").deepCopy());
+        }
         rejectPolicy(response, AgentTools.mutation(call.name()) ? AgentPolicyRejection.Stage.PATCH_APPLICATION
                 : AgentPolicyRejection.Stage.TOOL_EXECUTION);
         requireCertainPatchOutcome(response);
         JsonNode visible = sourceResponse(call.name(), response);
-        if (call.name().equals("run_checks") && visible.path("result") instanceof ObjectNode check
+        if (Set.of("run_checks", "run_frontend_checks").contains(call.name()) && visible.path("result") instanceof ObjectNode check
                 && visible.toString().getBytes(StandardCharsets.UTF_8).length > session.limits.maxOutputBytes()) {
             String output = check.path("output").asText();
             int keep = Math.max(0, session.limits.maxOutputBytes() / 8);
@@ -900,6 +1101,44 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         docker(List.of("start", name(id, "agent")), null, CONTROL_TIMEOUT, 8192, cancelled);
     }
 
+    private String dependencyNetwork(Session session, BooleanSupplier cancelled) {
+        return dependencyNetwork(session, cancelled, false);
+    }
+
+    private String dependencyNetwork(Session session, BooleanSupplier cancelled, boolean frontend) {
+        String id = session.task.runId();
+        String network = name(id, "network");
+        if (inspect("network", network) == null) {
+            docker(List.of("network", "create", "--internal", "--opt",
+                    "com.docker.network.bridge.gateway_mode_ipv4=isolated", "--label", "delveforge.owner=" + properties.owner(),
+                    "--label", "delveforge.run=" + id, network), null, CONTROL_TIMEOUT, 8192, cancelled);
+        }
+        requireOwner("network", network);
+        JsonNode networkState = inspect("network", network);
+        if (!networkState.path("Internal").asBoolean()
+                || !networkState.path("Options").path("com.docker.network.bridge.gateway_mode_ipv4")
+                        .asText().equals("isolated")) {
+            throw new AgentException("DOCKER_ENVIRONMENT", "Dependency network isolation could not be established");
+        }
+        String proxy = name(id, frontend ? "frontend-proxy" : "proxy");
+        if (inspect("container", proxy) == null) {
+            List<String> launch = new ArrayList<>(List.of("run", "-d", "--name", proxy, "--label",
+                    "delveforge.owner=" + properties.owner(), "--label", "delveforge.run=" + id,
+                    "--network", "name=bridge,gw-priority=1", "--user", "11000:11000", "--cap-drop", "ALL", "--security-opt",
+                    "no-new-privileges", "--read-only", "--memory", "256m", "--cpus", "1", "--pids-limit", "64",
+                    "--tmpfs", "/tmp:rw,nosuid,size=64m", "--mount", "type=volume,source=" + properties.cacheVolume()
+                    + ",target=/cache", "--env", "DF_ARTIFACT_MODE=" + (frontend ? "frontend" : "maven"),
+                    session.image, "python3", "/opt/delveforge/proxy.py"));
+            docker(launch, null, CONTROL_TIMEOUT, 8192, cancelled);
+            docker(List.of("network", "connect", "--alias", "df-artifacts", network, proxy), null,
+                    CONTROL_TIMEOUT, 8192, cancelled);
+        } else {
+            requireOwner("container", proxy);
+            docker(List.of("start", proxy), null, CONTROL_TIMEOUT, 8192, cancelled);
+        }
+        return network;
+    }
+
     private void prepareDependencies(Session session, JsonNode args, BooleanSupplier cancelled) {
         String id = session.task.runId();
         JsonNode captured = invoke(session, "snapshot", json.createObjectNode(), cancelled);
@@ -908,34 +1147,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         stopContainer(name(id, "agent"));
         try {
             ensureVolume(name(id, "prepare-source"), id);
-            String network = name(id, "network");
-            if (inspect("network", network) == null) {
-                docker(List.of("network", "create", "--internal", "--opt",
-                        "com.docker.network.bridge.gateway_mode_ipv4=isolated", "--label", "delveforge.owner=" + properties.owner(),
-                        "--label", "delveforge.run=" + id, network), null, CONTROL_TIMEOUT, 8192, cancelled);
-            }
-            requireOwner("network", network);
-            JsonNode networkState = inspect("network", network);
-            if (!networkState.path("Internal").asBoolean()
-                    || !networkState.path("Options").path("com.docker.network.bridge.gateway_mode_ipv4")
-                            .asText().equals("isolated")) {
-                throw new AgentException("DOCKER_ENVIRONMENT", "Dependency network isolation could not be established");
-            }
-            String proxy = name(id, "proxy");
-            if (inspect("container", proxy) == null) {
-                List<String> launch = new ArrayList<>(List.of("run", "-d", "--name", proxy, "--label",
-                        "delveforge.owner=" + properties.owner(), "--label", "delveforge.run=" + id,
-                        "--network", "name=bridge,gw-priority=1", "--user", "11000:11000", "--cap-drop", "ALL", "--security-opt",
-                        "no-new-privileges", "--read-only", "--memory", "256m", "--cpus", "1", "--pids-limit", "64",
-                        "--tmpfs", "/tmp:rw,nosuid,size=64m", "--mount", "type=volume,source=" + properties.cacheVolume()
-                        + ",target=/cache", session.image, "python3", "/opt/delveforge/proxy.py"));
-                docker(launch, null, CONTROL_TIMEOUT, 8192, cancelled);
-                docker(List.of("network", "connect", "--alias", "df-artifacts", network, proxy), null,
-                        CONTROL_TIMEOUT, 8192, cancelled);
-            } else {
-                requireOwner("container", proxy);
-                docker(List.of("start", proxy), null, CONTROL_TIMEOUT, 8192, cancelled);
-            }
+            String network = dependencyNetwork(session, cancelled);
             // 在线准备可能执行测试并产生数据库等副作用；只在一次性副本中运行，不回写 Agent 源码。
             // 原源码卷只读挂载且仍核对前后快照；只有每 Run 的 Maven 缓存被后续离线检查复用。
             List<String> launch = baseRun(id, "prepare", session.image, network, false);
@@ -964,6 +1176,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             diagnostic += sanitize(docker(List.of("logs", "--tail", "20", name(id, "proxy")), null,
                     CONTROL_TIMEOUT, 8192, () -> false).text());
             session.lastPreparation = diagnostic.substring(Math.max(0, diagnostic.length() - 10000));
+        } catch (AgentException failure) {
+            if (!failure.code().equals("TIME_LIMIT")) {
+                throw failure;
+            }
+            // 先停止项目进程，再读取有界诊断；原 TIME_LIMIT 及失败状态不变，清理仍由 finally 执行。
+            stopContainer(name(id, "prepare"));
+            session.lastPreparation = mavenPreparationTimeoutDiagnostic(session);
+            throw new AgentException("TIME_LIMIT", session.lastPreparation, failure);
         } finally {
             removeContainer(name(id, "prepare"));
             removeVolume(name(id, "prepare-source"));
@@ -977,12 +1197,54 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
     }
 
+    private String mavenPreparationTimeoutDiagnostic(Session session) {
+        String id = session.task.runId();
+        ObjectNode diagnostic = json.createObjectNode().put("phase", "MAVEN_DEPENDENCY_PREPARATION")
+                .put("outcome", "TIME_LIMIT").put("limitSeconds", session.limits.checkSeconds() * 3L);
+        try {
+            String log = sanitize(docker(List.of("logs", "--tail", "80", name(id, "prepare")),
+                    null, CONTROL_TIMEOUT, 65536, () -> false).text());
+            String lastPhase = log.lines().filter(line -> line.startsWith("[INFO] ---"))
+                    .reduce((previous, current) -> current).orElse("NOT_OBSERVED");
+            diagnostic.put("lastMavenPhase", lastPhase.substring(0, Math.min(lastPhase.length(), 512)));
+        } catch (AgentException unavailable) {
+            diagnostic.put("mavenLogUnavailable", unavailable.code());
+        }
+        try {
+            byte[] bytes = docker(List.of("exec", name(id, "proxy"), "python3", "-c",
+                    "import pathlib,sys; p=pathlib.Path('/tmp/delveforge-maven-progress.json'); "
+                            + "sys.stdout.buffer.write(p.read_bytes()[:32769] if p.is_file() else b'{}')"),
+                    null, CONTROL_TIMEOUT, 32768, () -> false).bytes();
+            diagnostic.set("proxyProgress", sanitizeNode(parse(bytes)));
+        } catch (AgentException unavailable) {
+            diagnostic.put("proxyProgressUnavailable", unavailable.code());
+        }
+        try {
+            JsonNode state = parse(docker(List.of("inspect", "--format", "{{json .State}}", name(id, "prepare")),
+                    null, CONTROL_TIMEOUT, 8192, () -> false).bytes());
+            diagnostic.put("oomKilled", state.path("OOMKilled").asBoolean());
+            diagnostic.put("stoppedExitCode", state.path("ExitCode").asInt());
+        } catch (AgentException unavailable) {
+            diagnostic.put("containerStateUnavailable", unavailable.code());
+        }
+        return diagnostic.toString();
+    }
+
     private Session requireSession(String id) {
         Session session = sessions.get(id);
         if (session == null) {
             throw new AgentException("RUN_CONFLICT", "No live sandbox session; start a fresh Run");
         }
         return session;
+    }
+
+    @Override
+    public String checkCapabilities(String runId, BooleanSupplier cancelled) {
+        Session session = requireSession(runId);
+        JsonNode response = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
+        session.frontendCapabilities = response.path("result").path("configurationSnapshot").asText();
+        requireToolSuccess(response);
+        return response.path("result").toString();
     }
 
     @Override
@@ -1013,7 +1275,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         JsonNode snapshot;
         try {
             byte[] request = json.valueToTree(Map.of("name", "snapshot", "arguments",
-                    Map.of("content", true, "baseline", session.baselineHashes))).toString().getBytes(StandardCharsets.UTF_8);
+                    Map.of("content", true, "baseline", session.baselineHashes),
+                    "resourceCapabilities", session.resourceCapabilities)).toString().getBytes(StandardCharsets.UTF_8);
             snapshot = parse(docker(List.of("exec", "-i", name(runId, "capture"), "python3",
                     "/opt/delveforge/sandbox.py"), request, CONTROL_TIMEOUT,
                     Math.max(session.limits.maxCandidateBytes() * 16, 33554432), cancelled).bytes());
@@ -1025,13 +1288,25 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     }
 
     private Candidate freezeTree(Session session, JsonNode snapshot) {
+        Set<String> sourcePaths = new HashSet<>();
+        snapshot.path("files").forEach(file -> sourcePaths.add(file.path("path").asText()));
+        requireFrontendSourcePaths(sourcePaths);
         Map<String, String> index = Map.of("GIT_INDEX_FILE", session.directory.resolve("final.index").toString());
         git(session, index, null, "read-tree", session.task.baseline());
         Set<String> actual = new HashSet<>();
         List<String> changed = new ArrayList<>();
         for (JsonNode file : snapshot.path("files")) {
             String path = file.path("path").asText();
-            requirePath(path);
+            if (session.resourceCapabilities.containsKey(path)) {
+                Map<String, Object> resource = session.resourceCapabilities.get(path);
+                if (file.has("content") || !file.path("mode").asText().equals(resource.get("mode"))
+                        || !file.path("sha256").asText().equals(resource.get("sha256"))
+                        || file.path("preservedOnly").asBoolean() != resource.get("kind").equals("PRESERVED_ONLY")) {
+                    throw new AgentException("RESOURCE_INTEGRITY", "Protected baseline resource changed");
+                }
+            } else {
+                requirePath(path);
+            }
             if (!actual.add(path)) {
                 throw new AgentException("GIT_PATH_CONFLICT", "Duplicate final source path");
             }
@@ -1077,6 +1352,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
         for (String deleted : session.baseline.keySet()) {
             if (!actual.contains(deleted)) {
+                if (session.resourceCapabilities.containsKey(deleted)) {
+                    throw new AgentException("RESOURCE_INTEGRITY", "Protected baseline resource was removed");
+                }
                 candidateText(git(session, Map.of(), null, "cat-file", "blob", session.baseline.get(deleted).objectId()));
                 changed.add(deleted);
                 byte[] removal = ("0 " + "0".repeat(40) + "\t" + deleted + "\0").getBytes(StandardCharsets.UTF_8);
@@ -1129,6 +1407,21 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         return content;
     }
 
+    /** 生成目录属于具体前端工程；同名 Maven 源目录仍按原规则处理。 */
+    private void requireFrontendSourcePaths(Set<String> paths) {
+        for (String manifest : paths) {
+            if (!manifest.equals("package.json") && !manifest.endsWith("/package.json")) {
+                continue;
+            }
+            String prefix = manifest.substring(0, manifest.length() - "package.json".length());
+            for (String directory : List.of("dist", "coverage", ".vite")) {
+                if (paths.stream().anyMatch(path -> path.startsWith(prefix + directory + "/"))) {
+                    throw new AgentException("GENERATED_OUTPUT_AMBIGUITY", "Frontend generated output is not source");
+                }
+            }
+        }
+    }
+
     /** 最终捕获不信任工具阶段的结论，独立按实际基线和冻结文件重算变更。 */
     private void requireFrozenMutation(Session session, Map<String, String> index, String path,
             byte[] before, byte[] after) {
@@ -1154,28 +1447,10 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             throw new AgentException("SNAPSHOT_INTEGRITY", "Cannot associate checks with final source");
         }
         List<Map<String, Object>> records = new ArrayList<>();
-        Set<String> unresolved = new HashSet<>();
-        Set<String> knownTestFailures = new HashSet<>();
         for (JsonNode check : session.checks) {
             String status = check.path("classification").asText();
             String directory = check.path("directory").asText(".");
             boolean stale = !finalSnapshot.equals(check.path("snapshot").asText());
-            if (!Set.of("TESTS_PASSED", "BUILD_PASSED_NOT_TESTED").contains(status)) {
-                unresolved.add(directory);
-                if (status.equals("TESTS_FAILED") || status.equals("CHECK_RESULT_UNAVAILABLE")) {
-                    knownTestFailures.add(directory);
-                }
-            }
-            if (!stale && Set.of("TESTS_PASSED", "BUILD_PASSED_NOT_TESTED").contains(status)
-                    && Set.of("test", "verify").contains(check.path("goal").asText())
-                    && check.path("selectedTest").isNull()
-                    && check.path("module").isNull()) {
-                // 不推断另一个工程或父目录检查覆盖此工程；同一 Maven 根的完整重验才清除失败。
-                if (!knownTestFailures.contains(directory) || status.equals("TESTS_PASSED")) {
-                    unresolved.remove(directory);
-                    knownTestFailures.remove(directory);
-                }
-            }
             Map<String, Object> record = new LinkedHashMap<>(Map.of(
                     "classification", status, "snapshot", check.path("snapshot").asText(),
                     "stale", stale, "tests", check.path("tests").asInt(), "reports", check.path("reports").asInt(),
@@ -1183,8 +1458,21 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     "goal", check.path("goal").asText(), "module", check.path("module").asText(""),
                     "selectedTest", check.path("selectedTest").asText("")));
             record.put("directory", directory);
+            record.put("checkType", check.path("checkType").asText("MAVEN"));
+            for (String field : List.of("executionStatus", "runner", "configurationSnapshot")) {
+                if (check.has(field)) {
+                    record.put(field, check.path(field).asText());
+                }
+            }
+            if (check.has("sourceView")) {
+                record.put("sourceView", check.path("sourceView").deepCopy());
+            }
+            if (Set.of("npm", "pnpm").contains(check.path("packageManager").asText())) {
+                record.put("packageManager", check.path("packageManager").asText());
+            }
             for (String key : List.of("failures", "errors")) {
                 JsonNode count = check.path(key);
+                record.put(key, 0);
                 if (count.isIntegralNumber() && count.canConvertToLong() && count.asLong() >= 0) {
                     record.put(key, count.asLong());
                 }
@@ -1194,13 +1482,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             }
             records.add(record);
         }
-        if (!unresolved.isEmpty()) {
-            throw new AgentException("UNRESOLVED_CHECK_FAILURE", "Known build/test failure requires a passing full recheck");
-        }
         try {
-            return json.writeValueAsString(Map.of("finalSnapshot", finalSnapshot, "checks", records,
-                    "status", records.stream().anyMatch(record -> !((boolean) record.get("stale"))
+            JsonNode evidence = json.valueToTree(Map.of("evidenceVersion", 3, "finalSnapshot", finalSnapshot,
+                    "sourceView", snapshot.path("sourceView"),
+                    "executionBaselineTree", session.executionBaselineTree,
+                    "checks", records, "status", records.stream().anyMatch(record -> !((boolean) record.get("stale"))
                             && record.get("classification").equals("TESTS_PASSED")) ? "TESTED" : "NOT_TESTED"));
+            AgentCheckEvidence.requireAcceptable(evidence);
+            return json.writeValueAsString(evidence);
         } catch (IOException failure) {
             throw new AgentException("TOOL_PROTOCOL", "Cannot encode test evidence", failure);
         }
@@ -1237,7 +1526,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
 
     @Override
     public void stop(String id) {
-        for (String suffix : List.of("check", "prepare", "agent", "capture", "seed", "proxy")) {
+        for (String suffix : List.of("frontend-check", "frontend-prepare", "frontend-proxy", "check", "prepare", "agent", "capture", "seed", "proxy")) {
             stopContainer(name(id, suffix));
         }
     }
@@ -1245,7 +1534,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     @Override
     public void cleanup(String id) {
         stop(id);
-        for (String suffix : List.of("check", "prepare", "agent", "capture", "seed", "proxy")) {
+        for (String suffix : List.of("frontend-check", "frontend-prepare", "frontend-proxy", "check", "prepare", "agent", "capture", "seed", "proxy")) {
             removeContainer(name(id, suffix));
         }
         String network = name(id, "network");
@@ -1253,7 +1542,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             requireOwner("network", network);
             docker(List.of("network", "rm", network), null, CONTROL_TIMEOUT, 8192, () -> false);
         }
-        for (String suffix : List.of("source", "m2", "prepare-source", "check-source")) {
+        for (String suffix : List.of("source", "m2", "prepare-source", "check-source",
+                "frontend-prepare-source", "frontend-check-source")) {
             removeVolume(name(id, suffix));
         }
         Path directory = directory(id);

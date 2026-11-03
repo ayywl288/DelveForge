@@ -11,7 +11,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -215,31 +214,7 @@ public final class CandidateDeliveryService implements AutoCloseable {
     private static void requireEvidence(Candidate candidate) {
         try {
             JsonNode evidence = new ObjectMapper().readTree(candidate.testEvidence());
-            if (evidence == null || !Set.of("TESTED", "NOT_TESTED").contains(evidence.path("status").asText())) {
-                throw new AgentException("EVIDENCE_INVALID", "Frozen evidence status cannot be established");
-            }
-            Set<String> unresolved = new HashSet<>();
-            Set<String> failedTests = new HashSet<>();
-            for (JsonNode check : evidence.path("checks")) {
-                String classification = check.path("classification").asText();
-                String directory = check.path("directory").asText(".");
-                if (!Set.of("TESTS_PASSED", "BUILD_PASSED_NOT_TESTED").contains(classification)) {
-                    unresolved.add(directory);
-                    if (Set.of("TESTS_FAILED", "CHECK_RESULT_UNAVAILABLE").contains(classification)) {
-                        failedTests.add(directory);
-                    }
-                } else if (!check.path("stale").asBoolean(true)
-                        && Set.of("test", "verify").contains(check.path("goal").asText())
-                        && check.path("module").asText("").isBlank()
-                        && check.path("selectedTest").asText("").isBlank()
-                        && (!failedTests.contains(directory) || classification.equals("TESTS_PASSED"))) {
-                    unresolved.remove(directory);
-                    failedTests.remove(directory);
-                }
-            }
-            if (!unresolved.isEmpty()) {
-                throw new AgentException("UNRESOLVED_CHECK_FAILURE", "Known unresolved checks prohibit Delivery acceptance");
-            }
+            AgentCheckEvidence.requireAcceptable(evidence);
         } catch (IOException failure) {
             throw new AgentException("EVIDENCE_INVALID", "Frozen test evidence is malformed", failure);
         }

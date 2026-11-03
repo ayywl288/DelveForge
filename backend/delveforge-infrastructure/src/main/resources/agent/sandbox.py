@@ -22,10 +22,12 @@ BASELINE_FILE_LIMIT = int(os.environ.get('DF_BASELINE_FILE_BYTES', '16777216'))
 BASELINE_TOTAL_LIMIT = int(os.environ.get('DF_BASELINE_TOTAL_BYTES', '134217728'))
 # v1 约定检查冲突的未修改证据、应用阶段未知及应用后捕获阶段；旧工具不能推断兼容。
 PROTOCOL_NAME = 'delveforge-sandbox'
-PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 7
 PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2', '.npmrc', '.netrc', '.pypirc'}
 GENERATED = {'target'}
 BASELINE_PATHS = set()
+FRONTEND_OUTPUT_ROOT = None
+RESOURCE_CAPABILITIES = {}
 
 
 class PolicyError(Exception):
@@ -53,20 +55,25 @@ def credential_path(value):
             or '/.aws/credentials' in '/' + value.casefold())
 
 
-def path_for(value, allow_root=False):
+def path_for(value, allow_root=False, resource=False):
     if not isinstance(value, str) or '\\' in value or '\x00' in value or len(value) > 512:
         raise PolicyError('PATH_FORMAT', 'Invalid relative path')
     if value in ('', '.') and allow_root:
         return ROOT
-    if credential_path(value):
+    approved = value in RESOURCE_CAPABILITIES
+    if approved and not resource:
+        raise PolicyError('RESOURCE_CAPABILITY', 'Resource content is not model-visible or editable')
+    if credential_path(value) and not (approved and resource):
         raise PolicyError('PROTECTED_CREDENTIAL_PATH', 'Protected credential path')
     parts = value.split('/')
     if any(part in ('', '.', '..') or ':' in part or part.endswith((' ', '.'))
            or re.fullmatch(r'(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?', part)
-           or part.casefold() in PROTECTED
-           or part.casefold().startswith('.env') for part in parts) or value.startswith('/'):
+           or part.casefold() in PROTECTED and not (approved and resource and part == parts[-1])
+           or part.casefold().startswith('.env') and not (approved and resource and part == parts[-1])
+           for part in parts) or value.startswith('/'):
         raise PolicyError('FORBIDDEN_PATH', 'Forbidden path')
-    if any(part.lower().endswith(('.pem', '.key', '.p12', '.pfx', '.jks', '.keystore')) for part in parts):
+    if not (approved and resource) and any(part.lower().endswith(
+            ('.pem', '.key', '.p12', '.pfx', '.jks', '.keystore')) for part in parts):
         raise PolicyError('PROTECTED_CREDENTIAL_PATH', 'Protected credential path')
     path = ROOT
     for part in parts:
@@ -155,12 +162,29 @@ def all_files(modules=None, retained=()):
             parent = parent.parent
     for directory, dirs, filenames in os.walk(ROOT, followlinks=False):
         parent = pathlib.Path(directory)
+        if FRONTEND_OUTPUT_ROOT is None and (parent / 'package.json').is_file() \
+                and any(name in dirs for name in ('dist', 'coverage', '.vite')):
+            raise PolicyError('GENERATED_PATH', 'Frontend build output is not authoritative source')
+        if FRONTEND_OUTPUT_ROOT is not None and parent.is_relative_to(FRONTEND_OUTPUT_ROOT):
+            from frontend import GENERATED as FRONTEND_GENERATED
+            # 仅检查副本跳过生成树；不遍历 node_modules 内的合法依赖符号链接。
+            for name in list(dirs):
+                if parent == FRONTEND_OUTPUT_ROOT and name in FRONTEND_GENERATED:
+                    if (parent / name).is_symlink():
+                        raise PolicyError('SOURCE_ENTRY_TYPE', 'Generated root must not be a symlink')
+                    dirs.remove(name)
+            filenames = [name for name in filenames if not name.endswith('.tsbuildinfo')]
         for name in dirs + filenames:
             path = parent / name
             relative = path.relative_to(ROOT).as_posix()
+            if FRONTEND_OUTPUT_ROOT is None and (name in ('node_modules', '.df-check', '.df-frontend-dependencies',
+                                                         '.df-frontend-store', '.df-frontend-npm-cache') or name.endswith('.tsbuildinfo')):
+                raise PolicyError('GENERATED_PATH', 'Frontend dependencies and generated artifacts are not source')
             if path.is_symlink() or not (path.is_file() or path.is_dir()):
                 raise PolicyError('SOURCE_ENTRY_TYPE', 'Unsupported symlink or special file')
-            if name.casefold() in PROTECTED:
+            if relative in RESOURCE_CAPABILITIES and RESOURCE_CAPABILITIES[relative]['kind'] == 'PRESERVED_ONLY':
+                raise PolicyError('PRESERVED_RESOURCE_MATERIALIZED', 'Withheld resource must not exist in execution view')
+            if name.casefold() in PROTECTED and not (path.is_file() and relative in RESOURCE_CAPABILITIES):
                 raise PolicyError('SOURCE_PROTECTED_ENTRY', 'Nested metadata or credential directory')
             if relative.casefold() in names:
                 raise PolicyError('SOURCE_CASE_CONFLICT', 'Case-conflicting paths')
@@ -196,7 +220,9 @@ def snapshot(include_content=False, baseline=None, modules=None):
         mode = '100755' if path.stat().st_mode & stat.S_IXUSR else '100644'
         sha256 = digest.hexdigest()
         entry = {'path': relative, 'mode': mode, 'sha256': sha256}
-        if include_content and baseline.get(relative) != sha256 + ':' + mode:
+        if relative in RESOURCE_CAPABILITIES:
+            entry['resource'] = True
+        if include_content and relative not in RESOURCE_CAPABILITIES and baseline.get(relative) != sha256 + ':' + mode:
             captured += size
             if size > FILE_LIMIT or captured > TOTAL_LIMIT:
                 raise PolicyError('SOURCE_CAPTURE_LIMIT', 'Editable source capture size limit exceeded')
@@ -205,9 +231,36 @@ def snapshot(include_content=False, baseline=None, modules=None):
                 raise PolicyError('SOURCE_CHANGED_DURING_CAPTURE', 'Source changed during capture')
             entry['content'] = base64.b64encode(raw).decode('ascii')
         result.append(entry)
+    for relative, resource in RESOURCE_CAPABILITIES.items():
+        if resource['kind'] == 'PRESERVED_ONLY':
+            if (ROOT / relative).exists() or (ROOT / relative).is_symlink():
+                raise PolicyError('PRESERVED_RESOURCE_MATERIALIZED', 'Withheld resource must not exist in execution view')
+            result.append({'path': relative, 'mode': resource['mode'], 'sha256': resource['sha256'],
+                           'preservedOnly': True})
+            total += resource['size']
+    if len(result) > FILES_LIMIT or total > BASELINE_TOTAL_LIMIT:
+        raise PolicyError('SOURCE_CAPTURE_LIMIT', 'Full preserved baseline exceeds capture budget')
+    result.sort(key=lambda entry: entry['path'])
     identities = [{k: v for k, v in entry.items() if k != 'content'} for entry in result]
     identity = hashlib.sha256(json.dumps(identities, sort_keys=True).encode()).hexdigest()
-    return {'snapshot': identity, 'files': result}
+    return {'snapshot': identity, 'files': result, 'sourceView': source_view()}
+
+
+def source_view():
+    count = sum(resource['kind'] == 'PRESERVED_ONLY' for resource in RESOURCE_CAPABILITIES.values())
+    return {'kind': 'PROJECTED' if count else 'FULL', 'preservedOnlyCount': count,
+            'readOnlyResourceCount': len(RESOURCE_CAPABILITIES) - count,
+            'withheldSourceCount': sum(resource.get('blocksChecks', False) for resource in RESOURCE_CAPABILITIES.values())}
+
+
+def approved_resource(relative):
+    resource = RESOURCE_CAPABILITIES.get(relative)
+    if not resource or resource['kind'] != 'PUBLIC_RESOURCE':
+        return False
+    path = path_for(relative, resource=True)
+    return path.is_file() and not path.is_symlink() and path.stat().st_size == resource['size'] \
+        and hashlib.sha256(path.read_bytes()).hexdigest() == resource['sha256'] \
+        and ('100755' if path.stat().st_mode & stat.S_IXUSR else '100644') == resource['mode']
 
 
 def patch_paths(patch):
@@ -256,7 +309,13 @@ def patch_paths(patch):
                 raise PolicyError('PATCH_PATH_FORMAT', 'Expected plain a/ and b/ patch paths')
             relative = value[2:]
             path_for(relative)
-            if build_output(relative):
+            frontend_output = False
+            candidate = ROOT / relative
+            for parent in candidate.parents:
+                if parent.is_relative_to(ROOT) and (parent / 'package.json').is_file():
+                    frontend_output |= candidate.relative_to(parent).parts[0] in ('dist', 'coverage', '.vite')
+            if build_output(relative) or frontend_output or any(part in ('node_modules', '.df-check')
+                                             for part in relative.split('/')) or relative.endswith('.tsbuildinfo'):
                 raise PolicyError('GENERATED_PATH', 'Generated paths are not editable')
             paths.add(relative)
     if old_remaining or new_remaining or not paths or len(paths) > 64:
@@ -264,12 +323,12 @@ def patch_paths(patch):
     return sorted(paths)
 
 
-def run_bounded(command, input_bytes=None, timeout=180, maximum=1048576, cwd=ROOT):
+def run_bounded(command, input_bytes=None, timeout=180, maximum=1048576, cwd=ROOT, env=None):
     # 文件输出有硬上限监控，不能把无界日志积存在内存或磁盘。
     import tempfile
     with tempfile.TemporaryFile() as output:
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=output, stderr=subprocess.STDOUT,
-                                   cwd=cwd, start_new_session=True)
+                                   cwd=cwd, env=env, start_new_session=True)
         try:
             if input_bytes:
                 process.stdin.write(input_bytes)
@@ -422,6 +481,8 @@ def check_runtime_changes(before, after, databases, traces=None):
 
 
 def checks(args):
+    if source_view()['withheldSourceCount']:
+        raise CheckArgumentError('Executable source or build configuration is withheld; no checks can attest this view')
     goal = args.get('goal', 'test')
     if goal not in ('compile', 'test', 'package', 'verify'):
         raise PolicyError('MAVEN_OPTIONS', 'Unsupported Maven goal')
@@ -430,7 +491,9 @@ def checks(args):
     directory = args.get('directory', '.')
     project = path_for(directory, True)
     if not (project / 'pom.xml').is_file():
-        raise CheckArgumentError('No pom.xml in selected Maven directory; choose directory containing the project POM')
+        import frontend
+        raise CheckArgumentError('No Maven entry in selected directory. Available check declarations: '
+                                 + json.dumps(frontend.describe(sys.modules[__name__])))
     if project != ROOT:
         command += ['-f', directory + '/pom.xml']
     module = args.get('module')
@@ -447,7 +510,8 @@ def checks(args):
     modules = maven_module_roots({project.relative_to(ROOT).as_posix()})
     captured = snapshot(modules=modules)
     before = captured['snapshot']
-    databases = ({entry['path'] for entry in captured['files'] if h2_runtime_database(path_for(entry['path']))}
+    databases = ({entry['path'] for entry in captured['files'] if entry['path'] not in RESOURCE_CAPABILITIES
+                  and h2_runtime_database(path_for(entry['path']))}
                  if os.environ.get('DF_CHECK_COPY') == 'true' else set())
     traces = h2_runtime_traces(captured, databases)
     # 只清理实际构建目录的生成报告；测试夹具和基线资源不能被清理或冒充执行证据。
@@ -470,6 +534,7 @@ def checks(args):
     else:
         classification = 'BUILD_CONFIGURATION_FAILED'
     return {'classification': classification, 'exitCode': code, 'snapshot': before, 'runtimeChanges': changes,
+            'sourceView': source_view(),
             'goal': goal, 'directory': project.relative_to(ROOT).as_posix(), 'module': module, 'selectedTest': selected,
             **result, 'output': output[-18000:]}
 
@@ -562,7 +627,7 @@ def dispatch(name, args):
         with tarfile.open('/tmp/source.tar') as archive:
             for entry in archive:
                 relative = entry.name.rstrip('/')
-                path = path_for(relative)
+                path = path_for(relative, resource=True)
                 if entry.isdir():
                     path.mkdir(parents=True, exist_ok=True)
                 elif entry.isfile():
@@ -574,9 +639,15 @@ def dispatch(name, args):
                     path.chmod(0o755 if entry.mode & 0o100 else 0o644)
                 else:
                     raise PolicyError('BASELINE_FILE_TYPE', 'Unsupported baseline file type')
+        for relative, resource in RESOURCE_CAPABILITIES.items():
+            if resource['kind'] == 'PUBLIC_RESOURCE' and not approved_resource(relative):
+                raise PolicyError('RESOURCE_INTEGRITY', 'Transported resource differs from its trusted identity')
         return snapshot()
     if name == 'snapshot':
         return snapshot(args.get('content', False), args.get('baseline'))
+    if name == 'describe_checks':
+        import frontend
+        return frontend.describe(sys.modules[__name__])
     if name == 'list_files':
         prefix = args.get('path', '.')
         path = path_for(prefix, True)
@@ -586,7 +657,7 @@ def dispatch(name, args):
         limit = args.get('limit', 100)
         if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= 200:
             raise ValueError('Invalid pagination')
-        files = [p for p in all_files() if not credential_path(p)
+        files = [p for p in all_files() if p not in RESOURCE_CAPABILITIES and not credential_path(p)
                  and (path == ROOT or (ROOT / p).is_relative_to(path))]
         selected = files[offset:offset + limit]
         directories = sorted({pathlib.PurePosixPath(value).parent.as_posix() for value in selected}
@@ -679,11 +750,14 @@ def dispatch(name, args):
         return {'classification': 'PATCH_APPLIED', 'paths': paths, 'snapshot': captured}
     if name == 'run_checks':
         return checks(args)
+    if name in ('run_frontend_checks', 'prepare_frontend_dependencies'):
+        import frontend
+        return frontend.dispatch(sys.modules[__name__], args, name == 'prepare_frontend_dependencies')
     raise PolicyError('UNKNOWN_TOOL', 'Unknown tool')
 
 
 def main():
-    global BASELINE_PATHS
+    global BASELINE_PATHS, RESOURCE_CAPABILITIES
     started = time.monotonic()
     try:
         raw_request = sys.stdin.buffer.read(8388609)
@@ -691,6 +765,16 @@ def main():
             raise PolicyError('REQUEST_LIMIT', 'Bounded protocol input exceeded')
         request = json.loads(raw_request)
         BASELINE_PATHS = set(request.get('baselinePaths', []))
+        RESOURCE_CAPABILITIES = request.get('resourceCapabilities', {})
+        if not isinstance(RESOURCE_CAPABILITIES, dict) or len(RESOURCE_CAPABILITIES) > FILES_LIMIT:
+            raise PolicyError('RESOURCE_CAPABILITIES', 'Invalid trusted capability manifest')
+        for path, resource in RESOURCE_CAPABILITIES.items():
+            if not isinstance(resource, dict) or resource.get('kind') not in ('PUBLIC_RESOURCE', 'PRESERVED_ONLY') \
+                    or resource.get('mode') not in ('100644', '100755') \
+                    or not re.fullmatch(r'[0-9a-f]{64}', str(resource.get('sha256'))) \
+                    or type(resource.get('size')) is not int or not 0 <= resource['size'] <= BASELINE_FILE_LIMIT:
+                raise PolicyError('RESOURCE_CAPABILITIES', 'Invalid trusted resource identity')
+            path_for(path, resource=True)
         result = dispatch(request['name'], request.get('arguments', {}))
         print(json.dumps({'ok': result.get('classification') != 'PATCH_CONFLICT', 'tool': request['name'], 'durationMs': int(
             (time.monotonic() - started) * 1000), 'result': result}, ensure_ascii=True))

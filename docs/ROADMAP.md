@@ -1,5 +1,58 @@
 # ROADMAP.md
 
+**2026-11-03 当前用户任务：Restore Reliable Autonomous Product Evolution。**
+修复前端语法白名单与证据归类根因：复用既有隔离执行，支持 npm/pnpm 项目脚本、Node/Vitest 结构化报告及配置能力反馈。
+先完成确定性失败→修正→重验→冻结→Delivery、安全负例与 Maven 回归，再在本轮费用授权明确时复用原 Homer 四步计划，
+通过正常 API 进行一次真实试验。旧失败历史完整保留；外部不代修 Homer、不改领域数据库、不推送或合并。
+分别报告 ENGINEERING_READY / AUTONOMOUS_DELIVERY_READY / PRODUCT_READY；本段为当前任务，后续较早结果保留历史含义。
+
+**2026-11-03 本任务最终实测：** 工程与真实自主交付门槛通过，原 Homer 计划四步均正式交付，
+最终修订 `72003f5edb0f993301ab432f3467a71f9d758941`，Plan COMPLETED、WorkingCopy CLOSED。
+独立浏览器确认本机事项、完成/提醒、JSON/YAML 导入及持久化，但默认导航地址被误作数据源，
+读取失败后家人汇总仍可能提示无需操作；下载文件内容也未取得独立证明。因此 PRODUCT_READY=NO，
+不宣称完整产品验收成功，不再发起付费重试。见 [继续执行与独立验收](validation/autonomous-homeops-continuation-20261103.md)。
+
+**2026-11-03 本任务阶段结果：** 项目脚本/Node/Vitest 工程回归通过；首次真实重试因只读查询 node_modules 被终止，0/4、无 Candidate/Delivery。
+已补充环境可见性与可恢复只读拒绝，完整后端及真实 Node 交付重新通过。旧失败历史不改写。
+用户随后明确要求继续同一计划，沿用本轮四步费用授权；不换库或重新规划，真实后续结果单独记录。
+
+**2026-11-02 当前用户任务：Final Maven Diagnostics and Authentic Full-Product Evolution。**
+沿用 2396d1a 的仓库内容能力设计，仅补充已证实的 Maven 诊断/缓存问题，完成有界工程门槛后进入一次独立完整产品试验。
+公开仓库的完整测试失败与受支持检查范围分别保留；不改目标项目、不接入 Docker 套接字、不扩大包管理器或执行权限。
+用户对本轮预算问题直接回复“不限制”，该后续明确授权替代附件数字上限要求；不再重复询问，仍不进行无界模型重试或换仓库。
+完整产品代码仅由 DelveForge 自身 Agent 产生，正常 API 执行画像、方向、计划、逐 Step 授权、正式交付和收尾；外部仅验收，不修补目标产品。
+本轮本地提交，不推送或合并；下方较早授权保留历史含义。
+
+**2026-11-03 本任务结果：** 工程门槛在已声明 Maven/Vue 范围内通过，修正提交 `bc44e689`。
+独立真实 Homer 产品试验生成四个方向及四步 Plan；首个实际编码 Run 因 Node 原生测试脚本不受支持，
+在冻结时以 UNRESOLVED_CHECK_FAILURE 失败，无 Candidate/Delivery，Plan 未完成，ASTRA_READY=NO。
+原库与正式副本保持原 revision；环境恢复前的零模型调用 Docker 失败另行保留，没有追加付费重试挽救编码失败。
+完整结果见 [产品试验报告](validation/authentic-homeops-product-20261103.md)。本轮不扩展测试工具或继续兼容性开发。
+
+**2026-11-02 最新用户授权：Safe Repository Admission Boundary & Real-Repository Validation。**
+从本地 353920a 在当前分支完成一个贯通准入、模型材料、执行投影、不可变资源与正式交付的内容能力边界。
+重跑安全负例、完整后端、真实 Maven/npm/pnpm Docker 交付及原有 26 个公开样本的分层验证，保留全部拒绝与失败。
+不改目标仓库、不引入自由命令或包管理器、不合并或推送。只有工程门槛通过才进入独立完整产品验证；
+本轮附件明确要求在新的付费试验前建立数字费用上限，先完成确定性工程门槛，不启动无界模型重试。
+下方日期相同的较早授权保留历史含义，以本段为当前范围。
+
+**2026-11-02 最新用户授权：Generalized Repository Compatibility and Authentic Full-Product Evolution。**
+在 `codex/full-stack-evolution-checks` 用预先声明的 26 个公开仓库检查通用兼容性，失败保留在分母内，
+分别记录静态识别、隔离准备、依赖、实际检查和 Candidate/Delivery，明确回归纯 Maven 路径。
+完成通用修正、回归和本地提交后固定基线，最多两次完整产品真实试验；先确立虚构画像，再由正常模型流程发现方向、
+规划并逐 Step 授权及正式交付，独立功能与视觉验收另记。用户本轮明确回复没有费用上限，仍不得无限试验或切换仓库碰运气。
+如果合理范围内无法达到通用兼容目标，记录架构限制并停止；不为展示代修目标、不在试验中更改产品、不合并或推送。
+下方较早的单次试验授权保留历史含义，由本段替代当前任务边界。
+
+**2026-11-02 用户授权的有限稳定化与真实试验：** 抽查普通 Vue/Vite 仓库，只修正已证实且小范围的通用兼容性障碍。
+完成回归并固定实现基线后，仅进行一次原样公开仓库的真实 DeepSeek 产品流程；不代写目标工程、不在试验中修改产品挽救结果。
+保留失败、使用正常授权及 Delivery，独立验收与 Agent 能力分开；仅本地提交，不合并或推送。
+
+**2026-11-02 当前用户授权任务：Full-Stack Evolution Context & Controlled Frontend Verification。**
+仅增强方向/规划的完整产品意图、已保存 TargetState 的有界上下文，以及 Vue/Vite/TypeScript 的 npm/pnpm 受控检查。
+包含相应证据、Delivery、活动展示、回归和文档；不启动 M5 或其他未来功能。实现与技术验证已完成，
+不以技术构建成功替代业务验收。范围与实际运行结果见 [前端检查说明](AGENT_FRONTEND_CHECKS.md)。
+
 **2026-11-01 用户单独授权：** 修复摄影演示已证实的浅克隆 Delivery 阻塞及受控恢复入口，先运行确定性
 回归，再恢复原 Candidate/Delivery，按原画像、方向和三步 Plan 继续真实 Agent 流程及独立验收。
 不代写目标应用、不扩大仓库准入规则、不修改原始资产；此前全流程付费授权保持。结果另存宣传交接材料。

@@ -1,5 +1,32 @@
 # ARCHITECTURE.md
 
+**2026-11-03 项目脚本执行：** 前端按目标调用固定 npm/pnpm 的项目声明脚本，安全依赖无网络一次性容器，
+不再以脚本字符串白名单代替隔离。联网准备仍不执行项目/安装脚本；Node JUnit 与 Vitest JSON 独立采集、归一化。
+工具协议 v7，evidenceVersion=3 区分未启动、已执行与未知结果，旧证据保守兼容。配置摘要驱动能力刷新和安装复用。
+无新模块、Port、依赖或迁移，正式 Delivery 和可信 revision 不变，见 [ADR-0021](decisions/0021-sandbox-enforced-project-scripts-and-test-evidence.md)。
+
+
+**2026-11-02 Maven 有界诊断修正：** 准备超时保留 TIME_LIMIT；先停止项目进程，再在清理前读取净化的最后阶段、
+可信代理的有限工件/缓存/重试指标及 OOM 标记。不记录原始 URL、凭据、响应体或完整进程环境。
+代理在工件摘要核对成功后原子缓存其 SHA-1 旁文件，供 Maven 的后续请求复用；失败摘要不发布工件或新旁文件。
+网络、源副本、内容能力、检查证据及 Candidate/Delivery 边界不变，无新 Port、协议版本或领域状态。
+
+**2026-11-02 仓库内容能力边界：** Infrastructure 的 RepositoryContentPolicy 分开判定原 Git 保留、模型披露、
+执行可用和修改能力。正式 WorkingCopy 与可信 R 完整保留；只有执行树 E 删除必须留在主机的条目。
+E 是显式执行投影，不是新的领域 baseline 或字节相同的完整 checkout。Java 为资源绑定原 path/mode/SHA-256，
+容器消费能力清单，模型读取/补丁、源码快照、Candidate 和独立 Delivery 使用相同边界。
+WorkspaceReadPort 的模型材料读取可返回不可披露；分析记录跳过，不用占位源码伪造 Evidence。
+检查证据记录 sourceView 与 executionBaselineTree，保留项只能沿用原 blob；缺失源码/测试/构建描述不能产生 PASS。
+协议升级为 v6，无新 Aggregate、模块、数据库结构或授权生命周期。详见 [ADR-0020](decisions/0020-repository-content-capabilities.md)。
+
+**2026-11-02 全栈执行上下文与前端检查：** Application 从当前 Plan 的 TargetState 投影有界、净化的解释性上下文，
+不增加 Step 授权。现有 AgentSandboxPort 新增统一前端检查工具，Infrastructure 支持固定 npm/pnpm，
+分别执行冻结安装；联网依赖准备与无网络脚本执行分容器，复用依赖仅只读，正式源副本保持独立。
+冻结与 Delivery 共用检查适用性规则，证据按类型、工程和目标区分；没有新模块、数据库迁移或生命周期。
+工具镜像协议为 v6，详见 [前端检查说明](AGENT_FRONTEND_CHECKS.md) 和 ADR-0012/0020 补充。
+Workspace 在隔离源内发现 Maven 入口及 Vue/Vite 工程的检查声明；Application 只把有界声明作为解释性数据传给模型，
+不据此授予写权限或生成验证成功。缺少可选前端检查不影响纯 Maven 资格，实际失败仍受冻结守卫约束。
+
 **2026-11-01 Delivery 修复：** Workspace 接受 provision 合法继承的普通 shallow 边界文件，
 不把它视为未完成 Git 操作；C 的唯一父、树、index、全部文件内容及原生写入检查保持。
 Application 通过 DeliveryStore 核对持久事件，显式恢复仅有初始检查失败且重新证明 R 的同一交付；

@@ -37,6 +37,10 @@ class SqliteAgentStoreTest {
     }
 
     void setup(String baseline) throws Exception {
+        setup(baseline, null);
+    }
+
+    void setup(String baseline, String flowId) throws Exception {
         source = new SQLiteDataSource();
         source.setUrl("jdbc:sqlite:" + temporary.resolve("agent.db"));
         Flyway.configure().dataSource(source).load().migrate();
@@ -45,8 +49,9 @@ class SqliteAgentStoreTest {
         sql("INSERT INTO working_copy(id,source_asset_id,source_revision,location,current_revision,last_verified_revision,status) VALUES('copy','asset','" + baseline + "','managed','"
                 + baseline + "','" + baseline + "','READY')");
         sql("INSERT INTO evolution_plan(id,product_direction_id,base_asset_id,base_repository_profile_id,working_copy_id,"
-                + "current_summary,target_problem,target_product,target_differentiation,status) VALUES"
-                + "('plan','direction','asset','profile','copy','current','problem','target','difference','ACTIVE')");
+                + "current_summary,target_problem,target_product,target_differentiation,status,flow_id) VALUES"
+                + "('plan','direction','asset','profile','copy','current','problem','target','difference','ACTIVE',"
+                + (flowId == null ? "NULL" : "'" + flowId.replace("'", "''") + "'") + ")");
         sql("INSERT INTO evolution_step(id,plan_id,position,goal,scope,status) VALUES('step','plan',0,'goal','scope','READY')");
     }
 

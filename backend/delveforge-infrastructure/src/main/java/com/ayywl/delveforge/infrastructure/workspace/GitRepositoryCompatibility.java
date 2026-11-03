@@ -6,6 +6,9 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
@@ -40,10 +43,12 @@ public final class GitRepositoryCompatibility {
     public record Entry(String mode, String objectId, long size) {
     }
 
-    public record Inspection(RepositoryCompatibility report, Map<String, Entry> entries, Map<String, byte[]> poms) {
+    public record Inspection(RepositoryCompatibility report, Map<String, Entry> entries, Map<String, byte[]> poms,
+            Map<String, RepositoryContentPolicy.Capability> resources) {
         public Inspection {
             entries = Map.copyOf(entries);
             poms = Map.copyOf(poms);
+            resources = Map.copyOf(resources);
         }
     }
 
@@ -118,10 +123,6 @@ public final class GitRepositoryCompatibility {
                 issues.add(block("SOURCE_LIMIT", path, "源码快照超过有界预算：单文件 16 MiB、总量 128 MiB、10000 文件。"));
                 break;
             }
-            if (secrets.excludes(path)) {
-                issues.add(new Issue("REQUIRES_EXPLICIT_USER_DECISION", "PROTECTED_CREDENTIAL_PATH", path,
-                        "仓库包含受保护的凭据路径；请在保留原资产的前提下明确处理方式。", true));
-            }
             if (path.equals("pom.xml") || path.endsWith("/pom.xml")) {
                 if (size > EDITABLE_FILE_BYTES) {
                     issues.add(block("MAVEN_CONFIGURATION", path, "POM 超过静态解析预算。"));
@@ -142,9 +143,15 @@ public final class GitRepositoryCompatibility {
         try {
             layout = MavenRepositoryLayout.inspect(buildPoms);
         } catch (MavenRepositoryLayout.Unsupported failure) {
-            issues.add(new Issue(failure.code().equals("MAVEN_REQUIRED") || failure.code().equals("JDK_UNSUPPORTED")
-                    ? "GENUINELY_UNSUPPORTED" : "REQUIRES_EXPLICIT_USER_DECISION", failure.code(), "",
-                    failure.getMessage(), true));
+            if (!failure.code().equals("MAVEN_REQUIRED") || !hasFrontendProject(repository, entries)) {
+                boolean frontendMetadata = failure.code().equals("MAVEN_REQUIRED") && entries.keySet().stream()
+                        .anyMatch(path -> path.equals("package.json") || path.endsWith("/package.json"));
+                issues.add(new Issue(failure.code().equals("MAVEN_REQUIRED") || failure.code().equals("JDK_UNSUPPORTED")
+                        ? "GENUINELY_UNSUPPORTED" : "REQUIRES_EXPLICIT_USER_DECISION",
+                        frontendMetadata ? "FRONTEND_CONFIGURATION" : failure.code(), "",
+                        frontendMetadata ? "前端工程需要 Vue 3/Vite、唯一 npm/pnpm 锁文件及兼容的 packageManager；不支持混用或多包 workspace。"
+                                : failure.getMessage(), true));
+            }
         }
         Map<String, byte[]> modulePoms = new LinkedHashMap<>();
         if (layout != null) {
@@ -155,6 +162,8 @@ public final class GitRepositoryCompatibility {
         }
         List<String> generated = new ArrayList<>();
         List<String> immutable = new ArrayList<>();
+        Map<String, RepositoryContentPolicy.Capability> resources = new LinkedHashMap<>();
+        RepositoryContentPolicy contentPolicy = new RepositoryContentPolicy(secrets);
         int textFiles = 0;
         int opaqueFiles = 0;
         if (issues.stream().noneMatch(issue -> issue.code().equals("SOURCE_LIMIT"))) {
@@ -193,7 +202,23 @@ public final class GitRepositoryCompatibility {
                     }
                     continue;
                 }
-                if (secrets.excludes(path)) {
+                byte[] raw = entry.size() <= EDITABLE_FILE_BYTES || secrets.excludes(path)
+                        ? blob(repository, entry.objectId()) : null;
+                if (path.equals(".gitattributes") || path.endsWith("/.gitattributes")) {
+                    String attributes = raw == null ? null : utf8(raw);
+                    if (attributes == null || attributes.matches(
+                            "(?s).*(filter=|export-ignore|export-subst|working-tree-encoding|\\bident\\b).*")) {
+                        issues.add(block("GIT_ATTRIBUTES_UNSUPPORTED", path, "自定义 Git 内容转换需要明确支持。"));
+                    }
+                }
+                RepositoryContentPolicy.Capability capability = raw == null ? null : contentPolicy.classify(path, raw);
+                if (capability != null && capability.kind() != RepositoryContentPolicy.Kind.SOURCE) {
+                    resources.put(path, capability);
+                    immutable.add(path);
+                    issues.add(new Issue("SUPPORT_WITH_BOUNDED_ADAPTATION", capability.executionAvailable()
+                            ? "PUBLIC_READ_ONLY_RESOURCE" : "PRESERVED_ONLY_RESOURCE", path,
+                            capability.executionAvailable() ? "已校验公开资源；保留原字节，只读执行，不提供模型内容。"
+                                    : "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。", false));
                     continue;
                 }
                 if (entry.size() > EDITABLE_FILE_BYTES) {
@@ -201,7 +226,6 @@ public final class GitRepositoryCompatibility {
                     immutable.add(path);
                     continue;
                 }
-                byte[] raw = blob(repository, entry.objectId());
                 String content = utf8(raw);
                 if (content == null) {
                     opaqueFiles++;
@@ -210,13 +234,8 @@ public final class GitRepositoryCompatibility {
                     textFiles++;
                     if (!secrets.sanitize(List.of(new RepositorySourceFile(path, content)))
                             .material().getFirst().content().equals(content)) {
-                        immutable.add(path);
-                        issues.add(new Issue("SUPPORT_WITH_BOUNDED_ADAPTATION", "IMMUTABLE_CREDENTIAL_SOURCE", path,
-                                "含已识别凭据的配置仅保留并净化读取，不能由 Agent 修改。", false));
-                    }
-                    if ((path.equals(".gitattributes") || path.endsWith("/.gitattributes"))
-                            && content.matches("(?s).*(filter=|export-ignore|export-subst|working-tree-encoding|\\bident\\b).*")) {
-                        issues.add(block("GIT_ATTRIBUTES_UNSUPPORTED", path, "自定义 Git 内容转换需要明确支持。"));
+                        issues.add(new Issue("SUPPORT_WITH_BOUNDED_ADAPTATION", "SANITIZED_MODEL_MATERIAL", path,
+                                "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。", false));
                     }
                 }
             }
@@ -231,7 +250,45 @@ public final class GitRepositoryCompatibility {
                 layout == null ? null : layout.directory(), layout == null ? List.of() : layout.modules(),
                 layout == null ? null : layout.recommendedJdk(), bytes, entries.size(), textFiles, opaqueFiles,
                 generated.stream().sorted().toList(), immutable.stream().sorted().toList(), issues);
-        return new Inspection(report, entries, modulePoms);
+        return new Inspection(report, entries, modulePoms, resources);
+    }
+
+    /** 只认固定 Git tree 中的 Vue 工程元数据；具体锁文件与脚本仍由隔离检查工具验证。 */
+    private boolean hasFrontendProject(Path repository, Map<String, Entry> entries) {
+        for (var item : entries.entrySet()) {
+            String path = item.getKey();
+            if (!(path.equals("package.json") || path.endsWith("/package.json"))
+                    || item.getValue().size() > EDITABLE_FILE_BYTES || path.contains("/node_modules/")) {
+                continue;
+            }
+            String prefix = path.substring(0, path.length() - "package.json".length());
+            boolean npm = entries.containsKey(prefix + "package-lock.json");
+            boolean pnpm = entries.containsKey(prefix + "pnpm-lock.yaml");
+            if (npm == pnpm || entries.containsKey(prefix + "yarn.lock")) {
+                continue;
+            }
+            try {
+                JsonNode manifest = new ObjectMapper().readTree(blob(repository, item.getValue().objectId()));
+                String managerPattern = npm ? "npm@(9|10|11)" : "pnpm@(9|10|11|12)";
+                if (manifest == null || !manifest.isObject()
+                        || manifest.has("packageManager") && !manifest.path("packageManager").asText()
+                                .matches(managerPattern + "\\.\\d+\\.\\d+(\\+sha(224|512)\\.[a-f0-9]+)?")
+                        || manifest.has("workspaces")) {
+                    continue;
+                }
+                boolean supported = true;
+                for (String dependency : List.of("vue", "vite")) {
+                    supported &= manifest.path("dependencies").has(dependency)
+                            || manifest.path("devDependencies").has(dependency);
+                }
+                if (supported) {
+                    return true;
+                }
+            } catch (java.io.IOException invalid) {
+                // 无效元数据不构成放行依据；保留原缺少受支持构建入口的拒绝。
+            }
+        }
+        return false;
     }
 
     public static boolean safePath(String path) {
@@ -240,11 +297,15 @@ public final class GitRepositoryCompatibility {
                 || path.contains("\"")) {
             return false;
         }
-        for (String part : path.split("/")) {
+        String[] parts = path.split("/");
+        for (int position = 0; position < parts.length; position++) {
+            String part = parts[position];
             if (part.isEmpty() || part.equals(".") || part.equals("..") || part.endsWith(" ") || part.endsWith(".")
                     || Set.of(".git", ".hg", ".svn", ".ssh", ".aws", ".gnupg", ".m2")
                             .contains(part.toLowerCase(Locale.ROOT))
-                    || part.toLowerCase(Locale.ROOT).startsWith(".env")
+                    || part.toLowerCase(Locale.ROOT).startsWith(".env") && position < parts.length - 1
+                    || Set.of(".npmrc", ".pypirc", ".netrc").contains(part.toLowerCase(Locale.ROOT))
+                            && position < parts.length - 1
                     || part.matches("(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?")) {
                 return false;
             }

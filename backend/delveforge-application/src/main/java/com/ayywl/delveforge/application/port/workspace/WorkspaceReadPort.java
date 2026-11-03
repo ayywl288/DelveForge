@@ -96,6 +96,11 @@ public interface WorkspaceReadPort {
      */
     String readFile(WorkspaceRef workspace, String revision, String relativePath);
 
+    /** 面向模型的只读材料；空值表示能力策略不允许披露，不能用占位内容冒充源码。 */
+    default java.util.Optional<String> readModelFile(WorkspaceRef workspace, String revision, String relativePath) {
+        return java.util.Optional.of(readFile(workspace, revision, relativePath));
+    }
+
     /**
      * 读取 Workspace 当前 HEAD 对应的 revision 标识。
      *

@@ -28,7 +28,11 @@ export function verificationLabel(code?: string): string {
     return ({ TESTS_PASSED: "测试通过", TESTS_FAILED: "测试未通过", BUILD_PASSED_NOT_TESTED: "构建通过，未运行测试",
         COMPILATION_FAILED: "编译未通过", DEPENDENCY_MISSING: "依赖尚未准备", BUILD_CONFIGURATION_FAILED: "构建配置需核对",
         JDK_ENVIRONMENT_MISMATCH: "运行环境不匹配", POLICY_REJECTED: "检查被安全规则停止", INVALID_ARGUMENTS: "检查尚未开始",
-        CHECK_RESULT_UNAVAILABLE: "检查结果待核对" } as Record<string, string>)[code ?? ""] ?? "检查结果待核对";
+        TYPECHECK_FAILED: "前端类型检查未通过", FRONTEND_BUILD_FAILED: "前端构建未通过",
+        LOCKFILE_INVALID: "前端锁文件不匹配或无效", UNSUPPORTED_FRONTEND_CONFIGURATION: "前端配置暂不支持",
+        FRONTEND_ENVIRONMENT_MISMATCH: "前端工具环境不匹配", CHECK_TIMEOUT: "检查超时或输出超限",
+        TEST_EXECUTION_UNVERIFIED: "脚本已结束，测试执行未获验证", CHECK_PROCESS_FAILED: "检查进程未成功结束",
+        CHECK_NOT_AVAILABLE: "项目未提供此项受支持检查", CHECK_RESULT_UNAVAILABLE: "检查结果待核对" } as Record<string, string>)[code ?? ""] ?? "检查结果待核对";
 }
 function record(value: unknown): value is Record<string, unknown> {
     return !!value && typeof value === "object" && !Array.isArray(value);
@@ -36,12 +40,51 @@ function record(value: unknown): value is Record<string, unknown> {
 function count(value: unknown): number | null {
     return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
+
+export function presentSourceView(raw: string): string {
+    try {
+        const value: unknown = JSON.parse(raw);
+        if (!record(value) || !record(value.sourceView)) return "";
+        const view = value.sourceView;
+        const omitted = count(view.preservedOnlyCount);
+        const readOnly = count(view.readOnlyResourceCount);
+        if (view.kind === "PROJECTED" && omitted !== null && omitted > 0) {
+            return `检查使用执行投影；${omitted} 项资源保留在原仓库，未进入执行环境。`;
+        }
+        if (view.kind === "FULL" && omitted === 0 && readOnly !== null) {
+            return readOnly > 0 ? `检查包含 ${readOnly} 项只读资源；这些资源未向模型披露，也未获修改授权。` : "";
+        }
+        return "执行材料范围待核对。";
+    } catch { return ""; }
+}
 export interface TestPresentation {
     label: string;
     outcome: string;
     scope: string;
     tone: "success" | "danger" | "neutral" | "warning";
     counts: { executed: number; passed: number | null; failed: number | null; errored: number | null; skipped: number | null } | null;
+}
+
+function checkScope(check: Record<string, unknown>): string {
+    const type = check.checkType === "FRONTEND" ? "前端" : "Maven";
+    const directory = typeof check.directory === "string" && /^[\p{L}\p{N}._/ -]{1,200}$/u.test(check.directory)
+        && !check.directory.includes("..") && !check.directory.includes(".env") ? check.directory : "工程目录未记录";
+    const goal = ["typecheck", "build", "test", "verify", "compile", "package"].includes(String(check.goal))
+        ? String(check.goal) : "检查目标未记录";
+    return `${type} · ${directory} · ${goal}`;
+}
+
+export function presentCheckRows(raw: string) {
+    try {
+        const value: unknown = JSON.parse(raw);
+        if (!record(value) || !Array.isArray(value.checks)) return [];
+        return value.checks.filter(record).map(check => ({
+            scope: checkScope(check), label: verificationLabel(String(check.classification)),
+            stale: check.stale !== false || check.snapshot !== value.finalSnapshot,
+            executed: ["TESTS_PASSED", "TESTS_FAILED"].includes(String(check.classification))
+                ? count(check.executedTests) : null,
+        }));
+    } catch { return []; }
 }
 export function presentTestEvidence(raw: string): TestPresentation {
     const unknown: TestPresentation = { label: "检查证据待核对", outcome: "没有可确认的当前源码测试结果。",
@@ -69,7 +112,8 @@ export function presentTestEvidence(raw: string): TestPresentation {
     const contradictory = failed !== null && errored !== null && (failed + errored > executed || passed && failed + errored > 0);
     if (contradictory) return unknown;
     return { label: "已测试", outcome: verificationLabel(String(meaningful.classification)),
-        scope: meaningful.selectedTest || meaningful.module ? "指定范围的测试结果" : "完整测试范围",
+        scope: meaningful.checkType ? checkScope(meaningful)
+            : meaningful.selectedTest || meaningful.module ? "指定范围的测试结果" : "完整测试范围",
         tone: passed ? "success" : "danger", counts: { executed, passed: failed === null || errored === null
             ? null : executed - failed - errored, failed, errored, skipped: count(meaningful.skipped) } };
 }

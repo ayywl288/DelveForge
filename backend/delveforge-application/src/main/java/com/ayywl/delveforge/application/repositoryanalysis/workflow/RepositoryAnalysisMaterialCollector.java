@@ -10,6 +10,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 从 Workspace 读出一次 Repository 分析的材料。
@@ -17,7 +18,7 @@ import java.util.Map;
  * <pre>
  * listEntries(ref, revision, "", 整棵树)
  *         ↓  排除 + 按用途分类 + 类别轮转（策略见 RepositoryAnalysisMaterialPolicy）
- * readFile(ref, revision, path)
+ * readModelFile(ref, revision, path)（不可披露资源不进入材料）
  *         ↓
  * RepositorySourceFile(path, content)
  * </pre>
@@ -25,7 +26,7 @@ import java.util.Map;
  * <h2>路径来自真实读取链路</h2>
  *
  * <p>每个材料的路径都取自 {@link WorkspaceReadPort#listEntries} 返回的条目，
- * 内容来自对**同一个路径**的 {@link WorkspaceReadPort#readFile}。
+ * 内容来自对**同一个路径**的 {@link WorkspaceReadPort#readModelFile}。
  * 本类不构造、不拼接、不猜测任何路径——因此后续 Evidence 的 {@code sourceRef}
  * 指向的是真实读过的文件，而不是看起来合理的位置。
  *
@@ -161,8 +162,12 @@ public final class RepositoryAnalysisMaterialCollector {
                         return List.copyOf(material);
                     }
 
-                    String content =
-                            this.workspace.readFile(workspace, revision, candidate.relativePath());
+                    Optional<String> visible =
+                            this.workspace.readModelFile(workspace, revision, candidate.relativePath());
+                    if (visible.isEmpty()) {
+                        continue;
+                    }
+                    String content = visible.get();
                     if (content.length() > policy.maxFileBytes()) {
                         continue;
                     }

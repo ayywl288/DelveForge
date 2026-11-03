@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
+import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
@@ -75,6 +76,54 @@ class DockerDependencyPreparationTest {
                 throw cause;
             }
             throw failure;
+        }
+    }
+
+    @Test
+    void timeoutCapturesBoundedSanitizedProgressBeforeCleanupAndKeepsSourceUntouched() throws Exception {
+        var fixture = new DockerAgentSandboxTest();
+        fixture.temporary = temporary;
+        Path official = fixture.fixture();
+        String secret = "private-fixture-" + UUID.randomUUID();
+        Files.writeString(official.resolve(".env.local"), "DB_PASSWORD=" + secret + "\n");
+        // 超时由自有测试夹具触发，不依赖网络慢或缓存恰好未命中。
+        Files.writeString(official.resolve("src/test/java/example/SlowTest.java"), """
+                package example;
+                import org.junit.jupiter.api.Test;
+                class SlowTest {
+                    @Test void deliberateWait() throws Exception { Thread.sleep(30000); }
+                }
+                """);
+        fixture.git(official, "add", ".env.local", "src/test/java/example/SlowTest.java");
+        fixture.git(official, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "private fixture");
+        String baseline = fixture.git(official, "rev-parse", "HEAD");
+        var defaults = AgentProtocol.Limits.defaults();
+        var limits = new AgentProtocol.Limits(defaults.maxContextChars(), defaults.maxOutputBytes(),
+                defaults.maxPatchBytes(), defaults.maxFileBytes(), defaults.maxCandidateBytes(),
+                defaults.maxFiles(), 1, defaults.dependencyRetries());
+        DockerAgentSandbox sandbox = sandbox();
+        String id = UUID.randomUUID().toString();
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", baseline,
+                    "timeout diagnostic", "no edits", "no edits", 21), limits, () -> false);
+            JsonNode before = snapshot(sandbox, id);
+            InvocationTargetException wrapped = assertThrows(InvocationTargetException.class,
+                    () -> method("prepareDependencies").invoke(sandbox, session(sandbox, id),
+                            json.createObjectNode().put("goal", "test"), (BooleanSupplier) () -> false));
+            var failure = (AgentException) wrapped.getCause();
+            assertEquals("TIME_LIMIT", failure.code());
+            JsonNode diagnostic = json.readTree(failure.getMessage());
+            assertEquals("MAVEN_DEPENDENCY_PREPARATION", diagnostic.path("phase").asText());
+            assertEquals(3, diagnostic.path("limitSeconds").asInt());
+            assertTrue(diagnostic.has("lastMavenPhase") || diagnostic.has("mavenLogUnavailable"));
+            assertTrue(diagnostic.has("proxyProgress") || diagnostic.has("proxyProgressUnavailable"));
+            assertFalse(failure.getMessage().contains(secret));
+            assertTrue(failure.getMessage().length() < 32768);
+            assertEquals(before, snapshot(sandbox, id));
+            assertEquals(baseline, fixture.git(official, "rev-parse", "HEAD"));
+            assertEquals("", fixture.git(official, "status", "--porcelain"));
+        } finally {
+            sandbox.cleanup(id);
         }
     }
 

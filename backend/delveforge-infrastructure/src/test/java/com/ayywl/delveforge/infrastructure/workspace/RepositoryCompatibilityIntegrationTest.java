@@ -22,6 +22,31 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RepositoryCompatibilityIntegrationTest {
+    @ParameterizedTest
+    @ValueSource(strings = {"npm", "pnpm"})
+    void standaloneVueProjectCanBePreparedWithoutInventingAMavenBackend(String manager) throws Exception {
+        String version = manager.equals("npm") ? "9.9.4" : "9.11.0";
+        String lock = manager.equals("npm") ? "package-lock.json" : "pnpm-lock.yaml";
+        String manifest = "{\"packageManager\":\"" + manager + "@" + version
+                + "\",\"dependencies\":{\"vue\":\"3.5.17\"},\"devDependencies\":{\"vite\":\"6.3.5\","
+                + "\"typescript\":\"5.8.3\"},\"scripts\":{\"build\":\"vite build\"}}";
+        Path source = repositories.createCommitted("vue-only", Map.of("package.json", manifest, lock, "{}",
+                "src/main.ts", "export const value = 1;\n"));
+        String baseline = GitTestRepositories.headRevision(source);
+        var assessment = compatibility.inspect(source, baseline).report();
+        assertTrue(assessment.supported());
+        assertTrue(assessment.modules().isEmpty());
+        var workspace = new GitWorkspaceAdapter(repositories.directory("managed"));
+        var copy = workspace.provision(new WorkspaceRef(source.toString()), baseline, "copy");
+        assertEquals(baseline, copy.revision());
+        assertEquals("", GitTestRepositories.runGit(Path.of(copy.workspace().value()), "status", "--porcelain"));
+        workspace.discard(copy);
+        GitTestRepositories.writeFile(source, manager.equals("npm") ? "pnpm-lock.yaml" : "package-lock.json", "{}");
+        GitTestRepositories.runGit(source, "add", ".");
+        GitTestRepositories.commit(source, "conflicting locks");
+        assertFalse(compatibility.inspect(source, GitTestRepositories.headRevision(source)).report().supported());
+    }
+
     private static final String POM = "<project><modelVersion>4.0.0</modelVersion><groupId>fixture</groupId>"
             + "<artifactId>compatible</artifactId><version>1</version><properties><maven.compiler.release>17"
             + "</maven.compiler.release></properties></project>";
@@ -208,10 +233,15 @@ class RepositoryCompatibilityIntegrationTest {
     }
 
     @Test
-    void protectedPathsAndSpecialModesAreExplicitBlockers() throws Exception {
+    void sensitivePathsArePreservedOnlyWhileSpecialModesRemainExplicitBlockers() throws Exception {
         Path source = repositories.createCommitted("original", Map.of("pom.xml", POM, ".env", "PRIVATE=canary"));
-        assertTrue(compatibility.inspect(source, GitTestRepositories.headRevision(source)).report().issues()
-                .stream().anyMatch(issue -> issue.code().equals("PROTECTED_CREDENTIAL_PATH")));
+        var inspection = compatibility.inspect(source, GitTestRepositories.headRevision(source));
+        assertTrue(inspection.report().supported());
+        assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY, inspection.resources().get(".env").kind());
+        assertFalse(inspection.resources().get(".env").executionAvailable());
+        assertFalse(inspection.resources().get(".env").modelVisible());
+        assertTrue(inspection.report().issues().stream().anyMatch(issue -> issue.code().equals("PRESERVED_ONLY_RESOURCE")));
+        assertEquals("PRIVATE=canary", GitTestRepositories.runGit(source, "show", "HEAD:.env").trim());
         String object = GitTestRepositories.runGit(source, "rev-parse", "HEAD:pom.xml").trim();
         GitTestRepositories.runGit(source, "update-index", "--add", "--cacheinfo", "120000," + object + ",link");
         GitTestRepositories.commit(source, "unsafe symbolic entry");
@@ -228,6 +258,18 @@ class RepositoryCompatibilityIntegrationTest {
         GitTestRepositories.commit(source, "case-conflicting directories");
         assertTrue(compatibility.inspect(source, GitTestRepositories.headRevision(source)).report().issues()
                 .stream().anyMatch(issue -> issue.code().equals("GIT_PATH_UNSUPPORTED")));
+    }
+
+    @Test
+    void withholdingContentCannotBypassGitTransformOrReservedDirectoryRules() throws Exception {
+        Path source = repositories.createCommitted("content-cannot-grant-structural-access", Map.of("pom.xml", POM,
+                ".gitattributes", "* filter=unsafe\n# password=private-fixture\n"));
+        var report = compatibility.inspect(source, GitTestRepositories.headRevision(source)).report();
+        assertFalse(report.supported());
+        assertTrue(report.issues().stream().anyMatch(issue -> issue.code().equals("GIT_ATTRIBUTES_UNSUPPORTED")));
+        assertFalse(GitRepositoryCompatibility.safePath(".npmrc/hidden.txt"));
+        assertFalse(GitRepositoryCompatibility.safePath(".env/.env"));
+        assertTrue(GitRepositoryCompatibility.safePath(".env.example"));
     }
     @Test
     void pomAndTargetDirectoriesInsideTestResourcesRemainImmutableOriginalAssets() throws Exception {

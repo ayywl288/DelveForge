@@ -1,0 +1,21 @@
+{
+    "name": "controlled-fullstack-fixture",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "packageManager": "pnpm@12.9.1",
+    "scripts": {
+        "typecheck": "vue-tsc --noEmit",
+        "build": "vite build",
+        "test": "vitest run",
+        "postinstall": "node -e \"require('fs').writeFileSync('INSTALL_SCRIPT_RAN','bad')\""
+    },
+    "dependencies": { "vue": "3.5.17" },
+    "devDependencies": {
+        "@vitejs/plugin-vue": "5.2.4",
+        "typescript": "5.8.3",
+        "vite": "6.3.5",
+        "vitest": "3.2.4",
+        "vue-tsc": "2.2.12"
+    }
+}

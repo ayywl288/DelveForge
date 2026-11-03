@@ -81,6 +81,31 @@ public final class AgentToolActivity {
             for (String key : List.of("tests", "executedTests", "skipped", "failures", "errors")) {
                 count(summary, details, key);
             }
+            if (Set.of("run_checks", "run_frontend_checks").contains(call.name())) {
+                String snapshot = details.path("snapshot").asText();
+                if (snapshot.matches("[0-9a-f]{64}")) {
+                    summary.put("snapshot", snapshot);
+                }
+                String directory = details.path("directory").asText();
+                if (displayPath(directory, true)) {
+                    summary.put("directory", directory);
+                }
+                if (Set.of("npm", "pnpm").contains(details.path("packageManager").asText())) {
+                    summary.put("packageManager", details.path("packageManager").asText());
+                }
+                if (Set.of("NOT_STARTED", "EXECUTED", "UNKNOWN").contains(details.path("executionStatus").asText())) {
+                    summary.put("executionStatus", details.path("executionStatus").asText());
+                }
+                if (Set.of("node-junit", "vitest-json", "node-junit+vitest-json").contains(details.path("runner").asText())) {
+                    summary.put("runner", details.path("runner").asText());
+                }
+                if (details.path("configurationSnapshot").asText().matches("[0-9a-f]{64}")) {
+                    summary.put("configurationSnapshot", details.path("configurationSnapshot").asText());
+                }
+                if (details.path("configurationChanged").isBoolean()) {
+                    summary.put("configurationChanged", details.path("configurationChanged").asBoolean());
+                }
+            }
             // 只取成功应用后受控工具返回的已检查路径，绝不解析 patch 文本。
             JsonNode paths = details.path("paths");
             if (AgentTools.mutation(call.name()) && response.path("ok").asBoolean()
@@ -207,10 +232,12 @@ public final class AgentToolActivity {
                 } else {
                     summary.put("targetState", "withheld");
                 }
-            } else if (call.name().equals("run_checks")) {
+            } else if (Set.of("run_checks", "run_frontend_checks").contains(call.name())) {
+                summary.put("checkType", call.name().equals("run_frontend_checks") ? "FRONTEND" : "MAVEN");
                 summary.put("goal", args.path("goal").asText("test"));
                 for (String key : List.of("module", "directory")) {
-                    String path = args.path(key).asText(key.equals("directory") ? "." : "");
+                    String path = args.path(key).asText(key.equals("directory")
+                            ? call.name().equals("run_frontend_checks") ? "" : "." : "");
                     if (displayPath(path, true)) {
                         summary.put(key, path);
                     } else if (!path.isEmpty()) {
