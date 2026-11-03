@@ -151,8 +151,10 @@ class FrontendPolicyTest(unittest.TestCase):
         with patch.object(sandbox, 'run_bounded', side_effect=self.fake_run) as run:
             self.assertEqual('DEPENDENCIES_PREPARED', frontend.prepare(sandbox, {'goal': 'build'})['classification'])
         self.assertIn('--ignore-scripts', run.call_args.args[0])
-        self.assertFalse((self.prepare_dir / 'pnpm-workspace.yaml').exists())
-        for raw in ('packages: ["packages/*"]', 'registry: https://untrusted.invalid',
+        self.assertEqual({'packages': ['.']}, frontend.root_only_configuration(self.prepare_dir / 'pnpm-workspace.yaml'))
+        config.write_text('packages: ["packages/*"]')
+        self.assertEqual({'packages': ['packages/*']}, frontend.root_only_configuration(config))
+        for raw in ('packages: ["../outside"]', 'registry: https://untrusted.invalid',
                     'allowBuilds: {esbuild: "echo bad"}', 'allowBuilds: &builds {esbuild: true}'):
             config.write_text(raw)
             with self.assertRaises(frontend.Unsupported):
@@ -180,6 +182,23 @@ class FrontendPolicyTest(unittest.TestCase):
                 self.assertNotIn('scripts', json.loads((self.prepare_dir / 'package.json').read_text()))
                 self.assertNotIn('packageManager', json.loads((self.prepare_dir / 'package.json').read_text()))
                 self.assertEqual(before, sandbox.snapshot()['snapshot'])
+
+    def test_pinned_toolchain_document_is_not_a_project_lock_or_runtime_download_request(self):
+        import yaml
+        self.project_metadata('pnpm')
+        lock = self.project / 'pnpm-lock.yaml'
+        project_document = lock.read_text()
+        toolchain = {'lockfileVersion': '9.0', 'importers': {'.': {'configDependencies': {},
+            'packageManagerDependencies': {'pnpm': {'specifier': frontend.PNPM_VERSION,
+                                                   'version': frontend.PNPM_VERSION}}}}, 'packages': {}}
+        lock.write_text(yaml.safe_dump(toolchain) + '---\n' + project_document)
+        original = lock.read_bytes()
+        with patch.object(sandbox, 'run_bounded', side_effect=self.fake_run) as run:
+            self.assertEqual('DEPENDENCIES_PREPARED', frontend.prepare(sandbox, {'goal': 'build'})['classification'])
+        self.assertIn('--config.manage-package-manager-versions=false', run.call_args.args[0])
+        prepared = list(yaml.safe_load_all((self.prepare_dir / 'pnpm-lock.yaml').read_text()))
+        self.assertEqual([yaml.safe_load(project_document)], prepared)
+        self.assertEqual(original, lock.read_bytes())
 
     def test_existing_manager_versions_and_optional_checks_do_not_reject_buildable_projects(self):
         for manager, version in (('npm', '9.9.4'), ('npm', '11.6.2'), ('pnpm', '9.11.0'), ('pnpm', '10.13.1')):
@@ -235,8 +254,7 @@ class FrontendPolicyTest(unittest.TestCase):
                 frontend.metadata(sandbox, {'goal': 'build'})
         self.project_metadata()
         lock.unlink()
-        with self.assertRaises(frontend.Unsupported):
-            frontend.metadata(sandbox, {'goal': 'build'})
+        self.assertIsNone(frontend.metadata(sandbox, {'goal': 'build'})[-1])
         self.project_metadata()
         (self.root / '.pnpmfile.cjs').write_text('throw new Error("never execute")')
         with self.assertRaises(frontend.Unsupported):
@@ -248,8 +266,10 @@ class FrontendPolicyTest(unittest.TestCase):
         data = json.loads(lock.read_text())
         data['packages']['']['dependencies']['vue'] = '2.0.0'
         lock.write_text(json.dumps(data))
-        with self.assertRaises(frontend.Unsupported):
-            frontend.metadata(sandbox, {'goal': 'build'})
+        self.assertEqual('npm', frontend.metadata(sandbox, {'goal': 'build'})[-2])
+        with patch.object(sandbox, 'run_bounded', return_value=(1, 'npm ERR! EUSAGE lock file inconsistent')) as native:
+            self.assertEqual('LOCKFILE_INVALID', frontend.prepare(sandbox, {'goal': 'build'})['classification'])
+        self.assertEqual(['npm', 'ci'], native.call_args.args[0][:2])
 
         self.project_metadata('npm')
         data = json.loads(lock.read_text())

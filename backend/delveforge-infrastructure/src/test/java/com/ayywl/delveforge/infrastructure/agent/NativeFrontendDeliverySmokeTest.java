@@ -142,7 +142,7 @@ class NativeFrontendDeliverySmokeTest {
         var candidate = database.store.candidate(candidateId);
         assertTrue(String.join("\n", observed).contains("CHECK_MATERIAL_UNAVAILABLE"));
         var evidence = json.readTree(candidate.testEvidence());
-        assertEquals(3, evidence.path("evidenceVersion").asInt());
+        assertEquals(4, evidence.path("evidenceVersion").asInt());
         assertEquals("TESTS_FAILED", evidence.path("checks").get(0).path("classification").asText());
         assertEquals("TESTS_FAILED", evidence.path("checks").get(1).path("classification").asText());
         assertEquals(2, evidence.path("checks").get(1).path("executedTests").asInt());

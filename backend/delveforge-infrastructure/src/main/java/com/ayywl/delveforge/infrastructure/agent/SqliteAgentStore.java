@@ -85,8 +85,8 @@ public final class SqliteAgentStore implements AgentStore {
         transaction(connection -> {
             try {
                 requireOne(update(connection, """
-                        INSERT INTO agent_run(id,plan_id,step_id,working_copy_id,baseline,state,started_at)
-                        SELECT ?,p.id,s.id,w.id,?,'CREATED',? FROM evolution_plan p
+                        INSERT INTO agent_run(id,plan_id,step_id,working_copy_id,baseline,state,started_at,tokens)
+                        SELECT ?,p.id,s.id,w.id,?,'CREATED',?,0 FROM evolution_plan p
                         JOIN evolution_step s ON s.plan_id=p.id JOIN working_copy w ON w.id=p.working_copy_id
                         JOIN software_asset a ON a.id=p.base_asset_id
                         WHERE p.id=? AND s.id=? AND w.id=? AND p.status='ACTIVE' AND s.status='READY'

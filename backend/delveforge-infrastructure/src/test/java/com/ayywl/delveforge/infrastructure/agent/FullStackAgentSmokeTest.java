@@ -42,6 +42,8 @@ class FullStackAgentSmokeTest {
     @ParameterizedTest
     @ValueSource(strings = {"maven", "npm", "pnpm"})
     void failedFullStackChecksAreCorrectedFrozenAndDeliveredWithoutTouchingOriginal(String manager) throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(System.getProperty("delveforge.smoke.manager") == null
+                || manager.equals(System.getProperty("delveforge.smoke.manager")), "Explicit manager regression rerun");
         var fixture = new DockerAgentSandboxTest();
         fixture.temporary = Files.createDirectories(temporary.resolve("asset"));
         Path original = fixture.fixture();
@@ -155,7 +157,7 @@ class FullStackAgentSmokeTest {
             var terminal = CodingAgentServiceTest.awaitTerminal(agent, run.id(), workflowSeconds);
             assertEquals(AgentRunState.SUCCEEDED, terminal.state(), terminal.reason()
                     + "\n" + database.store.events(run.id(), 0, 200).stream()
-                        .filter(event -> event.kind().equals("TOOL_FINISHED"))
+                        .filter(event -> event.kind().equals("TOOL_FINISHED") || event.kind().equals("ENVIRONMENT_PREFLIGHT"))
                         .map(AgentProtocol.Event::summary).toList()
                     + "\n" + String.join("\n", observations));
             candidateId = terminal.candidateId();
@@ -177,7 +179,7 @@ class FullStackAgentSmokeTest {
             assertFalse(candidate.testEvidence().contains("FRONTEND"));
         }
         assertTrue(candidate.changedPaths().contains("src/main/java/example/Counter.java"));
-        assertEquals(3, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
+        assertEquals(4, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
         assertEquals("PROJECTED", json.readTree(candidate.testEvidence()).path("sourceView").path("kind").asText());
         assertEquals(1, json.readTree(candidate.testEvidence()).path("sourceView").path("preservedOnlyCount").asInt());
         assertFalse(candidate.diff().contains("INSTALL_SCRIPT_RAN"));
@@ -185,7 +187,8 @@ class FullStackAgentSmokeTest {
                 .filter(invocation -> invocation.getMethod().getName().equals("run"))
                 .map(invocation -> ((List<?>) invocation.getArgument(0)).stream().map(Object::toString).toList())
                 .filter(command -> command.contains("run") && command.contains("--name")).toList();
-        assertEquals(mixed ? 3 : 0, containers.stream().filter(command -> command.stream()
+        // 基线预检先准备一次；三次依赖配置变更各自失效，后续同配置检查复用准备。
+        assertEquals(mixed ? 4 : 0, containers.stream().filter(command -> command.stream()
                 .anyMatch(value -> value.endsWith("-frontend-prepare"))).count());
         for (List<String> command : containers) {
             if (command.stream().anyMatch(value -> value.endsWith("-frontend-check"))) {

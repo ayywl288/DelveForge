@@ -35,6 +35,46 @@ public record MavenRepositoryLayout(String directory, List<String> modules, int 
     }
 
     public static MavenRepositoryLayout inspect(Map<String, byte[]> inputs) {
+        return inspect(inputs, null);
+    }
+
+    /** 仅发现入口；profile 的激活、生效模型和插件执行交给实际 Maven。 */
+    public static List<String> rootDirectories(Map<String, byte[]> inputs) {
+        List<String> names = inputs.keySet().stream()
+                .filter(path -> !path.startsWith("src/") && !path.contains("/src/")).sorted().toList();
+        if (names.size() > 128 || names.stream().mapToInt(name -> name.getBytes(StandardCharsets.UTF_8).length).sum() > 8192) {
+            throw new Unsupported("MAVEN_MODULE_LIMIT", "Maven 描述超过 128 个或 8 KiB 路径元数据预算。");
+        }
+        Set<String> modules = new HashSet<>();
+        for (String name : names) {
+            try {
+                DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+                factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+                factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "");
+                factory.setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+                var parser = factory.newDocumentBuilder();
+                parser.setErrorHandler(new DefaultHandler());
+                Element pom = parser.parse(new ByteArrayInputStream(inputs.get(name))).getDocumentElement();
+                var declarations = pom.getElementsByTagName("module");
+                for (int i = 0; i < declarations.getLength(); i++) {
+                    String relative = declarations.item(i).getTextContent().trim();
+                    if (!relative.isEmpty() && !relative.contains("${")) {
+                        String child = resolve(name, relative + "/pom.xml");
+                        if (names.contains(child)) {
+                            modules.add(child);
+                        }
+                    }
+                }
+            } catch (Exception invalid) {
+                // 无法静态解释的 POM 仍是候选；不能据此拒绝整个安全 Git 仓库。
+            }
+        }
+        List<String> roots = names.stream().filter(name -> !modules.contains(name)).toList();
+        return (roots.isEmpty() ? names : roots).stream().map(MavenRepositoryLayout::directory).toList();
+    }
+
+    /** 显式入口只影响本次构建选择，不改变仓库身份或 Step 的修改范围。 */
+    public static MavenRepositoryLayout inspect(Map<String, byte[]> inputs, String selectedDirectory) {
         Map<String, Element> poms = new HashMap<>();
         for (var entry : inputs.entrySet()) {
             if (entry.getKey().contains("/src/") || entry.getKey().startsWith("src/")) {
@@ -64,6 +104,11 @@ public record MavenRepositoryLayout(String directory, List<String> modules, int 
             } catch (Unsupported failure) {
                 throw failure;
             } catch (Exception failure) {
+                String selected = selectedDirectory == null ? null
+                        : selectedDirectory.equals(".") ? "pom.xml" : selectedDirectory + "/pom.xml";
+                if (selected != null && !entry.getKey().equals(selected)) {
+                    continue;
+                }
                 throw new Unsupported("MAVEN_CONFIGURATION", "无法安全解析 Maven 配置，请检查 POM。");
             }
         }
@@ -77,32 +122,24 @@ public record MavenRepositoryLayout(String directory, List<String> modules, int 
             for (Element child : children(child(entry.getValue(), "modules"), "module")) {
                 String value = child.getTextContent().trim();
                 String path = resolve(entry.getKey(), value + "/pom.xml");
-                if (!poms.containsKey(path)) {
-                    throw new Unsupported("MAVEN_MODULE_MISSING", "声明的 Maven 模块缺失或超出仓库，请检查模块路径。");
-                }
                 modules.add(path);
                 children.add(path);
             }
             edges.put(entry.getKey(), modules);
-            Element profiles = child(entry.getValue(), "profiles");
-            if (profiles != null && (profiles.getElementsByTagName("modules").getLength() > 0
-                    || profiles.getElementsByTagName("jdk").getLength() > 0
-                    || profiles.getElementsByTagName("java.version").getLength() > 0
-                    || profiles.getElementsByTagName("maven.compiler.release").getLength() > 0
-                    || profiles.getElementsByTagName("maven.compiler.source").getLength() > 0
-                    || profiles.getElementsByTagName("maven.compiler.target").getLength() > 0
-                    || profiles.getElementsByTagName("release").getLength() > 0
-                    || profiles.getElementsByTagName("source").getLength() > 0
-                    || profiles.getElementsByTagName("target").getLength() > 0)) {
-                throw new Unsupported("MAVEN_PROFILE_AMBIGUOUS", "构建入口或 JDK 取决于 Maven profile，需要明确构建选择。");
-            }
         }
         List<String> roots = poms.keySet().stream().filter(path -> !children.contains(path)).sorted().toList();
-        if (roots.size() != 1) {
-            throw new Unsupported("MAVEN_ROOT_AMBIGUOUS", "存在多个独立 Maven 入口或模块循环，需要明确要构建的项目。");
+        String selected = selectedDirectory == null ? null
+                : selectedDirectory.equals(".") ? "pom.xml" : selectedDirectory + "/pom.xml";
+        if (selected == null && roots.size() != 1) {
+            throw new Unsupported("MAVEN_ROOT_AMBIGUOUS", "请选择 Maven 入口："
+                    + String.join(", ", roots.stream().map(MavenRepositoryLayout::directory).toList()));
         }
+        if (selected != null && !poms.containsKey(selected)) {
+            throw new Unsupported("MAVEN_REQUIRED", "所选目录没有可读取的 Maven POM。");
+        }
+        String root = selected == null ? roots.getFirst() : selected;
         List<String> reactor = new ArrayList<>();
-        visit(roots.getFirst(), edges, new HashSet<>(), new HashSet<>(), reactor);
+        visit(root, edges, new HashSet<>(), new HashSet<>(), reactor);
         if (reactor.stream().mapToInt(path -> path.getBytes(StandardCharsets.UTF_8).length).sum() > 8192) {
             throw new Unsupported("MAVEN_MODULE_LIMIT", "Maven 模块路径超过 8 KiB 受控元数据预算。");
         }
@@ -161,12 +198,15 @@ public record MavenRepositoryLayout(String directory, List<String> modules, int 
             }
         }
         int recommended = level == 17 ? 17 : 21;
-        return new MavenRepositoryLayout(directory(roots.getFirst()),
+        return new MavenRepositoryLayout(directory(root),
                 reactor.stream().map(MavenRepositoryLayout::directory).toList(), level, minimum, recommended);
     }
 
     private static void visit(String name, Map<String, List<String>> edges, Set<String> visiting,
             Set<String> visited, List<String> result) {
+        if (!edges.containsKey(name)) {
+            throw new Unsupported("MAVEN_MODULE_MISSING", "所选 reactor 声明的模块缺失或无法安全解析。");
+        }
         if (!visiting.add(name)) {
             throw new Unsupported("MAVEN_MODULE_CYCLE", "Maven 模块存在循环，请检查 reactor。");
         }

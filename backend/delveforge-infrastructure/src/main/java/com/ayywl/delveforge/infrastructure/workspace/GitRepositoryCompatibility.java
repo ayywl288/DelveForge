@@ -6,9 +6,6 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
 import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
@@ -125,7 +122,8 @@ public final class GitRepositoryCompatibility {
             }
             if (path.equals("pom.xml") || path.endsWith("/pom.xml")) {
                 if (size > EDITABLE_FILE_BYTES) {
-                    issues.add(block("MAVEN_CONFIGURATION", path, "POM 超过静态解析预算。"));
+                    issues.add(new Issue("REQUIRES_EXPLICIT_USER_DECISION", "MAVEN_CONFIGURATION", path,
+                            "POM 超过静态解析预算；环境预检将单独诊断构建能力。", false));
                 } else {
                     poms.put(path, blob(repository, meta[2]));
                 }
@@ -143,23 +141,11 @@ public final class GitRepositoryCompatibility {
         try {
             layout = MavenRepositoryLayout.inspect(buildPoms);
         } catch (MavenRepositoryLayout.Unsupported failure) {
-            if (!failure.code().equals("MAVEN_REQUIRED") || !hasFrontendProject(repository, entries)) {
-                boolean frontendMetadata = failure.code().equals("MAVEN_REQUIRED") && entries.keySet().stream()
-                        .anyMatch(path -> path.equals("package.json") || path.endsWith("/package.json"));
-                issues.add(new Issue(failure.code().equals("MAVEN_REQUIRED") || failure.code().equals("JDK_UNSUPPORTED")
-                        ? "GENUINELY_UNSUPPORTED" : "REQUIRES_EXPLICIT_USER_DECISION",
-                        frontendMetadata ? "FRONTEND_CONFIGURATION" : failure.code(), "",
-                        frontendMetadata ? "前端工程需要 Vue 3/Vite、唯一 npm/pnpm 锁文件及兼容的 packageManager；不支持混用或多包 workspace。"
-                                : failure.getMessage(), true));
-            }
+            // 构建布局/JDK 不是 Git 安全准入；运行前必须由真实环境预检重新判断。
+            issues.add(new Issue("REQUIRES_EXPLICIT_USER_DECISION", failure.code(), "",
+                    failure.getMessage() + " 构建就绪性在首次模型调用前单独检查。", false));
         }
-        Map<String, byte[]> modulePoms = new LinkedHashMap<>();
-        if (layout != null) {
-            for (String module : layout.modules()) {
-                String pom = module.equals(".") ? "pom.xml" : module + "/pom.xml";
-                modulePoms.put(pom, poms.get(pom));
-            }
-        }
+        Map<String, byte[]> modulePoms = new LinkedHashMap<>(buildPoms);
         List<String> generated = new ArrayList<>();
         List<String> immutable = new ArrayList<>();
         Map<String, RepositoryContentPolicy.Capability> resources = new LinkedHashMap<>();
@@ -171,7 +157,8 @@ public final class GitRepositoryCompatibility {
                 String path = item.getKey();
                 Entry entry = item.getValue();
                 if (path.equals(".mvn/extensions.xml") || path.endsWith("/.mvn/extensions.xml")) {
-                    issues.add(block("MAVEN_EXTENSION_UNSUPPORTED", path, "项目使用 Maven 扩展，需要明确受控环境支持。"));
+                    issues.add(new Issue("REQUIRES_EXPLICIT_USER_DECISION", "MAVEN_EXTENSION_UNSUPPORTED", path,
+                            "项目使用 Maven 扩展；不影响安全保留，执行前需核对受控环境。", false));
                 }
                 if (modulePoms.containsKey(path)) {
                     String pom = utf8(modulePoms.get(path));
@@ -181,7 +168,7 @@ public final class GitRepositoryCompatibility {
                     }
                     if (pom != null && pom.matches("(?s).*<systemPath(\\s[^>]*)?>.*")) {
                         issues.add(new Issue("REQUIRES_EXPLICIT_USER_DECISION", "LOCAL_BUILD_PREREQUISITE", path,
-                                "构建依赖本地 systemPath；需要明确受控容器中可用的依赖，不自动改写 POM。", true));
+                                "构建依赖本地 systemPath；需要明确受控容器中可用的依赖，不自动改写 POM。", false));
                     }
                 }
                 if (path.equals(".mvn/maven.config") || path.endsWith("/.mvn/maven.config")) {
@@ -189,7 +176,7 @@ public final class GitRepositoryCompatibility {
                     if (config == null || config.matches("(?s).*(--(settings|global-settings|file|toolchains|activate-profiles)"
                             + "|(^|\\s)-[Psfgt]|maven\\.compiler\\.(release|source|target)|java\\.version).*")) {
                         issues.add(new Issue("REQUIRES_EXPLICIT_USER_DECISION", "MAVEN_LOCAL_CONFIGURATION", path,
-                                "项目 Maven 参数改变入口、profile、JDK 或外部配置；需要明确受控构建选择。", true));
+                                "项目 Maven 参数改变入口、profile、JDK 或外部配置；需要明确受控构建选择。", false));
                     }
                 }
                 String root = generatedRoot(path, modulePoms.keySet());
@@ -247,48 +234,11 @@ public final class GitRepositoryCompatibility {
         }
         RepositoryCompatibility report = new RepositoryCompatibility(revision,
                 blocked ? "BLOCKED" : generated.isEmpty() ? "COMPATIBLE" : "PREPARATION_REQUIRED", POLICY,
-                layout == null ? null : layout.directory(), layout == null ? List.of() : layout.modules(),
+                layout == null ? null : layout.directory(), modulePoms.keySet().stream()
+                        .map(path -> path.equals("pom.xml") ? "." : path.substring(0, path.length() - 8)).sorted().toList(),
                 layout == null ? null : layout.recommendedJdk(), bytes, entries.size(), textFiles, opaqueFiles,
                 generated.stream().sorted().toList(), immutable.stream().sorted().toList(), issues);
         return new Inspection(report, entries, modulePoms, resources);
-    }
-
-    /** 只认固定 Git tree 中的 Vue 工程元数据；具体锁文件与脚本仍由隔离检查工具验证。 */
-    private boolean hasFrontendProject(Path repository, Map<String, Entry> entries) {
-        for (var item : entries.entrySet()) {
-            String path = item.getKey();
-            if (!(path.equals("package.json") || path.endsWith("/package.json"))
-                    || item.getValue().size() > EDITABLE_FILE_BYTES || path.contains("/node_modules/")) {
-                continue;
-            }
-            String prefix = path.substring(0, path.length() - "package.json".length());
-            boolean npm = entries.containsKey(prefix + "package-lock.json");
-            boolean pnpm = entries.containsKey(prefix + "pnpm-lock.yaml");
-            if (npm == pnpm || entries.containsKey(prefix + "yarn.lock")) {
-                continue;
-            }
-            try {
-                JsonNode manifest = new ObjectMapper().readTree(blob(repository, item.getValue().objectId()));
-                String managerPattern = npm ? "npm@(9|10|11)" : "pnpm@(9|10|11|12)";
-                if (manifest == null || !manifest.isObject()
-                        || manifest.has("packageManager") && !manifest.path("packageManager").asText()
-                                .matches(managerPattern + "\\.\\d+\\.\\d+(\\+sha(224|512)\\.[a-f0-9]+)?")
-                        || manifest.has("workspaces")) {
-                    continue;
-                }
-                boolean supported = true;
-                for (String dependency : List.of("vue", "vite")) {
-                    supported &= manifest.path("dependencies").has(dependency)
-                            || manifest.path("devDependencies").has(dependency);
-                }
-                if (supported) {
-                    return true;
-                }
-            } catch (java.io.IOException invalid) {
-                // 无效元数据不构成放行依据；保留原缺少受支持构建入口的拒绝。
-            }
-        }
-        return false;
     }
 
     public static boolean safePath(String path) {

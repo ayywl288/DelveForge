@@ -22,7 +22,7 @@ BASELINE_FILE_LIMIT = int(os.environ.get('DF_BASELINE_FILE_BYTES', '16777216'))
 BASELINE_TOTAL_LIMIT = int(os.environ.get('DF_BASELINE_TOTAL_BYTES', '134217728'))
 # v1 约定检查冲突的未修改证据、应用阶段未知及应用后捕获阶段；旧工具不能推断兼容。
 PROTOCOL_NAME = 'delveforge-sandbox'
-PROTOCOL_VERSION = 7
+PROTOCOL_VERSION = 8
 PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2', '.npmrc', '.netrc', '.pypirc'}
 GENERATED = {'target'}
 BASELINE_PATHS = set()
@@ -169,7 +169,7 @@ def all_files(modules=None, retained=()):
             from frontend import GENERATED as FRONTEND_GENERATED
             # 仅检查副本跳过生成树；不遍历 node_modules 内的合法依赖符号链接。
             for name in list(dirs):
-                if parent == FRONTEND_OUTPUT_ROOT and name in FRONTEND_GENERATED:
+                if (parent == FRONTEND_OUTPUT_ROOT or (parent / 'package.json').is_file()) and name in FRONTEND_GENERATED:
                     if (parent / name).is_symlink():
                         raise PolicyError('SOURCE_ENTRY_TYPE', 'Generated root must not be a symlink')
                     dirs.remove(name)
@@ -480,7 +480,7 @@ def check_runtime_changes(before, after, databases, traces=None):
     return changes
 
 
-def checks(args):
+def checks(args, dependency_probe=False):
     if source_view()['withheldSourceCount']:
         raise CheckArgumentError('Executable source or build configuration is withheld; no checks can attest this view')
     goal = args.get('goal', 'test')
@@ -517,7 +517,9 @@ def checks(args):
     # 只清理实际构建目录的生成报告；测试夹具和基线资源不能被清理或冒充执行证据。
     for path in maven_report_files(modules):
         path.unlink()
-    code, output = run_bounded(command + [goal], timeout=int(os.environ.get('DF_CHECK_SECONDS', '180')))
+    actual_goal = ('org.apache.maven.plugins:maven-dependency-plugin:3.8.1:go-offline'
+                   if dependency_probe else goal)
+    code, output = run_bounded(command + [actual_goal], timeout=int(os.environ.get('DF_CHECK_SECONDS', '180')))
     after = snapshot(modules=modules)
     changes = check_runtime_changes(captured, after, databases, traces)
     result = report(modules)
@@ -525,6 +527,8 @@ def checks(args):
         classification = 'JDK_ENVIRONMENT_MISMATCH'
     elif result['failures'] or result['errors']:
         classification = 'TESTS_FAILED'
+    elif code == 0 and dependency_probe:
+        classification = 'DEPENDENCIES_PREPARED'
     elif code == 0:
         classification = 'TESTS_PASSED' if result['reports'] and result['executedTests'] > 0 else 'BUILD_PASSED_NOT_TESTED'
     elif re.search(r'offline mode|has not been downloaded|Cannot access .*offline|could not be resolved', output, re.I):
@@ -533,10 +537,39 @@ def checks(args):
         classification = 'COMPILATION_FAILED'
     else:
         classification = 'BUILD_CONFIGURATION_FAILED'
+    phases = re.findall(r'(?m)^\[INFO\] --- [^\r\n]+ ---', output)
     return {'classification': classification, 'exitCode': code, 'snapshot': before, 'runtimeChanges': changes,
             'sourceView': source_view(),
+            'observedPhase': phases[-1] if phases else 'NOT_OBSERVED',
+            'unprovenCapabilities': [] if result['executedTests'] > 0 else ['TEST_RUNNER'],
             'goal': goal, 'directory': project.relative_to(ROOT).as_posix(), 'module': module, 'selectedTest': selected,
             **result, 'output': output[-18000:]}
+
+
+def fetch_maven_dependencies(args):
+    import tempfile
+    artifacts = args.get('artifacts')
+    if set(args) != {'artifacts'} or not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 32 \
+            or any(not isinstance(value, str) or len(value) > 512 or not re.fullmatch(
+                r'[A-Za-z0-9_][A-Za-z0-9_.-]*:[A-Za-z0-9_][A-Za-z0-9_.-]*:'
+                r'[A-Za-z0-9_][A-Za-z0-9_.+\-]*:(?:jar|pom|war|zip|test-jar)(?::[A-Za-z0-9_.-]+)?', value)
+                for value in artifacts):
+        raise CheckArgumentError('Expected bounded Maven artifact identities')
+    # 联网 Maven 永不加载项目模型、.mvn 或生命周期；依赖描述由固定插件原生解析。
+    with tempfile.TemporaryDirectory(prefix='df-artifact-fetch-') as directory:
+        project = pathlib.Path(directory)
+        (project / 'pom.xml').write_text('<project><modelVersion>4.0.0</modelVersion>'
+            '<groupId>delveforge.preparation</groupId><artifactId>fetch</artifactId><version>1</version></project>')
+        outputs = []
+        for artifact in artifacts:
+            code, output = run_bounded(['mvn', '-B', '-ntp', '-U', '-s', '/opt/delveforge/offline-settings.xml',
+                '-Dmaven.repo.local=/m2', '-Dstyle.color=never', '-f', str(project / 'pom.xml'),
+                'org.apache.maven.plugins:maven-dependency-plugin:3.8.1:get', '-Dtransitive=true',
+                '-Dartifact=' + artifact], timeout=int(os.environ.get('DF_CHECK_SECONDS', '180')) * 3, cwd=project)
+            outputs.append(output[-4000:])
+            if code:
+                return {'classification': 'DEPENDENCY_MISSING', 'exitCode': code, 'output': '\n'.join(outputs)[-18000:]}
+        return {'classification': 'DEPENDENCIES_PREPARED', 'exitCode': 0, 'output': '\n'.join(outputs)[-18000:]}
 
 
 def patch_state(path):
@@ -648,6 +681,10 @@ def dispatch(name, args):
     if name == 'describe_checks':
         import frontend
         return frontend.describe(sys.modules[__name__])
+    if name == 'fetch_maven_dependencies':
+        return fetch_maven_dependencies(args)
+    if name == 'probe_maven_dependencies':
+        return checks(args, dependency_probe=True)
     if name == 'list_files':
         prefix = args.get('path', '.')
         path = path_for(prefix, True)

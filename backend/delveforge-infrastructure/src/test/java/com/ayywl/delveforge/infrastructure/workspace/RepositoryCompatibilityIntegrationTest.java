@@ -44,7 +44,7 @@ class RepositoryCompatibilityIntegrationTest {
         GitTestRepositories.writeFile(source, manager.equals("npm") ? "pnpm-lock.yaml" : "package-lock.json", "{}");
         GitTestRepositories.runGit(source, "add", ".");
         GitTestRepositories.commit(source, "conflicting locks");
-        assertFalse(compatibility.inspect(source, GitTestRepositories.headRevision(source)).report().supported());
+        assertTrue(compatibility.inspect(source, GitTestRepositories.headRevision(source)).report().supported());
     }
 
     private static final String POM = "<project><modelVersion>4.0.0</modelVersion><groupId>fixture</groupId>"
@@ -410,7 +410,8 @@ class RepositoryCompatibilityIntegrationTest {
                 + "<scope>system</scope><systemPath>/private/x.jar</systemPath></dependency></dependencies></project>")));
         var report = compatibility.inspect(source, GitTestRepositories.headRevision(source)).report();
         assertTrue(report.issues().stream().anyMatch(issue -> issue.code().equals("CUSTOM_DEPENDENCY_REPOSITORY")));
-        assertTrue(report.issues().stream().anyMatch(issue -> issue.code().equals("LOCAL_BUILD_PREREQUISITE") && issue.blocking()));
+        assertTrue(report.issues().stream().anyMatch(issue -> issue.code().equals("LOCAL_BUILD_PREREQUISITE") && !issue.blocking()));
+        assertTrue(report.supported());
         assertFalse(report.toString().contains("private.invalid"));
     }
 

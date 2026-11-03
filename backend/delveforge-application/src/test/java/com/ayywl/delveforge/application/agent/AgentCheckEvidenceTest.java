@@ -13,6 +13,25 @@ class AgentCheckEvidenceTest {
     private final ObjectMapper json = new ObjectMapper();
     private static final String SNAPSHOT = "a".repeat(64);
 
+    @Test
+    void preflightFailureRequiresCurrentMatchingRecheckAndCannotSupplySuccess() {
+        var baseline = check("FRONTEND", ".", "test", "TESTS_FAILED", true)
+                .put("executionStatus", "EXECUTED").put("runner", "node-junit");
+        var result = evidence().put("evidenceVersion", 4);
+        result.putArray("baselineFailures").add(baseline);
+        blocked(result);
+        result.withArray("checks").add(check("FRONTEND", ".", "build", "BUILD_PASSED_NOT_TESTED", false)
+                .put("executionStatus", "EXECUTED"));
+        blocked(result);
+        result.withArray("checks").add(check("FRONTEND", ".", "test", "TESTS_PASSED", false)
+                .put("executionStatus", "EXECUTED").put("runner", "node-junit"));
+        result.put("status", "TESTED");
+        assertDoesNotThrow(() -> AgentCheckEvidence.requireAcceptable(result));
+        baseline.put("classification", "TESTS_PASSED");
+        assertEquals("EVIDENCE_INVALID", assertThrows(AgentException.class,
+                () -> AgentCheckEvidence.requireAcceptable(result)).code());
+    }
+
     private ObjectNode check(String type, String directory, String goal, String status, boolean stale) {
         return json.createObjectNode().put("checkType", type).put("directory", directory).put("goal", goal)
                 .put("classification", status).put("snapshot", stale ? "b".repeat(64) : SNAPSHOT).put("stale", stale)

@@ -1,6 +1,8 @@
 """固定 registry 代理只允许规范包 metadata/tarball，拒绝任意外部目标。"""
 import importlib.util
 import io
+import gzip
+import json
 import os
 import pathlib
 import tempfile
@@ -14,6 +16,21 @@ spec.loader.exec_module(proxy)
 
 
 class FrontendProxyTest(unittest.TestCase):
+    def test_native_metadata_resolution_keeps_identity_and_stays_on_the_proxy(self):
+        metadata = {'name': '@fixture/package', 'versions': {'1.2.3': {
+            'name': '@fixture/package', 'version': '1.2.3', 'dist': {
+                'integrity': 'unchanged', 'tarball': 'https://registry.npmjs.org/@fixture/package/-/package-1.2.3.tgz'}}}}
+        result = json.loads(proxy.registry_metadata(gzip.compress(json.dumps(metadata).encode()), 'gzip', '@fixture%2Fpackage'))
+        distribution = result['versions']['1.2.3']['dist']
+        self.assertEqual('http://df-artifacts:8080/npm/@fixture/package/-/package-1.2.3.tgz', distribution['tarball'])
+        self.assertEqual('unchanged', distribution['integrity'])
+        for source in ('https://evil.invalid/@fixture/package/-/package-1.2.3.tgz',
+                       'https://registry.npmjs.org/other/-/other-1.2.3.tgz',
+                       'https://registry.npmjs.org/@fixture/package/-/package-9.9.9.tgz'):
+            metadata['versions']['1.2.3']['dist']['tarball'] = source
+            with self.assertRaises(ValueError):
+                proxy.registry_metadata(json.dumps(metadata).encode(), '', '@fixture%2Fpackage')
+
     def handler(self, path):
         handler = object.__new__(proxy.Handler)
         handler.path = path

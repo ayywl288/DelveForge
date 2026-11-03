@@ -140,8 +140,32 @@ class CodingAgentServiceTest {
         database.setup();
         eligibility = eligibility("a".repeat(40), temporary.resolve("official"), mock(WorkingCopyInspectionPort.class));
         sandbox = mock(AgentSandboxPort.class);
+        when(sandbox.preflight(anyString(), any())).thenReturn(new AgentSandboxPort.Preflight("READY", "fixture ready"));
         when(sandbox.identity(anyString())).thenReturn(new AgentSandboxPort.Identity("container", "image", 21,
                 2147483648L, 2000000000L, 256, "none", true));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ENVIRONMENT_BLOCKED", "SECURITY_BLOCKED", "SELECTION_REQUIRED"})
+    void blockedPreflightHasZeroActualRequestsAndTokensAndCleansUp(String outcome) throws Exception {
+        when(sandbox.preflight(anyString(), any())).thenReturn(new AgentSandboxPort.Preflight(outcome, "precise fixture diagnosis"));
+        AtomicInteger requests = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> {
+            requests.incrementAndGet();
+            throw new AssertionError("Preflight must stop before model invocation");
+        };
+        try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
+                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+            var run = agent.start("plan", "step", 21);
+            var terminal = awaitTerminal(agent, run.id(), 20);
+            assertEquals(AgentRunState.FAILED, terminal.state());
+            assertEquals(outcome, terminal.reason());
+            assertEquals(0, requests.get());
+            assertEquals(0L, terminal.tokens());
+            assertEquals(0, terminal.modelCalls());
+            verify(sandbox).cleanup(run.id());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
     }
 
     @Test
@@ -165,8 +189,8 @@ class CodingAgentServiceTest {
             assertTrue(user.contains("authorizedStep"));
             assertFalse(user.contains("userProfile"));
             assertFalse(user.contains("repositoryProfile"));
-            assertTrue(captured.get().get(2).text().contains("mavenDirectories"));
-            assertTrue(captured.get().get(2).text().contains("不是验证结果或额外授权"));
+            assertTrue(captured.get().get(3).text().contains("mavenDirectories"));
+            assertTrue(captured.get().get(3).text().contains("不是验证结果或额外授权"));
             verify(sandbox).checkCapabilities(eq(run.id()), any());
         }
     }

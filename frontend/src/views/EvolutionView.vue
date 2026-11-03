@@ -7,7 +7,7 @@ import StatusBadge from "../components/StatusBadge.vue";
 import AgentResultSurface from "../components/AgentResultSurface.vue";
 import ExecutionWorkspace from "../components/ExecutionWorkspace.vue";
 import AgentTimeline from "../components/AgentTimeline.vue";
-import { candidateFileChanges, presentRun, type PresentedFileChange, type RunPresentation } from "../components/agentResultPresentation";
+import { candidateFileChanges, presentRun, verificationLabel, type PresentedFileChange, type RunPresentation } from "../components/agentResultPresentation";
 import NavigationIcon from "../components/NavigationIcon.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import type { NavigationIconName } from "../components/NavigationIcon.vue";
@@ -51,6 +51,29 @@ const syncError = ref("");
 const pending = ref(false);
 const connection = ref("尚未连接");
 const jdk = ref("");
+const checkDirectories = ref("");
+const preflightDescriptions: Record<string, string> = {
+  READY: "所选工程的检查路径已实际执行。",
+  READY_BASELINE_FAILURE: "检查路径可执行；基线源码或测试有失败，仍须修复并重验。",
+  ENVIRONMENT_BLOCKED: "检查环境尚未就绪，本次未调用模型。",
+  SECURITY_BLOCKED: "源码或沙箱边界未获确认，本次未调用模型。",
+  SELECTION_REQUIRED: "多个工程需要明确选择，本次未调用模型。",
+};
+const preflight = computed(() => {
+  const summary = events.value.filter(event => event.kind === "ENVIRONMENT_PREFLIGHT").at(-1)?.summary;
+  if (!summary) return null;
+  const separator = summary.indexOf("\n");
+  const outcome = summary.slice(0, separator);
+  if (!["READY", "READY_BASELINE_FAILURE", "ENVIRONMENT_BLOCKED", "SECURITY_BLOCKED", "SELECTION_REQUIRED"].includes(outcome)) return null;
+  try {
+    const data = JSON.parse(summary.slice(separator + 1));
+    const directories: string[] = Array.isArray(data.availableDirectories) ? data.availableDirectories
+      .filter((value: unknown): value is string => typeof value === "string" && value.length <= 512).slice(0, 148) : [];
+    const probes = Array.isArray(data.probes) ? data.probes.slice(0, 32).filter((value: unknown) => value && typeof value === "object") : [];
+    return { outcome, directories, probes, reason: typeof data.diagnostic === "string" ? data.diagnostic.slice(0, 1200)
+      : typeof data.reason === "string" ? data.reason.slice(0, 1200) : "" };
+  } catch { return null; }
+});
 const startReview = ref(false);
 const budgetAcknowledged = ref(false);
 let active = false;
@@ -239,7 +262,10 @@ async function startRun() {
   startReview.value = false;
   budgetAcknowledged.value = false;
   const selectedJdk = jdk.value ? Number(jdk.value) : undefined;
-  await action(selected => api.startAgent(selected.planId!, selected.stepId!, true, selectedJdk), async started => {
+  const directories = checkDirectories.value.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
+  await action(selected => directories.length
+    ? api.startAgent(selected.planId!, selected.stepId!, true, selectedJdk, directories)
+    : api.startAgent(selected.planId!, selected.stepId!, true, selectedJdk), async started => {
     runs.value = [started, ...runs.value];
     await selectRun(started);
   });
@@ -318,6 +344,7 @@ watch([() => props.s.plan?.id, () => step.value?.id], async () => {
   startReview.value = false;
   budgetAcknowledged.value = false;
   runs.value = [];
+  checkDirectories.value = "";
   run.value = null;
   events.value = [];
   candidate.value = null;
@@ -384,6 +411,17 @@ onUnmounted(deactivate);
           <div><dt>累计 tokens</dt><dd>{{ run.tokens === null ? '未报告' : numberText(run.tokens) }}</dd></div>
         </dl>
         <p class="meta">模型统计按已返回调用累计；失败响应的已报告用量见活动诊断，未报告用量不估算。</p>
+        <section v-if="preflight" class="preflight-summary" aria-label="运行前环境预检">
+          <h4>运行前环境预检</h4>
+          <p>{{ preflightDescriptions[preflight.outcome] }}</p>
+          <p v-if="preflight.directories.length" class="meta">可选检查入口：<template v-for="(directory, index) in preflight.directories" :key="directory"><span v-if="index">、</span><code>{{ directory }}</code></template></p>
+          <ul v-if="preflight.probes.length"><li v-for="(probe, index) in preflight.probes" :key="index">
+            {{ probe.directory }} · {{ probe.goal }}：{{ probe.readiness === 'NOT_DECLARED' ? '未声明此项检查' : verificationLabel(probe.classification) }}
+            <details v-if="probe.output"><summary>检查诊断</summary><pre>{{ probe.output }}</pre></details>
+          </li></ul>
+          <p v-if="preflight.reason" class="meta">{{ preflight.reason }}</p>
+          <p class="meta">基线预检不代表最终修改通过检查。需要选择时，在运行配置中填写本步骤相关的目录。</p>
+        </section>
         <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
         <p v-else-if="runPresentation" class="meta">{{ runPresentation.detail }}</p>
@@ -433,6 +471,9 @@ onUnmounted(deactivate);
         <template v-if="step.status === 'READY'">
           <div class="jdk-field"><label for="agent-jdk">运行环境</label>
             <select id="agent-jdk" v-model="jdk"><option value="">自动选择 JDK</option><option value="17">JDK 17</option><option value="21">JDK 21</option></select></div>
+          <div class="check-directories-field"><label for="agent-check-directories">检查工程目录（可选）</label>
+            <input id="agent-check-directories" v-model="checkDirectories" maxlength="2000" placeholder="例如：server, apps/web" aria-describedby="agent-check-directories-help" />
+            <p id="agent-check-directories-help" class="meta">留空自动选择唯一入口；多个目录用逗号分隔，仓库根目录填“.”。仅选择本步骤相关工程，不扩大修改授权。</p></div>
           <div class="start-action"><button :disabled="!canStart" @click="reviewStart">{{ latest ? '重新开始编码' : '开始 Agent' }}</button>
             <p class="meta">仅运行当前已授权 Step</p></div>
         </template>
@@ -451,6 +492,7 @@ onUnmounted(deactivate);
   <ConfirmDialog :open="startReview" title="确认 API 费用与预算" confirm-label="确认费用并开始"
     :disabled="!budgetAcknowledged || !canStart" @close="startReview = false; budgetAcknowledged = false" @confirm="startRun">
     <p>Agent 会调用已配置的外部模型 API，发送当前步骤目标和必要的已净化仓库材料，并持续编码、测试至可验证交付。</p>
+    <p>系统先实际预检所选工程的检查环境；预检受阻时不请求模型，也不消耗模型 tokens。</p>
     <p>API 调用会产生费用，实际费用以服务商账单为准。累计调用、tokens 与总运行时长没有自动停止门槛；取消不能撤回已发生的费用。</p>
     <label class="budget-acknowledgment"><input v-model="budgetAcknowledged" type="checkbox" />我确认有足够的 API 预算，并愿意承担本次运行的实际费用。</label>
   </ConfirmDialog>
@@ -459,6 +501,11 @@ onUnmounted(deactivate);
 <style scoped>
 .budget-acknowledgment { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; }
 .budget-acknowledgment input { flex: 0 0 auto; margin-top: 4px; }
+.check-directories-field { flex: 1 1 280px; max-width: 560px; min-width: 0; }
+.check-directories-field label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.check-directories-field input { width: 100%; }
+.preflight-summary { margin-top: 20px; overflow-wrap: anywhere; }
+.preflight-summary h4 { margin-bottom: 8px; }
 .workbench-heading, .workbench-heading > .meta { display: flex; align-items: center; gap: 10px; }
 .workbench-heading { justify-content: space-between; flex-wrap: wrap; }
 .workbench-heading h2 { margin: 0; font-size: 19px; }

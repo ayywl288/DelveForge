@@ -73,6 +73,32 @@ function savedCandidate(id = "candidate-1", runId = "run-1"): AgentCandidate {
     createdAt: running().startedAt };
 }
 
+it("submits explicitly selected check directories only after the existing paid confirmation", async () => {
+  const start = vi.spyOn(api, "startAgent").mockResolvedValue(running());
+  const { root } = mount(); await settle();
+  const directories = root.querySelector<HTMLInputElement>("#agent-check-directories")!;
+  directories.value = "server, apps/web";
+  directories.dispatchEvent(new Event("input", { bubbles: true }));
+  button(root, "开始 Agent").click(); await settle();
+  expect(start).not.toHaveBeenCalled();
+  await acknowledgeBudget(root);
+  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", true, undefined, ["server", "apps/web"]);
+});
+
+it("shows actual preflight choices without treating the baseline as final verification", async () => {
+  const preparing: AgentRun = { ...running(), state: "PREPARING", modelCalls: 0, toolCalls: 0, tokens: 0 };
+  const { root } = mount([preparing]); await settle();
+  Events.instances.at(-1)!.fact(1, "ENVIRONMENT_PREFLIGHT", "SELECTION_REQUIRED\n" + JSON.stringify({
+    availableDirectories: ["server", "apps/web"], probes: [], reason: "Choose explicit directories",
+  }));
+  await settle();
+  const preflight = root.querySelector(".preflight-summary")!;
+  expect(preflight.textContent).toContain("本次未调用模型");
+  expect(preflight.textContent).toContain("server");
+  expect(preflight.textContent).toContain("apps/web");
+  expect(preflight.textContent).toContain("不代表最终修改通过检查");
+});
+
 it("only an explicit start sends the request; real tool events are ordered and deduplicated", async () => {
   const start = vi.spyOn(api, "startAgent").mockResolvedValue(running());
   const { root } = mount(); await settle();

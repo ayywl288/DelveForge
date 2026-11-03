@@ -5,6 +5,20 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 
+const checks = process.env.DF_CHECK_REPORTS;
+if (checks && process.argv[1]) {
+    let entry;
+    try {
+        entry = fs.realpathSync(process.argv[1]);
+    } catch {
+        // 不存在的入口没有执行证明，由原进程报告错误。
+    }
+    if (entry && entry.startsWith('/workspace/') && !/[/\\](?:npm-cli|pnpm)\.(?:c?js|mjs)$/.test(entry)) {
+        const receipt = path.join(checks, randomUUID() + '.execution');
+        process.on('exit', code => fs.writeFileSync(receipt, JSON.stringify({ exitCode: code }), { flag: 'wx' }));
+    }
+}
+
 const directory = process.env.DF_TEST_REPORTS;
 if (directory && !process.env.NODE_TEST_CONTEXT) {
     let runner;

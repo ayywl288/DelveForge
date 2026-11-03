@@ -1,5 +1,9 @@
 # ROADMAP.md
 
+**2026-11-03 当前授权任务：Native Build Compatibility & Preflight Readiness。** 安全准入与原生环境就绪分离，首次 Coding Agent 模型调用前完成实际探针；明确源码失败可修复。仅确定性与非 LLM Docker 验证，不启动新付费演化试验，不改变 Candidate/Delivery 生命周期或未来里程碑。实际验收另记，未以此段标记完成。
+
+实现与实际验收证据见 [Native Build Preflight 验证记录](validation/native-build-preflight-20261103.md)。
+
 **2026-11-03 当前用户任务：Restore Reliable Autonomous Product Evolution。**
 修复前端语法白名单与证据归类根因：复用既有隔离执行，支持 npm/pnpm 项目脚本、Node/Vitest 结构化报告及配置能力反馈。
 先完成确定性失败→修正→重验→冻结→Delivery、安全负例与 Maven 回归，再在本轮费用授权明确时复用原 Homer 四步计划，

@@ -1,5 +1,7 @@
 """受控 Central 镜像；项目网络无外部路由，代理拒绝 CONNECT 和任意上游选择。"""
 import hashlib
+import gzip
+import io
 import collections
 import json
 import http.server
@@ -12,6 +14,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+import urllib.parse
 
 ROOT = pathlib.Path('/cache')
 UPSTREAM = 'https://repo.maven.apache.org/maven2/'
@@ -22,6 +25,45 @@ MAVEN_PROGRESS = collections.Counter()
 MAVEN_ACTIVE = {}
 MAVEN_RECENT = collections.deque(maxlen=8)
 MAVEN_STARTED = time.monotonic()
+PUBLIC_REGISTRIES = {'registry.npmjs.org', 'registry.npmmirror.com', 'registry.npm.taobao.org', 'registry.yarnpkg.com'}
+
+
+def registry_tarball_url(value, name=None, version=None):
+    url = urllib.parse.urlsplit(str(value))
+    if url.scheme != 'https' or url.hostname not in PUBLIC_REGISTRIES or url.username or url.password \
+            or url.port or url.query or url.fragment:
+        raise ValueError('Untrusted registry source')
+    path = url.path.lstrip('/').replace('/download/', '/-/')
+    if not re.fullmatch(r'(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+/-/[A-Za-z0-9_.+\-]+\.tgz', path):
+        raise ValueError('Invalid registry identity')
+    package, filename = path.split('/-/')
+    if name is not None and package != name or version is not None and filename != package.split('/')[-1] + '-' + version + '.tgz':
+        raise ValueError('Registry name/version mismatch')
+    return 'http://df-artifacts:8080/npm/' + path
+
+
+def registry_metadata(data, encoding, package):
+    if encoding == 'gzip':
+        with gzip.GzipFile(fileobj=io.BytesIO(data)) as stream:
+            data = stream.read(MAX_BYTES + 1)
+    elif encoding:
+        raise ValueError('Unsupported metadata encoding')
+    if len(data) > MAX_BYTES:
+        raise ValueError('Metadata size limit')
+    metadata = json.loads(data)
+    if not isinstance(metadata, dict) or not isinstance(metadata.get('versions', {}), dict):
+        raise ValueError('Invalid registry metadata')
+    name = urllib.parse.unquote(package)
+    for version, entry in metadata.get('versions', {}).items():
+        if not isinstance(entry, dict) or entry.get('name', name) != name:
+            raise ValueError('Registry package identity mismatch')
+        distribution = entry.get('dist', {})
+        if 'tarball' in distribution:
+            distribution['tarball'] = registry_tarball_url(distribution['tarball'], name, version)
+    encoded = json.dumps(metadata, separators=(',', ':')).encode('utf-8')
+    if len(encoded) > MAX_BYTES:
+        raise ValueError('Metadata size limit')
+    return encoded
 
 
 def maven_progress(event, path, **values):
@@ -237,6 +279,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     finally:
                         if os.path.exists(temporary):
                             os.unlink(temporary)
+                else:
+                    # 原生无锁解析也只能取得受控包源；不改包名、版本、依赖关系或完整性摘要。
+                    data = registry_metadata(data, encoding, path)
+                    encoding = ''
             # 实际消费者 pnpm 必须按冻结锁中的 SHA-512 校验，代理缓存不具有证据权威。
             self.send_response(200)
             self.send_header('Content-Length', str(len(data)))
@@ -245,6 +291,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self.send_header('Content-Encoding', 'gzip')
             self.end_headers()
             self.wfile.write(data)
+        except urllib.error.HTTPError as error:
+            self.send_error(404 if error.code == 404 else 502)
         except (OSError, ValueError, urllib.error.URLError, http.client.HTTPException):
             self.send_error(502)
 

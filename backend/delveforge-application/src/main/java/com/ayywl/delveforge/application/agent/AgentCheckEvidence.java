@@ -2,7 +2,9 @@ package com.ayywl.delveforge.application.agent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 /** 冻结与交付共用检查适用性规则；旧记录缺少类型时只按 Maven 解释。 */
@@ -27,7 +29,21 @@ public final class AgentCheckEvidence {
         if (versioned && !snapshot.matches("[0-9a-f]{64}")) {
             throw new AgentException("EVIDENCE_INVALID", "Final source snapshot is required");
         }
-        for (JsonNode check : evidence.path("checks")) {
+        List<JsonNode> ordered = new ArrayList<>();
+        if (evidence.has("baselineFailures")) {
+            if (evidence.path("evidenceVersion").asInt() < 4 || !evidence.path("baselineFailures").isArray()) {
+                throw new AgentException("EVIDENCE_INVALID", "Baseline failure evidence requires version 4");
+            }
+            for (JsonNode baseline : evidence.path("baselineFailures")) {
+                if (!Set.of("TESTS_FAILED", "COMPILATION_FAILED", "TYPECHECK_FAILED", "FRONTEND_BUILD_FAILED")
+                        .contains(baseline.path("classification").asText()) || !baseline.path("stale").asBoolean()) {
+                    throw new AgentException("EVIDENCE_INVALID", "Baseline probes cannot attest final source");
+                }
+                ordered.add(baseline);
+            }
+        }
+        evidence.path("checks").forEach(ordered::add);
+        for (JsonNode check : ordered) {
             String type = check.path("checkType").asText("MAVEN");
             String goal = check.path("goal").asText();
             if (!Set.of("MAVEN", "FRONTEND").contains(type)

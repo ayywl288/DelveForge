@@ -32,7 +32,7 @@ public final class RepositoryContentPolicy {
     private static final Pattern SENSITIVE_KEY = Pattern.compile(
             "(?i).*(password|passwd|pwd|secret|token|credential|api.?key|access.?key|private.?key|auth).*");
     private static final Set<String> NPM_BOOLEAN = Set.of("shamefully-hoist", "auto-install-peers",
-            "strict-peer-dependencies", "fund", "audit", "update-notifier");
+            "strict-peer-dependencies", "fund", "audit", "update-notifier", "legacy-peer-deps", "install-links");
     private final RepositorySecretPolicy secrets;
 
     public RepositoryContentPolicy(RepositorySecretPolicy secrets) {
@@ -71,7 +71,7 @@ public final class RepositoryContentPolicy {
     public static boolean buildInput(String path) {
         String name = path.substring(path.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
         return name.matches(".*\\.(java|kt|js|mjs|cjs|ts|tsx|jsx|vue|html|gradle)")
-                || Set.of("pom.xml", "package.json", "package-lock.json", "pnpm-lock.yaml", "pnpm-workspace.yaml")
+                || Set.of("pom.xml", "package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "pnpm-workspace.yaml")
                         .contains(name) || path.startsWith(".mvn/") || path.contains("/.mvn/");
     }
 
@@ -158,7 +158,8 @@ public final class RepositoryContentPolicy {
             }
             String key = field[0].strip();
             String value = field[1].strip();
-            boolean allowed = key.equals("registry") && value.matches("https://registry\\.npmjs\\.org/?")
+            boolean allowed = key.equals("registry") && value.matches(
+                    "https://registry\\.(npmjs\\.org|npmmirror\\.com|npm\\.taobao\\.org|yarnpkg\\.com)/?")
                     || NPM_BOOLEAN.contains(key) && Set.of("true", "false").contains(value)
                     || Set.of("ignore-scripts", "strict-ssl", "verify-store-integrity").contains(key)
                             && value.equals("true");

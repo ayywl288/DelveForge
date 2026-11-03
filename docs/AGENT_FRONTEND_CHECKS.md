@@ -1,5 +1,7 @@
 # Coding Agent：产品上下文与受控前端检查
 
+**2026-11-03 当前兼容契约更新：** 协议 v8、证据 v4；npm 2/3/shrinkwrap、受支持 pnpm 6/9 workspace 与无锁 Run 内冻结由原生管理器准备，并在首次模型请求前实际预检。下面较早的单工程/唯一锁限制保留历史含义；当前范围、安全限制与选择方式以 [环境预检说明](AGENT_ENVIRONMENT_PREFLIGHT.md) 为准。
+
 本任务是 MVP 冻结后的用户授权增强。保留逐 Step 确认、独立 Agent 源副本、冻结 Candidate 和确定性 Delivery；
 没有浏览器、应用自动启动或产品验收 Agent。技术检查通过不等于用户工作流或业务验收通过。
 
