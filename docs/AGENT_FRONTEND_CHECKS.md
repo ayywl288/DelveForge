@@ -90,6 +90,8 @@ UI 展示投影范围；类型/构建/测试成功均只限于实际执行视图
 
 执行前模型收到当前工程的有界检查声明：Maven 目录、Vue/Vite 目录和每个 goal 的
 DECLARED_SUPPORTED / ABSENT / UNSUPPORTED / UNAVAILABLE，以及管理器、脚本名、具体不可用原因和报告采集说明。
+依赖仅存在于检查副本。源码工具对 node_modules 等生成材料的只读询问返回 CHECK_MATERIAL_UNAVAILABLE 和检查入口说明，
+不访问这些路径；写入继续由生成物守卫拒绝。该反馈不是检查证据，也不解决已有失败。
 configurationSnapshot 绑定配置身份，检查反馈重读能力并指示配置变化；声明不验证完整锁文件或安装结果，不是 PASS。
 错误目录或无可选检查返回 CHECK_NOT_AVAILABLE 并附可用目录；前端独立工程不制造 Maven 配置。
 Maven 声明沿用受控入口和 reactor 角色，不把测试资源内的 POM 当作可执行工程。

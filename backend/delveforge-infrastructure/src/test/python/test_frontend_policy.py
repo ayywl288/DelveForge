@@ -442,6 +442,7 @@ class FrontendPolicyTest(unittest.TestCase):
         self.assertEqual('pnpm', project['packageManager'])
         self.assertEqual('test', project['goalDetails']['test']['script'])
         self.assertIn('node-junit', second['testReporters'])
+        self.assertIn('CHECK_COPY_ONLY', second['dependencyVisibility'])
 
     def test_real_offline_scripts_cannot_read_credentials_or_reach_network(self):
         self.project_metadata('npm')

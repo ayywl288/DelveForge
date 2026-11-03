@@ -13,10 +13,10 @@
       "skipped": 0
     },
     "delveforge-infrastructure": {
-      "tests": 546,
+      "tests": 547,
       "failures": 0,
       "errors": 0,
-      "skipped": 40
+      "skipped": 41
     },
     "delveforge-app": {
       "tests": 222,
@@ -26,22 +26,22 @@
     }
   },
   "total": {
-    "tests": 1839,
+    "tests": 1840,
     "failures": 0,
     "errors": 0,
-    "skipped": 43
+    "skipped": 44
   },
-  "artifactSha256": "8a6eba7f57ff4677dd4f43e5d75551e8cee2f3f89e08aa35551e060a06c7348b",
+  "artifactSha256": "0eb405e0e14bd0b8279300a57582b71d187e663d1a429cde97fb72d9aad42972",
   "packagedSources": {
     "sandbox.py": "998a992a11cf0772283c58ace65c26cd7842ced5c1d0082564e756b744d12178",
-    "frontend.py": "7daefd4852e89ab9cd886456d37074e83d0d21dcf73af22148dee93d6aa74311",
+    "frontend.py": "96a38258e4cc76b8e96832edc448c325035b96757112f2a7d522dbf789889fd2",
     "frontend-report.cjs": "1de6d0ea5f580d8af912d7795f05879176480f1318a2c6599f5b306cd1295402",
     "proxy.py": "24babf278b2dec1449b1468272990f744fff47bec4a2623591ca0c273d55ddb9"
   },
   "images": {
-    "DELVEFORGE_AGENT_IMAGE_17": "sha256:0f5ab81f34eb647cfee71d4ed256684491b751c330883b0914b8d332a29d3944",
+    "DELVEFORGE_AGENT_IMAGE_21": "sha256:fd93798d395bf474051feb66bdc4860efd050729372beefac1e91303cc720132",
     "DELVEFORGE_AGENT_ENABLED": "true",
-    "DELVEFORGE_AGENT_IMAGE_21": "sha256:ba7a6e488c932bc5947635a7c1e73663eef0a367477e6c55c2e9f6609c16c5dc"
+    "DELVEFORGE_AGENT_IMAGE_17": "sha256:0679c5d4d2d70aae64e01ff5dc6710f741d2b04f9b2542f0d67d18b6d0894857"
   },
   "fixtures": {
     "fullstack-maven": {
@@ -901,6 +901,254 @@
         "status": "TESTED",
         "executionBaselineTree": "6e82d5a10b2a12b3bfb652312e7cb6f83c9b0060"
       }
+    },
+    "native-post-trial-npm": {
+      "manager": "npm",
+      "candidateId": "fd47e12f-3a29-474e-839c-55a0bb8984de",
+      "baseline": "1ae445746dc88925500d1129e45febc47b6be8df",
+      "revision": "79de840a57870dd768ef6004428a0ec71d02dc4e",
+      "delivery": "COMPLETED",
+      "evidence": {
+        "finalSnapshot": "2f86a4c3e6b0c073bbec1c8ca5af0fc6438b2a3cae0986778386600545d6ed7f",
+        "executionBaselineTree": "11a68f5b97941e35fddf4e25889dd3dbe39d788b",
+        "status": "TESTED",
+        "evidenceVersion": 3,
+        "sourceView": {
+          "kind": "PROJECTED",
+          "preservedOnlyCount": 1,
+          "readOnlyResourceCount": 0,
+          "withheldSourceCount": 0
+        },
+        "checks": [
+          {
+            "module": "",
+            "goal": "test",
+            "snapshot": "551bf633ef6aa95b97c463bbfb266d0d400ad974881d3c5704c7f30bb4a4038f",
+            "reports": 1,
+            "selectedTest": "",
+            "stale": true,
+            "tests": 1,
+            "classification": "TESTS_FAILED",
+            "skipped": 0,
+            "executedTests": 1,
+            "directory": ".",
+            "checkType": "FRONTEND",
+            "executionStatus": "EXECUTED",
+            "runner": "node-junit",
+            "configurationSnapshot": "c1685fd1bd5e30ae0f373756aad28c8ad731c13417217300f7650e51a9830e16",
+            "sourceView": {
+              "kind": "PROJECTED",
+              "preservedOnlyCount": 1,
+              "readOnlyResourceCount": 0,
+              "withheldSourceCount": 0
+            },
+            "packageManager": "npm",
+            "failures": 1,
+            "errors": 0
+          },
+          {
+            "module": "",
+            "goal": "test",
+            "snapshot": "286c17951a5ad69ed362985b2eb58d09b6d34598e6e95bd1f5adcd310569d783",
+            "reports": 1,
+            "selectedTest": "",
+            "stale": true,
+            "tests": 2,
+            "classification": "TESTS_FAILED",
+            "skipped": 0,
+            "executedTests": 2,
+            "directory": ".",
+            "checkType": "FRONTEND",
+            "executionStatus": "EXECUTED",
+            "runner": "node-junit",
+            "configurationSnapshot": "d3418e3e1fa1fecd9420428c7dc3f2ad91f1a5ce5a751c379909dbc68f0eff8b",
+            "sourceView": {
+              "kind": "PROJECTED",
+              "preservedOnlyCount": 1,
+              "readOnlyResourceCount": 0,
+              "withheldSourceCount": 0
+            },
+            "packageManager": "npm",
+            "failures": 1,
+            "errors": 0
+          },
+          {
+            "module": "",
+            "goal": "test",
+            "snapshot": "2f86a4c3e6b0c073bbec1c8ca5af0fc6438b2a3cae0986778386600545d6ed7f",
+            "reports": 1,
+            "selectedTest": "",
+            "stale": false,
+            "tests": 3,
+            "classification": "TESTS_PASSED",
+            "skipped": 0,
+            "executedTests": 3,
+            "directory": ".",
+            "checkType": "FRONTEND",
+            "executionStatus": "EXECUTED",
+            "runner": "node-junit",
+            "configurationSnapshot": "6fe63ef5f0344b2da0ad08066d960f7d75a36935f54001dbf485cb649ad96507",
+            "sourceView": {
+              "kind": "PROJECTED",
+              "preservedOnlyCount": 1,
+              "readOnlyResourceCount": 0,
+              "withheldSourceCount": 0
+            },
+            "packageManager": "npm",
+            "failures": 0,
+            "errors": 0
+          },
+          {
+            "module": "",
+            "goal": "build",
+            "snapshot": "2f86a4c3e6b0c073bbec1c8ca5af0fc6438b2a3cae0986778386600545d6ed7f",
+            "reports": 0,
+            "selectedTest": "",
+            "stale": false,
+            "tests": 0,
+            "classification": "BUILD_PASSED_NOT_TESTED",
+            "skipped": 0,
+            "executedTests": 0,
+            "directory": ".",
+            "checkType": "FRONTEND",
+            "executionStatus": "EXECUTED",
+            "configurationSnapshot": "6fe63ef5f0344b2da0ad08066d960f7d75a36935f54001dbf485cb649ad96507",
+            "sourceView": {
+              "kind": "PROJECTED",
+              "preservedOnlyCount": 1,
+              "readOnlyResourceCount": 0,
+              "withheldSourceCount": 0
+            },
+            "packageManager": "npm",
+            "failures": 0,
+            "errors": 0
+          }
+        ]
+      }
+    },
+    "native-post-trial-pnpm": {
+      "manager": "pnpm",
+      "candidateId": "da995d7f-7d3f-4c94-9f0a-5087b3f2fcb8",
+      "baseline": "7cba585ea4c70a56bd89d1faad47c4c521011ec6",
+      "revision": "963252547e97767f2a02299b42e8ab45466479ff",
+      "delivery": "COMPLETED",
+      "evidence": {
+        "finalSnapshot": "c0076ea8759dbfb8fb7cb3f16d9ecec730d07ee9e209ec5410534d52b71a59f4",
+        "executionBaselineTree": "6e82d5a10b2a12b3bfb652312e7cb6f83c9b0060",
+        "status": "TESTED",
+        "evidenceVersion": 3,
+        "sourceView": {
+          "kind": "PROJECTED",
+          "preservedOnlyCount": 1,
+          "readOnlyResourceCount": 0,
+          "withheldSourceCount": 0
+        },
+        "checks": [
+          {
+            "module": "",
+            "goal": "test",
+            "snapshot": "72e568f154e69ba3fbf8f0b98a3feddb50cdbba3b16fbdef8f8963488bc4bef0",
+            "reports": 1,
+            "selectedTest": "",
+            "stale": true,
+            "tests": 1,
+            "classification": "TESTS_FAILED",
+            "skipped": 0,
+            "executedTests": 1,
+            "directory": ".",
+            "checkType": "FRONTEND",
+            "executionStatus": "EXECUTED",
+            "runner": "node-junit",
+            "configurationSnapshot": "baa740e98c4627e757d1218a3d1113989565c3dd082e3aae7c1902ae2fa86f69",
+            "sourceView": {
+              "kind": "PROJECTED",
+              "preservedOnlyCount": 1,
+              "readOnlyResourceCount": 0,
+              "withheldSourceCount": 0
+            },
+            "packageManager": "pnpm",
+            "failures": 1,
+            "errors": 0
+          },
+          {
+            "module": "",
+            "goal": "test",
+            "snapshot": "6da8592b48689504144ac519975ecfcf48b82f6b2cc65cdb5c00346f425e02cc",
+            "reports": 1,
+            "selectedTest": "",
+            "stale": true,
+            "tests": 2,
+            "classification": "TESTS_FAILED",
+            "skipped": 0,
+            "executedTests": 2,
+            "directory": ".",
+            "checkType": "FRONTEND",
+            "executionStatus": "EXECUTED",
+            "runner": "node-junit",
+            "configurationSnapshot": "89723f5c444e8ee37f2a2c077c7b9f5b903941da6ad849823d09d4905bc19382",
+            "sourceView": {
+              "kind": "PROJECTED",
+              "preservedOnlyCount": 1,
+              "readOnlyResourceCount": 0,
+              "withheldSourceCount": 0
+            },
+            "packageManager": "pnpm",
+            "failures": 1,
+            "errors": 0
+          },
+          {
+            "module": "",
+            "goal": "test",
+            "snapshot": "c0076ea8759dbfb8fb7cb3f16d9ecec730d07ee9e209ec5410534d52b71a59f4",
+            "reports": 1,
+            "selectedTest": "",
+            "stale": false,
+            "tests": 3,
+            "classification": "TESTS_PASSED",
+            "skipped": 0,
+            "executedTests": 3,
+            "directory": ".",
+            "checkType": "FRONTEND",
+            "executionStatus": "EXECUTED",
+            "runner": "node-junit",
+            "configurationSnapshot": "98c7b8bf87be9ef2b5f08dc242dc6d2d075a03a7ca99f3d08c598ad9542cb87a",
+            "sourceView": {
+              "kind": "PROJECTED",
+              "preservedOnlyCount": 1,
+              "readOnlyResourceCount": 0,
+              "withheldSourceCount": 0
+            },
+            "packageManager": "pnpm",
+            "failures": 0,
+            "errors": 0
+          },
+          {
+            "module": "",
+            "goal": "build",
+            "snapshot": "c0076ea8759dbfb8fb7cb3f16d9ecec730d07ee9e209ec5410534d52b71a59f4",
+            "reports": 0,
+            "selectedTest": "",
+            "stale": false,
+            "tests": 0,
+            "classification": "BUILD_PASSED_NOT_TESTED",
+            "skipped": 0,
+            "executedTests": 0,
+            "directory": ".",
+            "checkType": "FRONTEND",
+            "executionStatus": "EXECUTED",
+            "configurationSnapshot": "98c7b8bf87be9ef2b5f08dc242dc6d2d075a03a7ca99f3d08c598ad9542cb87a",
+            "sourceView": {
+              "kind": "PROJECTED",
+              "preservedOnlyCount": 1,
+              "readOnlyResourceCount": 0,
+              "withheldSourceCount": 0
+            },
+            "packageManager": "pnpm",
+            "failures": 0,
+            "errors": 0
+          }
+        ]
+      }
     }
   },
   "ENGINEERING_READY": "YES",
@@ -919,5 +1167,52 @@
     "typecheck": "PASS",
     "build": "PASS"
   },
-  "evidenceRoot": "target/script-evidence-20261103"
+  "evidenceRoot": "target/script-evidence-20261103",
+  "preTrialEngineering": {
+    "backend": {
+      "delveforge-domain": {
+        "tests": 209,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "delveforge-application": {
+        "tests": 862,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "delveforge-infrastructure": {
+        "tests": 546,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 40
+      },
+      "delveforge-app": {
+        "tests": 222,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 3
+      }
+    },
+    "total": {
+      "tests": 1839,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 43
+    },
+    "artifactSha256": "8a6eba7f57ff4677dd4f43e5d75551e8cee2f3f89e08aa35551e060a06c7348b",
+    "images": {
+      "DELVEFORGE_AGENT_IMAGE_17": "sha256:0f5ab81f34eb647cfee71d4ed256684491b751c330883b0914b8d332a29d3944",
+      "DELVEFORGE_AGENT_ENABLED": "true",
+      "DELVEFORGE_AGENT_IMAGE_21": "sha256:ba7a6e488c932bc5947635a7c1e73663eef0a367477e6c55c2e9f6609c16c5dc"
+    }
+  },
+  "postTrialFeedbackFix": {
+    "liveRerunAtThisCheckpoint": false,
+    "generatedQueryWriteBoundaryDockerTests": 1,
+    "nativeDeliveryTests": 2,
+    "pythonTests": 82,
+    "provenance": "Initial five delivery cases used 3914cf9; final Node cases re-executed with dependency-query feedback fix"
+  }
 }

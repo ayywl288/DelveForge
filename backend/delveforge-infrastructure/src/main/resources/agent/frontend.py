@@ -131,6 +131,7 @@ def describe(sandbox):
                    if (sandbox.ROOT / directory / 'pom.xml').is_file())
     return {'frontendProjects': frontend, 'frontendProjectCount': len(projects),
             'configurationSnapshot': configuration_snapshot(sandbox),
+            'dependencyVisibility': 'CHECK_COPY_ONLY: node_modules and generated reports are not Agent source; use check tools',
             'testReporters': ['node-junit', 'vitest-json'],
             'testGuidance': 'Use existing scripts. Node --test and Vitest CLI are instrumented through NODE_OPTIONS; '
                             'wrappers must preserve it. Other scripts execute but cannot claim tests without reports.',

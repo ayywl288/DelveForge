@@ -90,6 +90,9 @@ class NativeFrontendDeliverySmokeTest {
                 new DeterministicRepositorySecretPolicy());
         List<AgentProtocol.ToolCall> actions = List.of(
                 call("run_frontend_checks", Map.of("goal", "test")),
+                call("list_files", Map.of("path", "node_modules/.bin")),
+                call("read_file", Map.of("path", "node_modules/vitest/vitest.mjs")),
+                call("search_code", Map.of("path", "node_modules", "query", "vitest")),
                 call("edit_file", Map.of("path", "package.json", "old_text", "node --test tests/",
                         "new_text", "node --test tests/counter.test.mjs")),
                 call("run_frontend_checks", Map.of("goal", "test")),
@@ -137,6 +140,7 @@ class NativeFrontendDeliverySmokeTest {
             candidateId = terminal.candidateId();
         }
         var candidate = database.store.candidate(candidateId);
+        assertTrue(String.join("\n", observed).contains("CHECK_MATERIAL_UNAVAILABLE"));
         var evidence = json.readTree(candidate.testEvidence());
         assertEquals(3, evidence.path("evidenceVersion").asInt());
         assertEquals("TESTS_FAILED", evidence.path("checks").get(0).path("classification").asText());

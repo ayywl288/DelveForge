@@ -14,7 +14,7 @@ evidenceVersion=3 区分 NOT_STARTED/EXECUTED/UNKNOWN，按工程、目标、run
 
 | 检查 | 结果 |
 | --- | --- |
-| `mvnw.cmd -q verify` | 1839 项，0 failure/error，43 conditional skip；实际执行 1796 项 |
+| `mvnw.cmd -q verify` | 1840 项，0 failure/error，44 conditional skip；实际执行 1796 项 |
 | 单独启用 Docker 的交付闭环 | Maven、npm/Vitest、pnpm/Vitest、npm/Node、pnpm/Node 共 5 条全部 COMPLETED，0 skip |
 | 最终 Node 夹具与取消/秘密读取/链接逃逸 | 2 + 3 项通过，0 skip |
 | Java 协议回归 | 17 项，16 执行通过，1 旧镜像环境条件跳过；包含实际新镜像检查 |
@@ -23,13 +23,13 @@ evidenceVersion=3 区分 NOT_STARTED/EXECUTED/UNKNOWN，按工程、目标、run
 | DelveForge 前端 `pnpm --dir frontend test/typecheck/build` | 306 项测试、类型检查、生产构建通过 |
 | 打包一致性 | JAR 中 sandbox.py/frontend.py/frontend-report.cjs/proxy.py 与最终源字节一致 |
 
-后端模块计数为 domain 209、application 862、infrastructure 546、app 222。条件跳过不是实际 Docker 通过；真实执行的 JUnit 已独立保存，未被后续普通 verify 的跳过记录替代。
+后端模块计数为 domain 209、application 862、infrastructure 547、app 222。条件跳过不是实际 Docker 通过；真实执行的 JUnit 已独立保存，未被后续普通 verify 的跳过记录替代。
 真实 Docker 命令通过 Maven Wrapper，指定最终 `DELVEFORGE_AGENT_IMAGE_21/17` 并设置 `DELVEFORGE_AGENT_DOCKER=true`，执行 FullStackAgentSmokeTest、NativeFrontendDeliverySmokeTest 和三项 DockerAgentSandboxTest。协议另指定 DELVEFORGE_SANDBOX_PROTOCOL_IMAGE。完整命令及日志保存在证据根目录。
 
 ## 实际失败、修正和交付
 
 固定 Node 22.16.0 原样执行 `node --test tests/` 实际 MODULE_NOT_FOUND，而不是配置白名单拒绝；有效文件入口随后真实执行两个测试，一通过一失败；修正源码后，三个测试通过（含实际隔离检查），再构建、冻结和交付。夹具没有 POM 或 Vitest 依赖，构建使用项目 Node 包装调用 Vite，测试使用嵌套 npm/pnpm 包装。
-第一次工程运行的 pnpm 场景保留失败：一条触发安全拒绝，另一条因 pnpm 运行前的隐式重装丢失 Vite。最小实际探针确认 pnpm 12 的 verifyDepsBeforeRun 会重装依赖；同时 packageManager 可触发自动下载。现明确关闭这两个动作，使用已经冻结的准备结果；没有绕过源码守卫或更新锁摘要。最终所有场景均通过，旧失败日志保留。
+第一次工程运行的 pnpm 场景保留失败：一条触发安全拒绝，另一条因 pnpm 运行前的隐式重装丢失 Vite。最小实际探针确认 pnpm 12 的 verifyDepsBeforeRun 会重装依赖；同时 packageManager 可触发自动下载。现明确关闭这两个动作，使用已经冻结的准备结果；没有绕过源码守卫或更新锁摘要。五条基线场景均通过，旧失败日志保留。后续真实试验又暴露了只读 node_modules 查询终止 Run 的问题，已补充窄范围环境反馈。最终 Node 两种管理器的闭环和新增写入拒绝回归重新通过；Maven/Vitest 三条闭环保留 3914cf9 的有效结果，未称它们在后续镜像中全部重跑。
 
 | 场景 | Candidate | Delivery revision |
 | --- | --- | --- |
@@ -47,8 +47,15 @@ evidenceVersion=3 区分 NOT_STARTED/EXECUTED/UNKNOWN，按工程、目标、run
 锁不一致、错误完整性摘要、pnpm hooks/workspace/私有源限制，报告缺失/损坏、零测试、不同 runner/工程/目标、stale、删除脚本等负例均有回归。堆耗尽测试是实际 Node 进程内存失败，不称 Docker OOM 测试。报告不是断言业务充分性的认证。
 仍仅支持既有 Vue 3/Vite 单工程、公共 registry、npm/pnpm 锁格式和固定运行时；安装期脚本、自定义工具链/私有凭据、无法采集的程序化 runner/覆盖 NODE_OPTIONS 的包装仍可能不可用或未验证。技术测试不替代独立产品验收。
 
-JDK21 镜像：`sha256:ba7a6e488c932bc5947635a7c1e73663eef0a367477e6c55c2e9f6609c16c5dc`。
-JDK17 镜像：`sha256:0f5ab81f34eb647cfee71d4ed256684491b751c330883b0914b8d332a29d3944`。
-应用 JAR SHA-256：`8a6eba7f57ff4677dd4f43e5d75551e8cee2f3f89e08aa35551e060a06c7348b`。
+JDK21 最终镜像：`sha256:fd93798d395bf474051feb66bdc4860efd050729372beefac1e91303cc720132`。
+JDK17 最终镜像：`sha256:0679c5d4d2d70aae64e01ff5dc6710f741d2b04f9b2542f0d67d18b6d0894857`。
+最终应用 JAR SHA-256：`0eb405e0e14bd0b8279300a57582b71d187e663d1a429cde97fb72d9aad42972`。
 
 结构化记录见 [工程证据](sandbox-script-evolution-20261103.json)。本地原始证据：`target/script-evidence-20261103/`。没有推送或合并，没有修改 frontend/design/、grilling/ 或历史验证报告。
+
+## 真实试验后的版本边界
+
+首轮真实试验见 [Homer 重试记录](autonomous-homeops-retrial-20261103.md)，运行基线为 3914cf9，0/4 Step，失败保持原事实。
+依赖只读查询的恢复反馈修正随后完成：最终完整 verify 为 1840/0 failure/0 error/44 skip，Node/npm 与 Node/pnpm 冻结交付两项及写入拒绝一项实际重新通过，Python 82 项通过。
+早先五条交付与七项镜像协议保留其原基线证据，当前新镜像另由正式启动流程核验真实协议、工具版本及全部脚本摘要。前端代码没有进一步修改，306 项测试和类型/构建结果仍有效。
+用户随后明确要求“继续”，授权延续同一已确认四步计划；后续真实结果另记，不覆盖本页工程证据或首轮失败。

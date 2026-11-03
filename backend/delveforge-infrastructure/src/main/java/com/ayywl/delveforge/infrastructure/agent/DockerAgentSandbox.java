@@ -833,7 +833,28 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 throw new AgentPolicyRejection(AgentPolicyRejection.Rule.RESOURCE_CAPABILITY,
                         AgentPolicyRejection.Stage.PATH_VALIDATION);
             }
-            requirePath(arguments.path("path").asText());
+            try {
+                requirePath(arguments.path("path").asText());
+            } catch (AgentException failure) {
+                if (!failure.code().equals("GENERATED_OUTPUT_AMBIGUITY")
+                        || !Set.of("list_files", "read_file", "search_code").contains(call.name())) {
+                    throw failure;
+                }
+                // 只读询问未进入文件系统；返回环境事实，不把依赖目录视为可读或可写源码。
+                JsonNode declared = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
+                requireToolSuccess(declared);
+                ObjectNode feedback = json.createObjectNode().put("ok", false).put("tool", call.name())
+                        .put("classification", "CHECK_MATERIAL_UNAVAILABLE")
+                        .put("instruction", "依赖和检查产物只在一次性检查环境中可用，不属于 Agent 源码视图。"
+                                + "不要浏览 node_modules；通过 run_frontend_checks 运行项目脚本并读取实际检查反馈。"
+                                + "锁文件不一致应核对 package.json 与锁文件的依赖声明；Node 内置测试无需新增 Vitest 依赖。");
+                feedback.set("availableChecks", declared.path("result"));
+                if (feedback.toString().getBytes(StandardCharsets.UTF_8).length > session.limits.maxOutputBytes()) {
+                    feedback.remove("availableChecks");
+                    feedback.put("capabilitiesTruncated", true);
+                }
+                return sanitize(feedback.toString());
+            }
         }
         if (call.name().equals("edit_file")) {
             try {

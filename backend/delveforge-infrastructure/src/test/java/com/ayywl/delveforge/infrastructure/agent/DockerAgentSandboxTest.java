@@ -463,6 +463,35 @@ class DockerAgentSandboxTest {
     }
 
     @Test
+    void generatedDependencyQueriesReturnEnvironmentFeedbackButWritesRemainRejected() throws Exception {
+        Path official = fixture();
+        String baseline = git(official, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        var sandbox = new DockerAgentSandbox(properties(temporary.resolve("runs")), new DeterministicRepositorySecretPolicy());
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", baseline,
+                    "goal", "scope", "changes", 21), AgentProtocol.Limits.defaults(), () -> false);
+            for (String read : List.of("list_files", "read_file", "search_code")) {
+                Map<String, Object> args = read.equals("search_code")
+                        ? Map.of("path", "node_modules/.bin", "query", "vitest") : Map.of("path", "node_modules/.bin");
+                var response = json.readTree(tool(sandbox, id, read, args));
+                assertFalse(response.path("ok").asBoolean());
+                assertEquals("CHECK_MATERIAL_UNAVAILABLE", response.path("classification").asText());
+                assertTrue(response.path("instruction").asText().contains("run_frontend_checks"));
+                assertFalse(response.has("result"));
+            }
+            assertEquals("GENERATED_OUTPUT_AMBIGUITY", assertThrows(AgentException.class,
+                    () -> tool(sandbox, id, "edit_file", Map.of("path", "node_modules/override.js",
+                            "old_text", "", "new_text", "export const bypass = true;"))).code());
+            assertEquals("NO_CHANGES", assertThrows(AgentException.class, () -> sandbox.finish(id, () -> false)).code());
+            assertEquals(baseline, git(official, "rev-parse", "HEAD"));
+            assertTrue(git(official, "status", "--porcelain").isEmpty());
+        } finally {
+            sandbox.cleanup(id);
+        }
+    }
+
+    @Test
     void actualReplayRejectsAnIncompleteDiff() throws Exception {
         Path official = fixture();
         String baseline = git(official, "rev-parse", "HEAD");

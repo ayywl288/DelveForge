@@ -40,6 +40,7 @@ public final class CodingAgentService implements AutoCloseable {
             根据实际工程和修改组件选择 Maven 与前端 typecheck/build/test；失败后修正源码并重新检查。
             优先使用现有测试。没有测试且当前 Step 需要时，可添加 Node 内置测试（node --test）或使用已安装 Vitest。
             npm/pnpm 执行项目原有脚本，包括包装与组合；Node --test/JUnit、Vitest/JSON 报告由执行环境采集，包装须保留 NODE_OPTIONS。
+            依赖仅存在于一次性检查环境，不在源码视图中；不要浏览 node_modules，通过检查工具了解依赖与运行结果。
             TEST_EXECUTION_UNVERIFIED 表示脚本退出成功但无法证明实际测试，不得宣称测试通过；修改后须运行最终源码的适用检查。
             CHECK_NOT_AVAILABLE 表示项目没有该项受支持检查，不是执行失败或测试通过；使用适用检查并如实说明未测试。
             构建或类型检查成功不代表业务正确或测试通过；没有实际执行的浏览器、运行期和业务验收不得报告为完成。
