@@ -1,0 +1,2154 @@
+{
+  "rules": {
+    "task": "final-random-e2e-20261103",
+    "declaredBeforeSeed": true,
+    "eligibility": {
+      "public": true,
+      "archived": false,
+      "canonicalForkPolicy": "Exclude forks whose upstream appears in discovery pool; record all such exclusions. Independent forks may remain if not a duplicate.",
+      "backend": "Java source and Maven pom.xml in same Git repository; Spring Boot preferred, not mandatory",
+      "frontend": "package.json declaring Vue major 3 and Vite, with real source in same repository",
+      "workflow": "README or corresponding backend/frontend API sources establish at least one business flow; exclude hello-world-only scaffolds",
+      "license": "Recognized open-source SPDX license allowing local inspection and derivative testing; no missing/NOASSERTION/custom noncommercial licenses",
+      "revision": "Pin default-branch commit before random draw",
+      "sourceBudgets": {
+        "files": 10000,
+        "totalBlobBytes": 134217728,
+        "singleBlobBytes": 16777216
+      },
+      "excludedPriorTrials": [
+        "DelveForge itself",
+        "previous autonomous demo repositories and deterministic fixtures",
+        "committed 20261102 compatibility corpus to avoid reusing earlier evaluated samples"
+      ]
+    },
+    "prohibitedFilters": [
+      "lock presence/version/manager",
+      "Maven profiles or number of roots",
+      "public registry mirrors",
+      "test coverage",
+      "estimated preflight success",
+      "availability of required external services"
+    ],
+    "discoveryQueries": [
+      "\"spring boot\" \"vue3\" \"vite\" archived:false size:<65536",
+      "springboot vue3 archived:false size:<65536"
+    ],
+    "sampling": "Deterministic name sort of objectively eligible frozen pool, 32 random bytes after freeze, SHA-256(seed + LF + full_name + LF + commit) lexicographic minimum; no redraw for product or environment failure",
+    "evaluationOrder": "Merge/deduplicate raw search results, sort full repository names, evaluate objective criteria without reading locks or executing compatibility/build probes; aim at least 20 eligible, retain all assessed exclusions.",
+    "caveat": "Random within a reproducibly frozen search-discovered pool, not a uniform sample of all GitHub repositories"
+  },
+  "discoveredRepositories": 148,
+  "eligibleRepositories": 32,
+  "frozenBeforeSeed": true,
+  "frozenLocalArtifact": "target/final-random-e2e-20261103/frozen-pool.json",
+  "frozenPoolSha256": "dd951cfdac35310a7c3a4cf21057c0fe38087ebc12ba962b105ff85dbd32237b",
+  "seed": "d38ed9c95941942ed2cd9a5a60e740dd4dd60fda238cc9f2fbe9ffb55aec27f7",
+  "seedGeneration": "Python secrets.token_hex(32), once after writing frozen-pool.json",
+  "generatedAt": "2026-11-03T16:44:07.957759+00:00",
+  "algorithm": "SHA256(UTF8(seedHex + LF + full_name + LF + commit)); lexicographic minimum hex score",
+  "pool": [
+    {
+      "name": "1024-lab/smart-admin",
+      "url": "https://github.com/1024-lab/smart-admin",
+      "commit": "2dbf3c285afbb187efb19630c4dd70664067cbc2",
+      "branch": "master",
+      "license": "MIT",
+      "source": {
+        "files": 2311,
+        "bytes": 62457285,
+        "largestBlob": 12466905,
+        "truncated": false
+      },
+      "pom": "smart-admin-api-java17-springboot3/pom.xml",
+      "frontend": [
+        {
+          "path": "smart-admin-web-javascript/package.json",
+          "vue": "3.4.27",
+          "vite": "5.2.12",
+          "error": false
+        },
+        {
+          "path": "smart-admin-web-typescript/package.json",
+          "vue": "3.4.27",
+          "vite": "5.2.12",
+          "error": false
+        },
+        {
+          "path": "smart-app/package.json",
+          "vue": "3.2.47",
+          "vite": "4.0.3",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "smart-admin-api-java17-springboot3/sa-admin/src/main/java/net/lab1024/sa/admin/module/business/category/controller/CategoryController.java",
+        "smart-admin-api-java17-springboot3/sa-admin/src/main/java/net/lab1024/sa/admin/module/business/goods/controller/GoodsController.java",
+        "smart-admin-api-java17-springboot3/sa-admin/src/main/java/net/lab1024/sa/admin/module/business/oa/bank/controller/BankController.java"
+      ],
+      "frontendExamples": [
+        "smart-admin-web-javascript/src/api/business/category/category-api.js",
+        "smart-admin-web-javascript/src/api/business/goods/goods-api.js",
+        "smart-admin-web-javascript/src/api/business/oa/bank-api.js"
+      ]
+    },
+    {
+      "name": "1tg106/ry-perf-apex",
+      "url": "https://github.com/1tg106/ry-perf-apex",
+      "commit": "9ee50dd4a8f1c0c60a5808488bd309b466f3e698",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 724,
+        "bytes": 5783079,
+        "largestBlob": 689698,
+        "truncated": false
+      },
+      "pom": "pom.xml",
+      "frontend": [
+        {
+          "path": "perf-apex-vue3/package.json",
+          "vue": "3.5.16",
+          "vite": "6.3.5",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "ruoyi-admin/src/main/java/com/ruoyi/web/controller/common/CaptchaController.java",
+        "ruoyi-admin/src/main/java/com/ruoyi/web/controller/common/CommonController.java",
+        "ruoyi-admin/src/main/java/com/ruoyi/web/controller/monitor/CacheController.java"
+      ],
+      "frontendExamples": [
+        "perf-apex-vue3/src/api/login.js",
+        "perf-apex-vue3/src/api/menu.js",
+        "perf-apex-vue3/src/api/monitor/cache.js"
+      ]
+    },
+    {
+      "name": "codewld/I-Mall",
+      "url": "https://github.com/codewld/I-Mall",
+      "commit": "195b89303c4c075f7cb7eadacb16296b74277c21",
+      "branch": "master",
+      "license": "MIT",
+      "source": {
+        "files": 216,
+        "bytes": 1432504,
+        "largestBlob": 1038987,
+        "truncated": false
+      },
+      "pom": "I-Mall-Server/I-Mall-Admin/pom.xml",
+      "frontend": [
+        {
+          "path": "I-Mall-Admin/package.json",
+          "vue": "^3.2.30",
+          "vite": "^2.7.2",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "I-Mall-Server/I-Mall-Admin/src/main/java/pers/codewld/imall/admin/controller/AccountController.java",
+        "I-Mall-Server/I-Mall-Admin/src/main/java/pers/codewld/imall/admin/controller/HelloController.java",
+        "I-Mall-Server/I-Mall-Admin/src/main/java/pers/codewld/imall/admin/controller/SmsDictController.java"
+      ],
+      "frontendExamples": [
+        "I-Mall-Admin/src/api/hello.ts",
+        "I-Mall-Admin/src/api/index.ts",
+        "I-Mall-Admin/src/api/sms/dict.ts"
+      ]
+    },
+    {
+      "name": "daxiangme/fnk-server",
+      "url": "https://github.com/daxiangme/fnk-server",
+      "commit": "662caf0c613efb5c6b4e0b1c571e813655b16303",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 774,
+        "bytes": 6941288,
+        "largestBlob": 956443,
+        "truncated": false
+      },
+      "pom": "app-infra/app-infra-api/pom.xml",
+      "frontend": [
+        {
+          "path": "frontend/package.json",
+          "vue": "^3.5.21",
+          "vite": "^7.1.5",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "app-infra/app-infra-biz/src/main/java/com/fnk/app/infra/biz/controller/CodeGenController.java",
+        "app-infra/app-infra-biz/src/main/java/com/fnk/app/infra/biz/controller/InfraConfigController.java",
+        "app-infra/app-infra-biz/src/main/java/com/fnk/app/infra/biz/controller/InfraFileConfigController.java"
+      ],
+      "frontendExamples": [
+        "frontend/src/api/auth.ts",
+        "frontend/src/api/foundation.ts",
+        "frontend/src/api/infra.ts"
+      ]
+    },
+    {
+      "name": "dromara/ujcms",
+      "url": "https://github.com/dromara/ujcms",
+      "commit": "d4aa397006c2b0f6a42ad41a3e7c4072be9f06f7",
+      "branch": "main",
+      "license": "GPL-3.0",
+      "source": {
+        "files": 2295,
+        "bytes": 27932070,
+        "largestBlob": 3419244,
+        "truncated": false
+      },
+      "pom": "pom.xml",
+      "frontend": [
+        {
+          "path": "ujcms-ui-console/package.json",
+          "vue": "^3.5.42",
+          "vite": "^7.3.6",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "ujcms-cms/src/main/java/com/ujcms/cms/core/web/api/ArticleController.java",
+        "ujcms-cms/src/main/java/com/ujcms/cms/core/web/api/BlockController.java",
+        "ujcms-cms/src/main/java/com/ujcms/cms/core/web/api/BlockItemController.java"
+      ],
+      "frontendExamples": [
+        "ujcms-ui-console/src/api/ai.ts",
+        "ujcms-ui-console/src/api/census.ts",
+        "ujcms-ui-console/src/api/composition.ts"
+      ]
+    },
+    {
+      "name": "duqicauc/JavaaduBlog",
+      "url": "https://github.com/duqicauc/JavaaduBlog",
+      "commit": "b037783cd0bd3ed172102e792f1db6a396cae81e",
+      "branch": "master",
+      "license": "Apache-2.0",
+      "source": {
+        "files": 736,
+        "bytes": 14677387,
+        "largestBlob": 11065998,
+        "truncated": false
+      },
+      "pom": "blog-springboot/pom.xml",
+      "frontend": [
+        {
+          "path": "blog-vue/shoka-admin/package.json",
+          "vue": "^3.2.41",
+          "vite": "^3.2.3",
+          "error": false
+        },
+        {
+          "path": "blog-vue/shoka-blog/package.json",
+          "vue": "^3.2.41",
+          "vite": "^3.2.3",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "blog-springboot/src/main/java/com/ican/controller/AlbumController.java",
+        "blog-springboot/src/main/java/com/ican/controller/ArticleController.java",
+        "blog-springboot/src/main/java/com/ican/controller/BlogInfoController.java"
+      ],
+      "frontendExamples": [
+        "blog-vue/shoka-admin/src/api/album/index.ts",
+        "blog-vue/shoka-admin/src/api/album/types.ts",
+        "blog-vue/shoka-admin/src/api/article/index.ts"
+      ]
+    },
+    {
+      "name": "ems-admin/ems-admin-vue3",
+      "url": "https://github.com/ems-admin/ems-admin-vue3",
+      "commit": "a7b08606719772be0e65f694fc667a230646e290",
+      "branch": "master",
+      "license": "Apache-2.0",
+      "source": {
+        "files": 134,
+        "bytes": 969281,
+        "largestBlob": 377356,
+        "truncated": false
+      },
+      "pom": "pom.xml",
+      "frontend": [
+        {
+          "path": "web/package.json",
+          "vue": "^3.5.22",
+          "vite": "^7.1.7",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "src/main/java/com/ems/system/controller/LoginController.java",
+        "src/main/java/com/ems/system/controller/SysLogController.java",
+        "src/main/java/com/ems/system/controller/SysMenuController.java"
+      ],
+      "frontendExamples": [
+        "web/src/api/log/sysLog.js",
+        "web/src/api/login/login.js",
+        "web/src/api/menu/sysMenu.js"
+      ]
+    },
+    {
+      "name": "GOOD-123-CPU/green-cert-trading",
+      "url": "https://github.com/GOOD-123-CPU/green-cert-trading",
+      "commit": "2dbd87bc891e62e8a84201c844f2dc6b5e01cc80",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 228,
+        "bytes": 39810259,
+        "largestBlob": 8092724,
+        "truncated": false
+      },
+      "pom": "系统/销售系统/源码/springboot/pom.xml",
+      "frontend": [
+        {
+          "path": "系统/销售系统/源码/vue3/package.json",
+          "vue": "^3.4.38",
+          "vite": "^5.4.11",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "系统/销售系统/源码/springboot/src/main/java/org/example/springboot/controller/AddressController.java",
+        "系统/销售系统/源码/springboot/src/main/java/org/example/springboot/controller/ArticleController.java",
+        "系统/销售系统/源码/springboot/src/main/java/org/example/springboot/controller/CarouselItemController.java"
+      ],
+      "frontendExamples": [
+        "系统/销售系统/源码/vue3/src/views/404.vue",
+        "系统/销售系统/源码/vue3/src/views/ArticleManager.vue",
+        "系统/销售系统/源码/vue3/src/views/CarouselManager.vue"
+      ]
+    },
+    {
+      "name": "hack-feng/maple-boot",
+      "url": "https://github.com/hack-feng/maple-boot",
+      "commit": "00d47fad207af918beafd39251adf2feb186534b",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 803,
+        "bytes": 8781562,
+        "largestBlob": 1732191,
+        "truncated": false
+      },
+      "pom": "maple-admin/maple-admin-common/pom.xml",
+      "frontend": [
+        {
+          "path": "maple-manage-web/package.json",
+          "vue": "^3.2.47",
+          "vite": "^4.2.1",
+          "error": false
+        },
+        {
+          "path": "maple-website/package.json",
+          "vue": "3.2.47",
+          "vite": "2.9.9",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "maple-admin/maple-admin-rest/src/main/java/com/maple/rest/controller/manage/LoginController.java",
+        "maple-admin/maple-admin-rest/src/main/java/com/maple/rest/controller/manage/common/ManageFileController.java",
+        "maple-admin/maple-admin-rest/src/main/java/com/maple/rest/controller/manage/system/ConfigController.java"
+      ],
+      "frontendExamples": [
+        "maple-manage-web/src/api/login/index.ts",
+        "maple-manage-web/src/api/system/config.ts",
+        "maple-manage-web/src/api/system/dept.ts"
+      ]
+    },
+    {
+      "name": "HanJun27/-LLM-AI-agent-Management-System-",
+      "url": "https://github.com/HanJun27/-LLM-AI-agent-Management-System-",
+      "commit": "ab5e8ed995d896c189b6962bab922a98e3e88a21",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 125,
+        "bytes": 2279848,
+        "largestBlob": 657904,
+        "truncated": false
+      },
+      "pom": "backend/pom.xml",
+      "frontend": [
+        {
+          "path": "frontend/package.json",
+          "vue": "^3.4.0",
+          "vite": "^5.0.0",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "backend/src/main/java/com/zijin/college/controller/AuthController.java",
+        "backend/src/main/java/com/zijin/college/controller/ChatController.java",
+        "backend/src/main/java/com/zijin/college/controller/ClassInfoController.java"
+      ],
+      "frontendExamples": [
+        "frontend/src/api/auth.ts",
+        "frontend/src/api/class.ts",
+        "frontend/src/api/config.ts"
+      ]
+    },
+    {
+      "name": "hendisantika/springboot3-vue3-mongodb-crud",
+      "url": "https://github.com/hendisantika/springboot3-vue3-mongodb-crud",
+      "commit": "5cb4b77795b1d88c4476c8e65f5e74d2d875b3ff",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 47,
+        "bytes": 153618,
+        "largestBlob": 63093,
+        "truncated": false
+      },
+      "pom": "backend/pom.xml",
+      "frontend": [
+        {
+          "path": "frontend/package.json",
+          "vue": "^3.3.4",
+          "vite": "^8.0.0",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "backend/src/main/java/com/hendisantika/backend/controller/UserController.java"
+      ],
+      "frontendExamples": []
+    },
+    {
+      "name": "hierach/ems-project",
+      "url": "https://github.com/hierach/ems-project",
+      "commit": "b44d847868964bd90b498172e994a77adebc5c28",
+      "branch": "main",
+      "license": "Apache-2.0",
+      "source": {
+        "files": 184,
+        "bytes": 10408764,
+        "largestBlob": 9306617,
+        "truncated": false
+      },
+      "pom": "ems-server/pom.xml",
+      "frontend": [
+        {
+          "path": "ems-client/package.json",
+          "vue": "^3.3.10",
+          "vite": "^5.0.5",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "ems-server/src/main/java/com/weifengqin/controller/AdminController.java",
+        "ems-server/src/main/java/com/weifengqin/controller/LoginController.java",
+        "ems-server/src/main/java/com/weifengqin/controller/StudentController.java"
+      ],
+      "frontendExamples": [
+        "ems-client/src/api/admin.js",
+        "ems-client/src/api/login.js",
+        "ems-client/src/api/student.js"
+      ]
+    },
+    {
+      "name": "huangjiawei-cmd/teststudio",
+      "url": "https://github.com/huangjiawei-cmd/teststudio",
+      "commit": "c563c9c64beb50637899e4dac402ea14e9b13a05",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 32,
+        "bytes": 82471,
+        "largestBlob": 42176,
+        "truncated": false
+      },
+      "pom": "backend/pom.xml",
+      "frontend": [
+        {
+          "path": "frontend/package.json",
+          "vue": "3.5.13",
+          "vite": "5.4.14",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "backend/src/main/java/com/teststudio/sms/controller/DashboardController.java",
+        "backend/src/main/java/com/teststudio/sms/controller/StudentController.java"
+      ],
+      "frontendExamples": [
+        "frontend/src/views/AttendanceView.vue",
+        "frontend/src/views/CourseView.vue",
+        "frontend/src/views/DashboardView.vue"
+      ]
+    },
+    {
+      "name": "huxuehao/hanjiang-etm",
+      "url": "https://github.com/huxuehao/hanjiang-etm",
+      "commit": "0008c2828c746572dbddbfcbc7c973e24ddf96ff",
+      "branch": "master",
+      "license": "MIT",
+      "source": {
+        "files": 530,
+        "bytes": 14435081,
+        "largestBlob": 4033952,
+        "truncated": false
+      },
+      "pom": "hanjiang-etm-admin/pom.xml",
+      "frontend": [
+        {
+          "path": "hanjiang-etm-web/package.json",
+          "vue": "^3.5.13",
+          "vite": "^6.0.1",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "hanjiang-etm-biz/hanjiang-etm-etm/src/main/java/com/hxh/etm/exam/controller/TDingdingQrConfigController.java",
+        "hanjiang-etm-biz/hanjiang-etm-etm/src/main/java/com/hxh/etm/exam/controller/TExamClassifyController.java",
+        "hanjiang-etm-biz/hanjiang-etm-etm/src/main/java/com/hxh/etm/exam/controller/TExamController.java"
+      ],
+      "frontendExamples": [
+        "hanjiang-etm-web/src/api/attach.ts",
+        "hanjiang-etm-web/src/api/endpoint.ts",
+        "hanjiang-etm-web/src/api/examClassify.ts"
+      ]
+    },
+    {
+      "name": "kramrs/blog",
+      "url": "https://github.com/kramrs/blog",
+      "commit": "b81723dedfb9c627dd12b67491697ba1e833682e",
+      "branch": "main",
+      "license": "Apache-2.0",
+      "source": {
+        "files": 954,
+        "bytes": 14218195,
+        "largestBlob": 11070083,
+        "truncated": false
+      },
+      "pom": "blog-boot/pom.xml",
+      "frontend": [
+        {
+          "path": "blog-vue/kramrs-admin/package.json",
+          "vue": "^3.2.47",
+          "vite": "^3.2.3",
+          "error": false
+        },
+        {
+          "path": "blog-vue/kramrs-blog/package.json",
+          "vue": "^3.4.23",
+          "vite": "^5.2.10",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "blog-boot/src/main/java/com/kramrs/controller/AlbumController.java",
+        "blog-boot/src/main/java/com/kramrs/controller/ArticleController.java",
+        "blog-boot/src/main/java/com/kramrs/controller/BlogFileController.java"
+      ],
+      "frontendExamples": [
+        "blog-vue/kramrs-admin/src/api/album/index.ts",
+        "blog-vue/kramrs-admin/src/api/album/types.ts",
+        "blog-vue/kramrs-admin/src/api/article/index.ts"
+      ]
+    },
+    {
+      "name": "Linxfeng/flow-eda",
+      "url": "https://github.com/Linxfeng/flow-eda",
+      "commit": "55533222469e1154211f2c6e4be39a4f8c7d72ce",
+      "branch": "master",
+      "license": "MIT",
+      "source": {
+        "files": 470,
+        "bytes": 6214820,
+        "largestBlob": 886780,
+        "truncated": false
+      },
+      "pom": "flow-eda-common/pom.xml",
+      "frontend": [
+        {
+          "path": "flow-eda-vue/package.json",
+          "vue": "^3.2.45",
+          "vite": "^4.0.3",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "flow-eda-oauth2/src/main/java/com/flow/eda/oauth2/user/UserController.java",
+        "flow-eda-web/src/main/java/com/flow/eda/web/flow/FlowController.java",
+        "flow-eda-web/src/main/java/com/flow/eda/web/flow/node/data/NodeDataController.java"
+      ],
+      "frontendExamples": [
+        "flow-eda-vue/src/api/flow.js",
+        "flow-eda-vue/src/api/logs.js",
+        "flow-eda-vue/src/api/nodeData.js"
+      ]
+    },
+    {
+      "name": "linyshdhhcb/PigHealthSmartMedicine",
+      "url": "https://github.com/linyshdhhcb/PigHealthSmartMedicine",
+      "commit": "6a5a2ef4099d2ad872026d0070fe833c7359b6e9",
+      "branch": "master",
+      "license": "MIT",
+      "source": {
+        "files": 1098,
+        "bytes": 23637095,
+        "largestBlob": 2970067,
+        "truncated": false
+      },
+      "pom": "backend/pom.xml",
+      "frontend": [
+        {
+          "path": "frontend/admin/package.json",
+          "vue": "^3.5.13",
+          "vite": "^6.2.0",
+          "error": false
+        },
+        {
+          "path": "frontend/web/package.json",
+          "vue": "^3.5.13",
+          "vite": "^6.2.1",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "backend/src/main/java/com/linyi/pig/controller/ArticleTypesController.java",
+        "backend/src/main/java/com/linyi/pig/controller/ArticlesController.java",
+        "backend/src/main/java/com/linyi/pig/controller/ConversationController.java"
+      ],
+      "frontendExamples": [
+        "frontend/admin/src/api/Auth.js",
+        "frontend/admin/src/api/TravelNotes.js",
+        "frontend/admin/src/api/articleType.js"
+      ]
+    },
+    {
+      "name": "liuguofeng-java/workflow",
+      "url": "https://github.com/liuguofeng-java/workflow",
+      "commit": "b449a389c8a03ebb2d4caeebe652d71f821152a8",
+      "branch": "master",
+      "license": "Apache-2.0",
+      "source": {
+        "files": 683,
+        "bytes": 6308422,
+        "largestBlob": 672888,
+        "truncated": false
+      },
+      "pom": "activiti7-java/pom.xml",
+      "frontend": [
+        {
+          "path": "activiti7-ui/package.json",
+          "vue": "^3.2.37",
+          "vite": "4.4.8",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "activiti7-java/src/main/java/com/activiti/modules/controller/CommonController.java",
+        "activiti7-java/src/main/java/com/activiti/modules/controller/IndexController.java",
+        "activiti7-java/src/main/java/com/activiti/modules/controller/LoginController.java"
+      ],
+      "frontendExamples": [
+        "activiti7-ui/src/views/activiti/definition/index.vue",
+        "activiti7-ui/src/views/activiti/definition/model/BpmnDetails.vue",
+        "activiti7-ui/src/views/activiti/definition/model/DeployBpmn.vue"
+      ]
+    },
+    {
+      "name": "lixaviers/xavier-pms",
+      "url": "https://github.com/lixaviers/xavier-pms",
+      "commit": "dcd8f9d9ced23bddf861bc98d666eebe1704d62c",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 606,
+        "bytes": 4409221,
+        "largestBlob": 521275,
+        "truncated": false
+      },
+      "pom": "xavier-pms-java/pom.xml",
+      "frontend": [
+        {
+          "path": "xavier-pms-ui/package.json",
+          "vue": "^3.5.38",
+          "vite": "^7.3.5",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "xavier-pms-java/src/main/java/com/xavier/pms/controller/AnnouncementController.java",
+        "xavier-pms-java/src/main/java/com/xavier/pms/controller/AnnouncementTypeController.java",
+        "xavier-pms-java/src/main/java/com/xavier/pms/controller/ApprovalController.java"
+      ],
+      "frontendExamples": [
+        "xavier-pms-ui/src/api/login.js",
+        "xavier-pms-ui/src/api/modules/announcement.js",
+        "xavier-pms-ui/src/api/modules/announcementType.js"
+      ]
+    },
+    {
+      "name": "makunet/maku-generator",
+      "url": "https://github.com/makunet/maku-generator",
+      "commit": "90b06c01183168d991520cfd0ff3a746e3980cd8",
+      "branch": "master",
+      "license": "LGPL-3.0",
+      "source": {
+        "files": 198,
+        "bytes": 5251436,
+        "largestBlob": 1813816,
+        "truncated": false
+      },
+      "pom": "maku-generator-boot-starter/pom.xml",
+      "frontend": [
+        {
+          "path": "maku-generator-ui/package.json",
+          "vue": "3.4.30",
+          "vite": "5.3.1",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "maku-generator-core/src/main/java/net/maku/generator/controller/BaseClassController.java",
+        "maku-generator-core/src/main/java/net/maku/generator/controller/DataSourceController.java",
+        "maku-generator-core/src/main/java/net/maku/generator/controller/FieldTypeController.java"
+      ],
+      "frontendExamples": [
+        "maku-generator-ui/src/api/baseClass.ts",
+        "maku-generator-ui/src/api/datasource.ts",
+        "maku-generator-ui/src/api/fieldType.ts"
+      ]
+    },
+    {
+      "name": "may-fly/mayfly",
+      "url": "https://github.com/may-fly/mayfly",
+      "commit": "46e52cfbc4ded1904b583d74a508fd3b431de3e7",
+      "branch": "dev",
+      "license": "Apache-2.0",
+      "source": {
+        "files": 564,
+        "bytes": 11181609,
+        "largestBlob": 1034308,
+        "truncated": false
+      },
+      "pom": "mayfly-core/pom.xml",
+      "frontend": [
+        {
+          "path": "mayfly_web/package.json",
+          "vue": "^3.2.37",
+          "vite": "^2.9.10",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "mayfly-sys/src/main/java/mayfly/sys/module/db/controller/DbController.java",
+        "mayfly-sys/src/main/java/mayfly/sys/module/machine/controller/MachineController.java",
+        "mayfly-sys/src/main/java/mayfly/sys/module/machine/controller/MachineFileController.java"
+      ],
+      "frontendExamples": [
+        "mayfly_web/src/views/error/401.vue",
+        "mayfly_web/src/views/error/404.vue",
+        "mayfly_web/src/views/home/index.vue"
+      ]
+    },
+    {
+      "name": "mifunc/SpringBoot3-RuoYi-Vue2-Vue3",
+      "url": "https://github.com/mifunc/SpringBoot3-RuoYi-Vue2-Vue3",
+      "commit": "b02063ec91ac633bdc6a4d758b2b693e682a3568",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 867,
+        "bytes": 5051055,
+        "largestBlob": 521275,
+        "truncated": false
+      },
+      "pom": "pom.xml",
+      "frontend": [
+        {
+          "path": "rouyi-vue3/package.json",
+          "vue": "3.2.45",
+          "vite": "3.2.3",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "ruoyi-admin/src/main/java/com/ruoyi/web/controller/common/CaptchaController.java",
+        "ruoyi-admin/src/main/java/com/ruoyi/web/controller/common/CommonController.java",
+        "ruoyi-admin/src/main/java/com/ruoyi/web/controller/monitor/CacheController.java"
+      ],
+      "frontendExamples": [
+        "rouyi-vue3/src/api/login.ts",
+        "rouyi-vue3/src/api/menu.ts",
+        "rouyi-vue3/src/api/monitor/cache.ts"
+      ]
+    },
+    {
+      "name": "mox-hub/campus_bus_sys",
+      "url": "https://github.com/mox-hub/campus_bus_sys",
+      "commit": "cb871827fea52fb3bf1d1c4d9385303bbd364754",
+      "branch": "master",
+      "license": "MIT",
+      "source": {
+        "files": 180,
+        "bytes": 1236782,
+        "largestBlob": 147599,
+        "truncated": false
+      },
+      "pom": "campus_bus_server/pom.xml",
+      "frontend": [
+        {
+          "path": "campus_bus_admin/package.json",
+          "vue": "^3.1.2",
+          "vite": "2.3.7",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "campus_bus_server/src/main/java/com/foocode/manager/controller/sys/BusController.java",
+        "campus_bus_server/src/main/java/com/foocode/manager/controller/sys/CampusController.java",
+        "campus_bus_server/src/main/java/com/foocode/manager/controller/sys/OrderController.java"
+      ],
+      "frontendExamples": [
+        "campus_bus_admin/src/api/index.js",
+        "campus_bus_admin/src/views/Dashboard.vue",
+        "campus_bus_admin/src/views/Home.vue"
+      ]
+    },
+    {
+      "name": "Starry123229/vben-admin-backend",
+      "url": "https://github.com/Starry123229/vben-admin-backend",
+      "commit": "e78bd7bf47201949b73427e2ceed619fe010743f",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 1628,
+        "bytes": 4706901,
+        "largestBlob": 640642,
+        "truncated": false
+      },
+      "pom": "vben-admin-backend/java-backend/pom.xml",
+      "frontend": [
+        {
+          "path": "vue-vben-admin-v5.7.0/package.json",
+          "vue": "catalog:",
+          "vite": "catalog:",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "vben-admin-backend/java-backend/src/main/java/com/vben/backend/module/auth/controller/AuthController.java",
+        "vben-admin-backend/java-backend/src/main/java/com/vben/backend/module/auth/controller/AuthExtController.java",
+        "vben-admin-backend/java-backend/src/main/java/com/vben/backend/module/system/controller/AttachmentController.java"
+      ],
+      "frontendExamples": [
+        "vue-vben-admin-v5.7.0/apps/web-antd/src/api/core/auth.ts",
+        "vue-vben-admin-v5.7.0/apps/web-antd/src/api/core/index.ts",
+        "vue-vben-admin-v5.7.0/apps/web-antd/src/api/core/menu.ts"
+      ]
+    },
+    {
+      "name": "Techd81/Campus-laboratory-equipment-reservation-system-based-on-Spring-Boot-Vue",
+      "url": "https://github.com/Techd81/Campus-laboratory-equipment-reservation-system-based-on-Spring-Boot-Vue",
+      "commit": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 360,
+        "bytes": 1582431,
+        "largestBlob": 203608,
+        "truncated": false
+      },
+      "pom": "backend/pom.xml",
+      "frontend": [
+        {
+          "path": "frontend/package.json",
+          "vue": "^3.5.0",
+          "vite": "^6.1.0",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "backend/src/main/java/com/lab/reservation/controller/AuthController.java",
+        "backend/src/main/java/com/lab/reservation/controller/DashboardController.java",
+        "backend/src/main/java/com/lab/reservation/controller/EquipmentController.java"
+      ],
+      "frontendExamples": [
+        "frontend/src/api/client.ts",
+        "frontend/src/api/modules/auth.ts",
+        "frontend/src/api/modules/dashboard.ts"
+      ]
+    },
+    {
+      "name": "tedgamer-hub/zhihuijiaotong2",
+      "url": "https://github.com/tedgamer-hub/zhihuijiaotong2",
+      "commit": "d02b650f6e8c19c722eb7b1e57f525780cb33364",
+      "branch": "main",
+      "license": "MIT",
+      "source": {
+        "files": 1308,
+        "bytes": 27972644,
+        "largestBlob": 3217600,
+        "truncated": false
+      },
+      "pom": "SpringbootIntelliDetect/IntelliDetect/IntelliDetect/pom.xml",
+      "frontend": [
+        {
+          "path": "zhihuijiaotong_vue3/package.json",
+          "vue": "^3.2.45",
+          "vite": "^4.0.0",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "SpringbootIntelliDetect/IntelliDetect/IntelliDetect/src/main/java/com/parent/springai/intellidetect/controller/AccidentController.java",
+        "SpringbootIntelliDetect/IntelliDetect/IntelliDetect/src/main/java/com/parent/springai/intellidetect/controller/AccidentInfoController.java",
+        "SpringbootIntelliDetect/IntelliDetect/IntelliDetect/src/main/java/com/parent/springai/intellidetect/controller/IoTController.java"
+      ],
+      "frontendExamples": [
+        "zhihuijiaotong_vue3/src/api/api/LargeScreenData.js",
+        "zhihuijiaotong_vue3/src/api/api/user.js",
+        "zhihuijiaotong_vue3/src/api/ipConfig.js"
+      ]
+    },
+    {
+      "name": "thousmile/molly-multi-tenant",
+      "url": "https://github.com/thousmile/molly-multi-tenant",
+      "commit": "da602281e089788c284c3bfde5d73071e4f030ec",
+      "branch": "master",
+      "license": "Apache-2.0",
+      "source": {
+        "files": 808,
+        "bytes": 18654960,
+        "largestBlob": 11070083,
+        "truncated": false
+      },
+      "pom": "server/common/pom.xml",
+      "frontend": [
+        {
+          "path": "platform-web-ui/package.json",
+          "vue": "3.3.9",
+          "vite": "5.0.4",
+          "error": false
+        },
+        {
+          "path": "tenant-web-ui/package.json",
+          "vue": "3.3.9",
+          "vite": "5.0.4",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "server/molly-cms/src/main/java/com/xaaef/molly/corems/controller/CmsDeviceController.java",
+        "server/molly-cms/src/main/java/com/xaaef/molly/corems/controller/CmsProjectController.java",
+        "server/molly-monitor/src/main/java/com/xaaef/molly/monitor/controller/LmsLoginLogController.java"
+      ],
+      "frontendExamples": [
+        "platform-web-ui/src/api/config.ts",
+        "platform-web-ui/src/api/dept.ts",
+        "platform-web-ui/src/api/device.ts"
+      ]
+    },
+    {
+      "name": "weiwosuoai/WeBlog",
+      "url": "https://github.com/weiwosuoai/WeBlog",
+      "commit": "6c6d9b50bd0aae7f9485617e4effb049b8bbe9eb",
+      "branch": "master",
+      "license": "MIT",
+      "source": {
+        "files": 270,
+        "bytes": 12098718,
+        "largestBlob": 11070130,
+        "truncated": false
+      },
+      "pom": "weblog-springboot/pom.xml",
+      "frontend": [
+        {
+          "path": "weblog-vue3/package.json",
+          "vue": "^3.2.47",
+          "vite": "^4.1.4",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "weblog-springboot/weblog-module-admin/src/main/java/com/quanxiaoha/weblog/admin/controller/AdminArticleController.java",
+        "weblog-springboot/weblog-module-admin/src/main/java/com/quanxiaoha/weblog/admin/controller/AdminBlogSettingController.java",
+        "weblog-springboot/weblog-module-admin/src/main/java/com/quanxiaoha/weblog/admin/controller/AdminCategoryController.java"
+      ],
+      "frontendExamples": [
+        "weblog-vue3/src/api/admin/article.js",
+        "weblog-vue3/src/api/admin/blogsetting.js",
+        "weblog-vue3/src/api/admin/category.js"
+      ]
+    },
+    {
+      "name": "wushij/wu-admin",
+      "url": "https://github.com/wushij/wu-admin",
+      "commit": "f9ddfe4acde9e1c4003394392d6180f2ff247a42",
+      "branch": "master",
+      "license": "Apache-2.0",
+      "source": {
+        "files": 1353,
+        "bytes": 23841349,
+        "largestBlob": 10641893,
+        "truncated": false
+      },
+      "pom": "backend/pom.xml",
+      "frontend": [
+        {
+          "path": "frontend/package.json",
+          "vue": "^3.4.15",
+          "vite": "^5.0.11",
+          "error": false
+        },
+        {
+          "path": "uniapp/package.json",
+          "vue": "^3.4.21",
+          "vite": "5.2.8",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "backend/src/main/java/com/admin/server/framework/storage/StorageFileController.java",
+        "backend/src/main/java/com/admin/server/modules/ai/api/AiChatController.java",
+        "backend/src/main/java/com/admin/server/modules/ai/api/AiChatLogController.java"
+      ],
+      "frontendExamples": [
+        "frontend/src/api/ai/index.ts",
+        "frontend/src/api/dashboard/index.ts",
+        "frontend/src/api/message/index.ts"
+      ]
+    },
+    {
+      "name": "wxw850227/jjjerp_java",
+      "url": "https://github.com/wxw850227/jjjerp_java",
+      "commit": "6dc6bf08a55e1a5a804c44b7b7e255a27ac10327",
+      "branch": "main",
+      "license": "Apache-2.0",
+      "source": {
+        "files": 1649,
+        "bytes": 31708284,
+        "largestBlob": 2729260,
+        "truncated": false
+      },
+      "pom": "jjj_erp/bootstrap/pom.xml",
+      "frontend": [
+        {
+          "path": "jjj_erp_admin/package.json",
+          "vue": "^3.2.47",
+          "vite": "^4.2.0",
+          "error": false
+        },
+        {
+          "path": "jjj_erp_saas/package.json",
+          "vue": "^3.2.47",
+          "vite": "^4.2.0",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "jjj_erp/jjj-admin/src/main/java/net/jjjerp/admin/controller/IndexController.java",
+        "jjj_erp/jjj-admin/src/main/java/net/jjjerp/admin/controller/PassportController.java",
+        "jjj_erp/jjj-admin/src/main/java/net/jjjerp/admin/controller/bill/BillController.java"
+      ],
+      "frontendExamples": [
+        "jjj_erp_admin/src/api/auth.js",
+        "jjj_erp_admin/src/api/collection.js",
+        "jjj_erp_admin/src/api/data.js"
+      ]
+    },
+    {
+      "name": "wxw850227/jjjshop_food_java",
+      "url": "https://github.com/wxw850227/jjjshop_food_java",
+      "commit": "0f6d0dba9b37e5884a7de32633006154ebfcfb26",
+      "branch": "main",
+      "license": "Apache-2.0",
+      "source": {
+        "files": 3654,
+        "bytes": 36727907,
+        "largestBlob": 2729260,
+        "truncated": false
+      },
+      "pom": "jjj_food_chain/boot-admin/pom.xml",
+      "frontend": [
+        {
+          "path": "jjj_food_chain_admin/package.json",
+          "vue": "^3.2.47",
+          "vite": "^4.2.0",
+          "error": false
+        },
+        {
+          "path": "jjj_food_chain_shop/package.json",
+          "vue": "^3.2.47",
+          "vite": "^4.2.0",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "jjj_food_chain/jjj-admin/src/main/java/net/jjjshop/admin/controller/AccessController.java",
+        "jjj_food_chain/jjj-admin/src/main/java/net/jjjshop/admin/controller/IndexController.java",
+        "jjj_food_chain/jjj-admin/src/main/java/net/jjjshop/admin/controller/MessageController.java"
+      ],
+      "frontendExamples": [
+        "jjj_food_chain_admin/src/api/access.js",
+        "jjj_food_chain_admin/src/api/message.js",
+        "jjj_food_chain_admin/src/api/plugs.js"
+      ]
+    },
+    {
+      "name": "Zhouwen-CN/springboot-vue-admin",
+      "url": "https://github.com/Zhouwen-CN/springboot-vue-admin",
+      "commit": "1bdbf4b120e89a793edd57a959d0a3c3427ab535",
+      "branch": "master",
+      "license": "MIT",
+      "source": {
+        "files": 325,
+        "bytes": 2693145,
+        "largestBlob": 487618,
+        "truncated": false
+      },
+      "pom": "admin-backend/pom.xml",
+      "frontend": [
+        {
+          "path": "admin-frontend/package.json",
+          "vue": "~3.5.17",
+          "vite": "^7.2.1",
+          "error": false
+        }
+      ],
+      "readme": "README.md",
+      "backendExamples": [
+        "admin-backend/src/main/java/com/yeeiee/ai/controller/ChatController.java",
+        "admin-backend/src/main/java/com/yeeiee/codegen/controller/CodegenController.java",
+        "admin-backend/src/main/java/com/yeeiee/codegen/controller/DataSourceController.java"
+      ],
+      "frontendExamples": [
+        "admin-frontend/src/api/ai/chat.ts",
+        "admin-frontend/src/api/auth/menu/index.ts",
+        "admin-frontend/src/api/auth/role/index.ts"
+      ]
+    }
+  ],
+  "eligibilityAudit": [
+    {
+      "name": "1024-lab/smart-admin",
+      "commit": "2dbf3c285afbb187efb19630c4dd70664067cbc2",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "1stMarine/SpringbootOnlineJudgeSysteam",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "1tg106/ry-perf-apex",
+      "commit": "9ee50dd4a8f1c0c60a5808488bd309b466f3e698",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "2473-CI/PartyBuilding",
+      "commit": "bbc7d079cb4cf0c9b4272042b532175ec838e3e0",
+      "license": "Apache-2.0",
+      "status": "SOURCE_BUDGET_EXCEEDED"
+    },
+    {
+      "name": "734839030/seezoon-stack",
+      "commit": "74bdc5437bb422484fb0269071f051d4f5d36d11",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "AGkite/SpringBoot-Mall",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "andreshik8/demo-spring-vite-vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "aressunshine/SpringBoot-Vue3.0",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "baobeisuper/RuoYi-Cloud-Vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "baymaxsjj/exam",
+      "commit": "c52cc70f479c49724975d06eed769c6a6c533df1",
+      "license": "GPL-3.0",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "baymaxsjj/exam-web",
+      "commit": "6bb7ed309bbf0cae522246e9d72b2c1c2aa5cb4c",
+      "license": "GPL-3.0",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "Bsheepcoder/SpringBoot3-vue3-template",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "codewld/I-Mall",
+      "commit": "195b89303c4c075f7cb7eadacb16296b74277c21",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "continew-org/continew-admin",
+      "commit": "ab8f581c709b29d662a95b2347bc1fbf8fcbe97f",
+      "license": "Apache-2.0",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "daxiangme/fnk-server",
+      "commit": "662caf0c613efb5c6b4e0b1c571e813655b16303",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "Dinert/java-jwt",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "domie23/springboot-vue3300",
+      "commit": "3888483cbfa9792d93a67e23427e2c0bcfd591a1",
+      "license": "MIT",
+      "status": "NO_VUE3_VITE_DECLARATION"
+    },
+    {
+      "name": "drahkrub/demo-spring-vite-vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "dromara/ujcms",
+      "commit": "d4aa397006c2b0f6a42ad41a3e7c4072be9f06f7",
+      "license": "GPL-3.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "duqicauc/JavaaduBlog",
+      "commit": "b037783cd0bd3ed172102e792f1db6a396cae81e",
+      "license": "Apache-2.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "ems-admin/ems-admin-vue3",
+      "commit": "a7b08606719772be0e65f694fc667a230646e290",
+      "license": "Apache-2.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "eon-ideas/billio",
+      "commit": "3af8beec7216bfc6607f1180c15d847d30ea0ab7",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "EranGrin/demo-spring-vite-vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "FlyuZ/springboot-vue-pytorch",
+      "commit": "4a139d430eab67203a044d83025e7ca6ec7c452c",
+      "license": "MIT",
+      "status": "NO_VUE3_VITE_DECLARATION"
+    },
+    {
+      "name": "Furinai/Learning",
+      "commit": "bda99111a9208f2924e5e6482b084eb60af79c96",
+      "license": "Apache-2.0",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "GatlinHa/open-anylink",
+      "commit": "bc76af55cc84753cb113642ec03b003bb1419ef6",
+      "license": "Apache-2.0",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "GatlinHa/open-anylink-web",
+      "commit": "33fe4936b4ae6f3b784ec583ac58b055256153d2",
+      "license": "Apache-2.0",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "geeeeeeeek/java_shop",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "Geek-XD/Ruoyi-Geek-SpringBoot3",
+      "commit": "3b3134e93504e44ac49d04de35ed04699dacb680",
+      "license": "MIT",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "Ginyi3705/ginyi-spring-vue",
+      "commit": "6c07298cd34c75cc803a61af22a0af2ce6e7cf01",
+      "license": "Apache-2.0",
+      "status": "SOURCE_BUDGET_EXCEEDED"
+    },
+    {
+      "name": "gmingchen/agile-admin",
+      "commit": "472f16e4f2b2f712ea24d7c27f85b0033ce7b60e",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "gmingchen/chatterbox",
+      "commit": "fdef8d4bc876acdf7dcf4b294cd4cfb73098329b",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "gmingchen/java-spring-boot-admin",
+      "commit": "5a5972b476e0d5d1cd885b1eddc05f252f21e699",
+      "license": "MIT",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "Godplace-g7/--GodplaceBlog--",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "GOOD-123-CPU/green-cert-trading",
+      "commit": "2dbd87bc891e62e8a84201c844f2dc6b5e01cc80",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "hack-feng/maple-boot",
+      "commit": "00d47fad207af918beafd39251adf2feb186534b",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "HanJun27/-LLM-AI-agent-Management-System-",
+      "commit": "ab5e8ed995d896c189b6962bab922a98e3e88a21",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "hannnnnnnny/ReNova-Second-Hand-C2C-Marketplace",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "hanxiangli666/demo-spring-vite-vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "HaoJunDeveloper/RuoYi-Cloud-Vue3",
+      "commit": "1acbc09c75f77aad806bc919d13a75cae661ddb9",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "HaydiKodlayalim/online-shop",
+      "commit": "aff41c70c82bfffc31686d74e1c774625ae1be5c",
+      "license": "GPL-3.0",
+      "status": "NO_VUE3_VITE_DECLARATION"
+    },
+    {
+      "name": "HEEKDragonOne/FirstBlood",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "HEEKDragonOne/OnlineFrom",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "hejuzs/hjblogs-vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "hendisantika/springboot3-vue3-mongodb-crud",
+      "commit": "5cb4b77795b1d88c4476c8e65f5e74d2d875b3ff",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "henry-sic/chaozhi-admin",
+      "commit": "5a2cbf0a77485e2fd4ab85b6589a31a61d6e8533",
+      "license": "MIT",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "Henryers/hanye-take-out",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "Henryers/library-manage",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "hezhongfeng/rbac-front",
+      "commit": "ca03f32812fbf72ee97e04f10131897ffd4c32ff",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "hierach/ems-project",
+      "commit": "b44d847868964bd90b498172e994a77adebc5c28",
+      "license": "Apache-2.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "huangjiawei-cmd/teststudio",
+      "commit": "c563c9c64beb50637899e4dac402ea14e9b13a05",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "huxuehao/hanjiang-etm",
+      "commit": "0008c2828c746572dbddbfcbc7c973e24ddf96ff",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "itbaima-study/SpringBoot-Vue-Template-Jwt",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "itbaima-study/SpringBoot-Vue-Template-Session",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "james2378/springboot-vue3830",
+      "commit": "8c026a24b86fa48dd1deee80fad9a52fb49d27e6",
+      "license": "MIT",
+      "status": "NO_VUE3_VITE_DECLARATION"
+    },
+    {
+      "name": "jerrypan617/Blog_system",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "JHM2004/tju_elm_project",
+      "commit": "b310833f58d76580092e0582254a0f6cfe5835be",
+      "license": "MIT",
+      "status": "SOURCE_BUDGET_EXCEEDED"
+    },
+    {
+      "name": "JoeNJH/Library-Management-System",
+      "commit": "a93d7329a6c8155881e535e9415fe06f0f64e9ba",
+      "license": "Apache-2.0",
+      "status": "NO_VUE3_VITE_DECLARATION"
+    },
+    {
+      "name": "JQ6374/online_exam",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "JuneDec10/logisticsExpressCompanySys",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "kancheng/demo-spring-vite-vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "kkminseok/real-world-springboot-vue.js",
+      "commit": "443310928ca8cac83368912d68b3f557a8157bd0",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "knowledgefactory4u/springboot3-postgresql-vue3-crud",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "knowledgefactory4u/springboot3-vue3-mongodb-crud",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "kramrs/blog",
+      "commit": "b81723dedfb9c627dd12b67491697ba1e833682e",
+      "license": "Apache-2.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "Kun-GitHub/RuoYi-Vue3",
+      "license": "MIT",
+      "status": "DUPLICATE_FORK"
+    },
+    {
+      "name": "L1yp/van",
+      "commit": "d03b60487fcb6fcb46115655841640f9cfc7a4a5",
+      "license": "MIT",
+      "status": "SOURCE_BUDGET_EXCEEDED"
+    },
+    {
+      "name": "LeafLunHui/Springboot3-Vue3-Project",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "LianTianNo1/wiki_vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "lingcrr/demo-spring-vite-vue3-1",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "Linxfeng/flow-eda",
+      "commit": "55533222469e1154211f2c6e4be39a4f8c7d72ce",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "linyshdhhcb/PigHealthSmartMedicine",
+      "commit": "6a5a2ef4099d2ad872026d0070fe833c7359b6e9",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "liuguofeng-java/workflow",
+      "commit": "b449a389c8a03ebb2d4caeebe652d71f821152a8",
+      "license": "Apache-2.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "LiuYuYang01/Thrive-Blog",
+      "commit": "5105307a3d8aa187a3aa869ece1095f1b34271ef",
+      "license": "GPL-3.0",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "lixaviers/xavier-pms",
+      "commit": "dcd8f9d9ced23bddf861bc98d666eebe1704d62c",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "liyupi/yuhaigui-ai-game",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "Long9912/JavaWiki",
+      "commit": "8cf0c07630ea0778462ab9c9261fd1f3a3b82758",
+      "license": "Apache-2.0",
+      "status": "NO_VUE3_VITE_DECLARATION"
+    },
+    {
+      "name": "luoye6/vue3_tourism_backend",
+      "commit": "6c49d040ea3908e355550ecd4b79bb289cbc8c0a",
+      "license": "Apache-2.0",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "luoye6/vue3_tourism_frontend",
+      "commit": "fa7b291792b54d402f49b679a484de0505229654",
+      "license": "Apache-2.0",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "luoye6/vue3_trade_backend",
+      "commit": "373f5a8a22b6bc53449d0372e8c128916118c894",
+      "license": "Apache-2.0",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "lynx-p/lynx-ai",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "makunet/maku-boot",
+      "commit": "4cd202b037e2ac47e366d4b0691fb387c764d308",
+      "license": "Apache-2.0",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "makunet/maku-generator",
+      "commit": "90b06c01183168d991520cfd0ff3a746e3980cd8",
+      "license": "LGPL-3.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "may-fly/mayfly",
+      "commit": "46e52cfbc4ded1904b583d74a508fd3b431de3e7",
+      "license": "Apache-2.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "mel0nyrame/student-score-management",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "mfish-qf/mfish-nocode",
+      "commit": "ab9d092dd0f93627d0cea55df752567ccf5f8936",
+      "license": "Apache-2.0",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "mifunc/SpringBoot3-RuoYi-Vue2-Vue3",
+      "commit": "b02063ec91ac633bdc6a4d758b2b693e682a3568",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "miracleren/colorOne",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "mox-hub/campus_bus_sys",
+      "commit": "cb871827fea52fb3bf1d1c4d9385303bbd364754",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "mukeshr-29/demo-spring-vite-vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "MusaTabitai/weblog",
+      "commit": "4f09ca8d6440becfe7147afe81cc32bfe990e532",
+      "license": "MIT",
+      "status": "README_NONCOMMERCIAL_RESTRICTION_CONFLICT"
+    },
+    {
+      "name": "myopenresources/cc-project-vue",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "Nats-smoggy/self-management-system",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "newbee-ltd/newbee-mall",
+      "commit": "a069069b07027613bf0e7f571736be86f431faee",
+      "license": "GPL-3.0",
+      "status": "SOURCE_BUDGET_EXCEEDED"
+    },
+    {
+      "name": "newbee-ltd/vue3-admin",
+      "commit": "3072a2b1b5faed9bc42d45b0955c41bbea47a4d9",
+      "license": "GPL-3.0",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "NidhalNaffati/secure-user-platform-with-springboot3-vue3-jwt",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "OuterCyrex/patriotic-edu-miniapp",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "Panicle/RuoYi-SpringBoot3-ElementPlus",
+      "commit": "d0a9e09d51b3fcd16bef58434dd6798a073152e9",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "qgzhao/springboot3-vue3-demo",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "Retas8254/B2CElectroMart",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "RobertLippai/brickset-tracker-frontend",
+      "commit": "be22bc6011cb054ae6acf6e569af28089b658784",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "ScholarChen20/Vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "sdzhongqian/springboot2.6.x-vue3-antdesign-vite",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "sdzhongqian/ZhongQian-SpringBoot3-Vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "Senhai-k/TakeOut",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "shuirongshuifu/bigfile",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "SinerZ1/ie-contest-springboot-vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "sleepy-jelly/VuePOC",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "slensoft/RuoYi-Cloud-Vue3-English",
+      "commit": "a98a2a40e341e868da742f89e17f610204514e26",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "solon233/spring-boot-vue3-js-vite",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "Starry123229/vben-admin-backend",
+      "commit": "e78bd7bf47201949b73427e2ceed619fe010743f",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "Techd81/Campus-laboratory-equipment-reservation-system-based-on-Spring-Boot-Vue",
+      "commit": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "tedgamer-hub/zhihuijiaotong2",
+      "commit": "d02b650f6e8c19c722eb7b1e57f525780cb33364",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "Thorns-Set/StudentScore",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "thousmile/molly-multi-tenant",
+      "commit": "da602281e089788c284c3bfde5d73071e4f030ec",
+      "license": "Apache-2.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "tujindong/tuma_blog",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "typ1805/tansci",
+      "license": "NOASSERTION",
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "typ1805/tansci-mall",
+      "license": "NOASSERTION",
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "undsky/RuoYi-SpringBoot3-UniApp",
+      "commit": "f2e1380db8074d76ec77fc351c1c4b204bedb13c",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "valarchie/AgileBoot-Back-End",
+      "commit": "4e9ab30d68f2cb9dce6d9fc772456bcd106d575f",
+      "license": "MIT",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "W01fh4cker/weblogic-batch-memshell-kit",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "wangjianlin1985/Vue3.0_Springboot_Shopping",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "weiwosuoai/WeBlog",
+      "commit": "6c6d9b50bd0aae7f9485617e4effb049b8bbe9eb",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "wikibook/vue3-springboot",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "wujialin2027/online-study",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "wushij/wu-admin",
+      "commit": "f9ddfe4acde9e1c4003394392d6180f2ff247a42",
+      "license": "Apache-2.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "wuyuanwuhui99/uniapp-vite-vue3-ts-movie-app-ui",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "wuyuanwuhui999/uniapp-vite-vue3-ts-chat-app-ui",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "wxw850227/jjjerp_java",
+      "commit": "6dc6bf08a55e1a5a804c44b7b7e255a27ac10327",
+      "license": "Apache-2.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "wxw850227/jjjshop_food_java",
+      "commit": "0f6d0dba9b37e5884a7de32633006154ebfcfb26",
+      "license": "Apache-2.0",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "wzs28150/RuoYi-Vue3",
+      "license": "MIT",
+      "status": "DUPLICATE_FORK"
+    },
+    {
+      "name": "xiaonuobase/Snowy",
+      "commit": "ec938f39d6e7da98c711eff31b97e443bd18f9ff",
+      "license": "Apache-2.0",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "xiaosan666/akm-springboot3-vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "xjjdog/bcmall",
+      "commit": "d71cf1a676e7c4c402bf15f2a7801047d8b491c6",
+      "license": "Apache-2.0",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "xuzhili835/hrms-system",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "yangzongzhuan/RuoYi-Cloud-Vue3",
+      "commit": "64a0f944e0ba5df490e35974f1bf7a1be30cf7c9",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "yangzongzhuan/RuoYi-Vue",
+      "commit": "13db1fcef36bee9ce45d2d636a1d4e8f5ed5bbc3",
+      "license": "MIT",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "yangzongzhuan/RuoYi-Vue3",
+      "commit": "838965c5a18d2c61b73ec30c6e288057aaa08b63",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "yqw0710/SpringBoot-Vue3-BBS",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "yuqing2026/ruoyi-office",
+      "commit": "ad56d726368d8c321644d47898a76d3e86f1b548",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "yuqing2026/ruoyi-office-vben",
+      "commit": "98cab3e08bc7fbf3b69920c009224bc4251a3844",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "yzqdev/mild-blog",
+      "commit": "d36f8d465fe2681a4c0a1c263f2a0bf01215f3d8",
+      "license": "MIT",
+      "status": "NO_JAVA_MAVEN_BACKEND"
+    },
+    {
+      "name": "zerodukeji/demo-spring-vite-vue3",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "ZHENFENG13/spring-boot-projects",
+      "commit": "f08f1c4f91de27edb45f2c6702c7b23d0acf68cc",
+      "license": "Apache-2.0",
+      "status": "NO_SAME_REPO_VUE_FRONTEND"
+    },
+    {
+      "name": "zhengcookie/Ruoyi-MediTrust",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    },
+    {
+      "name": "zhiyiYo/KilaKila-Blog",
+      "commit": "d9f08a3ff203a460e80f1709cbf6514ce9e2a16b",
+      "license": "MIT",
+      "status": "NO_VUE3_VITE_DECLARATION"
+    },
+    {
+      "name": "Zhouwen-CN/springboot-vue-admin",
+      "commit": "1bdbf4b120e89a793edd57a959d0a3c3427ab535",
+      "license": "MIT",
+      "status": "ELIGIBLE"
+    },
+    {
+      "name": "zj-rrissh/ai-knowledge-base",
+      "license": null,
+      "status": "LICENSE_NOT_ESTABLISHED"
+    }
+  ],
+  "ranked": [
+    {
+      "name": "Techd81/Campus-laboratory-equipment-reservation-system-based-on-Spring-Boot-Vue",
+      "commit": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+      "score": "1e8622897a4d697b745a7a22ca7bb57dfa956b712342f75223251432201348bd"
+    },
+    {
+      "name": "dromara/ujcms",
+      "commit": "d4aa397006c2b0f6a42ad41a3e7c4072be9f06f7",
+      "score": "1ebe16956f461a5425ff29a2aaa064dd8c5ca75820356ae20c06020e41b13718"
+    },
+    {
+      "name": "daxiangme/fnk-server",
+      "commit": "662caf0c613efb5c6b4e0b1c571e813655b16303",
+      "score": "20e96cecb6d17de047f84954486375657bf3ab7dc780f57a36d2df86d3402d88"
+    },
+    {
+      "name": "thousmile/molly-multi-tenant",
+      "commit": "da602281e089788c284c3bfde5d73071e4f030ec",
+      "score": "24621805125876a933463bcf3e339f6fd7f3fd8d60dbf18cb3196879d2f008bb"
+    },
+    {
+      "name": "duqicauc/JavaaduBlog",
+      "commit": "b037783cd0bd3ed172102e792f1db6a396cae81e",
+      "score": "24c41f8784320102a4196dffc8b9b8270f0736833b92f5c55e9124393de02b51"
+    },
+    {
+      "name": "wxw850227/jjjerp_java",
+      "commit": "6dc6bf08a55e1a5a804c44b7b7e255a27ac10327",
+      "score": "3045d0d707b84e1abafaf251fe42c3b06ba6a82caa0b1fa54c55d96f3ccf4606"
+    },
+    {
+      "name": "1tg106/ry-perf-apex",
+      "commit": "9ee50dd4a8f1c0c60a5808488bd309b466f3e698",
+      "score": "35b88c25f0bbc8027c160b086b8e64e7cc9447821fca11eea632c2b15cc38bde"
+    },
+    {
+      "name": "ems-admin/ems-admin-vue3",
+      "commit": "a7b08606719772be0e65f694fc667a230646e290",
+      "score": "43d1a13743f714216db1979540c829bc2fd0163189faf3b6d35c79528a4e06f4"
+    },
+    {
+      "name": "hendisantika/springboot3-vue3-mongodb-crud",
+      "commit": "5cb4b77795b1d88c4476c8e65f5e74d2d875b3ff",
+      "score": "4446ac1dcec367a58409150b86c5928ad26cdc35efcbd807173aa81305e356bc"
+    },
+    {
+      "name": "may-fly/mayfly",
+      "commit": "46e52cfbc4ded1904b583d74a508fd3b431de3e7",
+      "score": "4b6cc878690e94528a75dae18a67af459c1e4208e5e523d12821787298a0d1ce"
+    },
+    {
+      "name": "wushij/wu-admin",
+      "commit": "f9ddfe4acde9e1c4003394392d6180f2ff247a42",
+      "score": "4f01035b4e51db6320ad43b8eaa87201017fc8f41bcb825d84da77127f7f820d"
+    },
+    {
+      "name": "linyshdhhcb/PigHealthSmartMedicine",
+      "commit": "6a5a2ef4099d2ad872026d0070fe833c7359b6e9",
+      "score": "55ca427774a6ed8c809814c62aac9e8ce388199fd207e61c2286d657058a682a"
+    },
+    {
+      "name": "huxuehao/hanjiang-etm",
+      "commit": "0008c2828c746572dbddbfcbc7c973e24ddf96ff",
+      "score": "56ba318e2b79116ee3d40a76d151b634cb0738282b7b4f66d4316b6fc5202d87"
+    },
+    {
+      "name": "kramrs/blog",
+      "commit": "b81723dedfb9c627dd12b67491697ba1e833682e",
+      "score": "5b647ac38c7e0e8c87765248f1b80f37400852cbaf21505d50e8b69d17d59ac7"
+    },
+    {
+      "name": "mifunc/SpringBoot3-RuoYi-Vue2-Vue3",
+      "commit": "b02063ec91ac633bdc6a4d758b2b693e682a3568",
+      "score": "7f293da15b35aeaea6fbd8de8e2d72e8c4892b8962e754c9d004b5c7c726cfc9"
+    },
+    {
+      "name": "wxw850227/jjjshop_food_java",
+      "commit": "0f6d0dba9b37e5884a7de32633006154ebfcfb26",
+      "score": "883993b11b75cc888d26a29e346cba3ce625efb05a5ce23b4d821fb5d666bc2c"
+    },
+    {
+      "name": "Starry123229/vben-admin-backend",
+      "commit": "e78bd7bf47201949b73427e2ceed619fe010743f",
+      "score": "88cd62e1382e7f52cb19c73fe700e92f1279af0fd7efbf557fca61a1f84117d2"
+    },
+    {
+      "name": "codewld/I-Mall",
+      "commit": "195b89303c4c075f7cb7eadacb16296b74277c21",
+      "score": "a758bbb449b34c09892f3d858a7ec1aa62a0366830c659d612fd1d312db154d3"
+    },
+    {
+      "name": "HanJun27/-LLM-AI-agent-Management-System-",
+      "commit": "ab5e8ed995d896c189b6962bab922a98e3e88a21",
+      "score": "ad6e3287d4b7bc8b595682cdc13c6677935dc2140f6ad1af5adadf0a2ea260ef"
+    },
+    {
+      "name": "liuguofeng-java/workflow",
+      "commit": "b449a389c8a03ebb2d4caeebe652d71f821152a8",
+      "score": "afc053b9764768c96fd5e6a9cfab5790847ebd9a5c96b90e677fb58c364d2a2b"
+    },
+    {
+      "name": "mox-hub/campus_bus_sys",
+      "commit": "cb871827fea52fb3bf1d1c4d9385303bbd364754",
+      "score": "b31cfd04c9d8e82bea451e5e79e3027e39a1dd82f796268dbd00b7b80023e8a9"
+    },
+    {
+      "name": "Linxfeng/flow-eda",
+      "commit": "55533222469e1154211f2c6e4be39a4f8c7d72ce",
+      "score": "bc863781e55012a9d3aed99113224855b5283b75f24d81c3c90862bfaa060085"
+    },
+    {
+      "name": "lixaviers/xavier-pms",
+      "commit": "dcd8f9d9ced23bddf861bc98d666eebe1704d62c",
+      "score": "c0ba6b1e69edb159e520fe097599a6c203a4bbdab09a922614c9c490a847f6a4"
+    },
+    {
+      "name": "makunet/maku-generator",
+      "commit": "90b06c01183168d991520cfd0ff3a746e3980cd8",
+      "score": "c889f625d2f0a18bb1365310936439436716361c8a2cca216feb3e24b4ed9f0d"
+    },
+    {
+      "name": "hierach/ems-project",
+      "commit": "b44d847868964bd90b498172e994a77adebc5c28",
+      "score": "d03ff3a6ee85226d90ad728df4b11ac88f0fdd10eba1743cbab5b0cd68aa69fe"
+    },
+    {
+      "name": "hack-feng/maple-boot",
+      "commit": "00d47fad207af918beafd39251adf2feb186534b",
+      "score": "dcd566249d0bf05513f0d9552ceaee40926a65db84736b51b1a6a7cde104006f"
+    },
+    {
+      "name": "Zhouwen-CN/springboot-vue-admin",
+      "commit": "1bdbf4b120e89a793edd57a959d0a3c3427ab535",
+      "score": "e5f006e624d657dc13d09588483bd816cea926da9fd4daaecb2f203213f6ec92"
+    },
+    {
+      "name": "huangjiawei-cmd/teststudio",
+      "commit": "c563c9c64beb50637899e4dac402ea14e9b13a05",
+      "score": "e76650f0485f2216c6a1ec6fc570a8158f7a7d3ffc0c58b6aa6152d623a05609"
+    },
+    {
+      "name": "tedgamer-hub/zhihuijiaotong2",
+      "commit": "d02b650f6e8c19c722eb7b1e57f525780cb33364",
+      "score": "e7baaeeb67b78bf44bc587424a9019dd9a83e16951d9ad18f48e07cd1771b5da"
+    },
+    {
+      "name": "weiwosuoai/WeBlog",
+      "commit": "6c6d9b50bd0aae7f9485617e4effb049b8bbe9eb",
+      "score": "f44e3e46fec29c98d09f154c48f31c7a561333a47812a04de305402136eb3cfb"
+    },
+    {
+      "name": "GOOD-123-CPU/green-cert-trading",
+      "commit": "2dbd87bc891e62e8a84201c844f2dc6b5e01cc80",
+      "score": "f5598a510361a59c60acdfaa36479b4d78ef436cc12d68c913a124048daf6c58"
+    },
+    {
+      "name": "1024-lab/smart-admin",
+      "commit": "2dbf3c285afbb187efb19630c4dd70664067cbc2",
+      "score": "f9fe815c2dd7566269257d577c1f14481ced334877d2b944cd26cb7fbb6126ce"
+    }
+  ],
+  "redraws": 0,
+  "discoveryNotes": [
+    "Initial branch queries used the wrong metadata field; those results were discarded and all licensed canonical branches queried correctly before pool freeze. No exclusion used that query error.",
+    "Vue catalog resolution fetch unavailable for Starry123229/vben-admin-backend; classification uses its package catalog declarations, Vue source and upstream README explicitly identifying Vue3/Vite. No build probe or lock compatibility filter.",
+    "MusaTabitai/weblog excluded before seed for README noncommercial restriction conflicting with detected MIT metadata. No inference about build success.",
+    "Eligible source trees contain Java, Maven, Vue source and Vue3/Vite manifest declarations, plus README business workflows and corresponding API/view paths. This is eligibility evidence, not runtime or security acceptance."
+  ]
+}

@@ -1,0 +1,1855 @@
+{
+  "mergeCommit": "f4b69bbee7905bf663d43f7571590065887705fe",
+  "cleanupCommit": "02b3bbf9bc87dd91b4417ea5a4366fc4b6889b50",
+  "branchesRemoved": [
+    "codex/native-build-preflight"
+  ],
+  "branchesRetained": [
+    "main"
+  ],
+  "worktrees": [
+    "E:/develop/DelveForge [main]"
+  ],
+  "dockerBefore": {
+    "containers": [
+      {
+        "id": "3b366e922c57ff21c05faf91e5eb15f40568083cebac8e011a0c7c3ae171adf8",
+        "name": "/df-fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd-frontend-proxy",
+        "image": "sha256:52b258088d9793c0f17becf26d4916e4641df5ec0da8332c0612830701c1141b",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd"
+        },
+        "volumes": [
+          "delveforge-compatibility-20261024-cache"
+        ],
+        "networks": [
+          "bridge",
+          "df-fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd-network"
+        ]
+      },
+      {
+        "id": "4b54229218cad7d108f27aaadd3d59b00f6cad2c8e9c193c03ee3d1258f364ca",
+        "name": "/df-fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd-agent",
+        "image": "sha256:52b258088d9793c0f17becf26d4916e4641df5ec0da8332c0612830701c1141b",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd"
+        },
+        "volumes": [
+          "df-fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd-m2",
+          "df-fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd-source"
+        ],
+        "networks": [
+          "none"
+        ]
+      },
+      {
+        "id": "78d836fe588b182b24241c57785c248293e4b37f2b9d25828f5d64932b6bfaad",
+        "name": "/df-00004ef2-4a61-4882-b214-31376724f1ef-frontend-proxy",
+        "image": "sha256:f8d083949bb57ec856046dc617aa6b6dd22aa5cdb82d9c37fec4911127992c75",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "df-corpus-20261102",
+          "delveforge.run": "00004ef2-4a61-4882-b214-31376724f1ef"
+        },
+        "volumes": [
+          "df-corpus-20261102-cache"
+        ],
+        "networks": [
+          "bridge",
+          "df-00004ef2-4a61-4882-b214-31376724f1ef-network"
+        ]
+      },
+      {
+        "id": "8461fb58333f86082832be5eb104139ae5f896fc71e0c743829fd2a8264ec183",
+        "name": "/df-00004ef2-4a61-4882-b214-31376724f1ef-agent",
+        "image": "sha256:f8d083949bb57ec856046dc617aa6b6dd22aa5cdb82d9c37fec4911127992c75",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "df-corpus-20261102",
+          "delveforge.run": "00004ef2-4a61-4882-b214-31376724f1ef"
+        },
+        "volumes": [
+          "df-00004ef2-4a61-4882-b214-31376724f1ef-m2",
+          "df-00004ef2-4a61-4882-b214-31376724f1ef-source"
+        ],
+        "networks": [
+          "none"
+        ]
+      },
+      {
+        "id": "115923cb16fb7746c8648238a4d773f1f09c9c76df88c5dad09da7f8b8efb8d2",
+        "name": "/df-106fa137-3575-430b-8f32-999bb9d3c76f-frontend-proxy",
+        "image": "sha256:b4a12ae2fc98d198ac624062c2efc93459b46913ca3854d392acadc26e00b97c",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "df-practical-20261102",
+          "delveforge.run": "106fa137-3575-430b-8f32-999bb9d3c76f"
+        },
+        "volumes": [
+          "df-practical-20261102-cache"
+        ],
+        "networks": [
+          "bridge",
+          "df-106fa137-3575-430b-8f32-999bb9d3c76f-network"
+        ]
+      },
+      {
+        "id": "41f96a87286af1d3da0a3b78021bde66c6a1b093e3586b55d1668b4c9960133d",
+        "name": "/df-106fa137-3575-430b-8f32-999bb9d3c76f-agent",
+        "image": "sha256:b4a12ae2fc98d198ac624062c2efc93459b46913ca3854d392acadc26e00b97c",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "df-practical-20261102",
+          "delveforge.run": "106fa137-3575-430b-8f32-999bb9d3c76f"
+        },
+        "volumes": [
+          "df-106fa137-3575-430b-8f32-999bb9d3c76f-m2",
+          "df-106fa137-3575-430b-8f32-999bb9d3c76f-source"
+        ],
+        "networks": [
+          "none"
+        ]
+      },
+      {
+        "id": "14859bc1e48cf7c16f9983f3d92b89419710d36437b2e78e9b53f5bdfab59d00",
+        "name": "/df-showcase-evolved-9fb0b76d63a5",
+        "image": "sha256:5b6e78da30edfa414e0b0c5da9f97aabfc7fb38f116eefcaf2eac0e5ba0fd59f",
+        "state": "exited",
+        "labels": {},
+        "volumes": [],
+        "networks": [
+          "bridge"
+        ]
+      },
+      {
+        "id": "ec94dec703621c512878d73ff281a4ba1507e04c84586e45ac69e2d003131918",
+        "name": "/df-showcase-original-20261101-01-autoport",
+        "image": "sha256:5b6e78da30edfa414e0b0c5da9f97aabfc7fb38f116eefcaf2eac0e5ba0fd59f",
+        "state": "exited",
+        "labels": {},
+        "volumes": [],
+        "networks": [
+          "bridge"
+        ]
+      },
+      {
+        "id": "99c690212f65260945d400887f00e70a252b76fa05a2193c61fbe1b49239267c",
+        "name": "/df-showcase-original-20261101-01",
+        "image": "sha256:5b6e78da30edfa414e0b0c5da9f97aabfc7fb38f116eefcaf2eac0e5ba0fd59f",
+        "state": "created",
+        "labels": {},
+        "volumes": [],
+        "networks": [
+          "bridge"
+        ]
+      },
+      {
+        "id": "09f899d91a8c817a7970215177466c28c1507b5cbbfef43736c8331198f45263",
+        "name": "/df-step4-product-20261028-ingress",
+        "image": "sha256:8c6bd47a1c1f5251fbce25e9b43dc467d9d2e056fad32a588f9c4bafb6e5c1bb",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "df-step4-product-20261028"
+        },
+        "volumes": [],
+        "networks": [
+          "bridge",
+          "df-step4-product-20261028-net"
+        ]
+      },
+      {
+        "id": "36e6c4123470356893d501800e8bf1b0eb8e53f451e06adf0c3b5dbca0dec4ef",
+        "name": "/df-step4-product-20261028",
+        "image": "sha256:8c6bd47a1c1f5251fbce25e9b43dc467d9d2e056fad32a588f9c4bafb6e5c1bb",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "df-step4-product-20261028"
+        },
+        "volumes": [
+          "df-independent-multistep-20261026-cache",
+          "df-step4-product-20261028-m2",
+          "df-step4-product-20261028-source"
+        ],
+        "networks": [
+          "df-step4-product-20261028-net"
+        ]
+      },
+      {
+        "id": "fae41e76399df4e35f60967ac5dd63cf338b22f9a5934564e49ad5d7f14a3ba2",
+        "name": "/df-step4-product-20261028-proxy",
+        "image": "sha256:8c6bd47a1c1f5251fbce25e9b43dc467d9d2e056fad32a588f9c4bafb6e5c1bb",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "df-step4-product-20261028"
+        },
+        "volumes": [
+          "df-independent-multistep-20261026-cache"
+        ],
+        "networks": [
+          "bridge",
+          "df-step4-product-20261028-net"
+        ]
+      },
+      {
+        "id": "29511955e490f5ffed99ff12acc4d267096072b1d134fd1e0cb4173ee07a3b55",
+        "name": "/df-caae372d-1ec2-441f-874b-03e90a45c2c7-proxy",
+        "image": "sha256:a771c64cc0ee835a4887b2bfc98f7e862f097f66abba59d2e83a6139608a8716",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "df-real-baseline-65df694b-6618-4025-942c-02d46f22e356",
+          "delveforge.run": "caae372d-1ec2-441f-874b-03e90a45c2c7"
+        },
+        "volumes": [
+          "df-real-e2e-20261024-01a16c9c-cache"
+        ],
+        "networks": [
+          "bridge",
+          "df-caae372d-1ec2-441f-874b-03e90a45c2c7-network"
+        ]
+      },
+      {
+        "id": "44895c93f61ea6ab550c788fc8a77902e56b8e346a2902bcbe00ec920c30ba6f",
+        "name": "/df-caae372d-1ec2-441f-874b-03e90a45c2c7-agent",
+        "image": "sha256:a771c64cc0ee835a4887b2bfc98f7e862f097f66abba59d2e83a6139608a8716",
+        "state": "exited",
+        "labels": {
+          "delveforge.owner": "df-real-baseline-65df694b-6618-4025-942c-02d46f22e356",
+          "delveforge.run": "caae372d-1ec2-441f-874b-03e90a45c2c7"
+        },
+        "volumes": [
+          "df-caae372d-1ec2-441f-874b-03e90a45c2c7-m2",
+          "df-caae372d-1ec2-441f-874b-03e90a45c2c7-source"
+        ],
+        "networks": [
+          "none"
+        ]
+      },
+      {
+        "id": "007ac091c73eb55830f758aa8b5137b415d53bf21559544cef402f1f27142fc5",
+        "name": "/mysql57",
+        "image": "sha256:dba5fed182e64064b688ccd22b2f9cad4ee88608c82f8cff21e17bab8da72b81",
+        "state": "exited",
+        "labels": {},
+        "volumes": [],
+        "networks": [
+          "bridge"
+        ]
+      },
+      {
+        "id": "3bca8f2ce3003802cbdd05b92da571c40c494e13bf21ffb9657c6773f6a392fb",
+        "name": "/libretv",
+        "image": "sha256:64e60eb57106e44384156134309342743b627eab2e5f793ee8cc820f0f7c2c39",
+        "state": "exited",
+        "labels": {},
+        "volumes": [],
+        "networks": [
+          "bridge"
+        ]
+      },
+      {
+        "id": "18397920204d9e429453b4b6cbe69d80cfdf6c3ed2038956c90b796d113ef1ca",
+        "name": "/redis",
+        "image": "sha256:1f073813b641755b70b0200da64131bbeeb4ec5b633ca67772229b49820caafa",
+        "state": "exited",
+        "labels": {},
+        "volumes": [],
+        "networks": [
+          "bridge"
+        ]
+      }
+    ],
+    "networks": [
+      {
+        "id": "6c8573a1efd3c850358e6c350bc9a728597f9e64a6b44de2daa9c44712179470",
+        "name": "bridge",
+        "labels": {},
+        "containers": []
+      },
+      {
+        "id": "25badc2c151bb32e7135d0c70ac0e4295ef4f576972bab47486717a6f7f97426",
+        "name": "df-00004ef2-4a61-4882-b214-31376724f1ef-network",
+        "labels": {
+          "delveforge.owner": "df-corpus-20261102",
+          "delveforge.run": "00004ef2-4a61-4882-b214-31376724f1ef"
+        },
+        "containers": []
+      },
+      {
+        "id": "77caa17ff8967a709ec9216243c928ead7bc7feaac6ac0a716f77063310f31b1",
+        "name": "df-106fa137-3575-430b-8f32-999bb9d3c76f-network",
+        "labels": {
+          "delveforge.owner": "df-practical-20261102",
+          "delveforge.run": "106fa137-3575-430b-8f32-999bb9d3c76f"
+        },
+        "containers": []
+      },
+      {
+        "id": "56e4823d75b2c59e346607f5fa4e01d4329d469bf159b423b051250cb911a649",
+        "name": "df-ad0f33a6-ef8b-49e6-830b-8f5b89b802a2-network",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "ad0f33a6-ef8b-49e6-830b-8f5b89b802a2"
+        },
+        "containers": []
+      },
+      {
+        "id": "b595ddbfa8a5d511ad8e0d106f229280df2b94bcc91e00a3a9e68b76006c604d",
+        "name": "df-caae372d-1ec2-441f-874b-03e90a45c2c7-network",
+        "labels": {
+          "delveforge.owner": "df-real-baseline-65df694b-6618-4025-942c-02d46f22e356",
+          "delveforge.run": "caae372d-1ec2-441f-874b-03e90a45c2c7"
+        },
+        "containers": []
+      },
+      {
+        "id": "6a446407a80ed7b209589a18612b9ca7f8cda76a4c7e2e203dffc83947120146",
+        "name": "df-fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd-network",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd"
+        },
+        "containers": []
+      },
+      {
+        "id": "7e901b3577d00fa56207ef1c132f0cab57f0a20a84dc074dc5724e94a1dad407",
+        "name": "df-step4-product-20261028-net",
+        "labels": {
+          "delveforge.owner": "df-step4-product-20261028"
+        },
+        "containers": []
+      },
+      {
+        "id": "7029832ecfdc95cbe5b2f6ccd6f34d58407cb6f2ee1e1be98e33ba2abc6ff14c",
+        "name": "host",
+        "labels": {},
+        "containers": []
+      },
+      {
+        "id": "7107c3998ac02d49d79cc7d4a07b3a46ea8724c33ad4852b905a85c2e0e26e14",
+        "name": "none",
+        "labels": {},
+        "containers": []
+      }
+    ],
+    "volumes": [
+      {
+        "name": "4e154bddf63051af8a19e3eb391bc013b3a448564f605fa4155ca8a1cbe2ac4a",
+        "labels": {}
+      },
+      {
+        "name": "8ce3df04fd1f149dc56b852e0bd48de38f261132a6af70a050b89476d54e2768",
+        "labels": {}
+      },
+      {
+        "name": "9a79bbab0af298599b49ae8c99bdd7c3a247bf6ed409a9e0a00617155f42d1fa",
+        "labels": {}
+      },
+      {
+        "name": "9d4c75584134092bcfdbd643592e20eeeb0177ad80a94c72b168bfdb4774d709",
+        "labels": {}
+      },
+      {
+        "name": "18dadb1309dd66a188f71da80a02414008d96001db5f042b6454fa6e3967ce06",
+        "labels": {}
+      },
+      {
+        "name": "38f18ec9278c2de0a42adbf79b2fa12aa6570a15331bc07feb11929c7cf8c993",
+        "labels": {}
+      },
+      {
+        "name": "45f6fad76097d47886cc3b3ac95d3fead57564d733b337d26a72f3386931bfeb",
+        "labels": {}
+      },
+      {
+        "name": "131e1339a3d9b61e8dff794594754a12a8ffd4ab8580d8b16ab608ff6f48939e",
+        "labels": {}
+      },
+      {
+        "name": "227ce22f3bb96f1fb0fc642ca35d82a0641869fc0820712886158adfc3b2da0c",
+        "labels": {}
+      },
+      {
+        "name": "836db9172b96921259dfa8472361ef9870694f7d7fa02b4b23df034679e85b43",
+        "labels": {}
+      },
+      {
+        "name": "865ba4292bb99498216b3dda554b7e309845689ffd8fdc6edc26af8ae26f7acf",
+        "labels": {}
+      },
+      {
+        "name": "4490bec4932d2fb21293da0cf145d3b8aa5d202b00be060c70669b3c6421e1de",
+        "labels": {}
+      },
+      {
+        "name": "6246dcd25c746b79c3a42a1baacb2fd6a64f95c15d820bcbf394e0f6b74e4681",
+        "labels": {}
+      },
+      {
+        "name": "ab2a5fd9d85bcef5c104a00319569df60ef49b78ae77f1bd22672bb2aea88ce5",
+        "labels": {}
+      },
+      {
+        "name": "af39960ebaee903cea0b39b3f02e705c78ee113a473b65d6479bac078fcc82fc",
+        "labels": {}
+      },
+      {
+        "name": "bf7f4f2ab1798b49902d3c97f738ca8f5c682c4e4d30dd4316cc2e3327ff9be9",
+        "labels": {}
+      },
+      {
+        "name": "d506f36738b4fdd908f7d036af2eaffe8e23aef52c4e0e7bc65d644d6dd23a01",
+        "labels": {}
+      },
+      {
+        "name": "db5290fad663a57403e4bde2eb6ca2802c24b80314fb3df0be31c220829025e8",
+        "labels": {}
+      },
+      {
+        "name": "delveforge-compatibility-20261024-cache",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "delveforge-maven-central-cache",
+        "labels": {
+          "delveforge.owner": "delveforge-local-agent",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "delveforge-task1-test-cache",
+        "labels": {
+          "delveforge.owner": "delveforge-task1-tests",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "df-00004ef2-4a61-4882-b214-31376724f1ef-frontend-prepare-source",
+        "labels": {
+          "delveforge.owner": "df-corpus-20261102",
+          "delveforge.run": "00004ef2-4a61-4882-b214-31376724f1ef"
+        }
+      },
+      {
+        "name": "df-00004ef2-4a61-4882-b214-31376724f1ef-m2",
+        "labels": {
+          "delveforge.owner": "df-corpus-20261102",
+          "delveforge.run": "00004ef2-4a61-4882-b214-31376724f1ef"
+        }
+      },
+      {
+        "name": "df-00004ef2-4a61-4882-b214-31376724f1ef-source",
+        "labels": {
+          "delveforge.owner": "df-corpus-20261102",
+          "delveforge.run": "00004ef2-4a61-4882-b214-31376724f1ef"
+        }
+      },
+      {
+        "name": "df-106fa137-3575-430b-8f32-999bb9d3c76f-m2",
+        "labels": {
+          "delveforge.owner": "df-practical-20261102",
+          "delveforge.run": "106fa137-3575-430b-8f32-999bb9d3c76f"
+        }
+      },
+      {
+        "name": "df-106fa137-3575-430b-8f32-999bb9d3c76f-source",
+        "labels": {
+          "delveforge.owner": "df-practical-20261102",
+          "delveforge.run": "106fa137-3575-430b-8f32-999bb9d3c76f"
+        }
+      },
+      {
+        "name": "df-ad0f33a6-ef8b-49e6-830b-8f5b89b802a2-frontend-check-source",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "ad0f33a6-ef8b-49e6-830b-8f5b89b802a2"
+        }
+      },
+      {
+        "name": "df-ad0f33a6-ef8b-49e6-830b-8f5b89b802a2-frontend-prepare-source",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "ad0f33a6-ef8b-49e6-830b-8f5b89b802a2"
+        }
+      },
+      {
+        "name": "df-ad0f33a6-ef8b-49e6-830b-8f5b89b802a2-m2",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "ad0f33a6-ef8b-49e6-830b-8f5b89b802a2"
+        }
+      },
+      {
+        "name": "df-ad0f33a6-ef8b-49e6-830b-8f5b89b802a2-source",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "ad0f33a6-ef8b-49e6-830b-8f5b89b802a2"
+        }
+      },
+      {
+        "name": "df-caae372d-1ec2-441f-874b-03e90a45c2c7-m2",
+        "labels": {
+          "delveforge.owner": "df-real-baseline-65df694b-6618-4025-942c-02d46f22e356",
+          "delveforge.run": "caae372d-1ec2-441f-874b-03e90a45c2c7"
+        }
+      },
+      {
+        "name": "df-caae372d-1ec2-441f-874b-03e90a45c2c7-source",
+        "labels": {
+          "delveforge.owner": "df-real-baseline-65df694b-6618-4025-942c-02d46f22e356",
+          "delveforge.run": "caae372d-1ec2-441f-874b-03e90a45c2c7"
+        }
+      },
+      {
+        "name": "df-corpus-20261102-cache",
+        "labels": {
+          "delveforge.owner": "df-corpus-20261102",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "df-dd50374a-d2b0-4bd7-a945-6b1b9fcf4792-frontend-check-source",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "dd50374a-d2b0-4bd7-a945-6b1b9fcf4792"
+        }
+      },
+      {
+        "name": "df-dd50374a-d2b0-4bd7-a945-6b1b9fcf4792-frontend-prepare-source",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "dd50374a-d2b0-4bd7-a945-6b1b9fcf4792"
+        }
+      },
+      {
+        "name": "df-dd50374a-d2b0-4bd7-a945-6b1b9fcf4792-m2",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "dd50374a-d2b0-4bd7-a945-6b1b9fcf4792"
+        }
+      },
+      {
+        "name": "df-fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd-frontend-prepare-source",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd"
+        }
+      },
+      {
+        "name": "df-fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd-m2",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd"
+        }
+      },
+      {
+        "name": "df-fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd-source",
+        "labels": {
+          "delveforge.owner": "delveforge-compatibility-tests",
+          "delveforge.run": "fa2bbcc0-4abb-4d33-80a8-f45e2cdd50fd"
+        }
+      },
+      {
+        "name": "df-fbef02a8-dee4-4bf0-b77d-3933da0d0cc7-m2",
+        "labels": {
+          "delveforge.owner": "df-real-c0f4e60d-80c6-4178-85ea-9d217896bfce",
+          "delveforge.run": "fbef02a8-dee4-4bf0-b77d-3933da0d0cc7"
+        }
+      },
+      {
+        "name": "df-fbef02a8-dee4-4bf0-b77d-3933da0d0cc7-source",
+        "labels": {
+          "delveforge.owner": "df-real-c0f4e60d-80c6-4178-85ea-9d217896bfce",
+          "delveforge.run": "fbef02a8-dee4-4bf0-b77d-3933da0d0cc7"
+        }
+      },
+      {
+        "name": "df-final-jmxterm-20261029-baseline-m2",
+        "labels": {}
+      },
+      {
+        "name": "df-final-jmxterm-20261029-cache",
+        "labels": {
+          "delveforge.owner": "df-final-jmxterm-20261029",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "df-fintrack-full-20261024-2315-cache",
+        "labels": {
+          "delveforge.owner": "df-fintrack-full-20261024-2315",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "df-fresh-miku-20261029-120800-cache",
+        "labels": {
+          "delveforge.owner": "df-fresh-miku-20261029-120800",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "df-independent-multistep-20261026-cache",
+        "labels": {
+          "delveforge.owner": "df-independent-multistep-20261026",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "df-practical-20261102-cache",
+        "labels": {
+          "delveforge.owner": "df-practical-20261102",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "df-preparation-repair-tests-cache",
+        "labels": {
+          "delveforge.owner": "df-preparation-repair-tests",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "df-real-e2e-20261024-01a16c9c-cache",
+        "labels": {
+          "delveforge.owner": "df-real-baseline-65df694b-6618-4025-942c-02d46f22e356",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "df-showcase-20261101-01-central-cache",
+        "labels": {
+          "delveforge.owner": "showcase-20261101-01",
+          "delveforge.run": "shared-cache"
+        }
+      },
+      {
+        "name": "df-showcase-research-20261101-library-m2",
+        "labels": {}
+      },
+      {
+        "name": "df-showcase-research-20261101-m2",
+        "labels": {}
+      },
+      {
+        "name": "df-showcase-research-20261101-petclinic-m2",
+        "labels": {}
+      },
+      {
+        "name": "df-step4-product-20261028-m2",
+        "labels": {
+          "delveforge.owner": "df-step4-product-20261028"
+        }
+      },
+      {
+        "name": "df-step4-product-20261028-source",
+        "labels": {
+          "delveforge.owner": "df-step4-product-20261028"
+        }
+      },
+      {
+        "name": "e753160f99d7157b072cb72c5fdd0b91c6d9d6282e4cd318f17d8ddf1cda0452",
+        "labels": {}
+      },
+      {
+        "name": "ef66bfca36d953b419fad7aae4ed95f615c83f1df52dedf15f50336bfde11f44",
+        "labels": {}
+      },
+      {
+        "name": "f6bc72fd151668552d108d4c968eef5a325e68fe8968d8e7b746dafade615150",
+        "labels": {}
+      },
+      {
+        "name": "f22fa0f9c569c3618d7ba80e9f472cc32b365950d4c21a01c8d38d76224eb930",
+        "labels": {}
+      },
+      {
+        "name": "f8355e716a274d6a6484c5cf23ad8bd9e2874fa46198a724bda65d51cbbcbaa4",
+        "labels": {}
+      },
+      {
+        "name": "fbb553550b5cce80b20c736cc5ee2a8575da1f2c896b521c93c68bdd818aac9d",
+        "labels": {}
+      },
+      {
+        "name": "fbf798358e55718181c6b5c443642a9a963b8b47186cfce8b7ccbe78b7ffe0e0",
+        "labels": {}
+      }
+    ],
+    "images": [
+      {
+        "id": "sha256:022b19a745d8c91c1507eb886c57509187b0f5786c031e6d9bc288dff86fb5e4",
+        "tags": [
+          "delveforge-agent:protocol-v6-jdk21-a636864e2b6ede37f64424a3557a6b3e9d8ad70ab58f208222d1410238eaf8ea"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:04e620c63aaa21697baf9162f982569dc79b36415dd83aaa9d5954f4b050f20c",
+        "tags": [
+          "delveforge-agent:preflight-v8-final2-jdk17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:0679c5d4d2d70aae64e01ff5dc6710f741d2b04f9b2542f0d67d18b6d0894857",
+        "tags": [
+          "delveforge-agent:protocol-v7-jdk17-648ed48b263fa89f583d59b62f4e76efc0fa80ca32ec68f9b0453a1325fcfd4c"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:07e25b75add24aad70ee07e95bc384f7d9ff2f0fc2de35a4c5f0f33d256846a8",
+        "tags": [
+          "delveforge-agent:protocol-v7-jdk21-ee57e38adbf96839b7ab83f9c73eeee77e26366d7f8d4157e86843615e91ab57"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:09845e184fa183e5052484c024b3969506fe4f0ebbdeffd026ecffcd12976a08",
+        "tags": [
+          "delveforge-agent:protocol-v1-jdk21-322d38f70dcdd583fcdc20354da5dfe384db0770f23fdfbac94d6e70f8bc58ea"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:0f5ab81f34eb647cfee71d4ed256684491b751c330883b0914b8d332a29d3944",
+        "tags": [
+          "delveforge-agent:protocol-v7-jdk17-6b80f53a8e272797873c589ede9fc91b38db3f36cffd5f8bc3afdeb12d337dd4"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:100fe181693a56bc525d026ed9a1c0ff58290a4731f230f31f15a9d28076e99b",
+        "tags": [
+          "delveforge-agent:protocol-v2-jdk17-619d59f0e29199207b445edf2bd1aba5e38fc6630023a5b6826f6a9ba5246967"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:1443e37ec0fd6286d5be3f0ccccafb984ab2db08e7a33416952b912fa21dd847",
+        "tags": [
+          "delveforge-agent:preflight-v8-r2-jdk17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:17acc970ff133c1979fa4338da7c477c6cf3e14055e31efd93ca61a9e69307f8",
+        "tags": [
+          "delveforge-agent:preflight-v8-final2-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:19146dab1751e5fed8e9cc21518654822761fbb7f769da766cfd43724e7ac318",
+        "tags": [
+          "delveforge-agent:protocol-v4-fullstack-runtime-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:1f073813b641755b70b0200da64131bbeeb4ec5b633ca67772229b49820caafa",
+        "tags": [
+          "redis:latest"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:2034892ff5f90d0b8fe85385aa13bc49552acd72802260153513cb648d5046ef",
+        "tags": [
+          "delveforge-agent:protocol-v2-jdk17-85d5f8692de2a050ff2dcf3be0a523171639132959396727de6fc716c686c211"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:22f57d6b3af7191698a4f473bb22a6c428b2b8650b42a3bbb5d6e1dde4f0a9ba",
+        "tags": [
+          "delveforge-agent:protocol-v6-jdk17-a636864e2b6ede37f64424a3557a6b3e9d8ad70ab58f208222d1410238eaf8ea"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:23fff4ba8364c555c54df678771d40bd7bad0c91f6c5fc91b975136542585c0c",
+        "tags": [
+          "delveforge-agent:check-isolation-20261027-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:25df89d6c403099c1d12de8230ae3c128b40eb09355c60c8c740c26be81f9eec",
+        "tags": [
+          "delveforge-agent:protocol-v4-jdk21-ac7df2f9834b3a1552e618f8f5c7f0ddd2a04c666694bd84a10cfb0839c706e1"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:2831a824ea42f4e153c5a60ebd2de5853d63f71dbedd9fd93e8d50325da863ca",
+        "tags": [
+          "delveforge-agent:protocol-v4-fullstack-runtime-jdk17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6",
+        "tags": [
+          "alpine:latest"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:2e321fb37187a992779be7bc5e2585cfb99abde457ce4538ca7135adff31999b",
+        "tags": [
+          "delveforge-agent:protocol-v4-jdk17-91f023d156ea535d8fa98fd2e9475d8704eda3785e87d445b68d6b4761989d13"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:2ed10cbaf65143324c401b3c1f172d2efe968ff04ce91eda10c9dcb850dfeaec",
+        "tags": [
+          "delveforge-agent:protocol-v1-jdk21-ae878e5103e3675fed21f49a477b39746a3279801b70a89b37d52b25d9e31c18"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:34287a277df2245437106edb931b79c68a4e83354cabf705156b16b0c2936d1a",
+        "tags": [
+          "delveforge-agent:protocol-v3-jdk21-4e5f4add98e648c9b65eb3ea479d96a8a549b7db422e82925373776c6031e7a0"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:37ce939f2afdb6df217c33765c8468c963e42ac76433bf5a6be073d63d78caab",
+        "tags": [
+          "milvusdb/milvus:v2.6.17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:3870ca9ae709728e51c669d66adf5be0e8a71d710192b8180760a22b60dcecbd",
+        "tags": [
+          "delveforge-agent:protocol-v5-jdk21-a7a88a1bbe9a2b1c5497c99dd8dcb300d5ba4d6e946beb6bc27e9acf1251dc40"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:3887ae8a8afbb02c9867b9216d499dc555f43f408193ea93788685531e3ac109",
+        "tags": [
+          "delveforge-agent:task1-jdk17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:3a3fa701df42a1f6e5102c18cd5fedd52db4c497d2f9e1c795a3a796786d8d93",
+        "tags": [
+          "delveforge-agent:protocol-v5-jdk17-ceaaf300c7e8a37f75906011a60a477604b6790363a1ca7d327549464f1b1ac0"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:3a4ab3276a087bf276f79cae96b1af04f53731bec53fb2e651aca79e4b10211e",
+        "tags": [
+          "maven:3.9.9-eclipse-temurin-21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:3ca16ccc7d5acb949f09114f604390d451779ca10d19971fe78b7c4e4a2b0487",
+        "tags": [
+          "delveforge-agent:protocol-v3-jdk17-80d7289e1bc1f676fa6dd3efcce1e8ea3e0f2d34f9287604cb687fd718663567"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:42818f62831a58f75c44cdb53cb28667176805977817af50f00c9b6dd140fc2c",
+        "tags": [
+          "delveforge-agent:preflight-v8-final-jdk17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:4552b0f36a43d517cb15f9a303232540f4cca54d110c6b83581b308a21263a2c",
+        "tags": [
+          "delveforge-agent:protocol-v4-fullstack-accepted-jdk17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:45ccbad9fa110c34b3782d5c56d23a10a88f25439587b9803742c880bede5ba5",
+        "tags": [
+          "delveforge-agent:protocol-v2-jdk21-729ebbc7e9778771502745a28ef48ff5897a43925d503b917c3baae6c4388fde"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:4aed4db85923dfbf66173c3a78f9f63f07e8bc51826526a5b4426312ce4d361b",
+        "tags": [
+          "delveforge-agent:protocol-v4-jdk21-3a85e27eee68395efc77fa7202301333558b5c0c2e82411daddf3c8aa099410b"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:4c50552a27566ec6b3fc5137380d3238d4186968ca475fd0ca925cf92921dbbb",
+        "tags": [
+          "delveforge-agent:protocol-v5-jdk17-a7a88a1bbe9a2b1c5497c99dd8dcb300d5ba4d6e946beb6bc27e9acf1251dc40"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:50a8f5da035453cd9c28eabfb694325f7d79c58ed73c595aa942a2d95685d73f",
+        "tags": [
+          "delveforge-agent:protocol-v2-jdk17-7fa6985558d80289200335e9a09e5248ad75be0a9add26c695da230458eecd86"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:52859b31e2cedb6388890ae9b9e4e6faf759a21b85cf6dbb388093b08f2cf5dc",
+        "tags": [
+          "delveforge-agent:protocol-v1-jdk21-001ab9c9ab6cb77fc76cdd7c5e9032f528e1e79d89f2cb80a5e4f1a672c155f0"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:52b258088d9793c0f17becf26d4916e4641df5ec0da8332c0612830701c1141b",
+        "tags": [
+          "delveforge-agent:protocol-v7-script-evidence-r3-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:55ecbd6b3a0f875b0e6f3ca4d231369ab27743bda385ed06d8df156adff75206",
+        "tags": [
+          "delveforge-agent:preflight-v8-final-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:57e0d595897fcf4356f825c856210594e4a5d2a3eb100404864f42a94a3ab0ff",
+        "tags": [
+          "delveforge-agent:protocol-v4-fullstack-final-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:5b6e78da30edfa414e0b0c5da9f97aabfc7fb38f116eefcaf2eac0e5ba0fd59f",
+        "tags": [
+          "delveforge-agent:protocol-v3-jdk17-83deb7081ca3e7d56fe3746e7bad3781328d63ccff3a5fc8cb537a031a1dcca1"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:5ca0201ab409289c6aca88c5b1b183439706083b7b2ef310e001f013a5728bf8",
+        "tags": [
+          "delveforge-agent:protocol-v3-jdk21-80d7289e1bc1f676fa6dd3efcce1e8ea3e0f2d34f9287604cb687fd718663567"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:5cca52c9e2913b94ac90b8b73f4327ed5aaff7501207fcc227cbbd5100c1a8b5",
+        "tags": [
+          "delveforge-agent:protocol-v7-jdk21-328a2b222b86d083ac78a520adcbb8a5ac7cbfa37900c49de485298dbdb8de95"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:5f76a3ffeb13494f2578ee671f9e06f47851cee63d91e8f6b58411de82932249",
+        "tags": [
+          "delveforge-agent:protocol-v6-jdk17-4b75f9219b61623422b040d185391a250f8d74f343a91d5cda4555b05ad8234b"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:5fa13b4c3b80b6a79e613bb7b03e0b561f157030730e739c6e216e11a0579b52",
+        "tags": [
+          "delveforge-agent:protocol-v4-jdk17-a193a008ee7311311e122875435899267aabf149c9e2429ae02c07c3a3a17ea5"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:64e60eb57106e44384156134309342743b627eab2e5f793ee8cc820f0f7c2c39",
+        "tags": [
+          "bestzwei/libretv:latest"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:697bf1768109fe74743855018b64ea7bfd8e4d4917ebad47a262edc0463127d2",
+        "tags": [
+          "delveforge-agent:step4-diagnostics-21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:6c3ac29499e2a8af0d7744abc308ab42c489f2fee7d4e9cb2c5dd8fb55b9bc16",
+        "tags": [
+          "delveforge-agent:protocol-v4-jdk21-a193a008ee7311311e122875435899267aabf149c9e2429ae02c07c3a3a17ea5"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:6d770d7f255cda1f18d841ffc4365cb7e0d237f6af6a15fcdb587480cd7c3b93",
+        "tags": [
+          "minio/minio:RELEASE.2023-03-20T20-16-18Z"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:6ded67288f0b6e83e5ae167934890a0812a0fefa52e149afffe774734d805ec8",
+        "tags": [
+          "delveforge-agent:protocol-v2-jdk21-02a91de1b4801eda30f42d103d6fb6f88ba0160ada3151103f2ddb2c339ff1a9"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:72b957e14d8624c61a52b431e75664159ed948c085bb7a73b28a996ce23c0038",
+        "tags": [
+          "delveforge-agent:protocol-v4-fullstack-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:72ca034a3bd2b0c4ac68ea7cd2a97cb041b33345abafe99dff367f6458f9b150",
+        "tags": [
+          "delveforge-agent:protocol-v7-script-evidence-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:7565b1b7bda8061623e79f5897d88e8499c4960297d59e2d4b09c167c91f8099",
+        "tags": [
+          "delveforge-agent:protocol-v1-jdk17-322d38f70dcdd583fcdc20354da5dfe384db0770f23fdfbac94d6e70f8bc58ea"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:7e8f6c9dbd9df742ed26ba69c00d4ad69e2f86a56f3ca7782ff8144dd0798132",
+        "tags": [
+          "apache/rocketmq:5.5.0"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:80e12e57cbf9f23698fe6629a1a7a4634a521bd424777eee6563d6ac7c3c1cbe",
+        "tags": [
+          "delveforge-agent:protocol-v1-jdk17-ae878e5103e3675fed21f49a477b39746a3279801b70a89b37d52b25d9e31c18"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:8c6bd47a1c1f5251fbce25e9b43dc467d9d2e056fad32a588f9c4bafb6e5c1bb",
+        "tags": [
+          "delveforge-agent:step4-h2-trace-17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:8dcdb7bba435a5614cd86036b1c92c07492c2acde55825f89c7621c5fe672f43",
+        "tags": [
+          "delveforge-agent:check-isolation-20261027-jdk17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:8ea938584d1fd0dfa75397836cc65ead44a2afb500a6d0bc2f98a1a74b6fa70b",
+        "tags": [
+          "delveforge-agent:preflight-v8-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:945cde78909918740d68b6fbc9c90328840a8547c3c15d1ba67276b1ecab4f4d",
+        "tags": [
+          "delveforge-agent:protocol-v2-jdk17-02a91de1b4801eda30f42d103d6fb6f88ba0160ada3151103f2ddb2c339ff1a9"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:965366b936e37b224140e1e5e5a59bd6b5f4f0accaa6be02e17eef9a93aa399a",
+        "tags": [
+          "delveforge-agent:protocol-v3-jdk17-4e5f4add98e648c9b65eb3ea479d96a8a549b7db422e82925373776c6031e7a0"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:9a2f6aaed51399e1f1509acd81776cd02b690bdc732012c7236eebb03fa8f6ec",
+        "tags": [
+          "delveforge-agent:protocol-v4-fullstack-release-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373",
+        "tags": [
+          "registry:2"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:a771c64cc0ee835a4887b2bfc98f7e862f097f66abba59d2e83a6139608a8716",
+        "tags": [
+          "delveforge-agent:protocol-v1-jdk17-001ab9c9ab6cb77fc76cdd7c5e9032f528e1e79d89f2cb80a5e4f1a672c155f0"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:ad1f86a7a24650210a58ac04ce7abc522ff8fbe6c8119c121bea3a7c03c6b196",
+        "tags": [
+          "delveforge-agent:rollback-task1-jdk21-20261024"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:ad8543eac120fc1b78268c3c7b2ce112d7f77a3b6fb71adb70f261d40b822319",
+        "tags": [
+          "delveforge-agent:step4-diagnostics-17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:b4a12ae2fc98d198ac624062c2efc93459b46913ca3854d392acadc26e00b97c",
+        "tags": [
+          "delveforge-agent:protocol-v4-jdk21-91f023d156ea535d8fa98fd2e9475d8704eda3785e87d445b68d6b4761989d13"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:b74aec9617bb32d2abccdfe76a56157d00d2862c50c6eff58663a68ae358967c",
+        "tags": [
+          "delveforge-agent:protocol-v6-jdk17-dab46501ff4e27dd1626de3e3aa030549fa16fe3763bd832a6c98f3f7e523b41"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:b801498ac37e694cd082ce0cdb88a84e0c6a0ce890788943af2ef3ba0dd9e208",
+        "tags": [
+          "delveforge-agent:preflight-v8-r2-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:b8ae218392ca20ae9be4f9369098fbe28f86948dd4b27e73ab8d89f425ed99b1",
+        "tags": [
+          "delveforge-agent:protocol-v5-jdk21-ceaaf300c7e8a37f75906011a60a477604b6790363a1ca7d327549464f1b1ac0"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:ba1a8e0e30059922d119023014fd46c6aef7b7c70fa166ae233d65e89f490624",
+        "tags": [
+          "zilliz/attu:v2.6"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:ba7a6e488c932bc5947635a7c1e73663eef0a367477e6c55c2e9f6609c16c5dc",
+        "tags": [
+          "delveforge-agent:protocol-v7-jdk21-6b80f53a8e272797873c589ede9fc91b38db3f36cffd5f8bc3afdeb12d337dd4"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:c0d8b6561c62cb6a6cfb91ec0f3a2804731558a65504ff6c46fa137c2d51a60d",
+        "tags": [
+          "delveforge-agent:step4-h2-trace-21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:c1854c473690a0ac181eba48b6c4ee82adc056460d2e73139d3c50a346cab18a",
+        "tags": [
+          "delveforge-agent:protocol-v5-jdk21-f07975d001ad10310d7d1f32858f6c339265e7d02b50d6f07e7a746705637ac8"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:c4e467cd13b91e2370dfc44a432960ae512f1cc9c1f39f591b33ad452049c134",
+        "tags": [
+          "delveforge-agent:protocol-v3-jdk17-754634eef93887ca54c16bacc38566a9dbc6d001af9096e2cc5ef9719622ecd6"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:c672505140bd6f31e3bf80a1bd7c40496ddabc0da6a6bd8d081457595ba3d936",
+        "tags": [
+          "delveforge-agent:protocol-v4-jdk17-65dbee8fc25db9d3e8da87812ca6d5eb4a24ea40a498b0c3e685838cdd17d0df"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:c7fc26c21b235bf1e85c36deb64da045b460f5ee309dbc0d3cc26dee067d8166",
+        "tags": [
+          "delveforge-agent:protocol-v4-jdk21-65dbee8fc25db9d3e8da87812ca6d5eb4a24ea40a498b0c3e685838cdd17d0df"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:c85b6040a6c34de097d1ee09a1a2329d6d057755fb2b5dd615c2610c17ef6a1e",
+        "tags": [
+          "delveforge-agent:protocol-v5-jdk17-f07975d001ad10310d7d1f32858f6c339265e7d02b50d6f07e7a746705637ac8"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:cceeea234d5a9eee06fca18ac71b3a482e31133a11b31c5c875fbec16c476711",
+        "tags": [
+          "delveforge-agent:protocol-v2-jdk21-85d5f8692de2a050ff2dcf3be0a523171639132959396727de6fc716c686c211"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:ccf5bb0c792ebd9007391b105b3021ac6a2ae8d5053a5563d6dc77973a5af17b",
+        "tags": [
+          "delveforge-agent:protocol-v6-jdk21-0d4e2c9363506342c8969b0724ae85355cd19aa9cd3b2c6a54d7727a1e59aa4b"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:ce78506bd6fe01095bf1b37c954625e363ba5afae5d1539b77f395785d445e33",
+        "tags": [
+          "apacherocketmq/rocketmq-dashboard:latest"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:cf9afe0dec1a7eb7c603a4e7923b164d5519f05c604fcb6ab0c09bd482b0c7bb",
+        "tags": [
+          "delveforge-agent:protocol-v6-jdk21-78235bf303af9ca5498398747bb2d02b47f107ecc0de3200f82539d6dff6c63f"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:d0a641d5fbcc89678c931a61b7de7b8a1cf097149f135c9c73bc81d076a1494b",
+        "tags": [
+          "quay.io/coreos/etcd:v3.5.18"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:d2ee575c8f96f6641e9b541dcc5b7815f0efcd8fe7257f9310c648f87f6504dd",
+        "tags": [
+          "delveforge-agent:protocol-v3-jdk21-754634eef93887ca54c16bacc38566a9dbc6d001af9096e2cc5ef9719622ecd6"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:d35b880463265ffc100a4054b5bdb28e5f1402c37cf70beaa8fc719b45471927",
+        "tags": [
+          "delveforge-agent:protocol-v4-jdk17-3a85e27eee68395efc77fa7202301333558b5c0c2e82411daddf3c8aa099410b"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:dba5fed182e64064b688ccd22b2f9cad4ee88608c82f8cff21e17bab8da72b81",
+        "tags": [
+          "mysql:5.7.25"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:dca7642494297d80a6b7749d4b7524252bec6582d87bd8196a9f8f7899964c0d",
+        "tags": [
+          "delveforge-agent:protocol-v3-jdk21-83deb7081ca3e7d56fe3746e7bad3781328d63ccff3a5fc8cb537a031a1dcca1"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:e059ea0d9f7414c79b9b6c3431c02bab995f3c58f9a69c69b35c9ad46a213e56",
+        "tags": [
+          "delveforge-agent:protocol-v7-jdk17-328a2b222b86d083ac78a520adcbb8a5ac7cbfa37900c49de485298dbdb8de95"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:e80616dc1f779db823f2a74922171ae770f73ab8830e3d567428c870240adcc7",
+        "tags": [
+          "delveforge-agent:protocol-v6-jdk17-0d4e2c9363506342c8969b0724ae85355cd19aa9cd3b2c6a54d7727a1e59aa4b"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:ea8c055b0373508934fc71d552f1550c9d3673ad402de90f50c00d1edbad5e94",
+        "tags": [
+          "delveforge-agent:protocol-v4-fullstack-accepted-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:eafc45ee6d7fff3fb35e38a1c2794f4a4396d91f04835a2dcbaf82838a109241",
+        "tags": [
+          "delveforge-agent:protocol-v4-jdk17-ac7df2f9834b3a1552e618f8f5c7f0ddd2a04c666694bd84a10cfb0839c706e1"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:ebb2627e76b6cff59b02e14a844cf39dda624fae0e8f6207129c9d5f2c0382a2",
+        "tags": [
+          "delveforge-agent:protocol-v6-jdk21-4b75f9219b61623422b040d185391a250f8d74f343a91d5cda4555b05ad8234b"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:ebb4c4bab9bec59d66504c170c2982f860c1f77c22f6469ef78e96682257f026",
+        "tags": [
+          "delveforge-agent:protocol-v7-jdk17-ee57e38adbf96839b7ab83f9c73eeee77e26366d7f8d4157e86843615e91ab57"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:f12bf6d9537618daaf23549a0b38441df773ed99bd87f248ca580cb078fdfdcf",
+        "tags": [
+          "delveforge-agent:protocol-v2-jdk17-729ebbc7e9778771502745a28ef48ff5897a43925d503b917c3baae6c4388fde"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:f2c871d18153873ad7f6988bb28525a2cd180ea5a18edfb847557bbbaed5e08d",
+        "tags": [
+          "delveforge-agent:protocol-v4-fullstack-final-jdk17"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:f3496babfdae46191cccdd392e594df6daa84e9b6514bf4d6594e7f77fc8fb2f",
+        "tags": [
+          "delveforge-agent:protocol-v7-script-evidence-r2-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:f48ef939224c4d3ddf7a048f1554e1a4e74660fa81d53e4058b4eda824bf1c03",
+        "tags": [
+          "delveforge-agent:protocol-v2-jdk21-7fa6985558d80289200335e9a09e5248ad75be0a9add26c695da230458eecd86"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:f8d083949bb57ec856046dc617aa6b6dd22aa5cdb82d9c37fec4911127992c75",
+        "tags": [
+          "delveforge-agent:protocol-v6-jdk21-dab46501ff4e27dd1626de3e3aa030549fa16fe3763bd832a6c98f3f7e523b41"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:fc945b338a77431ea3519e5e990257ecfe414361432c16cc2efd902ee2965057",
+        "tags": [
+          "delveforge-agent:protocol-v1-20261024-jdk21",
+          "delveforge-agent:task1-jdk21"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:fd93798d395bf474051feb66bdc4860efd050729372beefac1e91303cc720132",
+        "tags": [
+          "delveforge-agent:protocol-v7-jdk21-648ed48b263fa89f583d59b62f4e76efc0fa80ca32ec68f9b0453a1325fcfd4c"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:fdac0403e52d01bcc0e65b82f578ed06cb0919617a9eabbe64e8ef413d4e0d85",
+        "tags": [
+          "delveforge-agent:protocol-v6-jdk17-78235bf303af9ca5498398747bb2d02b47f107ecc0de3200f82539d6dff6c63f"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:fdc625c5bf389f8a2b3bfcf30fdd9230cba9edbd3ffa4405be7ec8e0076582dc",
+        "tags": [
+          "delveforge-agent:protocol-v2-jdk21-619d59f0e29199207b445edf2bd1aba5e38fc6630023a5b6826f6a9ba5246967"
+        ],
+        "labels": {}
+      },
+      {
+        "id": "sha256:fe1733d2d59e01028c3a132c1444dd37589b506aab5afb6cf0298748be563219",
+        "tags": [
+          "delveforge-agent:preflight-v8-r3-jdk21"
+        ],
+        "labels": {}
+      }
+    ]
+  },
+  "dockerAfter": {
+    "status": "UNAVAILABLE: Docker Desktop initialization failed at dockerInference listener; final docker info timed out after 20s. No deletion command was reached.",
+    "removed": [],
+    "observedBeforeCounts": {
+      "containers": 17,
+      "networks": 9,
+      "volumes": 62,
+      "imageRecords": 98
+    },
+    "afterCounts": null
+  },
+  "localCleanup": {
+    "Removed": [
+      {
+        "Path": "frontend/dist",
+        "Files": 8,
+        "Bytes": 405098.0,
+        "Reason": "Reproducible build output, obsolete native fixture/collector, failed query scratch, or private Docker inventory replaced by sanitized record"
+      },
+      {
+        "Path": "target/native-npm2-fixture.json",
+        "Files": 1,
+        "Bytes": 88350.0,
+        "Reason": "Reproducible build output, obsolete native fixture/collector, failed query scratch, or private Docker inventory replaced by sanitized record"
+      },
+      {
+        "Path": "target/native-pnpm6-fixture.yaml",
+        "Files": 1,
+        "Bytes": 25441.0,
+        "Reason": "Reproducible build output, obsolete native fixture/collector, failed query scratch, or private Docker inventory replaced by sanitized record"
+      },
+      {
+        "Path": "target/collect-preflight-evidence.ps1",
+        "Files": 1,
+        "Bytes": 3723.0,
+        "Reason": "Reproducible build output, obsolete native fixture/collector, failed query scratch, or private Docker inventory replaced by sanitized record"
+      },
+      {
+        "Path": "target/final-random-e2e-20261103/docker-before-private.json",
+        "Files": 1,
+        "Bytes": 558250.0,
+        "Reason": "Reproducible build output, obsolete native fixture/collector, failed query scratch, or private Docker inventory replaced by sanitized record"
+      },
+      {
+        "Path": "target/final-random-e2e-20261103/tree-eligibility.json",
+        "Files": 1,
+        "Bytes": 6855.0,
+        "Reason": "Reproducible build output, obsolete native fixture/collector, failed query scratch, or private Docker inventory replaced by sanitized record"
+      }
+    ],
+    "ProtectedFilesVerified": 8,
+    "ProtectedFilesUnchanged": true
+  },
+  "markdownLinks": {
+    "trackedMarkdownFiles": 49,
+    "localLinks": 113,
+    "localAnchors": 16,
+    "broken": []
+  },
+  "postMergeSmoke": {
+    "backendCommand": ".\\mvnw.cmd -pl backend/delveforge-domain,backend/delveforge-application -am test -DargLine=-Xmx512m",
+    "MAVEN_OPTS": "-Xmx384m",
+    "domain": 209,
+    "application": 863,
+    "failures": 0,
+    "errors": 0,
+    "skips": 0,
+    "packageCommand": ".\\mvnw.cmd package -DskipTests",
+    "package": "PASSED",
+    "frontendCommands": [
+      "pnpm --dir frontend test",
+      "pnpm --dir frontend typecheck",
+      "pnpm --dir frontend build"
+    ],
+    "frontendTests": 308,
+    "frontendTypecheck": "PASSED",
+    "frontendBuild": "PASSED",
+    "rawLogs": [
+      "target/final-random-e2e-20261103/postmerge-backend-smoke.log",
+      "target/final-random-e2e-20261103/postmerge-frontend-smoke.log"
+    ]
+  },
+  "productTrial": {
+    "application": "actual merged JAR, isolated authoritative trial database",
+    "source": "E:\\develop\\DelveForge\\data\\random-fullstack-20261104\\source",
+    "calls": [
+      {
+        "method": "GET",
+        "path": "/system/connectivity",
+        "status": 200,
+        "durationSeconds": 0.078,
+        "response": {
+          "service": "delveforge",
+          "status": "UP",
+          "timestamp": "2026-11-03T16:47:11.269419200Z"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/software-assets",
+        "status": 201,
+        "durationSeconds": 0.078,
+        "response": {
+          "id": "8615a13e-31aa-44bc-91bf-ece127dccda1",
+          "type": "GIT_REPOSITORY",
+          "source": "USER_SPECIFIED",
+          "location": "E:\\develop\\DelveForge\\data\\random-fullstack-20261104\\source",
+          "readPermissionAllowed": true,
+          "licenseInfo": "MIT, Copyright (c) 2026 Techd81; upstream LICENSE at 307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05; local inspection and derivative testing only, retain notices",
+          "usageAuthorization": "ALLOWED",
+          "authorizationRevision": 0
+        }
+      },
+      {
+        "method": "GET",
+        "path": "/software-assets/8615a13e-31aa-44bc-91bf-ece127dccda1/compatibility?revision=307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+        "status": 200,
+        "durationSeconds": 19.25,
+        "response": {
+          "revision": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+          "status": "COMPATIBLE",
+          "policyVersion": "maven-generated-v1",
+          "mavenDirectory": "backend",
+          "modules": [
+            "backend"
+          ],
+          "buildJdk": 17,
+          "sourceBytes": 1582431,
+          "files": 360,
+          "textFiles": 342,
+          "opaqueFiles": 0,
+          "generatedPaths": [],
+          "immutablePaths": [
+            "README.md",
+            "backend/mvnw",
+            "backend/mvnw.cmd",
+            "backend/src/main/java/com/lab/reservation/service/impl/UserServiceImpl.java",
+            "backend/src/main/resources/application-dev.yml",
+            "backend/src/test/java/com/lab/reservation/controller/NotificationSecurityIntegrationTest.java",
+            "backend/src/test/resources/application-test.yml",
+            "frontend/.env.development",
+            "frontend/.env.production",
+            "frontend/src/api/paths.ts",
+            "frontend/src/composables/__tests__/useAuth.test.ts",
+            "frontend/src/composables/__tests__/useSseNotification.test.ts",
+            "frontend/src/composables/__tests__/useWsNotification.test.ts",
+            "frontend/src/stores/__tests__/auth.test.ts",
+            "frontend/src/views/auth/__tests__/LoginView.test.ts",
+            "frontend/src/views/auth/__tests__/RegisterView.test.ts",
+            "frontend/src/views/user/__tests__/UserListView.test.ts",
+            "frontend/tests/e2e/real-backend.ts"
+          ],
+          "issues": [
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "README.md",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "backend/mvnw",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "backend/mvnw.cmd",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "backend/src/main/java/com/lab/reservation/config/NotificationWebSocketInterceptor.java",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "backend/src/main/java/com/lab/reservation/controller/UserController.java",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "backend/src/main/java/com/lab/reservation/security/JwtAuthenticationFilter.java",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "backend/src/main/java/com/lab/reservation/service/impl/AuthServiceImpl.java",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "backend/src/main/java/com/lab/reservation/service/impl/UserServiceImpl.java",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "backend/src/main/resources/application-dev.yml",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "backend/src/main/resources/application.yml",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "backend/src/test/java/com/lab/reservation/controller/NotificationSecurityIntegrationTest.java",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "backend/src/test/resources/application-test.yml",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/.env.development",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/.env.production",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/api/client.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/api/modules/auth.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/api/modules/user.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/src/api/paths.ts",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/api/types/user.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/src/composables/__tests__/useAuth.test.ts",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/composables/__tests__/usePermission.test.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/composables/__tests__/useRealtime.test.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/src/composables/__tests__/useSseNotification.test.ts",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/src/composables/__tests__/useWsNotification.test.ts",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/composables/useRealtime.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/composables/useSseNotification.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/composables/useWsNotification.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/directives/__tests__/permission.test.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/src/stores/__tests__/auth.test.ts",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/stores/auth.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/views/auth/LoginView.vue",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/views/auth/RegisterView.vue",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/src/views/auth/__tests__/LoginView.test.ts",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/src/views/auth/__tests__/RegisterView.test.ts",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/views/user/UserListView.vue",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/views/user/UserProfileView.vue",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/src/views/user/__tests__/UserListView.test.ts",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/src/views/user/__tests__/UserProfileView.test.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "SANITIZED_MODEL_MATERIAL",
+              "path": "frontend/tests/e2e/pages/login-page.ts",
+              "action": "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。",
+              "blocking": false
+            },
+            {
+              "classification": "SUPPORT_WITH_BOUNDED_ADAPTATION",
+              "code": "PRESERVED_ONLY_RESOURCE",
+              "path": "frontend/tests/e2e/real-backend.ts",
+              "action": "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。",
+              "blocking": false
+            }
+          ]
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/software-assets/8615a13e-31aa-44bc-91bf-ece127dccda1/analysis",
+        "status": 502,
+        "durationSeconds": 0.5,
+        "response": {
+          "code": "EXTERNAL_CAPABILITY_UNAVAILABLE",
+          "message": "外部 AI 能力调用失败，详细信息见服务端日志",
+          "path": "/api/software-assets/8615a13e-31aa-44bc-91bf-ece127dccda1/analysis",
+          "timestamp": "2026-11-03T16:47:31.105714200Z"
+        }
+      }
+    ],
+    "personaIntent": "虚构测试画像，非真实用户研究：高校学生需要在实验课前可靠地预约设备、看清可用时段与规则，并在预约变化时得到明确反馈；改进方向和具体切片应由正常产品发现与规划产生。",
+    "budget": "One repository, one lifecycle attempt; if analysis/planning succeed, at most one bounded meaningful step and one coding run. Stop at first legitimate blocker. No automatic paid retries or redraw.",
+    "assetId": "8615a13e-31aa-44bc-91bf-ece127dccda1",
+    "analysisStatus": 502,
+    "stoppedAt": "Repository Analysis"
+  },
+  "finalFacts": {
+    "sourceHead": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+    "sourceTree": "8f05690251b35365a5a5d60a5ddcd5d99bc38ec2",
+    "sourceStatus": "",
+    "trialDbCounts": {
+      "software_asset": 1,
+      "repository_profile": 0,
+      "user_profile": 0,
+      "product_direction": 0,
+      "evolution_plan": 0,
+      "working_copy": 0,
+      "agent_run": 0,
+      "agent_candidate": 0,
+      "candidate_delivery": 0
+    },
+    "providerRequests": 0,
+    "providerRequestEvidence": "Key absent in process/user/machine; normal analysis calls AiGateway.generate, whose requireApiKey runs before any HTTP request. This is a configuration guard observation, not a completed model run.",
+    "agentTokenUsage": null,
+    "agentUsageReason": "No Agent Run exists; no provider usage receipt returned.",
+    "trialProcessStopped": true,
+    "dockerDeletions": [],
+    "dockerAfterInventoryStatus": "UNAVAILABLE: Docker Desktop initialization failed at dockerInference listener; final docker info timed out after 20s. No deletion command was reached.",
+    "dockerFailure": "starting services: initializing Inference manager: listening on unix://<HOME>/AppData/Local/Docker/run/dockerInference: file cannot be accessed; listener filename/directory/volume syntax error",
+    "cleanupCommit": "02b3bbf9bc87dd91b4417ea5a4366fc4b6889b50"
+  }
+}
