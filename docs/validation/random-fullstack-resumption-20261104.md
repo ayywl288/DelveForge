@@ -2,6 +2,9 @@
 
 日期：2026-11-04，Asia/Shanghai。工程分支 `codex/random-fullstack-lifecycle-fix`，起点 `198f388`；本轮不合并、不推送。
 
+> 本文保留当时的安全阻塞结论。后续明确授权分离执行与模型可见性，并进行了真实编码续跑；
+> 最新结果见[源码保护修正与真实试验](source-protection-execution-20261104.md)，旧失败和用量不改写。
+
 ## 当前结论
 
 **BLOCKED BY A CONFIRMED EXTERNAL/SECURITY REQUIREMENT。**

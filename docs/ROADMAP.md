@@ -2,6 +2,8 @@
 
 **2026-11-04 最新授权：简化普通源码保护并恢复原随机演化。** 分开源码执行与模型可见性，修正 password/token 字段导致整文件排除的问题，增强检查输出净化；保留高风险材料、受保护编辑、隔离、源身份和交付边界。仅改 DelveForge 和合成夹具，不改目标库/正式副本。确定性及真实 Docker 安全验证通过后，沿用已确认的原 Plan/Step，通过真实 Agent 继续至交付和产品验收，或记录独立的真实阻塞。原失败与用量保留，不合并或推送；先前安全阻塞结论保留历史含义。
 
+**本任务实测：** 原 10 个检查输入屏蔽解除；正常产品预检进入 READY_BASELINE_FAILURE，原仓库前端 387 项基线通过，后端 270 项的既有失败保留。真实 Agent 进行了 100 次模型请求/响应、127 次工具调用，新增 6,299,421 Token；最终前端 398 项通过，但完整后端 280 项仍有 3 failure、31 error。模型声明完成后，冻结以 UNRESOLVED_CHECK_FAILURE 拒绝，无 Candidate/Delivery，正式副本及原库保持原 revision。源码保护修正已验证，产品演化未交付；见[执行与真实续跑记录](validation/source-protection-execution-20261104.md)。
+
 **2026-11-04 最新授权任务：恢复同一随机全栈演化。** 沿用原仓库、固定 commit、画像、方向、Plan 与 Step；修复真实 DelveForge 缺陷及运行配置错误，继续至完整产品成功或证实的外部/安全阻塞。不得手工修改目标源或正式 WorkingCopy，不重抽、不直接写领域数据库、不合并或推送。用户已撤销人为累计调用、Token、编码次数上限；既有逐 Step、费用确认、工具与资源安全控制保持。下方首次阻塞即停的授权仅保留历史含义。
 
 **本次续跑结果：** 官方 WorkingCopy 准备及 Step 确认成功；Docker owner/cache 不一致已通过默认运行配置修正，没有改所有权规则或缓存标签。修复 Java 三元运算字符串的凭据误判后，真实 Docker 仍证明 10 个检查输入因现行保护规则不可执行，预检 ENVIRONMENT_BLOCKED。新增模型请求 0，无 Candidate/Delivery，产品功能未验收；结论为 BLOCKED BY A CONFIRMED EXTERNAL/SECURITY REQUIREMENT。见[原随机试验续跑](validation/random-fullstack-resumption-20261104.md)。
