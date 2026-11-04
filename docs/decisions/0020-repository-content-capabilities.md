@@ -31,6 +31,12 @@ Infrastructure 的一个确定性内容能力策略产生三种内部处置：
 已知密钥格式独立生效，password=include、硬编码示例口令和带秘密的注释仍受保护；不增加 AST 或数据流分析。
 若被保留文件是可执行源码、测试或构建描述，当前视图不允许产生检查 PASS，防止移除测试后剩余测试制造成功。
 
+2026-11-04 实际续跑另发现 Java 三元运算的引号操作数被误当作凭据属性：
+`condition ? "generated-password" : "provided-password"`。仅在 Java 的确定代码位置排除这类
+紧邻问号的完整操作数形态；注释、字符串、含 Unicode 转义或文本块的文件及其他语言不取得该豁免，已知密钥格式仍独立生效。
+这不放行直接凭据赋值或硬编码测试口令；实际安全阻塞与验证见
+[原随机试验续跑](../validation/random-fullstack-resumption-20261104.md)。
+
 正式仓库和可信主机 Git 对象完整保留 R。发送到容器的树 E 从 R 的独立 index 精确删除 PRESERVED_ONLY 条目，
 不创建准备提交、不改正式源码。E 是执行投影，不能称为字节相同的完整 checkout。
 Java 产生绑定 path/mode/SHA-256/size 的能力清单；容器不重新推断内容安全。

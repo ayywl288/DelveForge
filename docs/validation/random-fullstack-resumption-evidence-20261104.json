@@ -1,0 +1,344 @@
+{
+  "verdict": "BLOCKED BY A CONFIRMED EXTERNAL/SECURITY REQUIREMENT",
+  "engineeringCommit": "10c36c8d9600015b47393361ce735874e58f7ea0",
+  "baseCommit": "198f388",
+  "repository": "Techd81/Campus-laboratory-equipment-reservation-system-based-on-Spring-Boot-Vue",
+  "integrity": {
+    "original": {
+      "unchanged": true,
+      "trackedFiles": 360,
+      "head": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+      "tree": "8f05690251b35365a5a5d60a5ddcd5d99bc38ec2",
+      "status": "",
+      "indexUnchanged": true,
+      "indexSha256": "04875646e1bade677db338181c6851e0ac8ec241cb9542573a2051265e6e732a",
+      "trackedFileHashManifestSha256": "2a3c42802d4ca8564f9c996dd0586d60bdbf03f1daf199dd97eb5882d585bded"
+    },
+    "official": {
+      "unchanged": true,
+      "trackedFiles": 360,
+      "head": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+      "tree": "8f05690251b35365a5a5d60a5ddcd5d99bc38ec2",
+      "status": "",
+      "indexUnchanged": true,
+      "indexSha256": "e32f1f92d085419dd4c3460ebd6eb60979368714cc024140628c3fc88cd42c30",
+      "trackedFileHashManifestSha256": "0260a9c076af8691c14f373b1be0f9f11d5c59f4b25587aa4afc5b2999c4b42a"
+    }
+  },
+  "domainState": {
+    "plans": [
+      {
+        "id": "7bc1be8e-d40a-4df4-9c45-fb83fe97c932",
+        "status": "ACTIVE",
+        "working_copy_id": "c9086c3b-f5d7-4ec7-89dc-fd7f5218d794"
+      }
+    ],
+    "steps": [
+      {
+        "id": "adb5edec-22a3-426f-bcbd-8ecf2563938d",
+        "status": "READY",
+        "baseline_revision": null
+      }
+    ],
+    "copies": [
+      {
+        "id": "c9086c3b-f5d7-4ec7-89dc-fd7f5218d794",
+        "status": "READY",
+        "current_revision": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+        "last_verified_revision": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05"
+      }
+    ],
+    "runs": [
+      {
+        "id": "8b546160-4029-4f92-bc48-b986a691515c",
+        "state": "FAILED",
+        "reason": "RESOURCE_OWNERSHIP",
+        "model_calls": 0,
+        "tool_calls": 0,
+        "tokens": 0,
+        "occupied": 0,
+        "retained": 0,
+        "candidate_id": null
+      },
+      {
+        "id": "de6a3c53-6b3c-4167-88e8-89c431efdf27",
+        "state": "FAILED",
+        "reason": "ENVIRONMENT_BLOCKED",
+        "model_calls": 0,
+        "tool_calls": 0,
+        "tokens": 0,
+        "occupied": 0,
+        "retained": 0,
+        "candidate_id": null
+      }
+    ],
+    "candidateCount": 0,
+    "deliveryCount": 0
+  },
+  "workingCopyProvenance": {
+    "workingCopyId": "c9086c3b-f5d7-4ec7-89dc-fd7f5218d794",
+    "sourceRevision": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+    "preparedRevision": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+    "preparation": {
+      "originalRevision": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+      "preparedRevision": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+      "policyVersion": "IDENTITY",
+      "removedPaths": [],
+      "metadataPaths": []
+    }
+  },
+  "sourceChangesByOperator": false,
+  "sourceChangesByAgent": false,
+  "ownership": {
+    "failureConfigurationSource": "operator launch configuration recorded in this session",
+    "beforeOwner": "df-random-fullstack-fix-20261104",
+    "afterOwner": "delveforge-local-agent",
+    "cache": "delveforge-maven-central-cache",
+    "unchangedLabels": {
+      "delveforge.owner": "delveforge-local-agent",
+      "delveforge.run": "shared-cache"
+    },
+    "ownershipPolicyChanged": false,
+    "resourceIdentityAndLabelsUnchanged": true
+  },
+  "preservedBuildInputs": [
+    {
+      "path": "backend/src/test/java/com/lab/reservation/controller/NotificationSecurityIntegrationTest.java",
+      "protectedLines": [
+        54,
+        55
+      ],
+      "sha256": "56ba4e99ff81afe955f95bf2209fb148b02406d40b0745162dc9af19f5833f85"
+    },
+    {
+      "path": "frontend/src/api/paths.ts",
+      "protectedLines": [
+        20
+      ],
+      "sha256": "19f611f05d9d32f82674426e0e3982584205cbf43e48014d505a94d006fcc4ef"
+    },
+    {
+      "path": "frontend/src/composables/__tests__/useAuth.test.ts",
+      "protectedLines": [
+        59,
+        60,
+        87,
+        99,
+        109,
+        123,
+        135,
+        147
+      ],
+      "sha256": "012ffc8bf3888ac950ea055ad878efc01a8734629ad8e5657b5e4f6c444db9e7"
+    },
+    {
+      "path": "frontend/src/composables/__tests__/useSseNotification.test.ts",
+      "protectedLines": [
+        71,
+        85
+      ],
+      "sha256": "03876e7c0c14ea9bf8cff332923a4237aa18b02f012a10ee2f4e9a43d6ad5b04"
+    },
+    {
+      "path": "frontend/src/composables/__tests__/useWsNotification.test.ts",
+      "protectedLines": [
+        104,
+        117,
+        129,
+        174
+      ],
+      "sha256": "3ddd727aff565a0ec23eb8d6ea5123d444e4f0a9ab35ec9cf72355e8e348b6d5"
+    },
+    {
+      "path": "frontend/src/stores/__tests__/auth.test.ts",
+      "protectedLines": [
+        199
+      ],
+      "sha256": "aa4aae73821aa495252a90e703bf4512549cdf71c5b94f0b4f62fcebd7edca2b"
+    },
+    {
+      "path": "frontend/src/views/auth/__tests__/LoginView.test.ts",
+      "protectedLines": [
+        85,
+        89
+      ],
+      "sha256": "c8a43bc8d7ff99944e001cb66c192df5085a5984ee6e6046e1bafae66aedaac7"
+    },
+    {
+      "path": "frontend/src/views/auth/__tests__/RegisterView.test.ts",
+      "protectedLines": [
+        145,
+        169
+      ],
+      "sha256": "975dd370f6f27570de4f59d92736f5dcc00da6495c04a43cf0801ab2c0ffb04b"
+    },
+    {
+      "path": "frontend/src/views/user/__tests__/UserListView.test.ts",
+      "protectedLines": [
+        291
+      ],
+      "sha256": "c1caa5abd5f6cbc80f8432b084cbb7fd188c5929b3dc8e3cf190f5b57b1049b0"
+    },
+    {
+      "path": "frontend/tests/e2e/real-backend.ts",
+      "protectedLines": [
+        17,
+        22
+      ],
+      "sha256": "4d541b846ae210c9f435b930914132c1abaac22292294982f8d4d170f13304a8"
+    }
+  ],
+  "nonLlmDockerProbe": {
+    "kind": "NON_LLM_ADAPTER_PROBE",
+    "revision": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+    "providerRequests": 0,
+    "identity": {
+      "containerId": "e4acd33115b694b590e2ca4b11230328bf92599cab97b9a12fcdca97af6b31bc",
+      "imageId": "sha256:04e620c63aaa21697baf9162f982569dc79b36415dd83aaa9d5954f4b050f20c",
+      "targetJdk": 17,
+      "memoryBytes": 2147483648,
+      "nanoCpus": 2000000000,
+      "pidsLimit": 256,
+      "networkMode": "none",
+      "readOnlyRoot": true
+    },
+    "capabilities": {
+      "frontendProjects": [
+        {
+          "directory": "frontend",
+          "packageManager": "npm",
+          "goals": {
+            "typecheck": "UNAVAILABLE",
+            "build": "UNAVAILABLE",
+            "test": "UNAVAILABLE"
+          },
+          "goalDetails": {
+            "typecheck": {
+              "reason": "Executable source or build configuration is withheld; checks cannot attest this view"
+            },
+            "build": {
+              "reason": "Executable source or build configuration is withheld; checks cannot attest this view"
+            },
+            "test": {
+              "reason": "Executable source or build configuration is withheld; checks cannot attest this view"
+            }
+          },
+          "scripts": [
+            "dev",
+            "build",
+            "preview",
+            "test",
+            "test:run",
+            "test:e2e",
+            "test:e2e:headed",
+            "test:e2e:install",
+            "lint",
+            "lint:fix",
+            "format"
+          ]
+        }
+      ],
+      "frontendProjectCount": 1,
+      "configurationSnapshot": "bc9e357ab992e2cb8ba30e95cde51e4047456a9b29e5982453130bd74b534c1c",
+      "dependencyVisibility": "CHECK_COPY_ONLY: node_modules and generated reports are not Agent source; use check tools",
+      "testReporters": [
+        "node-junit",
+        "vitest-json"
+      ],
+      "testGuidance": "Use existing scripts. Node --test and Vitest CLI are instrumented through NODE_OPTIONS; wrappers must preserve it. Other scripts execute but cannot claim tests without reports.",
+      "mavenDirectories": [
+        "backend"
+      ],
+      "mavenProjectCount": 1,
+      "sourceView": {
+        "kind": "PROJECTED",
+        "preservedOnlyCount": 17,
+        "readOnlyResourceCount": 0,
+        "withheldSourceCount": 10
+      }
+    },
+    "outcome": "ENVIRONMENT_BLOCKED",
+    "diagnostic": {
+      "baseline": "307156ac41ed7b5e5c4b8070bceacf2b4dc2cd05",
+      "availableDirectories": [
+        "backend",
+        "frontend"
+      ],
+      "probes": [],
+      "reason": "INVALID_ARGUMENTS",
+      "diagnostic": "Controlled sandbox operation rejected: Executable source or build configuration is withheld; no checks can attest this view"
+    },
+    "originalUnchanged": true,
+    "officialUnchanged": true
+  },
+  "verification": [
+    {
+      "log": "target/random-fullstack-fix-20261104/backend-verify.log",
+      "sha256": "3bdf27b5bc0339f8e7c8f05231a61c97ce20d35e5776708d141349172c95d7a0",
+      "scope": "Initial ternary fix before Java-only narrowing; historical within this repair",
+      "total": 1869,
+      "executed": 1817,
+      "skipped": 52,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "log": "target/random-fullstack-fix-20261104/backend-verify-final.log",
+      "sha256": "bf05f06a8ce4d68b9d340112a80a9197261c769519541c454f1145788bc8626e",
+      "scope": "Java-only narrowing, before final fail-closed Unicode guard",
+      "total": 1871,
+      "executed": 1819,
+      "skipped": 52,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "log": "target/random-fullstack-fix-20261104/final-domain-application.log",
+      "sha256": "bbae3f7929a5c906c585763d0f9b24b0395d559c48324d0912eb4851c468a836",
+      "scope": "All Domain/Application tests on final source including Unicode guard",
+      "total": 1082,
+      "executed": 1082,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "log": "target/random-fullstack-fix-20261104/final-security-checks.log",
+      "sha256": "bc2c9a03f26aeb10747fbab21b36439187ff053f9eea15c6380f55c1efac1e84",
+      "scope": "Final content policy integration and actual selected-repository Docker probe",
+      "total": 8,
+      "executed": 8,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0
+    }
+  ],
+  "finalPackage": {
+    "log": "target/random-fullstack-fix-20261104/final-package.log",
+    "sha256": "d8cdee0737079f3d710739454a8805e5dfc1a3f2db41be39e6f9a55cc284fda2",
+    "result": "BUILD SUCCESS",
+    "testsExecutedByThisCommand": false
+  },
+  "redRegression": {
+    "log": "target/random-fullstack-fix-20261104/credential-regression-red.log",
+    "sha256": "2b5d9dd83d1e6114e47398ecc6ea0ffbd3032b16930969a873d74be4f5f72027",
+    "total": 56,
+    "failures": 3,
+    "errors": 0,
+    "skipped": 0
+  },
+  "usage": {
+    "historicalResponses": 6,
+    "historicalPromptTokens": 79445,
+    "historicalCompletionTokens": 21650,
+    "historicalTotalTokens": 101095,
+    "historicalReasoningTokensIncludedInCompletion": 15678,
+    "resumptionRunModelCalls": 0,
+    "resumptionRunTokens": 0,
+    "adapterProbeProviderRequests": 0
+  },
+  "engineeringOnly": true,
+  "productAcceptance": "NOT_EXECUTED",
+  "mergePerformed": false,
+  "pushPerformed": false
+}

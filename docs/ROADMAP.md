@@ -1,5 +1,9 @@
 # ROADMAP.md
 
+**2026-11-04 最新授权任务：恢复同一随机全栈演化。** 沿用原仓库、固定 commit、画像、方向、Plan 与 Step；修复真实 DelveForge 缺陷及运行配置错误，继续至完整产品成功或证实的外部/安全阻塞。不得手工修改目标源或正式 WorkingCopy，不重抽、不直接写领域数据库、不合并或推送。用户已撤销人为累计调用、Token、编码次数上限；既有逐 Step、费用确认、工具与资源安全控制保持。下方首次阻塞即停的授权仅保留历史含义。
+
+**本次续跑结果：** 官方 WorkingCopy 准备及 Step 确认成功；Docker owner/cache 不一致已通过默认运行配置修正，没有改所有权规则或缓存标签。修复 Java 三元运算字符串的凭据误判后，真实 Docker 仍证明 10 个检查输入因现行保护规则不可执行，预检 ENVIRONMENT_BLOCKED。新增模型请求 0，无 Candidate/Delivery，产品功能未验收；结论为 BLOCKED BY A CONFIRMED EXTERNAL/SECURITY REQUIREMENT。见[原随机试验续跑](validation/random-fullstack-resumption-20261104.md)。
+
 **2026-11-04 当前授权任务：** 本地合并已验证原生预检实现、安全清理与文档归并；固定客观候选池后随机抽取一个真实 Java/Maven + Vue3/Vite 仓库，通过正常产品流程至成功或首个真实阻塞。授权正常付费确认与受限真实模型试验，不推送、不代修目标、不为通过而换库或修系统。下方较早任务授权与结果保留历史含义。
 
 **本轮结果：** 已本地合并、归并文档并清理旧 Docker 资源。32 个候选中一次随机选中校园设备预约系统；补齐凭据及 Docker 后完成真实分析、画像、四个方向生成和单步规划，官方 WorkingCopy 准备因受控 Git clone 失败而停止，根因待定位。无新 Agent Run、Candidate 或 Delivery，不声明产品验收通过。见 [收尾与随机试验记录](validation/final-random-fullstack-20261104.md)。
