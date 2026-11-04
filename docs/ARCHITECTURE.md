@@ -1,5 +1,7 @@
 # ARCHITECTURE.md
 
+**2026-11-04 基线感知证据与完成检查：** Application 使用 BaselineCheckComparison 比较版本化逐例清单，Infrastructure 负责实际报告/环境/源码身份采集。v5 只为可比较的完整结果表示 FULLY_TESTED / BASELINE_DEBT；v1–v4 严格兼容。模型结束前只读诊断，冻结与 Delivery 独立验证，历史债务确认使用现有事件持久审计和交付 API；不改模块、Aggregate 或数据库表。详见 [ADR-0023](decisions/0023-baseline-aware-candidate-verification.md)。
+
 **2026-11-04 普通源码执行分类：** password/token 字段字面量只影响模型净化及受保护行编辑，不再自动剥离整份普通源码/测试。私钥、已知令牌、认证头及凭据路径仍保留在主机；输出增加裸 Bearer/Basic 净化。执行投影、真实缺失输入守卫、Docker 无网络执行、依赖代理及 Candidate/Delivery 保持，见 [ADR-0020 补充](decisions/0020-repository-content-capabilities.md#2026-11-04普通源码执行与模型内容分开)。无新模块、Aggregate、数据库迁移或安全管理子系统。
 
 **2026-11-03 当前运行路径：** 既有 PREPARING 中增加 AgentSandboxPort.preflight，真实隔离探针就绪后才调用模型。Maven 项目始终离线执行，联网准备仅用固定空 POM 获取受限工件身份；npm/pnpm 原生准备与脚本执行继续隔离。协议 v8、证据 v4，无新模块/Port 接口或迁移。见 [ADR-0022](decisions/0022-native-build-environment-preflight.md)。

@@ -1,5 +1,7 @@
 # 源码执行与模型可见性分离：原随机仓库真实续跑
 
+> 后续逐例诊断补充：下文 270 项、5 failure / 31 error 是独立源码适配器探针；真实付费 Run 的持久预检为 5 failure / 32 error。已查明当时应用包嵌套的 Infrastructure JAR 未包含最后的公开标题修正，实际保留 7 个资源而非探针的 5+2。原始事件和失败事实均保留；完整差异、19 文件审阅及修正见[基线感知诊断](baseline-aware-evolution-diagnosis-20261104.md)。
+
 日期：2026-11-04，Asia/Shanghai。分支 `codex/random-fullstack-lifecycle-fix`，未合并、未推送。
 
 ## 结果

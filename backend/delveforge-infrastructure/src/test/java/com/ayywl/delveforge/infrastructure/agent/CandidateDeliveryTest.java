@@ -489,6 +489,68 @@ class CandidateDeliveryTest {
                 new GitWorkspaceAdapter(managed), eligibility);
     }
 
+    @Test
+    void baselineDebtRequiresExplicitBoundAcknowledgmentAndSurvivesServiceRestart() throws Exception {
+        var json = new ObjectMapper();
+        var evidence = json.createObjectNode().put("evidenceVersion", 5).put("finalSnapshot", "a".repeat(64))
+                .put("status", "NOT_TESTED");
+        var view = evidence.putObject("sourceView").put("kind", "FULL").put("preservedOnlyCount", 0)
+                .put("readOnlyResourceCount", 0).put("withheldSourceCount", 0);
+        evidence.putArray("changedPaths").add("Counter.java");
+        var baseline = json.createObjectNode().put("checkType", "MAVEN").put("directory", ".")
+                .put("goal", "test").put("classification", "TESTS_FAILED").put("snapshot", "b".repeat(64))
+                .put("stale", true).put("tests", 1).put("executedTests", 1).put("reports", 1)
+                .put("failures", 1).put("errors", 0).put("skipped", 0);
+        baseline.set("sourceView", view.deepCopy());
+        baseline.putObject("environment").put("image", "sha256:" + "d".repeat(64)).put("configuration", "e".repeat(64))
+                .put("runtimeDependencies", "9".repeat(64));
+        var legacy = json.createObjectNode().put("id", "1".repeat(64)).put("outcome", "FAILED")
+                .put("failure", "f".repeat(64)).put("source", "LegacyTest.java").put("sourceSha256", "c".repeat(64));
+        legacy.putArray("affectedSources");
+        baseline.putObject("testManifest").put("version", 1).put("complete", true).putArray("cases").add(legacy);
+        var current = baseline.deepCopy().put("snapshot", "a".repeat(64)).put("stale", false)
+                .put("tests", 2).put("executedTests", 2);
+        var feature = legacy.deepCopy().put("id", "2".repeat(64)).put("outcome", "PASSED")
+                .put("failure", "").put("source", "Counter.java");
+        ((com.fasterxml.jackson.databind.node.ArrayNode) current.path("testManifest").path("cases")).add(feature);
+        evidence.putArray("baselineChecks").add(baseline);
+        evidence.putArray("baselineFailures").add(baseline.deepCopy());
+        evidence.putArray("checks").add(current);
+        var comparison = com.ayywl.delveforge.application.agent.BaselineCheckComparison.compare(evidence);
+        evidence.put("verificationLevel", comparison.level()).set("baselineDebt", comparison.debt());
+        String encoded = evidence.toString();
+        // 仅构造独立测试数据库的证据夹具；正式交付开始前恢复原不可变触发器。
+        String immutable = scalar("SELECT sql FROM sqlite_master WHERE name='agent_candidate_immutable_update'");
+        sql("DROP TRIGGER agent_candidate_immutable_update");
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
+                "UPDATE agent_candidate SET test_evidence=? WHERE id=?")) {
+            statement.setString(1, encoded);
+            statement.setString(2, candidate.id());
+            assertEquals(1, statement.executeUpdate());
+        }
+        sql(immutable);
+        assertThrows(Exception.class, () -> sql("UPDATE agent_candidate SET test_evidence='{}'"));
+        try (var service = service()) {
+            assertEquals("BASELINE_DEBT_ACK_REQUIRED", assertThrows(AgentException.class,
+                    () -> service.deliver(candidate.id())).code());
+            assertEquals(null, deliveries.get(candidate.id()));
+            assertEquals(this.baseline, git(copy, "rev-parse", "HEAD").strip());
+            assertEquals("INVALID_REQUEST", assertThrows(AgentException.class,
+                    () -> service.acknowledgeBaselineDebtAndSubmit(candidate.id(), candidate.sha256(), "0".repeat(64))).code());
+            service.acknowledgeBaselineDebtAndSubmit(candidate.id(), candidate.sha256(), Candidate.digest(encoded));
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(15);
+            while (service.get(candidate.id()).state() != Delivery.State.COMPLETED && System.nanoTime() < deadline) {
+                Thread.sleep(25);
+            }
+            assertAccepted(service.get(candidate.id()));
+        }
+        try (var service = service()) {
+            assertAccepted(service.deliver(candidate.id()));
+        }
+        assertTrue(agents.events(candidate.runId(), 0, 100).stream()
+                .anyMatch(event -> event.kind().equals("BASELINE_DEBT_ACKNOWLEDGED")));
+    }
+
     static String git(Path directory, String... arguments) throws Exception {
         List<String> command = new ArrayList<>(List.of("git", "-c", "core.hooksPath=/dev/null"));
         command.addAll(List.of(arguments));

@@ -2,6 +2,7 @@ package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentCheckEvidence;
+import com.ayywl.delveforge.application.agent.BaselineCheckComparison;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentTools;
@@ -59,6 +60,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         final Map<String, Entry> baseline = new LinkedHashMap<>();
         final List<JsonNode> checks = new ArrayList<>();
         final List<JsonNode> baselineFailures = new ArrayList<>();
+        final List<JsonNode> baselineChecks = new ArrayList<>();
         final Map<String, String> baselineHashes = new LinkedHashMap<>();
         final Map<String, Map<String, Object>> resourceCapabilities = new LinkedHashMap<>();
         String executionBaselineTree;
@@ -474,7 +476,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             int maxBytes = Set.of("snapshot", "inspect_patch", "search_code").contains(name) ? Math.max(session.limits.maxCandidateBytes() * 16, 33554432)
                     : Math.max(session.limits.maxFileBytes() * 8, 2097152);
             if (name.equals("run_frontend_checks")) {
-                return invokeFrontendChecks(session, arguments, maxBytes, cancelled);
+                JsonNode response = invokeFrontendChecks(session, arguments, maxBytes, cancelled);
+                attestEnvironment(session, response);
+                return response;
             }
             if (Set.of("run_checks", "probe_maven_dependencies").contains(name)) {
                 return invokeChecks(session, input, maxBytes, cancelled);
@@ -960,7 +964,12 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     /** 完整源码先净化再切片；内部原文材料字段不进入模型工具结果。 */
     JsonNode sourceResponse(String tool, JsonNode response) {
         if (!response.path("ok").asBoolean() || !Set.of("read_file", "search_code").contains(tool)) {
-            return sanitizeNode(response);
+            JsonNode visible = sanitizeNode(response);
+            if (visible.path("result") instanceof ObjectNode result) {
+                // 完整清单留在受信冻结证据；模型使用已有摘要，不挤占工具输出预算。
+                result.remove("testManifest");
+            }
+            return visible;
         }
         JsonNode result = response.path("result");
         ObjectNode visible = json.createObjectNode().put("ok", true).put("tool", tool);
@@ -1140,6 +1149,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (response.path("result") instanceof ObjectNode check) {
             check.put("configurationSnapshot", key);
             check.put("configurationChanged", changed);
+            attestEnvironment(session, response);
             // 保留实际已解析入口的生成目录角色，不改变基线资源能力。
             JsonNode directory = check.path("directory");
             if (directory.isTextual() && !session.mavenModules.contains(directory.asText())) {
@@ -1149,6 +1159,19 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             }
         }
         return response;
+    }
+
+    private void attestEnvironment(Session session, JsonNode response) {
+        if (response.path("ok").asBoolean() && response.path("result") instanceof ObjectNode result) {
+            ObjectNode environment = result.putObject("environment");
+            environment.put("image", session.image).put("configuration", result.path("configurationSnapshot").asText())
+                    .put("jdk", session.jdk).put("checkSeconds", session.limits.checkSeconds());
+            environment.put("runtimeDependencies", result.path("checkType").asText("MAVEN").equals("MAVEN")
+                    ? result.path("runtimeDependencies").asText() : result.path("resolutionSha256").asText());
+            for (String field : List.of("runner", "resolutionSha256", "reproducibility", "packageManagerVersion")) {
+                environment.put(field, result.path(field).asText());
+            }
+        }
     }
 
     static Set<String> missingMavenArtifacts(String output) {
@@ -1333,6 +1356,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     rejectPolicy(response, AgentPolicyRejection.Stage.TOOL_EXECUTION);
                     requireToolSuccess(response);
                     JsonNode result = response.path("result");
+                    session.baselineChecks.add(result.deepCopy());
                     String readiness = EnvironmentReadiness.classify(result);
                     probes.add(preflightProbe(result, readiness));
                     if (readiness.equals("ENVIRONMENT_BLOCKED")) {
@@ -1359,6 +1383,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                         rejectPolicy(response, AgentPolicyRejection.Stage.TOOL_EXECUTION);
                         requireToolSuccess(response);
                         JsonNode result = response.path("result");
+                        session.baselineChecks.add(result.deepCopy());
                         String readiness = EnvironmentReadiness.classify(result);
                         probes.add(preflightProbe(result, readiness));
                         if (readiness.equals("ENVIRONMENT_BLOCKED")) {
@@ -1388,7 +1413,26 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     && rejection.rule() != AgentPolicyRejection.Rule.COMMAND_BUDGET
                     ? "SECURITY_BLOCKED" : "ENVIRONMENT_BLOCKED", diagnosis);
         }
+        if (hasExecutedBaselineTests(session) && !comparableBaseline(session)) {
+            diagnosis.put("reason", "EVIDENCE_INCOMPARABLE")
+                    .put("diagnostic", "Baseline test inventories or execution identities are incomplete; no model was requested");
+            return preflightResult("ENVIRONMENT_BLOCKED", diagnosis);
+        }
         return preflightResult(baselineFailure ? "READY_BASELINE_FAILURE" : "READY", diagnosis);
+    }
+
+    private boolean hasExecutedBaselineTests(Session session) {
+        return session.baselineChecks.stream().anyMatch(check -> Set.of("test", "verify").contains(check.path("goal").asText())
+                && check.path("executedTests").asInt() > 0);
+    }
+
+    private boolean comparableBaseline(Session session) {
+        return !session.baselineChecks.isEmpty() && session.baselineChecks.stream().allMatch(check ->
+                Set.of("TESTS_PASSED", "TESTS_FAILED", "BUILD_PASSED_NOT_TESTED", "TYPECHECK_FAILED", "FRONTEND_BUILD_FAILED")
+                        .contains(check.path("classification").asText())
+                        && (!Set.of("test", "verify").contains(check.path("goal").asText())
+                            || check.path("testManifest").path("complete").asBoolean()
+                                && check.path("environment").path("runtimeDependencies").asText().matches("[0-9a-f]{64}")));
     }
 
     private Preflight preflightResult(String outcome, ObjectNode diagnosis) {
@@ -1450,6 +1494,26 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         return new Identity(resource.path("Id").asText(), resource.path("Image").asText(), session.jdk,
                 host.path("Memory").asLong(), host.path("NanoCpus").asLong(), host.path("PidsLimit").asLong(),
                 host.path("NetworkMode").asText(), host.path("ReadonlyRootfs").asBoolean());
+    }
+
+    @Override
+    public String completionFeedback(String runId, BooleanSupplier cancelled) {
+        Session session = requireSession(runId);
+        JsonNode response = invoke(session, "snapshot", json.createObjectNode(), cancelled);
+        requireToolSuccess(response);
+        try {
+            evidence(session, response.path("result"));
+            return null;
+        } catch (AgentException failure) {
+            if (!Set.of("UNRESOLVED_CHECK_FAILURE", "EVIDENCE_INCOMPARABLE").contains(failure.code())) {
+                throw failure;
+            }
+            return json.createObjectNode().put("classification", failure.code())
+                    .put("reason", sanitize(failure.getMessage()))
+                    .put("instruction", "运行当前完整检查，解决新增/功能相关失败。不要用选测、跳过测试或编译清除全量失败。"
+                            + "历史失败只有完整同环境逐例证据可保留；不可比较时明确失败，不扩大授权。")
+                    .toString();
+        }
     }
 
     @Override
@@ -1674,6 +1738,12 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             if (check.has("runtimeChanges")) {
                 record.put("runtimeChanges", check.path("runtimeChanges").deepCopy());
             }
+            if (check.has("environment")) {
+                record.put("environment", check.path("environment").deepCopy());
+            }
+            if (!stale && check.has("testManifest")) {
+                record.put("testManifest", check.path("testManifest").deepCopy());
+            }
             records.add(record);
         }
         try {
@@ -1683,13 +1753,40 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 baseline.put("stale", true);
                 return (JsonNode) baseline;
             }).toList();
-            JsonNode evidence = json.valueToTree(Map.of("evidenceVersion", 4, "finalSnapshot", finalSnapshot,
+            ObjectNode evidence = json.valueToTree(Map.of("evidenceVersion", 4, "finalSnapshot", finalSnapshot,
                     "sourceView", snapshot.path("sourceView"),
                     "executionBaselineTree", session.executionBaselineTree,
                     "baselineFailures", baselineFailures,
                     "checks", records, "status", records.stream().anyMatch(record -> !((boolean) record.get("stale"))
                             && record.get("classification").equals("TESTS_PASSED")) ? "TESTED" : "NOT_TESTED"));
-            evidence = sanitizeNode(evidence);
+            boolean comparableBaseline = comparableBaseline(session);
+            if (!comparableBaseline && hasExecutedBaselineTests(session)) {
+                throw new AgentException("EVIDENCE_INCOMPARABLE", "Baseline checks lack complete comparable inventories or environments; cannot downgrade to legacy evidence");
+            }
+            if (comparableBaseline) {
+                evidence.put("evidenceVersion", 5);
+                var baselineChecks = evidence.putArray("baselineChecks");
+                for (JsonNode check : session.baselineChecks) {
+                    ObjectNode baseline = check.deepCopy();
+                    baseline.remove(List.of("output", "availableChecks", "preparationDiagnostic"));
+                    baselineChecks.add(baseline);
+                }
+                Set<String> changedPaths = new TreeSet<>(session.baselineHashes.keySet());
+                for (JsonNode file : snapshot.path("files")) {
+                    String path = file.path("path").asText();
+                    if ((file.path("sha256").asText() + ":" + file.path("mode").asText())
+                            .equals(session.baselineHashes.get(path))) {
+                        changedPaths.remove(path);
+                    } else {
+                        changedPaths.add(path);
+                    }
+                }
+                evidence.set("changedPaths", json.valueToTree(changedPaths));
+                var comparison = BaselineCheckComparison.compare(evidence);
+                evidence.put("verificationLevel", comparison.level());
+                evidence.set("baselineDebt", comparison.debt());
+            }
+            evidence = (ObjectNode) sanitizeNode(evidence);
             AgentCheckEvidence.requireAcceptable(evidence);
             return json.writeValueAsString(evidence);
         } catch (IOException failure) {

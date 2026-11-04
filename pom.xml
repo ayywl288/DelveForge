@@ -45,6 +45,9 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
+        <!-- 增量打包也重建原始 JAR，避免 Spring Boot 再打包沿用旧的嵌套模块。 -->
+        <maven.jar.forceCreation>true</maven.jar.forceCreation>
+
         <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
 
         <!--

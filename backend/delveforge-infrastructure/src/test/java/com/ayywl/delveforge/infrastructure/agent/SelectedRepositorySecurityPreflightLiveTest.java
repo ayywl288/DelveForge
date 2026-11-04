@@ -57,6 +57,10 @@ class SelectedRepositorySecurityPreflightLiveTest {
             evidence.put("outcome", result.outcome());
             var diagnostic = json.readTree(result.diagnostic());
             evidence.set("diagnostic", diagnostic);
+            String expectedOutcome = System.getProperty("delveforge.validation.expected-outcome");
+            if (expectedOutcome != null) {
+                assertEquals(expectedOutcome, result.outcome(), result.diagnostic());
+            }
             if (diagnostic.path("sourceChanges").isObject()) {
                 assertEquals("SECURITY_BLOCKED", result.outcome());
                 assertTrue(diagnostic.path("sourceChanges").path("unexpectedChanges").asInt() > 0);

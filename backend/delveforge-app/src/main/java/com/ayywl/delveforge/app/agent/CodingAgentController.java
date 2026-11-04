@@ -73,8 +73,15 @@ public class CodingAgentController {
     }
 
     @PostMapping("/api/agent-candidates/{id}/delivery")
-    public ResponseEntity<Delivery> deliver(@PathVariable String id) {
-        return ResponseEntity.accepted().body(delivery.submit(id));
+    public ResponseEntity<Delivery> deliver(@PathVariable String id,
+            @RequestBody(required = false) DeliveryRequest request) {
+        return ResponseEntity.accepted().body(request != null && request.baselineFailuresAcknowledged()
+                ? delivery.acknowledgeBaselineDebtAndSubmit(id, request.expectedDiffSha256(), request.expectedEvidenceSha256())
+                : delivery.submit(id));
+    }
+
+    public record DeliveryRequest(boolean baselineFailuresAcknowledged, String expectedDiffSha256,
+            String expectedEvidenceSha256) {
     }
 
     @PostMapping("/api/agent-candidates/{id}/complete-plan")
@@ -119,7 +126,8 @@ public class CodingAgentController {
         return Map.of("id", candidate.id(), "runId", candidate.runId(), "baseline", candidate.baseline(),
                 "expectedTree", candidate.expectedTree(), "sha256", candidate.sha256(), "changedPaths", candidate.changedPaths(),
                 "diffBytes", candidate.diff().getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
-                "testEvidence", candidate.testEvidence(), "createdAt", candidate.createdAt());
+                "testEvidence", candidate.testEvidence(), "createdAt", candidate.createdAt(),
+                "evidenceSha256", Candidate.digest(candidate.testEvidence()));
     }
 
     @GetMapping(value = "/api/agent-candidates/{id}/diff", produces = "text/plain;charset=UTF-8")
@@ -133,7 +141,8 @@ public class CodingAgentController {
             case "NOT_FOUND" -> 404;
             case "PAID_USAGE_ACK_REQUIRED" -> 400;
             case "INVALID_REQUEST", "INVALID_ARGUMENTS" -> 400;
-            case "RUN_CONFLICT", "INSTANCE_CONFLICT", "DELIVERY_CONFLICT", "BASELINE_MISMATCH" -> 409;
+            case "RUN_CONFLICT", "INSTANCE_CONFLICT", "DELIVERY_CONFLICT", "BASELINE_MISMATCH",
+                    "BASELINE_DEBT_ACK_REQUIRED" -> 409;
             default -> 503;
         };
         return ResponseEntity.status(status).body(Map.of("code", failure.code(), "message", "Agent operation could not complete"));

@@ -933,6 +933,42 @@ class CodingAgentServiceTest {
     }
 
     @Test
+    void completionObligationsReturnFeedbackBeforeFinalizingAndRepeatedUnchangedCompletionStops() throws Exception {
+        when(sandbox.completionFeedback(anyString(), any())).thenReturn(
+                "{\"classification\":\"UNRESOLVED_CHECK_FAILURE\",\"reason\":\"Current full check required\"}");
+        AtomicInteger calls = new AtomicInteger();
+        try (var service = service((history, tools) -> {
+            if (calls.incrementAndGet() > 1) {
+                assertTrue(history.stream().anyMatch(message -> message.text() != null
+                        && message.text().contains("Current full check required")));
+            }
+            return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), null);
+        }, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var terminal = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.FAILED, terminal.state());
+            assertEquals("NO_PROGRESS", terminal.reason());
+            assertEquals(3, calls.get());
+            verify(sandbox, never()).finish(anyString(), any());
+            assertTrue(service.events(id, 0, 100).stream()
+                    .anyMatch(event -> event.kind().equals("COMPLETION_CHECK_REJECTED")));
+        }
+    }
+
+    @Test
+    void correctedCompletionObligationsStillRequireNormalFreeze() throws Exception {
+        when(sandbox.completionFeedback(anyString(), any())).thenReturn(
+                "{\"classification\":\"UNRESOLVED_CHECK_FAILURE\"}", (String) null);
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        try (var service = service((history, tools) -> new AgentProtocol.Reply(
+                "{\"status\":\"completed\"}", List.of(), null), AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals(AgentRunState.SUCCEEDED, awaitTerminal(service, id, 10).state());
+            verify(sandbox, times(1)).finish(anyString(), any());
+        }
+    }
+
+    @Test
     void failedAttemptCanStartFreshAndFreezeWithoutChangingConfirmedStep() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));

@@ -1,5 +1,7 @@
 # DOMAIN_MODEL.md
 
+**2026-11-04 本次用户授权的基线感知合同：** 证据 v5 可逐测试证明同环境下没有新增失败、缺失/新增跳过，且当前功能检查通过。保持身份/失败指纹/测试定义的历史失败可作为明确的 BASELINE_DEBT 冻结；不计为测试通过，正式 Delivery 前须审阅并显式确认绑定 Candidate 差异及证据的 SHA。新失败、功能相关失败或不可比较结果仍阻塞；可信 revision 仅经正常 Delivery 接受推进。旧 v1–v4 与 FAILED Run 不改写，无旧 Run resume API。此补充替代下方“所有基线失败均须修复”的历史规则，其他状态和不变量保持；见 [ADR-0023](decisions/0023-baseline-aware-candidate-verification.md)。
+
 **2026-11-03 基线预检证据：** 预检不推进可信 revision，不改变 Step/WorkingCopy/Candidate/Delivery 状态机。证据 v4 单独保留 baselineFailures，必须由当前源码的匹配重验解决；基线通过不构成最终通过。旧证据不改写，见 ADR-0022。
 
 **2026-11-03 技术证据契约：** 新前端证据区分 NOT_STARTED / EXECUTED / UNKNOWN，并记录 runner 与配置摘要。

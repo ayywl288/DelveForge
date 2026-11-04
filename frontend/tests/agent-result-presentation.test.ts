@@ -21,6 +21,26 @@ describe("Run result presentation", () => {
 });
 
 describe("structured test evidence", () => {
+    it("keeps baseline debt visible even after a passing frontend or selected check", () => {
+        const failed = { ...check, checkType: "MAVEN", directory: "backend", classification: "TESTS_FAILED", failures: 1, errors: 2 };
+        for (const status of ["TESTED", "NOT_TESTED"]) {
+            const raw = JSON.stringify({ evidenceVersion: 5, verificationLevel: "BASELINE_DEBT", status,
+                finalSnapshot: "a".repeat(64), baselineDebt: [{ testId: "old" }],
+                checks: [failed, { ...check, checkType: "FRONTEND", directory: "frontend" }] });
+            const result = presentTestEvidence(raw);
+            expect(result.label).toBe("保留历史测试失败");
+            expect(result.outcome).toContain("交付前须审阅确认");
+            expect(result.tone).toBe("warning");
+            expect(result.counts).toBeNull();
+        }
+    });
+    it("does not invent a debt result from missing or stale current evidence", () => {
+        for (const debt of [[], [{ testId: "old" }]]) {
+            const raw = JSON.stringify({ evidenceVersion: 5, verificationLevel: "BASELINE_DEBT", status: "TESTED",
+                finalSnapshot: "a".repeat(64), baselineDebt: debt, checks: [{ ...check, stale: true }] });
+            expect(presentTestEvidence(raw).label).toBe("检查证据待核对");
+        }
+    });
     it("shows actual counts and retains a test pass when the last action only compiled", () => {
         const result = presentTestEvidence(evidence("TESTED", [check,
             { ...check, classification: "BUILD_PASSED_NOT_TESTED", goal: "compile", tests: 0, executedTests: 0, skipped: 0 }]));

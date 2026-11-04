@@ -20,6 +20,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -149,6 +150,90 @@ class DockerAgentSandboxTest {
             assertEquals("PROJECTED", json.readTree(candidate.testEvidence()).path("sourceView").path("kind").asText());
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertEquals("", git(official, "status", "--porcelain"));
+        } finally {
+            sandbox.cleanup(id);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"clean", "debt", "regression", "skip", "delete", "configuration", "incomplete", "feature-failure"})
+    void baselineAwareFullChecksPreserveHistoricalDebtButRejectRegressions(String scenario) throws Exception {
+        Path official = fixture();
+        Files.writeString(official.resolve("src/main/java/example/Counter.java"),
+                "package example;\npublic class Counter { public int next(int n) { return n + 1; } }\n");
+        if (!scenario.equals("clean")) {
+            Files.writeString(official.resolve("src/test/java/example/" + (scenario.equals("incomplete")
+                    ? "DifferentSourceName.java" : "LegacyTest.java")), """
+                    package example;
+                    import org.junit.jupiter.api.Test;
+                    import static org.junit.jupiter.api.Assertions.assertEquals;
+                    class LegacyTest { @Test void oldDebt() { assertEquals(2, 1); } }
+                    """);
+        }
+        git(official, "add", ".");
+        git(official, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "baseline inventory");
+        String baseline = git(official, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        var sandbox = new DockerAgentSandbox(properties(temporary.resolve("runs")), new DeterministicRepositorySecretPolicy());
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", baseline,
+                    "Add a bounded feature", "Added.java and tests", "New feature", 21), AgentProtocol.Limits.defaults(), () -> false);
+            var preflight = sandbox.preflight(id, () -> false);
+            if (scenario.equals("incomplete")) {
+                assertEquals("ENVIRONMENT_BLOCKED", preflight.outcome());
+                assertTrue(preflight.diagnostic().contains("EVIDENCE_INCOMPARABLE"));
+                assertTrue(git(official, "status", "--porcelain").isEmpty());
+                return;
+            }
+            assertEquals(scenario.equals("clean") ? "READY" : "READY_BASELINE_FAILURE", preflight.outcome(), preflight.diagnostic());
+            String featureTest = "package example; import org.junit.jupiter.api.Test; import static org.junit.jupiter.api.Assertions.assertEquals;"
+                    + " class AddedTest { @Test void feature() { assertEquals(" + (scenario.equals("feature-failure") ? "2" : "1")
+                    + ", new Added().value()); } }\n";
+            for (var entry : Map.of("src/main/java/example/Added.java",
+                    "package example; public class Added { public int value() { return 1; } }\n",
+                    "src/test/java/example/AddedTest.java", featureTest).entrySet()) {
+                assertTrue(json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(), "edit_file",
+                        json.writeValueAsString(Map.of("path", entry.getKey(), "old_text", "", "new_text", entry.getValue()))),
+                        () -> false)).path("ok").asBoolean());
+            }
+            if (scenario.equals("regression")) {
+                sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(), "edit_file",
+                        json.writeValueAsString(Map.of("path", "src/main/java/example/Counter.java",
+                                "old_text", "return n + 1", "new_text", "return n - 1"))), () -> false);
+            } else if (scenario.equals("skip")) {
+                sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(), "edit_file",
+                        json.writeValueAsString(Map.of("path", "src/test/java/example/LegacyTest.java",
+                                "old_text", "@Test void oldDebt", "new_text", "@org.junit.jupiter.api.Disabled @Test void oldDebt"))), () -> false);
+            } else if (scenario.equals("delete")) {
+                String path = "src/test/java/example/LegacyTest.java";
+                List<String> lines = Files.readAllLines(official.resolve(path));
+                String patch = "diff --git a/" + path + " b/" + path + "\n--- a/" + path
+                        + "\n+++ /dev/null\n@@ -1," + lines.size() + " +0,0 @@\n-" + String.join("\n-", lines) + "\n";
+                assertTrue(json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(), "apply_patch",
+                        json.writeValueAsString(Map.of("patch", patch))), () -> false)).path("ok").asBoolean());
+            } else if (scenario.equals("configuration")) {
+                sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(), "edit_file",
+                        json.writeValueAsString(Map.of("path", "pom.xml", "old_text", "<artifactId>ordinary-maven</artifactId>",
+                                "new_text", "<artifactId>ordinary-maven</artifactId><description>changed environment</description>"))), () -> false);
+            }
+            var check = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(), "run_checks",
+                    "{\"goal\":\"test\"}"), () -> false));
+            assertTrue(check.path("ok").asBoolean());
+            assertFalse(check.path("result").has("testManifest"));
+            if (Set.of("clean", "debt").contains(scenario)) {
+                assertEquals(null, sandbox.completionFeedback(id, () -> false));
+                Candidate candidate = sandbox.finish(id, () -> false);
+                var evidence = json.readTree(candidate.testEvidence());
+                assertEquals(5, evidence.path("evidenceVersion").asInt());
+                assertEquals(scenario.equals("clean") ? "FULLY_TESTED" : "BASELINE_DEBT", evidence.path("verificationLevel").asText());
+                assertEquals(scenario.equals("clean") ? 0 : 1, evidence.path("baselineDebt").size());
+            } else {
+                assertTrue(sandbox.completionFeedback(id, () -> false).contains(Set.of("configuration", "incomplete").contains(scenario)
+                        ? "EVIDENCE_INCOMPARABLE" : "UNRESOLVED_CHECK_FAILURE"));
+                assertThrows(AgentException.class, () -> sandbox.finish(id, () -> false));
+            }
+            assertEquals(baseline, git(official, "rev-parse", "HEAD"));
+            assertTrue(git(official, "status", "--porcelain").isEmpty());
         } finally {
             sandbox.cleanup(id);
         }
