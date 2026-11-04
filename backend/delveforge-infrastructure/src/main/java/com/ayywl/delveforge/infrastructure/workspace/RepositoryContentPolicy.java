@@ -131,6 +131,9 @@ public final class RepositoryContentPolicy {
         if (value.matches("true|false|development|production|test|local|hash|history|[0-9]{1,5}")) {
             return true;
         }
+        if (upper.endsWith("_TITLE") && value.matches("[\\p{L}\\p{N}][\\p{L}\\p{N} ._-]{0,127}")) {
+            return true;
+        }
         if (upper.matches(".*(URL|ORIGIN|TARGET|API|HOST|BASE|PATH|PREFIX).*")
                 && value.matches("/(?!/)[A-Za-z0-9_./-]{0,255}") && !value.contains("..")) {
             return true;

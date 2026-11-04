@@ -1162,7 +1162,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             String after = output.substring(coordinates.end(), Math.min(output.length(), coordinates.end() + 80));
             // 错误上下文的 “for project g:a:jar:v” 是本项目身份，不能当成待下载工件。
             if (after.matches("(?s)^\\s*\\(absent\\).*|^\\s+has not been downloaded.*")
-                    || before.matches("(?s).*(?:artifact |The POM for )$")) {
+                    || before.matches("(?s).*(?:artifact |The POM for |Missing POM for )$")
+                    || before.matches("(?s).*Missing:\\h*\\R(?:\\[ERROR]\\h*)?-+\\h*\\R(?:\\[ERROR]\\h*)?\\d+\\)\\h*$")) {
                 result.add(coordinates.group(1) + ":" + coordinates.group(2) + ":" + coordinates.group(5)
                         + ":" + coordinates.group(3) + (coordinates.group(4) == null ? "" : ":" + coordinates.group(4)));
             }
@@ -1380,6 +1381,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 throw failure;
             }
             diagnosis.put("reason", failure.code()).put("diagnostic", sanitize(failure.getMessage()));
+            if (failure instanceof AgentPolicyRejection rejection && rejection.sourceChanges() != null) {
+                diagnosis.set("sourceChanges", json.valueToTree(rejection.sourceChanges()));
+            }
             return preflightResult(failure instanceof AgentPolicyRejection rejection
                     && rejection.rule() != AgentPolicyRejection.Rule.COMMAND_BUDGET
                     ? "SECURITY_BLOCKED" : "ENVIRONMENT_BLOCKED", diagnosis);

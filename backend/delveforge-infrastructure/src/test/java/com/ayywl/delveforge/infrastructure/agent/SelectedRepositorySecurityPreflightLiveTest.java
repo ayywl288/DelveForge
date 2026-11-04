@@ -57,8 +57,20 @@ class SelectedRepositorySecurityPreflightLiveTest {
             evidence.put("outcome", result.outcome());
             var diagnostic = json.readTree(result.diagnostic());
             evidence.set("diagnostic", diagnostic);
-            assertTrue(diagnostic.path("probes").size() > 0, result.diagnostic());
+            if (diagnostic.path("sourceChanges").isObject()) {
+                assertEquals("SECURITY_BLOCKED", result.outcome());
+                assertTrue(diagnostic.path("sourceChanges").path("unexpectedChanges").asInt() > 0);
+            } else {
+                assertTrue(diagnostic.path("probes").size() > 0, result.diagnostic());
+            }
             assertTrue(!result.diagnostic().contains("Executable source or build configuration is withheld"));
+            if (diagnostic.path("probes").size() > 0 && java.util.Set.of("BUILD_CONFIGURATION_FAILED", "TESTS_FAILED")
+                    .contains(diagnostic.path("probes").get(0).path("classification").asText())) {
+                String response = sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(),
+                        "run_checks", json.writeValueAsString(Map.of("directory", "backend", "goal", "test"))),
+                        () -> false);
+                evidence.set("independentBackendCheck", json.readTree(response));
+            }
             boolean frontendObserved = false;
             for (var probe : diagnostic.path("probes")) {
                 frontendObserved |= probe.path("checkType").asText().equals("FRONTEND");

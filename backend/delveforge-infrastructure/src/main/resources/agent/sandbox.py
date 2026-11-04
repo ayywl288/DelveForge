@@ -531,7 +531,8 @@ def checks(args, dependency_probe=False):
         classification = 'DEPENDENCIES_PREPARED'
     elif code == 0:
         classification = 'TESTS_PASSED' if result['reports'] and result['executedTests'] > 0 else 'BUILD_PASSED_NOT_TESTED'
-    elif re.search(r'offline mode|has not been downloaded|Cannot access .*offline|could not be resolved', output, re.I):
+    elif re.search(r'offline mode|has not been downloaded|Cannot access .*offline|could not be resolved|'
+                   r'MultipleArtifactsNotFoundException', output, re.I):
         classification = 'DEPENDENCY_MISSING'
     elif 'COMPILATION ERROR' in output:
         classification = 'COMPILATION_FAILED'

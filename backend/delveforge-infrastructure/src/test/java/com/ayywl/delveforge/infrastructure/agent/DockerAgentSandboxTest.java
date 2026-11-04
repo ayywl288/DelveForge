@@ -11,6 +11,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -440,9 +442,18 @@ class DockerAgentSandboxTest {
         }
     }
 
-    @Test
-    void realOfflineMavenFailureRepairRetestAndCompleteTreeReplayLeaveOfficialUntouched() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"3.5.4", "2.22.2"})
+    void realOfflineMavenFailureRepairRetestAndCompleteTreeReplayLeaveOfficialUntouched(String surefire) throws Exception {
         Path official = fixture();
+        int jdk = surefire.equals("2.22.2") ? 17 : 21;
+        String initialPom = pom(jdk).replace("<version>3.5.4</version>", "<version>" + surefire + "</version>");
+        if (jdk == 17) {
+            initialPom = initialPom.replace("<version>5.11.4</version>", "<version>5.8.2</version>");
+            Files.writeString(official.resolve("pom.xml"), initialPom);
+            git(official, "add", "pom.xml");
+            git(official, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "legacy runner fixture");
+        }
         String baseline = git(official, "rev-parse", "HEAD");
         byte[] index = Files.readAllBytes(official.resolve(".git/index"));
         String source = Files.readString(official.resolve("src/main/java/example/Counter.java"));
@@ -451,7 +462,7 @@ class DockerAgentSandboxTest {
                 new DeterministicRepositorySecretPolicy());
         try {
             sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
-                    temporary.resolve("original").toString(), baseline, "increment", "counter", "fix", 21),
+                    temporary.resolve("original").toString(), baseline, "increment", "counter", "fix", jdk),
                     AgentProtocol.Limits.defaults(), () -> false);
             var identity = sandbox.identity(id);
             assertEquals("none", identity.networkMode());
@@ -494,7 +505,7 @@ class DockerAgentSandboxTest {
             assertTrue(applied.contains("PATCH_APPLIED"), applied);
             String passed = tool(sandbox, id, "run_checks", Map.of("goal", "test"));
             assertTrue(passed.contains("TESTS_PASSED"), passed);
-            String changedPom = pom(21).replace("</dependencies>", """
+            String changedPom = initialPom.replace("</dependencies>", """
                     <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId>
                     <version>3.17.0</version></dependency></dependencies>""");
             String addedTest = """
@@ -507,7 +518,7 @@ class DockerAgentSandboxTest {
                     +class BoundaryTest { @Test void negative() { assertEquals(0, new Counter().next(-1)); }
                     +@Test void dependency() { assertEquals(\"ab\", org.apache.commons.lang3.StringUtils.join(\"a\", \"b\")); } }
                     """;
-            assertTrue(tool(sandbox, id, "apply_patch", Map.of("patch", replacement("pom.xml", pom(21), changedPom)
+            assertTrue(tool(sandbox, id, "apply_patch", Map.of("patch", replacement("pom.xml", initialPom, changedPom)
                     + addedTest)).contains("PATCH_APPLIED"));
             String withNewDependency = tool(sandbox, id, "run_checks", Map.of("goal", "test"));
             assertTrue(withNewDependency.contains("TESTS_PASSED"), withNewDependency);

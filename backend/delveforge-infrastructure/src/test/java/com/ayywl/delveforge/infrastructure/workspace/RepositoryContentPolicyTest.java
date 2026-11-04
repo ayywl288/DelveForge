@@ -32,6 +32,20 @@ class RepositoryContentPolicyTest {
     }
 
     @Test
+    void publicApplicationTitlesRemainReadOnlyExecutionResourcesWithoutOpeningCredentialFields() {
+        var publicEnvironment = classify("frontend/.env.development",
+                "VITE_API_BASE_URL=/api\nVITE_APP_TITLE=校园实验室设备预约系统\n");
+        assertEquals(RepositoryContentPolicy.Kind.PUBLIC_RESOURCE, publicEnvironment.kind());
+        assertFalse(publicEnvironment.modelVisible());
+        assertFalse(publicEnvironment.mutable());
+        for (String content : List.of("VITE_APP_TITLE=" + "sk-" + "a".repeat(32),
+                "PASSWORD_TITLE=opaque-value", "VITE_APP_TITLE=$(execute)",
+                "VITE_APP_TITLE=" + "a".repeat(129))) {
+            assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY, classify(".env.development", content).kind());
+        }
+    }
+
+    @Test
     void ordinarySourceAndFixturesExecuteWithoutGrantingUnsanitizedModelVisibility() {
         var action = classify("src/Action.java",
                 "record.setAction(temporary ? \"generated-password\" : \"provided-password\");");
