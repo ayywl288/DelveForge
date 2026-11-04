@@ -367,8 +367,46 @@ def maven_report_files(modules=None):
                     yield path
 
 
+def test_case(identity, outcome, failure='', source=None):
+    # 原始异常不进入证据；保留逐例身份、失败指纹和测试文件摘要，避免用总数比较回归。
+    source = pathlib.Path(source) if source else None
+    valid = source is not None and source.is_file() and not source.is_symlink()
+    relative = source.relative_to(ROOT).as_posix() if valid else ''
+    affected = set()
+    for name in re.findall(r'(?m)^\s*at\s+([A-Za-z0-9_.$]+)\.[A-Za-z0-9_$<>]+\(', failure):
+        suffix = name.split('$')[0].replace('.', '/') + '.java'
+        for prefix in ROOT.rglob('src/main/java'):
+            path = prefix / suffix
+            if path.is_file():
+                affected.add(path.relative_to(ROOT).as_posix())
+    if valid and outcome in ('FAILED', 'ERROR'):
+        # 直接类型引用也覆盖“调用后断言失败、堆栈已无被测方法”的情况；不声称静态文本等于覆盖率。
+        text = source.read_text(encoding='utf-8')
+        for prefix in ROOT.rglob('src/main/java'):
+            for path in prefix.rglob('*.java'):
+                if re.search(r'\b' + re.escape(path.stem) + r'\b', text):
+                    affected.add(path.relative_to(ROOT).as_posix())
+    normalized = re.sub(r'(?<=\.java):\d+', '', failure)
+    return {'id': hashlib.sha256(identity.encode()).hexdigest(), 'outcome': outcome,
+            'failure': hashlib.sha256(normalized.encode()).hexdigest() if failure else '',
+            'source': relative, 'sourceSha256': hashlib.sha256(source.read_bytes()).hexdigest() if valid else '',
+            'affectedSources': sorted(affected)}
+
+
+def test_manifest(cases, counts):
+    complete = (len(cases) == counts['tests'] and len(cases) <= FILES_LIMIT
+                and len({case['id'] for case in cases}) == len(cases)
+                and all(case['source'] and case['sourceSha256'] for case in cases)
+                and sum(case['outcome'] == 'FAILED' for case in cases) == counts['failures']
+                and sum(case['outcome'] == 'ERROR' for case in cases) == counts['errors']
+                and sum(case['outcome'] == 'SKIPPED' for case in cases) == counts['skipped'])
+    return {'version': 1, 'complete': complete, 'cases': cases if len(cases) <= FILES_LIMIT else []}
+
+
 def report(modules=None):
     total = failures = errors = skipped = reports = 0
+    cases = []
+    dependencies = {}
     for path in maven_report_files(modules):
         name = path.name
         if name.startswith('TEST-') and name.endswith('.xml'):
@@ -378,15 +416,41 @@ def report(modules=None):
             if path.stat().st_size > 2097152:
                 raise PolicyError('UNSAFE_REPORT', 'Unsafe test report')
             node = ET.fromstring(path.read_bytes())
+            for prop in node.findall('.//properties/property'):
+                if prop.get('name') == 'java.class.path':
+                    for name in prop.get('value', '').split(os.pathsep):
+                        dependency = pathlib.Path(name)
+                        if name not in dependencies and dependency.is_relative_to('/m2') and dependency.is_file():
+                            digest = hashlib.sha256()
+                            with dependency.open('rb') as artifact:
+                                while chunk := artifact.read(65536):
+                                    digest.update(chunk)
+                            dependencies[name] = digest.hexdigest()
             for suite in ([node] if node.tag == 'testsuite' else node.findall('testsuite')):
                 total += int(suite.get('tests', '0'))
                 failures += int(suite.get('failures', '0'))
                 errors += int(suite.get('errors', '0'))
                 skipped += int(suite.get('skipped', '0'))
+                for case in suite.iter('testcase'):
+                    classname = case.get('classname', '')
+                    suffix = classname.split('$')[0].replace('.', '/') + '.java'
+                    module = path.parent.parent.parent
+                    source = module / 'src/test/java' / suffix
+                    failure = case.find('failure')
+                    error = case.find('error')
+                    problem = error if error is not None else failure
+                    outcome = ('ERROR' if error is not None else 'FAILED' if failure is not None
+                               else 'SKIPPED' if case.find('skipped') is not None else 'PASSED')
+                    detail = '' if problem is None else problem.get('type', '') + '\n' + (problem.text or '')
+                    cases.append(test_case(module.relative_to(ROOT).as_posix() + ':' + classname + '#'
+                                           + case.get('name', ''), outcome, detail, source))
     if min(total, failures, errors, skipped) < 0 or failures + errors + skipped > total:
         raise PolicyError('REPORT_COUNTS', 'Contradictory test report counts')
-    return {'reports': reports, 'tests': total, 'executedTests': total - skipped,
-            'failures': failures, 'errors': errors, 'skipped': skipped}
+    counts = {'reports': reports, 'tests': total, 'executedTests': total - skipped,
+              'failures': failures, 'errors': errors, 'skipped': skipped}
+    return {**counts, 'testManifest': test_manifest(cases, counts),
+            'runtimeDependencies': hashlib.sha256(json.dumps(dependencies, sort_keys=True).encode()).hexdigest()
+            if dependencies else ''}
 
 
 def h2_runtime_database(path):
@@ -531,7 +595,8 @@ def checks(args, dependency_probe=False):
         classification = 'DEPENDENCIES_PREPARED'
     elif code == 0:
         classification = 'TESTS_PASSED' if result['reports'] and result['executedTests'] > 0 else 'BUILD_PASSED_NOT_TESTED'
-    elif re.search(r'offline mode|has not been downloaded|Cannot access .*offline|could not be resolved', output, re.I):
+    elif re.search(r'offline mode|has not been downloaded|Cannot access .*offline|could not be resolved|'
+                   r'MultipleArtifactsNotFoundException', output, re.I):
         classification = 'DEPENDENCY_MISSING'
     elif 'COMPILATION ERROR' in output:
         classification = 'COMPILATION_FAILED'

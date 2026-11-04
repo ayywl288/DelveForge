@@ -19,6 +19,15 @@ public final class AgentCheckEvidence {
         }
         Set<String> unresolved = new HashSet<>();
         Set<String> failedTests = new HashSet<>();
+        if (evidence.path("evidenceVersion").asInt() > 5) {
+            throw new AgentException("EVIDENCE_INVALID", "Unsupported evidence version");
+        }
+        BaselineCheckComparison.Result comparison = evidence.path("evidenceVersion").asInt() == 5
+                ? BaselineCheckComparison.compare(evidence) : null;
+        if (comparison != null && (!comparison.level().equals(evidence.path("verificationLevel").asText())
+                || !comparison.debt().equals(evidence.path("baselineDebt")))) {
+            throw new AgentException("EVIDENCE_INVALID", "Baseline debt summary differs from per-test evidence");
+        }
         boolean versioned = evidence.path("evidenceVersion").asInt() >= 2;
         boolean scriptEvidence = evidence.path("evidenceVersion").asInt() >= 3;
         String snapshot = evidence.path("finalSnapshot").asText();
@@ -111,7 +120,19 @@ public final class AgentCheckEvidence {
                     || check.path("errors").asInt() != 0 || check.path("skipped").asInt() != 0)) {
                 throw new AgentException("EVIDENCE_INVALID", "Unavailable checks cannot contain execution evidence");
             }
-            if (!passed && !unavailable && !configurationRejected && !unverified) {
+            boolean acceptedDebt = comparison != null && comparison.debtKeys().contains(key) && current
+                    && status.equals("TESTS_FAILED") && Set.of("test", "verify").contains(goal)
+                    && check.path("module").asText("").isBlank()
+                    && check.path("selectedTest").asText("").isBlank();
+            if (acceptedDebt) {
+                // 只解除已逐例证明未回归的检查义务，保留失败分类和计数。
+                unresolved.remove(key);
+                failedTests.remove(key);
+                for (String report : runner.split("\\+")) {
+                    unresolved.remove(key + ":" + report);
+                    failedTests.remove(key + ":" + report);
+                }
+            } else if (!passed && !unavailable && !configurationRejected && !unverified) {
                 Set<String> failureKeys = new HashSet<>();
                 if (scriptEvidence && type.equals("FRONTEND") && !runner.isEmpty()) {
                     for (String report : runner.split("\\+")) {

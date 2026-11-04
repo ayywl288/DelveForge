@@ -63,6 +63,38 @@ class CredentialMutationPolicyTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
+            "record.setAction(temporary ? \"generated-password\" : \"provided-password\");",
+            "String action = generated ? \"generated-token\" : \"supplied-token\";",
+            "record.setAction(generated?\"generated-password\":\"provided-password\");"
+    })
+    void ternaryStringOperandsAreNotCredentialPropertyAssignments(String source) {
+        assertEquals(List.of(), policy.mutationProtectedLines("src/Action.java", source));
+        assertEquals(source, policy.sanitizeSource("src/Action.java", source));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "const settings = temporary ? {password: 'embedded-value'} : {};",
+            "// question? \"password\": \"embedded-value\"",
+            "/* question? \"password\": \"embedded-value\" */",
+            "\\u002f\\u002f question? \"password\": \"embedded-value\"",
+            "String text = \"\"\"\nquestion? \"password\": \"embedded-value\"\n\"\"\";",
+            "String action = generated ? \"password\" : \"ghp_0123456789abcdefghijklmnopqrstuvwx\";"
+    })
+    void ternaryRecognitionDoesNotExemptObjectPropertiesCommentsTextBlocksOrKnownTokens(String source) {
+        assertFalse(policy.mutationProtectedLines("src/Action.java", source).isEmpty());
+    }
+
+    @Test
+    void javaTernaryRecognitionDoesNotInterpretMarkupOrOtherLanguageCommentRules() {
+        for (String path : List.of("src/Action.html", "src/Action.vue", "src/Action.kt", "src/Action.js")) {
+            assertFalse(policy.mutationProtectedLines(path,
+                    "<!-- question? \"password\": \"embedded-value\" -->").isEmpty());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
             "// token=example-without-a-known-prefix",
             "String sample = \"token=example-without-a-known-prefix\";",
             "const token = cached || 'unmarked-value';",

@@ -187,11 +187,47 @@ class CodingAgentServiceTest {
             String user = captured.get().get(1).text();
             assertTrue(user.contains("\"targetProduct\":\"target\""));
             assertTrue(user.contains("authorizedStep"));
+            assertFalse(user.contains("\"acceptanceContext\":"));
             assertFalse(user.contains("userProfile"));
             assertFalse(user.contains("repositoryProfile"));
             assertTrue(captured.get().get(3).text().contains("mavenDirectories"));
             assertTrue(captured.get().get(3).text().contains("不是验证结果或额外授权"));
             verify(sandbox).checkCapabilities(eq(run.id()), any());
+        }
+    }
+
+    @Test
+    void optionalAcceptanceContextIsSanitizedAuditedAndDoesNotReplaceStepAuthorization() throws Exception {
+        var captured = new java.util.concurrent.atomic.AtomicReference<List<AgentProtocol.Message>>();
+        AgentModelPort model = (history, tools) -> {
+            captured.set(history);
+            return new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"fixture stop\"}", List.of(), 1L);
+        };
+        String context = "09:00 result must not overwrite 14:00; token=\"private-fixture-value\"";
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            var run = service.start("plan", "step", 21, List.of("."), context);
+            awaitTerminal(service, run.id(), 10);
+            var task = org.mockito.ArgumentCaptor.forClass(AgentSandboxPort.Task.class);
+            verify(sandbox).prepare(task.capture(), any(), any());
+            assertEquals("Counter", task.getValue().scope());
+            assertTrue(task.getValue().acceptanceContext().contains("09:00"));
+            assertFalse(task.getValue().acceptanceContext().contains("private-fixture-value"));
+            assertTrue(captured.get().get(1).text().contains("\"acceptanceContext\":"));
+            var audit = service.events(run.id(), 0, 100).stream()
+                    .filter(event -> event.kind().equals("ACCEPTANCE_CONTEXT")).findFirst().orElseThrow();
+            assertEquals(task.getValue().acceptanceContext(), audit.summary());
+        }
+    }
+
+    @Test
+    void oversizedAcceptanceContextIsRejectedBeforeReservingOrPreparingARun() {
+        try (var service = service((history, tools) -> {
+            throw new AssertionError("No model request expected");
+        }, AgentProtocol.Limits.defaults())) {
+            assertEquals("INVALID_REQUEST", assertThrows(AgentException.class,
+                    () -> service.start("plan", "step", 21, List.of("."), "x".repeat(3001))).code());
+            assertTrue(database.store.runs("plan", "step", null, 50).isEmpty());
+            verifyNoInteractions(sandbox);
         }
     }
 
@@ -929,6 +965,42 @@ class CodingAgentServiceTest {
             assertEquals(AgentRunState.FAILED, terminal.state());
             assertEquals("REPLAY_MISMATCH", terminal.reason());
             assertEquals(null, terminal.candidateId());
+        }
+    }
+
+    @Test
+    void completionObligationsReturnFeedbackBeforeFinalizingAndRepeatedUnchangedCompletionStops() throws Exception {
+        when(sandbox.completionFeedback(anyString(), any())).thenReturn(
+                "{\"classification\":\"UNRESOLVED_CHECK_FAILURE\",\"reason\":\"Current full check required\"}");
+        AtomicInteger calls = new AtomicInteger();
+        try (var service = service((history, tools) -> {
+            if (calls.incrementAndGet() > 1) {
+                assertTrue(history.stream().anyMatch(message -> message.text() != null
+                        && message.text().contains("Current full check required")));
+            }
+            return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), null);
+        }, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var terminal = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.FAILED, terminal.state());
+            assertEquals("NO_PROGRESS", terminal.reason());
+            assertEquals(3, calls.get());
+            verify(sandbox, never()).finish(anyString(), any());
+            assertTrue(service.events(id, 0, 100).stream()
+                    .anyMatch(event -> event.kind().equals("COMPLETION_CHECK_REJECTED")));
+        }
+    }
+
+    @Test
+    void correctedCompletionObligationsStillRequireNormalFreeze() throws Exception {
+        when(sandbox.completionFeedback(anyString(), any())).thenReturn(
+                "{\"classification\":\"UNRESOLVED_CHECK_FAILURE\"}", (String) null);
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        try (var service = service((history, tools) -> new AgentProtocol.Reply(
+                "{\"status\":\"completed\"}", List.of(), null), AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals(AgentRunState.SUCCEEDED, awaitTerminal(service, id, 10).state());
+            verify(sandbox, times(1)).finish(anyString(), any());
         }
     }
 

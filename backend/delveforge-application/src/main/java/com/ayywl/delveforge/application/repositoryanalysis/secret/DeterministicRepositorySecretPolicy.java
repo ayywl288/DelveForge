@@ -73,7 +73,11 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
                     + "|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret"
                     + "|auth[_-]?token)";
 
-    private static final Set<String> SOURCE_EXTENSIONS = Set.of("java", "js", "ts", "jsx", "tsx", "vue", "kt", "html");
+    private static final Set<String> SOURCE_EXTENSIONS =
+            Set.of("java", "js", "mjs", "cjs", "ts", "jsx", "tsx", "vue", "kt", "html");
+
+    private static final Pattern OUTPUT_AUTHENTICATION = Pattern.compile(
+            "(?i)\\b((?:bearer|basic)[\\t ]+)[A-Za-z0-9._~+/=\\-]+");
 
     // 只识别完整的配置引用；非空默认值和拼接仍按凭据字面量处理。
     private static final Pattern CONFIGURATION_REFERENCE =
@@ -253,6 +257,19 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
         return new SanitizedRepositoryMaterial(sanitized, replacedSpans);
     }
 
+    @Override
+    public boolean containsHighRiskCredential(String relativePath, String content) {
+        // 直接 password/token 字面量仍保护模型视图及编辑，但不再决定普通源码的执行资格。
+        return CONTENT_RULES.subList(0, CONTENT_RULES.size() - 1).stream()
+                .anyMatch(rule -> rule.pattern().matcher(content).find());
+    }
+
+    @Override
+    public String sanitizeOutput(String content) {
+        return OUTPUT_AUTHENTICATION.matcher(replaceIn(content).text())
+                .replaceAll("$1" + REDACTION_MARKER);
+    }
+
     /** 按完整文件识别后再构造保留行号的视图，禁止分片截断私钥等多行材料后再扫描。 */
     @Override
     public String sanitizeSource(String relativePath, String content) {
@@ -289,6 +306,7 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
         boolean source = SOURCE_EXTENSIONS.contains(extension);
         boolean configuration = Set.of("properties", "yml", "yaml").contains(extension);
         boolean yaml = extension.equals("yml") || extension.equals("yaml");
+        boolean[] sourceCode = null;
         for (int index = 0; index < CONTENT_RULES.size(); index++) {
             boolean assignment = index == CONTENT_RULES.size() - 1;
             Matcher matcher = (source && assignment ? SOURCE_CREDENTIAL_LITERAL : CONTENT_RULES.get(index).pattern())
@@ -300,6 +318,15 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
                     continue;
                 }
                 if (source && assignment) {
+                    int keyStart = extension.equals("java") ? quotedTernaryOperand(matcher, content) : -1;
+                    if (keyStart >= 0) {
+                        if (sourceCode == null) {
+                            sourceCode = sourceCodePositions(content);
+                        }
+                        if (sourceCode[keyStart]) {
+                            continue;
+                        }
+                    }
                     String literal = matcher.group(2);
                     String value = literal.substring(1, literal.length() - 1);
                     if (value.isEmpty() || value.equals("Bearer ") || value.equals("Basic ")) {
@@ -330,6 +357,68 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
             }
         }
         return List.copyOf(lines);
+    }
+
+    /** 三元运算的字符串操作数不是对象属性；只识别紧邻问号的完整引号键形态。 */
+    private static int quotedTernaryOperand(Matcher assignment, String content) {
+        String prefix = assignment.group(1).stripTrailing();
+        if (!prefix.endsWith(":")) {
+            return -1;
+        }
+        int key = assignment.start(1);
+        while (key < assignment.end(1) && content.charAt(key) != '"' && content.charAt(key) != '\'') {
+            key++;
+        }
+        if (key == assignment.end(1)) {
+            return -1;
+        }
+        int previous = key - 1;
+        while (previous >= 0 && Character.isWhitespace(content.charAt(previous))) {
+            previous--;
+        }
+        return previous >= 0 && content.charAt(previous) == '?' ? key : -1;
+    }
+
+    /** 仅确认 Java 窄语法的代码位置；注释、字符串及未解释的文本块不取得豁免。 */
+    private static boolean[] sourceCodePositions(String content) {
+        boolean[] positions = new boolean[content.length()];
+        // Unicode 转义先于 Java 词法处理；未解释这些形态时整文件不取得豁免。
+        if (content.contains("\"\"\"") || content.contains("\\u")) {
+            return positions;
+        }
+        boolean lineComment = false;
+        boolean blockComment = false;
+        char quote = 0;
+        for (int index = 0; index < content.length(); index++) {
+            char current = content.charAt(index);
+            char next = index + 1 < content.length() ? content.charAt(index + 1) : 0;
+            if (lineComment) {
+                lineComment = current != '\n' && current != '\r';
+            } else if (blockComment) {
+                if (current == '*' && next == '/') {
+                    blockComment = false;
+                    index++;
+                }
+            } else if (quote != 0) {
+                if (current == '\\') {
+                    index++;
+                } else if (current == quote) {
+                    quote = 0;
+                }
+            } else if (current == '/' && next == '/') {
+                lineComment = true;
+                index++;
+            } else if (current == '/' && next == '*') {
+                blockComment = true;
+                index++;
+            } else {
+                positions[index] = true;
+                if (current == '"' || current == '\'' || current == '`') {
+                    quote = current;
+                }
+            }
+        }
+        return positions;
     }
 
     private static boolean templateReference(String extension, Matcher literal, String content, String value) {

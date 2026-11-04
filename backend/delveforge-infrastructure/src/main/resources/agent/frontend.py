@@ -465,7 +465,7 @@ def read_report(path):
     return path.read_text(encoding='utf-8')
 
 
-def normalize_report(runner, path):
+def normalize_report(runner, path, cases=None, sandbox=None):
     raw = read_report(path)
     if runner == 'vitest-json':
         data = json.loads(raw)
@@ -487,6 +487,14 @@ def normalize_report(runner, path):
         # 采集错误也可能没有失败 test case，不能仅凭汇总计数判定通过。
         if data.get('success') is not True and not failed:
             raise ValueError('Vitest did not attest successful execution')
+        if cases is not None:
+            for suite in suites:
+                source = pathlib.Path(suite.get('name', ''))
+                relative = source.relative_to(sandbox.ROOT).as_posix()
+                for test in suite['assertionResults']:
+                    outcome = {'passed': 'PASSED', 'failed': 'FAILED'}.get(test['status'], 'SKIPPED')
+                    cases.append(sandbox.test_case(runner + ':' + relative + '#' + test['fullName'], outcome,
+                                 '\n'.join(test.get('failureMessages', [])), source))
         return dict(tests=total, executedTests=passed + failed, skipped=pending + todo, failures=failed, errors=0)
     if runner == 'node-junit':
         if '<!DOCTYPE' in raw.upper() or '<!ENTITY' in raw.upper():
@@ -495,20 +503,33 @@ def normalize_report(runner, path):
         if root.tag not in ('testsuite', 'testsuites'):
             raise ValueError('Expected JUnit suites')
         # Node 嵌套 suite 的计数包含子 suite；以实际 testcase 计数，避免重复累计。
-        cases = list(root.iter('testcase'))
-        if len(cases) > 100000:
+        junit_cases = list(root.iter('testcase'))
+        if len(junit_cases) > 100000:
             raise ValueError('Test count budget exceeded')
-        failures = sum(case.find('failure') is not None for case in cases)
-        errors = sum(case.find('error') is not None for case in cases)
-        skipped = sum(case.find('skipped') is not None for case in cases)
-        if failures + errors + skipped > len(cases):
+        failures = sum(case.find('failure') is not None for case in junit_cases)
+        errors = sum(case.find('error') is not None for case in junit_cases)
+        skipped = sum(case.find('skipped') is not None for case in junit_cases)
+        if failures + errors + skipped > len(junit_cases):
             raise ValueError('Contradictory JUnit cases')
-        return dict(tests=len(cases), executedTests=len(cases) - skipped, skipped=skipped,
+        if cases is not None:
+            for case in junit_cases:
+                source = pathlib.Path(case.get('file', case.get('classname', '')))
+                if not source.is_absolute():
+                    source = sandbox.ROOT / source
+                problem = case.find('error')
+                if problem is None:
+                    problem = case.find('failure')
+                outcome = ('ERROR' if case.find('error') is not None else 'FAILED' if problem is not None
+                           else 'SKIPPED' if case.find('skipped') is not None else 'PASSED')
+                cases.append(sandbox.test_case(runner + ':' + str(source).removeprefix(str(sandbox.ROOT))
+                             + '#' + case.get('name', ''), outcome,
+                             '' if problem is None else (problem.text or ''), source))
+        return dict(tests=len(junit_cases), executedTests=len(junit_cases) - skipped, skipped=skipped,
                     failures=failures, errors=errors)
     raise ValueError('Unattested test runner')
 
 
-def test_result(identity, directory, code, output):
+def test_result(identity, directory, code, output, sandbox=None):
     receipts = sorted(directory.glob('*.receipt'))
     if len(receipts) > 32:
         return result(identity, 'CHECK_RESULT_UNAVAILABLE', output + '\nTest report count budget exceeded', code)
@@ -518,6 +539,7 @@ def test_result(identity, directory, code, output):
     runners = set()
     seen = set()
     runner_failed = False
+    cases = []
     for receipt in receipts:
         data = json.loads(read_report(receipt))
         runner, name = data['runner'], data['report']
@@ -525,7 +547,7 @@ def test_result(identity, directory, code, output):
                 or pathlib.Path(name).name != name or name in seen or type(data['exitCode']) is not int:
             raise ValueError('Invalid runner receipt')
         seen.add(name)
-        report = normalize_report(runner, directory / name)
+        report = normalize_report(runner, directory / name, cases if sandbox is not None else None, sandbox)
         for key, count in report.items():
             counts[key] += count
         counts['reports'] += 1
@@ -535,7 +557,8 @@ def test_result(identity, directory, code, output):
     failed = counts['failures'] + counts['errors'] > 0
     classification = ('TESTS_FAILED' if failed else 'CHECK_PROCESS_FAILED' if code != 0 or runner_failed
                       else 'TESTS_PASSED' if counts['executedTests'] > 0 else 'TEST_EXECUTION_UNVERIFIED')
-    return result(identity, classification, output, code, **counts)
+    manifest = {'testManifest': sandbox.test_manifest(cases, counts)} if sandbox is not None else {}
+    return result(identity, classification, output, code, **counts, **manifest)
 
 
 def stop_project_processes():
@@ -602,7 +625,7 @@ def check(sandbox, args):
         return result(identity, 'BUILD_PASSED_NOT_TESTED' if code == 0 else (
             'TYPECHECK_FAILED' if goal == 'typecheck' else 'FRONTEND_BUILD_FAILED'), output, code)
     try:
-        checked = test_result(identity, reports, code, output)
+        checked = test_result(identity, reports, code, output, sandbox)
         if checked['classification'] == 'TEST_EXECUTION_UNVERIFIED':
             checked['output'] += ('\nNo attested tests. Node --test and Vitest CLI receive structured reporters; '
                                   'preserve NODE_OPTIONS in wrappers. Build success is not test evidence.')

@@ -73,6 +73,17 @@ public interface RepositorySecretPolicy {
         return sanitize(List.of(new RepositorySourceFile(relativePath, content))).material().getFirst().content();
     }
 
+    /** 明确的私钥、令牌格式、认证头或连接串；未知实现沿用行保护，保持保守。 */
+    default boolean containsHighRiskCredential(String relativePath, String content) {
+        return !mutationProtectedLines(relativePath, content).isEmpty();
+    }
+
+    /** 检查输出没有完整源码语境；净化已识别形态，不证明任意程序输出无秘密。 */
+    default String sanitizeOutput(String content) {
+        return sanitize(List.of(new RepositorySourceFile("agent-output.txt", content)))
+                .material().getFirst().content();
+    }
+
     /** 写入边界的受保护物理行；未知实现保持整文件保守拒绝，不改变出站净化合同。 */
     default List<Integer> mutationProtectedLines(String relativePath, String content) {
         String visible = sanitize(List.of(new RepositorySourceFile(relativePath, content)))

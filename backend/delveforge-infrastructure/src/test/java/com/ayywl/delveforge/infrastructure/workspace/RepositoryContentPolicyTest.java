@@ -32,6 +32,34 @@ class RepositoryContentPolicyTest {
     }
 
     @Test
+    void publicApplicationTitlesRemainReadOnlyExecutionResourcesWithoutOpeningCredentialFields() {
+        var publicEnvironment = classify("frontend/.env.development",
+                "VITE_API_BASE_URL=/api\nVITE_APP_TITLE=校园实验室设备预约系统\n");
+        assertEquals(RepositoryContentPolicy.Kind.PUBLIC_RESOURCE, publicEnvironment.kind());
+        assertFalse(publicEnvironment.modelVisible());
+        assertFalse(publicEnvironment.mutable());
+        for (String content : List.of("VITE_APP_TITLE=" + "sk-" + "a".repeat(32),
+                "PASSWORD_TITLE=opaque-value", "VITE_APP_TITLE=$(execute)",
+                "VITE_APP_TITLE=" + "a".repeat(129))) {
+            assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY, classify(".env.development", content).kind());
+        }
+    }
+
+    @Test
+    void ordinarySourceAndFixturesExecuteWithoutGrantingUnsanitizedModelVisibility() {
+        var action = classify("src/Action.java",
+                "record.setAction(temporary ? \"generated-password\" : \"provided-password\");");
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE, action.kind());
+        assertTrue(action.executionAvailable());
+        var credentials = classify("src/test/Auth.test.ts", "const login = {password: 'fixture-password'};");
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE, credentials.kind());
+        assertTrue(credentials.executionAvailable());
+        assertFalse(new DeterministicRepositorySecretPolicy().sanitizeSource("src/test/Auth.test.ts",
+                "const login = {password: 'fixture-password'};").contains("fixture-password"));
+        assertTrue(RepositoryContentPolicy.buildInput("src/test/Auth.test.ts"));
+    }
+
+    @Test
     void standardFetchModesAndCompletePlaceholderReferencesAreNotSecretValues() {
         for (String source : List.of("options.credentials = 'include';", "const options = { credentials: 'omit' };",
                 "const options = { credentials: 'same-origin' };",
@@ -40,11 +68,10 @@ class RepositoryContentPolicyTest {
         }
         for (String source : List.of("options.password = 'include';", "options.credentials = 'private-value';",
                 "const password = '${TOKEN}';", "const password = '${this.item.apikey}';",
-                "const password = '${TOKEN:private}';", "const password = '${getSecret()}';",
-                "options.credentials = 'include'; // " + "sk-" + "a".repeat(32))) {
-            assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY, classify("src/service.js", source).kind());
+                "const password = '${TOKEN:private}';", "const password = '${getSecret()}';")) {
+            assertEquals(RepositoryContentPolicy.Kind.SOURCE, classify("src/service.js", source).kind());
         }
-        assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY,
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE,
                 classify("Auth.java", "String secret=\"${JWT_SECRET}\";").kind());
     }
 
@@ -65,8 +92,34 @@ class RepositoryContentPolicyTest {
         }
         assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY,
                 classify("application.properties", "db.password=private-value\n").kind());
-        assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY,
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE,
                 classify("src/Config.java", "class Config { String password = \"private-value\"; }").kind());
+    }
+
+    @Test
+    void ordinarySourceExtensionsKeepAuthenticationFixturesWhileKnownCredentialsStayHostOnly() {
+        for (String extension : List.of("java", "kt", "js", "mjs", "cjs", "ts", "tsx", "jsx", "vue", "html")) {
+            String path = "src/Auth.test." + extension;
+            assertEquals(RepositoryContentPolicy.Kind.SOURCE,
+                    classify(path, "const paths = {password: '/users/password'}; token='fixture-token';").kind());
+            for (String content : List.of("sk-" + "a".repeat(32), "ghp_" + "b".repeat(36),
+                    "-----BEGIN PRIVATE KEY-----\nfixture-key\n-----END PRIVATE KEY-----",
+                    "Authorization: Bearer opaque-value", "https://user:private@example.com")) {
+                assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY, classify(path, content).kind());
+            }
+        }
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE,
+                classify("src/Authorization.java", "// Bearer token validation\nString prefix = \"Bearer \";").kind());
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE,
+                classify("src/Info.vue", "<h2>Basic information</h2>").kind());
+    }
+
+    @Test
+    void unscannableSourceDoesNotGainExecutionEligibilityFromAnAbsentTextView() {
+        assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY,
+                classify("src/Large.java", " ".repeat(262144) + "sk-" + "a".repeat(32)).kind());
+        assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY,
+                policy.classify("src/Invalid.java", new byte[]{(byte) 0xff, (byte) 0xfe}).kind());
     }
 
     @Test

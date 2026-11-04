@@ -9,9 +9,16 @@ import java.util.function.BooleanSupplier;
 public interface AgentSandboxPort {
     record Task(String runId, String planId, String stepId, String workingCopyId, String location,
             String originalLocation, String baseline, String goal, String scope, String changes, Integer targetJdk,
-            ProductContext productContext, List<String> checkDirectories) {
+            ProductContext productContext, List<String> checkDirectories, String acceptanceContext) {
         public Task {
             checkDirectories = checkDirectories == null ? List.of() : List.copyOf(checkDirectories);
+        }
+
+        public Task(String runId, String planId, String stepId, String workingCopyId, String location,
+                String originalLocation, String baseline, String goal, String scope, String changes, Integer targetJdk,
+                ProductContext productContext, List<String> checkDirectories) {
+            this(runId, planId, stepId, workingCopyId, location, originalLocation, baseline, goal, scope, changes,
+                    targetJdk, productContext, checkDirectories, null);
         }
 
         public Task(String runId, String planId, String stepId, String workingCopyId, String location,
@@ -54,6 +61,11 @@ public interface AgentSandboxPort {
     }
 
     String tool(String runId, AgentProtocol.ToolCall call, BooleanSupplier cancelled);
+
+    /** 完成声明前只读核对已知检查义务；返回可操作诊断，不能授予验证成功。旧实现仍由 finish 拒绝。 */
+    default String completionFeedback(String runId, BooleanSupplier cancelled) {
+        return null;
+    }
 
     Candidate finish(String runId, BooleanSupplier cancelled);
 

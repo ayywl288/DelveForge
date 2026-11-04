@@ -33,6 +33,7 @@ public final class RepositoryContentPolicy {
             "(?i).*(password|passwd|pwd|secret|token|credential|api.?key|access.?key|private.?key|auth).*");
     private static final Set<String> NPM_BOOLEAN = Set.of("shamefully-hoist", "auto-install-peers",
             "strict-peer-dependencies", "fund", "audit", "update-notifier", "legacy-peer-deps", "install-links");
+    private static final Pattern ORDINARY_SOURCE = Pattern.compile(".*\\.(java|kt|js|mjs|cjs|ts|tsx|jsx|vue|html)");
     private final RepositorySecretPolicy secrets;
 
     public RepositoryContentPolicy(RepositorySecretPolicy secrets) {
@@ -57,7 +58,12 @@ public final class RepositoryContentPolicy {
         if (secrets.excludes(path)) {
             return capability(Kind.PRESERVED_ONLY);
         }
-        if (text != null && !secrets.mutationProtectedLines(path, text).isEmpty()) {
+        if (text == null && ORDINARY_SOURCE.matcher(name).matches()) {
+            // 未能在现有文本预算内识别的源码不能据此获得“未命中高风险”的执行资格。
+            return capability(Kind.PRESERVED_ONLY);
+        }
+        if (text != null && (ORDINARY_SOURCE.matcher(name).matches()
+                ? secrets.containsHighRiskCredential(path, text) : !secrets.mutationProtectedLines(path, text).isEmpty())) {
             return capability(Kind.PRESERVED_ONLY);
         }
         return capability(Kind.SOURCE);
@@ -123,6 +129,9 @@ public final class RepositoryContentPolicy {
     private static boolean publicValue(String key, String value) {
         String upper = key.toUpperCase(Locale.ROOT);
         if (value.matches("true|false|development|production|test|local|hash|history|[0-9]{1,5}")) {
+            return true;
+        }
+        if (upper.endsWith("_TITLE") && value.matches("[\\p{L}\\p{N}][\\p{L}\\p{N} ._-]{0,127}")) {
             return true;
         }
         if (upper.matches(".*(URL|ORIGIN|TARGET|API|HOST|BASE|PATH|PREFIX).*")

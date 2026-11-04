@@ -13,6 +13,18 @@ class AgentToolVisibilityTest {
     private final ObjectMapper json = new ObjectMapper();
 
     @Test
+    void checkResponsesRemoveBareAuthenticationSchemesBeforeModelOrActivityConsumption() {
+        try (var service = new CodingAgentService(null, null, null, null,
+                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+            String output = json.createObjectNode().put("output", "failure at line 12; Bearer synthetic-bearer-value")
+                    .toString();
+            String visible = service.safeToolResult("run_frontend_checks", output);
+            assertTrue(visible.contains("failure at line 12"));
+            assertFalse(visible.contains("synthetic-bearer-value"));
+        }
+    }
+
+    @Test
     void sourceViewsRetainRuntimeExpressionsAndDropUnrecognizedPrivateFields() throws Exception {
         try (var service = new CodingAgentService(null, null, null, null,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {

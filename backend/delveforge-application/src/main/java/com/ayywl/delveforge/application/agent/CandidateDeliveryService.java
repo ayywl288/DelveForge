@@ -55,6 +55,9 @@ public final class CandidateDeliveryService implements AutoCloseable {
                 || !candidate.baseline().equals(run.baseline())) {
             throw new AgentException("DELIVERY_CONFLICT", "Candidate is not the frozen successful Run result");
         }
+        if (parseEvidence(candidate).path("verificationLevel").asText().equals("BASELINE_DEBT")) {
+            requireEvidence(candidate);
+        }
         var loaded = eligibility.loadDeliveryMetadata(new EvolutionPlanId(run.planId()), new EvolutionStepId(run.stepId()));
         if (!loaded.copy().id().value().equals(run.workingCopyId())
                 || !loaded.copy().lastVerifiedRevision().equals(candidate.baseline())) {
@@ -90,6 +93,30 @@ public final class CandidateDeliveryService implements AutoCloseable {
             worker.start();
         }
         return delivery;
+    }
+
+    /** 用户审阅固定 Candidate 的历史失败后显式确认；审计绑定差异和完整证据，不复用 Step 确认。 */
+    public Delivery acknowledgeBaselineDebtAndSubmit(String candidateId, String diffSha256, String evidenceSha256) {
+        Candidate candidate = agents.candidate(candidateId);
+        JsonNode evidence = parseEvidence(candidate);
+        AgentCheckEvidence.requireAcceptable(evidence);
+        if (!evidence.path("verificationLevel").asText().equals("BASELINE_DEBT")
+                || !candidate.sha256().equals(diffSha256)
+                || !Candidate.digest(candidate.testEvidence()).equals(evidenceSha256)) {
+            throw new AgentException("INVALID_REQUEST", "Acknowledgment must identify the reviewed Candidate and evidence");
+        }
+        AgentProtocol.Run run = agents.get(candidate.runId());
+        if (run.state() != AgentRunState.SUCCEEDED || !candidateId.equals(run.candidateId())) {
+            throw new AgentException("DELIVERY_CONFLICT", "Only a frozen successful Run can be reviewed");
+        }
+        var loaded = eligibility.loadDeliveryMetadata(new EvolutionPlanId(run.planId()), new EvolutionStepId(run.stepId()));
+        if (!run.workingCopyId().equals(loaded.copy().id().value())
+                || !candidate.baseline().equals(loaded.copy().lastVerifiedRevision())) {
+            throw new AgentException("BASELINE_MISMATCH", "Reviewed Candidate no longer matches the confirmed Step");
+        }
+        agents.event(candidate.runId(), "BASELINE_DEBT_ACKNOWLEDGED", acknowledgment(candidate));
+        discoveryBlocked.remove(candidateId);
+        return submit(candidateId);
     }
 
     /** 可同步调用以验证每个持久化截面；跨进程仍由持久化预约和 Workspace 原生锁约束。 */
@@ -211,13 +238,49 @@ public final class CandidateDeliveryService implements AutoCloseable {
         }
     }
 
-    private static void requireEvidence(Candidate candidate) {
+    private static JsonNode parseEvidence(Candidate candidate) {
         try {
             JsonNode evidence = new ObjectMapper().readTree(candidate.testEvidence());
-            AgentCheckEvidence.requireAcceptable(evidence);
+            if (evidence == null) {
+                throw new AgentException("EVIDENCE_INVALID", "Frozen test evidence is empty");
+            }
+            if (evidence.path("evidenceVersion").asInt() == 5) {
+                Set<String> paths = new java.util.HashSet<>();
+                evidence.path("changedPaths").forEach(path -> paths.add(path.asText()));
+                if (paths.size() != evidence.path("changedPaths").size()
+                        || !paths.equals(new java.util.HashSet<>(candidate.changedPaths()))) {
+                    throw new AgentException("EVIDENCE_INVALID", "Verification paths differ from the immutable Candidate");
+                }
+            }
+            return evidence;
         } catch (IOException failure) {
             throw new AgentException("EVIDENCE_INVALID", "Frozen test evidence is malformed", failure);
         }
+    }
+
+    private void requireEvidence(Candidate candidate) {
+        JsonNode evidence = parseEvidence(candidate);
+        AgentCheckEvidence.requireAcceptable(evidence);
+        if (evidence.path("verificationLevel").asText().equals("BASELINE_DEBT")) {
+            long after = 0;
+            while (true) {
+                var events = agents.events(candidate.runId(), after, 100);
+                for (var event : events) {
+                    if (event.kind().equals("BASELINE_DEBT_ACKNOWLEDGED")
+                            && event.summary().equals(acknowledgment(candidate))) {
+                        return;
+                    }
+                    after = event.sequence();
+                }
+                if (events.size() < 100) {
+                    throw new AgentException("BASELINE_DEBT_ACK_REQUIRED", "Review and acknowledge frozen baseline failures before Delivery");
+                }
+            }
+        }
+    }
+
+    private static String acknowledgment(Candidate candidate) {
+        return candidate.id() + ":" + candidate.sha256() + ":" + Candidate.digest(candidate.testEvidence());
     }
 
     public void start() {

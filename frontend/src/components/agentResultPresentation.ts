@@ -103,6 +103,15 @@ export function presentTestEvidence(raw: string): TestPresentation {
         && check.snapshot === value.finalSnapshot);
     const meaningful = fresh.filter(check => (count(check.executedTests) ?? 0) > 0
         && ["TESTS_PASSED", "TESTS_FAILED"].includes(String(check.classification))).at(-1);
+    if (value.evidenceVersion === 5) {
+        if (!["FULLY_TESTED", "BASELINE_DEBT"].includes(String(value.verificationLevel))) return unknown;
+        if (value.verificationLevel === "BASELINE_DEBT") {
+            if (!Array.isArray(value.baselineDebt) || !value.baselineDebt.length
+                || !fresh.some(check => check.classification === "TESTS_FAILED" && (count(check.executedTests) ?? 0) > 0)) return unknown;
+            return { label: "保留历史测试失败", outcome: `已记录 ${value.baselineDebt.length} 项历史失败；交付前须审阅确认。`,
+                scope: "基线对比结果；各项当前检查见下方", tone: "warning", counts: null };
+        }
+    }
     if (value.status === "NOT_TESTED") {
         if (meaningful) return unknown;
         return { label: "未运行测试", outcome: fresh.length ? verificationLabel(String(fresh.at(-1)!.classification))

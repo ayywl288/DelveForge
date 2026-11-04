@@ -62,4 +62,29 @@ class EnvironmentReadinessTest {
                         + "be resolved: org.springframework.boot:spring-boot-starter-webmvc-test:jar:4.0.9 (absent): "
                         + "Cannot access delveforge-central in offline mode"));
     }
+
+    @Test
+    void legacyResolverIdentifiesOnlyTheMissingArtifactNotItsDummyProjectOrDependencyPath() {
+        String output = """
+                [WARNING] Missing POM for org.apache.maven.surefire:surefire-junit-platform:jar:2.22.2
+                [ERROR] MultipleArtifactsNotFoundException: Missing:
+                [ERROR] ----------
+                [ERROR] 1) org.apache.maven.surefire:surefire-junit-platform:jar:2.22.2
+                [ERROR]   Path to dependency:
+                [ERROR]     1) dummy:dummy:jar:1.0
+                [ERROR]     2) org.apache.maven.surefire:surefire-junit-platform:jar:2.22.2
+                [ERROR] for artifact:
+                [ERROR]   dummy:dummy:jar:1.0
+                """;
+        assertEquals(java.util.Set.of("org.apache.maven.surefire:surefire-junit-platform:2.22.2:jar"),
+                DockerAgentSandbox.missingMavenArtifacts(output));
+        assertEquals(java.util.Set.of("org.example:runner:1.0:jar"), DockerAgentSandbox.missingMavenArtifacts("""
+                MultipleArtifactsNotFoundException: Missing:
+                ----------
+                1) org.example:runner:jar:1.0
+                Path to dependency:
+                  1) dummy:dummy:jar:1.0
+                  2) org.example:another:jar:1.0
+                """));
+    }
 }
