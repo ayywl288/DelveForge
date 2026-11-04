@@ -2,6 +2,8 @@
 
 **2026-11-04 原随机演化收尾：** 现有 Agent 启动 API 可附带可选 acceptanceContext（最多 3000 字符），Application 将其净化为本次运行的解释性数据并记录既有审计事件。它不替换或持久修改已确认 Step，不授予额外修改权限，不替代费用确认、检查或交付债务确认；旧请求省略该字段仍保持原行为。无数据库、领域状态或模块调整。
 
+**同轮真实失败后的局部纠正：** 一个模型响应内的实际写入若发生已证明未开始修改的 PATCH_CONFLICT，其后预先生成的写入返回 PATCH_NOT_EXECUTED，逐一回应工具 ID 并单独记录未执行事实；读取仍可继续。后续模型响应可依据当前源码重新生成编辑。未执行写入不计实际调用或纠错失败，不报告成功；实际三次未解决冲突、重复补丁拒绝、凭据保护和未知修改结果的终止规则保持。
+
 **2026-11-04 基线感知证据与完成检查：** Application 使用 BaselineCheckComparison 比较版本化逐例清单，Infrastructure 负责实际报告/环境/源码身份采集。v5 只为可比较的完整结果表示 FULLY_TESTED / BASELINE_DEBT；v1–v4 严格兼容。模型结束前只读诊断，冻结与 Delivery 独立验证，历史债务确认使用现有事件持久审计和交付 API；不改模块、Aggregate 或数据库表。详见 [ADR-0023](decisions/0023-baseline-aware-candidate-verification.md)。
 
 **2026-11-04 普通源码执行分类：** password/token 字段字面量只影响模型净化及受保护行编辑，不再自动剥离整份普通源码/测试。私钥、已知令牌、认证头及凭据路径仍保留在主机；输出增加裸 Bearer/Basic 净化。执行投影、真实缺失输入守卫、Docker 无网络执行、依赖代理及 Candidate/Delivery 保持，见 [ADR-0020 补充](decisions/0020-repository-content-capabilities.md#2026-11-04普通源码执行与模型内容分开)。无新模块、Aggregate、数据库迁移或安全管理子系统。

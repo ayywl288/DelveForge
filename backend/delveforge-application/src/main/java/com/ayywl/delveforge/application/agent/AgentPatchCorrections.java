@@ -18,9 +18,9 @@ final class AgentPatchCorrections {
         }
     }
 
-    void record(AgentProtocol.ToolCall call, String result) {
+    boolean record(AgentProtocol.ToolCall call, String result) {
         if (!AgentTools.mutation(call.name())) {
-            return;
+            return false;
         }
         try {
             JsonNode response = json.readTree(result);
@@ -36,7 +36,9 @@ final class AgentPatchCorrections {
                 if (rejected.size() >= 3) {
                     throw new AgentPatchCorrectionException(false);
                 }
+                return true;
             }
+            return false;
         } catch (IOException failure) {
             throw new AgentException("TOOL_PROTOCOL", "Tool result must be structured JSON");
         }

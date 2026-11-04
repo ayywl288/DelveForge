@@ -77,6 +77,10 @@ public final class AgentToolActivity {
                     summary.put("conflictReason", reason);
                 }
             }
+            if (AgentTools.mutation(call.name()) && classification.equals("PATCH_NOT_EXECUTED")
+                    && details.path("mutationNotStarted").asBoolean()) {
+                summary.put("mutationNotStarted", true);
+            }
             for (String key : List.of("tests", "executedTests", "skipped", "failures", "errors")) {
                 count(summary, details, key);
             }

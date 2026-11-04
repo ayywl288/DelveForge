@@ -386,6 +386,7 @@ public final class CodingAgentService implements AutoCloseable {
                 return;
             }
             history.add(new AgentProtocol.Message("assistant", safe(reply.text()), reply.calls(), null, null));
+            boolean batchWriteConflict = false;
             for (AgentProtocol.ToolCall call : reply.calls()) {
                 requireCurrent(task, cancelled);
                 String argumentFailure = null;
@@ -409,6 +410,21 @@ public final class CodingAgentService implements AutoCloseable {
                     throw new AgentException("TOOL_ID_CONFLICT", "Tool identity reused for different arguments");
                 }
                 String result = completed.get(call.id());
+                if (result == null && batchWriteConflict && AgentTools.mutation(call.name())
+                        && argumentFailure == null && argumentRejection == null) {
+                    // 同一响应中的写入预先生成，冲突后须让模型先看到当前状态，不能继续消耗过时写入。
+                    var skipped = json.createObjectNode().put("ok", false);
+                    skipped.putObject("result").put("classification", "PATCH_NOT_EXECUTED")
+                            .put("mutationNotStarted", true)
+                            .put("instruction", "本轮此前写入发生冲突，此次预先生成的写入未执行。"
+                                    + "依据当前读取结果，在下一次响应中重新生成编辑；此前成功修改仍保留。");
+                    result = skipped.toString();
+                    completed.put(call.id(), result);
+                    store.event(task.runId(), "TOOL_NOT_EXECUTED",
+                            activity.finished(call, UUID.randomUUID().toString(), result));
+                    history.add(new AgentProtocol.Message("tool", result, List.of(), call.id(), call.name()));
+                    continue;
+                }
                 boolean invoked = result == null;
                 if (result == null) {
                     toolCalls = incrementUsage(toolCalls);
@@ -473,7 +489,7 @@ public final class CodingAgentService implements AutoCloseable {
                         }
                         throw failure;
                     }
-                    corrections.record(call, result);
+                    batchWriteConflict |= corrections.record(call, result);
                     if (List.of("read_file", "list_files", "search_code").contains(call.name())) {
                         explorationCalls++;
                     } else if (Set.of("run_checks", "run_frontend_checks").contains(call.name())) {
@@ -594,6 +610,9 @@ public final class CodingAgentService implements AutoCloseable {
                     }
                 }
                 summary.put("paths", paths);
+            } else if (summary.get("classification").equals("PATCH_NOT_EXECUTED")) {
+                summary.put("mutationNotStarted", true);
+                summary.put("instruction", "本轮前次写入冲突，后续预生成写入未执行；依据当前读取重新生成编辑。");
             }
             return json.writeValueAsString(summary);
         } catch (IOException failure) {
