@@ -32,6 +32,18 @@ class RepositoryContentPolicyTest {
     }
 
     @Test
+    void ternaryActionLabelsAreExecutableButCredentialFieldsInTestsRemainHostOnly() {
+        var action = classify("src/Action.java",
+                "record.setAction(temporary ? \"generated-password\" : \"provided-password\");");
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE, action.kind());
+        assertTrue(action.executionAvailable());
+        var credentials = classify("src/test/Auth.test.ts", "const login = {password: 'fixture-password'};");
+        assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY, credentials.kind());
+        assertFalse(credentials.executionAvailable());
+        assertTrue(RepositoryContentPolicy.buildInput("src/test/Auth.test.ts"));
+    }
+
+    @Test
     void standardFetchModesAndCompletePlaceholderReferencesAreNotSecretValues() {
         for (String source : List.of("options.credentials = 'include';", "const options = { credentials: 'omit' };",
                 "const options = { credentials: 'same-origin' };",
