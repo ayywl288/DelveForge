@@ -1137,6 +1137,57 @@ class CodingAgentServiceTest {
     }
 
     @Test
+    void conflictDefersRemainingBatchWritesAndReturnsEveryToolIdentityBeforeFreshCorrection() throws Exception {
+        var first = new AgentProtocol.ToolCall("conflict", "edit_file",
+                "{\"path\":\"Counter.java\",\"old_text\":\"stale\",\"new_text\":\"first\"}");
+        var stale = new AgentProtocol.ToolCall("stale-batch-write", "edit_file",
+                "{\"path\":\"Counter.java\",\"old_text\":\"first\",\"new_text\":\"second\"}");
+        var read = new AgentProtocol.ToolCall("current", "read_file", "{\"path\":\"Counter.java\"}");
+        var fresh = new AgentProtocol.ToolCall("fresh", "edit_file",
+                "{\"path\":\"Counter.java\",\"old_text\":\"current\",\"new_text\":\"second\"}");
+        when(sandbox.tool(anyString(), eq(first), any())).thenReturn("""
+                {"ok":false,"result":{"classification":"PATCH_CONFLICT","mutationNotStarted":true}}
+                """);
+        when(sandbox.tool(anyString(), eq(stale), any())).thenReturn("""
+                {"ok":false,"result":{"classification":"PATCH_CONFLICT","mutationNotStarted":true}}
+                """);
+        when(sandbox.tool(anyString(), eq(read), any())).thenReturn("""
+                {"ok":true,"result":{"path":"Counter.java","content":"current"}}
+                """);
+        when(sandbox.tool(anyString(), eq(fresh), any())).thenReturn("""
+                {"ok":true,"result":{"classification":"PATCH_APPLIED"}}
+                """);
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AtomicInteger requests = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> {
+            int request = requests.incrementAndGet();
+            if (request == 1) {
+                return new AgentProtocol.Reply("", List.of(first, stale, read), 1L);
+            }
+            if (request == 2) {
+                for (String callId : List.of(first.id(), stale.id(), read.id())) {
+                    assertEquals(1, history.stream().filter(message -> callId.equals(message.callId())).count());
+                }
+                assertTrue(history.stream().anyMatch(message -> stale.id().equals(message.callId())
+                        && message.text().contains("PATCH_NOT_EXECUTED")
+                        && message.text().contains("mutationNotStarted")));
+                return new AgentProtocol.Reply("", List.of(fresh), 1L);
+            }
+            return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.SUCCEEDED, run.state());
+            assertEquals(3, run.toolCalls());
+            verify(sandbox, never()).tool(eq(id), eq(stale), any());
+            verify(sandbox).tool(eq(id), eq(fresh), any());
+            assertEquals(1, service.events(id, 0, 100).stream()
+                    .filter(event -> event.kind().equals("TOOL_NOT_EXECUTED")).count());
+        }
+    }
+
+    @Test
     void compressedHistoryRetainsConflictCorrectionInstructionAndTarget() throws Exception {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
