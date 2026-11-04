@@ -9,9 +9,16 @@ import java.util.function.BooleanSupplier;
 public interface AgentSandboxPort {
     record Task(String runId, String planId, String stepId, String workingCopyId, String location,
             String originalLocation, String baseline, String goal, String scope, String changes, Integer targetJdk,
-            ProductContext productContext, List<String> checkDirectories) {
+            ProductContext productContext, List<String> checkDirectories, String acceptanceContext) {
         public Task {
             checkDirectories = checkDirectories == null ? List.of() : List.copyOf(checkDirectories);
+        }
+
+        public Task(String runId, String planId, String stepId, String workingCopyId, String location,
+                String originalLocation, String baseline, String goal, String scope, String changes, Integer targetJdk,
+                ProductContext productContext, List<String> checkDirectories) {
+            this(runId, planId, stepId, workingCopyId, location, originalLocation, baseline, goal, scope, changes,
+                    targetJdk, productContext, checkDirectories, null);
         }
 
         public Task(String runId, String planId, String stepId, String workingCopyId, String location,
