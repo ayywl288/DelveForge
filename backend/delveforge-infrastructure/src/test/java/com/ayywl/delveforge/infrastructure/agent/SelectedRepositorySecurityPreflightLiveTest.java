@@ -25,7 +25,7 @@ class SelectedRepositorySecurityPreflightLiveTest {
     Path temporary;
 
     @Test
-    void withheldExecutableInputsBlockActualDockerChecksWithoutChangingEitherRepository() throws Exception {
+    void ordinarySourceInputsReachActualChecksWithoutChangingEitherRepository() throws Exception {
         Path original = Path.of(System.getProperty("delveforge.validation.source")).toRealPath();
         Path official = Path.of(System.getProperty("delveforge.validation.working-copy")).toRealPath();
         String revision = System.getProperty("delveforge.validation.revision");
@@ -52,12 +52,29 @@ class SelectedRepositorySecurityPreflightLiveTest {
             evidence.set("identity", json.valueToTree(sandbox.identity(id)));
             var capabilities = json.readTree(sandbox.checkCapabilities(id, () -> false));
             evidence.set("capabilities", capabilities);
-            assertTrue(capabilities.path("sourceView").path("withheldSourceCount").asInt() > 0);
+            assertEquals(0, capabilities.path("sourceView").path("withheldSourceCount").asInt());
             var result = sandbox.preflight(id, () -> false);
             evidence.put("outcome", result.outcome());
-            evidence.set("diagnostic", json.readTree(result.diagnostic()));
-            assertEquals("ENVIRONMENT_BLOCKED", result.outcome());
-            assertTrue(result.diagnostic().contains("withheld"));
+            var diagnostic = json.readTree(result.diagnostic());
+            evidence.set("diagnostic", diagnostic);
+            assertTrue(diagnostic.path("probes").size() > 0, result.diagnostic());
+            assertTrue(!result.diagnostic().contains("Executable source or build configuration is withheld"));
+            boolean frontendObserved = false;
+            for (var probe : diagnostic.path("probes")) {
+                frontendObserved |= probe.path("checkType").asText().equals("FRONTEND");
+            }
+            if (!frontendObserved) {
+                // 正式预检遇后端环境失败即停；独立探针只诊断前端，不将 Run 改为 READY。
+                var checks = evidence.putArray("independentFrontendChecks");
+                for (String goal : java.util.List.of("build", "test")) {
+                    String response = sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(),
+                            "run_frontend_checks", json.writeValueAsString(Map.of("directory", "frontend", "goal", goal))),
+                            () -> false);
+                    var checked = json.readTree(response);
+                    checks.add(checked);
+                    assertTrue(checked.path("ok").asBoolean(), response);
+                }
+            }
         } finally {
             sandbox.cleanup(id);
             assertEquals(revision, git.git(original, "rev-parse", "HEAD"));
@@ -65,7 +82,7 @@ class SelectedRepositorySecurityPreflightLiveTest {
             assertEquals(originalStatus, git.git(original, "--no-optional-locks", "status", "--porcelain"));
             assertEquals(officialStatus, git.git(official, "--no-optional-locks", "status", "--porcelain"));
             evidence.put("originalUnchanged", true).put("officialUnchanged", true);
-            Path output = Path.of("target/selected-repository-security-preflight.json");
+            Path output = Path.of("target/selected-repository-source-execution-preflight.json");
             Files.createDirectories(output.getParent());
             Files.writeString(output, evidence.toPrettyString());
         }

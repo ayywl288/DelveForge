@@ -1,6 +1,5 @@
 package com.ayywl.delveforge.application.agent;
 
-import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -272,8 +271,7 @@ public final class AgentToolActivity {
     }
 
     private boolean unchanged(String value) {
-        return value.equals(secrets.sanitize(List.of(new RepositorySourceFile("agent-activity.txt", value)))
-                .material().getFirst().content());
+        return value.equals(secrets.sanitizeOutput(value));
     }
 
     private void count(Map<String, Object> summary, JsonNode node, String key) {

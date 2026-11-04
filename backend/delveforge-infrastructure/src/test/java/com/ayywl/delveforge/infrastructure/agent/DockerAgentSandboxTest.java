@@ -260,7 +260,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void publicSourceChangesFreezeWhileCredentialSourceRemainsHostOnly() throws Exception {
+    void sourceFixturesExecuteAndOrdinaryEditsFreezeWhileCredentialLinesStayProtected() throws Exception {
         Path official = fixture();
         Path auth = official.resolve("src/main/java/example/Auth.java");
         Files.writeString(auth, """
@@ -270,7 +270,21 @@ class DockerAgentSandboxTest {
                     int ordinary = 1;
                 }
                 """);
+        Files.writeString(official.resolve("src/test/java/example/AuthFixtureTest.java"), """
+                package example;
+                import org.junit.jupiter.api.Test;
+                import static org.junit.jupiter.api.Assertions.assertFalse;
+                class AuthFixtureTest {
+                    @Test void fixtureIsAvailableToTheRunner() {
+                        String password = "synthetic-fixture-password";
+                        assertFalse(password.isBlank());
+                        System.out.println("Bearer " + "synthetic-maven-session");
+                        System.out.println("sk-" + "a".repeat(32));
+                    }
+                }
+                """);
         git(official, "add", "src/main/java/example/Auth.java");
+        git(official, "add", "src/test/java/example/AuthFixtureTest.java");
         git(official, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "credential fixture");
         String baseline = git(official, "rev-parse", "HEAD");
         String id = UUID.randomUUID().toString();
@@ -280,22 +294,30 @@ class DockerAgentSandboxTest {
             sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
                     temporary.resolve("original").toString(), baseline, "increment", "counter", "fix", 21),
                     AgentProtocol.Limits.defaults(), () -> false);
-            assertEquals(AgentPolicyRejection.Rule.RESOURCE_CAPABILITY, assertThrows(AgentPolicyRejection.class,
-                    () -> tool(sandbox, id, "read_file", Map.of("path", "src/main/java/example/Auth.java"))).rule());
+            String visible = tool(sandbox, id, "read_file", Map.of("path", "src/main/java/example/Auth.java"));
+            assertFalse(visible.contains("synthetic-private-value"));
+            assertTrue(visible.contains("redacted-credential"));
+            assertFalse(tool(sandbox, id, "search_code", Map.of("path", "src", "query", "password"))
+                    .contains("synthetic-private-value"));
+            assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Auth.java",
+                    "old_text", "int ordinary = 1;", "new_text", "int ordinary = 2;")).contains("PATCH_APPLIED"));
             assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id, "edit_file",
-                    Map.of("path", "src/main/java/example/Auth.java", "old_text", "int ordinary = 1;",
-                            "new_text", "int ordinary = 2;")));
+                    Map.of("path", "src/main/java/example/Auth.java", "old_text", "synthetic-private-value",
+                            "new_text", "different-private-value")));
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
                     "old_text", "return n;", "new_text", "return n + 1;")).contains("PATCH_APPLIED"));
             var check = json.readTree(tool(sandbox, id, "run_checks", Map.of("goal", "verify")));
-            assertEquals("INVALID_ARGUMENTS", check.path("classification").asText());
-            assertFalse(check.path("ok").asBoolean());
+            assertEquals("TESTS_PASSED", check.path("result").path("classification").asText());
+            assertTrue(check.path("ok").asBoolean());
             assertFalse(check.toString().contains("synthetic-private-value"));
+            assertFalse(check.toString().contains("synthetic-maven-session"));
+            assertFalse(check.toString().contains("sk-" + "a".repeat(32)));
+            assertTrue(check.path("result").path("executedTests").asInt() >= 2);
             Candidate candidate = sandbox.finish(id, () -> false);
             assertFalse(candidate.diff().contains("synthetic-private-value"));
-            assertFalse(candidate.changedPaths().contains("src/main/java/example/Auth.java"));
+            assertTrue(candidate.changedPaths().contains("src/main/java/example/Auth.java"));
             assertTrue(candidate.changedPaths().contains("src/main/java/example/Counter.java"));
-            assertEquals("NOT_TESTED", json.readTree(candidate.testEvidence()).path("status").asText());
+            assertEquals("TESTED", json.readTree(candidate.testEvidence()).path("status").asText());
             assertTrue(Files.readString(auth).contains("int ordinary = 1;"));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertTrue(git(official, "status", "--porcelain").isEmpty());
@@ -322,17 +344,99 @@ class DockerAgentSandboxTest {
                     temporary.resolve("original").toString(), baseline, "increment", "counter", "fix", 21),
                     AgentProtocol.Limits.defaults(), () -> false);
             String code = "from pathlib import Path; p=Path('/workspace/src/main/java/example/Auth.java'); "
-                    + "assert not p.exists(); p.write_text('package example; class Auth { "
+                    + "assert p.exists(); p.write_text('package example; class Auth { "
                     + "String password = \"different-private-value\"; }')";
             var result = process.run(List.of("docker", "exec", sandbox.identity(id).containerId(), "python3", "-c", code),
                     temporary, null, Duration.ofSeconds(20), 8192, () -> false, Map.of());
             assertEquals(0, result.exitCode());
-            assertEquals(AgentPolicyRejection.Rule.PRESERVED_RESOURCE_MATERIALIZED,
-                    assertThrows(AgentPolicyRejection.class, () -> sandbox.finish(id, () -> false)).rule());
+            assertEquals("CANDIDATE_POLICY",
+                    assertThrows(AgentException.class, () -> sandbox.finish(id, () -> false)).code());
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertTrue(git(official, "status", "--porcelain").isEmpty());
         } finally {
             sandbox.cleanup(id);
+        }
+    }
+
+    @Test
+    void recognizableHighRiskSourceStillBlocksChecksBeforeAnyModel() throws Exception {
+        Path official = fixture();
+        Files.writeString(official.resolve("src/main/java/example/Auth.java"),
+                "package example; class Auth { String token = \"sk-" + "a".repeat(32) + "\"; }\n");
+        git(official, "add", ".");
+        git(official, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "high risk fixture");
+        String baseline = git(official, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        var sandbox = new DockerAgentSandbox(properties(temporary.resolve("high-risk")),
+                new DeterministicRepositorySecretPolicy());
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
+                    temporary.resolve("original").toString(), baseline, "observe", "counter", "checks", 21),
+                    AgentProtocol.Limits.defaults(), () -> false);
+            assertEquals(1, json.readTree(sandbox.checkCapabilities(id, () -> false))
+                    .path("sourceView").path("withheldSourceCount").asInt());
+            assertThrows(AgentPolicyRejection.class,
+                    () -> tool(sandbox, id, "read_file", Map.of("path", "src/main/java/example/Auth.java")));
+            var preflight = sandbox.preflight(id, () -> false);
+            assertEquals("ENVIRONMENT_BLOCKED", preflight.outcome());
+            assertTrue(preflight.diagnostic().contains("withheld"));
+        } finally {
+            sandbox.cleanup(id);
+            assertEquals(baseline, git(official, "rev-parse", "HEAD"));
+            assertTrue(git(official, "status", "--porcelain").isEmpty());
+        }
+    }
+
+    @Test
+    void frontendAuthenticationFixtureExecutesWithSanitizedReadsSearchesAndCheckOutput() throws Exception {
+        Path official = Files.createDirectories(temporary.resolve("frontend"));
+        Path fixture = Path.of("src/test/resources/agent/native-frontend/npm");
+        try (var paths = Files.walk(fixture)) {
+            for (Path source : paths.toList()) {
+                Path destination = official.resolve(fixture.relativize(source));
+                if (Files.isDirectory(source)) {
+                    Files.createDirectories(destination);
+                } else {
+                    Files.copy(source, destination);
+                }
+            }
+        }
+        Path counter = official.resolve("src/counter.js");
+        Files.writeString(counter, Files.readString(counter).replace("return value;", "return value + 1;"));
+        Path tests = official.resolve("tests/counter.test.mjs");
+        Files.writeString(tests, Files.readString(tests) + """
+                test('authentication fixture remains executable', () => {
+                    const login = { password: 'synthetic-fixture-password' };
+                    assert.ok(login.password.length > 0);
+                    console.log('Bearer ' + 'synthetic-vue-session');
+                    console.log('sk-' + 'c'.repeat(32));
+                });
+                """);
+        Files.writeString(official.resolve(".gitattributes"), "* -text\n");
+        git(official, "init", "--template=");
+        git(official, "add", ".");
+        git(official, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-m", "frontend fixture");
+        String baseline = git(official, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        var sandbox = new DockerAgentSandbox(properties(temporary.resolve("frontend-runs")),
+                new DeterministicRepositorySecretPolicy());
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
+                    temporary.resolve("original").toString(), baseline, "observe", "frontend", "checks", 21),
+                    AgentProtocol.Limits.defaults(), () -> false);
+            assertFalse(tool(sandbox, id, "read_file", Map.of("path", "tests/counter.test.mjs"))
+                    .contains("synthetic-fixture-password"));
+            assertFalse(tool(sandbox, id, "search_code", Map.of("query", "password"))
+                    .contains("synthetic-fixture-password"));
+            var checked = json.readTree(tool(sandbox, id, "run_frontend_checks", Map.of("goal", "test")));
+            assertEquals("TESTS_PASSED", checked.path("result").path("classification").asText());
+            assertEquals(3, checked.path("result").path("executedTests").asInt());
+            assertFalse(checked.toString().contains("synthetic-vue-session"));
+            assertFalse(checked.toString().contains("sk-" + "c".repeat(32)));
+        } finally {
+            sandbox.cleanup(id);
+            assertEquals(baseline, git(official, "rev-parse", "HEAD"));
+            assertTrue(git(official, "status", "--porcelain").isEmpty());
         }
     }
 

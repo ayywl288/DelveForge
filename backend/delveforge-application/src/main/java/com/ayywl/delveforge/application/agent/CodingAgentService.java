@@ -1,7 +1,6 @@
 package com.ayywl.delveforge.application.agent;
 
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
-import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.agent.AgentRunState;
 import com.ayywl.delveforge.domain.agent.Candidate;
@@ -125,7 +124,7 @@ public final class CodingAgentService implements AutoCloseable {
     }
 
     private String safe(String text) {
-        return secrets.sanitize(List.of(new RepositorySourceFile("agent-context.txt", text))).material().getFirst().content();
+        return secrets.sanitizeOutput(text);
     }
 
     String executionContext(AgentSandboxPort.Task task) {

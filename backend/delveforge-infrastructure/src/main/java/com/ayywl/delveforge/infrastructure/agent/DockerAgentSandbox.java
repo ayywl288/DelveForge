@@ -6,7 +6,6 @@ import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentTools;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
-import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.agent.Candidate;
@@ -830,8 +829,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     }
 
     public String sanitize(String text) {
-        return secrets.sanitize(List.of(new RepositorySourceFile("agent-output.txt", text)))
-                .material().getFirst().content();
+        return secrets.sanitizeOutput(text);
     }
 
     @Override
@@ -1435,7 +1433,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         JsonNode response = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
         session.frontendCapabilities = response.path("result").path("configurationSnapshot").asText();
         requireToolSuccess(response);
-        return response.path("result").toString();
+        return sanitizeNode(response.path("result")).toString();
     }
 
     @Override
@@ -1687,6 +1685,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     "baselineFailures", baselineFailures,
                     "checks", records, "status", records.stream().anyMatch(record -> !((boolean) record.get("stale"))
                             && record.get("classification").equals("TESTS_PASSED")) ? "TESTED" : "NOT_TESTED"));
+            evidence = sanitizeNode(evidence);
             AgentCheckEvidence.requireAcceptable(evidence);
             return json.writeValueAsString(evidence);
         } catch (IOException failure) {

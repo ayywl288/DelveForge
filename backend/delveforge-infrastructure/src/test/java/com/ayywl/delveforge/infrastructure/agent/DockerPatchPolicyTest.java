@@ -27,6 +27,22 @@ class DockerPatchPolicyTest {
             new DeterministicRepositorySecretPolicy(), commands);
 
     @Test
+    void checkOutputsRedactRecognizableCredentialsWithoutAssignmentContext() {
+        String output = "Compilation error at Auth.java:12\nBearer synthetic-bearer-value\nBasic dXNlcjpwYXNz\n"
+                + "ghp_" + "a".repeat(36) + "\n" + "sk-" + "b".repeat(32);
+        for (String tool : java.util.List.of("run_checks", "run_frontend_checks", "describe_checks")) {
+            var response = json.createObjectNode().put("ok", true).set("result",
+                    json.createObjectNode().put("output", output).put("classification", "TESTS_FAILED"));
+            String visible = sandbox.sourceResponse(tool, response).toString();
+            assertTrue(visible.contains("Compilation error at Auth.java:12"));
+            for (String secret : java.util.List.of("synthetic-bearer-value", "dXNlcjpwYXNz",
+                    "ghp_" + "a".repeat(36), "sk-" + "b".repeat(32))) {
+                assertFalse(visible.contains(secret));
+            }
+        }
+    }
+
+    @Test
     void proposedCredentialDiagnosticsContainOnlyBoundedInputLineNumbers() throws Exception {
         String proposed = "class Example {\nString password=\"fixture-private-value\";\nint ordinary=1;\n"
                 + "String accessToken=generatedValue();\n}";

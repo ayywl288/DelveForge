@@ -73,7 +73,11 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
                     + "|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret"
                     + "|auth[_-]?token)";
 
-    private static final Set<String> SOURCE_EXTENSIONS = Set.of("java", "js", "ts", "jsx", "tsx", "vue", "kt", "html");
+    private static final Set<String> SOURCE_EXTENSIONS =
+            Set.of("java", "js", "mjs", "cjs", "ts", "jsx", "tsx", "vue", "kt", "html");
+
+    private static final Pattern OUTPUT_AUTHENTICATION = Pattern.compile(
+            "(?i)\\b((?:bearer|basic)[\\t ]+)[A-Za-z0-9._~+/=\\-]+");
 
     // 只识别完整的配置引用；非空默认值和拼接仍按凭据字面量处理。
     private static final Pattern CONFIGURATION_REFERENCE =
@@ -251,6 +255,19 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
             sanitized.add(new RepositorySourceFile(file.relativePath(), replacement.text()));
         }
         return new SanitizedRepositoryMaterial(sanitized, replacedSpans);
+    }
+
+    @Override
+    public boolean containsHighRiskCredential(String relativePath, String content) {
+        // 直接 password/token 字面量仍保护模型视图及编辑，但不再决定普通源码的执行资格。
+        return CONTENT_RULES.subList(0, CONTENT_RULES.size() - 1).stream()
+                .anyMatch(rule -> rule.pattern().matcher(content).find());
+    }
+
+    @Override
+    public String sanitizeOutput(String content) {
+        return OUTPUT_AUTHENTICATION.matcher(replaceIn(content).text())
+                .replaceAll("$1" + REDACTION_MARKER);
     }
 
     /** 按完整文件识别后再构造保留行号的视图，禁止分片截断私钥等多行材料后再扫描。 */
