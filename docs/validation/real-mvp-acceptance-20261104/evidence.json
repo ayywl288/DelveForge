@@ -1,0 +1,485 @@
+{
+  "sample": {
+    "repository": "https://github.com/spring-petclinic/spring-petclinic-rest",
+    "commit": "5180cc9bd0163393c4e628bedc1bc4c27cfaab1b",
+    "tree": "5b86dfa96cf739cb07e8afc2af5734784f3fc251",
+    "status": "",
+    "trackedFiles": 154,
+    "productionJava": 87,
+    "testJava": 22,
+    "license": "Apache-2.0"
+  },
+  "state": {
+    "userProfileId": "bcb95b04-9b0a-4371-8040-d2f7b4d16b40",
+    "softwareAssetId": "46fb3a11-43a0-42fc-86c1-df81a2f0eaa0",
+    "repositoryProfileId": "33d483e6-b94c-4928-a030-6b577e35673e",
+    "userProfileRevision": 16,
+    "contextId": "127c07f1-e02f-45d5-8e89-ee095e8b1c1b",
+    "directionId": "6396d65e-1bab-426c-a2dc-4bc8ae8f4b38",
+    "planId": "71352d4a-5d26-4802-b4fb-1d1b0caf9c0e",
+    "stepId": "466807f3-db98-48e0-b250-1cc58aa0acfe",
+    "workingCopyId": "fbf8ee6e-eb11-41ba-8610-daf00e482d6d",
+    "runId": "4d713d1d-f09a-4cb7-97d2-13d8dd72e2e5",
+    "candidateId": "f2eca05d-6e35-468c-af1e-3c3b426e785b",
+    "deliveryKey": "f2eca05d-6e35-468c-af1e-3c3b426e785b",
+    "acceptedRevision": "37ead350afef9b84d8d9d3ad7a8d29a10d1a6115"
+  },
+  "engineering": {
+    "applicationSha256": "a2563fad38beea90f32ef3316a60cb839ada127d93d04168dac58c5e485ed1d9",
+    "nestedModules": {
+      "domain": {
+        "sha256": "ab8066cac038093e4b5c9ce608302d1c14a27e4fdafd6d25b69f0f0a71cb0c3a",
+        "equalsReactorArtifact": true
+      },
+      "application": {
+        "sha256": "3e59cb68e1923f260b55baef3e2fe6219d27edb377d73184f92662c7935864ec",
+        "equalsReactorArtifact": true
+      },
+      "infrastructure": {
+        "sha256": "3ea35099b35aa2e331246c983784338c7f5e094c8f03fbe07b1aa84b86cc74f3",
+        "equalsReactorArtifact": true
+      }
+    },
+    "scriptSha256": {
+      "sandbox.py": "6720304167eacee88fd40f894771e0098460eb5b2503832155a9d5ae22cc8725",
+      "frontend.py": "a69899adad52d291f20219689a34dd235cad056e8853b306b0ff19d812883b1a",
+      "frontend-report.cjs": "51f2fdb60a9fb8d4e2059ff0881a7958c4e24e89d1f6a60b729a69e2a330937a",
+      "proxy.py": "ab73ad3a92ad4251160c1b7be0d526cae3919af495223e6845967b4690f29b87",
+      "offline-settings.xml": "184bd701445212102c47590a104fda1826b5144d04b98ef59fc4d0291bae800e"
+    },
+    "publicTitleRulePresent": true,
+    "v5ComparisonPresent": true,
+    "unknownBaselineStopsBeforeModel": true,
+    "currentCompletionInstructionPresent": true,
+    "explicitDebtReviewPresent": true,
+    "boundedAcceptanceContextPresent": true,
+    "completionFeedbackPresent": true,
+    "batchConflictCorrectionPresent": true,
+    "exactEditAndUnifiedDiffPresent": true
+  },
+  "baseline": {
+    "outcome": "READY",
+    "completeCheck": {
+      "goal": "verify",
+      "classification": "TESTS_PASSED",
+      "tests": 248,
+      "executedTests": 248,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "snapshot": "e6dd7169cd1c5568ee3bda2463e5d067c4238ebe986056110f44fab4b4397e19"
+    }
+  },
+  "candidate": {
+    "runId": "4d713d1d-f09a-4cb7-97d2-13d8dd72e2e5",
+    "id": "f2eca05d-6e35-468c-af1e-3c3b426e785b",
+    "evidenceSha256": "622c74b381cab905ff729cc93b040ff7a7c619b4e6e790ef3e6bfd4265e534fe",
+    "expectedTree": "47e3a21630bd232366fa20405d3343c9efb3a362",
+    "baseline": "5180cc9bd0163393c4e628bedc1bc4c27cfaab1b",
+    "createdAt": "2026-11-05T05:19:32.725890300Z",
+    "changedPaths": [
+      "src/main/java/org/springframework/samples/petclinic/rest/controller/v1/OwnerRestControllerV1.java",
+      "src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java"
+    ],
+    "sha256": "0656fc21e5d85165a6d19c9dede469085bb2fc129cc4707b1063392a8b3f6a69",
+    "diffBytes": 10484
+  },
+  "candidateEvidenceVersion": 5,
+  "verificationLevel": "FULLY_TESTED",
+  "finalSnapshot": "dca07d5050cea8e424543b6bab3866a66eef727fb0dca9090b7ef89159096e47",
+  "baselineDebt": [],
+  "recordedChecks": [
+    {
+      "goal": "test",
+      "selectedTest": "OwnerRestControllerV1Tests",
+      "classification": "TESTS_FAILED",
+      "executedTests": 40,
+      "failures": 2,
+      "errors": 0,
+      "skipped": 0,
+      "snapshot": "3127be7ca37537a2c5320e85a708b3c7d6cf90b4f25687aedcb1ca7fb3c01ec0"
+    },
+    {
+      "goal": "test",
+      "selectedTest": "OwnerRestControllerV1Tests",
+      "classification": "TESTS_FAILED",
+      "executedTests": 40,
+      "failures": 1,
+      "errors": 0,
+      "skipped": 0,
+      "snapshot": "2258eabe27417c3d5e6cb8be1dcbf0d9fff66018f97be3ac35c8cadcfbc53a28"
+    },
+    {
+      "goal": "test",
+      "selectedTest": "OwnerRestControllerV1Tests",
+      "classification": "TESTS_PASSED",
+      "executedTests": 40,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "snapshot": "dca07d5050cea8e424543b6bab3866a66eef727fb0dca9090b7ef89159096e47"
+    },
+    {
+      "goal": "test",
+      "selectedTest": "",
+      "classification": "TESTS_PASSED",
+      "executedTests": 254,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "snapshot": "dca07d5050cea8e424543b6bab3866a66eef727fb0dca9090b7ef89159096e47"
+    }
+  ],
+  "independentCompleteCheck": {
+    "candidateId": "f2eca05d-6e35-468c-af1e-3c3b426e785b",
+    "snapshot": "dca07d5050cea8e424543b6bab3866a66eef727fb0dca9090b7ef89159096e47",
+    "image": "sha256:0028af7e325a8ff25bdcb6d0bb66f9f1b85eb0589f692010e2b3a4889918cb22",
+    "executedTests": 254,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "goal": "verify",
+    "logSha256": "2558d7302d3d2712b166fa435cf15c016e76e50999729d44963927224881b9be"
+  },
+  "independentBusiness": {
+    "kind": "INDEPENDENT_REAL_HTTP_BUSINESS_ACCEPTANCE",
+    "baseUrl": "http://127.0.0.1:9966/petclinic",
+    "cases": [
+      {
+        "id": "A2",
+        "description": "wrong owner cannot update existing pet",
+        "status": "PASS",
+        "evidence": {
+          "httpStatus": 404,
+          "body": null,
+          "stateUnchanged": true
+        }
+      },
+      {
+        "id": "A3",
+        "description": "missing owner cannot update existing pet",
+        "status": "PASS",
+        "evidence": {
+          "httpStatus": 404,
+          "body": null,
+          "stateUnchanged": true
+        }
+      },
+      {
+        "id": "A4",
+        "description": "missing pet cannot be updated",
+        "status": "PASS",
+        "evidence": {
+          "httpStatus": 404,
+          "body": null,
+          "stateUnchanged": true
+        }
+      },
+      {
+        "id": "A6",
+        "description": "wrong owner cannot add a visit",
+        "status": "PASS",
+        "evidence": {
+          "httpStatus": 404,
+          "body": null,
+          "stateUnchanged": true
+        }
+      },
+      {
+        "id": "A7",
+        "description": "missing owner cannot add a visit",
+        "status": "PASS",
+        "evidence": {
+          "httpStatus": 404,
+          "body": null,
+          "stateUnchanged": true
+        }
+      },
+      {
+        "id": "A8",
+        "description": "missing pet cannot receive a visit",
+        "status": "PASS",
+        "evidence": {
+          "httpStatus": 404,
+          "body": null,
+          "stateUnchanged": true
+        }
+      },
+      {
+        "id": "A1",
+        "description": "matching owner can update its pet",
+        "status": "PASS",
+        "evidence": {
+          "httpStatus": 204,
+          "persistedName": "AcceptedPet",
+          "ownerScopedReadStatus": 200
+        }
+      },
+      {
+        "id": "A5",
+        "description": "matching owner can add a persisted visit",
+        "status": "PASS",
+        "evidence": {
+          "httpStatus": 201,
+          "visit": {
+            "date": "2024-01-01",
+            "description": "Independent acceptance visit",
+            "id": 5,
+            "petId": 1
+          },
+          "location": "/api/visits/5",
+          "countIncrease": 1
+        }
+      },
+      {
+        "id": "A9",
+        "description": "existing reads and unrelated entities stay available",
+        "status": "PASS",
+        "evidence": {
+          "unrelatedOwnerUnchanged": true,
+          "nestedReadStatus": 200
+        }
+      },
+      {
+        "id": "A10",
+        "description": "invalid payload still rejects without mutation",
+        "status": "PASS",
+        "evidence": {
+          "updateStatus": 400,
+          "visitStatus": 400,
+          "stateUnchanged": true
+        }
+      }
+    ],
+    "passed": 10,
+    "failed": 0,
+    "skipped": 0
+  },
+  "independentProof": {
+    "kind": "INDEPENDENT_OFFLINE_CANDIDATE_AND_REAL_HTTP",
+    "runId": "4d713d1d-f09a-4cb7-97d2-13d8dd72e2e5",
+    "candidateId": "f2eca05d-6e35-468c-af1e-3c3b426e785b",
+    "expectedSnapshot": "dca07d5050cea8e424543b6bab3866a66eef727fb0dca9090b7ef89159096e47",
+    "providerRequests": 0,
+    "beforeSnapshot": "dca07d5050cea8e424543b6bab3866a66eef727fb0dca9090b7ef89159096e47",
+    "reusedCompleteVerify": {
+      "candidateId": "f2eca05d-6e35-468c-af1e-3c3b426e785b",
+      "snapshot": "dca07d5050cea8e424543b6bab3866a66eef727fb0dca9090b7ef89159096e47",
+      "image": "sha256:0028af7e325a8ff25bdcb6d0bb66f9f1b85eb0589f692010e2b3a4889918cb22",
+      "executedTests": 254,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "goal": "verify",
+      "logSha256": "2558d7302d3d2712b166fa435cf15c016e76e50999729d44963927224881b9be"
+    },
+    "mavenGoal": "package -DskipTests",
+    "mavenExitCode": 0,
+    "afterSnapshot": "dca07d5050cea8e424543b6bab3866a66eef727fb0dca9090b7ef89159096e47",
+    "businessExitCode": 0,
+    "businessPassed": 10,
+    "businessFailed": 0,
+    "businessSkipped": 0,
+    "status": "PASS"
+  },
+  "delivery": {
+    "candidateId": "f2eca05d-6e35-468c-af1e-3c3b426e785b",
+    "runId": "4d713d1d-f09a-4cb7-97d2-13d8dd72e2e5",
+    "planId": "71352d4a-5d26-4802-b4fb-1d1b0caf9c0e",
+    "stepId": "466807f3-db98-48e0-b250-1cc58aa0acfe",
+    "workingCopyId": "fbf8ee6e-eb11-41ba-8610-daf00e482d6d",
+    "baseline": "5180cc9bd0163393c4e628bedc1bc4c27cfaab1b",
+    "expectedTree": "47e3a21630bd232366fa20405d3343c9efb3a362",
+    "location": "E:\\develop\\DelveForge\\data\\real-mvp-acceptance-20261104\\workspaces\\fbf8ee6e-eb11-41ba-8610-daf00e482d6d",
+    "originalLocation": "E:\\develop\\DelveForge\\data\\real-mvp-acceptance-20261104\\source",
+    "state": "COMPLETED",
+    "revision": "37ead350afef9b84d8d9d3ad7a8d29a10d1a6115",
+    "reason": null,
+    "createdAt": "2026-11-05T05:19:47.911808700Z"
+  },
+  "finalLifecycle": {
+    "plan": "COMPLETED",
+    "steps": [
+      {
+        "id": "466807f3-db98-48e0-b250-1cc58aa0acfe",
+        "status": "SUCCEEDED"
+      }
+    ],
+    "workingCopyStatus": "CLOSED",
+    "currentRevision": "37ead350afef9b84d8d9d3ad7a8d29a10d1a6115",
+    "lastVerifiedRevision": "37ead350afef9b84d8d9d3ad7a8d29a10d1a6115"
+  },
+  "integrity": {
+    "sourceCommit": "5180cc9bd0163393c4e628bedc1bc4c27cfaab1b",
+    "originalTrackedFilesUnchanged": 154,
+    "originalIndexAndStatusUnchanged": true,
+    "acceptedRevision": "37ead350afef9b84d8d9d3ad7a8d29a10d1a6115",
+    "acceptedParent": "5180cc9bd0163393c4e628bedc1bc4c27cfaab1b",
+    "acceptedTree": "47e3a21630bd232366fa20405d3343c9efb3a362",
+    "deliveredGitBlobsEqualIndependentlyTestedWitness": true,
+    "physicalLineEndingDifferences": [
+      {
+        "path": "src/main/java/org/springframework/samples/petclinic/rest/controller/v1/OwnerRestControllerV1.java",
+        "physicalDifference": "CRLF vs LF only",
+        "gitBlobEqualsTestedWitness": true
+      },
+      {
+        "path": "src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java",
+        "physicalDifference": "CRLF vs LF only",
+        "gitBlobEqualsTestedWitness": true
+      }
+    ],
+    "officialStatus": "",
+    "changedPaths": [
+      "src/main/java/org/springframework/samples/petclinic/rest/controller/v1/OwnerRestControllerV1.java",
+      "src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java"
+    ],
+    "counts": {
+      "agent_run": 1,
+      "agent_candidate": 1,
+      "candidate_delivery": 1,
+      "evolution_plan": 1,
+      "evolution_step": 1,
+      "working_copy": 1
+    },
+    "run": {
+      "state": "SUCCEEDED",
+      "reason": "CANDIDATE_FROZEN",
+      "model_calls": 22,
+      "tool_calls": 28,
+      "tokens": 380061,
+      "occupied": 0,
+      "retained": 0,
+      "candidate_id": "f2eca05d-6e35-468c-af1e-3c3b426e785b"
+    }
+  },
+  "operations": {
+    "codingRun": {
+      "id": "4d713d1d-f09a-4cb7-97d2-13d8dd72e2e5",
+      "planId": "71352d4a-5d26-4802-b4fb-1d1b0caf9c0e",
+      "stepId": "466807f3-db98-48e0-b250-1cc58aa0acfe",
+      "workingCopyId": "fbf8ee6e-eb11-41ba-8610-daf00e482d6d",
+      "baseline": "5180cc9bd0163393c4e628bedc1bc4c27cfaab1b",
+      "state": "SUCCEEDED",
+      "startedAt": "2026-11-05T05:14:04.706565Z",
+      "endedAt": "2026-11-05T05:19:34.319184900Z",
+      "reason": "CANDIDATE_FROZEN",
+      "candidateId": "f2eca05d-6e35-468c-af1e-3c3b426e785b",
+      "cancelRequested": false,
+      "retained": false,
+      "modelCalls": 22,
+      "toolCalls": 28,
+      "tokens": 380061
+    },
+    "providerRequestsInCodingRun": 22,
+    "codingUsage": {
+      "promptTokens": 374738,
+      "completionTokens": 5323,
+      "totalTokens": 380061,
+      "cacheHitTokens": 331648,
+      "cacheMissTokens": null
+    },
+    "nonCodingProviderRequests": 8,
+    "nonCodingUsage": {
+      "promptTokens": 72950,
+      "completionTokens": 31990,
+      "reasoningTokens": 23798
+    },
+    "toolNames": {
+      "search_code": 6,
+      "read_file": 10,
+      "edit_file": 7,
+      "list_files": 1,
+      "run_checks": 4
+    },
+    "toolClassifications": {
+      "READ_RESULT": 17,
+      "PATCH_APPLIED": 7,
+      "TESTS_FAILED": 2,
+      "TESTS_PASSED": 2
+    },
+    "mutationTargets": {
+      "src/main/java/org/springframework/samples/petclinic/rest/controller/v1/OwnerRestControllerV1.java": 3,
+      "src/test/java/org/springframework/samples/petclinic/rest/controller/OwnerRestControllerV1Tests.java": 4
+    },
+    "eventKinds": {
+      "CREATED": 1,
+      "PREPARING": 1,
+      "SANDBOX_READY": 1,
+      "ENVIRONMENT_PREFLIGHT": 1,
+      "RUNNING": 1,
+      "ACCEPTANCE_CONTEXT": 1,
+      "MODEL_REQUEST": 22,
+      "MODEL_USAGE": 22,
+      "TOOL_STARTED": 28,
+      "TOOL_FINISHED": 28,
+      "MODEL_COMPLETED": 1,
+      "FINALIZING": 1,
+      "SUCCEEDED": 1,
+      "DELIVERY_INTENT": 1,
+      "DELIVERY_APPLIED": 1,
+      "DELIVERY_COMMIT_READY": 1,
+      "DELIVERY_PUBLISHED": 1,
+      "PLAN_COMPLETED": 1,
+      "DELIVERY_COMPLETED": 1
+    },
+    "timeline": [
+      {
+        "kind": "CREATED",
+        "atUtc": "2026-11-05T05:14:04.706565Z",
+        "atLosAngeles": "2026-11-04T21:14:04.706565-08:00",
+        "sequence": 1
+      },
+      {
+        "kind": "RUNNING",
+        "atUtc": "2026-11-05T05:14:57.486365Z",
+        "atLosAngeles": "2026-11-04T21:14:57.486365-08:00",
+        "sequence": 5
+      },
+      {
+        "kind": "FINALIZING",
+        "atUtc": "2026-11-05T05:19:21.150628300Z",
+        "atLosAngeles": "2026-11-04T21:19:21.150628-08:00",
+        "sequence": 108
+      },
+      {
+        "kind": "SUCCEEDED",
+        "atUtc": "2026-11-05T05:19:34.321190800Z",
+        "atLosAngeles": "2026-11-04T21:19:34.321190-08:00",
+        "sequence": 109
+      },
+      {
+        "kind": "DELIVERY_INTENT",
+        "atUtc": "2026-11-05T05:19:47.920999700Z",
+        "atLosAngeles": "2026-11-04T21:19:47.920999-08:00",
+        "sequence": 110
+      },
+      {
+        "kind": "DELIVERY_COMPLETED",
+        "atUtc": "2026-11-05T05:20:04.903423900Z",
+        "atLosAngeles": "2026-11-04T21:20:04.903423-08:00",
+        "sequence": 115
+      }
+    ],
+    "independentHttpResultFileRecordedAtUtc": "2026-11-05T05:32:56.914376+00:00",
+    "independentHttpResultFileRecordedAtLosAngeles": "2026-11-04T21:32:56.914376-08:00",
+    "requiredAcceptanceBeforeDeliverySatisfied": false,
+    "verificationProtocolLimitation": "Automatic Delivery occurred before external business acceptance; later explicit Delivery POST was idempotent readback",
+    "maxPromptTokens": 40272,
+    "cacheHitTokensReportedRequests": 22,
+    "cacheMissTokensReportedRequests": 0,
+    "totalCompletedProviderRequests": 30,
+    "totalRecordedTokens": 485001
+  },
+  "judgments": {
+    "DISCOVERY / ANALYSIS VERIFIED": "PASS",
+    "DIRECTION / PLANNING VERIFIED": "PASS",
+    "REAL CODING AGENT VERIFIED": "PASS",
+    "CANDIDATE VERIFIED": "PASS",
+    "BUSINESS ACCEPTANCE VERIFIED": "PASS",
+    "DELIVERY VERIFIED": "PASS"
+  },
+  "acceptanceBeforeDeliveryGate": "FAIL",
+  "overallStrictMvpAcceptance": "FAIL",
+  "limitation": "Automatic normal Delivery completed before the independently executed business acceptance; subsequent explicit POST was idempotent. Do not claim prescribed acceptance order passed."
+}
