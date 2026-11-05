@@ -1,0 +1,35 @@
+{
+  "sampleKind": "DELIBERATELY_SELECTED_MVP_ACCEPTANCE_NOT_RANDOM_CONTINUATION",
+  "repository": "https://github.com/spring-petclinic/spring-petclinic-rest",
+  "commit": "5180cc9bd0163393c4e628bedc1bc4c27cfaab1b",
+  "tree": "5b86dfa96cf739cb07e8afc2af5734784f3fc251",
+  "feature": "Protect owner-pet association in the two v1 nested write operations",
+  "sourceEvidence": "src/main/java/org/springframework/samples/petclinic/rest/controller/v1/OwnerRestControllerV1.java: updateOwnersPet checks existence but not association; addVisitToOwner does not resolve owner or pet",
+  "scope": [
+    "PUT /petclinic/api/owners/{ownerId}/pets/{petId}",
+    "POST /petclinic/api/owners/{ownerId}/pets/{petId}/visits",
+    "Related production controller and genuine regression/integration tests; preserve repositories, DTO shape, security and unrelated operations"
+  ],
+  "cases": [
+    {"id": "A1", "case": "Matching owner and pet can update", "expected": "204; subsequent GET shows requested fields and original owner"},
+    {"id": "A2", "case": "Existing pet belonging to another owner cannot be updated", "expected": "404; pet fields and ownership unchanged"},
+    {"id": "A3", "case": "Missing owner cannot update an existing pet", "expected": "404; existing pet unchanged"},
+    {"id": "A4", "case": "Existing owner with missing pet cannot update", "expected": "404; no entity created"},
+    {"id": "A5", "case": "Matching owner and pet can add a visit", "expected": "201; returned ID resolves a persisted visit for that pet; preserve the existing Location API-path convention"},
+    {"id": "A6", "case": "Existing pet belonging to another owner cannot receive a nested visit", "expected": "404; visit count and existing visits unchanged"},
+    {"id": "A7", "case": "Missing owner cannot add a visit for an existing pet", "expected": "404; no visit created"},
+    {"id": "A8", "case": "Existing owner with missing pet cannot receive a visit", "expected": "404; no visit created"},
+    {"id": "A9", "case": "Existing nested reads and unrelated owner and pet remain available", "expected": "200 and unchanged reference data"},
+    {"id": "A10", "case": "Invalid request payload retains validation behavior", "expected": "400; no source entity or visit mutation"}
+  ],
+  "gates": [
+    "Complete unchanged baseline tests and Maven verify pass in actual supported sandbox before any model tokens",
+    "Product-generated Direction and Plan remain subject to explicit required human confirmation",
+    "Exactly one official paid Coding Agent Run, no automatic second Run",
+    "No manual target implementation; immutable Candidate must contain meaningful production and test changes",
+    "Complete final tests tied to final snapshot; no disappeared or improperly skipped existing tests",
+    "Independent real HTTP behavior must pass before normal FULLY_TESTED Delivery",
+    "BASELINE_DEBT requires separate Candidate-specific human acknowledgment"
+  ],
+  "status": "PRE_MODEL_PROPOSED_SCOPE_BASELINE_READINESS_PENDING"
+}
