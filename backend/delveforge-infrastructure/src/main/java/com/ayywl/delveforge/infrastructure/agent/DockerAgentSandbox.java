@@ -372,7 +372,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     ? AgentPolicyRejection.Rule.PROTECTED_CREDENTIAL_PATH : AgentPolicyRejection.Rule.PATH_FORMAT,
                     AgentPolicyRejection.Stage.PATH_VALIDATION);
         }
-        for (String part : path.split("/")) {
+        for (String part : path.split("/", -1)) {
             if (part.isEmpty() || part.equals(".") || part.equals("..") || part.equalsIgnoreCase(".git")
                     || part.equalsIgnoreCase(".hg") || part.equalsIgnoreCase(".svn") || part.endsWith(" ") || part.endsWith(".")
                     || part.matches("(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?")) {
@@ -384,6 +384,45 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 throw new AgentException("GENERATED_OUTPUT_AMBIGUITY", "Frontend generated material is not source");
             }
         }
+    }
+
+    String readPathFeedback(String path) {
+        try {
+            requirePath(path);
+            return null;
+        } catch (AgentPolicyRejection rejection) {
+            if ((rejection.rule() != AgentPolicyRejection.Rule.PATH_FORMAT
+                    && rejection.rule() != AgentPolicyRejection.Rule.FORBIDDEN_PATH) || !ordinaryReadPath(path)) {
+                throw rejection;
+            }
+            return AgentTools.readError(AgentTools.ReadError.RELATIVE_PATH_REQUIRED);
+        }
+    }
+
+    private boolean ordinaryReadPath(String path) {
+        if (path == null || path.isBlank() || path.length() > 512 || path.startsWith("/")
+                || path.startsWith("\\") || path.contains(":")) {
+            return false;
+        }
+        // 这里只检查拼写是否属于普通相对路径，绝不以替换后的路径执行读取。
+        boolean hasName = false;
+        for (String part : path.split("[/\\\\]", -1)) {
+            if (part.isEmpty() || part.equals(".")) {
+                continue;
+            }
+            if (part.equals("..") || Set.of(".git", ".hg", ".svn", ".ssh", ".aws", ".gnupg", ".m2",
+                    ".npmrc", ".netrc", ".pypirc").contains(part.toLowerCase(Locale.ROOT))
+                    || part.toLowerCase(Locale.ROOT).startsWith(".env") || secrets.excludes(part)) {
+                return false;
+            }
+            try {
+                requirePath(part);
+            } catch (AgentException rejectedPart) {
+                return false;
+            }
+            hasName = true;
+        }
+        return hasName;
     }
 
     private List<String> baseRun(String runId, String suffix, String image, String network, boolean detached) {
@@ -852,7 +891,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                         AgentPolicyRejection.Stage.PATH_VALIDATION);
             }
             try {
-                requirePath(arguments.path("path").asText());
+                if (AgentTools.readOnly(call.name())) {
+                    String feedback = readPathFeedback(arguments.path("path").asText());
+                    if (feedback != null) {
+                        return feedback;
+                    }
+                } else {
+                    requirePath(arguments.path("path").asText());
+                }
             } catch (AgentException failure) {
                 if (!failure.code().equals("GENERATED_OUTPUT_AMBIGUITY")
                         || !Set.of("list_files", "read_file", "search_code").contains(call.name())) {

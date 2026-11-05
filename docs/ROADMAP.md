@@ -1,5 +1,10 @@
 # ROADMAP.md
 
+**2026-11-04 当前任务：普通只读工具错误恢复。** 仅修正同一活跃 Run 的参数反馈与可靠性，保留安全拒绝、
+补丁冲突和 Candidate/Delivery 边界；不调用付费模型，不改第三方源码，不增加 checkpoint/resume。
+工程验证后只在独立本地分支提交，不合并、不推送；较早的付费续跑授权保留历史含义。见
+[修正与验证记录](validation/read-tool-error-recovery-20261104.md)。
+
 **2026-11-04 补丁冲突修正续跑结果：** 原工程修正、本次验收说明和同批冲突后的 PATCH_NOT_EXECUTED 已分别正常合并到本地 main；补充两项真实沙箱编排覆盖也已合并。原 86 项重跑加两项集成共 88 项、42 项 Linux/Git 边界测试通过，打包模块与当前 reactor 一致。沿用的真实 Run `1cab61f7-e8b9-469b-8544-87add6004c1b` 预检 READY_BASELINE_FAILURE，执行 160 次模型调用/207 次工具尝试，记录 10,357,386 Token；最后在 read_file 的 PATH_FORMAT 校验失败，前端最后仍有 7 项失败，无 Candidate/Delivery。没有累计用量停止或代为债务确认，原仓库/正式副本及历史失败保持，未推送或删分支。详见[补丁冲突修正与原试验续跑](validation/patch-conflict-resumption-20261104.md)。
 
 **2026-11-04 当前授权：合并工程修正并完成原随机全栈演化。** 审查并本地合并已验证工程分支，不删分支、不推送；从 main 重建并核对实际运行包，沿用原固定仓库、Plan、Step 和正式 WorkingCopy 启动新的正常付费 Agent Run。三项已确认反例通过可选、有界的本次验收说明传入，仅作解释，不变更持久授权。真实 Agent 实现目标功能，独立验收共享规则、迟到响应和创建失败后的重检；若冻结 Candidate 为 BASELINE_DEBT，展示固定差异和证据摘要后等待用户单独确认，禁止代为确认。

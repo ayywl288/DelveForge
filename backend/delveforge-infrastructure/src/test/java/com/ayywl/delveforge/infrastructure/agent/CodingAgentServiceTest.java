@@ -932,6 +932,77 @@ class CodingAgentServiceTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void identicalReadInputErrorsUseExistingNoProgressAndPreserveResponses(boolean schemaError) throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        String feedback = com.ayywl.delveforge.application.agent.AgentTools.readError(
+                com.ayywl.delveforge.application.agent.AgentTools.ReadError.INVALID_RANGE);
+        when(sandbox.tool(anyString(), any(), any())).thenReturn(feedback);
+        AgentModelPort model = (history, tools) -> {
+            int request = requests.incrementAndGet();
+            for (int prior = 1; prior < request; prior++) {
+                String priorId = "invalid-" + prior;
+                var responses = history.stream().filter(message -> priorId.equals(message.callId())).toList();
+                assertEquals(1, responses.size());
+                assertTrue(responses.get(0).text().contains("INVALID_TOOL_ARGUMENT"));
+                assertTrue(responses.get(0).text().contains("readNotStarted"));
+            }
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("invalid-" + request,
+                    "read_file", schemaError ? "{\"path\":\"source.txt\",\"line_count\":\"bad\"}"
+                            : "{\"path\":\"source.txt\",\"line_count\":0}")), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals("NO_PROGRESS", run.reason());
+            assertEquals(3, run.modelCalls());
+            var finishes = service.events(id, 0, 100).stream()
+                    .filter(event -> event.kind().equals("TOOL_FINISHED")).toList();
+            assertEquals(3, finishes.size());
+            assertTrue(finishes.stream().allMatch(event -> event.summary().contains("readNotStarted")));
+            verify(sandbox, never()).finish(anyString(), any());
+            if (schemaError) {
+                verify(sandbox, never()).tool(anyString(), any(), any());
+            }
+        }
+    }
+
+    @Test
+    void compressedHistoryRetainsReadErrorCorrectionWithoutUnsafeInput() throws Exception {
+        var defaults = AgentProtocol.Limits.defaults();
+        var limits = new AgentProtocol.Limits(12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
+                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), 10, 0);
+        AtomicInteger requests = new AtomicInteger();
+        AtomicBoolean preserved = new AtomicBoolean();
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            AgentProtocol.ToolCall call = invocation.getArgument(1);
+            return call.id().equals("call-1")
+                    ? com.ayywl.delveforge.application.agent.AgentTools.readError(
+                            com.ayywl.delveforge.application.agent.AgentTools.ReadError.RELATIVE_PATH_REQUIRED)
+                    : "{\"ok\":true,\"result\":{\"path\":\"source.txt\",\"content\":\"" + "x".repeat(3500) + "\"}}";
+        });
+        when(sandbox.finish(anyString(), any())).thenThrow(new AgentException("NO_CHANGES", "No changes"));
+        AgentModelPort model = (history, tools) -> {
+            if (history.stream().anyMatch(message -> message.role().equals("user")
+                    && message.text().contains("RELATIVE_PATH_REQUIRED")
+                    && message.text().contains("readNotStarted") && message.text().contains("list_files")
+                    && !message.text().contains("bad\\\\path"))) {
+                preserved.set(true);
+            }
+            int request = requests.incrementAndGet();
+            return request == 6 ? new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L)
+                    : new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + request,
+                            "read_file", request == 1 ? "{\"path\":\"bad\\\\path\"}"
+                                    : "{\"path\":\"source.txt\",\"start_line\":" + request + "}")), 1L);
+        };
+        try (var service = service(model, limits)) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("NO_CHANGES", awaitTerminal(service, id, 10).reason());
+            assertTrue(preserved.get());
+        }
+    }
+
     @Test
     void modelWaitRemainsCancellableWithoutAnOverallDeadline() throws Exception {
         var entered = new java.util.concurrent.CountDownLatch(1);
