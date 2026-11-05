@@ -30,6 +30,48 @@ def witnessed(patch_text):
 
 
 class SandboxPolicyTest(unittest.TestCase):
+    def test_invalid_read_range_never_reads_content_and_can_be_corrected(self):
+        target = self.root / 'source.txt'
+        target.write_text('one\ntwo\n')
+        with patch.object(sandbox, 'text', side_effect=AssertionError('must not read')):
+            for values in ({'start_line': 0}, {'line_count': 301}, {'start_line': True}):
+                with self.subTest(values=values):
+                    result = sandbox.dispatch('read_file', {'path': 'source.txt', **values})
+                    self.assert_read_error(result, 'INVALID_RANGE')
+        self.assertEqual('one\ntwo\n', sandbox.dispatch('read_file', {'path': 'source.txt'})['_source'])
+
+    def test_missing_sources_are_recoverable_without_read_or_enumeration(self):
+        with patch.object(sandbox, 'text', side_effect=AssertionError('must not read')), \
+                patch.object(sandbox, 'all_files', side_effect=AssertionError('must not enumerate')):
+            for tool in ('read_file', 'list_files', 'search_code'):
+                with self.subTest(tool=tool):
+                    result = sandbox.dispatch(tool, {'path': 'missing.txt', 'query': 'one'})
+                    self.assert_read_error(result, 'PATH_NOT_FOUND')
+
+    def test_invalid_pagination_and_query_do_not_read_sources(self):
+        with patch.object(sandbox, 'all_files', side_effect=AssertionError('must not enumerate')):
+            for values in ({'offset': -1}, {'limit': 0}, {'limit': 201}, {'offset': False}):
+                with self.subTest(values=values):
+                    self.assert_read_error(sandbox.dispatch('list_files', values), 'INVALID_PAGINATION')
+            self.assert_read_error(sandbox.dispatch('search_code', {'query': 'x' * 201}), 'INVALID_QUERY')
+
+    def test_sensitive_targets_stay_blocked_even_with_invalid_range(self):
+        (self.root / 'link').symlink_to(self.root.parent, target_is_directory=True)
+        with patch.object(sandbox, 'text', side_effect=AssertionError('must not read')):
+            for path in ('../outside', '/etc/passwd', '.env', '.ssh/config', 'link/outside'):
+                with self.subTest(path=path):
+                    with self.assertRaises(sandbox.PolicyError):
+                        sandbox.dispatch('read_file', {'path': path, 'start_line': 0})
+
+    def assert_read_error(self, result, reason):
+        self.assertEqual('INVALID_TOOL_ARGUMENT', result['classification'])
+        self.assertEqual(reason, result['reason'])
+        self.assertTrue(result['readNotStarted'])
+        self.assertTrue(result['mutationNotStarted'])
+        self.assertTrue(result['instruction'])
+        self.assertNotIn('_source', result)
+        self.assertNotIn('path', result)
+
     def test_frontend_generated_names_do_not_hide_or_forbid_maven_source(self):
         path = self.root / 'src/main/java/dist/Counter.java'
         path.parent.mkdir(parents=True)

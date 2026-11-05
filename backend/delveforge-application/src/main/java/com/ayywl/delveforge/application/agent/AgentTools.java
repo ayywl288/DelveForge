@@ -33,6 +33,37 @@ public final class AgentTools {
         return "apply_patch".equals(tool) || "edit_file".equals(tool);
     }
 
+    public static boolean readOnly(String tool) {
+        return Set.of("read_file", "list_files", "search_code").contains(tool);
+    }
+
+    /** 只用于已证明未读取内容、未写入的普通输入错误；不转换安全拒绝。 */
+    public enum ReadError {
+        RELATIVE_PATH_REQUIRED("使用仓库相对路径和 / 分隔符；位置不确定时先用 list_files 查找。"),
+        PATH_NOT_FOUND("该源码路径不存在；先用 list_files 查找，再使用返回的准确路径。"),
+        INVALID_RANGE("start_line 必须为正整数，line_count 必须为 1 到 300 的整数。"),
+        INVALID_PAGINATION("offset 必须为非负整数，limit 必须为 1 到 200 的整数。"),
+        INVALID_QUERY("query 必须为 1 到 200 个字符的字面量。"),
+        INVALID_ARGUMENTS("核对工具 schema 的必填字段和类型；路径使用仓库相对路径和 / 分隔符。");
+
+        private final String instruction;
+
+        ReadError(String instruction) {
+            this.instruction = instruction;
+        }
+
+        public String instruction() {
+            return instruction;
+        }
+    }
+
+    public static String readError(ReadError reason) {
+        return JSON.createObjectNode().put("ok", false).set("result", JSON.createObjectNode()
+                .put("classification", "INVALID_TOOL_ARGUMENT").put("reason", reason.name())
+                .put("readNotStarted", true).put("mutationNotStarted", true)
+                .put("instruction", reason.instruction())).toString();
+    }
+
     public static List<AgentProtocol.ToolSpec> definitions() {
         return List.of(
                 spec("list_files", "分页列出当前沙箱文件；默认 path='.'，offset=0，limit=100，最大200。",

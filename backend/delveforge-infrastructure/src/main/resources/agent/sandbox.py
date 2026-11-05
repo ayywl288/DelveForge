@@ -55,6 +55,11 @@ def credential_path(value):
             or '/.aws/credentials' in '/' + value.casefold())
 
 
+def read_error(reason, instruction):
+    return {'classification': 'INVALID_TOOL_ARGUMENT', 'reason': reason,
+            'readNotStarted': True, 'mutationNotStarted': True, 'instruction': instruction}
+
+
 def path_for(value, allow_root=False, resource=False):
     if not isinstance(value, str) or '\\' in value or '\x00' in value or len(value) > 512:
         raise PolicyError('PATH_FORMAT', 'Invalid relative path')
@@ -754,11 +759,11 @@ def dispatch(name, args):
         prefix = args.get('path', '.')
         path = path_for(prefix, True)
         if not path.exists():
-            raise ValueError('Path does not exist')
+            return read_error('PATH_NOT_FOUND', '该源码路径不存在；先用 list_files 查找，再使用返回的准确路径。')
         offset = args.get('offset', 0)
         limit = args.get('limit', 100)
         if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= 200:
-            raise ValueError('Invalid pagination')
+            return read_error('INVALID_PAGINATION', 'offset 必须为非负整数，limit 必须为 1 到 200 的整数。')
         files = [p for p in all_files() if p not in RESOURCE_CAPABILITIES and not credential_path(p)
                  and (path == ROOT or (ROOT / p).is_relative_to(path))]
         selected = files[offset:offset + limit]
@@ -767,21 +772,24 @@ def dispatch(name, args):
         return {'files': selected, 'directories': directories, 'total': len(files),
                 'nextOffset': offset + limit if offset + limit < len(files) else None}
     if name == 'read_file':
-        content = text(path_for(args.get('path')))
+        path = path_for(args.get('path'))
         start, count = args.get('start_line', 1), args.get('line_count', 120)
         if type(start) is not int or type(count) is not int or start < 1 or not 1 <= count <= 300:
-            raise ValueError('Invalid line range')
+            return read_error('INVALID_RANGE', 'start_line 必须为正整数，line_count 必须为 1 到 300 的整数。')
+        if not path.exists():
+            return read_error('PATH_NOT_FOUND', '该源码路径不存在；先用 list_files 查找，再使用返回的准确路径。')
+        content = text(path)
         lines = content.splitlines(keepends=True)
         return {'path': args['path'], 'startLine': start, 'totalLines': len(lines),
                 'count': count, '_source': content}
     if name == 'search_code':
-        query = args.get('query')
-        if not isinstance(query, str) or not 1 <= len(query) <= 200:
-            raise ValueError('Expected bounded literal query')
         prefix = args.get('path', '.')
         parent = path_for(prefix, True)
+        query = args.get('query')
+        if not isinstance(query, str) or not 1 <= len(query) <= 200:
+            return read_error('INVALID_QUERY', 'query 必须为 1 到 200 个字符的字面量。')
         if not parent.exists():
-            raise ValueError('Path does not exist')
+            return read_error('PATH_NOT_FOUND', '该源码路径不存在；先用 list_files 查找，再使用返回的准确路径。')
         matches = []
         sources = {}
         for relative in all_files():
@@ -878,7 +886,7 @@ def main():
                 raise PolicyError('RESOURCE_CAPABILITIES', 'Invalid trusted resource identity')
             path_for(path, resource=True)
         result = dispatch(request['name'], request.get('arguments', {}))
-        print(json.dumps({'ok': result.get('classification') != 'PATCH_CONFLICT', 'tool': request['name'], 'durationMs': int(
+        print(json.dumps({'ok': result.get('classification') not in ('PATCH_CONFLICT', 'INVALID_TOOL_ARGUMENT'), 'tool': request['name'], 'durationMs': int(
             (time.monotonic() - started) * 1000), 'result': result}, ensure_ascii=True))
     except CheckArgumentError as error:
         print(json.dumps({'ok': False, 'classification': 'INVALID_ARGUMENTS', 'checkStarted': False, 'reason': str(error)}))

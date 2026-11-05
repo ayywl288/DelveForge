@@ -402,7 +402,9 @@ public final class CodingAgentService implements AutoCloseable {
                     } else if (!failure.code().equals("INVALID_ARGUMENTS")) {
                         throw failure;
                     } else {
-                        argumentFailure = "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
+                        argumentFailure = AgentTools.readOnly(call.name())
+                                ? AgentTools.readError(AgentTools.ReadError.INVALID_ARGUMENTS)
+                                : "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
                     }
                 }
                 AgentProtocol.ToolCall previous = identities.putIfAbsent(call.id(), call);
@@ -461,7 +463,9 @@ public final class CodingAgentService implements AutoCloseable {
                                 }
                                 result = feedback.toString();
                             } else if (failure.code().equals("INVALID_ARGUMENTS")) {
-                                result = "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
+                                result = AgentTools.readOnly(call.name())
+                                        ? AgentTools.readError(AgentTools.ReadError.INVALID_ARGUMENTS)
+                                        : "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
                             } else {
                                 throw failure;
                             }
@@ -592,7 +596,17 @@ public final class CodingAgentService implements AutoCloseable {
             if (details.has("nextOffset")) {
                 summary.put("nextOffset", details.path("nextOffset"));
             }
-            if (summary.get("classification").equals("PATCH_CONFLICT")) {
+            if (AgentTools.readOnly(tool) && summary.get("classification").equals("INVALID_TOOL_ARGUMENT")
+                    && details.path("readNotStarted").asBoolean() && details.path("mutationNotStarted").asBoolean()) {
+                for (AgentTools.ReadError reason : AgentTools.ReadError.values()) {
+                    if (reason.name().equals(details.path("reason").asText())) {
+                        summary.put("reason", reason.name());
+                        summary.put("readNotStarted", true);
+                        summary.put("mutationNotStarted", true);
+                        summary.put("instruction", reason.instruction());
+                    }
+                }
+            } else if (summary.get("classification").equals("PATCH_CONFLICT")) {
                 summary.put("mutationNotStarted", details.path("mutationNotStarted").asBoolean());
                 summary.put("instruction", "补丁未应用；重新读取当前源码、核对行尾与hunk，不重复相同补丁。此前成功修改仍保留。");
                 String reason = details.path("conflictReason").asText();

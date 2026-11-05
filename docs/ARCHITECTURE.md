@@ -1732,6 +1732,14 @@ V17 在 ProjectFlowContext 添加 deleted_at，删除和恢复共用现有 versi
 
 ### 2026-10-25 Agent 响应恢复
 
+2026-11-04 只读工具参数反馈：`read_file`、`list_files`、`search_code` 对明确未读取源码内容、未修改的
+普通参数错误返回 `ok=false / result.classification=INVALID_TOOL_ARGUMENT`，带固定 reason、纠正说明及
+`readNotStarted` / `mutationNotStarted`。相对路径拼写仅用于判别错误，绝不规范化后执行；绝对路径、
+穿越、受保护材料、链接和完整性拒绝继续按既有边界失败。工具调用身份、事件及压缩摘要保留反馈，
+同一活跃 Run 可纠正参数；重复原样请求复用既有 `AgentProgress` 的 `NO_PROGRESS`，不新增累计用量限制。
+这是工具协议的错误分类修正，不新增持久状态、跨 Run 恢复或授权。验证见
+[只读工具错误修正](validation/read-tool-error-recovery-20261104.md)。
+
 [ADR-0015](decisions/0015-executable-agent-steps-and-incomplete-response-recovery.md) 定义当前非 thinking 工具模式、活跃 Run 内有限丢弃/重生成截断响应和真实用量语义。
 Application 不依赖提供者 reasoning 类型；Infrastructure 在返回 Reply 前仍拒绝全部截断参数。恢复不扩大 Domain、Workspace 或 Delivery 权限，不恢复跨 Run 对话。
 

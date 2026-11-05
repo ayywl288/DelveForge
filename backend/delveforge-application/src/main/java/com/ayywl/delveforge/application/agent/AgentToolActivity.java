@@ -64,6 +64,17 @@ public final class AgentToolActivity {
                 proposalLocation(summary, response.path("rejectedInput"));
             }
             count(summary, response, "durationMs");
+            if (AgentTools.readOnly(call.name()) && classification.equals("INVALID_TOOL_ARGUMENT")
+                    && details.path("readNotStarted").asBoolean() && details.path("mutationNotStarted").asBoolean()) {
+                for (AgentTools.ReadError reason : AgentTools.ReadError.values()) {
+                    if (reason.name().equals(details.path("reason").asText())) {
+                        summary.put("reason", reason.name());
+                        summary.put("readNotStarted", true);
+                        summary.put("mutationNotStarted", true);
+                        summary.put("resultRecorded", true);
+                    }
+                }
+            }
             if (AgentTools.mutation(call.name()) && classification.equals("PATCH_CONFLICT")
                     && details.path("mutationNotStarted").asBoolean()) {
                 summary.put("mutationNotStarted", true);

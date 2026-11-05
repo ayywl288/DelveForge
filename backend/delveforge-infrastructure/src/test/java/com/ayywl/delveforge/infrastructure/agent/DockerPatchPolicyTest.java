@@ -26,6 +26,28 @@ class DockerPatchPolicyTest {
     private final DockerAgentSandbox sandbox = new DockerAgentSandbox(null,
             new DeterministicRepositorySecretPolicy(), commands);
 
+    @ParameterizedTest
+    @ValueSource(strings = {"src\\Counter.java", "./src/Counter.java", "src//Counter.java", "src/Counter.java/"})
+    void ordinaryReadSpellingReturnsFixedFeedbackWithoutExecutingAnything(String path) throws Exception {
+        var result = json.readTree(sandbox.readPathFeedback(path));
+        assertFalse(result.path("ok").asBoolean());
+        var details = result.path("result");
+        assertEquals("INVALID_TOOL_ARGUMENT", details.path("classification").asText());
+        assertEquals("RELATIVE_PATH_REQUIRED", details.path("reason").asText());
+        assertTrue(details.path("readNotStarted").asBoolean());
+        assertTrue(details.path("mutationNotStarted").asBoolean());
+        assertFalse(result.toString().contains(path));
+        verifyNoInteractions(commands);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"../outside", "src\\..\\outside", "/etc/passwd", "C:\\outside", "\\\\host\\file",
+            ".env", "src\\.env", ".ssh\\config", "src\\private.key", ".git\\config", "src/CON"})
+    void sensitiveMalformedReadPathsRemainFatalBeforeAnyAccess(String path) {
+        assertThrows(AgentPolicyRejection.class, () -> sandbox.readPathFeedback(path));
+        verifyNoInteractions(commands);
+    }
+
     @Test
     void checkOutputsRedactRecognizableCredentialsWithoutAssignmentContext() {
         String output = "Compilation error at Auth.java:12\nBearer synthetic-bearer-value\nBasic dXNlcjpwYXNz\n"
