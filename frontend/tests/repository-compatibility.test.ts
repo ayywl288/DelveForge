@@ -54,3 +54,19 @@ describe("repository compatibility preparation", () => {
     expect(root.textContent).not.toContain("正在检查");
   });
 });
+
+it("contains extensive resource diagnostics while keeping blockers visible", async () => {
+  const paths = Array.from({ length: 250 }, (_, i) => `resources/archive/${i}/long-name.png`);
+  vi.spyOn(api, "repositoryCompatibility").mockResolvedValue({ ...report("large"), immutablePaths: paths,
+    issues: [{ classification: "REQUIRES_EXPLICIT_USER_DECISION", code: "BLOCKED", action: "需要确认资源用途", path: "target/real.json", blocking: true },
+      ...paths.map(path => ({ classification: "SUPPORTED" as const, code: "RESOURCE", action: "保留资源", path, blocking: false }))] });
+  const root = mount({ assetId: "asset", revision: "large" }); await settle();
+  const details = root.querySelector<HTMLDetailsElement>(".compatibility-details")!;
+  expect(details.open).toBe(false);
+  expect(root.querySelector(".compatibility-blockers")?.textContent).toContain("需要确认资源用途");
+  expect(details.textContent).not.toContain("需要确认资源用途");
+  details.querySelector("summary")!.click();
+  expect(details.open).toBe(true);
+  expect(details.textContent).toContain(paths.at(-1));
+  expect(details.querySelector('[role="region"]')?.getAttribute("tabindex")).toBe("0");
+});

@@ -465,6 +465,17 @@ def read_report(path):
     return path.read_text(encoding='utf-8')
 
 
+def junit_cases(node, ancestors=()):
+    # 同文件的不同 suite 可以有同名测试；身份包含完整 suite 名称，不能只比较叶节点名称。
+    if node.tag == 'testcase':
+        yield node, json.dumps((*ancestors, node.get('name', '')), ensure_ascii=False)
+    else:
+        if node.tag == 'testsuite':
+            ancestors = (*ancestors, node.get('name', ''))
+        for child in node:
+            yield from junit_cases(child, ancestors)
+
+
 def normalize_report(runner, path, cases=None, sandbox=None):
     raw = read_report(path)
     if runner == 'vitest-json':
@@ -503,16 +514,17 @@ def normalize_report(runner, path, cases=None, sandbox=None):
         if root.tag not in ('testsuite', 'testsuites'):
             raise ValueError('Expected JUnit suites')
         # Node 嵌套 suite 的计数包含子 suite；以实际 testcase 计数，避免重复累计。
-        junit_cases = list(root.iter('testcase'))
-        if len(junit_cases) > 100000:
+        entries = list(junit_cases(root))
+        junit_tests = [case for case, _ in entries]
+        if len(junit_tests) > 100000:
             raise ValueError('Test count budget exceeded')
-        failures = sum(case.find('failure') is not None for case in junit_cases)
-        errors = sum(case.find('error') is not None for case in junit_cases)
-        skipped = sum(case.find('skipped') is not None for case in junit_cases)
-        if failures + errors + skipped > len(junit_cases):
+        failures = sum(case.find('failure') is not None for case in junit_tests)
+        errors = sum(case.find('error') is not None for case in junit_tests)
+        skipped = sum(case.find('skipped') is not None for case in junit_tests)
+        if failures + errors + skipped > len(junit_tests):
             raise ValueError('Contradictory JUnit cases')
         if cases is not None:
-            for case in junit_cases:
+            for case, name in entries:
                 source = pathlib.Path(case.get('file', case.get('classname', '')))
                 if not source.is_absolute():
                     source = sandbox.ROOT / source
@@ -522,9 +534,9 @@ def normalize_report(runner, path, cases=None, sandbox=None):
                 outcome = ('ERROR' if case.find('error') is not None else 'FAILED' if problem is not None
                            else 'SKIPPED' if case.find('skipped') is not None else 'PASSED')
                 cases.append(sandbox.test_case(runner + ':' + str(source).removeprefix(str(sandbox.ROOT))
-                             + '#' + case.get('name', ''), outcome,
+                             + '#' + name, outcome,
                              '' if problem is None else (problem.text or ''), source))
-        return dict(tests=len(junit_cases), executedTests=len(junit_cases) - skipped, skipped=skipped,
+        return dict(tests=len(junit_tests), executedTests=len(junit_tests) - skipped, skipped=skipped,
                     failures=failures, errors=errors)
     raise ValueError('Unattested test runner')
 

@@ -16,7 +16,7 @@ function Get-DfDockerExecutable {
 function Get-DfAgentInputs {
     param([string] $Root)
     $context = Join-Path $Root 'backend/delveforge-infrastructure/src/main/resources/agent'
-    foreach ($name in @('Dockerfile', 'sandbox.py', 'frontend.py', 'frontend-report.cjs', 'proxy.py', 'offline-settings.xml')) {
+    foreach ($name in @('Dockerfile', 'sandbox.py', 'frontend.py', 'frontend-report.cjs', 'frontend-node-junit.cjs', 'proxy.py', 'offline-settings.xml')) {
         if (-not (Test-Path -LiteralPath (Join-Path $context $name) -PathType Leaf)) {
             Stop-DfSetup "Agent build input missing: $name. Restore the trusted checkout."
         }
@@ -45,7 +45,7 @@ function Assert-DfAgentImage {
 import hashlib,json,pathlib,subprocess
 p=subprocess.run(['python3','/opt/delveforge/sandbox.py'],input=json.dumps(dict(name='protocol',arguments={})).encode(),stdout=subprocess.PIPE,check=True)
 r=json.loads(p.stdout)
-print(json.dumps({'handshake':r,'pnpm8':subprocess.run(['/opt/pnpm8/bin/pnpm','--version'],stdout=subprocess.PIPE,check=True).stdout.decode().strip(),'hashes':{n:hashlib.sha256(pathlib.Path('/opt/delveforge',n).read_bytes()).hexdigest() for n in ['sandbox.py','frontend.py', 'frontend-report.cjs','proxy.py','offline-settings.xml']},'java':subprocess.run(['java','-version'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=True).stdout.decode(),'tools':{n:subprocess.run([n,'--version'],stdout=subprocess.PIPE,check=True).stdout.decode().strip() for n in ['node','npm','pnpm']}}))
+print(json.dumps({'handshake':r,'pnpm8':subprocess.run(['/opt/pnpm8/bin/pnpm','--version'],stdout=subprocess.PIPE,check=True).stdout.decode().strip(),'hashes':{n:hashlib.sha256(pathlib.Path('/opt/delveforge',n).read_bytes()).hexdigest() for n in ['sandbox.py','frontend.py', 'frontend-report.cjs','frontend-node-junit.cjs','proxy.py','offline-settings.xml']},'java':subprocess.run(['java','-version'],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,check=True).stdout.decode(),'tools':{n:subprocess.run([n,'--version'],stdout=subprocess.PIPE,check=True).stdout.decode().strip() for n in ['node','npm','pnpm']}}))
 '@
     $result = Invoke-DfDocker $Docker @('run', '--rm', '--network=none', '--read-only', '--cap-drop=ALL',
         '--security-opt=no-new-privileges', '--pids-limit=64', '--memory=256m', '--cpus=1',
@@ -60,7 +60,7 @@ print(json.dumps({'handshake':r,'pnpm8':subprocess.run(['/opt/pnpm8/bin/pnpm','-
             $data.tools.node -cne 'v22.16.0' -or $data.tools.npm -cne '10.9.2' -or $data.tools.pnpm -cne '12.9.1' -or $data.pnpm8 -cne '8.15.9') {
         Stop-DfSetup "Agent JDK $Jdk image is incompatible with protocol v8 or the selected JDK. Use a new current image."
     }
-    foreach ($name in @('sandbox.py', 'frontend.py', 'frontend-report.cjs', 'proxy.py', 'offline-settings.xml')) {
+    foreach ($name in @('sandbox.py', 'frontend.py', 'frontend-report.cjs', 'frontend-node-junit.cjs', 'proxy.py', 'offline-settings.xml')) {
         if ($data.hashes.$name -cne (Get-FileHash -LiteralPath (Join-Path $Context $name) -Algorithm SHA256).Hash.ToLowerInvariant()) {
             Stop-DfSetup "Agent JDK $Jdk image has stale tool contents. Build the current context with a new identity."
         }

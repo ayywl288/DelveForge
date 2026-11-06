@@ -180,13 +180,20 @@ public final class CodingAgentService implements AutoCloseable {
             }
             store.event(id, "SANDBOX_READY", identityEvent(identity));
             requireCurrent(task, cancelled);
-            AgentSandboxPort.Preflight preflight = sandbox.preflight(id, cancelled);
+            long preflightStarted = System.nanoTime();
+            recordPreflightProgress(id, new AgentSandboxPort.PreflightProgress(
+                    "PREFLIGHT", "STARTED", "", "", "", 0));
+            AgentSandboxPort.Preflight preflight = sandbox.preflight(id, cancelled,
+                    progress -> recordPreflightProgress(id, progress));
             if (preflight == null) {
                 throw new AgentException("ENVIRONMENT_BLOCKED", "Sandbox did not establish environment readiness");
             }
             String diagnosis = safe(preflight.diagnostic() == null ? "" : preflight.diagnostic());
             store.event(id, "ENVIRONMENT_PREFLIGHT", preflight.outcome() + "\n"
                     + diagnosis.substring(0, Math.min(diagnosis.length(), 22000)));
+            recordPreflightProgress(id, new AgentSandboxPort.PreflightProgress("PREFLIGHT",
+                    preflight.ready() ? "COMPLETED" : "FAILED", "", "", preflight.outcome(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - preflightStarted)));
             if (!preflight.ready()) {
                 throw new AgentException(preflight.outcome(), "Environment preflight blocked before model usage");
             }
@@ -233,11 +240,33 @@ public final class CodingAgentService implements AutoCloseable {
                 store.release(id, retained);
             } catch (RuntimeException cleanup) {
                 // 未证实停止时不释放持久化占用。资源ID足以诊断，不输出自由文本异常。
-                store.event(id, "CLEANUP_BLOCKED", "Owned resources or retained material require reconciliation: " + id);
+                store.event(id, "CLEANUP_BLOCKED", resourceFailure(cleanup));
             } finally {
                 workers.remove(id);
             }
         }
+    }
+
+    private void recordPreflightProgress(String id, AgentSandboxPort.PreflightProgress progress) {
+        try {
+            String directory = safe(progress.directory());
+            var bounded = new AgentSandboxPort.PreflightProgress(progress.stage(), progress.status(),
+                    directory.substring(0, Math.min(directory.length(), 200)), progress.goal(),
+                    progress.classification(), Math.max(0, progress.durationMs()));
+            store.event(id, "PREFLIGHT_PROGRESS", json.writeValueAsString(bounded));
+        } catch (IOException failure) {
+            throw new AgentException("PERSISTENCE_FAILURE", "Cannot record preflight progress", failure);
+        }
+    }
+
+    private String resourceFailure(RuntimeException failure) {
+        // 代码位置与分类足以定位清理阶段，不持久化异常正文中的命令、路径或进程输出。
+        StackTraceElement site = java.util.Arrays.stream(failure.getStackTrace())
+                .filter(frame -> frame.getClassName().startsWith("com.ayywl.delveforge."))
+                .findFirst().orElse(null);
+        return "classification=" + (failure instanceof AgentException classified ? classified.code() : "INTERNAL_FAILURE")
+                + "; operation=" + (site == null ? "unknown" : site.getClassName() + "." + site.getMethodName())
+                + "; line=" + (site == null ? -1 : site.getLineNumber());
     }
 
     private String identityEvent(AgentSandboxPort.Identity identity) {
@@ -793,7 +822,7 @@ public final class CodingAgentService implements AutoCloseable {
                 }
                 store.release(run.id(), retained);
             } catch (RuntimeException failure) {
-                store.event(run.id(), "RECONCILIATION_BLOCKED", "Cannot confirm owned resources stopped: " + run.id());
+                store.event(run.id(), "RECONCILIATION_BLOCKED", resourceFailure(failure));
             }
         }
     }

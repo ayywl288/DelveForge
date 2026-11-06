@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import NavigationIcon, { type NavigationIconName } from "./NavigationIcon.vue";
 import AgentEventDetails from "./AgentEventDetails.vue";
-import { toolNames, type AgentActivity } from "./agentEventPresentation";
+import { preflightProgress, toolNames, type AgentActivity } from "./agentEventPresentation";
 
 defineProps<{ activity: AgentActivity }>();
 const names: Record<string, string> = {
+    RESOURCES_RELEASED: "资源已核对并释放占用", ENVIRONMENT_PREFLIGHT: "环境预检结果已保存",
     CREATED: "运行已预约", PREPARING: "准备 Docker 沙箱", SANDBOX_READY: "隔离沙箱已就绪",
     RUNNING: "开始编码", MODEL_REQUEST: "请求模型", MODEL_COMPLETED: "模型已结束，等待冻结结果",
     MODEL_RESPONSE_RECOVERY: "丢弃截断响应，准备较小动作", MODEL_FAILED: "模型请求失败", COMPLETION_FORMAT_RETRY: "请求模型明确完成状态", TOOL_STARTED: "工具操作已开始", TOOL_FINISHED: "工具操作已返回",
@@ -38,7 +39,7 @@ function duration(value: number) {
         :class="{ 'is-active': activity.active }">
         <span class="timeline-node" aria-hidden="true"><NavigationIcon :name="icon(activity)" /></span>
         <div class="timeline-body">
-            <div class="timeline-heading"><strong>{{ activity.tool ? toolNames[activity.tool] : names[activity.event.kind] ?? '历史运行活动' }}</strong>
+            <div class="timeline-heading"><strong>{{ preflightProgress(activity.event)?.title ?? (activity.tool ? toolNames[activity.tool] : names[activity.event.kind] ?? '历史运行活动') }}</strong>
                 <span v-if="activity.target" class="activity-target">{{ activity.target }}</span>
                 <span v-if="activity.targetWithheld" class="target-note">{{ activity.target ? '部分目标已隐藏' : '目标已隐藏' }}</span>
                 <span v-else-if="activity.tool && !activity.target && !['apply_patch', 'edit_file'].includes(activity.tool)" class="target-note">目标未记录</span>
@@ -51,11 +52,11 @@ function duration(value: number) {
             </div>
             <p v-if="activity.resultUncertain" class="activity-uncertain">未取得完整工具结果，修改情况需核对。</p>
             <AgentEventDetails v-if="activity.tool" :activity="activity" />
-            <details v-else-if="activity.classification || ['SANDBOX_READY', 'MODEL_FAILED'].includes(activity.event.kind)" class="activity-technical">
+            <details v-else-if="activity.classification || ['SANDBOX_READY', 'MODEL_FAILED', 'PREFLIGHT_PROGRESS'].includes(activity.event.kind)" class="activity-technical">
                 <summary>技术详情</summary><code v-if="activity.classification">{{ activity.classification }}</code>
                 <AgentEventDetails :activity="activity" />
             </details>
-            <p v-if="activity.event.kind === 'CLEANUP_BLOCKED'" class="timeline-warning">需核对所属资源与保留材料，完成资源协调后再判断能否重试。</p>
+            <p v-if="activity.event.kind === 'CLEANUP_BLOCKED'" class="timeline-warning">此处记录当时的清理失败；当前是否仍需协调以运行状态提示为准。</p>
         </div>
     </li>
 </template>

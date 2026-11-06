@@ -140,7 +140,7 @@ class CodingAgentServiceTest {
         database.setup();
         eligibility = eligibility("a".repeat(40), temporary.resolve("official"), mock(WorkingCopyInspectionPort.class));
         sandbox = mock(AgentSandboxPort.class);
-        when(sandbox.preflight(anyString(), any())).thenReturn(new AgentSandboxPort.Preflight("READY", "fixture ready"));
+        when(sandbox.preflight(anyString(), any(), any())).thenReturn(new AgentSandboxPort.Preflight("READY", "fixture ready"));
         when(sandbox.identity(anyString())).thenReturn(new AgentSandboxPort.Identity("container", "image", 21,
                 2147483648L, 2000000000L, 256, "none", true));
     }
@@ -148,7 +148,7 @@ class CodingAgentServiceTest {
     @ParameterizedTest
     @ValueSource(strings = {"ENVIRONMENT_BLOCKED", "SECURITY_BLOCKED", "SELECTION_REQUIRED"})
     void blockedPreflightHasZeroActualRequestsAndTokensAndCleansUp(String outcome) throws Exception {
-        when(sandbox.preflight(anyString(), any())).thenReturn(new AgentSandboxPort.Preflight(outcome, "precise fixture diagnosis"));
+        when(sandbox.preflight(anyString(), any(), any())).thenReturn(new AgentSandboxPort.Preflight(outcome, "precise fixture diagnosis"));
         AtomicInteger requests = new AtomicInteger();
         AgentModelPort model = (history, tools) -> {
             requests.incrementAndGet();
@@ -1458,4 +1458,47 @@ class CodingAgentServiceTest {
         assertTrue(database.store.abandoned().isEmpty());
         assertTrue(database.store.events(id, 0, 100).stream().noneMatch(event -> event.kind().equals("CLEANUP_BLOCKED")));
     }
+    @Test
+    void progressPersistsBeforeTheOperationCompletesWithoutAgentUsage() throws Exception {
+        when(sandbox.preflight(anyString(), any(), any())).thenAnswer(invocation -> {
+            String id = invocation.getArgument(0);
+            java.util.function.Consumer<AgentSandboxPort.PreflightProgress> progress = invocation.getArgument(2);
+            progress.accept(new AgentSandboxPort.PreflightProgress("MAVEN_CHECK", "STARTED", "backend", "test", "", 0));
+            assertTrue(database.store.events(id, 0, 100).stream().anyMatch(event ->
+                    event.kind().equals("PREFLIGHT_PROGRESS") && event.summary().contains("MAVEN_CHECK")));
+            assertEquals(0, database.store.get(id).toolCalls());
+            progress.accept(new AgentSandboxPort.PreflightProgress("MAVEN_CHECK", "COMPLETED", "backend", "test",
+                    "DEPENDENCY_MISSING", 23));
+            return new AgentSandboxPort.Preflight("ENVIRONMENT_BLOCKED", "{}");
+        });
+        try (var service = service((history, tools) -> { throw new AssertionError("No model before readiness"); },
+                AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", 21).id();
+            var terminal = awaitTerminal(service, id, 10);
+            assertEquals(0L, terminal.tokens());
+            assertEquals(0, terminal.toolCalls());
+            assertEquals(4, service.events(id, 0, 100).stream()
+                    .filter(event -> event.kind().equals("PREFLIGHT_PROGRESS")).count());
+        }
+    }
+
+    @Test
+    void reconciliationRecordsReleaseOnlyAfterCleanup() {
+        var run = database.run();
+        database.store.reserve(run);
+        database.store.advance(run.id(), AgentRunState.CREATED, AgentRunState.FAILED, "ENVIRONMENT_BLOCKED");
+        doThrow(new AgentException("PROCESS_START_FAILED", "sensitive-diagnostic"))
+                .doNothing().when(sandbox).cleanup(run.id());
+        try (var service = service((history, tools) -> { throw new AssertionError("No model in reconciliation"); },
+                AgentProtocol.Limits.defaults())) {
+            service.reconcile();
+            assertEquals(1, database.store.abandoned().size());
+            assertFalse(service.events(run.id(), 0, 100).toString().contains("sensitive-diagnostic"));
+            assertTrue(service.events(run.id(), 0, 100).stream().noneMatch(event -> event.kind().equals("RESOURCES_RELEASED")));
+            service.reconcile();
+            assertTrue(database.store.abandoned().isEmpty());
+            assertEquals("RESOURCES_RELEASED", service.events(run.id(), 0, 100).getLast().kind());
+        }
+    }
+
 }

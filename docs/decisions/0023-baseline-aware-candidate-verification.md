@@ -35,6 +35,10 @@ status=TESTED/NOT_TESTED 保留既有含义：是否至少有一个当前测试�
 新 Run 的基线已执行测试但清单/运行身份不完整时，预检以 ENVIRONMENT_BLOCKED / EVIDENCE_INCOMPARABLE 停在模型前；冻结也拒绝降级为 v4 接受结果。
 这也可能保守阻塞不能关联测试来源的 Node/JUnit 报告。编译先失败、尚未执行测试的路径仍按 v4 要求修复并完整重验，不能获得历史测试失败豁免。
 
+2026-11-05 实现修正：Node 内置 JUnit 的默认 classname 为 `test`，不能当作源文件。
+受控报告器沿用内置 JUnit，仅从真实测试事件补入 file 到 classname；解析时包含完整 suite 名称，
+区分不同 suite 中的同名测试。仍无来源、重复身份或计数不一致的报告继续拒绝，不放宽比较规则。
+
 ## 完成与交付
 
 模型 completed 仅为请求结束。先只读核对当前检查义务，返回具体缺失工程/新失败/不可比较原因；

@@ -60,6 +60,17 @@ class AgentProcessTest {
                 probe("sleep"), null, null, Duration.ofSeconds(5), 1024, () -> true, Map.of())).code());
     }
 
+    @Test
+    void processStartFailureKeepsSafeOsCodeWithoutCommandArguments() {
+        AgentException failure = assertThrows(AgentException.class, () -> new AgentProcess().run(
+                List.of("delveforge-nonexistent-executable", "sensitive-argument"), null, null,
+                Duration.ofSeconds(1), 1024, () -> false, Map.of()));
+        assertEquals("PROCESS_START_FAILED", failure.code());
+        org.junit.jupiter.api.Assertions.assertTrue(failure.getMessage().matches(
+                "Cannot start controlled-process; osError=(?:[0-9]+|UNKNOWN)"));
+        org.junit.jupiter.api.Assertions.assertFalse(failure.getMessage().contains("sensitive-argument"));
+    }
+
     private List<String> probe(String mode) {
         String executable = System.getProperty("os.name").startsWith("Windows") ? "java.exe" : "java";
         return List.of(Path.of(System.getProperty("java.home"), "bin", executable).toString(), "-cp",

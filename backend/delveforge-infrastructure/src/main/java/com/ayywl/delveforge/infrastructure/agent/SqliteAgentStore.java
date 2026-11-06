@@ -300,6 +300,15 @@ public final class SqliteAgentStore implements AgentStore {
         transaction(connection -> {
             requireOne(update(connection, "UPDATE agent_run SET occupied=0,retained=MAX(retained,?) WHERE id=? "
                     + "AND state IN ('SUCCEEDED','FAILED','CANCELLED','INTERRUPTED')", retainMaterial ? 1 : 0, id));
+            // 保留标志只能升不能降；事件描述持久事实，不能照抄本次调用参数。
+            try (PreparedStatement statement = connection.prepareStatement("SELECT retained FROM agent_run WHERE id=?")) {
+                statement.setString(1, id);
+                try (ResultSet row = statement.executeQuery()) {
+                    row.next();
+                    addEvent(connection, id, "RESOURCES_RELEASED",
+                            row.getInt(1) != 0 ? "STOPPED_MATERIAL_RETAINED" : "CLEANED");
+                }
+            }
             return null;
         });
     }

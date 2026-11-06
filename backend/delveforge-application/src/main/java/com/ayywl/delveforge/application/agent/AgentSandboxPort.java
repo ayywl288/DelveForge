@@ -4,6 +4,7 @@ import com.ayywl.delveforge.domain.agent.Candidate;
 
 import java.util.List;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 
 /** 只接受已确认的 Step 与可信基线，正式副本只有只读快照能力。 */
 public interface AgentSandboxPort {
@@ -51,7 +52,16 @@ public interface AgentSandboxPort {
         }
     }
 
-    Preflight preflight(String runId, BooleanSupplier cancelled);
+    /** 系统进度不计 Agent 工具用量；内容只允许有界身份和分类，不包含子进程输出。 */
+    record PreflightProgress(String stage, String status, String directory, String goal,
+            String classification, long durationMs) {
+    }
+
+    default Preflight preflight(String runId, BooleanSupplier cancelled) {
+        return preflight(runId, cancelled, progress -> { });
+    }
+
+    Preflight preflight(String runId, BooleanSupplier cancelled, Consumer<PreflightProgress> progress);
 
     Identity identity(String runId);
 
