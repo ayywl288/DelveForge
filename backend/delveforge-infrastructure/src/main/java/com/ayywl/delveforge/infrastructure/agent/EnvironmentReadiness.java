@@ -23,6 +23,18 @@ final class EnvironmentReadiness {
     private EnvironmentReadiness() {
     }
 
+    static String reason(JsonNode check) {
+        return switch (check.path("classification").asText()) {
+            case "DEPENDENCY_MISSING" -> "离线依赖未准备完整；核对缺失工件、公开仓库可用性与准备预算";
+            case "JDK_ENVIRONMENT_MISMATCH" -> "项目要求与所选 JDK 不兼容；请核对 Java 版本";
+            case "CHECK_NOT_AVAILABLE", "TEST_EXECUTION_UNVERIFIED" -> "检查脚本或结构化测试证据不可用；尚不能验证该工程";
+            case "TESTS_FAILED" -> ENVIRONMENT.matcher(check.path("output").asText()).find()
+                    ? "失败测试报告了缺失服务或运行条件；请检查外部服务与依赖"
+                    : "失败测试缺少可信执行证据；请核对完整测试报告";
+            default -> "所选检查未能建立可信执行证据；请核对工程配置及受支持的检查方式";
+        };
+    }
+
     static String classify(JsonNode check) {
         String status = check.path("classification").asText();
         String output = check.path("output").asText();

@@ -109,6 +109,7 @@ class SqliteAgentStoreTest {
         assertTrue(new SqliteAgentStore(source).get(run.id()).retained());
         store.release(run.id(), false);
         assertTrue(new SqliteAgentStore(source).get(run.id()).retained());
+        assertEquals("STOPPED_MATERIAL_RETAINED", store.events(run.id(), 0, 100).getLast().summary());
     }
 
     @Test
@@ -200,9 +201,9 @@ class SqliteAgentStoreTest {
         assertEquals(AgentRunState.SUCCEEDED, restarted.get(run.id()).state());
         assertTrue(restarted.abandoned().isEmpty());
         var events = restarted.events(run.id(), 0, 100);
-        assertEquals(List.of("CREATED", "PREPARING", "RUNNING", "FINALIZING", "SUCCEEDED"),
+        assertEquals(List.of("CREATED", "PREPARING", "RUNNING", "FINALIZING", "SUCCEEDED", "RESOURCES_RELEASED"),
                 events.stream().map(AgentProtocol.Event::kind).toList());
-        assertEquals(1, restarted.events(run.id(), events.get(3).sequence(), 100).size());
+        assertEquals(2, restarted.events(run.id(), events.get(3).sequence(), 100).size());
         assertThrows(SQLException.class, () -> sql("UPDATE agent_candidate SET diff='changed'"));
         assertThrows(SQLException.class, () -> sql("DELETE FROM agent_candidate"));
         var process = new AgentProcess().run(List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(),

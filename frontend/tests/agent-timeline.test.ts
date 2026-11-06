@@ -127,7 +127,8 @@ it("keeps ordered readable failure classifications and visible cleanup warnings 
     expect(props.events[1]!.summary).toContain(fullIdentifier);
     const warning = root.querySelector('[data-sequence="12"] .timeline-warning')!;
     expect(warning.closest("details")).toBeNull();
-    expect(warning.textContent).toContain("完成资源协调后再判断能否重试");
+    expect(warning.textContent).toContain("当时的清理失败");
+    expect(warning.textContent).toContain("当前是否仍需协调以运行状态提示为准");
     expect(root.querySelectorAll(".is-active")).toHaveLength(0);
 });
 it("shows actual Maven scope, result, duration once and compact recorded test counts", async () => {
@@ -773,4 +774,34 @@ it("renders accepted plan closure once as a completed ordinary activity", async 
     expect(root.querySelectorAll('[data-sequence="2"]')).toHaveLength(1);
     expect(root.querySelectorAll(".is-active")).toHaveLength(0);
     expect(root.querySelector("pre")).toBeNull();
+});
+
+it("restores persisted preflight milestones without inventing agent calls", async () => {
+    const { root, props } = mount(); props.run.state = "PREPARING";
+    props.events = [fact(1, "SANDBOX_READY"), fact(2, "PREFLIGHT_PROGRESS", JSON.stringify({
+        stage: "MAVEN_CHECK", status: "STARTED", directory: "backend/bookstore", goal: "test", durationMs: 0 }))];
+    await settle();
+    expect(root.querySelector(".current-activity")?.textContent).toContain("后端 Maven 检查");
+    expect(root.querySelector(".current-activity")?.textContent).toContain("backend/bookstore");
+    expect(root.querySelector('[data-kind="run_checks"]')).toBeNull();
+    props.events = [...props.events, fact(3, "PREFLIGHT_PROGRESS", JSON.stringify({ stage: "DEPENDENCY_PREPARATION",
+        status: "COMPLETED", directory: "backend/bookstore", goal: "test", classification: "PREPARATION_FINISHED", durationMs: 1234 }))];
+    await settle();
+    expect(root.textContent).toContain("受控依赖准备");
+    expect(root.textContent).toContain("1,234 ms");
+    expect(root.querySelector(".current-activity")?.textContent).not.toContain("准备 Docker 沙箱");
+    expect(root.querySelector(".current-activity")?.textContent).toContain("后端 Maven 检查 · test · 进行中");
+    props.events = [...props.events, fact(4, "PREFLIGHT_PROGRESS", JSON.stringify({ stage: "MAVEN_CHECK",
+        status: "COMPLETED", directory: "backend/bookstore", goal: "test", classification: "TESTS_PASSED", durationMs: 2000 }))];
+    await settle();
+    expect(root.querySelector(".current-activity")?.textContent).toContain("后端 Maven 检查 · test · 已结束");
+});
+
+it("only a later confirmed release resolves a cleanup warning", async () => {
+    const { resourcesBlocked } = await import("../src/components/agentEventPresentation");
+    const blocked = fact(1, "CLEANUP_BLOCKED");
+    expect(resourcesBlocked([blocked], "one")).toBe(true);
+    expect(resourcesBlocked([blocked, fact(2, "RESOURCES_RELEASED")], "one")).toBe(false);
+    expect(resourcesBlocked([blocked, fact(2, "RESOURCES_RELEASED"), fact(3, "RECONCILIATION_BLOCKED")], "one")).toBe(true);
+    expect(resourcesBlocked([blocked, { ...fact(2, "RESOURCES_RELEASED"), runId: "different" }], "one")).toBe(true);
 });

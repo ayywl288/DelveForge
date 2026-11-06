@@ -40,7 +40,14 @@ final class AgentProcess {
             builder.environment().putAll(additions);
             process = builder.start();
         } catch (IOException failure) {
-            throw new AgentException("ENVIRONMENT_FAILURE", "Cannot start controlled operation", failure);
+            // 只提取 OS 数字错误码；IOException 原文可能包含源码路径、参数或凭据。
+            var error = java.util.regex.Pattern.compile("(?:error|errno)=(\\d{1,8})")
+                    .matcher(String.valueOf(failure.getMessage()));
+            String executable = Path.of(command.getFirst()).getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+            String operation = Set.of("docker", "docker.exe", "git", "git.exe").contains(executable)
+                    ? executable : "controlled-process";
+            throw new AgentException("PROCESS_START_FAILED", "Cannot start " + operation
+                    + "; osError=" + (error.find() ? error.group(1) : "UNKNOWN"), failure);
         }
         ByteArrayOutputStream stdout = new ByteArrayOutputStream();
         ByteArrayOutputStream stderr = new ByteArrayOutputStream();

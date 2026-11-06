@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { RepositoryCompatibility, WorkingCopy } from "../api/types";
 const props = defineProps<{ assetId: string; revision: string; copy?: WorkingCopy | null }>();
 const result = ref<RepositoryCompatibility | null>(null);
 const loading = ref(false);
+const blockingIssues = computed(() => result.value?.issues.filter(issue => issue.blocking) ?? []);
+const detailIssues = computed(() => result.value?.issues.filter(issue => !issue.blocking) ?? []);
 const error = ref("");
 let epoch = 0;
 async function load() {
@@ -36,8 +38,15 @@ onBeforeUnmount(() => { epoch++; });
       <p v-else-if="result.status !== 'BLOCKED'" class="meta">{{ result.files }} 个文件，约 {{ (result.sourceBytes / 1048576).toFixed(1) }} MiB；尚未确定唯一 Maven 入口，实际检查入口与环境将在运行前预检。</p>
       <p v-if="result.generatedPaths.length">准备时自动排除 {{ result.generatedPaths.length }} 个已确认的 Maven 生成物，原仓库保持不变。</p>
       <p v-if="result.immutablePaths.length" class="meta">{{ result.immutablePaths.length }} 个资源或受保护文件仅保留原样，不作为可编辑源码。</p>
-      <details v-if="result.generatedPaths.length"><summary>自动准备明细</summary><ul><li v-for="path in result.generatedPaths" :key="path"><code>{{ path }}</code></li></ul></details>
-      <ul v-if="result.issues.length"><li v-for="(issue, index) in result.issues" :key="index">{{ issue.action }} <code v-if="issue.path">{{ issue.path }}</code></li></ul>
+      <ul v-if="blockingIssues.length" class="compatibility-blockers" aria-label="阻塞准备的问题"><li v-for="(issue, index) in blockingIssues" :key="index">{{ issue.action }} <code v-if="issue.path">{{ issue.path }}</code></li></ul>
+      <details v-if="detailIssues.length || result.generatedPaths.length || result.immutablePaths.length" class="compatibility-details">
+        <summary>查看路径与准备明细</summary>
+        <div class="compatibility-detail-scroll" tabindex="0" role="region" aria-label="完整仓库准备明细">
+          <ul v-if="detailIssues.length"><li v-for="(issue, index) in detailIssues" :key="index">{{ issue.action }} <code v-if="issue.path">{{ issue.path }}</code></li></ul>
+          <template v-if="result.generatedPaths.length"><h4>自动排除的生成物</h4><ul><li v-for="path in result.generatedPaths" :key="path"><code>{{ path }}</code></li></ul></template>
+          <template v-if="result.immutablePaths.length"><h4>原样保留的资源</h4><ul><li v-for="path in result.immutablePaths" :key="path"><code>{{ path }}</code></li></ul></template>
+        </div>
+      </details>
       <p class="meta">这是固定版本的安全准入与副本准备诊断，不证明检查环境就绪。首次 Coding Agent 模型调用前还会实际预检；准备不会启动 AI 或授权 Step。</p>
     </template>
     <p v-if="copy" class="meta">原始版本：<code>{{ copy.sourceRevision.slice(0, 12) }}</code>；准备版本：<code>{{ (copy.preparedRevision ?? copy.sourceRevision).slice(0, 12) }}</code>。</p>

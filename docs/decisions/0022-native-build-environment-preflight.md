@@ -17,6 +17,8 @@ Git/SQLite Delivery 和已知失败重验规则继续有效。预检不赋予软
 生成物仍仅逐项证明后在独立副本准备；maven-generated-v1 继续表示这一准备政策，不表示构建就绪。
 
 Application 在既有 PREPARING 阶段调用 AgentSandboxPort.preflight，然后才进入模型循环。
+预检通过既有 Run 事件持久化 PREFLIGHT_PROGRESS：整体预检、后端/前端检查和依赖准备的开始、结束、
+失败及耗时。它们不计为 Agent 模型或工具调用；事件重读可恢复当前阶段，不新增监控系统或领域状态。
 READY、READY_BASELINE_FAILURE 可进入循环；ENVIRONMENT_BLOCKED、SECURITY_BLOCKED、SELECTION_REQUIRED 停止。
 新 Run 初始 tokens 为已知的 0；真正发出模型请求时恢复未知用量语义，收到 usage 后按既有规则累计。
 不回填旧 Run 的用量，不新增领域状态、数据库迁移、Port 接口、工具或 Aggregate。

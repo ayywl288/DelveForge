@@ -16,7 +16,7 @@ COPY --from=node /opt/pnpm8 /opt/pnpm8
 RUN ln -s /opt/pnpm/pnpm /usr/local/bin/pnpm \
     && ln -s /opt/npm/bin/npm-cli.js /usr/local/bin/npm \
     && node --version && pnpm --version && npm --version
-COPY sandbox.py frontend.py frontend-report.cjs proxy.py /opt/delveforge/
+COPY sandbox.py frontend.py frontend-report.cjs frontend-node-junit.cjs proxy.py /opt/delveforge/
 COPY offline-settings.xml /opt/delveforge/
 RUN chmod -R a-w /opt/delveforge
 ENV HOME=/home/agent MAVEN_CONFIG=/home/agent/.m2 LANG=C.UTF-8

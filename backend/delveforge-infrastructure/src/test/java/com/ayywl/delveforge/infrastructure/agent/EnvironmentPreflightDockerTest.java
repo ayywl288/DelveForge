@@ -77,7 +77,10 @@ class EnvironmentPreflightDockerTest {
 
     private Fixture fixture(String mode) throws Exception {
         Path original = Files.createDirectories(temporary.resolve("original"));
-        if (mode.equals("maven-broken") || mode.equals("multiple")) {
+        if (mode.startsWith("fullstack")) {
+            javaProject(mode.equals("fullstack-root") ? original : original.resolve("backend/service"), false);
+            frontend(original.resolve("frontend"));
+        } else if (mode.equals("maven-broken") || mode.equals("multiple")) {
             javaProject(original.resolve("server"), mode.equals("maven-broken"));
             if (mode.equals("multiple")) {
                 Files.createDirectories(original.resolve("unrelated"));
@@ -162,8 +165,9 @@ class EnvironmentPreflightDockerTest {
         ObjectNode evidence = json.createObjectNode().put("scenario", scenario).put("baseline", fixture.baseline())
                 .put("runState", run.state().name()).put("reason", run.reason()).put("modelCalls", run.modelCalls());
         evidence.set("tokens", json.valueToTree(run.tokens()));
-        evidence.set("events", json.valueToTree(events.stream().filter(event -> event.kind().equals("ENVIRONMENT_PREFLIGHT")
-                || event.kind().equals("MODEL_REQUEST")).map(event -> Map.of(
+        evidence.set("events", json.valueToTree(events.stream().filter(event -> java.util.Set.of(
+                "ENVIRONMENT_PREFLIGHT", "PREFLIGHT_PROGRESS", "MODEL_REQUEST", "COMPLETION_CHECK_REJECTED",
+                "RESOURCES_RELEASED", "DELIVERY_COMPLETED").contains(event.kind())).map(event -> Map.of(
                         "sequence", event.sequence(), "kind", event.kind(), "summary", event.summary())).toList()));
         Path directory = Files.createDirectories(Path.of("target/preflight-evidence"));
         Files.writeString(directory.resolve(scenario + "-" + id + ".json"), evidence.toPrettyString());
@@ -240,16 +244,26 @@ class EnvironmentPreflightDockerTest {
     }
 
     @Test
-    void dependencyEditRepreparesAndFreezesANewResolutionWithoutWritingSourceLocks() throws Exception {
+    void dependencyEditRepreparesButChangedEnvironmentCannotFreezeAgainstOldBaseline() throws Exception {
         Fixture fixture = fixture("lockless");
         AtomicInteger requests = new AtomicInteger();
         var baselineResolution = new java.util.concurrent.atomic.AtomicReference<String>();
+        var preparedBuild = new java.util.concurrent.atomic.AtomicReference<String>();
+        var preparedTests = new java.util.concurrent.atomic.AtomicReference<String>();
         List<AgentProtocol.ToolCall> actions = List.of(
                 new AgentProtocol.ToolCall("edit-dependency", "edit_file", json.writeValueAsString(Map.of(
                         "path", "package.json", "old_text", "\"vue\": \"3.5.17\"",
                         "new_text", "\"vue\": \"3.5.17\", \"is-number\": \"7.0.0\""))),
-                new AgentProtocol.ToolCall("check-dependency", "run_frontend_checks", "{\"goal\":\"build\"}"));
+                new AgentProtocol.ToolCall("check-dependency", "run_frontend_checks", "{\"goal\":\"build\"}"),
+                new AgentProtocol.ToolCall("test-dependency", "run_frontend_checks", "{\"goal\":\"test\"}"));
         try (var service = agent(fixture, (history, tools) -> {
+            for (var message : history) {
+                if ("check-dependency".equals(message.callId())) {
+                    preparedBuild.set(message.text());
+                } else if ("test-dependency".equals(message.callId())) {
+                    preparedTests.set(message.text());
+                }
+            }
             if (baselineResolution.get() == null) {
                 for (var message : history) {
                     var matcher = java.util.regex.Pattern.compile("\\\"resolutionSha256\\\":\\\"([a-f0-9]{64})\\\"")
@@ -261,14 +275,22 @@ class EnvironmentPreflightDockerTest {
                 }
             }
             int index = requests.getAndIncrement();
-            return index < actions.size() ? new AgentProtocol.Reply("", List.of(actions.get(index)), 1L)
-                    : new AgentProtocol.Reply("{\"status\":\"completed\",\"summary\":\"Dependency probe fixture\"}", List.of(), 1L);
+            if (index < actions.size()) {
+                return new AgentProtocol.Reply("", List.of(actions.get(index)), 1L);
+            }
+            return index == actions.size()
+                    ? new AgentProtocol.Reply("{\"status\":\"completed\",\"summary\":\"Dependency probe fixture\"}", List.of(), 1L)
+                    : new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"Changed environment requires a new comparison contract\"}", List.of(), 1L);
         })) {
             var run = service.start("plan", "step", 21);
             var terminal = CodingAgentServiceTest.awaitTerminal(service, run.id(), 1200);
-            assertEquals(AgentRunState.SUCCEEDED, terminal.state(), record(fixture, run.id(), "dependency-edit"));
-            var candidate = fixture.database().store.candidate(terminal.candidateId());
-            var check = json.readTree(candidate.testEvidence()).path("checks").get(0);
+            assertEquals(AgentRunState.FAILED, terminal.state(), record(fixture, run.id(), "dependency-edit"));
+            org.junit.jupiter.api.Assertions.assertNull(terminal.candidateId());
+            assertTrue(service.events(run.id(), 0, 100).stream().anyMatch(event ->
+                    event.kind().equals("COMPLETION_CHECK_REJECTED") && event.summary().contains("EVIDENCE_INCOMPARABLE")));
+            var check = json.readTree(preparedBuild.get()).path("result");
+            assertEquals("BUILD_PASSED_NOT_TESTED", check.path("classification").asText());
+            assertEquals("TESTS_PASSED", json.readTree(preparedTests.get()).path("result").path("classification").asText());
             assertEquals("RUN_FROZEN_RESOLUTION", check.path("reproducibility").asText());
             assertTrue(check.path("resolutionSha256").asText().matches("[a-f0-9]{64}"));
             org.junit.jupiter.api.Assertions.assertNotEquals(baselineResolution.get(), check.path("resolutionSha256").asText());
@@ -328,4 +350,62 @@ class EnvironmentPreflightDockerTest {
             immutable(fixture);
         }
     }
+    @ParameterizedTest
+    @ValueSource(strings = {"fullstack-root", "fullstack-nested"})
+    void authorizedFullstackStepReachesAutomaticDeliveryThroughRealBoundaries(String mode) throws Exception {
+        Fixture fixture = fixture(mode);
+        fixture.database().sql("INSERT INTO product_direction(id,user_profile_id,user_profile_revision,title,problem,target_product,"
+                + "user_fit,differentiation,technical_value,estimated_complexity,status,flow_id) VALUES"
+                + "('direction','user',1,'Counter','problem','target','fit','difference','value','small','SELECTED','standalone')");
+        String directory = mode.equals("fullstack-root") ? "." : "backend/service";
+        String prefix = directory.equals(".") ? "" : directory + "/";
+        List<AgentProtocol.ToolCall> actions = List.of(
+                new AgentProtocol.ToolCall("edit-counter", "edit_file", json.writeValueAsString(Map.of(
+                        "path", prefix + "src/main/java/example/Counter.java", "old_text", "value + 1", "new_text", "value + 2"))),
+                new AgentProtocol.ToolCall("edit-test", "edit_file", json.writeValueAsString(Map.of(
+                        "path", prefix + "src/test/java/example/CounterTest.java", "old_text", "assertEquals(2,", "new_text", "assertEquals(3,"))),
+                new AgentProtocol.ToolCall("backend", "run_checks", json.writeValueAsString(Map.of("directory", directory, "goal", "test"))),
+                new AgentProtocol.ToolCall("frontend-build", "run_frontend_checks", "{\"directory\":\"frontend\",\"goal\":\"build\"}"),
+                new AgentProtocol.ToolCall("frontend-test", "run_frontend_checks", "{\"directory\":\"frontend\",\"goal\":\"test\"}"));
+        AtomicInteger requests = new AtomicInteger();
+        var deliveryStore = new SqliteDeliveryStore(fixture.database().source, fixture.eligibility());
+        try (var service = agent(fixture, (history, tools) -> {
+            int turn = requests.getAndIncrement();
+            if (turn > actions.size()) {
+                throw new AssertionError("Deterministic lifecycle unexpectedly requested another turn");
+            }
+            return turn < actions.size() ? new AgentProtocol.Reply("", List.of(actions.get(turn)), 1L)
+                    : new AgentProtocol.Reply("{\"status\":\"completed\",\"summary\":\"Increment by two\"}", List.of(), 1L);
+        }); var delivery = new com.ayywl.delveforge.application.agent.CandidateDeliveryService(
+                fixture.database().store, deliveryStore, fixture.workspace(), fixture.eligibility())) {
+            delivery.start();
+            String id = service.start("plan", "step", 21).id();
+            var terminal = CodingAgentServiceTest.awaitTerminal(service, id, 1200);
+            assertEquals(AgentRunState.SUCCEEDED, terminal.state(), record(fixture, id, mode));
+            awaitReleased(fixture);
+            long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(45);
+            while (service.events(id, 0, 200).stream().noneMatch(event -> event.kind().equals("DELIVERY_COMPLETED"))
+                    && System.nanoTime() < deadline) {
+                Thread.sleep(100);
+            }
+            assertEquals(com.ayywl.delveforge.application.agent.Delivery.State.COMPLETED,
+                    deliveryStore.get(terminal.candidateId()).state());
+            var candidate = fixture.database().store.candidate(terminal.candidateId());
+            assertEquals(candidate.expectedTree(), git.git(fixture.official(), "rev-parse", "HEAD^{tree}"));
+            assertEquals(fixture.baseline(), git.git(fixture.official(), "rev-parse", "HEAD^"));
+            assertEquals(fixture.baseline(), git.git(fixture.original(), "rev-parse", "HEAD"));
+            assertEquals("", git.git(fixture.original(), "status", "--porcelain"));
+            assertEquals("", git.git(fixture.official(), "status", "--porcelain"));
+            var events = service.events(id, 0, 200);
+            long firstModel = events.stream().filter(event -> event.kind().equals("MODEL_REQUEST"))
+                    .findFirst().orElseThrow().sequence();
+            assertTrue(events.stream().anyMatch(event -> event.kind().equals("PREFLIGHT_PROGRESS")
+                    && event.summary().contains("MAVEN_CHECK") && event.sequence() < firstModel));
+            assertTrue(events.stream().anyMatch(event -> event.kind().equals("PREFLIGHT_PROGRESS")
+                    && event.summary().contains("FRONTEND_CHECK") && event.sequence() < firstModel));
+            assertTrue(events.stream().anyMatch(event -> event.kind().equals("DELIVERY_COMPLETED")));
+            record(fixture, id, mode);
+        }
+    }
+
 }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { resourcesBlocked } from "../components/agentEventPresentation";
 import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentCandidate, AgentEvent, AgentRun, Delivery } from "../api/agentTypes";
@@ -54,7 +55,7 @@ const jdk = ref("");
 const checkDirectories = ref("");
 const preflightDescriptions: Record<string, string> = {
   READY: "所选工程的检查路径已实际执行。",
-  READY_BASELINE_FAILURE: "检查路径可执行；基线源码或测试有失败，仍须修复并重验。",
+  READY_BASELINE_FAILURE: "检查路径可执行；已有失败须在最终完整检查中修复或证明为可比较的历史债务。",
   ENVIRONMENT_BLOCKED: "检查环境尚未就绪，本次未调用模型。",
   SECURITY_BLOCKED: "源码或沙箱边界未获确认，本次未调用模型。",
   SELECTION_REQUIRED: "多个工程需要明确选择，本次未调用模型。",
@@ -70,7 +71,7 @@ const preflight = computed(() => {
     const directories: string[] = Array.isArray(data.availableDirectories) ? data.availableDirectories
       .filter((value: unknown): value is string => typeof value === "string" && value.length <= 512).slice(0, 148) : [];
     const probes = Array.isArray(data.probes) ? data.probes.slice(0, 32).filter((value: unknown) => value && typeof value === "object") : [];
-    return { outcome, directories, probes, reason: typeof data.diagnostic === "string" ? data.diagnostic.slice(0, 1200)
+    return { outcome, directories, probes, operation: data.directory && data.goal ? `${data.directory} · ${data.goal}` : "", reason: typeof data.diagnostic === "string" ? data.diagnostic.slice(0, 1200)
       : typeof data.reason === "string" ? data.reason.slice(0, 1200) : "" };
   } catch { return null; }
 });
@@ -89,8 +90,7 @@ const stopAccepted = ref(new Set<string>());
 const stopError = ref("");
 const stopPending = computed(() => !!activeRun.value && stopping.value.has(activeRun.value.id));
 const stopConfirmed = computed(() => !!activeRun.value && (activeRun.value.cancelRequested || stopAccepted.value.has(activeRun.value.id)));
-const resourceBlocked = computed(() => events.value.some(event =>
-  ["CLEANUP_BLOCKED", "RECONCILIATION_BLOCKED"].includes(event.kind)));
+const resourceBlocked = computed(() => resourcesBlocked(events.value, run.value?.id));
 const dockerPreparationFailed = computed(() => run.value?.state === "FAILED" && run.value.reason === "DOCKER_FAILURE"
   && run.value.modelCalls === 0 && run.value.toolCalls === 0
   && !events.value.some(event => ["SANDBOX_READY", "RUNNING"].includes(event.kind)));
@@ -417,8 +417,11 @@ onUnmounted(deactivate);
           <p v-if="preflight.directories.length" class="meta">可选检查入口：<template v-for="(directory, index) in preflight.directories" :key="directory"><span v-if="index">、</span><code>{{ directory }}</code></template></p>
           <ul v-if="preflight.probes.length"><li v-for="(probe, index) in preflight.probes" :key="index">
             {{ probe.directory }} · {{ probe.goal }}：{{ probe.readiness === 'NOT_DECLARED' ? '未声明此项检查' : verificationLabel(probe.classification) }}
+            <p v-if="probe.readinessReason" class="meta">{{ probe.readinessReason }}</p>
+            <p v-if="probe.missingArtifacts?.length" class="meta">缺失工件：{{ probe.missingArtifacts.join("、") }}</p>
             <details v-if="probe.output"><summary>检查诊断</summary><pre>{{ probe.output }}</pre></details>
           </li></ul>
+          <p v-if="preflight.operation" class="meta">最后检查：{{ preflight.operation }}</p>
           <p v-if="preflight.reason" class="meta">{{ preflight.reason }}</p>
           <p class="meta">基线预检不代表最终修改通过检查。需要选择时，在运行配置中填写本步骤相关的目录。</p>
         </section>

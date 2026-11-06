@@ -652,14 +652,16 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void engineUnavailableIsAnEnvironmentFailure() {
+    void missingDockerExecutableReportsSafeStartFailure() {
         var configuration = new AgentSandboxProperties(temporary.resolve("runs"), "no-such-docker-for-task1",
                 Map.of(21, "unused"), 21, "delveforge-task1-tests", "delveforge-task1-test-cache", "2g", "2", 256);
         DockerAgentSandbox sandbox = new DockerAgentSandbox(configuration, new DeterministicRepositorySecretPolicy());
         var error = assertThrows(AgentException.class, () -> sandbox.prepare(new AgentSandboxPort.Task(
                 UUID.randomUUID().toString(), "p", "s", "w", temporary.toString(), "original",
                 "a".repeat(40), "goal", "scope", "changes", null), AgentProtocol.Limits.defaults(), () -> false));
-        assertEquals("ENVIRONMENT_FAILURE", error.code());
+        assertEquals("PROCESS_START_FAILED", error.code());
+        assertTrue(error.getMessage().contains("osError="));
+        assertFalse(error.getMessage().contains("no-such-docker-for-task1"));
     }
 
     @Test
@@ -957,4 +959,24 @@ class DockerAgentSandboxTest {
             sandbox.cleanup(id);
         }
     }
+    @Test
+    void cleanupRejectsSameOwnerWithAnotherRunLabel() {
+        String runId = UUID.randomUUID().toString();
+        String resource = "df-" + runId + "-agent";
+        String otherRun = UUID.randomUUID().toString();
+        process.run(List.of("docker", "create", "--name", resource,
+                "--label", "delveforge.owner=delveforge-compatibility-tests", "--label", "delveforge.run=" + otherRun,
+                "--network", "none", properties(temporary.resolve("ownership")).images().get(21)), null, null,
+                Duration.ofSeconds(30), 8192, () -> false, Map.of());
+        var sandbox = new DockerAgentSandbox(properties(temporary.resolve("ownership")), new DeterministicRepositorySecretPolicy());
+        try {
+            assertEquals("RESOURCE_OWNERSHIP", assertThrows(AgentException.class, () -> sandbox.cleanup(runId)).code());
+            assertEquals(0, process.run(List.of("docker", "inspect", resource), null, null, Duration.ofSeconds(10),
+                    65536, () -> false, Map.of()).exitCode());
+        } finally {
+            // 仅销毁本测试刚创建并持有精确身份的合成资源。
+            process.run(List.of("docker", "rm", resource), null, null, Duration.ofSeconds(10), 8192, () -> false, Map.of());
+        }
+    }
+
 }

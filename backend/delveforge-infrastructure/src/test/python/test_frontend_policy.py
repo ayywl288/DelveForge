@@ -294,9 +294,11 @@ class FrontendPolicyTest(unittest.TestCase):
                 (self.project / 'source.ts').write_text('mutated')
             if report is not None:
                 report = dict(report)
-                report.setdefault('testResults', [{'assertionResults': (
-                    [{'status': 'passed'}] * max(0, report.get('numPassedTests', 0))
-                    + [{'status': 'failed'}] * max(0, report.get('numFailedTests', 0)))}])
+                statuses = (['passed'] * max(0, report.get('numPassedTests', 0))
+                            + ['failed'] * max(0, report.get('numFailedTests', 0)))
+                report.setdefault('testResults', [{'name': str(self.project / 'source.ts'),
+                    'assertionResults': [{'status': status, 'fullName': 'case-' + str(index)}
+                                         for index, status in enumerate(statuses)]}])
                 (self.project / '.df-check/vitest.json').write_text(json.dumps(report))
                 (self.project / '.df-check/test.receipt').write_text(json.dumps(
                     {'runner': 'vitest-json', 'report': 'vitest.json', 'exitCode': code}))
@@ -390,11 +392,11 @@ class FrontendPolicyTest(unittest.TestCase):
         for manager in ('npm', 'pnpm'):
             with self.subTest(manager=manager):
                 self.reset_outputs()
-                self.project_metadata(manager)
-                binary = self.deps / 'node_modules/.bin/vite'
-                binary.write_text('#!' + sys.executable + '\nfrom pathlib import Path\n'
-                                  + 'Path("source.ts").write_text("unexpected source mutation")\n')
-                binary.chmod(0o755)
+                manifest = self.project_metadata(manager)
+                manifest['scripts']['build'] = 'node mutate.cjs'
+                (self.project / 'package.json').write_text(json.dumps(manifest))
+                (self.project / 'mutate.cjs').write_text(
+                    "require('node:fs').writeFileSync('source.ts','unexpected source mutation');\n")
                 before = sandbox.snapshot()['snapshot']
                 with self.assertRaises(sandbox.PolicyError) as rejected:
                     frontend.check(sandbox, {'goal': 'build'})
@@ -433,6 +435,7 @@ class FrontendPolicyTest(unittest.TestCase):
                 self.assertEqual(2, failed['executedTests'])
                 self.assertEqual(1, failed['failures'])
                 self.assertEqual(1, failed['skipped'])
+                self.assertTrue(failed['testManifest']['complete'], failed['testManifest'])
                 target.write_text(target.read_text().replace('assert.equal(1,2)', 'assert.equal(2,2)'))
                 import shutil
                 shutil.rmtree(self.project / 'node_modules')
@@ -441,7 +444,20 @@ class FrontendPolicyTest(unittest.TestCase):
                 passed = frontend.check(sandbox, {'goal': 'test'})
                 self.assertEqual('TESTS_PASSED', passed['classification'], passed)
                 self.assertEqual(2, passed['executedTests'])
+                self.assertTrue(passed['testManifest']['complete'], passed['testManifest'])
                 self.assertNotEqual(failed['snapshot'], passed['snapshot'])
+
+    def test_node_junit_same_leaf_names_have_distinct_stable_suite_identities(self):
+        report = self.project / 'report.xml'
+        report.write_text('<testsuites><testsuite name="one"><testcase classname="frontend/source.ts" '
+                          'name="same"/></testsuite><testsuite name="two"><testcase '
+                          'classname="frontend/source.ts" name="same"/></testsuite></testsuites>')
+        cases = []
+        counts = frontend.normalize_report('node-junit', report, cases, sandbox)
+        self.assertTrue(sandbox.test_manifest(cases, counts)['complete'])
+        repeated = []
+        frontend.normalize_report('node-junit', report, repeated, sandbox)
+        self.assertEqual(cases, repeated)
 
     def test_missing_forged_or_malformed_report_never_becomes_pass(self):
         for report, expected in ((None, 'TEST_EXECUTION_UNVERIFIED'),

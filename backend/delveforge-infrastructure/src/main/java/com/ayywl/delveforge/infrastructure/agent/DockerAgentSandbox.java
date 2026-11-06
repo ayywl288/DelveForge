@@ -43,6 +43,8 @@ import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /** Docker 只运输副本；正式 WorkingCopy 没有任何容器挂载或写入命令。 */
 public final class DockerAgentSandbox implements AgentSandboxPort {
@@ -69,6 +71,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         List<String> mavenRoots = List.of();
         String image;
         int jdk;
+        Consumer<PreflightProgress> progress = progress -> { };
         String lastPreparation;
         String mavenDependencyKey;
         // 只有联网准备写入，检查容器只读挂载；依赖元数据变化即销毁并重建。
@@ -490,7 +493,10 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     private void requireOwner(String kind, String name) {
         JsonNode resource = inspect(kind, name);
         JsonNode labels = kind.equals("container") ? resource.path("Config").path("Labels") : resource.path("Labels");
-        if (!properties.owner().equals(labels.path("delveforge.owner").asText())) {
+        String expectedRun = kind.equals("volume") && name.equals(properties.cacheVolume())
+                ? "shared-cache" : name.substring(3, 39);
+        if (!properties.owner().equals(labels.path("delveforge.owner").asText())
+                || !expectedRun.equals(labels.path("delveforge.run").asText())) {
             throw new AgentException("RESOURCE_OWNERSHIP", "Refusing to operate on an unowned Docker resource");
         }
     }
@@ -624,9 +630,15 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 session.frontendDependencyKey = null;
                 removeVolume(name(id, "frontend-prepare-source"));
                 ensureVolume(name(id, "frontend-prepare-source"), id);
-                String network = dependencyNetwork(session, cancelled, true);
-                response = frontendContainer(session, "frontend-prepare", network,
-                        "prepare_frontend_dependencies", selectedArguments, maxBytes, cancelled);
+                response = preflightOperation(session, "DEPENDENCY_PREPARATION", selectedArguments, () -> {
+                    String network = dependencyNetwork(session, cancelled, true);
+                    try {
+                        return frontendContainer(session, "frontend-prepare", network,
+                                "prepare_frontend_dependencies", selectedArguments, maxBytes, cancelled);
+                    } catch (IOException failure) {
+                        throw new AgentException("TOOL_PROTOCOL", "Cannot encode dependency request", failure);
+                    }
+                });
                 removeContainer(name(id, "frontend-prepare"));
                 stopContainer(name(id, "frontend-proxy"));
                 if (response.path("result").path("classification").asText().equals("DEPENDENCIES_PREPARED")) {
@@ -1183,12 +1195,20 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             fetched.addAll(missing);
             ObjectNode request = json.createObjectNode();
             request.set("artifacts", json.valueToTree(missing.stream().sorted().toList()));
-            prepareDependencies(session, request, cancelled);
+            preflightOperation(session, "DEPENDENCY_PREPARATION", arguments, () -> {
+                prepareDependencies(session, request, cancelled);
+                return json.createObjectNode().set("result", json.createObjectNode()
+                        .put("classification", "PREPARATION_FINISHED"));
+            });
             response = invoke(session, "run_checks", arguments, cancelled);
         }
         if (!response.path("result").path("classification").asText().equals("DEPENDENCY_MISSING")) {
             session.mavenDependencyKey = key;
         } else if (response.path("result") instanceof ObjectNode check) {
+            check.put("readinessReason", "受控离线 Maven 依赖仍不完整；请核对缺失工件与依赖准备预算，尚未执行测试");
+            check.set("missingArtifacts", json.valueToTree(missingMavenArtifacts(check.path("output").asText())
+                    .stream().sorted().limit(32).toList()));
+            check.put("fetchedArtifactCount", fetched.size());
             check.put("preparationDiagnostic", session.lastPreparation == null
                     ? "No bounded missing artifact identities could be established" : session.lastPreparation);
         }
@@ -1367,8 +1387,17 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     }
 
     @Override
-    public Preflight preflight(String runId, BooleanSupplier cancelled) {
+    public Preflight preflight(String runId, BooleanSupplier cancelled, Consumer<PreflightProgress> progress) {
         Session session = requireSession(runId);
+        session.progress = progress;
+        try {
+            return preflight(session, cancelled);
+        } finally {
+            session.progress = ignored -> { };
+        }
+    }
+
+    private Preflight preflight(Session session, BooleanSupplier cancelled) {
         JsonNode declared = invoke(session, "describe_checks", json.createObjectNode(), cancelled);
         requireToolSuccess(declared);
         JsonNode capabilities = declared.path("result");
@@ -1398,7 +1427,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             for (String directory : selected) {
                 if (session.mavenRoots.contains(directory)) {
                     ObjectNode args = json.createObjectNode().put("directory", directory).put("goal", "test");
-                    JsonNode response = mavenChecks(session, args, cancelled);
+                    diagnosis.put("directory", directory).put("goal", "test").put("checkType", "MAVEN");
+                    JsonNode response = preflightOperation(session, "MAVEN_CHECK", args,
+                            () -> mavenChecks(session, args, cancelled));
                     rejectPolicy(response, AgentPolicyRejection.Stage.TOOL_EXECUTION);
                     requireToolSuccess(response);
                     JsonNode result = response.path("result");
@@ -1425,7 +1456,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                             continue;
                         }
                         ObjectNode args = json.createObjectNode().put("directory", directory).put("goal", goal);
-                        JsonNode response = invoke(session, "run_frontend_checks", args, cancelled);
+                        diagnosis.put("directory", directory).put("goal", goal).put("checkType", "FRONTEND");
+                        JsonNode response = preflightOperation(session, "FRONTEND_CHECK", args,
+                                () -> invoke(session, "run_frontend_checks", args, cancelled));
                         rejectPolicy(response, AgentPolicyRejection.Stage.TOOL_EXECUTION);
                         requireToolSuccess(response);
                         JsonNode result = response.path("result");
@@ -1448,7 +1481,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 }
             }
         } catch (AgentException failure) {
-            if (cancelled.getAsBoolean()) {
+            if (cancelled.getAsBoolean() || failure.code().equals("CANCELLED")) {
                 throw failure;
             }
             diagnosis.put("reason", failure.code()).put("diagnostic", sanitize(failure.getMessage()));
@@ -1465,6 +1498,25 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             return preflightResult("ENVIRONMENT_BLOCKED", diagnosis);
         }
         return preflightResult(baselineFailure ? "READY_BASELINE_FAILURE" : "READY", diagnosis);
+    }
+
+    private JsonNode preflightOperation(Session session, String stage, JsonNode arguments, Supplier<JsonNode> operation) {
+        String directory = sanitize(arguments.path("directory").asText("."));
+        directory = directory.substring(0, Math.min(directory.length(), 200));
+        String goal = arguments.path("goal").asText();
+        long started = System.nanoTime();
+        session.progress.accept(new PreflightProgress(stage, "STARTED", directory, goal, "", 0));
+        try {
+            JsonNode response = operation.get();
+            String classification = response.path("result").path("classification").asText("UNKNOWN");
+            session.progress.accept(new PreflightProgress(stage, "COMPLETED", directory, goal, classification,
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)));
+            return response;
+        } catch (AgentException failure) {
+            session.progress.accept(new PreflightProgress(stage, "FAILED", directory, goal, failure.code(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)));
+            throw failure;
+        }
     }
 
     private boolean hasExecutedBaselineTests(Session session) {
@@ -1497,7 +1549,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         ObjectNode probe = json.createObjectNode().put("readiness", readiness);
         for (String field : List.of("checkType", "directory", "goal", "classification", "observedPhase", "runner",
                 "unprovenCapabilities", "executedTests", "failures", "errors", "reports", "snapshot",
-                "reproducibility", "resolutionSha256", "packageManagerVersion")) {
+                "reproducibility", "resolutionSha256", "packageManagerVersion", "missingArtifacts", "fetchedArtifactCount")) {
             if (check.has(field)) {
                 JsonNode value = check.path(field);
                 if (value.isTextual()) {
@@ -1511,7 +1563,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             String output = check.path("output").asText();
             probe.put("output", output.substring(Math.max(0, output.length() - 600)));
             if (readiness.equals("ENVIRONMENT_BLOCKED")) {
-                probe.put("readinessReason", "Required pathway is unproven; missing environment or source failure cannot safely be distinguished");
+                probe.put("readinessReason", check.path("readinessReason").asText(EnvironmentReadiness.reason(check)));
                 String preparation = check.path("preparationDiagnostic").asText();
                 if (!preparation.isEmpty()) {
                     probe.put("preparationDiagnostic", preparation.substring(Math.max(0, preparation.length() - 500)));

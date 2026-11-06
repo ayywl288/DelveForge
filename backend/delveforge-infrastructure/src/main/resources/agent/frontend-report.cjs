@@ -45,7 +45,7 @@ if (directory && !process.env.NODE_TEST_CONTEXT) {
         const id = randomUUID();
         const report = path.join(directory, id + (runner === 'node-junit' ? '.xml' : '.json'));
         const options = runner === 'node-junit'
-            ? ['--test-reporter=junit', '--test-reporter-destination=' + report,
+            ? ['--test-reporter=' + path.join(__dirname, 'frontend-node-junit.cjs'), '--test-reporter-destination=' + report,
                '--test-reporter=spec', '--test-reporter-destination=stdout']
             : ['--run', '--watch=false', '--reporter=json', '--outputFile=' + report];
         // 用户原有报告可另外生成；受控结果使用本次独立文件，不能复用仓库旧报告。
