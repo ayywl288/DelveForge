@@ -711,6 +711,37 @@ class CodingAgentServiceTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void separateResponseCorrectionsDoNotAccumulateAcrossSuccessfulWork(boolean truncated) throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenReturn(
+                "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\",\"paths\":[\"Counter.java\"]}}");
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        try (var service = service((history, tools) -> {
+            int request = requests.incrementAndGet();
+            if (request <= 6 && request % 2 == 1) {
+                if (truncated) {
+                    throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_TRUNCATED,
+                            new AgentModelFailure.Response(true, true, true,
+                                    AgentModelFailure.FinishReason.LENGTH, 1, 8192, 17L));
+                }
+                return new AgentProtocol.Reply("continue implementation", List.of(), 1L);
+            }
+            return request <= 6 ? new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall(
+                    "edit-" + request, "apply_patch", "{\"patch\":\"change " + request + "\"}")), 1L)
+                    : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+        }, AgentProtocol.Limits.defaults())) {
+            var run = awaitTerminal(service, service.start("plan", "step", null).id(), 10);
+            assertEquals(AgentRunState.SUCCEEDED, run.state(), run.reason());
+            assertEquals(7, requests.get());
+            assertEquals(3, run.toolCalls());
+            assertEquals(3, service.events(run.id(), 0, 100).stream().filter(event -> event.kind().equals(
+                    truncated ? "MODEL_RESPONSE_RECOVERY" : "COMPLETION_FORMAT_RETRY")).count());
+            verify(sandbox, times(3)).tool(anyString(), any(), any());
+        }
+    }
+
     @Test
     void transportAndInvalidToolProtocolNeverUseTruncationRecovery() throws Exception {
         for (var reason : List.of(AgentModelFailure.Reason.PROVIDER_CALL_FAILED,
@@ -1182,28 +1213,101 @@ class CodingAgentServiceTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void boundedConflictCorrectionStopsWithoutDuplicateFinishEventsOrUnsafeFreeze(boolean repeated) throws Exception {
+    void unchangedConflictCyclesStopWithoutDuplicateFinishEventsOrUnsafeFreeze(boolean reread) throws Exception {
         AtomicInteger requests = new AtomicInteger();
-        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":false,\"result\":{\"classification\":\"PATCH_CONFLICT\","
-                + "\"mutationNotStarted\":true,\"conflictReason\":\"CONTEXT_MISMATCH\"}}");
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            AgentProtocol.ToolCall call = invocation.getArgument(1);
+            return call.name().equals("read_file") ? "{\"ok\":true,\"result\":{\"path\":\"Counter.java\",\"content\":\"unchanged\"}}"
+                    : "{\"ok\":false,\"durationMs\":" + requests.get() + ",\"result\":{\"classification\":\"PATCH_CONFLICT\","
+                            + "\"mutationNotStarted\":true,\"conflictReason\":\"CONTEXT_MISMATCH\"}}";
+        });
         AgentModelPort model = (history, tools) -> {
             int request = requests.incrementAndGet();
-            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + request, "apply_patch",
-                    "{\"patch\":\"private-" + (repeated ? "same" : request) + "\"}")), 1L);
+            var call = reread && request % 2 == 1
+                    ? new AgentProtocol.ToolCall("call-" + request, "read_file", "{\"path\":\"Counter.java\"}")
+                    : new AgentProtocol.ToolCall("call-" + request, "apply_patch", "{\"patch\":\"private-same\"}");
+            return new AgentProtocol.Reply("", List.of(call), 1L);
         };
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
             var run = awaitTerminal(service, id, 10);
             assertEquals(AgentRunState.FAILED, run.state());
-            assertEquals(repeated ? "PATCH_REPEATED_CONFLICT" : "PATCH_CORRECTION_LIMIT", run.reason());
-            assertEquals(repeated ? 2 : 3, run.toolCalls());
-            verify(sandbox, times(repeated ? 1 : 3)).tool(anyString(), any(), any());
+            assertEquals("NO_PROGRESS", run.reason());
+            assertEquals(reread ? 6 : 3, run.toolCalls());
+            verify(sandbox, times(reread ? 6 : 3)).tool(anyString(), any(), any());
             verify(sandbox, never()).finish(anyString(), any());
             assertEquals(null, run.candidateId());
             var finishes = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).toList();
             assertEquals(run.toolCalls(), finishes.size());
             assertTrue(finishes.stream().noneMatch(event -> event.summary().contains("private-")));
-            assertTrue(finishes.stream().allMatch(event -> event.summary().contains("\"mutationNotStarted\":true")));
+            assertTrue(finishes.stream().filter(event -> event.summary().contains("PATCH_CONFLICT"))
+                    .allMatch(event -> event.summary().contains("\"mutationNotStarted\":true")));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void conflictFeedbackAllowsFurtherCorrectionAfterRereadOrSeveralDistinctAttempts(boolean repeated) throws Exception {
+        var actions = new java.util.ArrayList<AgentProtocol.ToolCall>();
+        int conflicts = repeated ? 2 : 4;
+        for (int index = 0; index < conflicts; index++) {
+            String oldText = repeated ? "stale" : "stale-" + index;
+            actions.add(new AgentProtocol.ToolCall("edit-" + index, "edit_file",
+                    "{\"path\":\"Counter.java\",\"old_text\":\"" + oldText + "\",\"new_text\":\"corrected\"}"));
+            actions.add(new AgentProtocol.ToolCall("read-" + index, "read_file", "{\"path\":\"Counter.java\"}"));
+        }
+        actions.add(new AgentProtocol.ToolCall("corrected", "edit_file",
+                "{\"path\":\"Counter.java\",\"old_text\":\"current\",\"new_text\":\"corrected\"}"));
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            AgentProtocol.ToolCall call = invocation.getArgument(1);
+            if (call.name().equals("read_file")) {
+                return "{\"ok\":true,\"result\":{\"path\":\"Counter.java\",\"content\":\"current\"}}";
+            }
+            return call.id().equals("corrected") ? "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\"}}"
+                    : "{\"ok\":false,\"result\":{\"classification\":\"PATCH_CONFLICT\",\"mutationNotStarted\":true}}";
+        });
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AtomicInteger requests = new AtomicInteger();
+        try (var service = service((history, tools) -> {
+            int request = requests.getAndIncrement();
+            if (request > 0 && request <= actions.size()) {
+                AgentProtocol.ToolCall previous = actions.get(request - 1);
+                var response = history.stream().filter(message -> previous.id().equals(message.callId())).toList();
+                assertEquals(1, response.size());
+                if (previous.id().startsWith("edit-")) {
+                    assertTrue(response.getFirst().text().contains("PATCH_CONFLICT"));
+                    assertTrue(response.getFirst().text().contains("mutationNotStarted"));
+                }
+            }
+            return request < actions.size() ? new AgentProtocol.Reply("", List.of(actions.get(request)), 1L)
+                    : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+        }, AgentProtocol.Limits.defaults())) {
+            var run = awaitTerminal(service, service.start("plan", "step", null).id(), 10);
+            assertEquals(AgentRunState.SUCCEEDED, run.state(), run.reason());
+            assertEquals(actions.size(), run.toolCalls());
+            verify(sandbox, times(actions.size())).tool(anyString(), any(), any());
+            assertEquals(conflicts, service.events(run.id(), 0, 100).stream()
+                    .filter(event -> event.kind().equals("TOOL_FINISHED") && event.summary().contains("PATCH_CONFLICT")).count());
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"mutationNotStarted\":false}", "{\"mutationNotStarted\":\"true\"}"})
+    void conflictWithoutBooleanPreMutationProofStillTerminates(String details) throws Exception {
+        String result = details.replace("{", "{\"classification\":\"PATCH_CONFLICT\",");
+        result = result.replace(",}", "}");
+        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":false,\"result\":" + result + "}");
+        AtomicInteger requests = new AtomicInteger();
+        try (var service = service((history, tools) -> {
+            requests.incrementAndGet();
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("edit", "edit_file",
+                    "{\"path\":\"Counter.java\",\"old_text\":\"old\",\"new_text\":\"new\"}")), 1L);
+        }, AgentProtocol.Limits.defaults())) {
+            var run = awaitTerminal(service, service.start("plan", "step", null).id(), 10);
+            assertEquals(AgentRunState.FAILED, run.state());
+            assertEquals("PATCH_OUTCOME_UNCERTAIN", run.reason());
+            assertEquals(1, requests.get());
+            verify(sandbox, never()).finish(anyString(), any());
         }
     }
 

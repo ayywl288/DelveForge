@@ -261,9 +261,6 @@ class AgentToolActivityTest {
         assertEquals("CONTEXT_MISMATCH", result.path("conflictReason").asText());
         assertFalse(result.has("paths"));
         assertFalse(result.toString().contains("private"));
-        var stopped = json.readTree(activity.failed(patch, identity, new AgentPatchCorrectionException(true), null));
-        assertTrue(stopped.path("mutationNotStarted").asBoolean());
-        assertFalse(stopped.has("invocationDurationNs"));
     }
 
     @Test
