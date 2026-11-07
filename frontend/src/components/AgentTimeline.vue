@@ -99,7 +99,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
                 <span class="check-count">{{ checks.count }} 次检查<span v-if="checks.failed"> · 历史 {{ checks.failed }} 次未通过</span></span>
                 <span v-if="checks.detail" class="check-detail">{{ checks.detail }}</span>
             </summary>
-            <template v-if="checksExpanded"><p class="exploration-note">以下保留每次实际检查的结果与顺序；过程中的失败不等于本次运行的最终结果。</p>
+            <template v-if="checksExpanded"><p class="exploration-note">汇总优先显示最近检查所绑定源码版本中的未通过项，各工程和检查目标分别计算。以下保留全部历史；检查记录不能替代最终验证结论。</p>
                 <ol class="check-history" aria-label="本 Run 完整检查历史，按时间排序" tabindex="0">
                     <AgentActivityRow v-for="activity in visibleChecks" :key="activity.key" :activity="activity" />
                 </ol><button v-if="checkCount < checks.count" class="secondary compact-button more-checks" @click="checkCount += 40">显示更多检查记录</button>

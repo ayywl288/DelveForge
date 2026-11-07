@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.application.agent;
 
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
+import com.ayywl.delveforge.domain.agent.Candidate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -241,6 +242,11 @@ public final class AgentToolActivity {
             } else if (Set.of("run_checks", "run_frontend_checks").contains(call.name())) {
                 summary.put("checkType", call.name().equals("run_frontend_checks") ? "FRONTEND" : "MAVEN");
                 summary.put("goal", args.path("goal").asText("test"));
+                String selectedTest = args.path("test").asText();
+                if (!selectedTest.isEmpty() && selectedTest.matches("[A-Za-z0-9_.$*#,+-]{1,200}") && unchanged(selectedTest)) {
+                    // 只记录范围指纹；选测成功不能覆盖全量结果，也不暴露选择表达式。
+                    summary.put("testSelectionFingerprint", Candidate.digest(selectedTest));
+                }
                 for (String key : List.of("module", "directory")) {
                     String path = args.path(key).asText(key.equals("directory")
                             ? call.name().equals("run_frontend_checks") ? "" : "." : "");

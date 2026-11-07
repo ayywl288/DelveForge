@@ -231,6 +231,29 @@ class CodingAgentServiceTest {
         }
     }
 
+    @Test
+    void modelIncompletePersistsBoundedSanitizedExplanationWithoutPromotingItToEvidence() throws Exception {
+        String explanation = "后端检查仍受阻。 token=\"private-fixture-value\" " + "待核对".repeat(600);
+        String reply = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                java.util.Map.of("status", "failed", "summary", explanation));
+        try (var service = service((history, tools) -> new AgentProtocol.Reply(reply, List.of(), 1L),
+                AgentProtocol.Limits.defaults())) {
+            var run = awaitTerminal(service, service.start("plan", "step", null).id(), 10);
+            assertEquals("MODEL_INCOMPLETE", run.reason());
+            assertEquals(null, run.candidateId());
+            var event = service.events(run.id(), 0, 100).stream()
+                    .filter(value -> value.kind().equals("MODEL_INCOMPLETE")).findFirst().orElseThrow();
+            var data = new com.fasterxml.jackson.databind.ObjectMapper().readTree(event.summary());
+            assertEquals(1, data.path("metadataVersion").asInt());
+            assertTrue(data.path("summary").asText().startsWith("后端检查仍受阻。"));
+            assertTrue(data.path("summary").asText().length() <= 1200);
+            assertFalse(event.summary().contains("private-fixture-value"));
+            assertTrue(event.sequence() < service.events(run.id(), 0, 100).stream()
+                    .filter(value -> value.kind().equals("FAILED")).findFirst().orElseThrow().sequence());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
+    }
+
     CodingAgentService service(AgentModelPort model, AgentProtocol.Limits limits) {
         return new CodingAgentService(eligibility, database.store, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), limits);

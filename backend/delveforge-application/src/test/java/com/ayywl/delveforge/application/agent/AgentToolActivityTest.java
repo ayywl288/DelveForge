@@ -13,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentToolActivityTest {
@@ -248,6 +249,21 @@ class AgentToolActivityTest {
         assertFalse(json.readTree(activity.finished(patch, identity,
                 "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\",\"paths\":" + ninePaths + "}}"))
                 .has("paths"));
+    }
+
+    @Test
+    void selectedTestScopeIsRetainedSoItCannotReplaceFullSuiteResults() throws Exception {
+        var selected = call("run_checks", Map.of("goal", "test", "directory", "backend", "test", "FeatureTest"));
+        var result = json.readTree(activity.finished(selected, identity,
+                "{\"ok\":true,\"result\":{\"classification\":\"TESTS_PASSED\"}}"));
+        assertTrue(result.path("testSelectionFingerprint").asText().matches("[0-9a-f]{64}"));
+        assertFalse(result.toString().contains("FeatureTest"));
+        assertEquals(result.path("testSelectionFingerprint"),
+                json.readTree(activity.started(selected, identity)).path("testSelectionFingerprint"));
+        var other = call("run_checks", Map.of("goal", "test", "directory", "backend", "test", "OtherTest"));
+        assertNotEquals(result.path("testSelectionFingerprint"),
+                json.readTree(activity.started(other, identity)).path("testSelectionFingerprint"));
+        assertEquals("backend", result.path("directory").asText());
     }
 
     @Test
