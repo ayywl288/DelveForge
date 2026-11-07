@@ -151,14 +151,6 @@ public final class AgentToolActivity {
 
     public String failed(AgentProtocol.ToolCall call, String identity, RuntimeException failure, Long invocationDurationNs) {
         String classification = failure instanceof AgentException classified ? classified.code() : "INTERNAL_FAILURE";
-        if (failure instanceof AgentPatchCorrectionException) {
-            Map<String, Object> summary = base(call, identity);
-            summary.put("ok", false);
-            summary.put("resultRecorded", false);
-            summary.put("mutationNotStarted", true);
-            summary.put("classification", classification);
-            return encode(summary);
-        }
         return failed(call, identity, classification, invocationDurationNs,
                 failure instanceof AgentPolicyRejection rejection ? rejection : null);
     }

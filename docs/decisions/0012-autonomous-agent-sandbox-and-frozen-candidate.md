@@ -2,6 +2,22 @@
 
 Status: Accepted for Task 1 implementation; runtime acceptance is recorded separately.
 
+## 2026-11-06：普通补丁冲突统一按实际进展处理
+
+真实 Run `5544cf2d-9b0b-4f1a-ab6b-253397525ef3` 在五次成功编辑后发生一次 CONTEXT_MISMATCH，
+模型读取当前文件后再次提交相同编辑，旧 AgentPatchCorrections 在调用沙箱前终止整个 Run。
+这证明补丁专用重复判断截断了正常反馈循环；不证明原编辑内容正确或后续模型一定能修好。
+
+依据用户对自主调整和移除不必要限制的要求，取消“相同失败补丁再次出现立即终止”和“三次未解决冲突终止”。
+删除专用状态跟踪及异常类型，复用 AgentProgress 对三次相同的短工具循环判定 NO_PROGRESS；
+不同编辑、不同观察继续推进，真实修改清空无进展记录。没有扩大固定次数常量，也没有新增重试框架。
+冲突必须带布尔 mutationNotStarted=true；缺失、false 或其他类型均按 PATCH_OUTCOME_UNCERTAIN 终止。
+同响应后续写入仍 PATCH_NOT_EXECUTED，下一响应才可重建编辑；凭据/路径/授权、实际写入和冻结守卫保持。
+
+代价是模型可获得更多实际修正调用，可能增加费用；真正重复的无进展循环、取消和技术资源边界仍生效。
+应用编排回归覆盖重新读取后重复冲突再修正、超过三次不同修正、原样循环及未知写入结果。
+此决定替代下文历史补丁次数规则，不恢复旧 FAILED Run，不修改历史事件。
+
 Date: 2026-10-21
 
 用户本次 Task 1 明确替代旧 M4/M5 的一次性 CodingProposal 执行设计。旧文档中的冻结范围、

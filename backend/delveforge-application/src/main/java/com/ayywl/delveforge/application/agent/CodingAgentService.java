@@ -310,13 +310,12 @@ public final class CodingAgentService implements AutoCloseable {
         int toolCalls = 0;
         Long tokens = null;
         boolean unknownUsage = false;
-        int completionCorrections = 0;
+        int consecutiveCompletionCorrections = 0;
         int consecutiveSourceEditRejections = 0;
-        AgentPatchCorrections corrections = new AgentPatchCorrections();
         AgentProgress progress = new AgentProgress();
         int request = 0;
         int acceptedCalls = 0;
-        int truncatedCorrections = 0;
+        int consecutiveTruncatedCorrections = 0;
         int explorationCalls = 0;
         int appliedPatches = 0;
         int checks = 0;
@@ -341,11 +340,11 @@ public final class CodingAgentService implements AutoCloseable {
                 recordModelFailure(task.runId(), request, false, failure);
                 if (failure.reason() != AgentModelFailure.Reason.RESPONSE_TRUNCATED
                         || failure.response() == null || !failure.response().responsePresent()
-                        || truncatedCorrections >= 2) {
+                        || consecutiveTruncatedCorrections >= 2) {
                     throw failure;
                 }
                 requireCurrent(task, cancelled);
-                truncatedCorrections++;
+                consecutiveTruncatedCorrections++;
                 // 适配器未返回 Reply，全部截断内容/调用已丢弃；不续接半个 JSON，不重放此前成功工具。
                 history.add(AgentProtocol.Message.text("user", "上次模型响应被截断，内容及工具请求已全部丢弃，未执行其中任何修改。"
                         + "保留此前成功工具的实际结果。下一次只请求一个较小的工具动作或小范围补丁，"
@@ -355,6 +354,8 @@ public final class CodingAgentService implements AutoCloseable {
                 continue;
             }
             requireCurrent(task, cancelled);
+            // 有效响应结束本轮截断纠正；已恢复的历史错误不累计为整次 Run 的停止预算。
+            consecutiveTruncatedCorrections = 0;
             acceptedCalls = incrementUsage(acceptedCalls);
             if (reply.usage() != null) {
                 store.event(task.runId(), "MODEL_USAGE", usageSummary(request, reply.usage()));
@@ -388,7 +389,7 @@ public final class CodingAgentService implements AutoCloseable {
                     throw new AgentException("MODEL_INCOMPLETE", "Model could not complete implementation");
                 }
                 if (result == null || !result.path("status").asText().equals("completed")) {
-                    if (++completionCorrections > 2) {
+                    if (++consecutiveCompletionCorrections > 2) {
                         throw recordModelFailure(task.runId(), request, true,
                                 new AgentModelFailure(AgentModelFailure.Reason.COMPLETION_FORMAT_INVALID));
                     }
@@ -399,6 +400,7 @@ public final class CodingAgentService implements AutoCloseable {
                             + "若仍需工作请继续使用工具。不要输出Markdown或额外解释。"));
                     continue;
                 }
+                consecutiveCompletionCorrections = 0;
                 String feedback = sandbox.completionFeedback(task.runId(), cancelled);
                 if (feedback != null) {
                     String safeFeedback = safe(feedback);
@@ -414,6 +416,7 @@ public final class CodingAgentService implements AutoCloseable {
                 store.event(task.runId(), "MODEL_COMPLETED", "Model finished; Candidate finalization still required");
                 return;
             }
+            consecutiveCompletionCorrections = 0;
             history.add(new AgentProtocol.Message("assistant", safe(reply.text()), reply.calls(), null, null));
             boolean batchWriteConflict = false;
             for (AgentProtocol.ToolCall call : reply.calls()) {
@@ -466,9 +469,6 @@ public final class CodingAgentService implements AutoCloseable {
                     AgentPolicyRejection sourceEditRejection = null;
                     long invocationStarted = System.nanoTime();
                     try {
-                        if (argumentFailure == null && argumentRejection == null) {
-                            corrections.before(call);
-                        }
                         try {
                             if (argumentRejection != null) {
                                 throw argumentRejection;
@@ -522,7 +522,7 @@ public final class CodingAgentService implements AutoCloseable {
                         }
                         throw failure;
                     }
-                    batchWriteConflict |= corrections.record(call, result);
+                    batchWriteConflict |= patchConflict(call, result);
                     if (List.of("read_file", "list_files", "search_code").contains(call.name())) {
                         explorationCalls++;
                     } else if (Set.of("run_checks", "run_frontend_checks").contains(call.name())) {
@@ -658,6 +658,26 @@ public final class CodingAgentService implements AutoCloseable {
                 summary.put("instruction", "本轮前次写入冲突，后续预生成写入未执行；依据当前读取重新生成编辑。");
             }
             return json.writeValueAsString(summary);
+        } catch (IOException failure) {
+            throw new AgentException("TOOL_PROTOCOL", "Tool result must be structured JSON");
+        }
+    }
+
+    /** 只有明确未写入的冲突才可反馈修正；重复空转统一由 AgentProgress 判断。 */
+    private boolean patchConflict(AgentProtocol.ToolCall call, String result) {
+        if (!AgentTools.mutation(call.name())) {
+            return false;
+        }
+        try {
+            JsonNode response = json.readTree(result);
+            JsonNode details = response.path("result");
+            if (!response.path("classification").asText(details.path("classification").asText()).equals("PATCH_CONFLICT")) {
+                return false;
+            }
+            if (!details.path("mutationNotStarted").isBoolean() || !details.path("mutationNotStarted").asBoolean()) {
+                throw new AgentException("PATCH_OUTCOME_UNCERTAIN", "Conflict did not establish a pre-mutation result");
+            }
+            return true;
         } catch (IOException failure) {
             throw new AgentException("TOOL_PROTOCOL", "Tool result must be structured JSON");
         }
