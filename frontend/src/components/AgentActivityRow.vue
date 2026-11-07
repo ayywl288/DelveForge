@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import NavigationIcon, { type NavigationIconName } from "./NavigationIcon.vue";
 import AgentEventDetails from "./AgentEventDetails.vue";
-import { preflightProgress, providerDiagnosticTitle, commandPresentation, toolNames, type AgentActivity } from "./agentEventPresentation";
+import { safePath, preflightProgress, providerDiagnosticTitle, commandPresentation, toolNames, type AgentActivity } from "./agentEventPresentation";
 
-defineProps<{ activity: AgentActivity }>();
+const props = defineProps<{ activity: AgentActivity }>();
+const command = computed(() => props.activity.tool === "exec_command" ? commandPresentation(props.activity) : null);
+const target = computed(() => command.value ? safePath(command.value.data.directory) : props.activity.target);
 const names: Record<string, string> = {
     UNVERIFIED_WORK_RETAINED: "未验证的修改已保留，不能交付", PARTIAL_CAPTURE_UNAVAILABLE: "无法安全保存部分修改",
     MODEL_PROVIDER_DIAGNOSTIC: "模型请求尝试已记录",
@@ -43,21 +46,21 @@ function duration(value: number) {
         <span class="timeline-node" aria-hidden="true"><NavigationIcon :name="icon(activity)" /></span>
         <div class="timeline-body">
             <div class="timeline-heading"><strong>{{ preflightProgress(activity.event)?.title ?? (activity.tool ? toolNames[activity.tool] : activity.event.kind === 'MODEL_PROVIDER_DIAGNOSTIC' ? providerDiagnosticTitle(activity.event) : names[activity.event.kind] ?? '历史运行活动') }}</strong>
-                <span v-if="activity.target" class="activity-target">{{ activity.target }}</span>
-                <span v-if="activity.targetWithheld" class="target-note">{{ activity.target ? '部分目标已隐藏' : '目标已隐藏' }}</span>
-                <span v-else-if="activity.tool && !activity.target && !['apply_patch', 'edit_file'].includes(activity.tool)" class="target-note">目标未记录</span>
+                <span v-if="target" class="activity-target">{{ command ? "目录 · " : "" }}{{ target }}</span>
+                <span v-if="activity.targetWithheld" class="target-note">{{ target ? '部分目标已隐藏' : '目标已隐藏' }}</span>
+                <span v-else-if="activity.tool && !target && !['apply_patch', 'edit_file'].includes(activity.tool)" class="target-note">目标未记录</span>
                 <time :datetime="activity.event.at" :title="new Date(activity.event.at).toLocaleString()">{{ new Date(activity.event.at).toLocaleTimeString() }}</time>
             </div>
-            <div class="activity-result"><span :role="activity.active ? 'status' : undefined">{{ activity.active && activity.event.kind === 'MODEL_REQUEST' ? '等待模型响应' : outcomes[activity.outcome] }}</span>
+            <div class="activity-result"><span :role="activity.active ? 'status' : undefined">{{ command ? command.label : activity.active && activity.event.kind === 'MODEL_REQUEST' ? '等待模型响应' : outcomes[activity.outcome] }}</span>
                 <span v-if="activity.duration !== undefined" class="activity-duration" :data-source="activity.durationSource"
                     :title="activity.durationSource === 'invocation' ? 'Java 到沙箱的调用总耗时' : '工具内部计时，不包含 Java 调用往返'">{{ activity.durationSource === 'internal' ? '内部 ' : '' }}{{ duration(activity.duration) }}</span>
-                <span v-if="activity.tool === 'exec_command' && activity.classification" :title="activity.classification">{{ commandPresentation(activity).label }}</span>
-                <code v-else-if="activity.classification && activity.tool">{{ activity.classification }}</code>
+                <span v-if="command && typeof command.data.exitCode === 'number'">退出码 {{ command.data.exitCode }}</span>
+                <code v-else-if="!command && activity.classification && activity.tool">{{ activity.classification }}</code>
             </div>
             <p v-if="activity.resultUncertain" class="activity-uncertain">未取得完整工具结果，修改情况需核对。</p>
             <AgentEventDetails v-if="activity.tool" :activity="activity" />
             <details v-else-if="activity.classification || ['SANDBOX_READY', 'MODEL_FAILED', 'MODEL_INCOMPLETE', 'COMPLETION_CHECK_REJECTED', 'PREFLIGHT_PROGRESS', 'MODEL_PROVIDER_DIAGNOSTIC'].includes(activity.event.kind)" class="activity-technical">
-                <summary>技术详情</summary><code v-if="activity.classification">{{ activity.classification }}</code>
+                <summary>{{ activity.event.kind === "MODEL_INCOMPLETE" ? "模型未完成说明" : "技术详情" }}</summary><code v-if="activity.classification">{{ activity.classification }}</code>
                 <AgentEventDetails :activity="activity" />
             </details>
             <p v-if="activity.event.kind === 'CLEANUP_BLOCKED'" class="timeline-warning">此处记录当时的清理失败；当前是否仍需协调以运行状态提示为准。</p>

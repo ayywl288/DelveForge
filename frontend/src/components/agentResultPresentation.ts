@@ -12,7 +12,7 @@ export function presentRun(run: AgentRun, delivery?: Delivery | null): RunPresen
             detail: "本次尚未调用模型。请查看环境预检诊断后重新开始。", tone: "blocked" };
     }
     if (run.state === "FAILED" && run.reason === "MODEL_INCOMPLETE") return {
-        label: "模型报告未完成", detail: "模型主动报告仍有阻塞，未生成可交付候选；请查看执行活动中的模型说明和实际命令结果。", tone: "failed" };
+        label: "模型报告未完成", detail: "必要工作尚未完成，未生成可交付候选。详见执行活动中的技术详情。", tone: "failed" };
     if (run.state === "FAILED") return { label: "本次运行失败", detail: "本次尝试没有完成交付。", tone: "failed" };
     if (run.state === "CANCELLED" || run.state === "INTERRUPTED") return {
         label: run.state === "CANCELLED" ? "运行已取消" : "运行已中断", detail: "本次尝试没有完成交付。", tone: "recorded" };

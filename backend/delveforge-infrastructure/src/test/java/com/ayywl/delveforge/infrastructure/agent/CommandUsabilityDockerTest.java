@@ -43,6 +43,55 @@ class CommandUsabilityDockerTest {
     }
 
     @Test
+    void temporaryDiagnosticsPreserveSourceAndExplorationDoesNotCreateRequiredChecks() throws Exception {
+        Path original = Files.createDirectories(temporary.resolve("original"));
+        Files.writeString(original.resolve("state.txt"), "ready");
+        Files.writeString(original.resolve("check.sh"), "grep -q ready state.txt\n");
+        var git = new DockerAgentSandboxTest();
+        git.git(original, "init", "--template=");
+        git.git(original, "add", ".");
+        git.git(original, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-qm", "fixture");
+        String baseline = git.git(original, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        var sandbox = new DockerAgentSandbox(DockerAgentSandboxTest.properties(temporary.resolve("runs")),
+                new DeterministicRepositorySecretPolicy());
+        Map<String, String> check = Map.of("command",
+                "sh check.sh > /tmp/df-check.log 2>&1; status=$?; cat /tmp/df-check.log; exit \"$status\"",
+                "directory", ".", "verification_scope", "fixture state check", "check_kind", "test");
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", original.toString(),
+                    "unmounted", baseline, "check fixture", "state", "check", 21),
+                    AgentProtocol.Limits.defaults(), () -> false);
+            JsonNode exploratory = exec(sandbox, id, Map.of("command", "grep absent state.txt"));
+            assertFalse(exploratory.path("ok").asBoolean());
+            assertNotNull(sandbox.completionFeedback(id, () -> false), "Exploration alone cannot verify source");
+            JsonNode result = exec(sandbox, id, check).path("result");
+            assertEquals(0, result.path("exitCode").asInt(-1));
+            assertFalse(result.path("sourceChanged").asBoolean(true));
+            assertEquals(result.path("snapshot"), result.path("afterSnapshot"));
+            assertNull(sandbox.completionFeedback(id, () -> false), "Unscoped diagnostic failure is not an obligation");
+            JsonNode logging = exec(sandbox, id, Map.of("command",
+                    "printf diagnostic > /tmp/df-diagnostic.log; cat /tmp/df-diagnostic.log")).path("result");
+            assertEquals("diagnostic", logging.path("stdout").asText());
+            assertFalse(logging.path("sourceChanged").asBoolean(true));
+            assertEquals(result.path("snapshot"), logging.path("afterSnapshot"));
+            assertNull(sandbox.completionFeedback(id, () -> false), "Diagnostic logs must not stale a final check");
+            assertTrue(exec(sandbox, id, Map.of("command", "printf ready-again > state.txt"))
+                    .path("result").path("sourceChanged").asBoolean());
+            assertNotNull(sandbox.completionFeedback(id, () -> false), "Actual source mutation still invalidates checks");
+            assertTrue(exec(sandbox, id, check).path("ok").asBoolean());
+            assertNull(sandbox.completionFeedback(id, () -> false));
+            assertFalse(exec(sandbox, id, Map.of("command", "grep absent state.txt", "directory", ".",
+                    "verification_scope", "required missing state", "check_kind", "test")).path("ok").asBoolean());
+            assertTrue(exec(sandbox, id, check).path("ok").asBoolean());
+            assertNotNull(sandbox.completionFeedback(id, () -> false), "Another passing check cannot erase a failed obligation");
+            assertEquals("", git.git(original, "status", "--porcelain"));
+        } finally {
+            sandbox.cleanup(id);
+        }
+    }
+
+    @Test
     void realShellSourceMutationsResetRepeatedCommandHistory() throws Exception {
         Path original = Files.createDirectories(temporary.resolve("original"));
         Files.writeString(original.resolve("state.txt"), "first");
