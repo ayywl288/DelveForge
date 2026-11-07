@@ -338,6 +338,10 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
                         && matcher.end(2) < content.length() && content.charAt(matcher.end(2)) == '}') {
                     continue;
                 }
+                // Windows wrapper 中独立的环境变量构造不包含凭据字面量；拼接、默认值和附加语句不豁免。
+                if (extension.equals("cmd") && assignment && windowsCredentialReference(matcher, content)) {
+                    continue;
+                }
                 if (configuration && assignment && configurationReference(matcher, content, yaml)) {
                     continue;
                 }
@@ -381,6 +385,15 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
             }
         }
         return List.copyOf(lines);
+    }
+
+    private static boolean windowsCredentialReference(Matcher assignment, String content) {
+        int start = content.lastIndexOf('\n', assignment.start()) + 1;
+        int end = content.indexOf('\n', assignment.end());
+        String line = content.substring(start, end < 0 ? content.length() : end).strip();
+        return line.matches("(?i)\\$[A-Za-z_][A-Za-z0-9_]*\\.Credentials\\s*=\\s*New-Object\\s+"
+                + "System\\.Net\\.NetworkCredential\\(\\s*\\$env:[A-Za-z_][A-Za-z0-9_]*\\s*,\\s*"
+                + "\\$env:[A-Za-z_][A-Za-z0-9_]*\\s*\\)");
     }
 
     /** 三元运算的字符串操作数不是对象属性；只识别紧邻问号的完整引号键形态。 */

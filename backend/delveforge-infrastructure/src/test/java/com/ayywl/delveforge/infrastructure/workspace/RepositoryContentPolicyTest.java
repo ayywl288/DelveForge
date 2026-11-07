@@ -19,6 +19,20 @@ class RepositoryContentPolicyTest {
     }
 
     @Test
+    void windowsWrapperReferenceIsSourceButComposeLiteralCredentialsRemainWithheld() throws Exception {
+        byte[] wrapper = java.nio.file.Files.readAllBytes(java.nio.file.Path.of("../../mvnw.cmd"));
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE, policy.classify("mvnw.cmd", wrapper).kind());
+        String reference = "$webclient.Credentials = New-Object System.Net.NetworkCredential($env:USER, $env:PASSWORD)";
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE, classify("mvnw.cmd", reference).kind());
+        var secret = classify("docker-compose.dev.yml", "environment:\n  MYSQL_ROOT_PASSWORD: private-value\n");
+        assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY, secret.kind());
+        assertFalse(secret.executionAvailable());
+        assertTrue(RepositoryContentPolicy.buildInput("docker-compose.dev.yml"));
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE,
+                classify("docker-compose.dev.yml", "environment:\n  MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}\n").kind());
+    }
+
+    @Test
     void unchangedRepositoryWrapperIsExecutionSourceWhileARealShellCredentialIsWithheld() throws Exception {
         byte[] wrapper = java.nio.file.Files.readAllBytes(java.nio.file.Path.of("../../mvnw"));
         assertEquals(RepositoryContentPolicy.Kind.SOURCE, policy.classify("mvnw", wrapper).kind());

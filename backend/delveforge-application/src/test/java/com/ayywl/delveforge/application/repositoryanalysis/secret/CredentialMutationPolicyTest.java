@@ -16,6 +16,20 @@ class CredentialMutationPolicyTest {
     private final RepositorySecretPolicy policy = new DeterministicRepositorySecretPolicy();
 
     @Test
+    void windowsWrapperEnvironmentCredentialConstructionIsNotALiteralSecret() {
+        String reference = "$webclient.Credentials = New-Object System.Net.NetworkCredential($env:MVNW_USERNAME, $env:MVNW_PASSWORD)";
+        assertEquals(List.of(), policy.mutationProtectedLines("mvnw.cmd", reference));
+        for (String unsafe : List.of(reference + "; password='private-value'",
+                reference.replace("$env:MVNW_PASSWORD", "'private-value'"),
+                reference.replace("$env:MVNW_PASSWORD", "$env:MVNW_PASSWORD + 'suffix'"),
+                reference.replace("$env:MVNW_PASSWORD", "$(Get-Secret)"),
+                reference + " # sk-" + "a".repeat(32))) {
+            assertFalse(policy.mutationProtectedLines("mvnw.cmd", unsafe).isEmpty());
+        }
+        assertFalse(policy.mutationProtectedLines("settings.properties", reference).isEmpty());
+    }
+
+    @Test
     void shellEmptyInitializationIsNotASecretButValuesAndConcatenationRemainProtected() {
         assertEquals(List.of(), policy.mutationProtectedLines("wrapper",
                 "#!/bin/sh\nMVNW_USERNAME='' MVNW_PASSWORD='' ;;\ncase \"${MVNW_PASSWORD:+has-password}\" in\n"));

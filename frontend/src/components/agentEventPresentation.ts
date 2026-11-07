@@ -78,7 +78,9 @@ export function commandPresentation(activity: AgentActivity) {
     let label: string;
     let explanation = "";
     if (activity.active) label = "命令执行中";
-    else if (data.mutationNotStarted === true || activity.classification === "INVALID_ARGUMENTS") {
+    else if (activity.classification === "POLICY_REJECTED") {
+        label = "命令被安全规则停止"; explanation = "查看拒绝原因和授权范围，调整操作后再试。";
+    } else if (data.mutationNotStarted === true || activity.classification === "INVALID_ARGUMENTS") {
         label = ["DIRECTORY_NOT_FOUND", "INVALID_DIRECTORY"].includes(reason) ? "工作目录无效，命令未启动"
             : activity.classification === "INVALID_ARGUMENTS" ? "参数无效，命令未启动" : "命令未启动";
         explanation = explanations[reason] ?? "命令未执行，请按反馈调整后重试。旧记录未说明具体参数原因，需核对工具字段与类型。";
@@ -92,7 +94,7 @@ export function commandPresentation(activity: AgentActivity) {
         explanation = data.exitCode !== 0 ? "查看输出定位错误；命令里的相对路径以工作目录为起点，修正后重试。"
             : numeric(data, "failures") || numeric(data, "errors")
                 ? "进程退出码为 0，但测试报告仍有失败，不能作为通过的验证。核对原检查是否被管道或输出过滤掩盖。"
-                : "退出码只说明该命令的进程结果，不等于测试或业务验收通过。";
+                : "";
     } else {
         label = "执行结果不可用"; explanation = "未取得完整执行结果，不能确认成功或安全重放；请核对运行诊断和已保留的修改。";
     }
@@ -327,11 +329,7 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
             && event.kind === "MODEL_FAILED" && modelFailureFields(event).classification === reason);
         const description = diagnostic ? modelFailureDescription(diagnostic) : undefined;
         if (terminal === "FAILED" && reason === "MODEL_INCOMPLETE") {
-            const reported = [...events].reverse().find(event => event.runId === run.id && event.kind === "MODEL_INCOMPLETE");
-            const summary = reported ? modelIncompleteSummary(reported) : undefined;
-            return { ...staticState, tone: "failed", title: "模型报告未完成",
-                detail: summary ? `模型说明（未独立验证）：${summary} 请同时核对下方命令和完成检查记录；这不是人工取消。`
-                    : "模型主动报告未完成，未生成可交付候选；这不是人工取消。未记录具体说明，请核对命令诊断。" };
+            return { ...staticState, tone: "failed", title: "运行失败 · MODEL_INCOMPLETE", detail: "" };
         }
         return { ...staticState, tone: terminal === "FAILED" ? "failed" : terminal === "SUCCEEDED" ? "completed" : "interrupted",
             title: titles[terminal ?? ""] ?? "运行已结束",

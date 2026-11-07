@@ -205,6 +205,29 @@ class CodingAgentServiceTest {
     }
 
     @Test
+    void instructionsSeparateExplorationFromFinalChecksAndKeepTemporaryLogsOutsideSource() throws Exception {
+        var captured = new java.util.concurrent.atomic.AtomicReference<String>();
+        AgentModelPort model = (history, tools) -> {
+            captured.set(history.getFirst().text());
+            return new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"fixture stop\"}", List.of(), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            var run = awaitTerminal(service, service.start("plan", "step", 21).id(), 10);
+            assertEquals("MODEL_INCOMPLETE", run.reason());
+            String instructions = captured.get();
+            assertTrue(instructions.contains("通常同时省略 verification_scope/check_kind"));
+            assertTrue(instructions.contains("先读取已有测试报告"));
+            assertTrue(instructions.contains("重试保持 command 和 directory 完全一致"));
+            assertTrue(instructions.contains("适用检查一经登记须全部重验"));
+            assertTrue(instructions.contains("绝不把测试/构建日志重定向到仓库相对路径"));
+            assertTrue(instructions.contains("临时输出只用 /tmp/"));
+            assertTrue(instructions.contains("不跨调用保留"));
+            assertTrue(instructions.contains("不要通过额外源码修改来清理日志"));
+            assertTrue(instructions.contains("停止无意义重试并如实报告"));
+        }
+    }
+
+    @Test
     void transfersPersistedTargetStateWithoutLoadingUnrelatedPlanningHistory() throws Exception {
         when(sandbox.checkCapabilities(anyString(), any())).thenReturn(
                 "{\"mavenDirectories\":[\".\"],\"frontendProjects\":[],\"frontendProjectCount\":0}");
