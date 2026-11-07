@@ -49,14 +49,12 @@ class RepositoryPreparationDockerTest {
                     source.toString(), prepared.revision(), "baseline compatibility", "Maven", "none", null),
                     AgentProtocol.Limits.defaults(), () -> false);
             assertEquals(17, sandbox.identity(id).targetJdk());
-            var response = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("baseline", "run_checks", "{}"),
+            var response = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("baseline", "exec_command", json.writeValueAsString(Map.of("command", "mvn -B test", "directory", "backend", "verification_scope", "Backend tests", "check_kind", "test"))),
                     () -> false));
-            assertTrue(response.path("ok").asBoolean(), response.toString());
+            assertTrue(response.path("result").path("exitCode").isIntegralNumber(), response.toString());
             var result = response.path("result");
             assertEquals("backend", result.path("directory").asText());
-            assertTrue(Set.of("BUILD_PASSED_NOT_TESTED", "DEPENDENCY_MISSING", "BUILD_CONFIGURATION_FAILED",
-                    "COMPILATION_FAILED", "TESTS_FAILED").contains(result.path("classification").asText()), response.toString());
-            assertNotEquals("TESTS_PASSED", result.path("classification").asText());
+            assertTrue(Set.of("COMMAND_SUCCEEDED", "COMMAND_FAILED").contains(result.path("classification").asText()), response.toString());
             Path evidence = source.getParent().resolve("fintrack-docker-baseline.json");
             Files.writeString(evidence, json.writerWithDefaultPrettyPrinter().writeValueAsString(Map.of(
                     "original", a, "prepared", prepared.revision(), "identity", sandbox.identity(id),
@@ -97,14 +95,12 @@ class RepositoryPreparationDockerTest {
             sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", prepared.workspace().value(),
                     source.toString(), prepared.revision(), "fix counter", "Counter", "increment", null),
                     AgentProtocol.Limits.defaults(), () -> false);
-            String patch = "--- a/src/main/java/example/Counter.java\n+++ b/src/main/java/example/Counter.java\n"
-                    + "@@ -1,2 +1,2 @@\n package example;\n-public class Counter { public int next(int n) { return n; } }\n"
-                    + "+public class Counter { public int next(int n) { return n + 1; } }\n";
-            var applied = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("edit", "apply_patch",
-                    json.writeValueAsString(Map.of("patch", patch))), () -> false));
+            var applied = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("edit", "edit_file",
+                    json.writeValueAsString(Map.of("path", "src/main/java/example/Counter.java",
+                            "old_text", "return n;", "new_text", "return n + 1;"))), () -> false));
             assertTrue(applied.path("ok").asBoolean(), applied.toString());
-            var checked = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("test", "run_checks", "{}"), () -> false));
-            assertEquals("TESTS_PASSED", checked.path("result").path("classification").asText(), checked.toString());
+            var checked = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("test", "exec_command", json.writeValueAsString(Map.of("command", "mvn -B test", "verification_scope", "Repository tests", "check_kind", "test"))), () -> false));
+            assertEquals("COMMAND_SUCCEEDED", checked.path("result").path("classification").asText(), checked.toString());
             assertTrue(checked.path("result").path("executedTests").asInt() > 0);
             var candidate = sandbox.finish(id, () -> false);
             assertEquals(prepared.revision(), candidate.baseline());

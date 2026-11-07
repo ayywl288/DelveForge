@@ -42,9 +42,9 @@ class DockerMavenCompatibilityTest {
             sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", revision,
                     "compatibility", "compile", "build", null), AgentProtocol.Limits.defaults(), () -> false);
             assertEquals(21, sandbox.identity(id).targetJdk());
-            String result = sandbox.tool(id, new AgentProtocol.ToolCall("java8-compile", "run_checks",
-                    "{\"goal\":\"compile\"}"), () -> false);
-            assertTrue(result.contains("BUILD_PASSED_NOT_TESTED"), result);
+            String result = sandbox.tool(id, new AgentProtocol.ToolCall("java8-compile", "exec_command",
+                    "{\"command\":\"mvn -B compile\",\"verification_scope\":\"Java 8 source compatibility\",\"check_kind\":\"build\"}"), () -> false);
+            assertTrue(result.contains("COMMAND_SUCCEEDED"), result);
             assertEquals(pom, Files.readString(official.resolve("pom.xml")));
             org.junit.jupiter.api.Assertions.assertArrayEquals(index, Files.readAllBytes(official.resolve(".git/index")));
             assertEquals(revision, fixture.git(official, "rev-parse", "HEAD"));
@@ -69,31 +69,31 @@ class DockerMavenCompatibilityTest {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(defaults.maxContextChars(), defaults.maxOutputBytes(), defaults.maxPatchBytes(),
                 defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(),
-                600, 3);
+                600);
         try {
             sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(),
                     temporary.resolve("original").toString(), revision, "compatibility", "reactor", "build", 17), limits, () -> false);
-            String wrongRoot = sandbox.tool(id, new AgentProtocol.ToolCall("wrong-root", "run_checks", "{}"), () -> false);
+            String wrongRoot = sandbox.tool(id, new AgentProtocol.ToolCall("wrong-root", "exec_command", "{\"command\":\"mvn -B test\",\"directory\":\"missing-directory\"}"), () -> false);
             assertEquals("INVALID_ARGUMENTS", json.readTree(wrongRoot).path("classification").asText(), wrongRoot);
             assertFalse(json.readTree(wrongRoot).path("ok").asBoolean());
             assertFalse(json.readTree(wrongRoot).path("checkStarted").asBoolean());
-            String result = sandbox.tool(id, new AgentProtocol.ToolCall("reactor-test", "run_checks",
-                    json.writeValueAsString(Map.of("goal", "test", "directory", "complete"))), () -> false);
-            assertTrue(result.contains("TESTS_PASSED"), result);
-            assertTrue(json.readTree(result).path("result").path("tests").asInt() >= 2, result);
+            String result = sandbox.tool(id, new AgentProtocol.ToolCall("reactor-test", "exec_command",
+                    json.writeValueAsString(Map.of("command", "mvn -B test", "directory", "complete", "verification_scope", "Reactor tests", "check_kind", "test"))), () -> false);
+            assertTrue(result.contains("COMMAND_SUCCEEDED"), result);
+            assertTrue(json.readTree(result).path("result").path("executedTests").asInt() >= 2, result);
             // 在同一真实 reactor 的两个模块增加源码，验证最终捕获不局限于单模块或工具名单。
             String libraryPath = "complete/library/src/main/java/fixture/probe/LibraryCandidateProbe.java";
             String applicationPath = "complete/application/src/main/java/fixture/probe/ApplicationCandidateProbe.java";
-            String patch = "--- /dev/null\n+++ b/" + libraryPath + "\n@@ -0,0 +1,2 @@\n"
-                    + "+package fixture.probe;\n+public class LibraryCandidateProbe {}\n"
-                    + "--- /dev/null\n+++ b/" + applicationPath + "\n@@ -0,0 +1,2 @@\n"
-                    + "+package fixture.probe;\n+public class ApplicationCandidateProbe {}\n";
-            String applied = sandbox.tool(id, new AgentProtocol.ToolCall("reactor-edit", "apply_patch",
-                    json.writeValueAsString(Map.of("patch", patch))), () -> false);
-            assertTrue(json.readTree(applied).path("ok").asBoolean(), applied);
-            String rechecked = sandbox.tool(id, new AgentProtocol.ToolCall("reactor-retest", "run_checks",
-                    json.writeValueAsString(Map.of("goal", "test", "directory", "complete"))), () -> false);
-            assertTrue(rechecked.contains("TESTS_PASSED"), rechecked);
+            for (String path : java.util.List.of(libraryPath, applicationPath)) {
+                String type = path.equals(libraryPath) ? "LibraryCandidateProbe" : "ApplicationCandidateProbe";
+                String applied = sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(), "edit_file",
+                        json.writeValueAsString(Map.of("path", path, "old_text", "", "new_text",
+                                "package fixture.probe;\npublic class " + type + " {}\n"))), () -> false);
+                assertTrue(json.readTree(applied).path("ok").asBoolean(), applied);
+            }
+            String rechecked = sandbox.tool(id, new AgentProtocol.ToolCall("reactor-retest", "exec_command",
+                    json.writeValueAsString(Map.of("command", "mvn -B test", "directory", "complete", "verification_scope", "Reactor tests", "check_kind", "test"))), () -> false);
+            assertTrue(rechecked.contains("COMMAND_SUCCEEDED"), rechecked);
             var candidate = sandbox.finish(id, () -> false);
             assertEquals(java.util.Set.of(libraryPath, applicationPath), java.util.Set.copyOf(candidate.changedPaths()));
             assertEquals(revision, fixture.git(official, "rev-parse", "HEAD"));
@@ -101,7 +101,7 @@ class DockerMavenCompatibilityTest {
             assertTrue(fixture.git(official, "status", "--porcelain").isEmpty());
             System.out.println("TASK1_COMPATIBILITY repository=spring-guides/gs-multi-module revision=" + revision
                     + " jdk=17 directory=complete result=" + json.readTree(result).path("result").path("classification")
-                    + " tests=" + json.readTree(result).path("result").path("tests"));
+                    + " tests=" + json.readTree(result).path("result").path("executedTests"));
         } finally {
             sandbox.cleanup(id);
         }

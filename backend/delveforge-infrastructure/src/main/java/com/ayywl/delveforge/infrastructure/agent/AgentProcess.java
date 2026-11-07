@@ -16,7 +16,10 @@ import java.util.function.BooleanSupplier;
 
 /** 受控 CLI 运输，二进制 stdout 与诊断 stderr 分离；子进程从不继承模型凭据。 */
 final class AgentProcess {
-    record Result(int exitCode, byte[] bytes, String diagnostic) {
+    record Result(int exitCode, byte[] bytes, String diagnostic, boolean truncated) {
+        Result(int exitCode, byte[] bytes, String diagnostic) {
+            this(exitCode, bytes, diagnostic, false);
+        }
         String text() {
             return new String(bytes, StandardCharsets.UTF_8);
         }
@@ -24,6 +27,11 @@ final class AgentProcess {
 
     Result run(List<String> command, Path directory, byte[] input, Duration timeout, int maxBytes,
             BooleanSupplier cancelled, Map<String, String> additions) {
+        return run(command, directory, input, timeout, maxBytes, cancelled, additions, false);
+    }
+
+    Result run(List<String> command, Path directory, byte[] input, Duration timeout, int maxBytes,
+            BooleanSupplier cancelled, Map<String, String> additions, boolean truncate) {
         Process process;
         try {
             ProcessBuilder builder = new ProcessBuilder(command);
@@ -52,8 +60,9 @@ final class AgentProcess {
         ByteArrayOutputStream stdout = new ByteArrayOutputStream();
         ByteArrayOutputStream stderr = new ByteArrayOutputStream();
         AtomicBoolean failed = new AtomicBoolean();
-        Thread out = drain(process.getInputStream(), stdout, maxBytes, failed, process);
-        Thread err = drain(process.getErrorStream(), stderr, Math.min(maxBytes, 65536), failed, process);
+        AtomicBoolean truncated = new AtomicBoolean();
+        Thread out = drain(process.getInputStream(), stdout, maxBytes, failed, process, truncate, truncated);
+        Thread err = drain(process.getErrorStream(), stderr, Math.min(maxBytes, 65536), failed, process, truncate, truncated);
         Thread writer = Thread.ofVirtual().start(() -> {
             try (var stream = process.getOutputStream()) {
                 if (input != null) {
@@ -82,7 +91,7 @@ final class AgentProcess {
             if (failed.get() || writer.isAlive() || out.isAlive() || err.isAlive()) {
                 throw new AgentException("OUTPUT_LIMIT", "Controlled operation output could not be captured safely");
             }
-            return new Result(process.exitValue(), stdout.toByteArray(), stderr.toString(StandardCharsets.UTF_8));
+            return new Result(process.exitValue(), stdout.toByteArray(), stderr.toString(StandardCharsets.UTF_8), truncated.get());
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             throw new AgentException("CANCELLED", "Agent operation interrupted", failure);
@@ -108,13 +117,19 @@ final class AgentProcess {
     }
 
     private static Thread drain(java.io.InputStream input, ByteArrayOutputStream output, int maxBytes,
-            AtomicBoolean failed, Process process) {
+            AtomicBoolean failed, Process process, boolean truncate, AtomicBoolean truncated) {
         return Thread.ofVirtual().start(() -> {
             try (input) {
                 byte[] buffer = new byte[8192];
                 int count;
                 while ((count = input.read(buffer)) != -1) {
                     if (output.size() + count > maxBytes) {
+                        if (truncate) {
+                            int remaining = Math.max(0, maxBytes - output.size());
+                            output.write(buffer, 0, remaining);
+                            truncated.set(true);
+                            continue;
+                        }
                         failed.set(true);
                         process.destroyForcibly();
                         return;

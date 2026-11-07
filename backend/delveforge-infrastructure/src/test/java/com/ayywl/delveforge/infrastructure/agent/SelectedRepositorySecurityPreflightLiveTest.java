@@ -61,36 +61,18 @@ class SelectedRepositorySecurityPreflightLiveTest {
             if (expectedOutcome != null) {
                 assertEquals(expectedOutcome, result.outcome(), result.diagnostic());
             }
-            if (diagnostic.path("sourceChanges").isObject()) {
-                assertEquals("SECURITY_BLOCKED", result.outcome());
-                assertTrue(diagnostic.path("sourceChanges").path("unexpectedChanges").asInt() > 0);
-            } else {
-                assertTrue(diagnostic.path("probes").size() > 0, result.diagnostic());
-            }
-            assertTrue(!result.diagnostic().contains("Executable source or build configuration is withheld"));
-            if (diagnostic.path("probes").size() > 0 && java.util.Set.of("BUILD_CONFIGURATION_FAILED", "TESTS_FAILED")
-                    .contains(diagnostic.path("probes").get(0).path("classification").asText())) {
-                String response = sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(),
-                        "run_checks", json.writeValueAsString(Map.of("directory", "backend", "goal", "test"))),
-                        () -> false);
-                evidence.set("independentBackendCheck", json.readTree(response));
-            }
-            boolean frontendObserved = false;
-            for (var probe : diagnostic.path("probes")) {
-                frontendObserved |= probe.path("checkType").asText().equals("FRONTEND");
-            }
-            if (!frontendObserved) {
-                // 正式预检遇后端环境失败即停；独立探针只诊断前端，不将 Run 改为 READY。
-                var checks = evidence.putArray("independentFrontendChecks");
-                for (String goal : java.util.List.of("build", "test")) {
-                    String response = sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(),
-                            "run_frontend_checks", json.writeValueAsString(Map.of("directory", "frontend", "goal", goal))),
-                            () -> false);
-                    var checked = json.readTree(response);
-                    checks.add(checked);
-                    assertTrue(checked.path("ok").asBoolean(), response);
-                }
-            }
+            assertTrue(result.ready(), result.diagnostic());
+            // 显式测试调用者提供仓库实际命令；预检不再猜测 Maven/前端入口。
+            String command = System.getProperty("delveforge.validation.command");
+            assertTrue(command != null && !command.isBlank(), "Provide the repository's actual verification command");
+            String response = sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(),
+                    "exec_command", json.writeValueAsString(Map.of("directory",
+                            System.getProperty("delveforge.validation.command-directory", "."), "command", command,
+                            "verification_scope", "Explicit selected repository verification", "check_kind", "test"))),
+                    () -> false);
+            var checked = json.readTree(response);
+            evidence.set("nativeCheck", checked);
+            assertTrue(checked.path("ok").asBoolean(), response);
         } finally {
             sandbox.cleanup(id);
             assertEquals(revision, git.git(original, "rev-parse", "HEAD"));

@@ -34,7 +34,7 @@ class AgentContextTest {
     private CodingAgentService service(int budget) {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(budget, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
-                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), 180, 2);
+                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), 180);
         return new CodingAgentService(null, null, null, null, new DeterministicRepositorySecretPolicy(), limits);
     }
 

@@ -1,4 +1,4 @@
-"""受控 Central 镜像；项目网络无外部路由，代理拒绝 CONNECT 和任意上游选择。"""
+"""受控公共工件代理；项目网络无外部路由，HTTPS 隧道仅允许固定工件主机。"""
 import hashlib
 import gzip
 import io
@@ -12,6 +12,8 @@ import re
 import tempfile
 import threading
 import time
+import socket
+import select
 import urllib.error
 import urllib.request
 import urllib.parse
@@ -26,6 +28,7 @@ MAVEN_ACTIVE = {}
 MAVEN_RECENT = collections.deque(maxlen=8)
 MAVEN_STARTED = time.monotonic()
 PUBLIC_REGISTRIES = {'registry.npmjs.org', 'registry.npmmirror.com', 'registry.npm.taobao.org', 'registry.yarnpkg.com'}
+NPM_METADATA_LOCK = threading.Lock()
 
 
 def registry_tarball_url(value, name=None, version=None):
@@ -97,7 +100,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-# 只有可信代理可使用 Engine 配置的出站代理。工程容器显式清空代理环境，且无外部路由。
+# 只有可信代理可使用 Engine 配置的出站代理；工程容器只有固定工件代理且无外部路由。
 OPENER = urllib.request.build_opener(urllib.request.ProxyHandler(), NoRedirect())
 CONNECTIONS = threading.local()
 
@@ -197,13 +200,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def do_CONNECT(self):
+        # 原生锁文件和 wrapper 保留 HTTPS；隧道只能到固定公共工件主机的 443 端口。
+        allowed = PUBLIC_REGISTRIES | {'repo.maven.apache.org', 'repo1.maven.org'}
+        host, separator, port = self.path.rpartition(':')
+        if os.environ.get('DF_ARTIFACT_MODE') != 'command' or not separator or port != '443' or host not in allowed:
+            self.send_error(403)
+            return
+        try:
+            with socket.create_connection((host, 443), timeout=15) as upstream:
+                self.send_response(200, 'Connection Established')
+                self.end_headers()
+                self.close_connection = True
+                sockets = [self.connection, upstream]
+                deadline = time.monotonic() + 120
+                transferred = 0
+                while time.monotonic() < deadline and transferred <= MAX_BYTES * 2:
+                    readable, _, _ = select.select(sockets, [], [], 1)
+                    for source in readable:
+                        data = source.recv(65536)
+                        if not data:
+                            return
+                        transferred += len(data)
+                        destination = upstream if source is self.connection else self.connection
+                        destination.sendall(data)
+        except OSError:
+            self.close_connection = True
+
     def do_GET(self):
         if self.path.startswith('/npm/'):
-            if os.environ.get('DF_ARTIFACT_MODE', 'maven') == 'frontend':
+            if os.environ.get('DF_ARTIFACT_MODE', 'maven') in ('frontend', 'command'):
+                if not self.path.endswith('.tgz'):
+                    # 原生供应链核对会并发请求完整版本历史；解析峰值不能叠加耗尽代理内存。
+                    with NPM_METADATA_LOCK:
+                        return self.npm_tarball()
                 return self.npm_tarball()
             self.send_error(403)
             return
-        if os.environ.get('DF_ARTIFACT_MODE', 'maven') != 'maven':
+        if os.environ.get('DF_ARTIFACT_MODE', 'maven') not in ('maven', 'command'):
             self.send_error(403)
             return
         path = self.path.removeprefix('/maven2/')
@@ -248,7 +282,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def npm_tarball(self):
         # 仅固定 registry 的包 metadata 与版本化 tarball；pnpm 12 的供应链核对需要 metadata。
-        # 不接受任意 URL、重定向、CONNECT 或 registry 选择。
+        # 此路径不接受任意 URL、重定向或 registry 选择；CONNECT 使用独立的固定主机校验。
         path = self.path[5:]
         metadata = re.fullmatch(r'(?:@[a-z0-9_.-]+(?:/|%2[Ff]))?[a-z0-9_.-]+', path)
         tarball = re.fullmatch(r'(?:@[a-z0-9_.-]+/)?[a-z0-9_.-]+/-/[a-zA-Z0-9_.+\-]+\.tgz', path)

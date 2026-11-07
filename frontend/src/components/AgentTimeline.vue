@@ -3,6 +3,8 @@ import { computed, nextTick, ref, watch } from "vue";
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import NavigationIcon from "./NavigationIcon.vue";
 import AgentActivityRow from "./AgentActivityRow.vue";
+import { verificationLabel } from "./agentResultPresentation";
+import { summaryFields, routineProviderDiagnostic, commandPresentation } from "./agentEventPresentation";
 import type { RunPresentation } from "./agentResultPresentation";
 import { activityState, buildActivities, currentActivity, checkSummary, explorationSummary, isExploration, isPatchTool, isCheckTool, patchSummary, toolNames } from "./agentEventPresentation";
 
@@ -28,7 +30,11 @@ const checks = computed(() => checkSummary(activities.value, props.run.id));
 const checksExpanded = ref(false);
 const checkCount = ref(40);
 const visibleChecks = computed(() => checks.value.activities.slice(0, checkCount.value));
-const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && !isPatchTool(activity.tool) && !isCheckTool(activity.tool) && activity.event.kind !== "MODEL_REQUEST"));
+const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && !isPatchTool(activity.tool) && !isCheckTool(activity.tool) && activity.event.kind !== "MODEL_REQUEST" && !routineProviderDiagnostic(activity)));
+const providerExpanded = ref(false);
+const providerCount = ref(40);
+const providerDiagnostics = computed(() => activities.value.filter(activity => activity.event.kind === "MODEL_PROVIDER_DIAGNOSTIC"));
+const visibleProviders = computed(() => [...providerDiagnostics.value].reverse().slice(0, providerCount.value));
 const visible = computed(() => chronological.value.slice(-visibleCount.value));
 const fileCount = ref(40);
 const filesExpanded = ref(false);
@@ -65,7 +71,7 @@ watch(() => props.events.at(-1)?.sequence, async () => {
     await nextTick();
     if (follow && following.value && viewport.value) viewport.value.scrollTop = viewport.value.scrollHeight;
 });
-watch(() => props.run.id, () => { following.value = true; unseen.value = false; visibleCount.value = 40; previousCount = 0; filesExpanded.value = false; fileCount.value = 40; patchesExpanded.value = false; patchCount.value = 40; checksExpanded.value = false; checkCount.value = 40; });
+watch(() => props.run.id, () => { following.value = true; unseen.value = false; visibleCount.value = 40; previousCount = 0; filesExpanded.value = false; fileCount.value = 40; patchesExpanded.value = false; patchCount.value = 40; checksExpanded.value = false; checkCount.value = 40; providerExpanded.value = false; providerCount.value = 40; });
 </script>
 
 <template>
@@ -93,14 +99,26 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
         </div>
         <button v-if="!following" class="secondary compact-button latest-activity" @click="latest">{{ unseen ? '有新活动 · 回到最新' : '回到最新活动' }}</button>
         <p v-if="chronological.length > 40" class="meta">显示 {{ visible.length }} / {{ chronological.length }} 项已加载时间线活动。</p>
+        <section v-if="checks.count" class="current-checks" aria-label="当前源码验证">
+            <h4>当前源码验证</h4>
+            <p v-if="checks.stale" class="check-blocker" role="status">源码已变化，部分必要检查需要重新运行。</p>
+            <ol v-if="checks.current.length" class="current-check-list">
+                <li v-for="activity in checks.current" :key="activity.key">
+                    <code translate="no">{{ summaryFields(activity.finish ?? activity.event).command ?? activity.target ?? toolNames[activity.tool!] }}</code>
+                    · {{ activity.tool === "exec_command" ? commandPresentation(activity).label : verificationLabel(activity.classification) }}
+                    <span v-if="activity.tool === 'exec_command'"> · {{ summaryFields(activity.finish ?? activity.event).scope }}</span>
+                </li>
+            </ol>
+            <p v-else class="meta">尚无可确认的当前范围验证结果。命令执行成功不等于业务验收通过。</p>
+        </section>
         <details v-if="checks.count" :key="checks.key" class="check-summary" :open="checksExpanded">
-            <summary @click.prevent="checksExpanded = !checksExpanded"><NavigationIcon name="check" />检查 · 汇总
+            <summary @click.prevent="checksExpanded = !checksExpanded"><NavigationIcon name="check" />命令与检查 · 历史
                 <strong class="check-latest" :data-tone="checks.latest?.outcome">{{ checks.label }}</strong>
-                <span class="check-count">{{ checks.count }} 次检查<span v-if="checks.failed"> · 历史 {{ checks.failed }} 次未通过</span></span>
+                <span class="check-count">{{ checks.count }} 次尝试<span v-if="checks.failed"> · 历史 {{ checks.failed }} 次未通过</span></span>
                 <span v-if="checks.detail" class="check-detail">{{ checks.detail }}</span>
             </summary>
-            <template v-if="checksExpanded"><p class="exploration-note">汇总优先显示最近检查所绑定源码版本中的未通过项，各工程和检查目标分别计算。以下保留全部历史；检查记录不能替代最终验证结论。</p>
-                <ol class="check-history" aria-label="本 Run 完整检查历史，按时间排序" tabindex="0">
+            <template v-if="checksExpanded"><p class="exploration-note">当前结果绑定最近已记录的源码版本；以下为全部命令尝试，最近记录在前。缺失的历史不会推断为通过。</p>
+                <ol class="check-history" aria-label="本 Run 已加载命令历史，最近在前" tabindex="0">
                     <AgentActivityRow v-for="activity in visibleChecks" :key="activity.key" :activity="activity" />
                 </ol><button v-if="checkCount < checks.count" class="secondary compact-button more-checks" @click="checkCount += 40">显示更多检查记录</button>
             </template>
@@ -132,11 +150,26 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
                 <button v-if="fileCount < exploration.count" class="secondary compact-button more-exploration" @click="fileCount += 40">显示更多文件操作</button>
             </template>
         </details>
+        <details v-if="providerDiagnostics.length" class="provider-diagnostics" :open="providerExpanded">
+            <summary @click.prevent="providerExpanded = !providerExpanded">模型请求技术诊断 · 已加载 {{ providerDiagnostics.length }} 条</summary>
+            <template v-if="providerExpanded">
+                <p class="exploration-note">常规成功请求收在此处；失败和重试仍保留在主时间线。诊断不改变调用及用量统计。</p>
+                <ol class="exploration-operations" aria-label="模型请求技术诊断，最近在前" tabindex="0">
+                    <AgentActivityRow v-for="activity in visibleProviders" :key="activity.key" :activity="activity" />
+                </ol>
+                <button v-if="providerCount < providerDiagnostics.length" class="secondary compact-button" @click="providerCount += 40">显示更多请求诊断</button>
+            </template>
+        </details>
         <p v-if="events.length === 1000" class="meta">已加载最近 1000 条事件；更早事件受现有保留范围限制。</p>
     </section>
 </template>
 
 <style scoped>
+.provider-diagnostics { border-top: 1px solid var(--line); padding: 12px 0; font-size: 13px; }
+.provider-diagnostics > summary { cursor: pointer; overflow-wrap: anywhere; }
+.current-checks { border-bottom: 1px solid var(--line); padding: 12px 0; }
+.current-checks h4 { font-size: 14px; margin: 0 0 8px; }
+.current-check-list { list-style: none; margin: 0; padding: 0; overflow-wrap: anywhere; }
 .check-summary { min-width: 0; margin: 10px 0; padding: 12px 0 16px; border-bottom: 1px solid var(--line); }
 .check-summary summary { cursor: pointer; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .check-summary summary > .navigation-icon { width: 15px; height: 15px; vertical-align: middle; margin-right: 8px; color: var(--muted); }

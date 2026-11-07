@@ -15,10 +15,8 @@ public final class AgentTools {
             "list_files", Set.of("path", "offset", "limit"),
             "search_code", Set.of("path", "query"),
             "read_file", Set.of("path", "start_line", "line_count"),
-            "apply_patch", Set.of("patch"),
             "edit_file", Set.of("path", "old_text", "new_text"),
-            "run_checks", Set.of("goal", "directory", "module", "test"),
-            "run_frontend_checks", Set.of("goal", "directory"));
+            "exec_command", Set.of("command", "directory", "timeout_seconds", "verification_scope", "check_kind"));
 
     private AgentTools() {
     }
@@ -30,7 +28,7 @@ public final class AgentTools {
     }
 
     public static boolean mutation(String tool) {
-        return "apply_patch".equals(tool) || "edit_file".equals(tool);
+        return "exec_command".equals(tool) || "edit_file".equals(tool);
     }
 
     public static boolean readOnly(String tool) {
@@ -65,6 +63,10 @@ public final class AgentTools {
     }
 
     public static List<AgentProtocol.ToolSpec> definitions() {
+        return definitions(AgentProtocol.Limits.defaults());
+    }
+
+    public static List<AgentProtocol.ToolSpec> definitions(AgentProtocol.Limits limits) {
         return List.of(
                 spec("list_files", "分页列出当前沙箱文件；默认 path='.'，offset=0，limit=100，最大200。",
                         "\"path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\"},\"limit\":{\"type\":\"integer\"}", ""),
@@ -75,18 +77,59 @@ public final class AgentTools {
                 spec("edit_file", "优先使用精确文本编辑：path 为相对路径，old_text 必须与当前文件中的一个唯一片段完全一致，new_text 替换该片段。新文件 old_text 为空且必须不存在。不要输出 diff 行数，不要重复已成功的编辑；冲突先重新读取。",
                         "\"path\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"},\"new_text\":{\"type\":\"string\"}",
                         "\"path\",\"old_text\",\"new_text\""),
-                spec("apply_patch", "提交标准 unified diff（--- a/path、+++ b/path，新增/删除用 /dev/null）。须含正确@@行数；保留源码行尾。冲突后重新读取当前文件，不重复相同补丁；不接受*** Begin Patch。",
-                        "\"patch\":{\"type\":\"string\"}", "\"patch\""),
-                spec("run_checks", "离线Maven检查。goal可为compile/test/package/verify，默认test；module为相对模块路径，test为测试选择器。环境缺依赖由系统有界准备。",
-                        "\"goal\":{\"type\":\"string\",\"enum\":[\"compile\",\"test\",\"package\",\"verify\"]},"
-                                + "\"directory\":{\"type\":\"string\",\"description\":\"Maven工程目录，默认仓库根；可选择嵌套reactor\"},"
-                        + "\"module\":{\"type\":\"string\"},\"test\":{\"type\":\"string\"}", ""),
-                spec("run_frontend_checks", "Vue/Vite 项目声明的 npm/pnpm 脚本检查。directory 缺省时选择唯一前端工程；"
-                        + "多个工程必须从能力描述中明确选择目录，不猜测 frontend。"
-                        + "goal 为 typecheck/build/test。依赖冻结准备，检查无网络；构建不等于运行测试。"
-                        + "缺少脚本返回 CHECK_NOT_AVAILABLE；Node --test 和 Vitest 支持结构化报告，包装须保留 NODE_OPTIONS。其他脚本可执行，未取得实际测试报告时为 TEST_EXECUTION_UNVERIFIED。反馈含当前能力及配置变化。",
-                        "\"goal\":{\"type\":\"string\",\"enum\":[\"typecheck\",\"build\",\"test\"]},"
-                                + "\"directory\":{\"type\":\"string\"}", "\"goal\""));
+                spec("exec_command", "在隔离工作区执行仓库原生命令。directory 为进程工作目录，默认仓库根目录 .；命令里的相对路径从 directory 计算，不能重复目录前缀。文件与依赖保留，shell 变量和 cwd 不跨调用保留。安装/探索可省略两个验证字段；用于满足验证要求时同时提供 verification_scope 与 check_kind（test/build/other）。过滤输出前保存原命令退出码并最终返回它，不能把 grep 成功当作检查通过。",
+                        "\"command\":{\"type\":\"string\"},\"directory\":{\"type\":\"string\"},"
+                                + "\"timeout_seconds\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":" + limits.checkSeconds() + "},\"verification_scope\":{\"type\":\"string\"},"
+                                + "\"check_kind\":{\"type\":\"string\",\"enum\":[\"test\",\"build\",\"other\"]}", "\"command\""));
+    }
+
+    public enum CommandError {
+        INVALID_ARGUMENTS("核对字段名称、类型和必填 command；安装命令不需要验证字段。"),
+        INVALID_COMMAND("command 必须是非空文本，不超过 16000 字符且不能包含 NUL。"),
+        INVALID_TIMEOUT("timeout_seconds 必须是运行时限内的正整数；也可以省略，使用本次运行上限。"),
+        VERIFICATION_FIELDS_REQUIRED("verification_scope 和 check_kind 必须同时提供或同时省略。依赖安装等准备操作可同时省略；验证操作必须同时填写。"),
+        INVALID_VERIFICATION_SCOPE("verification_scope 必须描述当前 Step/仓库的验证要求，长度为 1 到 1000 字符。"),
+        INVALID_CHECK_KIND("check_kind 只能为 test、build 或 other；安装操作可同时省略两个验证字段。"),
+        INVALID_DIRECTORY("directory 必须是现有的仓库相对目录；根目录用 .，先用 list_files 核对路径。"),
+        DIRECTORY_NOT_FOUND("工作目录不存在或不是目录。先用 list_files 查找；命令中的相对路径从该目录计算，不要重复目录前缀。"),
+        NOT_VERIFICATION_COMMAND("输出说明或空操作不能作为验证。运行仓库定义的实际检查，并保留检查自身的退出码。");
+
+        private final String instruction;
+
+        CommandError(String instruction) {
+            this.instruction = instruction;
+        }
+    }
+
+    private static final class CommandArgumentException extends AgentException {
+        private final CommandError reason;
+
+        private CommandArgumentException(CommandError reason) {
+            super("INVALID_ARGUMENTS", reason.instruction);
+            this.reason = reason;
+        }
+    }
+
+    /** 只发送固定诊断，不回显未经校验的参数或异常正文。 */
+    public static String commandError(CommandError reason, AgentProtocol.Limits limits) {
+        String instruction = reason.instruction;
+        if (reason == CommandError.INVALID_TIMEOUT) {
+            instruction += "本次上限为 " + limits.checkSeconds() + " 秒。";
+        }
+        return JSON.createObjectNode().put("ok", false).put("classification", "INVALID_ARGUMENTS")
+                .put("reason", reason.name()).put("mutationNotStarted", true)
+                .put("instruction", instruction).toString();
+    }
+
+    public static String argumentError(AgentProtocol.ToolCall call, AgentException failure, AgentProtocol.Limits limits) {
+        if (readOnly(call.name())) {
+            return readError(ReadError.INVALID_ARGUMENTS);
+        }
+        if (call.name().equals("exec_command")) {
+            return commandError(failure instanceof CommandArgumentException command
+                    ? command.reason : CommandError.INVALID_ARGUMENTS, limits);
+        }
+        return "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
     }
 
     public static void validate(AgentProtocol.ToolCall call, AgentProtocol.Limits limits) {
@@ -111,16 +154,15 @@ public final class AgentTools {
             while (fields.hasNext()) {
                 var field = fields.next();
                 if (!FIELDS.get(call.name()).contains(field.getKey())
-                        || (Set.of("offset", "limit", "start_line", "line_count").contains(field.getKey())
+                        || (Set.of("offset", "limit", "start_line", "line_count", "timeout_seconds").contains(field.getKey())
                         ? !field.getValue().isIntegralNumber() : !field.getValue().isTextual())) {
                     throw new AgentException("INVALID_ARGUMENTS", "Unexpected argument or argument type");
                 }
             }
             String required = switch (call.name()) {
-                case "run_frontend_checks" -> "goal";
+                case "exec_command" -> "command";
                 case "search_code" -> "query";
                 case "read_file", "edit_file" -> "path";
-                case "apply_patch" -> "patch";
                 default -> null;
             };
             if (required != null && (!args.hasNonNull(required) || args.path(required).asText().isBlank())) {
@@ -129,17 +171,29 @@ public final class AgentTools {
             if (call.name().equals("edit_file") && (!args.has("old_text") || !args.has("new_text"))) {
                 throw new AgentException("INVALID_ARGUMENTS", "Exact edit requires both source and replacement text");
             }
-            if (call.name().equals("run_checks")) {
-                if (!Set.of("compile", "test", "package", "verify").contains(args.path("goal").asText("test"))
-                        || args.has("module") && !args.path("module").asText().matches("[A-Za-z0-9_./-]{1,200}")
-                        || args.has("test") && !args.path("test").asText().matches("[A-Za-z0-9_.$*#,+-]{1,200}")) {
-                    throw new AgentPolicyRejection(AgentPolicyRejection.Rule.MAVEN_OPTIONS,
-                            AgentPolicyRejection.Stage.ARGUMENTS);
+            if (call.name().equals("exec_command")) {
+                if (args.path("command").asText().length() > 16000
+                        || args.path("command").asText().indexOf(0) >= 0) {
+                    throw new CommandArgumentException(CommandError.INVALID_COMMAND);
                 }
-            }
-            if (call.name().equals("run_frontend_checks")
-                    && !Set.of("typecheck", "build", "test").contains(args.path("goal").asText())) {
-                throw new AgentException("INVALID_ARGUMENTS", "Unsupported frontend check goal");
+                if (args.has("directory") && args.path("directory").asText().isBlank()) {
+                    throw new CommandArgumentException(CommandError.INVALID_DIRECTORY);
+                }
+                if (args.has("timeout_seconds") && (!args.path("timeout_seconds").canConvertToInt()
+                            || args.path("timeout_seconds").asInt() < 1
+                            || args.path("timeout_seconds").asInt() > limits.checkSeconds())) {
+                    throw new CommandArgumentException(CommandError.INVALID_TIMEOUT);
+                }
+                if (args.has("verification_scope") != args.has("check_kind")) {
+                    throw new CommandArgumentException(CommandError.VERIFICATION_FIELDS_REQUIRED);
+                }
+                if (args.has("verification_scope") && (args.path("verification_scope").asText().isBlank()
+                        || args.path("verification_scope").asText().length() > 1000)) {
+                    throw new CommandArgumentException(CommandError.INVALID_VERIFICATION_SCOPE);
+                }
+                if (args.has("check_kind") && !Set.of("test", "build", "other").contains(args.path("check_kind").asText())) {
+                    throw new CommandArgumentException(CommandError.INVALID_CHECK_KIND);
+                }
             }
         } catch (IOException failure) {
             throw new AgentException("INVALID_ARGUMENTS", "Invalid JSON tool arguments");

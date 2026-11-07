@@ -15,6 +15,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CredentialMutationPolicyTest {
     private final RepositorySecretPolicy policy = new DeterministicRepositorySecretPolicy();
 
+    @Test
+    void shellEmptyInitializationIsNotASecretButValuesAndConcatenationRemainProtected() {
+        assertEquals(List.of(), policy.mutationProtectedLines("wrapper",
+                "#!/bin/sh\nMVNW_USERNAME='' MVNW_PASSWORD='' ;;\ncase \"${MVNW_PASSWORD:+has-password}\" in\n"));
+        for (String assignment : List.of("PASSWORD='private-value'", "PASSWORD=''private-value",
+                "PASSWORD=\"\"$VALUE", "PASSWORD=\"sk-" + "a".repeat(32) + "\"",
+                "echo ${PASSWORD:-private-value}", "echo ${PASSWORD:=private-value}",
+                "echo ${PASSWORD:+sk-" + "a".repeat(32) + "}")) {
+            assertEquals(List.of(2), policy.mutationProtectedLines("wrapper", "#!/bin/sh\n" + assignment), assignment);
+        }
+        assertFalse(policy.mutationProtectedLines("settings.properties", "PASSWORD=\"\"").isEmpty());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "const token = localStorage.getItem('token');",

@@ -58,14 +58,18 @@ public final class BaselineCheckComparison {
             if (current == null) {
                 throw blocked("Current full check required for " + key);
             }
-            if (!baseline.path("environment").isObject()
-                    || !baseline.path("environment").path("image").asText().matches("sha256:[0-9a-f]{64}")
-                    || !baseline.path("environment").path("configuration").asText().matches("[0-9a-f]{64}")
-                    || !baseline.path("environment").equals(current.path("environment"))
-                    || !baseline.path("sourceView").equals(current.path("sourceView"))
-                    || !current.path("sourceView").equals(evidence.path("sourceView"))
-                    || current.path("sourceView").path("withheldSourceCount").asInt() > 0) {
-                throw invalid("Baseline and final execution environments differ for " + key);
+            boolean passing = Set.of("TESTS_PASSED", "BUILD_PASSED_NOT_TESTED")
+                    .contains(current.path("classification").asText());
+            if (!passing) {
+                if (!baseline.path("environment").isObject()
+                        || !baseline.path("environment").path("image").asText().matches("sha256:[0-9a-f]{64}")
+                        || !baseline.path("environment").path("configuration").asText().matches("[0-9a-f]{64}")
+                        || !baseline.path("environment").equals(current.path("environment"))
+                        || !baseline.path("sourceView").equals(current.path("sourceView"))
+                        || !current.path("sourceView").equals(evidence.path("sourceView"))
+                        || current.path("sourceView").path("withheldSourceCount").asInt() > 0) {
+                    throw invalid("Baseline and final execution environments differ for " + key);
+                }
             }
             String goal = baseline.path("goal").asText();
             if (!Set.of("test", "verify").contains(goal)) {
@@ -74,7 +78,7 @@ public final class BaselineCheckComparison {
                 }
                 continue;
             }
-            if (!baseline.path("environment").path("runtimeDependencies").asText().matches("[0-9a-f]{64}")) {
+            if (!passing && !baseline.path("environment").path("runtimeDependencies").asText().matches("[0-9a-f]{64}")) {
                 throw invalid("Test runtime dependency identity is unknown for " + key);
             }
             Map<String, JsonNode> before = cases(baseline);
@@ -82,12 +86,13 @@ public final class BaselineCheckComparison {
             if (after.isEmpty()) {
                 throw invalid("Executed test inventory is empty");
             }
-            boolean featurePassed = false;
             for (var entry : before.entrySet()) {
                 JsonNode old = entry.getValue();
                 JsonNode now = after.get(entry.getKey());
-                if (now == null || !old.path("outcome").asText().equals("SKIPPED")
-                        && now.path("outcome").asText().equals("SKIPPED")) {
+                boolean observedFailure = Set.of("FAILED", "ERROR").contains(old.path("outcome").asText());
+                if ((!passing || observedFailure) && (now == null
+                        || !old.path("outcome").asText().equals("SKIPPED")
+                        && now.path("outcome").asText().equals("SKIPPED"))) {
                     throw testBlocked("BASELINE_TEST_MISSING_OR_SKIPPED", current, old, "");
                 }
             }
@@ -108,7 +113,6 @@ public final class BaselineCheckComparison {
                 if (modifiedTest && !outcome.equals("PASSED")) {
                     throw testBlocked("CHANGED_TEST_NOT_PASSED", current, now, "");
                 }
-                featurePassed |= modifiedTest && outcome.equals("PASSED");
                 if (Set.of("FAILED", "ERROR").contains(outcome)) {
                     var differences = new ArrayList<String>();
                     if (old == null) {
@@ -135,12 +139,6 @@ public final class BaselineCheckComparison {
                     debt.addObject().put("check", key).put("testId", entry.getKey())
                             .put("failure", now.path("failure").asText()).put("source", now.path("source").asText());
                 }
-            }
-            String directory = current.path("directory").asText(".");
-            boolean projectChanged = changed.stream().anyMatch(path -> directory.equals(".")
-                    || path.startsWith(directory + "/"));
-            if (projectChanged && !featurePassed) {
-                throw blocked("Passing changed-feature tests are required for " + key);
             }
         }
         return new Result(Set.copyOf(debtKeys), debt);

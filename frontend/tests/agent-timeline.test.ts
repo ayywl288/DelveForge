@@ -12,6 +12,18 @@ const tool = (sequence: number, kind: string, fields: Record<string, unknown> = 
     JSON.stringify({ metadataVersion: 1, toolCallId: identity, tool: "read_file", path: "src/Counter.java", ...fields }));
 const important = (sequence: number) => fact(sequence, "TOOL_FINISHED", '{"tool":"run_checks","ok":true,"classification":"TESTS_PASSED"}');
 
+it("shows a rejected command as not executed without an invented exit code", async () => {
+    const { root, props } = mount(false);
+    props.events = [tool(1, "TOOL_FINISHED", { tool: "exec_command", command: "mvn test", directory: "missing",
+        ok: false, classification: "INVALID_ARGUMENTS", resultRecorded: true, mutationNotStarted: true })];
+    await settle();
+    (root.querySelector('.check-summary > summary') as HTMLElement).click();
+    await settle();
+    expect(root.textContent).toContain("命令未执行，请按反馈调整后重试。");
+    expect(root.textContent).not.toContain("退出码");
+    expect(root.textContent).toContain("mvn test");
+});
+
 it("keeps same-snapshot backend test failure visible after a frontend build", async () => {
     const { root, props } = mount(false);
     const check = (sequence: number, fields: Record<string, unknown>) => fact(sequence, "TOOL_FINISHED",
@@ -36,7 +48,7 @@ it("keeps same-snapshot backend test failure visible after a frontend build", as
     props.events.push(check(6, { tool: "run_frontend_checks", directory: "frontend", goal: "build",
         snapshot: "b".repeat(64), classification: "BUILD_PASSED_NOT_TESTED", executedTests: 0, errors: 0 }));
     await settle();
-    expect(root.querySelector(".check-latest")?.textContent).toContain("构建通过");
+    expect(root.querySelector(".check-latest")?.textContent).toContain("检查已过期");
     expect(root.querySelector(".check-detail")?.textContent).not.toContain("已执行 17 项");
 });
 
@@ -60,7 +72,7 @@ it("shows attributed model incomplete explanation and preserves historical fallb
     props.events = [fact(1, "MODEL_INCOMPLETE", JSON.stringify({ metadataVersion: 1,
         summary: "后端检查仍有错误，需要核对。" })), fact(2, "FAILED", "MODEL_INCOMPLETE")];
     await settle();
-    expect(root.textContent).toContain("模型说明：后端检查仍有错误，需要核对。");
+    expect(root.textContent).toContain("模型说明（未独立验证）：后端检查仍有错误，需要核对。");
     expect(root.textContent).toContain("模型报告未完成");
     props.events = [fact(2, "FAILED", "MODEL_INCOMPLETE")]; await settle();
     expect(root.textContent).toContain("未记录具体说明");
@@ -557,7 +569,7 @@ it("keeps important milestones chronological and explains a known pre-mutation r
     const refusal = root.querySelector('.patch-operations [data-sequence="3"]')!;
     expect(refusal.getAttribute('data-tone')).toBe('blocked');
     expect(refusal.textContent).toContain("源码修改未开始");
-    expect(refusal.textContent).toContain("允许一次另选方案");
+    expect(refusal.textContent).toContain("可调整方案后继续本次运行");
     expect(refusal.querySelector('.activity-uncertain')).toBeNull();
     expect(root.querySelector('.exploration-count')?.textContent).toContain("0 次文件操作");
     props.events.push(fact(5, "MODEL_REQUEST", "request=2"), important(6), fact(7, "FINALIZING"), fact(8, "FAILED", "POLICY_REJECTED"));
@@ -577,7 +589,7 @@ it("only labels a known pre-mutation source refusal as unmodified, including ter
     await settle();
     expect(root.querySelector('.activity-facts')?.textContent).toContain("源码修改未开始");
     expect(root.querySelector('.activity-uncertain')).toBeNull();
-    expect(root.textContent).not.toContain("允许一次另选方案");
+    expect(root.textContent).not.toContain("可调整方案后继续本次运行");
     props.events = [tool(1, "TOOL_FINISHED", { tool: "apply_patch", ok: false, resultRecorded: false,
         classification: "POLICY_REJECTED", policyRule: "SOURCE_CAPTURE_LIMIT", policyStage: "SOURCE_CAPTURE", mutationNotStarted: true })];
     await settle();
@@ -757,7 +769,7 @@ it("presents exact source edits as applied patches without exposing replacement 
     expect(root.querySelector('.patch-summary [data-tone="completed"]')).not.toBeNull();
 });
 
-it("shows a single safe correction after rejected new credential content without claiming a write", async () => {
+it("shows safe correction after rejected new credential content without claiming a write", async () => {
     const { root, props } = mount();
     props.events = [tool(1, "TOOL_STARTED", { tool: "edit_file", path: "src/ExampleTest.java" }),
         tool(2, "TOOL_FINISHED", { tool: "edit_file", ok: false, classification: "POLICY_REJECTED",
@@ -791,18 +803,18 @@ it("summarizes 100 checks without red intermediate milestones and retains every 
     expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(2);
     expect(root.querySelector(".check-history")).toBeNull();
     expect(root.querySelector(".check-latest")?.textContent).toBe("测试通过");
-    expect(root.querySelector(".check-count")?.textContent).toContain("100 次检查 · 历史 99 次未通过");
+    expect(root.querySelector(".check-count")?.textContent).toContain("100 次尝试 · 历史 99 次未通过");
     expect(root.querySelector(".check-detail")?.textContent).toContain("已执行 12 项 · 失败 0 · 错误 0 · 跳过 2");
     await expandChecks(root);
     expect(root.querySelectorAll(".check-history li")).toHaveLength(40);
     root.querySelector<HTMLButtonElement>(".more-checks")!.click(); await settle();
     root.querySelector<HTMLButtonElement>(".more-checks")!.click(); await settle();
     expect([...root.querySelectorAll(".check-history li")].map(node => node.getAttribute("data-sequence")))
-        .toEqual(Array.from({length:100},(_,i)=>String(i+2)));
+        .toEqual(Array.from({length:100},(_,i)=>String(101-i)));
     expect(root.querySelector('.check-history [data-sequence="2"]')?.getAttribute("data-tone")).toBe("failed");
     props.run.id = "two"; props.events = [{...important(1),runId:"two"}]; await settle();
     expect(root.querySelector<HTMLDetailsElement>(".check-summary")!.open).toBe(false);
-    expect(root.querySelector(".check-count")?.textContent).toBe("1 次检查");
+    expect(root.querySelector(".check-count")?.textContent).toBe("1 次尝试");
 });
 it("keeps a source mutation refusal and terminal failure visible outside collapsed check history", async () => {
     const {root,props}=mount(false);
@@ -858,4 +870,107 @@ it("only a later confirmed release resolves a cleanup warning", async () => {
     expect(resourcesBlocked([blocked, fact(2, "RESOURCES_RELEASED")], "one")).toBe(false);
     expect(resourcesBlocked([blocked, fact(2, "RESOURCES_RELEASED"), fact(3, "RECONCILIATION_BLOCKED")], "one")).toBe(true);
     expect(resourcesBlocked([blocked, { ...fact(2, "RESOURCES_RELEASED"), runId: "different" }], "one")).toBe(true);
+});
+
+
+it("shows current generic checks separately, preserves retries, and invalidates them after shell edits", async () => {
+    const { root, props } = mount(false);
+    const command = (sequence: number, exitCode: number) => tool(sequence, "TOOL_FINISHED", {
+        tool: "exec_command", toolCallId: `call-${sequence}`, invocationId: `invocation-${sequence}`,
+        command: "sh check.sh", directory: ".", scope: "README counter regression", kind: "test",
+        snapshot: "a".repeat(64), afterSnapshot: "a".repeat(64), exitCode,
+        classification: exitCode ? "COMMAND_FAILED" : "COMMAND_SUCCEEDED", ok: !exitCode,
+        testDetails: "UNAVAILABLE", stdout: "actual output", timedOut: false, cancelled: false,
+    });
+    props.events = [command(1, 1), command(2, 0)];
+    await settle();
+    expect(root.querySelectorAll(".current-check-list li")).toHaveLength(1);
+    expect(root.querySelector(".current-check-list")?.textContent).toContain("命令退出成功");
+    expect(root.querySelector(".check-history")).toBeNull();
+    await expandChecks(root);
+    expect([...root.querySelectorAll(".check-history li")].map(row => row.getAttribute("data-sequence"))).toEqual(["2", "1"]);
+    expect(root.querySelector(".check-history")?.textContent).toContain("命令返回非零退出码");
+    expect(root.textContent).not.toContain("已执行 0");
+    props.events.push(tool(3, "TOOL_FINISHED", { tool: "exec_command", toolCallId: "write", command: "sh update.sh",
+        ok: true, classification: "COMMAND_SUCCEEDED", snapshot: "a".repeat(64), afterSnapshot: "b".repeat(64), sourceChanged: true }));
+    await settle();
+    expect(root.querySelectorAll(".current-check-list li")).toHaveLength(0);
+    expect(root.textContent).toContain("部分必要检查需要重新运行");
+});
+
+
+it("folds routine provider successes while keeping failed and retried requests in the timeline", async () => {
+    const { root, props } = mount(false);
+    const diagnostic = (sequence: number, fields = {}) => fact(sequence, "MODEL_PROVIDER_DIAGNOSTIC",
+        JSON.stringify({ category: "SUCCESS", attempt: 1, httpStatus: 200, responsePresent: true, ...fields }));
+    props.events = [diagnostic(1), diagnostic(2), diagnostic(3, { category: "TRANSPORT", httpStatus: null, responsePresent: false }),
+        diagnostic(4, { attempt: 2 }), diagnostic(5, { category: "HTTP", httpStatus: 429, responsePresent: false }),
+        fact(6, "MODEL_USAGE", JSON.stringify({ totalTokens: 30 }))];
+    await settle();
+    const timeline = root.querySelector(".agent-timeline")!;
+    expect(timeline.querySelector('[data-sequence="1"]')).toBeNull();
+    expect(timeline.querySelector('[data-sequence="2"]')).toBeNull();
+    expect(timeline.textContent).toContain("模型请求连接失败");
+    expect(timeline.textContent).toContain("模型请求重试成功");
+    expect(timeline.textContent).toContain("模型请求返回 HTTP 错误");
+    expect(timeline.querySelector('[data-sequence="6"]')).toBeNull();
+    const disclosure = root.querySelector<HTMLDetailsElement>(".provider-diagnostics")!;
+    expect(disclosure.open).toBe(false);
+    disclosure.querySelector<HTMLElement>("summary")!.click(); await settle();
+    expect(disclosure.open).toBe(true);
+    expect(disclosure.querySelectorAll("li")).toHaveLength(5);
+    expect(disclosure.textContent).toContain("模型请求成功");
+    expect(props.events[5]!.summary).toContain('"totalTokens":30');
+});
+
+it("keeps both command streams escaped and collapsed alongside duration, cwd and exit status", async () => {
+    const { root, props } = mount(false);
+    props.events = [tool(1, "TOOL_FINISHED", { tool: "exec_command", command: "sh check.sh", directory: "frontend",
+        exitCode: 7, ok: false, classification: "COMMAND_FAILED", resultRecorded: true, durationMs: 245,
+        stdout: "BUILD FAILURE", stderr: "<img src=x onerror=alert(1)>", outputTruncated: true })];
+    await settle(); await expandChecks(root);
+    const row = root.querySelector('[data-kind="exec_command"]')!;
+    expect(row.textContent).toContain("sh check.sh");
+    expect(row.textContent).toContain("frontend");
+    expect(row.textContent).toContain("245 ms");
+    expect(row.textContent).toContain("退出码7");
+    expect(row.textContent).toContain("命令返回非零退出码");
+    const output = row.querySelector<HTMLDetailsElement>(".command-output")!;
+    expect(output.open).toBe(false);
+    output.querySelector<HTMLElement>("summary")!.click();
+    expect(output.open).toBe(true);
+    expect(output.textContent).toContain("已截断");
+    expect(output.querySelectorAll("pre")).toHaveLength(2);
+    expect(output.querySelector("img")).toBeNull();
+    expect(output.querySelector('[aria-label="命令错误输出"]')?.textContent).toContain("<img");
+});
+
+it("differentiates directory, argument, timeout, cancellation and unavailable command results", async () => {
+    for (const [fields, label, explanation] of [
+        [{ classification: "INVALID_ARGUMENTS", mutationNotStarted: true, reason: "DIRECTORY_NOT_FOUND" }, "工作目录无效，命令未启动", "先浏览仓库目录"],
+        [{ classification: "INVALID_ARGUMENTS", mutationNotStarted: true, reason: "VERIFICATION_FIELDS_REQUIRED" }, "参数无效，命令未启动", "同时填写或同时省略"],
+        [{ classification: "COMMAND_TIMEOUT", timedOut: true }, "命令超时", "定位阻塞"],
+        [{ classification: "COMMAND_CANCELLED", cancelled: true }, "命令已取消", "不能作为通过的验证"],
+        [{ classification: "RESULT_UNAVAILABLE", resultRecorded: false }, "执行结果不可用", "不能确认成功或安全重放"],
+    ] as const) {
+        const { root, props } = mount(false);
+        props.events = [tool(1, "TOOL_FINISHED", { tool: "exec_command", command: "sh check.sh", directory: ".", ...fields })];
+        await settle(); await expandChecks(root);
+        const row = root.querySelector('[data-kind="exec_command"]')!;
+        expect(row.textContent).toContain(label);
+        expect(row.textContent).toContain(explanation);
+        expect(row.textContent).not.toContain("退出码");
+    }
+});
+
+it("never presents a zero process exit with failed tests as successful verification", async () => {
+    const { root, props } = mount(false);
+    props.events = [tool(1, "TOOL_FINISHED", { tool: "exec_command", command: "sh check.sh | grep BUILD", directory: ".",
+        exitCode: 0, ok: true, classification: "COMMAND_SUCCEEDED", resultRecorded: true, snapshot: "a".repeat(64),
+        testDetails: "AVAILABLE", scope: "backend tests", kind: "test", executedTests: 21, failures: 3, errors: 0 })];
+    await settle(); await expandChecks(root);
+    expect(root.querySelector(".check-latest")?.textContent).toContain("进程退出成功，测试报告未通过");
+    expect(root.querySelector(".check-latest")?.getAttribute("data-tone")).toBe("failed");
+    expect(root.querySelector('[data-kind="exec_command"]')?.getAttribute("data-tone")).toBe("failed");
+    expect(root.textContent).toContain("失败 3");
 });

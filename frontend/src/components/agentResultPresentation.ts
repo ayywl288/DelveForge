@@ -11,6 +11,8 @@ export function presentRun(run: AgentRun, delivery?: Delivery | null): RunPresen
         return { label: run.reason === "SELECTION_REQUIRED" ? "需要选择检查工程" : "运行前预检受阻",
             detail: "本次尚未调用模型。请查看环境预检诊断后重新开始。", tone: "blocked" };
     }
+    if (run.state === "FAILED" && run.reason === "MODEL_INCOMPLETE") return {
+        label: "模型报告未完成", detail: "模型主动报告仍有阻塞，未生成可交付候选；请查看执行活动中的模型说明和实际命令结果。", tone: "failed" };
     if (run.state === "FAILED") return { label: "本次运行失败", detail: "本次尝试没有完成交付。", tone: "failed" };
     if (run.state === "CANCELLED" || run.state === "INTERRUPTED") return {
         label: run.state === "CANCELLED" ? "运行已取消" : "运行已中断", detail: "本次尝试没有完成交付。", tone: "recorded" };
@@ -30,9 +32,9 @@ export function presentRun(run: AgentRun, delivery?: Delivery | null): RunPresen
 }
 
 export function verificationLabel(code?: string): string {
-    return ({ TESTS_PASSED: "测试通过", TESTS_FAILED: "测试未通过", BUILD_PASSED_NOT_TESTED: "构建通过，未运行测试",
+    return ({ COMMAND_SUCCEEDED: "命令成功", COMMAND_FAILED: "命令失败", COMMAND_TIMED_OUT: "命令超时", COMMAND_CANCELLED: "命令已取消", TESTS_PASSED: "测试通过", TESTS_FAILED: "测试未通过", BUILD_PASSED_NOT_TESTED: "构建通过，未运行测试",
         COMPILATION_FAILED: "编译未通过", DEPENDENCY_MISSING: "依赖尚未准备", BUILD_CONFIGURATION_FAILED: "构建配置需核对",
-        JDK_ENVIRONMENT_MISMATCH: "运行环境不匹配", POLICY_REJECTED: "检查被安全规则停止", INVALID_ARGUMENTS: "检查尚未开始",
+        JDK_ENVIRONMENT_MISMATCH: "运行环境不匹配", POLICY_REJECTED: "检查被安全规则停止", INVALID_ARGUMENTS: "参数无效，命令未启动",
         TYPECHECK_FAILED: "前端类型检查未通过", FRONTEND_BUILD_FAILED: "前端构建未通过",
         LOCKFILE_INVALID: "前端锁文件不匹配或无效", UNSUPPORTED_FRONTEND_CONFIGURATION: "前端配置暂不支持",
         FRONTEND_ENVIRONMENT_MISMATCH: "前端工具环境不匹配", CHECK_TIMEOUT: "检查超时或输出超限",
@@ -57,7 +59,7 @@ export function presentSourceView(raw: string): string {
             return `检查使用执行投影；${omitted} 项资源保留在原仓库，未进入执行环境。`;
         }
         if (view.kind === "FULL" && omitted === 0 && readOnly !== null) {
-            return readOnly > 0 ? `检查包含 ${readOnly} 项只读资源；这些资源未向模型披露，也未获修改授权。` : "";
+            return readOnly > 0 ? `检查包含 ${readOnly} 项只读资源；公开资源可读取，未获修改授权。` : "";
         }
         return "执行材料范围待核对。";
     } catch { return ""; }
@@ -71,6 +73,7 @@ export interface TestPresentation {
 }
 
 function checkScope(check: Record<string, unknown>): string {
+    if (check.checkType === "COMMAND") return `${check.directory ?? "."} · ${check.command ?? "命令未记录"}`;
     const type = check.checkType === "FRONTEND" ? "前端" : "Maven";
     const directory = typeof check.directory === "string" && /^[\p{L}\p{N}._/ -]{1,200}$/u.test(check.directory)
         && !check.directory.includes("..") && !check.directory.includes(".env") ? check.directory : "工程目录未记录";
@@ -83,10 +86,17 @@ export function presentCheckRows(raw: string) {
     try {
         const value: unknown = JSON.parse(raw);
         if (!record(value) || !Array.isArray(value.checks)) return [];
-        return value.checks.filter(record).map(check => ({
+        const recorded = value.checks.filter(record);
+        const key = (check: Record<string, unknown>) => JSON.stringify([check.command, check.directory]);
+        const latest = new Map(recorded.map(check => [key(check), check]));
+        const required = new Set(Array.isArray(value.requiredChecks) ? value.requiredChecks.filter(record).map(key) : []);
+        return [...recorded].reverse().map(check => ({
+            current: value.evidenceVersion === 6 && required.has(key(check)) && latest.get(key(check)) === check
+                && check.snapshot === value.finalSnapshot && check.afterSnapshot === value.finalSnapshot,
             scope: checkScope(check), label: verificationLabel(String(check.classification)),
-            stale: check.stale !== false || check.snapshot !== value.finalSnapshot,
-            executed: ["TESTS_PASSED", "TESTS_FAILED"].includes(String(check.classification))
+            stale: check.snapshot !== value.finalSnapshot || (check.checkType === "COMMAND"
+                ? check.afterSnapshot !== value.finalSnapshot : check.stale !== false),
+            executed: (check.checkType === "COMMAND" && check.testDetails === "AVAILABLE") || ["TESTS_PASSED", "TESTS_FAILED"].includes(String(check.classification))
                 ? count(check.executedTests) : null,
         }));
     } catch { return []; }
@@ -101,6 +111,19 @@ export function presentTestEvidence(raw: string): TestPresentation {
     const fresh = checks.filter(check => check.stale === false
         && typeof value.finalSnapshot === "string" && /^[0-9a-f]{64}$/.test(value.finalSnapshot)
         && check.snapshot === value.finalSnapshot);
+    if (value.evidenceVersion === 6) {
+        if (value.verificationLevel !== "COMMAND_VERIFIED" || !Array.isArray(value.requiredChecks)) return unknown;
+        const required = value.requiredChecks.filter(record);
+        const latest = new Map(checks.map(check => [JSON.stringify([check.command, check.directory]), check]));
+        const valid = required.length > 0 && required.every(requirement => {
+            const check = latest.get(JSON.stringify([requirement.command, requirement.directory]));
+            return check?.classification === "COMMAND_SUCCEEDED" && check.exitCode === 0
+                && check.snapshot === value.finalSnapshot && check.afterSnapshot === value.finalSnapshot
+                && check.timedOut === false && check.cancelled === false;
+        });
+        return valid ? { label: "必要命令已通过", outcome: value.testDetails === "AVAILABLE" ? "当前源码的验证命令执行成功；可用测试明细见命令历史。" : "当前源码的验证命令执行成功；测试数量与明细未提供。",
+            scope: `${required.length} 项验证要求；业务验收另行确认`, tone: "success", counts: null } : unknown;
+    }
     const meaningful = fresh.filter(check => (count(check.executedTests) ?? 0) > 0
         && ["TESTS_PASSED", "TESTS_FAILED"].includes(String(check.classification))).at(-1);
     if (value.evidenceVersion === 5) {

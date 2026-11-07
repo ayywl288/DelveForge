@@ -44,6 +44,8 @@ class SpringAiAgentModelTest {
     private SpringAiAgentModel model;
     private String body;
     private int status;
+    private int transientFailures;
+    private String retryAfter;
 
     @BeforeEach
     void setup() throws Exception {
@@ -52,9 +54,11 @@ class SpringAiAgentModelTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
             requests.add(json.readTree(exchange.getRequestBody()));
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            boolean transientFailure = requests.size() <= transientFailures;
+            byte[] bytes = (transientFailure ? "{\"error\":{\"message\":\"private-error\"}}" : body).getBytes(StandardCharsets.UTF_8);
+            if (retryAfter != null) exchange.getResponseHeaders().set("Retry-After", retryAfter);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
-            exchange.sendResponseHeaders(status, bytes.length);
+            exchange.sendResponseHeaders(transientFailure ? 503 : status, bytes.length);
             exchange.getResponseBody().write(bytes);
             exchange.close();
         });
@@ -138,7 +142,7 @@ class SpringAiAgentModelTest {
 
     @Test
     void realSpringAiConversionRejectsLengthBeforeAnyIncompleteToolCanReturn() throws Exception {
-        body = response("length", List.of(call("incomplete", "apply_patch", "{\"patch\":\"private-partial")),
+        body = response("length", List.of(call("incomplete", "edit_file", "{\"patch\":\"private-partial")),
                 "private-model-output", true);
         var failure = assertThrows(AgentModelFailure.class, () -> model.call(history(), AgentTools.definitions()));
         assertEquals(AgentModelFailure.Reason.RESPONSE_TRUNCATED, failure.reason());
@@ -178,7 +182,7 @@ class SpringAiAgentModelTest {
 
     @Test
     void invalidIdentityAndToolStructureDoNotReturnExecutableReplies() throws Exception {
-        body = response("tool_calls", List.of(call("", "apply_patch", "{\"patch\":\"private\"}")), "", false);
+        body = response("tool_calls", List.of(call("", "edit_file", "{\"patch\":\"private\"}")), "", false);
         assertEquals(AgentModelFailure.Reason.TOOL_ID_INVALID,
                 assertThrows(AgentModelFailure.class, () -> model.call(history(), AgentTools.definitions())).reason());
         var message = AssistantMessage.builder().content("").toolCalls(List.of(
@@ -206,22 +210,79 @@ class SpringAiAgentModelTest {
         assertEquals(AgentModelFailure.Reason.PROVIDER_CALL_FAILED, failure.reason());
         assertNull(failure.response());
         assertFalse(failure.getMessage().contains("private"));
+        assertEquals(3, requests.size());
+        assertEquals(3, model.drainDiagnostics().size());
+    }
+
+    @Test
+    void transientRequestRetryPreservesExactHistoryAndUnknownUsage() throws Exception {
+        transientFailures = 1;
+        retryAfter = "999999999999999999";
+        body = response("stop", List.of(), "completed", true);
+        var recorded = new ArrayList<>(history());
+        recorded.add(new AgentProtocol.Message("assistant", "", List.of(
+                new AgentProtocol.ToolCall("edit-once", "edit_file", "{}")), null, null));
+        recorded.add(new AgentProtocol.Message("tool", "{\"ok\":true}", List.of(), "edit-once", "edit_file"));
+        long start = System.nanoTime();
+        var reply = model.call(recorded, AgentTools.definitions());
+        assertEquals(2, requests.size());
+        assertEquals(requests.get(0), requests.get(1));
+        assertEquals(4, requests.get(1).path("messages").size());
+        assertNull(reply.tokens());
+        assertNull(reply.usage());
+        assertTrue(Duration.ofNanos(System.nanoTime() - start).toSeconds() < 6);
+        var diagnostics = model.drainDiagnostics();
+        assertEquals(503, diagnostics.get(0).get("httpStatus"));
+        assertEquals(200, diagnostics.get(1).get("httpStatus"));
+        assertFalse(diagnostics.toString().contains("private"));
+        assertTrue(model.drainDiagnostics().isEmpty());
+    }
+
+    @ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(ints = {400, 401, 402, 403})
+    void invalidAuthenticationBillingOrRequestIsNotRetried(int code) {
+        status = code;
+        body = "{\"error\":{\"message\":\"private-error\"}}";
+        assertThrows(AgentModelFailure.class, () -> model.call(history(), AgentTools.definitions()));
+        assertEquals(1, requests.size());
+        assertEquals(code, model.drainDiagnostics().getFirst().get("httpStatus"));
+    }
+
+    @Test
+    void cancellationDuringRetryBackoffStopsFurtherRequests() throws Exception {
+        status = 503;
+        retryAfter = "2";
+        var failure = new java.util.concurrent.atomic.AtomicReference<Throwable>();
+        Thread worker = new Thread(() -> {
+            try {
+                model.call(history(), AgentTools.definitions());
+            } catch (Throwable caught) {
+                failure.set(caught);
+            }
+        });
+        worker.start();
+        for (int wait = 0; requests.isEmpty() && wait < 100; wait++) Thread.sleep(10);
+        Thread.sleep(100);
+        worker.interrupt();
+        worker.join(3000);
+        assertFalse(worker.isAlive());
+        assertEquals("CANCELLED", ((AgentException) failure.get()).code());
         assertEquals(1, requests.size());
     }
 
     @Test
     void sourceRefusalContinuationPreservesToolIdentitiesOrderingAndJsonHistory() throws Exception {
-        body = response("tool_calls", List.of(call("apply-one", "apply_patch", "{\"patch\":\"synthetic-one\"}"),
-                call("apply-two", "apply_patch", "{\"patch\":\"synthetic-two\"}")), "", true);
+        body = response("tool_calls", List.of(call("apply-one", "edit_file", "{\"patch\":\"synthetic-one\"}"),
+                call("apply-two", "edit_file", "{\"patch\":\"synthetic-two\"}")), "", true);
         var history = new ArrayList<>(history());
         var first = model.call(history, AgentTools.definitions());
         assertEquals(List.of("apply-one", "apply-two"), first.calls().stream().map(AgentProtocol.ToolCall::id).toList());
         history.add(new AgentProtocol.Message("assistant", first.text(), first.calls(), null, null));
         history.add(new AgentProtocol.Message("tool", "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\"}}",
-                List.of(), "apply-one", "apply_patch"));
+                List.of(), "apply-one", "edit_file"));
         history.add(new AgentProtocol.Message("tool", "{\"ok\":false,\"classification\":\"POLICY_REJECTED\","
                 + "\"policyRule\":\"SOURCE_CREDENTIALS\",\"policyStage\":\"PATCH_SOURCE\",\"mutationNotStarted\":true,"
-                + "\"alternativeAllowed\":true,\"instruction\":\"选择其他安全实现路径\"}", List.of(), "apply-two", "apply_patch"));
+                + "\"alternativeAllowed\":true,\"instruction\":\"选择其他安全实现路径\"}", List.of(), "apply-two", "edit_file"));
         body = response("stop", List.of(), "{\"status\":\"completed\"}", false);
         var continuation = model.call(history, AgentTools.definitions());
         assertTrue(continuation.calls().isEmpty());
@@ -240,7 +301,7 @@ class SpringAiAgentModelTest {
     @Test
     void untrustedFinishReasonNeverEntersFailureDiagnostics() throws Exception {
         var message = AssistantMessage.builder().content("private-output").toolCalls(List.of(
-                new AssistantMessage.ToolCall("", "function", "apply_patch", "private-patch"))).build();
+                new AssistantMessage.ToolCall("", "function", "edit_file", "private-patch"))).build();
         var response = new ChatResponse(List.of(new Generation(message,
                 ChatGenerationMetadata.builder().finishReason("private-finish-reason").build())),
                 ChatResponseMetadata.builder().usage(new DefaultUsage(2, 3, 5)).build());

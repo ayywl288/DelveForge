@@ -72,7 +72,7 @@ class ReadToolRecoveryDockerTest {
                 + "import static org.junit.jupiter.api.Assertions.assertEquals;\n"
                 + "class BoundaryTest { @Test void zero() { assertEquals(1, new Counter().next(0)); } }\n";
         var addedTest = call("edit_file", Map.of("path", testPath, "old_text", "", "new_text", test));
-        var checks = call("run_checks", Map.of("goal", "test"));
+        var checks = call("exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository regression tests", "check_kind", "test"));
         List<List<AgentProtocol.ToolCall>> turns = List.of(
                 List.of(edited, malformed, missing, invalidRange, pagination, query),
                 List.of(lookup, corrected), List.of(addedTest), List.of(checks));
@@ -118,8 +118,8 @@ class ReadToolRecoveryDockerTest {
                 && message.text().contains(path)));
         var candidate = database.store.candidate(terminal.candidateId());
         var evidence = json.readTree(candidate.testEvidence());
-        assertEquals(5, evidence.path("evidenceVersion").asInt());
-        assertEquals("FULLY_TESTED", evidence.path("verificationLevel").asText());
+        assertEquals(6, evidence.path("evidenceVersion").asInt());
+        assertEquals("COMMAND_VERIFIED", evidence.path("verificationLevel").asText());
         assertEquals(List.of(path, testPath), candidate.changedPaths());
         var events = database.store.events(terminal.id(), 0, 200);
         assertEquals(10, terminal.toolCalls());

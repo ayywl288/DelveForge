@@ -50,19 +50,19 @@ public final class AgentProtocol {
 
     public record Limits(int maxContextChars,
             int maxOutputBytes, int maxPatchBytes, int maxFileBytes, int maxCandidateBytes,
-            int maxFiles, int checkSeconds, int dependencyRetries) {
+            int maxFiles, int checkSeconds) {
         public Limits {
             if (maxContextChars < 4096
                     || maxOutputBytes < 1024 || maxPatchBytes < 1024 || maxFileBytes < 1024
                     || maxCandidateBytes < maxPatchBytes || maxFiles < 1
-                    || checkSeconds < 1 || dependencyRetries < 0 || dependencyRetries > 3) {
+                    || checkSeconds < 1) {
                 throw new IllegalArgumentException("Invalid Agent limits");
             }
         }
 
         public static Limits defaults() {
-            // 累计用量与总时长不作停止门槛；技术材料、单次检查和错误恢复仍有界。
-            return new Limits(500000, 24000, 131072, 262144, 2097152, 10000, 180, 2);
+            // 累计用量与总时长不作停止门槛；技术材料、单次操作仍有界。
+            return new Limits(500000, 24000, 131072, 262144, 2097152, 10000, 180);
         }
     }
 }

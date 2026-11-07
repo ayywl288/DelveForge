@@ -38,6 +38,34 @@ class DockerSandboxProtocolTest {
     private final AgentProcess process = new AgentProcess();
 
     @Test
+    void directoryValidationOnlyRecoversMissingPathsAndPreservesOtherFailures() throws Exception {
+        var limits = AgentProtocol.Limits.defaults();
+        var missing = json.readTree("{\"ok\":false,\"result\":{\"classification\":\"INVALID_TOOL_ARGUMENT\","
+                + "\"reason\":\"DIRECTORY_NOT_FOUND\",\"mutationNotStarted\":true}}");
+        var feedback = json.readTree(DockerAgentSandbox.commandDirectoryFeedback(missing, limits));
+        assertEquals("DIRECTORY_NOT_FOUND", feedback.path("reason").asText());
+        assertTrue(feedback.path("mutationNotStarted").asBoolean());
+        assertFalse(feedback.has("exitCode"));
+        var policy = json.createObjectNode().put("ok", false).put("classification", "POLICY_REJECTED")
+                .put("policyRule", "SYMLINK_PATH");
+        var rejection = assertThrows(AgentPolicyRejection.class,
+                () -> DockerAgentSandbox.commandDirectoryFeedback(policy, limits));
+        assertEquals(AgentPolicyRejection.Rule.SYMLINK_PATH, rejection.rule());
+        assertEquals(AgentPolicyRejection.Stage.PATH_VALIDATION, rejection.stage());
+        for (String code : List.of("TOOL_ERROR", "TOOL_PROTOCOL", "TIME_LIMIT", "CANCELLED")) {
+            var failure = json.createObjectNode().put("ok", false).put("classification", code);
+            assertEquals(code, assertThrows(AgentException.class,
+                    () -> DockerAgentSandbox.commandDirectoryFeedback(failure, limits)).code());
+        }
+        for (String malformed : List.of("null", "{}", "{\"ok\":true}")) {
+            assertEquals("TOOL_PROTOCOL", assertThrows(AgentException.class,
+                    () -> DockerAgentSandbox.commandDirectoryFeedback(json.readTree(malformed), limits)).code());
+        }
+        org.junit.jupiter.api.Assertions.assertNull(DockerAgentSandbox.commandDirectoryFeedback(
+                json.readTree("{\"ok\":true,\"result\":{\"directory\":\"nested\"}}"), limits));
+    }
+
+    @Test
     void sourceChangeDiagnosticsAreValidatedAndNeverReplaceThePolicyRejection() throws Exception {
         var before = new AgentPolicyRejection.SourceFileState("100644", "a".repeat(64));
         var after = new AgentPolicyRejection.SourceFileState("100644", "b".repeat(64));
@@ -63,7 +91,7 @@ class DockerSandboxProtocolTest {
     @Test
     void acceptsOnlyExplicitCompatibleToolContract() throws Exception {
         assertDoesNotThrow(() -> DockerAgentSandbox.requireCompatibleProtocol(json.readTree(
-                "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":8}}")));
+                "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":9}}")));
     }
 
     @ParameterizedTest
@@ -141,20 +169,19 @@ class DockerSandboxProtocolTest {
             }
             sandbox.prepare(task, AgentProtocol.Limits.defaults(), () -> false);
             assertEquals(List.of("protocol", "initialize"), operations);
-            String patch = "--- a/Counter.java\n+++ b/Counter.java\n@@ -1 +1 @@\n"
-                    + "-class Counter { int value = 1; }\n+class Counter { int value = 2; }\n";
-            var applied = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("one", "apply_patch",
-                    json.writeValueAsString(Map.of("patch", patch))), () -> false));
+            var applied = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("one", "edit_file",
+                    json.writeValueAsString(Map.of("path", "Counter.java", "old_text", "value = 1", "new_text", "value = 2"))), () -> false));
             assertTrue(applied.path("ok").asBoolean());
             assertEquals("PATCH_APPLIED", applied.path("result").path("classification").asText());
             String before = sandbox.tool(id, new AgentProtocol.ToolCall("read-one", "read_file",
                     "{\"path\":\"Counter.java\"}"), () -> false);
-            var conflict = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("two", "apply_patch",
-                    json.writeValueAsString(Map.of("patch", patch))), () -> false));
+            var conflict = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("two", "edit_file",
+                    json.writeValueAsString(Map.of("path", "Counter.java", "old_text", "value = 1", "new_text", "value = 2"))), () -> false));
             assertFalse(conflict.path("ok").asBoolean());
             assertTrue(conflict.path("result").path("mutationNotStarted").asBoolean());
             assertEquals("PATCH_CONFLICT", conflict.path("result").path("classification").asText());
-            assertEquals("CHANGE_ALREADY_PRESENT", conflict.path("result").path("conflictReason").asText());
+            // 精确编辑在原文缺失时即返回冲突，尚未进入旧 diff 的重复变更判断。
+            assertEquals("CONTEXT_MISMATCH", conflict.path("result").path("conflictReason").asText());
             assertFalse(conflict.path("result").has("output"));
             String after = sandbox.tool(id, new AgentProtocol.ToolCall("read-two", "read_file",
                     "{\"path\":\"Counter.java\"}"), () -> false);

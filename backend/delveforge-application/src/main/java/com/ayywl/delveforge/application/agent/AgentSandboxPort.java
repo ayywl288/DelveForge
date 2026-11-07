@@ -45,7 +45,7 @@ public interface AgentSandboxPort {
 
     void prepare(Task task, AgentProtocol.Limits limits, BooleanSupplier cancelled);
 
-    /** 系统在 PREPARING 中执行真实基线探针；结果不授予修改权限，也不是最终源码检查证据。 */
+    /** 系统在 PREPARING 中验证工作区与执行环境可用性；结果不授予修改权限，也不是最终源码检查证据。 */
     record Preflight(String outcome, String diagnostic) {
         public boolean ready() {
             return "READY".equals(outcome) || "READY_BASELINE_FAILURE".equals(outcome);
@@ -78,6 +78,11 @@ public interface AgentSandboxPort {
     }
 
     Candidate finish(String runId, BooleanSupplier cancelled);
+
+    /** 停止写入后保存未验证差异；不创建 Candidate，不授予 Delivery。 */
+    default String retainPartial(String runId) {
+        return null;
+    }
 
     void stop(String runId);
 

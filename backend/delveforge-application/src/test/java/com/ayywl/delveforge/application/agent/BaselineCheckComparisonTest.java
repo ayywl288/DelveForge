@@ -96,6 +96,15 @@ class BaselineCheckComparisonTest {
     }
 
     @Test
+    void passingRelevantFinalCheckDoesNotRequireIdenticalSuccessfulTestInventory() {
+        var evidence = evidence(false);
+        var current = (ObjectNode) evidence.path("checks").get(0);
+        ((ArrayNode) current.path("testManifest").path("cases")).remove(0);
+        current.put("tests", 1).put("executedTests", 1);
+        assertDoesNotThrow(() -> AgentCheckEvidence.requireAcceptable(evidence));
+    }
+
+    @Test
     void unchangedHistoricalFailureIsDebtAndNeverPassingTests() {
         var evidence = evidence(true);
         assertEquals("BASELINE_DEBT", evidence.path("verificationLevel").asText());
@@ -152,8 +161,15 @@ class BaselineCheckComparisonTest {
     void staleSelectiveAndUnexecutedFeatureEvidenceDoesNotQualify() {
         rejected(evidence -> ((ObjectNode) evidence.path("checks").get(0)).put("stale", true));
         rejected(evidence -> ((ObjectNode) evidence.path("checks").get(0)).put("selectedTest", "FeatureTest"));
-        rejected(evidence -> evidence.withArray("changedPaths").remove(1));
         rejected(evidence -> ((ObjectNode) evidence.path("checks").get(0)).put("executedTests", 0));
+    }
+
+    @Test
+    void passingExistingTestsDoNotRequireAnEditedTestOrIdenticalPom() {
+        var evidence = evidence(false);
+        evidence.withArray("changedPaths").removeAll().add("Feature.java").add("pom.xml");
+        ((ObjectNode) evidence.path("checks").get(0).path("environment")).put("configuration", "f".repeat(64));
+        assertDoesNotThrow(() -> AgentCheckEvidence.requireAcceptable(evidence));
     }
 
     @Test

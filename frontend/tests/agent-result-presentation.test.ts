@@ -11,6 +11,13 @@ const check = { classification: "TESTS_PASSED", snapshot: "a".repeat(64), stale:
 function evidence(status: string, checks: unknown[]) { return JSON.stringify({ status, finalSnapshot: "a".repeat(64), checks }); }
 
 describe("Run result presentation", () => {
+    it("keeps model incomplete distinct from cancellation and platform failure", () => {
+        const failed = { ...run, state: "FAILED" as const, candidateId: null, reason: "MODEL_INCOMPLETE" };
+        expect(presentRun(failed, null).label).toBe("模型报告未完成");
+        expect(presentRun(failed, null).detail).toContain("执行活动");
+        expect(presentRun({ ...failed, state: "CANCELLED", reason: "USER_CANCELLED" }, null).label).toBe("运行已取消");
+        expect(presentRun({ ...failed, reason: "SANDBOX_FAILED" }, null).label).toBe("本次运行失败");
+    });
     it("requires matching confirmed Delivery and preserves historical failures", () => {
         expect(presentRun(run, delivery).label).toBe("步骤已完成");
         expect(presentRun(run, null).label).toBe("候选已冻结，等待交付");

@@ -66,8 +66,7 @@ public class CodingAgentConfiguration {
                 limit(environment, "max-file-bytes", defaults.maxFileBytes()),
                 limit(environment, "max-candidate-bytes", defaults.maxCandidateBytes()),
                 limit(environment, "max-files", defaults.maxFiles()),
-                limit(environment, "check-seconds", defaults.checkSeconds()),
-                limit(environment, "dependency-retries", defaults.dependencyRetries()));
+                limit(environment, "check-seconds", defaults.checkSeconds()));
         return new CodingAgentService(eligibility, store, model, sandbox, secrets, limits);
     }
 

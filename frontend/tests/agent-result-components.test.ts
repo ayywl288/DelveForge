@@ -68,8 +68,8 @@ it("shows independent Maven and npm/pnpm checks with goals and stale source labe
     app.mount(root); cleanup.push(() => app.unmount()); await settle();
     const rows = [...root.querySelectorAll(".check-evidence-list li")].map(row => row.textContent);
     expect(rows).toHaveLength(5);
-    expect(rows[0]).toContain("旧源码结果");
-    expect(rows[1]).toContain("Maven · backend · test");
+    expect(rows[4]).toContain("旧源码结果");
+    expect(rows[3]).toContain("Maven · backend · test");
     expect(rows[2]).toContain("前端 · web · typecheck");
     expect(rows[2]).toContain("未运行测试");
     expect(rows[2]).not.toContain("测试通过");
@@ -92,4 +92,22 @@ it("keeps unavailable optional checks distinct from failed or passing tests", as
     expect(root.textContent).not.toContain("测试通过");
     expect(root.textContent).not.toContain("测试未通过");
     expect(root.querySelector(".test-counts")).toBeNull();
+});
+
+
+it("renders parser-free generic success without invented test counts and keeps attempts in history", async () => {
+    const check = { checkType: "COMMAND", command: "sh check.sh", directory: ".", snapshot: "a".repeat(64),
+        afterSnapshot: "a".repeat(64), exitCode: 0, timedOut: false, cancelled: false, classification: "COMMAND_SUCCEEDED" };
+    const evidence = JSON.stringify({ status: "NOT_TESTED", evidenceVersion: 6, verificationLevel: "COMMAND_VERIFIED",
+        finalSnapshot: "a".repeat(64), requiredChecks: [{command: "sh check.sh", directory: "."}],
+        checks: [{...check, exitCode: 1, classification: "COMMAND_FAILED"}, check] });
+    const root = document.createElement("div");
+    const app = createApp({ render: () => h(AgentTestEvidence, { evidence }) });
+    app.mount(root); cleanup.push(() => app.unmount()); await settle();
+    expect(root.querySelector(".evidence-status")?.textContent).toBe("必要命令已通过");
+    expect(root.querySelector(".test-counts")).toBeNull();
+    expect(root.querySelectorAll(".current-evidence-list li")).toHaveLength(1);
+    expect(root.querySelector<HTMLDetailsElement>(".evidence-history")?.open).toBe(false);
+    expect(root.querySelectorAll(".evidence-history li")).toHaveLength(2);
+    expect(root.querySelector(".evidence-history li")?.textContent).toContain("命令成功");
 });

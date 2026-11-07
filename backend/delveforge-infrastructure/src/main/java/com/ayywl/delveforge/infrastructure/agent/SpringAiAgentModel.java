@@ -38,6 +38,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
     private final DeepSeekChatModel model;
     private final DeepSeekProperties properties;
     private final int responseTokens;
+    private final ThreadLocal<List<java.util.Map<String, Object>>> diagnostics = ThreadLocal.withInitial(ArrayList::new);
 
     public SpringAiAgentModel(DeepSeekProperties properties, int responseTokens) {
         this.properties = properties;
@@ -55,7 +56,34 @@ public final class SpringAiAgentModel implements AgentModelPort {
                     if ((long) assembled.length + responseTokens > MAX_REQUEST_BYTES) {
                         throw new AgentException("CONTEXT_LIMIT", "Serialized Agent request exceeds safe transport budget");
                     }
-                    return execution.execute(request, assembled);
+                    for (int attempt = 1; attempt <= 3; attempt++) {
+                        if (Thread.currentThread().isInterrupted()) {
+                            throw new AgentException("CANCELLED", "Model request cancelled");
+                        }
+                        long started = System.nanoTime();
+                        try {
+                            var response = execution.execute(request, assembled);
+                            int status = response.getStatusCode().value();
+                            diagnostics.get().add(java.util.Map.of("category", status < 400 ? "SUCCESS" : "HTTP_ERROR",
+                                    "httpStatus", status, "attempt", attempt, "responsePresent", true,
+                                    "durationMs", java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)));
+                            if (attempt == 3 || !java.util.Set.of(408, 429, 500, 502, 503, 504).contains(status)) {
+                                return response;
+                            }
+                            long delay = retryDelay(response.getHeaders().getFirst("Retry-After"), attempt);
+                            response.close();
+                            pause(delay);
+                        } catch (java.io.IOException failure) {
+                            diagnostics.get().add(java.util.Map.of("category", "TRANSPORT", "attempt", attempt,
+                                    "responsePresent", false, "durationMs",
+                                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)));
+                            if (attempt == 3 || Thread.currentThread().isInterrupted()) {
+                                throw failure;
+                            }
+                            pause(250L * attempt);
+                        }
+                    }
+                    throw new java.io.IOException("Provider attempts exhausted");
                 })).build();
         model = DeepSeekChatModel.builder().deepSeekApi(api)
                 .defaultOptions(DeepSeekChatOptions.builder().model(properties.model())
@@ -65,6 +93,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
 
     @Override
     public AgentProtocol.Reply call(List<AgentProtocol.Message> history, List<AgentProtocol.ToolSpec> tools) {
+        diagnostics.get().clear();
         if (properties.apiKey() == null || properties.apiKey().isBlank()) {
             throw new AgentException("MODEL_CONFIGURATION", "Configure the model API key outside the sandbox");
         }
@@ -99,14 +128,52 @@ public final class SpringAiAgentModel implements AgentModelPort {
                     .toolCallbacks(callbacks).internalToolExecutionEnabled(false).build()));
         } catch (RuntimeException failure) {
             for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
-                if (cause instanceof AgentException rejected && rejected.code().equals("CONTEXT_LIMIT")) {
+                if (cause instanceof AgentException rejected
+                        && java.util.Set.of("CONTEXT_LIMIT", "CANCELLED").contains(rejected.code())) {
                     throw rejected;
                 }
             }
             // 不传播提供者错误正文，其中可能包含请求或凭据。
             throw new AgentModelFailure(AgentModelFailure.Reason.PROVIDER_CALL_FAILED);
         }
-        return decode(response);
+        AgentProtocol.Reply reply = decode(response);
+        // 失败尝试可能已产生费用但未报告 usage；不能把最终响应用量冒充全部尝试的总量。
+        return diagnostics.get().size() > 1
+                ? new AgentProtocol.Reply(reply.text(), reply.calls(), null, null) : reply;
+    }
+
+    @Override
+    public List<java.util.Map<String, Object>> drainDiagnostics() {
+        var recorded = List.copyOf(diagnostics.get());
+        diagnostics.remove();
+        return recorded;
+    }
+
+    private static long retryDelay(String value, int attempt) {
+        long delay = 250L * attempt;
+        if (value != null) {
+            try {
+                delay = Math.min(2, Math.max(0, Long.parseLong(value))) * 1000L;
+            } catch (NumberFormatException ignored) {
+                try {
+                    delay = java.time.Duration.between(java.time.Instant.now(),
+                            java.time.ZonedDateTime.parse(value, java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME)
+                                    .toInstant()).toMillis();
+                } catch (java.time.format.DateTimeParseException invalidDate) {
+                    // 非法提示使用本地短退避，不转发错误正文。
+                }
+            }
+        }
+        return Math.max(0, Math.min(2000, delay));
+    }
+
+    private static void pause(long milliseconds) {
+        try {
+            Thread.sleep(milliseconds);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new AgentException("CANCELLED", "Provider retry cancelled");
+        }
     }
 
     AgentProtocol.Reply decode(ChatResponse response) {
