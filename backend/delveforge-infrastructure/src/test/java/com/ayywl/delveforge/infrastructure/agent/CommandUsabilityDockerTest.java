@@ -1,8 +1,13 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
+import com.ayywl.delveforge.application.agent.AgentModelPort;
+import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
+import com.ayywl.delveforge.application.agent.CodingAgentService;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
+import com.ayywl.delveforge.infrastructure.workspace.GitWorkspaceAdapter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -12,12 +17,16 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** 真实进程验证 cwd、离线安装及 /bin/sh 退出码，不请求模型或访问正式运行。 */
@@ -31,6 +40,55 @@ class CommandUsabilityDockerTest {
     private JsonNode exec(DockerAgentSandbox sandbox, String id, Map<String, ?> arguments) throws Exception {
         return json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(),
                 "exec_command", json.writeValueAsString(arguments)), () -> false));
+    }
+
+    @Test
+    void realShellSourceMutationsResetRepeatedCommandHistory() throws Exception {
+        Path original = Files.createDirectories(temporary.resolve("original"));
+        Files.writeString(original.resolve("state.txt"), "first");
+        var git = new DockerAgentSandboxTest();
+        git.git(original, "init", "--template=");
+        git.git(original, "add", ".");
+        git.git(original, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-qm", "fixture");
+        String baseline = git.git(original, "rev-parse", "HEAD");
+        var workspace = new GitWorkspaceAdapter(Files.createDirectories(temporary.resolve("managed")));
+        Path official = Path.of(workspace.provision(new WorkspaceRef(original.toString()), baseline, "copy")
+                .workspace().value());
+        var database = new SqliteAgentStoreTest();
+        database.temporary = temporary;
+        database.setup(baseline, "standalone");
+        var eligibility = CodingAgentServiceTest.eligibility(baseline, official, workspace, original);
+        var sandbox = new DockerAgentSandbox(DockerAgentSandboxTest.properties(temporary.resolve("runs")),
+                new DeterministicRepositorySecretPolicy());
+        // 两种快照交替三次；若未清空历史，真实收据会构成三次相同的二步循环。
+        String command = "if grep -q first state.txt; then printf second > state.txt; else printf first > state.txt; fi";
+        AtomicInteger requests = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> {
+            int index = requests.getAndIncrement();
+            return index < 6 ? new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("change-" + index,
+                    "exec_command", json.createObjectNode().put("command", command).toString())), 1L)
+                    : new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"fixture finished\"}", List.of(), 1L);
+        };
+        try (var service = new CodingAgentService(eligibility, database.store, model, sandbox,
+                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+            var run = CodingAgentServiceTest.awaitTerminal(service, service.start("plan", "step", 21).id(), 180);
+            assertEquals("MODEL_INCOMPLETE", run.reason());
+            assertEquals(6, run.toolCalls());
+            assertEquals(7, requests.get());
+            assertNull(run.candidateId());
+            var commands = service.events(run.id(), 0, 100).stream()
+                    .filter(event -> event.kind().equals("TOOL_FINISHED")).toList();
+            assertEquals(6, commands.size());
+            for (var event : commands) {
+                JsonNode result = json.readTree(event.summary());
+                assertTrue(result.path("sourceChanged").asBoolean());
+                assertEquals(0, result.path("exitCode").asInt(-1));
+            }
+        }
+        assertEquals("first", Files.readString(original.resolve("state.txt")));
+        assertEquals("", git.git(original, "status", "--porcelain"));
+        assertEquals(baseline, git.git(official, "rev-parse", "HEAD"));
+        assertEquals("", git.git(official, "status", "--porcelain"));
     }
 
     @Test
@@ -66,6 +124,16 @@ class CommandUsabilityDockerTest {
             assertTrue(missing.path("mutationNotStarted").asBoolean());
             assertFalse(missing.has("exitCode"));
             assertTrue(exec(sandbox, id, Map.of("command", "test ! -e must-not-exist")).path("ok").asBoolean());
+
+            for (var rejected : Map.of("../outside", AgentPolicyRejection.Rule.FORBIDDEN_PATH,
+                    ".git", AgentPolicyRejection.Rule.FORBIDDEN_PATH,
+                    ".ssh", AgentPolicyRejection.Rule.FORBIDDEN_PATH,
+                    "id_rsa", AgentPolicyRejection.Rule.PROTECTED_CREDENTIAL_PATH).entrySet()) {
+                var failure = assertThrows(AgentPolicyRejection.class, () -> exec(sandbox, id,
+                        Map.of("command", "touch must-not-exist", "directory", rejected.getKey())));
+                assertEquals(rejected.getValue(), failure.rule());
+                assertEquals(AgentPolicyRejection.Stage.PATH_VALIDATION, failure.stage());
+            }
 
             for (String setup : new String[]{
                     "npm install --package-lock-only --ignore-scripts --offline --no-audit --no-fund",

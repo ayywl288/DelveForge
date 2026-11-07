@@ -806,15 +806,33 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         snapshot.path("files").forEach(file -> session.retainedPaths.add(file.path("path").asText()));
     }
 
+    /** 仅目录不存在可纠正；安全拒绝与基础设施失败保留各自的终止语义。 */
+    static String commandDirectoryFeedback(JsonNode response, AgentProtocol.Limits limits) {
+        if (response == null || !response.isObject() || !response.path("ok").isBoolean()) {
+            throw new AgentException("TOOL_PROTOCOL", "Invalid directory validation response");
+        }
+        rejectPolicy(response, AgentPolicyRejection.Stage.PATH_VALIDATION);
+        if (!response.path("ok").asBoolean() && !response.has("classification")
+                && response.path("result").path("classification").asText().equals("INVALID_TOOL_ARGUMENT")
+                && response.path("result").path("reason").asText().equals("DIRECTORY_NOT_FOUND")
+                && response.path("result").path("mutationNotStarted").asBoolean()) {
+            return AgentTools.commandError(AgentTools.CommandError.DIRECTORY_NOT_FOUND, limits);
+        }
+        requireToolSuccess(response);
+        if (!response.path("result").path("directory").isTextual()) {
+            throw new AgentException("TOOL_PROTOCOL", "Directory validation result is missing");
+        }
+        return null;
+    }
+
     /** 每次原生命令独占一个容器；收据来自 Docker 状态与外部快照，不接受项目写入的验证声明。 */
     private String executeCommand(Session session, AgentProtocol.ToolCall call, JsonNode arguments,
             BooleanSupplier cancelled) {
         String directory = arguments.path("directory").asText(".");
         JsonNode location = invoke(session, "validate_directory", json.createObjectNode().put("path", directory), cancelled);
-        if (!location.path("ok").asBoolean()) {
-            return AgentTools.commandError(location.path("result").path("reason").asText().equals("DIRECTORY_NOT_FOUND")
-                    ? AgentTools.CommandError.DIRECTORY_NOT_FOUND : AgentTools.CommandError.INVALID_DIRECTORY,
-                    session.limits);
+        String directoryFeedback = commandDirectoryFeedback(location, session.limits);
+        if (directoryFeedback != null) {
+            return directoryFeedback;
         }
         String command = arguments.path("command").asText();
         String scope = arguments.path("verification_scope").asText();

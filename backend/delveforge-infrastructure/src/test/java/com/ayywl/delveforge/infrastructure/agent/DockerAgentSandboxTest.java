@@ -666,6 +666,10 @@ class DockerAgentSandboxTest {
                     "import os; os.symlink('/etc/passwd','/workspace/escape.txt')"), null, null,
                     Duration.ofSeconds(20), 8192, () -> false, Map.of());
             assertEquals(0, injected.exitCode());
+            var directoryRejection = assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id,
+                    "exec_command", Map.of("command", "touch must-not-exist", "directory", "escape.txt")));
+            assertEquals(AgentPolicyRejection.Rule.SYMLINK_PATH, directoryRejection.rule());
+            assertEquals(AgentPolicyRejection.Stage.PATH_VALIDATION, directoryRejection.stage());
             assertEquals("POLICY_REJECTED", assertThrows(AgentException.class, () -> tool(sandbox, id, "read_file",
                     Map.of("path", "escape.txt"))).code());
             assertEquals("POLICY_REJECTED", assertThrows(AgentException.class, () -> sandbox.finish(id, () -> false)).code());

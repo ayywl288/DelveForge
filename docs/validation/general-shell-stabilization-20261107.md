@@ -96,3 +96,26 @@ Windows 初次 Python 全套 60 项中有 2 项因 WinError 1314（符号链接�
 - 仅构建独立测试镜像，未替换正在使用的环境。正式采用这些改动需以后按既有启动流程重新构建镜像、启动新版本；本次没有重启正式应用。
 - 保留原有未跟踪目录 codex-migration/、frontend/design/、grilling/；没有新增依赖、数据库迁移或架构层。
 - 当前分支 codex/general-shell-stabilization；提交完成后以本报告所属 Git 提交为准，不合并、不推送。
+
+
+## 最终审查修正与集成（7ef63bf 之后）
+
+本节更新上文当时的“不合并”交付状态：用户随后明确授权修正审查问题、验证后本地合并，不推送。
+
+- 当前源码原本已读取 sourceChanged，但 `ok && PATCH_APPLIED || sourceChanged` 让失败写入也清空无进展历史。现按工具区分：edit_file 仍按成功 PATCH_APPLIED；exec_command 必须明确成功、退出 0、未超时/取消且 sourceChanged=true 才清空。未变化、失败、结果缺失不算源码进展。没有新增计数器或重试框架。
+- validate_directory 仅在受控响应明确表示 DIRECTORY_NOT_FOUND / mutationNotStarted 时返回可恢复反馈。POLICY_REJECTED 经 rejectPolicy 保留规则及 PATH_VALIDATION 阶段；其他基础设施错误保留原分类，畸形协议报告 TOOL_PROTOCOL。路径遍历、符号链接、保护资源和工作目录限制未放宽。
+- 生产改动仅 CodingAgentService.java、DockerAgentSandbox.java；回归涉及 CodingAgentServiceTest、CommandUsabilityDockerTest、DockerAgentSandboxTest、DockerSandboxProtocolTest；本节为唯一文档更新。
+- 修复前新增 9 项用例中复现 6 项失败：5 种失败/不完整结果错误清空历史，以及策略路径被当作普通参数反馈。修复后结果见下表。
+- 真实 Shell 回归在隔离夹具内交替写入同一文件、形成重复的两个源码快照；连续 6 次写入后能进入第 7 次模型替身响应，没有被 NO_PROGRESS 提前停止。原资产和正式副本均保持原 revision/文件。测试刻意以 MODEL_INCOMPLETE 结束，不生成 Candidate，不冒充业务成功。
+
+| 最终检查 | 结果 |
+| --- | --- |
+| 后端相关回归及最终 Maven Wrapper verify | 155 项中 154 项通过、1 项旧镜像协议用例因未指定旧镜像跳过，0 最终失败/错误；最终 reactor verify 构建通过。 |
+| 前端 pnpm test / pnpm build | 22 文件、324 项通过；类型检查及生产构建通过。 |
+| 保留产物 | 两文件 SHA-256 与上表完全一致；未修改 live application data。 |
+
+后端范围：AgentProgressTest 3、AgentToolsProtocolTest 5、AgentToolActivityTest 39、CommandCheckEvidenceTest 7、CodingAgentServiceTest 77、CommandUsabilityDockerTest 2、DockerAgentSandboxTest 定向 3、DockerSandboxProtocolTest 19（含 1 跳过）。当前镜像协议实际运行通过；没有声称执行全量后端测试。首次修复后用例错误地期待 .ssh 为 PROTECTED_CREDENTIAL_PATH，按原规则纠正为 FORBIDDEN_PATH 并新增 id_rsa 的凭据路径检查后，单独重跑 CommandUsabilityDockerTest 两项及完整 reactor verify 均成功；其余通过结果来自同一生产代码的前一次定向运行。
+
+实际日志：`target/shell-review-command-final.log`、`target/shell-review-red.log`、`target/shell-review-verify.log`、`target/shell-review-frontend.log`、`target/shell-review-frontend-build.log`。没有付费模型调用。
+
+合并前实际 ancestry：main=089b26f，generic-agent-command-path=4d91fac，stabilization 的起点为 7ef63bf；main 是稳定性分支祖先，4d91fac 尚不是 main 的祖先。因此合并目标为 main，采用包含 4d91fac → 7ef63bf → 本次小修复的完整稳定性分支，保留所有祖先提交，不仅挑取修复而遗漏通用 Shell 实现。合并后须核对这些提交均可从 main 到达，且 main tree 与验证过的修复分支一致。具体修复/合并提交以 Git 历史和最终回复为准。原有三个未跟踪目录继续保留，不推送。

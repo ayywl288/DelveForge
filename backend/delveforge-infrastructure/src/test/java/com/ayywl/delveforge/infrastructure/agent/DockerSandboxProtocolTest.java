@@ -38,6 +38,34 @@ class DockerSandboxProtocolTest {
     private final AgentProcess process = new AgentProcess();
 
     @Test
+    void directoryValidationOnlyRecoversMissingPathsAndPreservesOtherFailures() throws Exception {
+        var limits = AgentProtocol.Limits.defaults();
+        var missing = json.readTree("{\"ok\":false,\"result\":{\"classification\":\"INVALID_TOOL_ARGUMENT\","
+                + "\"reason\":\"DIRECTORY_NOT_FOUND\",\"mutationNotStarted\":true}}");
+        var feedback = json.readTree(DockerAgentSandbox.commandDirectoryFeedback(missing, limits));
+        assertEquals("DIRECTORY_NOT_FOUND", feedback.path("reason").asText());
+        assertTrue(feedback.path("mutationNotStarted").asBoolean());
+        assertFalse(feedback.has("exitCode"));
+        var policy = json.createObjectNode().put("ok", false).put("classification", "POLICY_REJECTED")
+                .put("policyRule", "SYMLINK_PATH");
+        var rejection = assertThrows(AgentPolicyRejection.class,
+                () -> DockerAgentSandbox.commandDirectoryFeedback(policy, limits));
+        assertEquals(AgentPolicyRejection.Rule.SYMLINK_PATH, rejection.rule());
+        assertEquals(AgentPolicyRejection.Stage.PATH_VALIDATION, rejection.stage());
+        for (String code : List.of("TOOL_ERROR", "TOOL_PROTOCOL", "TIME_LIMIT", "CANCELLED")) {
+            var failure = json.createObjectNode().put("ok", false).put("classification", code);
+            assertEquals(code, assertThrows(AgentException.class,
+                    () -> DockerAgentSandbox.commandDirectoryFeedback(failure, limits)).code());
+        }
+        for (String malformed : List.of("null", "{}", "{\"ok\":true}")) {
+            assertEquals("TOOL_PROTOCOL", assertThrows(AgentException.class,
+                    () -> DockerAgentSandbox.commandDirectoryFeedback(json.readTree(malformed), limits)).code());
+        }
+        org.junit.jupiter.api.Assertions.assertNull(DockerAgentSandbox.commandDirectoryFeedback(
+                json.readTree("{\"ok\":true,\"result\":{\"directory\":\"nested\"}}"), limits));
+    }
+
+    @Test
     void sourceChangeDiagnosticsAreValidatedAndNeverReplaceThePolicyRejection() throws Exception {
         var before = new AgentPolicyRejection.SourceFileState("100644", "a".repeat(64));
         var after = new AgentPolicyRejection.SourceFileState("100644", "b".repeat(64));

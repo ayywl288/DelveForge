@@ -537,11 +537,11 @@ public final class CodingAgentService implements AutoCloseable {
                         explorationCalls++;
                     } else if (call.name().equals("exec_command")) {
                         checks++;
-                    } else if (AgentTools.mutation(call.name()) && patchApplied(result)) {
+                    } else if (AgentTools.mutation(call.name()) && sourceProgress(call, result)) {
                         appliedPatches++;
                     }
                 }
-                progress.record(call, result, invoked && AgentTools.mutation(call.name()) && patchApplied(result));
+                progress.record(call, result, invoked && AgentTools.mutation(call.name()) && sourceProgress(call, result));
                 history.add(new AgentProtocol.Message("tool", result, List.of(), call.id(), call.name()));
             }
         }
@@ -704,12 +704,23 @@ public final class CodingAgentService implements AutoCloseable {
         }
     }
 
-    private boolean patchApplied(String result) {
+    private boolean sourceProgress(AgentProtocol.ToolCall call, String result) {
         try {
             JsonNode response = json.readTree(result);
-            return response.path("ok").asBoolean()
-                    && response.path("result").path("classification").asText().equals("PATCH_APPLIED")
-                    || response.path("result").path("sourceChanged").asBoolean();
+            JsonNode details = response.path("result");
+            if (!response.path("ok").asBoolean()) {
+                return false;
+            }
+            if (call.name().equals("exec_command")) {
+                // 失败命令也可能留下源码变化；只有确定成功的写入才能清空无进展历史。
+                return details.path("classification").asText().equals("COMMAND_SUCCEEDED")
+                        && details.path("sourceChanged").asBoolean()
+                        && details.path("exitCode").isIntegralNumber()
+                        && details.path("exitCode").asInt(-1) == 0
+                        && !details.path("timedOut").asBoolean()
+                        && !details.path("cancelled").asBoolean();
+            }
+            return details.path("classification").asText().equals("PATCH_APPLIED");
         } catch (IOException failure) {
             throw new AgentException("TOOL_PROTOCOL", "Tool result must be structured JSON");
         }

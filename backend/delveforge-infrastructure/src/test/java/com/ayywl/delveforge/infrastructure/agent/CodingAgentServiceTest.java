@@ -951,6 +951,40 @@ class CodingAgentServiceTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"unchanged", "failed", "uncertain", "timeout", "cancelled", "missingExit", "successful", "edit"})
+    void onlyConfirmedSuccessfulSourceChangesResetNoProgress(String outcome) throws Exception {
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var response = json.createObjectNode().put("ok", !List.of("failed", "uncertain").contains(outcome));
+        var result = response.putObject("result").put("sourceChanged", !outcome.equals("unchanged"))
+                .put("classification", outcome.equals("edit") ? "PATCH_APPLIED"
+                        : outcome.equals("failed") ? "COMMAND_FAILED"
+                        : outcome.equals("uncertain") ? "COMMAND_RESULT_UNAVAILABLE" : "COMMAND_SUCCEEDED")
+                .put("timedOut", outcome.equals("timeout")).put("cancelled", outcome.equals("cancelled"));
+        if (!outcome.equals("missingExit")) {
+            result.put("exitCode", outcome.equals("failed") ? 1 : 0);
+        }
+        when(sandbox.tool(anyString(), any(), any())).thenReturn(response.toString());
+        AtomicInteger requests = new AtomicInteger();
+        try (var service = service((history, tools) -> {
+            int index = requests.getAndIncrement();
+            if (index == 3) {
+                return new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"fixture done\"}", List.of(), 1L);
+            }
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + index,
+                    outcome.equals("edit") ? "edit_file" : "exec_command", outcome.equals("edit")
+                            ? "{\"path\":\"A.txt\",\"old_text\":\"old\",\"new_text\":\"new\"}"
+                            : "{\"command\":\"sh update.sh\"}")), 1L);
+        }, AgentProtocol.Limits.defaults())) {
+            var run = awaitTerminal(service, service.start("plan", "step", 21).id(), 10);
+            boolean sourceProgress = List.of("successful", "edit").contains(outcome);
+            assertEquals(sourceProgress ? "MODEL_INCOMPLETE" : "NO_PROGRESS", run.reason());
+            assertEquals(sourceProgress ? 4 : 3, requests.get());
+            assertNull(run.candidateId());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
+    }
+
     @Test
     void repeatedUnchangedWorkStopsForNoProgressRatherThanUsage() throws Exception {
         AtomicInteger requests = new AtomicInteger();
