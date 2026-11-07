@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -87,7 +88,7 @@ public final class BaselineCheckComparison {
                 JsonNode now = after.get(entry.getKey());
                 if (now == null || !old.path("outcome").asText().equals("SKIPPED")
                         && now.path("outcome").asText().equals("SKIPPED")) {
-                    throw blocked("Baseline test disappeared or became skipped: " + entry.getKey());
+                    throw testBlocked("BASELINE_TEST_MISSING_OR_SKIPPED", current, old, "");
                 }
             }
             for (var entry : after.entrySet()) {
@@ -95,21 +96,40 @@ public final class BaselineCheckComparison {
                 JsonNode old = before.get(entry.getKey());
                 boolean modifiedTest = changed.contains(now.path("source").asText());
                 boolean affectedSource = false;
+                String affectedPath = "";
                 for (JsonNode path : now.path("affectedSources")) {
-                    affectedSource |= changed.contains(path.asText());
+                    if (changed.contains(path.asText())) {
+                        affectedSource = true;
+                        affectedPath = path.asText();
+                        break;
+                    }
                 }
                 String outcome = now.path("outcome").asText();
                 if (modifiedTest && !outcome.equals("PASSED")) {
-                    throw blocked("Changed feature test did not pass: " + entry.getKey());
+                    throw testBlocked("CHANGED_TEST_NOT_PASSED", current, now, "");
                 }
                 featurePassed |= modifiedTest && outcome.equals("PASSED");
                 if (Set.of("FAILED", "ERROR").contains(outcome)) {
-                    if (old == null || !old.path("outcome").equals(now.path("outcome"))
-                            || !old.path("failure").equals(now.path("failure"))
-                            || !old.path("source").equals(now.path("source"))
-                            || !old.path("sourceSha256").equals(now.path("sourceSha256"))
-                            || modifiedTest || affectedSource) {
-                        throw blocked("New, changed or feature-related failure: " + entry.getKey());
+                    var differences = new ArrayList<String>();
+                    if (old == null) {
+                        differences.add("NEW_TEST_FAILURE");
+                    } else {
+                        if (!old.path("outcome").equals(now.path("outcome"))) {
+                            differences.add("OUTCOME_CHANGED");
+                        }
+                        if (!old.path("failure").equals(now.path("failure"))) {
+                            differences.add("FAILURE_CHANGED");
+                        }
+                        if (!old.path("source").equals(now.path("source"))
+                                || !old.path("sourceSha256").equals(now.path("sourceSha256"))) {
+                            differences.add("TEST_DEFINITION_CHANGED");
+                        }
+                    }
+                    if (affectedSource) {
+                        differences.add("AFFECTED_SOURCE_CHANGED");
+                    }
+                    if (!differences.isEmpty()) {
+                        throw testBlocked(String.join(",", differences), current, now, affectedPath);
                     }
                     debtKeys.add(key);
                     debt.addObject().put("check", key).put("testId", entry.getKey())
@@ -162,6 +182,19 @@ public final class BaselineCheckComparison {
 
     private static AgentException invalid(String message) {
         return new AgentException("EVIDENCE_INCOMPARABLE", message);
+    }
+
+    /** 只暴露比较条件与可定位路径，不把原始异常正文或测试内容带入模型反馈。 */
+    private static AgentException testBlocked(String reason, JsonNode check, JsonNode test, String affectedPath) {
+        String scope = check.path("checkType").asText("MAVEN") + ":" + check.path("directory").asText(".")
+                + ":" + check.path("goal").asText("test");
+        return blocked(reason + "; check=" + bounded(scope) + "; testSource=" + bounded(test.path("source").asText())
+                + "; testId=" + test.path("id").asText()
+                + (affectedPath.isEmpty() ? "" : "; affectedSource=" + bounded(affectedPath)));
+    }
+
+    private static String bounded(String value) {
+        return value.substring(0, Math.min(value.length(), 512));
     }
 
     private static AgentException blocked(String message) {

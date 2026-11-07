@@ -116,6 +116,22 @@ function modelFailureDescription(event: AgentEvent) {
     return reason ? `${reason}（${modelFailureReasons[reason]}）` : undefined;
 }
 
+export function modelIncompleteSummary(event: AgentEvent): string | undefined {
+    const data = summaryFields(event);
+    const summary = data.summary;
+    return event.kind === "MODEL_INCOMPLETE" && data.metadataVersion === 1 && typeof summary === "string"
+        && summary.trim().length > 0 && summary.length <= 1200 && !credentialShape.test(summary)
+        && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(summary) ? summary : undefined;
+}
+
+function completionRejection(event: AgentEvent): string | undefined {
+    const data = summaryFields(event);
+    return event.kind === "COMPLETION_CHECK_REJECTED"
+        && ["UNRESOLVED_CHECK_FAILURE", "EVIDENCE_INCOMPARABLE"].includes(String(data.classification))
+        && typeof data.reason === "string" && data.reason.length <= 2400 && !credentialShape.test(data.reason)
+        ? data.reason : undefined;
+}
+
 function correlation(event: AgentEvent) {
     const data = summaryFields(event);
     const tool = recordedTool(event);
@@ -252,6 +268,12 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
         const diagnostic = [...events].reverse().find(event => event.runId === run.id
             && event.kind === "MODEL_FAILED" && modelFailureFields(event).classification === reason);
         const description = diagnostic ? modelFailureDescription(diagnostic) : undefined;
+        if (terminal === "FAILED" && reason === "MODEL_INCOMPLETE") {
+            const reported = [...events].reverse().find(event => event.runId === run.id && event.kind === "MODEL_INCOMPLETE");
+            const summary = reported ? modelIncompleteSummary(reported) : undefined;
+            return { ...staticState, tone: "failed", title: "模型报告未完成",
+                detail: summary ? `模型说明：${summary}` : "本次未生成候选结果；未记录具体说明。" };
+        }
         return { ...staticState, tone: terminal === "FAILED" ? "failed" : terminal === "SUCCEEDED" ? "completed" : "interrupted",
             title: titles[terminal ?? ""] ?? "运行已结束",
             detail: reason ? reason + (description ? ` · ${description}` : "") : "" };
@@ -318,14 +340,32 @@ export function patchSummary(activities: AgentActivity[], runId: string) {
         }))].slice(-4) };
 }
 export function checkSummary(activities: AgentActivity[], runId: string) {
-    const checks = activities.filter(activity => isCheckTool(activity.tool));
-    const latest = checks.at(-1);
-    const data = latest ? summaryFields(latest.finish ?? latest.event) : {};
+    const checks = activities.filter(activity => activity.event.runId === runId && isCheckTool(activity.tool));
+    const last = checks.at(-1);
+    const lastData = last ? summaryFields(last.finish ?? last.event) : {};
     const executing = checks.some(activity => activity.active);
+    const byScope = new Map<string, AgentActivity>();
+    if (typeof lastData.snapshot === "string" && /^[0-9a-f]{64}$/.test(lastData.snapshot)) {
+        for (const check of checks) {
+            const result = summaryFields(check.finish ?? check.event);
+            if (result.snapshot === lastData.snapshot) {
+                // 工程、目标与选测范围独立；前端 build 或选测通过不能覆盖后端全量失败。
+                byScope.set(JSON.stringify([check.tool, result.directory, result.goal, result.module,
+                    result.testSelectionFingerprint]), check);
+            }
+        }
+    }
+    const comparable = [...byScope.values()];
+    const latest = executing ? last : [...comparable].reverse().find(check => ["blocked", "failed", "unknown"].includes(check.outcome))
+        ?? [...comparable].reverse().find(check => ["TESTS_PASSED", "TESTS_FAILED"].includes(check.classification ?? "")) ?? last;
+    const data = latest ? summaryFields(latest.finish ?? latest.event) : {};
     const executed = numeric(data, "executedTests");
-    const detail = executed ? [`已执行 ${executed} 项`,
+    const counts = executed ? [`已执行 ${executed} 项`,
         ...([["failures", "失败"], ["errors", "错误"], ["skipped", "跳过"]] as const)
             .flatMap(([key, label]) => numeric(data, key) === undefined ? [] : [`${label} ${numeric(data, key)}`])].join(" · ") : "";
+    const scope = [safePath(data.directory), ["test", "verify", "build", "typecheck", "compile", "package"].includes(String(data.goal))
+        ? String(data.goal) : undefined].filter(Boolean).join(" · ");
+    const detail = [scope, counts].filter(Boolean).join(" · ");
     return { key: `checks:${runId}`, activities: checks, count: checks.length, latest, executing,
         label: executing ? "正在执行检查" : latest ? verificationLabel(latest.classification) : "尚未执行检查",
         detail, failed: checks.filter(activity => ["failed", "blocked"].includes(activity.outcome)).length,
@@ -380,6 +420,10 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
         if (progress.result) rows.push({ label: "结果分类", value: progress.result });
         if (progress.directory) rows.push({ label: "检查工程", value: progress.directory });
     }
+    const incomplete = modelIncompleteSummary(event);
+    if (incomplete) rows.push({ label: "模型说明（未独立验证）", value: incomplete });
+    const rejection = completionRejection(event);
+    if (rejection) rows.push({ label: "完成检查诊断", value: rejection });
     if (event.kind === "MODEL_FAILED") {
         const data = modelFailureFields(event);
         const description = modelFailureDescription(event);

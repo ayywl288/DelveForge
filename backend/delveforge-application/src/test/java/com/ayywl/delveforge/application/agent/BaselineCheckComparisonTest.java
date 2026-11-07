@@ -11,6 +11,7 @@ import java.util.function.Consumer;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BaselineCheckComparisonTest {
     private final ObjectMapper json = new ObjectMapper();
@@ -54,6 +55,30 @@ class BaselineCheckComparisonTest {
             evidence.withArray("baselineFailures").add(baseline.deepCopy());
         }
         return summarize(evidence);
+    }
+
+    @Test
+    void changedFailureDiagnosticIdentifiesCheckSourceAndComparisonDifference() {
+        var evidence = evidence(true);
+        ((ObjectNode) evidence.path("checks").get(0).path("testManifest").path("cases").get(0))
+                .put("failure", "e".repeat(64));
+        var failure = assertThrows(AgentException.class, () -> BaselineCheckComparison.compare(evidence));
+        assertEquals("UNRESOLVED_CHECK_FAILURE", failure.code());
+        assertTrue(failure.getMessage().contains("MAVEN:.:test"));
+        assertTrue(failure.getMessage().contains("LegacyTest.java"));
+        assertTrue(failure.getMessage().contains("FAILURE_CHANGED"));
+        assertTrue(failure.getMessage().contains("1".repeat(64)));
+    }
+
+    @Test
+    void affectedSourceDiagnosticNamesActualChangedDependency() {
+        var evidence = evidence(true);
+        ((ArrayNode) evidence.path("checks").get(0).path("testManifest").path("cases").get(0)
+                .path("affectedSources")).add("Feature.java");
+        var failure = assertThrows(AgentException.class, () -> BaselineCheckComparison.compare(evidence));
+        assertTrue(failure.getMessage().contains("AFFECTED_SOURCE_CHANGED"));
+        assertTrue(failure.getMessage().contains("Feature.java"));
+        assertTrue(failure.getMessage().contains("LegacyTest.java"));
     }
 
     private ObjectNode summarize(ObjectNode evidence) {

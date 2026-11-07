@@ -11,6 +11,60 @@ const identity = "9d52e412-e03d-4419-a2fb-56322848b598";
 const tool = (sequence: number, kind: string, fields: Record<string, unknown> = {}) => fact(sequence, kind,
     JSON.stringify({ metadataVersion: 1, toolCallId: identity, tool: "read_file", path: "src/Counter.java", ...fields }));
 const important = (sequence: number) => fact(sequence, "TOOL_FINISHED", '{"tool":"run_checks","ok":true,"classification":"TESTS_PASSED"}');
+
+it("keeps same-snapshot backend test failure visible after a frontend build", async () => {
+    const { root, props } = mount(false);
+    const check = (sequence: number, fields: Record<string, unknown>) => fact(sequence, "TOOL_FINISHED",
+        JSON.stringify({ tool: "run_checks", ok: true, snapshot: "a".repeat(64), goal: "test",
+            directory: "backend/bookstore", executedTests: 17, failures: 0, errors: 3, skipped: 0,
+            classification: "TESTS_FAILED", ...fields }));
+    props.events = [check(1, {}), check(2, { tool: "run_frontend_checks", directory: "frontend",
+        classification: "TESTS_PASSED", executedTests: 13, errors: 0 }),
+        check(3, { tool: "run_frontend_checks", directory: "frontend", goal: "build",
+            classification: "BUILD_PASSED_NOT_TESTED", executedTests: 0, errors: 0 })];
+    await settle();
+    expect(root.querySelector(".check-latest")?.textContent).toContain("测试未通过");
+    expect(root.querySelector(".check-latest")?.getAttribute("data-tone")).toBe("failed");
+    expect(root.querySelector(".check-detail")?.textContent).toContain("backend/bookstore");
+    expect(root.querySelector(".check-detail")?.textContent).toContain("错误 3");
+    props.events.push(check(4, { classification: "TESTS_PASSED", errors: 0, testSelectionFingerprint: "f".repeat(64) }));
+    await settle();
+    expect(root.querySelector(".check-latest")?.textContent).toContain("测试未通过");
+    props.events.push(check(5, { classification: "TESTS_PASSED", errors: 0 }));
+    await settle();
+    expect(root.querySelector(".check-latest")?.textContent).toContain("测试通过");
+    props.events.push(check(6, { tool: "run_frontend_checks", directory: "frontend", goal: "build",
+        snapshot: "b".repeat(64), classification: "BUILD_PASSED_NOT_TESTED", executedTests: 0, errors: 0 }));
+    await settle();
+    expect(root.querySelector(".check-latest")?.textContent).toContain("构建通过");
+    expect(root.querySelector(".check-detail")?.textContent).not.toContain("已执行 17 项");
+});
+
+it("shows completion diagnostics as escaped text and ignores other-run model explanations", async () => {
+    const { root, props } = mount(false);
+    props.run.state = "FAILED"; props.run.reason = "MODEL_INCOMPLETE";
+    props.events = [fact(1, "COMPLETION_CHECK_REJECTED", JSON.stringify({ classification: "UNRESOLVED_CHECK_FAILURE",
+        reason: "FAILURE_CHANGED; testSource=ContextTest.java" })),
+        { ...fact(2, "MODEL_INCOMPLETE", JSON.stringify({ metadataVersion: 1, summary: "other run" })), runId: "other" },
+        fact(3, "MODEL_INCOMPLETE", JSON.stringify({ metadataVersion: 1, summary: "<img src=x onerror=alert(1)>" })),
+        fact(4, "FAILED", "MODEL_INCOMPLETE")];
+    await settle();
+    expect(root.textContent).toContain("FAILURE_CHANGED; testSource=ContextTest.java");
+    expect(root.textContent).not.toContain("other run");
+    expect(root.querySelector("img")).toBeNull();
+});
+
+it("shows attributed model incomplete explanation and preserves historical fallback", async () => {
+    const { root, props } = mount(false);
+    props.run.state = "FAILED"; props.run.reason = "MODEL_INCOMPLETE";
+    props.events = [fact(1, "MODEL_INCOMPLETE", JSON.stringify({ metadataVersion: 1,
+        summary: "后端检查仍有错误，需要核对。" })), fact(2, "FAILED", "MODEL_INCOMPLETE")];
+    await settle();
+    expect(root.textContent).toContain("模型说明：后端检查仍有错误，需要核对。");
+    expect(root.textContent).toContain("模型报告未完成");
+    props.events = [fact(2, "FAILED", "MODEL_INCOMPLETE")]; await settle();
+    expect(root.textContent).toContain("未记录具体说明");
+});
 it("groups frontend checks with Maven checks and displays real failures and counts", async () => {
     const { root, props } = mount();
     props.events = [tool(1, "TOOL_STARTED", { tool: "run_frontend_checks", path: undefined,

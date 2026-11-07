@@ -386,6 +386,11 @@ public final class CodingAgentService implements AutoCloseable {
                     // 常见格式误差只允许有界纠正；不能把自然语言“完成”直接当成功。
                 }
                 if (result != null && result.path("status").asText().equals("failed")) {
+                    // 模型说明是诊断材料，不是验证结论；先净化全文再限制持久化长度。
+                    String explanation = result.path("summary").isTextual()
+                            ? safe(result.path("summary").asText()).strip() : "";
+                    store.event(task.runId(), "MODEL_INCOMPLETE", json.createObjectNode().put("metadataVersion", 1)
+                            .put("summary", explanation.substring(0, Math.min(explanation.length(), 1200))).toString());
                     throw new AgentException("MODEL_INCOMPLETE", "Model could not complete implementation");
                 }
                 if (result == null || !result.path("status").asText().equals("completed")) {
