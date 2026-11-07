@@ -10,6 +10,35 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AgentToolsProtocolTest {
     @Test
+    void setupNeedsNoVerificationMetadataAndInvalidPairsExplainHowToRecover() throws Exception {
+        var limits = AgentProtocol.Limits.defaults();
+        for (String command : List.of("npm ci", "pnpm install --frozen-lockfile")) {
+            AgentTools.validate(new AgentProtocol.ToolCall("id", "exec_command",
+                    "{\"command\":\"" + command + "\",\"directory\":\"frontend\"}"), limits);
+        }
+        var cases = java.util.Map.of(
+                "\"verification_scope\":\"frontend tests\"", "VERIFICATION_FIELDS_REQUIRED",
+                "\"check_kind\":\"test\"", "VERIFICATION_FIELDS_REQUIRED",
+                "\"verification_scope\":\"tests\",\"check_kind\":\"install\"", "INVALID_CHECK_KIND",
+                "\"verification_scope\":\"\",\"check_kind\":\"test\"", "INVALID_VERIFICATION_SCOPE",
+                "\"timeout_seconds\":999", "INVALID_TIMEOUT",
+                "\"directory\":\"\"", "INVALID_DIRECTORY");
+        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        for (var item : cases.entrySet()) {
+            var call = new AgentProtocol.ToolCall("id", "exec_command", "{\"command\":\"npm ci\"," + item.getKey() + "}");
+            var failure = assertThrows(AgentException.class, () -> AgentTools.validate(call, limits));
+            var feedback = json.readTree(AgentTools.argumentError(call, failure, limits));
+            assertEquals(item.getValue(), feedback.path("reason").asText());
+            assertEquals(true, feedback.path("mutationNotStarted").asBoolean());
+            assertFalse(feedback.path("instruction").asText().isBlank());
+            assertFalse(feedback.has("exitCode"));
+        }
+        var custom = new AgentProtocol.Limits(500000, 24000, 131072, 262144, 2097152, 10000, 90);
+        var schema = json.readTree(AgentTools.definitions(custom).getLast().schema());
+        assertEquals(90, schema.path("properties").path("timeout_seconds").path("maximum").asInt());
+    }
+
+    @Test
     void commandProtocolAllowsNativeCompositionButNoHostOrSecuritySettings() {
         AgentTools.validate(new AgentProtocol.ToolCall("id", "exec_command",
                 "{\"command\":\"./check.sh && ./build.sh\",\"directory\":\"packages/core\"}"), AgentProtocol.Limits.defaults());

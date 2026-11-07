@@ -27,6 +27,23 @@ class AgentToolActivityTest {
     }
 
     @Test
+    void invalidVerificationFieldsRetainSanitizedCommandContextAndPreciseNoStartReason() throws Exception {
+        var command = call("exec_command", Map.of("command", "npm ci # token=\"private-fixture-value\"",
+                "directory", "frontend", "verification_scope", "setup"));
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(AgentException.class,
+                () -> AgentTools.validate(command, AgentProtocol.Limits.defaults()));
+        var record = json.readTree(activity.finished(command, identity,
+                AgentTools.argumentError(command, failure, AgentProtocol.Limits.defaults())));
+        assertEquals("VERIFICATION_FIELDS_REQUIRED", record.path("reason").asText());
+        assertEquals("frontend", record.path("directory").asText());
+        assertTrue(record.path("command").asText().startsWith("npm ci"));
+        assertFalse(record.toString().contains("private-fixture-value"));
+        assertTrue(record.path("mutationNotStarted").asBoolean());
+        assertFalse(record.has("exitCode"));
+        assertTrue(record.path("instruction").asText().contains("同时省略"));
+    }
+
+    @Test
     void commandRejectedBeforeExecutionDoesNotInventExitOrCancellationFacts() throws Exception {
         var command = call("exec_command", Map.of("command", "mvn test", "directory", "missing"));
         var rejected = json.readTree(activity.finished(command, identity,

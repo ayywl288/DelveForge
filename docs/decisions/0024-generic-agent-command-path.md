@@ -12,6 +12,14 @@
 
 `exec_command` 接受 command、相对 directory、单次 timeout_seconds；可附带 verification_scope 与 check_kind（test/build/other）。运行时绑定当前 Run，拒绝模型指定宿主挂载或安全参数。每次新进程、新容器，cwd/环境变量不跨调用保留；源码卷、项目依赖和该 Run 的缓存保留。命令通过 Base64 无损运输到容器后由 `/bin/sh` 解释，不在宿主解释。
 
+### 2026-11-07 首次运行稳定性补充
+
+`directory` 直接成为进程 cwd，命令内相对路径从该目录解析，不自动修正重复前缀。不存在的目录在启动前返回明确原因。安装是准备操作，可同时省略 verification_scope/check_kind；声明验证时两个字段须成对且有效。模型根据仓库 manifest/锁文件选择安装方式。npm cache 为 `/m2/npm-cache`，pnpm store 为 `/m2/pnpm-store`，实际依赖在项目自己的 node_modules。
+
+`/bin/sh` 管道返回最后一个进程状态。过滤检查输出前先保存原命令状态，读取日志后返回原状态；不假设 pipefail 可用。退出码与可用报告中的失败数独立，退出 0 不能覆盖失败报告。平台不改写任意 shell 的语义，也不放宽完成门槛。
+
+常规首次成功的 provider 诊断折叠到技术详情，失败与重试仍在主时间线；原持久化事件和用量保持完整。命令摘要区分未启动、目录/参数无效、非零退出、超时/取消与结果不可用，stdout/stderr 默认折叠并沿用净化和限长。模型主动返回 failed 仍记为 MODEL_INCOMPLETE，展示净化说明但不将说明视为独立证据或人工取消。
+
 ## 执行与资源边界
 
 命令容器使用非 root、cap-drop ALL、no-new-privileges、只读根、内存/CPU/PID/临时目录限制。源码可写，正式 WorkingCopy、原资产、宿主凭据及 Docker socket 均不挂载。可信命令收据、Candidate 元数据和 Git 重放材料只在主机由平台写入。每次调用结束（包括超时）停止并移除整个命令容器，之后采集源码；冻结先停止全部写入者，再用全新只读捕获容器取最终状态。

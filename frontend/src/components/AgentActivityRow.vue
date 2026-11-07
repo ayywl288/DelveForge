@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import NavigationIcon, { type NavigationIconName } from "./NavigationIcon.vue";
-import { verificationLabel } from "./agentResultPresentation";
 import AgentEventDetails from "./AgentEventDetails.vue";
-import { preflightProgress, toolNames, type AgentActivity } from "./agentEventPresentation";
+import { preflightProgress, providerDiagnosticTitle, commandPresentation, toolNames, type AgentActivity } from "./agentEventPresentation";
 
 defineProps<{ activity: AgentActivity }>();
 const names: Record<string, string> = {
@@ -43,7 +42,7 @@ function duration(value: number) {
         :class="{ 'is-active': activity.active }">
         <span class="timeline-node" aria-hidden="true"><NavigationIcon :name="icon(activity)" /></span>
         <div class="timeline-body">
-            <div class="timeline-heading"><strong>{{ preflightProgress(activity.event)?.title ?? (activity.tool ? toolNames[activity.tool] : names[activity.event.kind] ?? '历史运行活动') }}</strong>
+            <div class="timeline-heading"><strong>{{ preflightProgress(activity.event)?.title ?? (activity.tool ? toolNames[activity.tool] : activity.event.kind === 'MODEL_PROVIDER_DIAGNOSTIC' ? providerDiagnosticTitle(activity.event) : names[activity.event.kind] ?? '历史运行活动') }}</strong>
                 <span v-if="activity.target" class="activity-target">{{ activity.target }}</span>
                 <span v-if="activity.targetWithheld" class="target-note">{{ activity.target ? '部分目标已隐藏' : '目标已隐藏' }}</span>
                 <span v-else-if="activity.tool && !activity.target && !['apply_patch', 'edit_file'].includes(activity.tool)" class="target-note">目标未记录</span>
@@ -52,7 +51,7 @@ function duration(value: number) {
             <div class="activity-result"><span :role="activity.active ? 'status' : undefined">{{ activity.active && activity.event.kind === 'MODEL_REQUEST' ? '等待模型响应' : outcomes[activity.outcome] }}</span>
                 <span v-if="activity.duration !== undefined" class="activity-duration" :data-source="activity.durationSource"
                     :title="activity.durationSource === 'invocation' ? 'Java 到沙箱的调用总耗时' : '工具内部计时，不包含 Java 调用往返'">{{ activity.durationSource === 'internal' ? '内部 ' : '' }}{{ duration(activity.duration) }}</span>
-                <span v-if="activity.tool === 'exec_command' && activity.classification" :title="activity.classification">{{ verificationLabel(activity.classification) }}</span>
+                <span v-if="activity.tool === 'exec_command' && activity.classification" :title="activity.classification">{{ commandPresentation(activity).label }}</span>
                 <code v-else-if="activity.classification && activity.tool">{{ activity.classification }}</code>
             </div>
             <p v-if="activity.resultUncertain" class="activity-uncertain">未取得完整工具结果，修改情况需核对。</p>

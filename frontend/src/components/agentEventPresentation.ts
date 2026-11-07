@@ -46,6 +46,59 @@ export function summaryFields(event: AgentEvent): Record<string, unknown> {
     return {};
 }
 
+export function routineProviderDiagnostic(activity: AgentActivity): boolean {
+    const data = summaryFields(activity.event);
+    return activity.event.kind === "MODEL_PROVIDER_DIAGNOSTIC" && data.category === "SUCCESS"
+        && data.attempt === 1 && data.responsePresent === true
+        && typeof data.httpStatus === "number" && data.httpStatus >= 200 && data.httpStatus < 300;
+}
+
+export function providerDiagnosticTitle(event: AgentEvent): string {
+    const data = summaryFields(event);
+    if (data.category === "TRANSPORT") return "模型请求连接失败";
+    if (data.category === "SUCCESS") return typeof data.attempt === "number" && data.attempt > 1
+        ? "模型请求重试成功" : "模型请求成功";
+    return typeof data.httpStatus === "number" && data.httpStatus >= 400
+        ? "模型请求返回 HTTP 错误" : "模型请求诊断";
+}
+
+export function commandPresentation(activity: AgentActivity) {
+    const data = summaryFields(activity.finish ?? activity.event);
+    const reason = String(data.reason ?? "");
+    const explanations: Record<string, string> = {
+        DIRECTORY_NOT_FOUND: "工作目录不存在或不是目录。先浏览仓库目录，再使用准确的相对路径；命令内不要重复目录前缀。",
+        INVALID_DIRECTORY: "工作目录无效。根目录使用 .，子目录使用仓库相对路径。",
+        VERIFICATION_FIELDS_REQUIRED: "两个验证字段需要同时填写或同时省略。依赖安装可省略；检查操作需同时说明验证范围和类型。",
+        INVALID_VERIFICATION_SCOPE: "请填写 1 到 1000 字符的验证范围，说明对应的步骤或仓库要求。",
+        INVALID_CHECK_KIND: "验证类型只能是 test、build 或 other。准备操作可同时省略两个验证字段。",
+        INVALID_TIMEOUT: "单次时限超出允许范围。按工具返回的上限调整，或省略时限使用默认值。",
+        INVALID_COMMAND: "命令需为非空文本，不超过 16000 字符且不能包含 NUL。",
+        NOT_VERIFICATION_COMMAND: "说明文字或空操作不能作为检查。请运行实际检查，并返回检查本身的退出码。",
+    };
+    let label: string;
+    let explanation = "";
+    if (activity.active) label = "命令执行中";
+    else if (data.mutationNotStarted === true || activity.classification === "INVALID_ARGUMENTS") {
+        label = ["DIRECTORY_NOT_FOUND", "INVALID_DIRECTORY"].includes(reason) ? "工作目录无效，命令未启动"
+            : activity.classification === "INVALID_ARGUMENTS" ? "参数无效，命令未启动" : "命令未启动";
+        explanation = explanations[reason] ?? "命令未执行，请按反馈调整后重试。旧记录未说明具体参数原因，需核对工具字段与类型。";
+    } else if (data.cancelled === true) {
+        label = "命令已取消"; explanation = "命令在取消后停止，本次结果不能作为通过的验证。";
+    } else if (data.timedOut === true) {
+        label = "命令超时"; explanation = "命令已达到单次时限并停止。查看输出定位阻塞，调整后重新运行必要检查。";
+    } else if (typeof data.exitCode === "number" && Number.isInteger(data.exitCode)) {
+        label = data.exitCode !== 0 ? "命令返回非零退出码" : numeric(data, "failures") || numeric(data, "errors")
+            ? "进程退出成功，测试报告未通过" : "命令退出成功";
+        explanation = data.exitCode !== 0 ? "查看输出定位错误；命令里的相对路径以工作目录为起点，修正后重试。"
+            : numeric(data, "failures") || numeric(data, "errors")
+                ? "进程退出码为 0，但测试报告仍有失败，不能作为通过的验证。核对原检查是否被管道或输出过滤掩盖。"
+                : "退出码只说明该命令的进程结果，不等于测试或业务验收通过。";
+    } else {
+        label = "执行结果不可用"; explanation = "未取得完整执行结果，不能确认成功或安全重放；请核对运行诊断和已保留的修改。";
+    }
+    return { label, explanation, data };
+}
+
 export function recordedTool(event: AgentEvent) {
     const data = summaryFields(event);
     const name = typeof data.tool === "string" ? data.tool : event.summary.match(/^tool=([^;]+)/)?.[1];
@@ -169,6 +222,8 @@ function resultOutcome(event: AgentEvent, tool?: string): ActivityOutcome {
     if (['PATCH_REPEATED_CONFLICT', 'PATCH_CORRECTION_LIMIT'].includes(code ?? '')) return 'conflict';
     if (data.resultRecorded === false) return code === "POLICY_REJECTED" ? "blocked" : "unknown";
     if (code === "PATCH_CONFLICT") return "conflict";
+    if (tool === "exec_command" && data.cancelled === true) return "interrupted";
+    if (isCheckTool(tool) && (numeric(data, "failures") || numeric(data, "errors"))) return "failed";
     if (isCheckTool(tool) && data.ok === true && (code === "CHECK_NOT_AVAILABLE" || code === "TEST_EXECUTION_UNVERIFIED"
         || data.executionStatus === "NOT_STARTED"
             && ["UNSUPPORTED_FRONTEND_CONFIGURATION", "FRONTEND_ENVIRONMENT_MISMATCH"].includes(code ?? ""))) return "recorded";
@@ -228,10 +283,13 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
         let outcome: ActivityOutcome = toolEvent ? pending ? active ? "running" : "unknown" : resultOutcome(result, tool) : "recorded";
         if (!toolEvent) {
             if (event.kind.includes("BLOCKED") || ["DELIVERY_RECOVERY_REQUIRED", "DELIVERY_PENDING", "MATERIAL_RETAINED"].includes(event.kind)) outcome = "blocked";
-            else if (["FAILED", "MODEL_FAILED"].includes(event.kind)) outcome = "failed";
+            else if (["FAILED", "MODEL_FAILED", "MODEL_INCOMPLETE"].includes(event.kind)) outcome = "failed";
             else if (["CANCELLED", "INTERRUPTED"].includes(event.kind)) outcome = "interrupted";
             else if (["SANDBOX_READY", "MODEL_COMPLETED", "SUCCEEDED", "DELIVERY_APPLIED", "DELIVERY_COMMIT_READY", "DELIVERY_PUBLISHED", "DELIVERY_COMPLETED", "PLAN_COMPLETED"].includes(event.kind)) outcome = "completed";
             else if (active) outcome = "running";
+        }
+        if (event.kind === "MODEL_PROVIDER_DIAGNOSTIC") {
+            outcome = data.category === "SUCCESS" ? "completed" : "failed";
         }
         if (progress) outcome = progress.status === "FAILED" ? "blocked"
             : progress.status === "COMPLETED" ? "completed" : state.terminal ? "interrupted" : "recorded";
@@ -272,7 +330,8 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
             const reported = [...events].reverse().find(event => event.runId === run.id && event.kind === "MODEL_INCOMPLETE");
             const summary = reported ? modelIncompleteSummary(reported) : undefined;
             return { ...staticState, tone: "failed", title: "模型报告未完成",
-                detail: summary ? `模型说明：${summary}` : "本次未生成候选结果；未记录具体说明。" };
+                detail: summary ? `模型说明（未独立验证）：${summary} 请同时核对下方命令和完成检查记录；这不是人工取消。`
+                    : "模型主动报告未完成，未生成可交付候选；这不是人工取消。未记录具体说明，请核对命令诊断。" };
         }
         return { ...staticState, tone: terminal === "FAILED" ? "failed" : terminal === "SUCCEEDED" ? "completed" : "interrupted",
             title: titles[terminal ?? ""] ?? "运行已结束",
@@ -371,7 +430,7 @@ export function checkSummary(activities: AgentActivity[], runId: string) {
         ? String(data.goal) : undefined].filter(Boolean).join(" · ");
     const detail = [scope, counts].filter(Boolean).join(" · ");
     return { key: `checks:${runId}`, activities: [...checks].reverse(), current: comparable, stale, count: checks.length, latest, executing,
-        label: executing ? "正在执行检查" : stale ? "部分检查已过期，需重新验证" : !relevant.length && checks.length ? "尚无当前范围的验证结果" : latest ? verificationLabel(latest.classification) : "尚未执行检查",
+        label: executing ? "正在执行检查" : stale ? "部分检查已过期，需重新验证" : !relevant.length && checks.length ? "尚无当前范围的验证结果" : latest ? latest.tool === "exec_command" ? commandPresentation(latest).label : verificationLabel(latest.classification) : "尚未执行检查",
         detail, failed: checks.filter(activity => ["failed", "blocked"].includes(activity.outcome)).length,
         sourceBlocked: data.policyRule === "CHECK_MUTATED_SOURCE",
         blocked: latest?.outcome === "blocked" };

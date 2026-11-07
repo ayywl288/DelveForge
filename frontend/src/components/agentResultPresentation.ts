@@ -11,6 +11,8 @@ export function presentRun(run: AgentRun, delivery?: Delivery | null): RunPresen
         return { label: run.reason === "SELECTION_REQUIRED" ? "需要选择检查工程" : "运行前预检受阻",
             detail: "本次尚未调用模型。请查看环境预检诊断后重新开始。", tone: "blocked" };
     }
+    if (run.state === "FAILED" && run.reason === "MODEL_INCOMPLETE") return {
+        label: "模型报告未完成", detail: "模型主动报告仍有阻塞，未生成可交付候选；请查看执行活动中的模型说明和实际命令结果。", tone: "failed" };
     if (run.state === "FAILED") return { label: "本次运行失败", detail: "本次尝试没有完成交付。", tone: "failed" };
     if (run.state === "CANCELLED" || run.state === "INTERRUPTED") return {
         label: run.state === "CANCELLED" ? "运行已取消" : "运行已中断", detail: "本次尝试没有完成交付。", tone: "recorded" };
@@ -32,7 +34,7 @@ export function presentRun(run: AgentRun, delivery?: Delivery | null): RunPresen
 export function verificationLabel(code?: string): string {
     return ({ COMMAND_SUCCEEDED: "命令成功", COMMAND_FAILED: "命令失败", COMMAND_TIMED_OUT: "命令超时", COMMAND_CANCELLED: "命令已取消", TESTS_PASSED: "测试通过", TESTS_FAILED: "测试未通过", BUILD_PASSED_NOT_TESTED: "构建通过，未运行测试",
         COMPILATION_FAILED: "编译未通过", DEPENDENCY_MISSING: "依赖尚未准备", BUILD_CONFIGURATION_FAILED: "构建配置需核对",
-        JDK_ENVIRONMENT_MISMATCH: "运行环境不匹配", POLICY_REJECTED: "检查被安全规则停止", INVALID_ARGUMENTS: "检查尚未开始",
+        JDK_ENVIRONMENT_MISMATCH: "运行环境不匹配", POLICY_REJECTED: "检查被安全规则停止", INVALID_ARGUMENTS: "参数无效，命令未启动",
         TYPECHECK_FAILED: "前端类型检查未通过", FRONTEND_BUILD_FAILED: "前端构建未通过",
         LOCKFILE_INVALID: "前端锁文件不匹配或无效", UNSUPPORTED_FRONTEND_CONFIGURATION: "前端配置暂不支持",
         FRONTEND_ENVIRONMENT_MISMATCH: "前端工具环境不匹配", CHECK_TIMEOUT: "检查超时或输出超限",

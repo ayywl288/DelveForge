@@ -276,6 +276,8 @@ class CodingAgentServiceTest {
                 AgentProtocol.Limits.defaults())) {
             var run = awaitTerminal(service, service.start("plan", "step", null).id(), 10);
             assertEquals("MODEL_INCOMPLETE", run.reason());
+            assertEquals(AgentRunState.FAILED, run.state());
+            assertFalse(run.cancelRequested());
             assertEquals(null, run.candidateId());
             var event = service.events(run.id(), 0, 100).stream()
                     .filter(value -> value.kind().equals("MODEL_INCOMPLETE")).findFirst().orElseThrow();
@@ -287,6 +289,38 @@ class CodingAgentServiceTest {
             assertTrue(event.sequence() < service.events(run.id(), 0, 100).stream()
                     .filter(value -> value.kind().equals("FAILED")).findFirst().orElseThrow().sequence());
             verify(sandbox, never()).finish(anyString(), any());
+        }
+    }
+
+    @Test
+    void invalidVerificationPairReturnsRecoverableFeedbackThenSetupRunsWithoutMetadata() throws Exception {
+        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true,\"result\":{\"exitCode\":0}}");
+        AtomicInteger turn = new AtomicInteger();
+        var observed = new java.util.ArrayList<String>();
+        AgentModelPort model = (history, tools) -> {
+            history.stream().filter(message -> message.role().equals("tool"))
+                    .forEach(message -> observed.add(message.text()));
+            return switch (turn.getAndIncrement()) {
+                case 0 -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("invalid", "exec_command",
+                        "{\"command\":\"npm ci\",\"verification_scope\":\"frontend\"}")), 1L);
+                case 1 -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("setup", "exec_command",
+                        "{\"command\":\"npm ci\"}")), 1L);
+                default -> new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"Checks still required\"}", List.of(), 1L);
+            };
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            var run = awaitTerminal(service, service.start("plan", "step", 21).id(), 10);
+            assertEquals("MODEL_INCOMPLETE", run.reason());
+            assertFalse(run.cancelRequested());
+            assertNull(run.candidateId());
+            assertTrue(observed.stream().anyMatch(value -> value.contains("VERIFICATION_FIELDS_REQUIRED")));
+            verify(sandbox, times(1)).tool(eq(run.id()), any(), any());
+            verify(sandbox, never()).finish(anyString(), any());
+            var invalid = service.events(run.id(), 0, 100).stream()
+                    .filter(event -> event.kind().equals("TOOL_FINISHED") && event.summary().contains("VERIFICATION_FIELDS_REQUIRED"))
+                    .findFirst().orElseThrow();
+            assertTrue(invalid.summary().contains("npm ci"));
+            assertTrue(invalid.summary().contains("mutationNotStarted"));
         }
     }
 

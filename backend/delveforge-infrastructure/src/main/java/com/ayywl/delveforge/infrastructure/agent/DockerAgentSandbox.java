@@ -812,17 +812,15 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         String directory = arguments.path("directory").asText(".");
         JsonNode location = invoke(session, "validate_directory", json.createObjectNode().put("path", directory), cancelled);
         if (!location.path("ok").asBoolean()) {
-            return json.createObjectNode().put("ok", false).put("classification", "INVALID_ARGUMENTS")
-                    .put("mutationNotStarted", true).put("instruction", "使用 list_files 查找工作区内现有目录；directory 使用相对路径。")
-                    .toString();
+            return AgentTools.commandError(location.path("result").path("reason").asText().equals("DIRECTORY_NOT_FOUND")
+                    ? AgentTools.CommandError.DIRECTORY_NOT_FOUND : AgentTools.CommandError.INVALID_DIRECTORY,
+                    session.limits);
         }
         String command = arguments.path("command").asText();
         String scope = arguments.path("verification_scope").asText();
         String kind = arguments.path("check_kind").asText();
         if (!scope.isBlank() && CommandCheckEvidence.trivial(command)) {
-            return json.createObjectNode().put("ok", false).put("classification", "INVALID_ARGUMENTS")
-                    .put("mutationNotStarted", true).put("instruction", "输出说明或空操作不是验证；运行仓库定义的实际检查命令。")
-                    .toString();
+            return AgentTools.commandError(AgentTools.CommandError.NOT_VERIFICATION_COMMAND, session.limits);
         }
         JsonNode before = currentSnapshot(session, cancelled);
         retainSnapshot(session, before);

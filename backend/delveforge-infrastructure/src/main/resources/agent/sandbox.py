@@ -380,7 +380,8 @@ def dispatch(name, args):
     if name == 'validate_directory':
         path = path_for(args.get('path', '.'), True)
         if not path.is_dir():
-            raise ValueError('Working directory does not exist')
+            return {'classification': 'INVALID_TOOL_ARGUMENT', 'reason': 'DIRECTORY_NOT_FOUND',
+                    'mutationNotStarted': True}
         return {'directory': path.relative_to(ROOT).as_posix()}
     if name == 'snapshot':
         return snapshot(args.get('content', False), args.get('baseline'))

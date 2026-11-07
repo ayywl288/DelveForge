@@ -25,6 +25,17 @@ class CommandCheckEvidenceTest {
     }
 
     @Test
+    void successfulOutputFilterCannotOverrideObservedFailingTests() {
+        ObjectNode root = evidence();
+        ObjectNode receipt = (ObjectNode) root.path("checks").get(0);
+        receipt.putObject("testReport").put("availability", "AVAILABLE")
+                .put("executedTests", 21).put("failures", 3);
+        assertEquals(0, receipt.path("exitCode").asInt());
+        assertEquals("UNRESOLVED_CHECK_FAILURE", assertThrows(AgentException.class,
+                () -> CommandCheckEvidence.requireAcceptable(root)).code());
+    }
+
+    @Test
     void successfulRepositoryCheckNeedsNoLanguageReportOrInventedCounts() {
         assertDoesNotThrow(() -> AgentCheckEvidence.requireAcceptable(evidence()));
     }

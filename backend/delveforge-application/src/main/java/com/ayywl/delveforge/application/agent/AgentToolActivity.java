@@ -136,6 +136,15 @@ public final class AgentToolActivity {
                 }
                 if (response.path("mutationNotStarted").asBoolean()) {
                     summary.put("mutationNotStarted", true);
+                    for (AgentTools.CommandError reason : AgentTools.CommandError.values()) {
+                        if (response.path("reason").asText().equals(reason.name())) {
+                            summary.put("reason", reason.name());
+                        }
+                    }
+                    String instruction = secrets.sanitizeOutput(response.path("instruction").asText());
+                    if (!instruction.isBlank()) {
+                        summary.put("instruction", instruction.substring(0, Math.min(1000, instruction.length())));
+                    }
                 }
                 for (String key : List.of("timedOut", "cancelled", "outputTruncated", "sourceChanged")) {
                     if (details.path(key).isBoolean()) {
@@ -264,7 +273,7 @@ public final class AgentToolActivity {
         summary.put("tool", call.name());
         try {
             // 旧活动仍可展示，但不能借此进入已退役工具的执行路径。
-            if (!Set.of("apply_patch", "run_checks", "run_frontend_checks").contains(call.name())) {
+            if (!Set.of("apply_patch", "run_checks", "run_frontend_checks", "exec_command").contains(call.name())) {
                 AgentTools.validate(call, limits);
             } else if (call.arguments() == null || call.arguments().length() > limits.maxPatchBytes() * 2L) {
                 throw new AgentException("INVALID_ARGUMENTS", "Historical activity arguments exceed display bounds");
@@ -278,11 +287,23 @@ public final class AgentToolActivity {
                     summary.put("targetState", "withheld");
                 }
             } else if (call.name().equals("exec_command")) {
+                // 参数拒绝也保留有限的命令上下文；这里不授予执行权限，不采集任意参数。
                 summary.put("checkType", "COMMAND");
-                summary.put("command", secrets.sanitizeOutput(args.path("command").asText()));
-                summary.put("scope", secrets.sanitizeOutput(args.path("verification_scope").asText()));
-                summary.put("directory", args.path("directory").asText("."));
-                summary.put("kind", args.path("check_kind").asText());
+                for (var field : Map.of("command", "command", "scope", "verification_scope").entrySet()) {
+                    if (args.path(field.getValue()).isTextual()) {
+                        String value = secrets.sanitizeOutput(args.path(field.getValue()).asText());
+                        summary.put(field.getKey(), value.substring(0, Math.min(3000, value.length())));
+                    }
+                }
+                String directory = args.path("directory").asText(".");
+                if (displayPath(directory, true)) {
+                    summary.put("directory", directory);
+                } else {
+                    summary.put("targetState", "withheld");
+                }
+                if (Set.of("test", "build", "other").contains(args.path("check_kind").asText())) {
+                    summary.put("kind", args.path("check_kind").asText());
+                }
             } else if (Set.of("run_checks", "run_frontend_checks").contains(call.name())) {
                 summary.put("checkType", call.name().equals("run_frontend_checks") ? "FRONTEND" : "MAVEN");
                 summary.put("goal", args.path("goal").asText("test"));
