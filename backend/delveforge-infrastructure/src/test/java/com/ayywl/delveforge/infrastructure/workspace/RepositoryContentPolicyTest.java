@@ -19,10 +19,18 @@ class RepositoryContentPolicyTest {
     }
 
     @Test
+    void unchangedRepositoryWrapperIsExecutionSourceWhileARealShellCredentialIsWithheld() throws Exception {
+        byte[] wrapper = java.nio.file.Files.readAllBytes(java.nio.file.Path.of("../../mvnw"));
+        assertEquals(RepositoryContentPolicy.Kind.SOURCE, policy.classify("mvnw", wrapper).kind());
+        assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY,
+                classify("bootstrap", "#!/bin/sh\nPASSWORD='private-value'\n").kind());
+    }
+
+    @Test
     void preservationDisclosureExecutionAndMutationAreIndependent() {
         var safe = classify(".env.sample", "API_URL=https://example.com/api\nAPI_TOKEN=${API_TOKEN}\n");
         assertTrue(safe.preserved());
-        assertFalse(safe.modelVisible());
+        assertTrue(safe.modelVisible());
         assertTrue(safe.executionAvailable());
         assertFalse(safe.mutable());
         var source = classify("src/Main.java", "class Main {}\n");
@@ -36,7 +44,7 @@ class RepositoryContentPolicyTest {
         var publicEnvironment = classify("frontend/.env.development",
                 "VITE_API_BASE_URL=/api\nVITE_APP_TITLE=校园实验室设备预约系统\n");
         assertEquals(RepositoryContentPolicy.Kind.PUBLIC_RESOURCE, publicEnvironment.kind());
-        assertFalse(publicEnvironment.modelVisible());
+        assertTrue(publicEnvironment.modelVisible());
         assertFalse(publicEnvironment.mutable());
         for (String content : List.of("VITE_APP_TITLE=" + "sk-" + "a".repeat(32),
                 "PASSWORD_TITLE=opaque-value", "VITE_APP_TITLE=$(execute)",
@@ -151,7 +159,7 @@ class RepositoryContentPolicyTest {
             var capability = policy.classify("test/server.pem", input.readAllBytes());
             assertEquals(RepositoryContentPolicy.Kind.PUBLIC_RESOURCE, capability.kind());
             assertTrue(capability.executionAvailable());
-            assertFalse(capability.modelVisible());
+            assertTrue(capability.modelVisible());
             assertFalse(capability.mutable());
         }
     }

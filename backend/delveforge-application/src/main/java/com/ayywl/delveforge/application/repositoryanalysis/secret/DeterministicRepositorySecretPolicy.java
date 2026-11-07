@@ -168,6 +168,11 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
                             + "|[^\"'\\s,;#}\\]]+)"),
                     "$1" + REDACTION_MARKER));
 
+    // Shell 的 := 参数展开也是赋值；沿用内容规则的键和值边界，只扩展该运算符。
+    private static final Pattern SHELL_CREDENTIAL_ASSIGNMENT = Pattern.compile(
+            CONTENT_RULES.getLast().pattern().pattern()
+                    .replace("[:=](?![=<>:])", "(?::=|[:=](?![=<>:]))"));
+
     // ------------------------------------------------------------------ 路径
 
     @Override
@@ -306,14 +311,33 @@ public final class DeterministicRepositorySecretPolicy implements RepositorySecr
         boolean source = SOURCE_EXTENSIONS.contains(extension);
         boolean configuration = Set.of("properties", "yml", "yaml").contains(extension);
         boolean yaml = extension.equals("yml") || extension.equals("yaml");
+        boolean shell = content.matches("(?s)\\A#![^\\r\\n]*(?:/|[ \\t])(?:sh|bash|dash|ksh)(?:[ \\t\\r\\n].*|$)");
         boolean[] sourceCode = null;
         for (int index = 0; index < CONTENT_RULES.size(); index++) {
             boolean assignment = index == CONTENT_RULES.size() - 1;
-            Matcher matcher = (source && assignment ? SOURCE_CREDENTIAL_LITERAL : CONTENT_RULES.get(index).pattern())
-                    .matcher(content);
+            Pattern rule = CONTENT_RULES.get(index).pattern();
+            if (assignment) {
+                rule = shell ? SHELL_CREDENTIAL_ASSIGNMENT : source ? SOURCE_CREDENTIAL_LITERAL : rule;
+            }
+            Matcher matcher = rule.matcher(content);
             int cursor = 0;
             int row = 1;
             while (matcher.find()) {
+                // Shell 的独立空字面量不携带凭据；拼接或非空值仍由原规则保护。
+                if (shell && assignment && Set.of("\"\"", "''").contains(matcher.group(2))
+                        && (matcher.end(2) == content.length()
+                            || " \t\r\n;|&".indexOf(content.charAt(matcher.end(2))) >= 0)) {
+                    continue;
+                }
+                // ${NAME:+word} 是变量存在性分支，不给 NAME 赋值；默认值/赋值展开不作此豁免。
+                // 已知令牌等内容规则独立执行，即使出现在分支内也仍受保护。
+                if (shell && assignment && matcher.start(1) > 0
+                        && content.charAt(matcher.start(1) - 1) == '$'
+                        && matcher.group(1).startsWith("{") && matcher.group(1).endsWith(":")
+                        && matcher.group(2).matches("\\+[A-Za-z0-9_-]{1,128}")
+                        && matcher.end(2) < content.length() && content.charAt(matcher.end(2)) == '}') {
+                    continue;
+                }
                 if (configuration && assignment && configurationReference(matcher, content, yaml)) {
                     continue;
                 }

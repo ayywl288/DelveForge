@@ -63,9 +63,7 @@ class PatchConflictOrchestrationDockerTest {
         String initial = Files.readString(original.resolve(path));
         String observed = earlierSuccess ? initial.replace("public class Counter {", "public class Counter { /* retained */")
                 : initial;
-        String staleSource = observed.replace("return n;", "return n - 1;");
-        var conflict = call("apply_patch", Map.of("patch", ExactEditPatch.create(path, staleSource,
-                "return n - 1;", "return n + 2;", 131072)));
+        var conflict = call("edit_file", Map.of("path", path, "old_text", "return n - 1;", "new_text", "return n + 2;"));
         var skippedSame = call("edit_file", Map.of("path", path, "old_text", "return n + 2;",
                 "new_text", "return n + 3;"));
         String testPath = "src/test/java/example/BoundaryTest.java";
@@ -85,7 +83,7 @@ class PatchConflictOrchestrationDockerTest {
         first.addAll(List.of(conflict, skippedSame, skippedDifferent));
         var corrected = call("edit_file", Map.of("path", path, "old_text", "return n;", "new_text", "return n + 1;"));
         var addedTest = call("edit_file", Map.of("path", testPath, "old_text", "", "new_text", test));
-        var checks = call("run_checks", Map.of("goal", "test"));
+        var checks = call("exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository regression tests", "check_kind", "test"));
         AtomicInteger requests = new AtomicInteger();
         List<List<AgentProtocol.Message>> observations = new ArrayList<>();
         AgentModelPort model = (history, tools) -> {
@@ -128,8 +126,8 @@ class PatchConflictOrchestrationDockerTest {
         assertEquals(terminal.toolCalls(), events.stream().filter(event -> event.kind().equals("TOOL_FINISHED")).count());
         var candidate = database.store.candidate(terminal.candidateId());
         var evidence = json.readTree(candidate.testEvidence());
-        assertEquals(5, evidence.path("evidenceVersion").asInt());
-        assertEquals("FULLY_TESTED", evidence.path("verificationLevel").asText());
+        assertEquals(6, evidence.path("evidenceVersion").asInt());
+        assertEquals("COMMAND_VERIFIED", evidence.path("verificationLevel").asText());
         assertEquals(List.of(path, testPath), candidate.changedPaths());
         if (earlierSuccess) {
             assertTrue(candidate.diff().contains("/* retained */"));

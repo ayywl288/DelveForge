@@ -54,7 +54,7 @@ const connection = ref("尚未连接");
 const jdk = ref("");
 const checkDirectories = ref("");
 const preflightDescriptions: Record<string, string> = {
-  READY: "所选工程的检查路径已实际执行。",
+  READY: "隔离工作区与执行环境可用；尚不代表构建或测试通过。",
   READY_BASELINE_FAILURE: "检查路径可执行；已有失败须在最终完整检查中修复或证明为可比较的历史债务。",
   ENVIRONMENT_BLOCKED: "检查环境尚未就绪，本次未调用模型。",
   SECURITY_BLOCKED: "源码或沙箱边界未获确认，本次未调用模型。",
@@ -474,9 +474,9 @@ onUnmounted(deactivate);
         <template v-if="step.status === 'READY'">
           <div class="jdk-field"><label for="agent-jdk">运行环境</label>
             <select id="agent-jdk" v-model="jdk"><option value="">自动选择 JDK</option><option value="17">JDK 17</option><option value="21">JDK 21</option></select></div>
-          <div class="check-directories-field"><label for="agent-check-directories">检查工程目录（可选）</label>
+          <div class="check-directories-field"><label for="agent-check-directories">本步骤相关目录（可选）</label>
             <input id="agent-check-directories" v-model="checkDirectories" maxlength="2000" placeholder="例如：server, apps/web" aria-describedby="agent-check-directories-help" />
-            <p id="agent-check-directories-help" class="meta">留空自动选择唯一入口；多个目录用逗号分隔，仓库根目录填“.”。仅选择本步骤相关工程，不扩大修改授权。</p></div>
+            <p id="agent-check-directories-help" class="meta">留空由 Agent 读取仓库指引发现入口；多个目录用逗号分隔，仓库根目录填“.”。目录提示不扩大修改授权。</p></div>
           <div class="start-action"><button :disabled="!canStart" @click="reviewStart">{{ latest ? '重新开始编码' : '开始 Agent' }}</button>
             <p class="meta">仅运行当前已授权 Step</p></div>
         </template>

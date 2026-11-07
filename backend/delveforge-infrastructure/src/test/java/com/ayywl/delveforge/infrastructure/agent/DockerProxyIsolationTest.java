@@ -70,7 +70,7 @@ class DockerProxyIsolationTest {
             if (result.exitCode() == 0 && command.contains("run") && nameIndex >= 0) {
                 String name = command.get(nameIndex + 1);
                 String suffix = name.substring(("df-" + id + "-").length());
-                if (Set.of("seed", "agent", "prepare", "capture").contains(suffix)) {
+                if (Set.of("seed", "agent", "command", "capture").contains(suffix)) {
                     assertProjectIsolation(name, suffix, environment);
                     inspected.add(suffix);
                 }
@@ -95,16 +95,15 @@ class DockerProxyIsolationTest {
             assertTrue(visible.text().contains("CONFIG_INJECTION_CONFIRMED"));
             sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", baseline,
                     "fix Counter", "Counter", "repair", 21), AgentProtocol.Limits.defaults(), () -> false);
-            String patch = DockerAgentSandboxTest.replacement("src/main/java/example/Counter.java",
-                    Files.readString(official.resolve("src/main/java/example/Counter.java")),
-                    "package example;\npublic class Counter { public int next(int n) { return n + 1; } }\n");
-            assertTrue(sandbox.tool(id, new AgentProtocol.ToolCall("patch", "apply_patch",
-                    json.writeValueAsString(Map.of("patch", patch))), () -> false).contains("PATCH_APPLIED"));
-            String checks = sandbox.tool(id, new AgentProtocol.ToolCall("test", "run_checks", "{\"goal\":\"test\"}"),
-                    () -> false);
-            assertTrue(checks.contains("TESTS_PASSED"), checks);
+            assertTrue(sandbox.tool(id, new AgentProtocol.ToolCall("edit", "edit_file",
+                    json.writeValueAsString(Map.of("path", "src/main/java/example/Counter.java",
+                            "old_text", "return n;", "new_text", "return n + 1;"))), () -> false).contains("PATCH_APPLIED"));
+            String checks = sandbox.tool(id, new AgentProtocol.ToolCall("test", "exec_command",
+                    json.writeValueAsString(Map.of("command", "mvn -B test", "verification_scope", "Cold Maven tests",
+                            "check_kind", "test"))), () -> false);
+            assertTrue(checks.contains("COMMAND_SUCCEEDED"), checks);
             assertTrue(sandbox.finish(id, () -> false).changedPaths().contains("src/main/java/example/Counter.java"));
-            assertEquals(Set.of("seed", "agent", "prepare", "capture"), inspected);
+            assertEquals(Set.of("seed", "agent", "command", "capture"), inspected);
             assertEquals(baseline, fixture.git(official, "rev-parse", "HEAD"));
             assertTrue(fixture.git(official, "status", "--porcelain").isEmpty());
         } finally {
@@ -137,7 +136,11 @@ class DockerProxyIsolationTest {
         }
         for (String proxy : List.of("HTTP_PROXY", "HTTPS_PROXY", "FTP_PROXY", "ALL_PROXY", "NO_PROXY",
                 "http_proxy", "https_proxy", "ftp_proxy", "all_proxy", "no_proxy")) {
-            assertTrue(values.containsKey(proxy) && values.get(proxy).isEmpty(), "Proxy isolation failed: " + proxy);
+            assertTrue(values.containsKey(proxy), "Proxy variable missing: " + proxy);
+            String expected = suffix.equals("command") && proxy.toLowerCase().matches("https?_proxy")
+                    ? "http://df-artifacts:8080" : suffix.equals("command") && proxy.equalsIgnoreCase("NO_PROXY")
+                    ? "df-artifacts,localhost,127.0.0.1" : "";
+            assertEquals(expected, values.get(proxy), "Proxy isolation failed: " + proxy);
         }
         JsonNode host = container.path("HostConfig");
         assertTrue(host.path("ReadonlyRootfs").asBoolean());
@@ -147,7 +150,7 @@ class DockerProxyIsolationTest {
         assertEquals(2000000000L, host.path("NanoCpus").asLong());
         assertEquals(256L, host.path("PidsLimit").asLong());
         assertEquals("11000:11000", container.path("Config").path("User").asText());
-        if (suffix.equals("prepare")) {
+        if (suffix.equals("command")) {
             assertTrue(host.path("NetworkMode").asText().endsWith("-network"));
         } else {
             assertEquals("none", host.path("NetworkMode").asText());

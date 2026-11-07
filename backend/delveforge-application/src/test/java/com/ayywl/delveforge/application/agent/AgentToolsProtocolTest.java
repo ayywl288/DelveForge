@@ -10,15 +10,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AgentToolsProtocolTest {
     @Test
-    void sharedFrontendToolAcceptsOnlyBoundedGoalsAndNoModelCommands() {
-        for (String goal : List.of("typecheck", "build", "test")) {
-            AgentTools.validate(new AgentProtocol.ToolCall("id", "run_frontend_checks",
-                    "{\"goal\":\"" + goal + "\",\"directory\":\"frontend\"}"), AgentProtocol.Limits.defaults());
-        }
-        for (String arguments : List.of("{}", "{\"goal\":\"install\"}",
-                "{\"goal\":\"test;curl evil\"}", "{\"goal\":\"test\",\"command\":\"echo passed\"}")) {
+    void commandProtocolAllowsNativeCompositionButNoHostOrSecuritySettings() {
+        AgentTools.validate(new AgentProtocol.ToolCall("id", "exec_command",
+                "{\"command\":\"./check.sh && ./build.sh\",\"directory\":\"packages/core\"}"), AgentProtocol.Limits.defaults());
+        for (String arguments : List.of("{}", "{\"command\":\"ls\",\"mount\":\"/host\"}",
+                "{\"command\":\"ls\",\"timeout_seconds\":0}", "{\"command\":\"ls\",\"network\":\"host\"}")) {
             assertEquals("INVALID_ARGUMENTS", assertThrows(AgentException.class, () -> AgentTools.validate(
-                    new AgentProtocol.ToolCall("id", "run_frontend_checks", arguments), AgentProtocol.Limits.defaults())).code());
+                    new AgentProtocol.ToolCall("id", "exec_command", arguments), AgentProtocol.Limits.defaults())).code());
+        }
+        assertEquals(List.of("list_files", "search_code", "read_file", "edit_file", "exec_command"),
+                AgentTools.definitions().stream().map(AgentProtocol.ToolSpec::name).toList());
+        for (String retired : List.of("apply_patch", "run_checks", "run_frontend_checks")) {
+            assertThrows(AgentModelFailure.class, () -> AgentTools.validate(
+                    new AgentProtocol.ToolCall("id", retired, "{}"), AgentProtocol.Limits.defaults()));
         }
     }
 
@@ -27,7 +31,7 @@ class AgentToolsProtocolTest {
         var calls = List.of(new AgentProtocol.ToolCall(null, "read_file", "{}"),
                 new AgentProtocol.ToolCall("id", null, "{}"), new AgentProtocol.ToolCall("id", "unknown", "{}"),
                 new AgentProtocol.ToolCall("id", "read_file", null),
-                new AgentProtocol.ToolCall("id", "apply_patch", "x".repeat(262145)));
+                new AgentProtocol.ToolCall("id", "edit_file", "x".repeat(262145)));
         var reasons = List.of(AgentModelFailure.Reason.TOOL_ID_INVALID, AgentModelFailure.Reason.TOOL_NAME_INVALID,
                 AgentModelFailure.Reason.TOOL_NAME_INVALID, AgentModelFailure.Reason.TOOL_ARGUMENTS_INVALID,
                 AgentModelFailure.Reason.TOOL_ARGUMENTS_LIMIT);
@@ -50,7 +54,7 @@ class AgentToolsProtocolTest {
     @Test
     void malformedJsonArgumentsRemainExplicitRecoverableArgumentFailures() {
         var failure = assertThrows(AgentException.class, () -> AgentTools.validate(
-                new AgentProtocol.ToolCall("id", "apply_patch", "{\"patch\":"), AgentProtocol.Limits.defaults()));
+                new AgentProtocol.ToolCall("id", "edit_file", "{\"path\":"), AgentProtocol.Limits.defaults()));
         assertEquals("INVALID_ARGUMENTS", failure.code());
     }
 }

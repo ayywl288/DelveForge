@@ -6,13 +6,14 @@ import com.ayywl.delveforge.infrastructure.workspace.MavenRepositoryLayout;
 import java.util.List;
 import java.util.Map;
 
-/** 与兼容性预检共享 reactor 与语言级别解析；显式选择仍需满足实际语言级别。 */
+/** 仅提供受控镜像选择提示；静态解析失败不能成为通用命令路径的准入门槛。 */
 final class MavenJdkSelector {
     List<String> roots(Map<String, byte[]> poms) {
         try {
             return MavenRepositoryLayout.rootDirectories(poms);
         } catch (MavenRepositoryLayout.Unsupported failure) {
-            throw new AgentException(failure.code(), failure.getMessage(), failure);
+            // 超出静态提示预算时不再推断；实际构建诊断由仓库原生命令提供。
+            return List.of();
         }
     }
 
@@ -30,7 +31,7 @@ final class MavenJdkSelector {
                         .filter(jdk -> jdk == 17 || jdk == 21).max(Integer::compareTo).orElse(properties.defaultJdk())
                         : configured;
                 if (properties.images().containsKey(chosen)) {
-                    // profile/父 POM 的生效属性由真实离线 Maven 判定；静态未知不是无效仓库。
+                    // profile/父 POM 的生效属性由原生 Maven 判定；静态未知不是无效仓库。
                     return chosen;
                 }
             }

@@ -59,6 +59,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -99,6 +100,12 @@ class CodingAgentServiceTest {
 
     static ExecutionPreparationState eligibility(String baseline, Path official, WorkingCopyInspectionPort inspection,
             Path original, com.ayywl.delveforge.domain.evolution.PreparationProvenance provenance, boolean fullStack) {
+        return eligibility(baseline, official, inspection, original, provenance, fullStack, false);
+    }
+
+    static ExecutionPreparationState eligibility(String baseline, Path official, WorkingCopyInspectionPort inspection,
+            Path original, com.ayywl.delveforge.domain.evolution.PreparationProvenance provenance, boolean fullStack,
+            boolean remainingStep) {
         var assetId = new SoftwareAssetId("asset");
         var profileId = new RepositoryProfileId("profile");
         var planId = new EvolutionPlanId("plan");
@@ -106,13 +113,18 @@ class CodingAgentServiceTest {
         var copyId = new WorkingCopyId("copy");
         EvidenceBasis evidence = new EvidenceBasis(new Evidence(EvidenceSourceType.REPOSITORY,
                 "src/main/java/example/Counter.java", "source", 0.8, true), new RepositoryProfileEvidenceOrigin(profileId));
-        EvolutionPlan plan = EvolutionPlan.reconstitute(planId, new ProductDirectionId("direction"), assetId, profileId,
-                new CurrentState("current", List.of(), List.of(), List.of()), new TargetState("problem", "target", "difference"),
-                List.of(), List.of("修复递增逻辑"), List.of(EvolutionStep.reconstitute(stepId, planId,
+        var steps = new java.util.ArrayList<>(List.of(EvolutionStep.reconstitute(stepId, planId,
                         "先运行现有测试观察失败，再修复 Counter.next(n) 返回 n+1，新增边界测试并重跑完整测试",
                         fullStack ? "Counter 后端与 Vue 计数交互及相关自动化测试" : "Counter",
-                        List.of("发现实际文件并修改", "增加独立的边界测试类", "运行完整Maven测试"),
-                        EvolutionStepStatus.READY)), List.of(), List.of(evidence), copyId, EvolutionPlanStatus.ACTIVE);
+                        List.of("发现实际文件并修改", "增加独立的边界测试类", "读取仓库指引并运行本步骤所需的完整测试"),
+                        EvolutionStepStatus.READY)));
+        if (remainingStep) {
+            steps.add(EvolutionStep.reconstitute(new EvolutionStepId("later"), planId,
+                    "later", "later", List.of("later"), EvolutionStepStatus.PENDING_CONFIRMATION));
+        }
+        EvolutionPlan plan = EvolutionPlan.reconstitute(planId, new ProductDirectionId("direction"), assetId, profileId,
+                new CurrentState("current", List.of(), List.of(), List.of()), new TargetState("problem", "target", "difference"),
+                List.of(), List.of("修复递增逻辑"), steps, List.of(), List.of(evidence), copyId, EvolutionPlanStatus.ACTIVE);
         WorkingCopy copy = WorkingCopy.reconstitute(copyId, assetId, provenance.originalRevision(), official.toString(), baseline,
                 baseline, WorkingCopyStatus.READY, provenance);
         SoftwareAsset asset = SoftwareAsset.create(assetId, SoftwareAssetType.GIT_REPOSITORY,
@@ -143,6 +155,30 @@ class CodingAgentServiceTest {
         when(sandbox.preflight(anyString(), any(), any())).thenReturn(new AgentSandboxPort.Preflight("READY", "fixture ready"));
         when(sandbox.identity(anyString())).thenReturn(new AgentSandboxPort.Identity("container", "image", 21,
                 2147483648L, 2000000000L, 256, "none", true));
+    }
+
+    @Test
+    void failedRunRetainsUnverifiedWorkWithoutCandidateAndReleasesProcesses() throws Exception {
+        when(sandbox.retainPartial(anyString())).thenReturn("owned/partial-metadata.json");
+        when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true,\"result\":{\"sourceChanged\":true}}");
+        AtomicInteger turn = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> turn.getAndIncrement() == 0
+                ? new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("edit", "exec_command",
+                    "{\"command\":\"sh implement.sh\"}")), 1L)
+                : new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"Required service unavailable\"}", List.of(), 1L);
+        try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
+                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+            var run = agent.start("plan", "step", 21);
+            var terminal = awaitTerminal(agent, run.id(), 20);
+            assertEquals(AgentRunState.FAILED, terminal.state());
+            assertNull(terminal.candidateId());
+            assertTrue(terminal.retained());
+            assertTrue(database.store.events(run.id(), 0, 200).stream()
+                    .anyMatch(event -> event.kind().equals("UNVERIFIED_WORK_RETAINED")));
+            verify(sandbox).retainPartial(run.id());
+            verify(sandbox).cleanup(run.id());
+            verify(sandbox, never()).finish(anyString(), any());
+        }
     }
 
     @ParameterizedTest
@@ -278,7 +314,7 @@ class CodingAgentServiceTest {
         when(sandbox.tool(anyString(), any(), any())).thenThrow(new AgentPolicyRejection(
                 AgentPolicyRejection.Rule.SOURCE_CREDENTIALS, AgentPolicyRejection.Stage.PATCH_SOURCE));
         AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(
-                new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private patch must not leak\"}")), 12L);
+                new AgentProtocol.ToolCall("call", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"private patch must not leak\"}")), 12L);
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
             var run = awaitTerminal(service, id, 10);
@@ -313,7 +349,7 @@ class CodingAgentServiceTest {
                 .when(failingStore).event(anyString(), eq("TOOL_FINISHED"), anyString());
         when(sandbox.tool(anyString(), any(), any())).thenThrow(new AgentException("POLICY_REJECTED", "private rejection"));
         AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(
-                new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private\"}")), 1L);
+                new AgentProtocol.ToolCall("call", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"private\"}")), 1L);
         try (var service = new CodingAgentService(eligibility, failingStore, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
@@ -325,8 +361,8 @@ class CodingAgentServiceTest {
 
     @Test
     void preMutationSourceRefusalIsCachedAndAllowsOneDifferentSafeOperationWithoutPretendingPatchSucceeded() throws Exception {
-        var rejected = new AgentProtocol.ToolCall("protected", "apply_patch", "{\"patch\":\"private patch\"}");
-        var safeAlternative = new AgentProtocol.ToolCall("other", "apply_patch", "{\"patch\":\"different safe edit\"}");
+        var rejected = new AgentProtocol.ToolCall("protected", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"private patch\"}");
+        var safeAlternative = new AgentProtocol.ToolCall("other", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"different safe edit\"}");
         when(sandbox.tool(anyString(), eq(rejected), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
         when(sandbox.tool(anyString(), eq(safeAlternative), any())).thenReturn("{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\"}}");
         when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
@@ -368,36 +404,36 @@ class CodingAgentServiceTest {
     }
 
     @Test
-    void aSecondDistinctPreMutationRefusalTerminatesRunAndCannotFreezeCandidate() throws Exception {
+    void repeatedUnchangedPreMutationRefusalUsesTheSharedNoProgressRule() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         when(sandbox.tool(anyString(), any(), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
         AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall(
-                "call-" + requests.incrementAndGet(), "apply_patch", "{\"patch\":\"private\"}")), 1L);
+                "call-" + requests.incrementAndGet(), "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"private\"}")), 1L);
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
             var run = awaitTerminal(service, id, 10);
             assertEquals(AgentRunState.FAILED, run.state());
-            assertEquals("POLICY_REJECTED", run.reason());
+            assertEquals("NO_PROGRESS", run.reason());
             assertEquals(null, run.candidateId());
-            assertEquals(2, run.modelCalls());
-            assertEquals(2, run.toolCalls());
+            assertEquals(3, run.modelCalls());
+            assertEquals(3, run.toolCalls());
             verify(sandbox, never()).finish(anyString(), any());
             verify(sandbox).cleanup(id);
             var lastResult = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).toList().getLast();
             var data = new com.fasterxml.jackson.databind.ObjectMapper().readTree(lastResult.summary());
             assertTrue(data.path("mutationNotStarted").asBoolean());
-            assertFalse(data.path("resultRecorded").asBoolean());
-            assertFalse(data.has("alternativeAllowed"));
+            assertTrue(data.path("resultRecorded").asBoolean());
+            assertTrue(data.path("alternativeAllowed").asBoolean());
             assertTrue(service.events(id, 0, 100).stream().noneMatch(event -> event.kind().startsWith("DELIVERY")));
         }
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void newCredentialContentIsRejectedAndOnlyOneDifferentAttemptIsAllowed(boolean repeated) throws Exception {
+    void knownNoWriteRejectionsCanBeCorrectedWithoutAnIndependentQuota(boolean repeated) throws Exception {
         AtomicInteger calls = new AtomicInteger();
         when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
-            if (calls.incrementAndGet() == 1 || repeated) {
+            if (calls.incrementAndGet() == 1 || repeated && calls.get() == 2) {
                 throw AgentPolicyRejection.patchContentRejectedBeforeApply(
                         new AgentPolicyRejection.RejectedInput("new_text", List.of(2, 4)));
             }
@@ -421,18 +457,14 @@ class CodingAgentServiceTest {
             String proposed = request == 1 ? "private-proposed-body" : "runtime-generated-value";
             var edit = new AgentProtocol.ToolCall("call-" + request, "edit_file",
                     "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"" + proposed + "\"}");
-            return request <= 2 ? new AgentProtocol.Reply("", List.of(edit), 1L)
+            return request <= 3 ? new AgentProtocol.Reply("", List.of(edit), 1L)
                     : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
         };
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
             var terminal = awaitTerminal(service, id, 10);
-            assertEquals(repeated ? AgentRunState.FAILED : AgentRunState.SUCCEEDED, terminal.state());
-            if (repeated) {
-                assertEquals("POLICY_REJECTED", terminal.reason());
-                verify(sandbox, never()).finish(anyString(), any());
-            }
-            assertEquals(2, calls.get());
+            assertEquals(AgentRunState.SUCCEEDED, terminal.state());
+            assertEquals(3, calls.get());
             var finishes = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).toList();
             var recorded = new com.fasterxml.jackson.databind.ObjectMapper().readTree(finishes.getFirst().summary());
             assertTrue(recorded.path("alternativeAllowed").asBoolean());
@@ -443,86 +475,8 @@ class CodingAgentServiceTest {
         }
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"applied", "read", "conflict", "failed-applied"})
-    void onlyANewSuccessfulMutationRestoresPreMutationCorrectionOpportunity(String middle) throws Exception {
-        AtomicInteger calls = new AtomicInteger();
-        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
-            int call = calls.incrementAndGet();
-            if (call == 1 || call == 3) {
-                throw AgentPolicyRejection.patchContentRejectedBeforeApply();
-            }
-            if (call == 2 && middle.equals("read")) {
-                return "{\"ok\":true,\"result\":{\"path\":\"src/Example.java\",\"content\":\"new observation\"}}";
-            }
-            if (call == 2 && middle.equals("conflict")) {
-                return "{\"ok\":true,\"result\":{\"classification\":\"PATCH_CONFLICT\",\"mutationNotStarted\":true}}";
-            }
-            return "{\"ok\":" + !(call == 2 && middle.equals("failed-applied"))
-                    + ",\"result\":{\"classification\":\"PATCH_APPLIED\"}}";
-        });
-        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
-        AtomicInteger requests = new AtomicInteger();
-        AgentModelPort model = (history, tools) -> {
-            int request = requests.incrementAndGet();
-            if (request > 4) {
-                return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
-            }
-            boolean read = request == 2 && middle.equals("read");
-            AgentProtocol.ToolCall call = new AgentProtocol.ToolCall("call-" + request,
-                    read ? "read_file" : "apply_patch", read ? "{\"path\":\"src/Example.java\"}"
-                            : "{\"patch\":\"edit-" + request + "\"}");
-            return new AgentProtocol.Reply("", List.of(call), 1L);
-        };
-        try (CodingAgentService service = service(model, AgentProtocol.Limits.defaults())) {
-            String id = service.start("plan", "step", null).id();
-            var terminal = awaitTerminal(service, id, 10);
-            assertEquals(middle.equals("applied") ? AgentRunState.SUCCEEDED : AgentRunState.FAILED, terminal.state());
-            assertEquals(middle.equals("applied") ? 4 : 3, calls.get());
-            if (!middle.equals("applied")) {
-                assertEquals("POLICY_REJECTED", terminal.reason());
-                verify(sandbox, never()).finish(anyString(), any());
-            }
-        }
-    }
 
-    @Test
-    void cachedSuccessfulMutationCannotRestoreCorrectionOpportunity() throws Exception {
-        AgentProtocol.ToolCall applied = new AgentProtocol.ToolCall("applied", "apply_patch", "{\"patch\":\"safe\"}");
-        when(sandbox.tool(anyString(), eq(applied), any()))
-                .thenReturn("{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\"}}");
-        AgentProtocol.ToolCall first = new AgentProtocol.ToolCall("first-refusal", "apply_patch", "{\"patch\":\"first\"}");
-        AgentProtocol.ToolCall second = new AgentProtocol.ToolCall("second-refusal", "apply_patch", "{\"patch\":\"second\"}");
-        when(sandbox.tool(anyString(), eq(first), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
-        when(sandbox.tool(anyString(), eq(second), any())).thenThrow(AgentPolicyRejection.patchContentRejectedBeforeApply());
-        List<AgentProtocol.ToolCall> sequence = List.of(applied, first, applied, second);
-        AtomicInteger requests = new AtomicInteger();
-        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("",
-                List.of(sequence.get(requests.getAndIncrement())), 1L);
-        try (CodingAgentService service = service(model, AgentProtocol.Limits.defaults())) {
-            String id = service.start("plan", "step", null).id();
-            assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
-            assertEquals(4, requests.get());
-            verify(sandbox, times(1)).tool(anyString(), eq(applied), any());
-            verify(sandbox, never()).finish(anyString(), any());
-        }
-    }
 
-    @Test
-    void sourceAndNewContentRefusalsShareOneCorrectionOpportunity() throws Exception {
-        when(sandbox.tool(anyString(), any(), any()))
-                .thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply())
-                .thenThrow(AgentPolicyRejection.patchContentRejectedBeforeApply());
-        AtomicInteger requests = new AtomicInteger();
-        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall(
-                "call-" + requests.incrementAndGet(), "apply_patch", "{\"patch\":\"private\"}")), 1L);
-        try (var service = service(model, AgentProtocol.Limits.defaults())) {
-            String id = service.start("plan", "step", null).id();
-            assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
-            assertEquals(2, requests.get());
-            verify(sandbox, never()).finish(anyString(), any());
-        }
-    }
 
     @Test
     void postMutationOrUncertainPolicyRejectionNeverAllowsAlternative() throws Exception {
@@ -531,7 +485,7 @@ class CodingAgentServiceTest {
                 AgentPolicyRejection.Rule.SOURCE_CAPTURE_LIMIT, AgentPolicyRejection.Stage.SOURCE_CAPTURE));
         AgentModelPort model = (history, tools) -> {
             requests.incrementAndGet();
-            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private\"}")), 1L);
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"private\"}")), 1L);
         };
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
@@ -548,7 +502,7 @@ class CodingAgentServiceTest {
                 .when(failingStore).event(anyString(), eq("TOOL_FINISHED"), anyString());
         when(sandbox.tool(anyString(), any(), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
         try (var service = new CodingAgentService(eligibility, failingStore,
-                (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private\"}")), 1L),
+                (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"private\"}")), 1L),
                 sandbox, new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
             var run = awaitTerminal(service, id, 10);
@@ -564,7 +518,7 @@ class CodingAgentServiceTest {
         when(sandbox.tool(anyString(), any(), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
         when(sandbox.finish(anyString(), any())).thenThrow(new AgentException("NO_CHANGES", "No candidate changes"));
         AgentModelPort model = (history, tools) -> requests.incrementAndGet() == 1
-                ? new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "apply_patch", "{\"patch\":\"private\"}")), 1L)
+                ? new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"private\"}")), 1L)
                 : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
@@ -580,8 +534,8 @@ class CodingAgentServiceTest {
     void changedArgumentsCannotReuseRejectedToolIdentity() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         when(sandbox.tool(anyString(), any(), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
-        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("same", "apply_patch",
-                requests.incrementAndGet() == 1 ? "{\"patch\":\"first\"}" : "{\"patch\":\"changed\"}")), 1L);
+        AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("same", "edit_file",
+                requests.incrementAndGet() == 1 ? "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"first\"}" : "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"changed\"}")), 1L);
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
             assertEquals("TOOL_ID_CONFLICT", awaitTerminal(service, id, 10).reason());
@@ -612,15 +566,11 @@ class CodingAgentServiceTest {
     }
 
     @Test
-    void unsupportedMavenPolicyStillRejectsBeforeSandboxAndDoesNotInventInvocationTiming() throws Exception {
+    void retiredToolsCannotDispatchToTheSandbox() throws Exception {
         try (var service = service((history, tools) -> new AgentProtocol.Reply("", List.of(
-                new AgentProtocol.ToolCall("call", "run_checks", "{\"goal\":\"clean\"}")), 1L), AgentProtocol.Limits.defaults())) {
+                new AgentProtocol.ToolCall("call", "run_checks", "{}")), 1L), AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
-            assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
-            var finish = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).findFirst().orElseThrow();
-            var data = new com.fasterxml.jackson.databind.ObjectMapper().readTree(finish.summary());
-            assertEquals("POLICY_REJECTED", data.path("classification").asText());
-            assertEquals(false, data.has("invocationDurationNs"));
+            assertEquals("MODEL_PROTOCOL", awaitTerminal(service, id, 10).reason());
             verify(sandbox, never()).tool(anyString(), any(), any());
             verify(sandbox, never()).finish(anyString(), any());
         }
@@ -653,8 +603,8 @@ class CodingAgentServiceTest {
         AgentModelPort model = (history, tools) -> {
             int request = requests.incrementAndGet();
             if (request == 1) {
-                return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("once", "apply_patch",
-                        "{\"patch\":\"synthetic complete patch\"}")), 10L);
+                return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("once", "edit_file",
+                        "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"synthetic complete patch\"}")), 10L);
             }
             if (request == 2) {
                 throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_TRUNCATED,
@@ -752,7 +702,7 @@ class CodingAgentServiceTest {
                 return new AgentProtocol.Reply("continue implementation", List.of(), 1L);
             }
             return request <= 6 ? new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall(
-                    "edit-" + request, "apply_patch", "{\"patch\":\"change " + request + "\"}")), 1L)
+                    "edit-" + request, "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"change " + request + "\"}")), 1L)
                     : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
         }, AgentProtocol.Limits.defaults())) {
             var run = awaitTerminal(service, service.start("plan", "step", null).id(), 10);
@@ -855,7 +805,7 @@ class CodingAgentServiceTest {
     @ValueSource(booleans = {false, true})
     void legacyConflictAndUncertainApplyNeverBecomeSafeRetryOrCandidate(boolean legacy) throws Exception {
         AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(
-                new AgentProtocol.ToolCall("patch", "apply_patch", "{\"patch\":\"synthetic\"}")), 1L);
+                new AgentProtocol.ToolCall("patch", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"synthetic\"}")), 1L);
         if (legacy) {
             when(sandbox.tool(anyString(), any(), any())).thenReturn(
                     "{\"ok\":true,\"result\":{\"classification\":\"PATCH_CONFLICT\"}}");
@@ -909,7 +859,7 @@ class CodingAgentServiceTest {
 
     @Test
     void repeatedMutatingToolIdentityIsExecutedExactlyOnceBeforeDurableFreeze() throws Exception {
-        var call = new AgentProtocol.ToolCall("call-one", "apply_patch", "{\"patch\":\"a patch\"}");
+        var call = new AgentProtocol.ToolCall("call-one", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"a patch\"}");
         AtomicInteger requests = new AtomicInteger();
         when(sandbox.tool(anyString(), any(), any())).thenReturn("{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\"}}");
         when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
@@ -1026,7 +976,7 @@ class CodingAgentServiceTest {
     void compressedHistoryRetainsReadErrorCorrectionWithoutUnsafeInput() throws Exception {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
-                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), 10, 0);
+                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), 10);
         AtomicInteger requests = new AtomicInteger();
         AtomicBoolean preserved = new AtomicBoolean();
         when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
@@ -1248,7 +1198,7 @@ class CodingAgentServiceTest {
             int request = requests.incrementAndGet();
             var call = reread && request % 2 == 1
                     ? new AgentProtocol.ToolCall("call-" + request, "read_file", "{\"path\":\"Counter.java\"}")
-                    : new AgentProtocol.ToolCall("call-" + request, "apply_patch", "{\"patch\":\"private-same\"}");
+                    : new AgentProtocol.ToolCall("call-" + request, "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"private-same\"}");
             return new AgentProtocol.Reply("", List.of(call), 1L);
         };
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
@@ -1390,12 +1340,12 @@ class CodingAgentServiceTest {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
                 defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(),
-                10, 0);
+                10);
         AtomicInteger requests = new AtomicInteger();
         AtomicBoolean preserved = new AtomicBoolean();
         when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
             AgentProtocol.ToolCall call = invocation.getArgument(1);
-            return call.name().equals("apply_patch")
+            return call.name().equals("edit_file")
                     ? "{\"ok\":false,\"result\":{\"classification\":\"PATCH_CONFLICT\",\"mutationNotStarted\":true,\"conflictReason\":\"CONTEXT_MISMATCH\",\"paths\":[\"src/Counter.java\"],\"output\":\"" + "x".repeat(2500) + "\"}}"
                     : "{\"ok\":true,\"result\":{\"path\":\"src/Counter.java\",\"content\":\"" + "x".repeat(2500) + "\"}}";
         });
@@ -1408,7 +1358,7 @@ class CodingAgentServiceTest {
             int request = requests.incrementAndGet();
             return request == 6 ? new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L)
                     : new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + request,
-                    request == 1 ? "apply_patch" : "read_file", request == 1 ? "{\"patch\":\"fixture\"}"
+                    request == 1 ? "edit_file" : "read_file", request == 1 ? "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"fixture\"}"
                             : "{\"path\":\"src/Counter.java\",\"start_line\":" + request + "}")), 1L);
         };
         try (var service = service(model, limits)) {
@@ -1490,7 +1440,7 @@ class CodingAgentServiceTest {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
                 defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(),
-                10, 0);
+                10);
         String result = "{\"ok\":true,\"result\":{\"classification\":\"TESTS_PASSED\",\"goal\":\"test\","
                 + "\"directory\":\"nested\",\"module\":\"library\",\"selectedTest\":\"CounterTest\","
                 + "\"tests\":1,\"executedTests\":1,\"output\":\"" + "x".repeat(2500) + "\"}}";
@@ -1511,8 +1461,8 @@ class CodingAgentServiceTest {
             if (request == 6) {
                 return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
             }
-            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("check-" + request, "run_checks",
-                    "{\"goal\":\"test\",\"directory\":\"nested\",\"module\":\"library\",\"test\":\"CounterTest\"}")), 1L);
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("check-" + request, "exec_command",
+                    "{\"command\":\"mvn -pl library -Dtest=CounterTest test\",\"directory\":\"nested\",\"verification_scope\":\"CounterTest\",\"check_kind\":\"test\"}")), 1L);
         };
         try (var service = service(observing, limits)) {
             String id = service.start("plan", "step", null).id();

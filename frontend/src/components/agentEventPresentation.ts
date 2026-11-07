@@ -1,7 +1,7 @@
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import { verificationLabel } from "./agentResultPresentation";
 
-export const isCheckTool = (tool: string | undefined): boolean => tool === "run_checks" || tool === "run_frontend_checks";
+export const isCheckTool = (tool: string | undefined): boolean => tool === "exec_command" || tool === "run_checks" || tool === "run_frontend_checks";
 
 export const isPatchTool = (tool: string | undefined): boolean => tool === "apply_patch" || tool === "edit_file";
 
@@ -22,7 +22,7 @@ export interface AgentActivity {
 }
 export const toolNames: Record<string, string> = {
     list_files: "浏览文件", read_file: "读取文件", search_code: "搜索代码", apply_patch: "应用代码修改", edit_file: "精确编辑代码",
-    run_checks: "运行 Maven 检查", run_frontend_checks: "运行前端检查",
+    exec_command: "执行命令", run_checks: "运行 Maven 检查", run_frontend_checks: "运行前端检查",
 };
 const activeKinds: Partial<Record<AgentRun["state"], string[]>> = {
     CREATED: ["CREATED"], PREPARING: ["PREPARING"], RUNNING: ["MODEL_REQUEST", "RUNNING"],
@@ -175,7 +175,7 @@ function resultOutcome(event: AgentEvent, tool?: string): ActivityOutcome {
     if (data.ok === false || code && /(FAILED|FAILURE|ERROR|LIMIT|UNAVAILABLE|MISSING|REJECTED|MISMATCH|TIMEOUT|UNSUPPORTED|INVALID)/.test(code)) return "failed";
     if (data.ok !== true || !tool) return "unknown";
     if (isPatchTool(tool)) return code === "PATCH_APPLIED" ? "completed" : "unknown";
-    if (isCheckTool(tool)) return ["TESTS_PASSED", "BUILD_PASSED_NOT_TESTED"].includes(code ?? "")
+    if (isCheckTool(tool)) return ["COMMAND_SUCCEEDED", "TESTS_PASSED", "BUILD_PASSED_NOT_TESTED"].includes(code ?? "")
         && !(numeric(data, "failures") || numeric(data, "errors")) ? "completed" : "unknown";
     return "completed";
 }
@@ -300,7 +300,7 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
             title: "正在请求模型" + (ordinal ? ` · 第 ${ordinal} 次请求` : ""), detail: "等待模型响应" };
     }
     if (active?.tool) return { ...staticState, active: true, tone: "running",
-        title: ({ read_file: "正在读取文件", list_files: "正在浏览目录", search_code: "正在搜索代码", apply_patch: "正在应用代码修改", edit_file: "正在精确编辑代码", run_checks: "正在执行 Maven 检查", run_frontend_checks: "正在执行前端检查" } as Record<string, string>)[active.tool] ?? "工具操作进行中",
+        title: ({ read_file: "正在读取文件", list_files: "正在浏览目录", search_code: "正在搜索代码", apply_patch: "正在应用代码修改", edit_file: "正在精确编辑代码", exec_command: "正在执行命令", run_checks: "正在执行 Maven 检查", run_frontend_checks: "正在执行前端检查" } as Record<string, string>)[active.tool] ?? "工具操作进行中",
         detail: active.target ?? (active.targetWithheld ? "目标已隐藏" : "目标未记录") };
     if (active) return { ...staticState, active: true, tone: "running",
         title: ({ CREATED: "运行已预约", PREPARING: "正在准备 Docker 沙箱", RUNNING: "开始编码", FINALIZING: "正在冻结 Candidate" } as Record<string, string>)[active.event.kind] ?? "运行进行中" };
@@ -342,22 +342,26 @@ export function patchSummary(activities: AgentActivity[], runId: string) {
 export function checkSummary(activities: AgentActivity[], runId: string) {
     const checks = activities.filter(activity => activity.event.runId === runId && isCheckTool(activity.tool));
     const last = checks.at(-1);
-    const lastData = last ? summaryFields(last.finish ?? last.event) : {};
+    const source = [...activities].reverse().map(activity => summaryFields(activity.finish ?? activity.event))
+        .find(data => typeof data.afterSnapshot === "string" || typeof data.snapshot === "string");
+    const snapshot = source?.afterSnapshot ?? source?.snapshot;
     const executing = checks.some(activity => activity.active);
     const byScope = new Map<string, AgentActivity>();
-    if (typeof lastData.snapshot === "string" && /^[0-9a-f]{64}$/.test(lastData.snapshot)) {
-        for (const check of checks) {
-            const result = summaryFields(check.finish ?? check.event);
-            if (result.snapshot === lastData.snapshot) {
-                // 工程、目标与选测范围独立；前端 build 或选测通过不能覆盖后端全量失败。
-                byScope.set(JSON.stringify([check.tool, result.directory, result.goal, result.module,
-                    result.testSelectionFingerprint]), check);
-            }
-        }
+    for (const check of checks) {
+        const result = summaryFields(check.finish ?? check.event);
+        if (check.tool === "exec_command" && !result.scope) continue;
+        // 先取每个真实命令的最新尝试，再判断新鲜度，不能用旧成功遮盖后来的失败。
+        byScope.set(JSON.stringify([check.tool, result.directory, result.command, result.goal, result.module,
+            result.testSelectionFingerprint]), check);
     }
-    const comparable = [...byScope.values()];
+    const relevant = [...byScope.values()].reverse();
+    const comparable = relevant.filter(check => {
+        const result = summaryFields(check.finish ?? check.event);
+        return result.snapshot === snapshot && (!result.afterSnapshot || result.afterSnapshot === snapshot);
+    });
+    const stale = relevant.length > comparable.length;
     const latest = executing ? last : [...comparable].reverse().find(check => ["blocked", "failed", "unknown"].includes(check.outcome))
-        ?? [...comparable].reverse().find(check => ["TESTS_PASSED", "TESTS_FAILED"].includes(check.classification ?? "")) ?? last;
+        ?? [...comparable].reverse().find(check => ["TESTS_PASSED", "TESTS_FAILED"].includes(check.classification ?? "")) ?? comparable[0];
     const data = latest ? summaryFields(latest.finish ?? latest.event) : {};
     const executed = numeric(data, "executedTests");
     const counts = executed ? [`已执行 ${executed} 项`,
@@ -366,8 +370,8 @@ export function checkSummary(activities: AgentActivity[], runId: string) {
     const scope = [safePath(data.directory), ["test", "verify", "build", "typecheck", "compile", "package"].includes(String(data.goal))
         ? String(data.goal) : undefined].filter(Boolean).join(" · ");
     const detail = [scope, counts].filter(Boolean).join(" · ");
-    return { key: `checks:${runId}`, activities: checks, count: checks.length, latest, executing,
-        label: executing ? "正在执行检查" : latest ? verificationLabel(latest.classification) : "尚未执行检查",
+    return { key: `checks:${runId}`, activities: [...checks].reverse(), current: comparable, stale, count: checks.length, latest, executing,
+        label: executing ? "正在执行检查" : stale ? "部分检查已过期，需重新验证" : !relevant.length && checks.length ? "尚无当前范围的验证结果" : latest ? verificationLabel(latest.classification) : "尚未执行检查",
         detail, failed: checks.filter(activity => ["failed", "blocked"].includes(activity.outcome)).length,
         sourceBlocked: data.policyRule === "CHECK_MUTATED_SOURCE",
         blocked: latest?.outcome === "blocked" };
@@ -408,7 +412,7 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
         }
         if (sourceEditNotStarted(data, activity.tool)) {
             rows.push({ label: "源码修改", value: "未开始" });
-            if (data.alternativeAllowed === true && data.resultRecorded === true) rows.push({ label: "后续处理", value: "允许一次另选方案" });
+            if (data.alternativeAllowed === true && data.resultRecorded === true) rows.push({ label: "后续处理", value: "可调整方案后继续本次运行" });
         }
     }
     const addNumber = (key: string, label: string, suffix = "", scale = 1) => {
@@ -424,6 +428,15 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
     if (incomplete) rows.push({ label: "模型说明（未独立验证）", value: incomplete });
     const rejection = completionRejection(event);
     if (rejection) rows.push({ label: "完成检查诊断", value: rejection });
+    if (event.kind === "MODEL_PROVIDER_DIAGNOSTIC") {
+        const data = summaryFields(event);
+        if (typeof data.category === "string") rows.push({ label: "请求结果", value: data.category });
+        for (const [key, label] of [["attempt", "尝试"], ["httpStatus", "HTTP 状态"], ["durationMs", "耗时 ms"]]) {
+            const value = data[key!];
+            if (typeof value === "number") rows.push({ label: label!, value: String(value) });
+        }
+        rows.push({ label: "收到响应", value: data.responsePresent === true ? "是" : "否" });
+    }
     if (event.kind === "MODEL_FAILED") {
         const data = modelFailureFields(event);
         const description = modelFailureDescription(event);

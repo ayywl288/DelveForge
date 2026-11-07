@@ -13,6 +13,10 @@ public final class AgentCheckEvidence {
     }
 
     public static void requireAcceptable(JsonNode evidence) {
+        if (evidence != null && evidence.path("evidenceVersion").asInt() == 6) {
+            CommandCheckEvidence.requireAcceptable(evidence);
+            return;
+        }
         if (evidence == null || !Set.of("TESTED", "NOT_TESTED").contains(evidence.path("status").asText())
                 || evidence.has("checks") && !evidence.path("checks").isArray()) {
             throw new AgentException("EVIDENCE_INVALID", "Frozen evidence status cannot be established");

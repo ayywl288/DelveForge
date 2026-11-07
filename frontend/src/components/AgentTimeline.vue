@@ -3,6 +3,8 @@ import { computed, nextTick, ref, watch } from "vue";
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import NavigationIcon from "./NavigationIcon.vue";
 import AgentActivityRow from "./AgentActivityRow.vue";
+import { verificationLabel } from "./agentResultPresentation";
+import { summaryFields } from "./agentEventPresentation";
 import type { RunPresentation } from "./agentResultPresentation";
 import { activityState, buildActivities, currentActivity, checkSummary, explorationSummary, isExploration, isPatchTool, isCheckTool, patchSummary, toolNames } from "./agentEventPresentation";
 
@@ -93,14 +95,26 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
         </div>
         <button v-if="!following" class="secondary compact-button latest-activity" @click="latest">{{ unseen ? '有新活动 · 回到最新' : '回到最新活动' }}</button>
         <p v-if="chronological.length > 40" class="meta">显示 {{ visible.length }} / {{ chronological.length }} 项已加载时间线活动。</p>
+        <section v-if="checks.count" class="current-checks" aria-label="当前源码验证">
+            <h4>当前源码验证</h4>
+            <p v-if="checks.stale" class="check-blocker" role="status">源码已变化，部分必要检查需要重新运行。</p>
+            <ol v-if="checks.current.length" class="current-check-list">
+                <li v-for="activity in checks.current" :key="activity.key">
+                    <code translate="no">{{ summaryFields(activity.finish ?? activity.event).command ?? activity.target ?? toolNames[activity.tool!] }}</code>
+                    · {{ verificationLabel(activity.classification) }}
+                    <span v-if="activity.tool === 'exec_command'"> · {{ summaryFields(activity.finish ?? activity.event).scope }}</span>
+                </li>
+            </ol>
+            <p v-else class="meta">尚无可确认的当前范围验证结果。命令执行成功不等于业务验收通过。</p>
+        </section>
         <details v-if="checks.count" :key="checks.key" class="check-summary" :open="checksExpanded">
-            <summary @click.prevent="checksExpanded = !checksExpanded"><NavigationIcon name="check" />检查 · 汇总
+            <summary @click.prevent="checksExpanded = !checksExpanded"><NavigationIcon name="check" />命令与检查 · 历史
                 <strong class="check-latest" :data-tone="checks.latest?.outcome">{{ checks.label }}</strong>
-                <span class="check-count">{{ checks.count }} 次检查<span v-if="checks.failed"> · 历史 {{ checks.failed }} 次未通过</span></span>
+                <span class="check-count">{{ checks.count }} 次尝试<span v-if="checks.failed"> · 历史 {{ checks.failed }} 次未通过</span></span>
                 <span v-if="checks.detail" class="check-detail">{{ checks.detail }}</span>
             </summary>
-            <template v-if="checksExpanded"><p class="exploration-note">汇总优先显示最近检查所绑定源码版本中的未通过项，各工程和检查目标分别计算。以下保留全部历史；检查记录不能替代最终验证结论。</p>
-                <ol class="check-history" aria-label="本 Run 完整检查历史，按时间排序" tabindex="0">
+            <template v-if="checksExpanded"><p class="exploration-note">当前结果绑定最近已记录的源码版本；以下为全部命令尝试，最近记录在前。缺失的历史不会推断为通过。</p>
+                <ol class="check-history" aria-label="本 Run 已加载命令历史，最近在前" tabindex="0">
                     <AgentActivityRow v-for="activity in visibleChecks" :key="activity.key" :activity="activity" />
                 </ol><button v-if="checkCount < checks.count" class="secondary compact-button more-checks" @click="checkCount += 40">显示更多检查记录</button>
             </template>
@@ -137,6 +151,9 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 </template>
 
 <style scoped>
+.current-checks { border-bottom: 1px solid var(--line); padding: 12px 0; }
+.current-checks h4 { font-size: 14px; margin: 0 0 8px; }
+.current-check-list { list-style: none; margin: 0; padding: 0; overflow-wrap: anywhere; }
 .check-summary { min-width: 0; margin: 10px 0; padding: 12px 0 16px; border-bottom: 1px solid var(--line); }
 .check-summary summary { cursor: pointer; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .check-summary summary > .navigation-icon { width: 15px; height: 15px; vertical-align: middle; margin-right: 8px; color: var(--muted); }

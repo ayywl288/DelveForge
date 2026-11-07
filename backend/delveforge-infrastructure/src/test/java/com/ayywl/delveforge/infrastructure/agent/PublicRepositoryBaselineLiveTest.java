@@ -36,19 +36,19 @@ class PublicRepositoryBaselineLiveTest {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(defaults.maxContextChars(), defaults.maxOutputBytes(), defaults.maxPatchBytes(),
                 defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(),
-                600, 2);
+                600);
         try {
             sandbox.prepare(new AgentSandboxPort.Task(run, "baseline-only", "baseline-only", "baseline-only",
                     source.toString(), evidence.resolve("unused-original").toString(), baseline,
                     "Unmodified upstream baseline check", "complete", "none", 17), limits, () -> false);
-            String result = sandbox.tool(run, new AgentProtocol.ToolCall("baseline-test", "run_checks",
-                    "{\"goal\":\"test\",\"directory\":\"complete\"}"), () -> false);
+            String result = sandbox.tool(run, new AgentProtocol.ToolCall("baseline-test", "exec_command",
+                    "{\"command\":\"mvn -B test\",\"directory\":\"complete\",\"verification_scope\":\"Upstream reactor tests\",\"check_kind\":\"test\"}"), () -> false);
             var json = new ObjectMapper();
             Files.writeString(evidence.resolve("baseline.json"), json.writerWithDefaultPrettyPrinter()
                     .writeValueAsString(Map.of("baseline", baseline, "identity", sandbox.identity(run),
                             "check", json.readTree(result))));
-            assertTrue(result.contains("TESTS_PASSED"), result);
-            assertTrue(json.readTree(result).path("result").path("tests").asInt() > 0, result);
+            assertTrue(result.contains("COMMAND_SUCCEEDED"), result);
+            assertTrue(json.readTree(result).path("result").path("executedTests").asInt() > 0, result);
             assertEquals(baseline, git(source, "rev-parse", "HEAD"));
             assertEquals("", git(source, "status", "--porcelain"));
         } finally {

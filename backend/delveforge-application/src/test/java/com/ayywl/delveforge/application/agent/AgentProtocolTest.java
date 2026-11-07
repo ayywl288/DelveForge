@@ -8,6 +8,6 @@ class AgentProtocolTest {
     @Test
     void invalidTechnicalMaterialBoundsAreRejected() {
         assertThrows(IllegalArgumentException.class, () -> new AgentProtocol.Limits(4095, 1024, 1024,
-                1024, 2048, 1, 1, 0));
+                1024, 2048, 1, 1));
     }
 }

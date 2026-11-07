@@ -90,11 +90,13 @@ class DockerRetentionRecoveryTest {
     }
 
     private Candidate finish() throws Exception {
-        String patch = DockerAgentSandboxTest.replacement("src/main/java/example/Counter.java",
-                Files.readString(official.resolve("src/main/java/example/Counter.java")),
-                "package example;\npublic class Counter { public int next(int n) { return n + 1; } }\n");
-        assertTrue(sandbox.tool(run.id(), new AgentProtocol.ToolCall("patch", "apply_patch",
-                new ObjectMapper().writeValueAsString(Map.of("patch", patch))), () -> false).contains("PATCH_APPLIED"));
+        assertTrue(sandbox.tool(run.id(), new AgentProtocol.ToolCall("edit", "edit_file",
+                new ObjectMapper().writeValueAsString(Map.of("path", "src/main/java/example/Counter.java",
+                        "old_text", "return n;", "new_text", "return n + 1;"))), () -> false).contains("PATCH_APPLIED"));
+        assertTrue(sandbox.tool(run.id(), new AgentProtocol.ToolCall("verify", "exec_command",
+                new ObjectMapper().writeValueAsString(Map.of("command", "mvn -B test",
+                        "verification_scope", "Repository tests", "check_kind", "test"))), () -> false)
+                .contains("COMMAND_SUCCEEDED"));
         database.store.advance(run.id(), AgentRunState.RUNNING, AgentRunState.FINALIZING, null);
         Candidate candidate = sandbox.finish(run.id(), () -> false);
         assertEquals(candidate.diff(), Files.readString(material()));

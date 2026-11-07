@@ -24,7 +24,7 @@ public final class RepositoryContentPolicy {
         }
 
         public boolean preserved() { return true; }
-        public boolean modelVisible() { return kind == Kind.SOURCE; }
+        public boolean modelVisible() { return kind != Kind.PRESERVED_ONLY; }
         public boolean executionAvailable() { return kind != Kind.PRESERVED_ONLY; }
         public boolean mutable() { return kind == Kind.SOURCE; }
     }
@@ -76,9 +76,9 @@ public final class RepositoryContentPolicy {
     /** 缺少可执行源码或构建描述时不能用剩余测试制造验证成功；资源缺失仍须显式记执行投影。 */
     public static boolean buildInput(String path) {
         String name = path.substring(path.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT);
-        return name.matches(".*\\.(java|kt|js|mjs|cjs|ts|tsx|jsx|vue|html|gradle)")
-                || Set.of("pom.xml", "package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "pnpm-workspace.yaml")
-                        .contains(name) || path.startsWith(".mvn/") || path.contains("/.mvn/");
+        // 未知扩展名默认可能参与构建，不能把 Go/C++/脚本等漏掉；明确的资料和私有资源另行保留。
+        return !name.startsWith(".env") && !Set.of(".npmrc", ".netrc", ".pypirc").contains(name)
+                && !name.matches(".*\\.(md|txt|rst|png|jpg|jpeg|gif|svg|ico|pdf|properties|pem|crt|cer|key|jks|p12|pfx)");
     }
 
     private static String utf8(byte[] bytes) {

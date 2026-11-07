@@ -51,7 +51,7 @@ public final class AgentToolActivity {
             if (classification.matches("[A-Z][A-Z0-9_]{0,63}") && unchanged(classification)) {
                 summary.put("classification", classification);
             }
-            if (AgentTools.mutation(call.name()) && classification.equals("POLICY_REJECTED")
+            if (mutation(call.name()) && classification.equals("POLICY_REJECTED")
                     && ((response.path("policyRule").asText().equals("SOURCE_CREDENTIALS")
                             && response.path("policyStage").asText().equals("PATCH_SOURCE"))
                         || (response.path("policyRule").asText().equals("PATCH_CREDENTIALS")
@@ -76,7 +76,7 @@ public final class AgentToolActivity {
                     }
                 }
             }
-            if (AgentTools.mutation(call.name()) && classification.equals("PATCH_CONFLICT")
+            if (mutation(call.name()) && classification.equals("PATCH_CONFLICT")
                     && details.path("mutationNotStarted").asBoolean()) {
                 summary.put("mutationNotStarted", true);
                 String diagnostic = details.path("patchDiagnostic").asText();
@@ -89,7 +89,7 @@ public final class AgentToolActivity {
                     summary.put("conflictReason", reason);
                 }
             }
-            if (AgentTools.mutation(call.name()) && classification.equals("PATCH_NOT_EXECUTED")
+            if (mutation(call.name()) && classification.equals("PATCH_NOT_EXECUTED")
                     && details.path("mutationNotStarted").asBoolean()) {
                 summary.put("mutationNotStarted", true);
             }
@@ -121,9 +121,42 @@ public final class AgentToolActivity {
                     summary.put("configurationChanged", details.path("configurationChanged").asBoolean());
                 }
             }
+            if (mutation(call.name())) {
+                for (String key : List.of("snapshot", "afterSnapshot")) {
+                    if (details.path(key).asText().matches("[0-9a-f]{64}")) {
+                        summary.put(key, details.path(key).asText());
+                    }
+                }
+            }
+            if (call.name().equals("exec_command")) {
+                for (String key : List.of("command", "directory", "scope", "kind", "testDetails", "invocationId")) {
+                    if (details.path(key).isTextual()) {
+                        summary.put(key, secrets.sanitizeOutput(details.path(key).asText()));
+                    }
+                }
+                if (response.path("mutationNotStarted").asBoolean()) {
+                    summary.put("mutationNotStarted", true);
+                }
+                for (String key : List.of("timedOut", "cancelled", "outputTruncated", "sourceChanged")) {
+                    if (details.path(key).isBoolean()) {
+                        summary.put(key, details.path(key).asBoolean());
+                    }
+                }
+                if (details.path("exitCode").isIntegralNumber()) {
+                    summary.put("exitCode", details.path("exitCode").asInt());
+                }
+                for (String key : List.of("stdout", "stderr")) {
+                    String output = secrets.sanitizeOutput(details.path(key).asText());
+                    summary.put(key, output.substring(0, Math.min(3000, output.length())));
+                    if (output.length() > 3000) {
+                        summary.put("outputTruncated", true);
+                    }
+                }
+                summary.put("resultRecorded", true);
+            }
             // 只取成功应用后受控工具返回的已检查路径，绝不解析 patch 文本。
             JsonNode paths = details.path("paths");
-            if (AgentTools.mutation(call.name()) && response.path("ok").asBoolean()
+            if (mutation(call.name()) && response.path("ok").asBoolean()
                     && classification.equals("PATCH_APPLIED") && paths.isArray() && paths.size() <= 8) {
                 List<String> values = new java.util.ArrayList<>();
                 for (JsonNode path : paths) {
@@ -172,7 +205,7 @@ public final class AgentToolActivity {
             if (rejection != null && rejection.rule() == AgentPolicyRejection.Rule.CHECK_MUTATED_SOURCE) {
                 sourceChanges(summary, rejection.sourceChanges());
             }
-            if (AgentTools.mutation(call.name()) && rejection != null && rejection.sourceEditRejectedBeforeMutation()) {
+            if (mutation(call.name()) && rejection != null && rejection.sourceEditRejectedBeforeMutation()) {
                 summary.put("mutationNotStarted", true);
                 if (rejection.rejectedInput() != null) {
                     summary.put("rejectedInput", rejection.rejectedInput());
@@ -230,7 +263,12 @@ public final class AgentToolActivity {
         summary.put("toolCallId", identity);
         summary.put("tool", call.name());
         try {
-            AgentTools.validate(call, limits);
+            // 旧活动仍可展示，但不能借此进入已退役工具的执行路径。
+            if (!Set.of("apply_patch", "run_checks", "run_frontend_checks").contains(call.name())) {
+                AgentTools.validate(call, limits);
+            } else if (call.arguments() == null || call.arguments().length() > limits.maxPatchBytes() * 2L) {
+                throw new AgentException("INVALID_ARGUMENTS", "Historical activity arguments exceed display bounds");
+            }
             JsonNode args = json.readTree(call.arguments());
             if (Set.of("list_files", "read_file", "search_code", "edit_file").contains(call.name())) {
                 String path = args.path("path").asText(".");
@@ -239,6 +277,12 @@ public final class AgentToolActivity {
                 } else {
                     summary.put("targetState", "withheld");
                 }
+            } else if (call.name().equals("exec_command")) {
+                summary.put("checkType", "COMMAND");
+                summary.put("command", secrets.sanitizeOutput(args.path("command").asText()));
+                summary.put("scope", secrets.sanitizeOutput(args.path("verification_scope").asText()));
+                summary.put("directory", args.path("directory").asText("."));
+                summary.put("kind", args.path("check_kind").asText());
             } else if (Set.of("run_checks", "run_frontend_checks").contains(call.name())) {
                 summary.put("checkType", call.name().equals("run_frontend_checks") ? "FRONTEND" : "MAVEN");
                 summary.put("goal", args.path("goal").asText("test"));
@@ -261,6 +305,10 @@ public final class AgentToolActivity {
             // 参数错误没有可声明的目标，保留关联身份；原执行路径负责拒绝或返回失败。
         }
         return summary;
+    }
+
+    private boolean mutation(String tool) {
+        return AgentTools.mutation(tool) || tool.equals("apply_patch");
     }
 
     private boolean displayPath(String path, boolean allowRoot) {

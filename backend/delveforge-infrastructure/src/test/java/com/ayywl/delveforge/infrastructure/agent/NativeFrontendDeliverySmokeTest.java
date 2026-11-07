@@ -42,8 +42,9 @@ class NativeFrontendDeliverySmokeTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"npm", "pnpm"})
-    void nativeFailureIsCorrectedRecheckedFrozenAndDelivered(String manager) throws Exception {
+    @ValueSource(strings = {"npm", "npm2", "pnpm", "pnpm6"})
+    void nativeFailureIsCorrectedRecheckedFrozenAndDelivered(String variant) throws Exception {
+        String manager = variant.startsWith("npm") ? "npm" : "pnpm";
         Path resources = Path.of("src/test/resources/agent/native-frontend");
         Path original = Files.createDirectories(temporary.resolve("original"));
         try (var paths = Files.walk(resources.resolve("npm"))) {
@@ -61,6 +62,15 @@ class NativeFrontendDeliverySmokeTest {
             Files.copy(resources.resolve("pnpm/package.json"), original.resolve("package.json"),
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING);
             Files.copy(resources.resolve("pnpm/pnpm-lock.yaml"), original.resolve("pnpm-lock.yaml"));
+        }
+        if (variant.equals("npm2")) {
+            Files.copy(resources.resolve("npm2/package-lock.json"), original.resolve("package-lock.json"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } else if (variant.equals("pnpm6")) {
+            Files.copy(resources.resolve("pnpm6/pnpm-lock.yaml"), original.resolve("pnpm-lock.yaml"),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.writeString(original.resolve("package.json"), Files.readString(original.resolve("package.json"))
+                    .replace("pnpm@12.9.1", "pnpm@8.15.9"));
         }
         // 原样目录入口在固定 Node 中会真实失败；随后由工具动作改成有效文件入口。
         Files.writeString(original.resolve("package.json"), Files.readString(original.resolve("package.json"))
@@ -89,13 +99,11 @@ class NativeFrontendDeliverySmokeTest {
         var sandbox = new DockerAgentSandbox(DockerAgentSandboxTest.properties(temporary.resolve("runs")),
                 new DeterministicRepositorySecretPolicy());
         List<AgentProtocol.ToolCall> actions = List.of(
-                call("run_frontend_checks", Map.of("goal", "test")),
-                call("list_files", Map.of("path", "node_modules/.bin")),
-                call("read_file", Map.of("path", "node_modules/vitest/vitest.mjs")),
-                call("search_code", Map.of("path", "node_modules", "query", "vitest")),
+                call("exec_command", Map.of("command", manager.equals("npm") ? "npm ci --ignore-scripts --no-audit --no-fund" : "pnpm install --frozen-lockfile --ignore-scripts")),
+                call("exec_command", Map.of("command", manager + " test", "verification_scope", "Repository counter and isolation tests", "check_kind", "test")),
                 call("edit_file", Map.of("path", "package.json", "old_text", "node --test tests/",
                         "new_text", "node --test tests/counter.test.mjs")),
-                call("run_frontend_checks", Map.of("goal", "test")),
+                call("exec_command", Map.of("command", manager + " test", "verification_scope", "Repository counter and isolation tests", "check_kind", "test")),
                 call("edit_file", Map.of("path", "src/counter.js", "old_text", "return value;", "new_text", "return value + 1;")),
                 call("edit_file", Map.of("path", "tests/isolation.test.mjs", "old_text", "", "new_text", """
                         import { test } from 'node:test';
@@ -120,8 +128,8 @@ class NativeFrontendDeliverySmokeTest {
                         """)),
                 call("edit_file", Map.of("path", "package.json", "old_text", "node --test tests/counter.test.mjs",
                         "new_text", "node --test tests/*.test.mjs")),
-                call("run_frontend_checks", Map.of("goal", "test")),
-                call("run_frontend_checks", Map.of("goal", "build")));
+                call("exec_command", Map.of("command", manager + " test", "verification_scope", "Repository counter and isolation tests", "check_kind", "test")),
+                call("exec_command", Map.of("command", manager + " run build", "verification_scope", "Repository production build", "check_kind", "build")));
         AtomicInteger turn = new AtomicInteger();
         List<String> observed = new ArrayList<>();
         AgentModelPort model = (history, tools) -> {
@@ -140,19 +148,19 @@ class NativeFrontendDeliverySmokeTest {
             candidateId = terminal.candidateId();
         }
         var candidate = database.store.candidate(candidateId);
-        assertTrue(String.join("\n", observed).contains("CHECK_MATERIAL_UNAVAILABLE"));
         var evidence = json.readTree(candidate.testEvidence());
-        assertEquals(4, evidence.path("evidenceVersion").asInt());
-        assertEquals("TESTS_FAILED", evidence.path("checks").get(0).path("classification").asText());
-        assertEquals("TESTS_FAILED", evidence.path("checks").get(1).path("classification").asText());
-        assertEquals(2, evidence.path("checks").get(1).path("executedTests").asInt());
-        assertEquals(1, evidence.path("checks").get(1).path("failures").asInt());
-        var passed = evidence.path("checks").get(2);
-        assertEquals("TESTS_PASSED", passed.path("classification").asText());
-        assertEquals("node-junit", passed.path("runner").asText());
-        assertEquals(3, passed.path("executedTests").asInt());
+        assertEquals(6, evidence.path("evidenceVersion").asInt());
+        var checks = evidence.path("checks");
+        assertEquals(0, checks.get(0).path("exitCode").asInt(), checks.get(0).toString());
+        assertEquals("COMMAND_FAILED", checks.get(1).path("classification").asText());
+        assertEquals("COMMAND_FAILED", checks.get(2).path("classification").asText());
+        assertTrue(checks.get(2).path("stdout").asText().contains("fail 1"));
+        var passed = checks.get(3);
+        assertEquals("COMMAND_SUCCEEDED", passed.path("classification").asText());
+        assertTrue(passed.path("stdout").asText().contains("pass 3"));
+        assertFalse(passed.has("executedTests"));
         assertEquals(evidence.path("finalSnapshot").asText(), passed.path("snapshot").asText());
-        assertNotEquals(evidence.path("checks").get(1).path("snapshot").asText(), passed.path("snapshot").asText());
+        assertNotEquals(checks.get(2).path("snapshot").asText(), passed.path("snapshot").asText());
         assertFalse(candidate.testEvidence().contains("MAVEN"));
         assertFalse(Files.exists(official.resolve("pom.xml")));
         assertEquals(baseline, git.git(official, "rev-parse", "HEAD"));
@@ -173,6 +181,6 @@ class NativeFrontendDeliverySmokeTest {
         var proof = json.createObjectNode().put("manager", manager).put("candidateId", candidateId)
                 .put("baseline", baseline).put("revision", revision).put("delivery", "COMPLETED");
         proof.set("evidence", evidence);
-        Files.writeString(Path.of("target/native-frontend-delivery-" + manager + ".json"), proof.toPrettyString());
+        Files.writeString(Path.of("target/native-frontend-delivery-" + variant + ".json"), proof.toPrettyString());
     }
 }

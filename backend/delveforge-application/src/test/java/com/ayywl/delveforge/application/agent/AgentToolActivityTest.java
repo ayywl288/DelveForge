@@ -27,6 +27,24 @@ class AgentToolActivityTest {
     }
 
     @Test
+    void commandRejectedBeforeExecutionDoesNotInventExitOrCancellationFacts() throws Exception {
+        var command = call("exec_command", Map.of("command", "mvn test", "directory", "missing"));
+        var rejected = json.readTree(activity.finished(command, identity,
+                "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\",\"mutationNotStarted\":true}"));
+        assertFalse(rejected.has("exitCode"));
+        assertFalse(rejected.has("timedOut"));
+        assertFalse(rejected.has("cancelled"));
+        assertEquals("mvn test", rejected.path("command").asText());
+        assertEquals("missing", rejected.path("directory").asText());
+        assertTrue(rejected.path("mutationNotStarted").asBoolean());
+        var executed = json.readTree(activity.finished(command, identity,
+                "{\"ok\":false,\"result\":{\"classification\":\"COMMAND_FAILED\",\"exitCode\":2,"
+                        + "\"timedOut\":false,\"cancelled\":false}}"));
+        assertEquals(2, executed.path("exitCode").asInt());
+        assertFalse(executed.path("cancelled").asBoolean());
+    }
+
+    @Test
     void frontendActivityPreservesExecutionIdentityWithoutPersistingReportBodies() throws Exception {
         var response = json.createObjectNode().put("ok", true);
         var result = response.putObject("result").put("classification", "TEST_EXECUTION_UNVERIFIED")

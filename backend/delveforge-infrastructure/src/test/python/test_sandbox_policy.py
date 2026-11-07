@@ -32,7 +32,7 @@ def witnessed(patch_text):
 class SandboxPolicyTest(unittest.TestCase):
     def test_invalid_read_range_never_reads_content_and_can_be_corrected(self):
         target = self.root / 'source.txt'
-        target.write_text('one\ntwo\n')
+        target.write_bytes(b'one\ntwo\n')
         with patch.object(sandbox, 'text', side_effect=AssertionError('must not read')):
             for values in ({'start_line': 0}, {'line_count': 301}, {'start_line': True}):
                 with self.subTest(values=values):
@@ -81,7 +81,8 @@ class SandboxPolicyTest(unittest.TestCase):
         (self.root / 'package.json').write_text('{}')
         (self.root / 'dist').mkdir()
         (self.root / 'dist/output.js').write_text('generated')
-        self.assert_policy('GENERATED_PATH', sandbox.snapshot)
+        (self.root / '.gitignore').write_text('dist/\n')
+        self.assertNotIn('dist/output.js', sandbox.all_files())
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -104,13 +105,6 @@ class SandboxPolicyTest(unittest.TestCase):
             target.write_bytes(b'changed')
             self.assert_policy('SOURCE_CAPTURE_LIMIT', lambda: sandbox.snapshot(True, baseline))
 
-    def test_declared_target_module_is_source_and_its_own_target_is_generated(self):
-        (self.root / 'pom.xml').write_text('<project><modules><module>target</module></modules></project>')
-        (self.root / 'target').mkdir()
-        (self.root / 'target/pom.xml').write_text('<project/>')
-        (self.root / 'target/Source.java').write_text('class Source {}')
-        self.assertFalse(sandbox.build_output('target/Source.java'))
-        self.assertTrue(sandbox.build_output('target/target/classes/Source.class'))
 
     def test_test_fixture_pom_does_not_hide_its_target_resource(self):
         (self.root / 'pom.xml').write_text('<project/>')
@@ -128,7 +122,7 @@ class SandboxPolicyTest(unittest.TestCase):
                                 capture_output=True, cwd=self.root, check=False)
         self.assertEqual(0, result.returncode)
         self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
-            'protocol': 'delveforge-sandbox', 'version': 8}},
+            'protocol': 'delveforge-sandbox', 'version': 9}},
             {k: v for k, v in json.loads(result.stdout).items() if k != 'durationMs'})
         self.assertEqual(before, list(self.root.iterdir()))
         self.assertEqual(b'', result.stderr)
@@ -191,14 +185,10 @@ class SandboxPolicyTest(unittest.TestCase):
             execute.assert_not_called()
         self.assertEqual('unchanged', (self.root / 'safe.txt').read_text(encoding='utf-8'))
 
-    def test_patch_size_and_generated_paths(self):
+    def test_patch_size_and_runtime_dependency_paths(self):
         with patch.dict(sandbox.os.environ, {'DF_PATCH_BYTES': '2'}):
             self.assert_policy('PATCH_SIZE', lambda: sandbox.patch_paths('large'))
-        (self.root / 'pom.xml').write_text('<project/>', encoding='utf-8')
-        self.assert_policy('GENERATED_PATH', lambda: sandbox.patch_paths('--- a/target/File.java\n'))
-        (self.root / 'target').mkdir()
-        (self.root / 'target/pom.xml').write_text('<project/>', encoding='utf-8')
-        self.assert_policy('AMBIGUOUS_GENERATED_PATH', lambda: sandbox.patch_paths('--- a/target/File.java\n'))
+        self.assert_policy('GENERATED_PATH', lambda: sandbox.patch_paths('--- a/node_modules/file.js\n'))
 
     def test_malformed_patch_is_non_mutating_tool_error(self):
         with patch.object(sandbox, 'run_bounded') as execute:
@@ -252,7 +242,7 @@ class SandboxPolicyTest(unittest.TestCase):
     def test_source_entry_type_and_protected_entries(self):
         (self.root / 'safe.txt').write_text('content', encoding='utf-8')
         with patch.object(pathlib.Path, 'is_symlink', return_value=True):
-            self.assert_policy('SOURCE_ENTRY_TYPE', sandbox.all_files)
+            self.assert_policy('SYMLINK_PATH', sandbox.all_files)
         (self.root / '.git').mkdir()
         self.assert_policy('SOURCE_PROTECTED_ENTRY', sandbox.all_files)
 
@@ -263,240 +253,41 @@ class SandboxPolicyTest(unittest.TestCase):
             self.assert_policy('SOURCE_FILE_LIMIT', sandbox.all_files)
             for name in ('c.txt', 'd.txt', 'e.txt'):
                 (self.root / name).write_text('content', encoding='utf-8')
-            self.assert_policy('SOURCE_ENTRY_LIMIT', sandbox.all_files)
+            self.assert_policy('SOURCE_FILE_LIMIT', sandbox.all_files)
         with patch.object(sandbox, 'BASELINE_FILE_LIMIT', 1):
             self.assert_policy('SOURCE_CAPTURE_LIMIT', sandbox.snapshot)
 
-    def test_explicit_new_maven_check_excludes_only_outputs_and_retains_baseline_assets(self):
-        (self.root / 'pom.xml').write_text('<project/>')
-        child = self.root / 'independent'
-        (child / 'target').mkdir(parents=True)
-        (child / 'pom.xml').write_text('<project/>')
-        asset = child / 'target/business.json'
-        asset.write_text('retained baseline resource')
-        baseline = {entry['path']: entry['sha256'] + ':' + entry['mode'] for entry in sandbox.snapshot()['files']}
 
-        def build(*args, **kwargs):
-            (child / 'target/classes').mkdir(exist_ok=True)
-            (child / 'target/classes/Generated.class').write_bytes(b'\x00\xff')
-            return 0, 'build completed'
-
-        with patch.object(sandbox, 'BASELINE_PATHS', set(baseline)), patch.object(sandbox, 'run_bounded', build):
-            result = sandbox.checks({'directory': 'independent'})
-            self.assertEqual('BUILD_PASSED_NOT_TESTED', result['classification'])
-            final = sandbox.snapshot(True, baseline, sandbox.maven_module_roots({'independent'}))
-            self.assertIn('independent/target/business.json', {entry['path'] for entry in final['files']})
-            self.assertNotIn('independent/target/classes/Generated.class', {entry['path'] for entry in final['files']})
-
-            def mutate(*args, **kwargs):
-                asset.write_text('unexpected source mutation')
-                return 0, 'build completed'
-
-            with patch.object(sandbox, 'run_bounded', mutate):
-                self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({'directory': 'independent'}))
-
-    def test_recognized_database_runtime_change_is_explicit_and_bound_to_initial_snapshot(self):
-        (self.root / 'pom.xml').write_text('<project/>')
-        database = self.root / 'fixture.mv.db'
-        header = b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00'
-        database.write_bytes(header + b'before')
-        before = sandbox.snapshot()
-
-        def build(*args, **kwargs):
-            database.write_bytes(header + b'after')
-            return 0, 'build completed'
-
-        with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'true'}), \
-                patch.object(sandbox, 'run_bounded', build):
-            result = sandbox.checks({'goal': 'test'})
-        self.assertEqual(before['snapshot'], result['snapshot'])
-        self.assertEqual('BUILD_PASSED_NOT_TESTED', result['classification'])
-        change = result['runtimeChanges'][0]
-        self.assertEqual('fixture.mv.db', change['path'])
-        self.assertEqual('H2_MVSTORE_CONTENT', change['category'])
-        self.assertNotEqual(change['before']['sha256'], change['after']['sha256'])
-        self.assertNotIn('content', change['before'])
-
-    def h2_trace_fixture(self):
-        (self.root / 'pom.xml').write_text('<project/>')
-        (self.root / 'fixture.mv.db').write_bytes(b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00')
-        trace = self.root / 'fixture.trace.db'
-        trace.write_bytes(b'2026-10-27 00:00:00.123456+08:00 jdbc[3]: exception\norg.h2.jdbc.FixtureException\n')
-        return trace
-
-    def test_h2_trace_header_accepts_actual_timezone_formats(self):
-        for timestamp in ['2026-10-27 00:00:00', '2026-10-27 00:00:00.123456+08:00',
-                          '2026-10-27 00:00:00.123456789-05:30', '2026-10-27 00:00:00Z']:
-            with self.subTest(timestamp=timestamp):
-                self.assertIsNotNone(sandbox.H2_TRACE_HEADER.match((timestamp + ' jdbc[3]: exception').encode()))
-        self.assertIsNone(sandbox.H2_TRACE_HEADER.match(b'2026-10-27 00:00:00+wrong jdbc[3]: exception'))
-
-    def test_existing_h2_trace_append_is_recorded_without_exporting_log_contents(self):
-        trace = self.h2_trace_fixture()
-        before = sandbox.snapshot()
-        def build(*args, **kwargs):
-            with trace.open('ab') as output:
-                output.write(b'2026-10-27 00:00:01.123456789+00:00 jdbc[3]: exception\nprivate-sql-and-user-data\n')
-            return 0, 'build completed'
-        with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'true'}), patch.object(sandbox, 'run_bounded', build):
-            result = sandbox.checks({})
-        self.assertEqual(before['snapshot'], result['snapshot'])
-        self.assertEqual('H2_TRACE_APPEND', result['runtimeChanges'][0]['category'])
-        self.assertNotIn('private-sql', json.dumps(result))
-        self.assertNotIn('content', result['runtimeChanges'][0]['after'])
-
-    def test_trace_allowance_requires_recognized_pair_copy_mode_and_append_only(self):
-        trace = self.h2_trace_fixture()
-        original = trace.read_bytes()
-        mutations = [lambda: trace.write_bytes(b'2026-10-27 00:00:01 jdbc[3]: overwritten\n'),
-                     lambda: trace.write_bytes(original + b'arbitrary-source-rewrite\n'),
-                     trace.unlink]
-        for mutation in mutations:
-            trace.write_bytes(original)
-            def build(*args, **kwargs):
-                mutation()
-                return 0, 'build completed'
-            with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'true'}), patch.object(sandbox, 'run_bounded', build):
-                self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({}))
-        for copy, companion, header in [('false', True, original), ('true', False, original),
-                                        ('true', True, b'ordinary-source-file\n')]:
-            trace.write_bytes(header)
-            (self.root / 'fixture.mv.db').write_bytes(b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00' if companion else b'not-h2')
-            def append(*args, **kwargs):
-                with trace.open('ab') as output: output.write(b'2026-10-27 00:00:02 jdbc[3]: append\n')
-                return 0, 'build completed'
-            with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': copy}), patch.object(sandbox, 'run_bounded', append):
-                self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({}))
-
-    def test_trace_allowance_preserves_new_file_mode_and_source_change_rejection(self):
-        trace = self.h2_trace_fixture()
-        before = sandbox.snapshot()
-        traces = sandbox.h2_runtime_traces(before, {'fixture.mv.db'})
-        with trace.open('ab') as output: output.write(b'2026-10-27 00:00:02 jdbc[3]: append\n')
-        after = sandbox.snapshot()
-        changed_mode = {'files': [dict(item, mode='100755') if item['path'] == 'fixture.trace.db' else item for item in after['files']]}
-        self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, changed_mode, {'fixture.mv.db'}, traces))
-        (self.root / 'new.trace.db').write_bytes(trace.read_bytes())
-        self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, sandbox.snapshot(), {'fixture.mv.db'}, traces))
-        (self.root / 'new.trace.db').unlink()
-        (self.root / 'Source.java').write_text('class Unexpected {}')
-        self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, sandbox.snapshot(), {'fixture.mv.db'}, traces))
-
-    def test_database_exception_never_accepts_other_integrity_changes(self):
-        (self.root / 'pom.xml').write_text('<project/>')
-        header = b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00'
-        for name, before, after in [('Counter.java', b'class A {}', b'class B {}'),
-                                    ('application.properties', b'a=1', b'a=2'),
-                                    ('library.jar', b'\x00old', b'\x00new'),
-                                    ('fake.mv.db', b'arbitrary bytes', b'changed')]:
-            with self.subTest(name=name):
-                path = self.root / name
-                path.write_bytes(before)
-                def mutate(*args, **kwargs):
-                    path.write_bytes(after)
-                    return 0, 'build completed'
-                with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'true'}), \
-                        patch.object(sandbox, 'run_bounded', mutate):
-                    self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({}))
-                path.unlink()
-        database = self.root / 'fixture.mv.db'
-        database.write_bytes(header + b'original')
-        def delete(*args, **kwargs):
-            database.unlink()
-            return 0, 'build completed'
-        with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'true'}), \
-                patch.object(sandbox, 'run_bounded', delete):
-            self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({}))
-
-    def test_database_allowance_requires_disposable_copy_and_preserves_mode_and_path(self):
-        (self.root / 'pom.xml').write_text('<project/>')
-        database = self.root / 'fixture.mv.db'
-        header = b'H:2,block:2,blockSize:1000,chunk:1,format:3,fletcher:1234\n\x00'
-        database.write_bytes(header + b'original')
-        def mutate(*args, **kwargs):
-            database.write_bytes(header + b'changed')
-            return 0, 'build completed'
-        with patch.dict(sandbox.os.environ, {'DF_CHECK_COPY': 'false'}), \
-                patch.object(sandbox, 'run_bounded', mutate):
-            self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.checks({}))
-        before = sandbox.snapshot()
-        entry = next(item for item in before['files'] if item['path'] == 'fixture.mv.db')
-        after = {'files': [dict(item, mode='100755') if item == entry else item for item in before['files']]}
-        self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, after, {'fixture.mv.db'}))
-        after = {'files': before['files'] + [dict(entry, path='new.mv.db')]}
-        self.assert_policy('CHECK_MUTATED_SOURCE', lambda: sandbox.check_runtime_changes(before, after, {'fixture.mv.db'}))
-
-    def test_source_rejection_records_paths_types_and_hashes_without_source_contents(self):
-        (self.root / 'pom.xml').write_text('<project/>')
-        for name in ['Counter.java', 'application.properties', 'data.sql']:
-            (self.root / name).write_text('synthetic-private-before')
-        before = sandbox.snapshot()
-        def mutate(*args, **kwargs):
-            for name in ['Counter.java', 'application.properties', 'data.sql']:
-                (self.root / name).write_text('synthetic-private-after')
-            return 0, 'build completed'
-        with patch.object(sandbox, 'run_bounded', mutate):
-            with self.assertRaises(sandbox.PolicyError) as captured:
-                sandbox.checks({})
-        self.assertEqual('CHECK_MUTATED_SOURCE', captured.exception.rule)
-        diagnostic = captured.exception.source_changes
-        self.assertEqual(before['snapshot'], diagnostic['beforeSnapshot'])
-        self.assertEqual(3, diagnostic['totalChanges'])
-        self.assertEqual(3, diagnostic['unexpectedChanges'])
-        self.assertEqual(['Counter.java', 'application.properties', 'data.sql'],
-                         [entry['path'] for entry in diagnostic['files']])
-        self.assertTrue(all(entry['changeType'] == 'CONTENT' for entry in diagnostic['files']))
-        self.assertNotIn('synthetic-private', json.dumps(diagnostic))
-        self.assertNotIn('content', diagnostic['files'][0]['before'])
-        self.assertRegex(diagnostic['files'][0]['after']['sha256'], r'^[0-9a-f]{64}$')
-
-    def test_source_change_diagnostics_are_bounded_and_classify_add_delete_and_mode(self):
-        (self.root / 'pom.xml').write_text('<project/>')
-        for index in range(12):
-            (self.root / ('File%02d.java' % index)).write_text('original')
-        def mutate(*args, **kwargs):
-            for index in range(12):
-                (self.root / ('File%02d.java' % index)).write_text('changed')
-            return 0, 'build completed'
-        with patch.object(sandbox, 'run_bounded', mutate):
-            with self.assertRaises(sandbox.PolicyError) as captured:
-                sandbox.checks({})
-        self.assertEqual(12, captured.exception.source_changes['totalChanges'])
-        self.assertEqual(8, len(captured.exception.source_changes['files']))
-        self.assertTrue(captured.exception.source_changes['truncated'])
-        state = {'mode': '100644', 'sha256': 'a' * 64}
-        before = {'snapshot': 'a' * 64, 'files': [dict(state, path='Deleted.java'), dict(state, path='Mode.java')]}
-        after = {'snapshot': 'b' * 64, 'files': [dict(state, path='Added.java'), dict(state, path='Mode.java', mode='100755')]}
-        with self.assertRaises(sandbox.PolicyError) as captured:
-            sandbox.check_runtime_changes(before, after, set())
-        self.assertEqual(['ADDED', 'DELETED', 'MODE'],
-                         [entry['changeType'] for entry in captured.exception.source_changes['files']])
-
-    def test_static_report_fixture_is_preserved_and_never_counted_as_execution(self):
-        (self.root / 'pom.xml').write_text('<project/>')
-        fixture = self.root / 'src/test/resources/template/target/surefire-reports/TEST-fixture.xml'
-        fixture.parent.mkdir(parents=True)
-        original = '<testsuite tests="9" failures="0" errors="0" skipped="0"/>'
-        fixture.write_text(original)
-        paths = {entry['path'] for entry in sandbox.snapshot()['files']}
-        with patch.object(sandbox, 'BASELINE_PATHS', paths), patch.object(sandbox, 'run_bounded', return_value=(0, 'BUILD SUCCESS')):
-            result = sandbox.checks({'goal': 'test'})
-        self.assertEqual('BUILD_PASSED_NOT_TESTED', result['classification'])
-        self.assertEqual(0, result['executedTests'])
-        self.assertEqual(original, fixture.read_text())
-        self.assertEqual(0, sandbox.report()['reports'])
-
-    def test_case_conflicts(self):
-        with patch.object(sandbox.os, 'walk', return_value=[(str(self.root), [], ['a.txt', 'A.txt'])]), \
-                patch.object(pathlib.Path, 'is_file', return_value=True), \
-                patch.object(sandbox, 'maven_module_roots', return_value=set()):
-            self.assert_policy('SOURCE_CASE_CONFLICT', sandbox.all_files)
 
     def test_command_output_limit_remains_enforced(self):
         # Windows 夹具替换 Linux 进程组 API；真实短命子进程仍由 run_bounded 等待退出。
         with patch.object(sandbox.os, 'killpg', create=True), patch.object(sandbox.signal, 'SIGKILL', 9, create=True):
             self.assert_policy('COMMAND_BUDGET', lambda: sandbox.run_bounded(
                 [sys.executable, '-c', 'print("x"*10000)'], maximum=10, cwd=self.root))
+
+    def test_git_ignore_never_hides_retained_source_and_deletions_are_real(self):
+        (self.root / 'counter.cpp').write_text('old')
+        (self.root / 'new.go').write_text('new')
+        retained = set(sandbox.all_files())
+        (self.root / '.gitignore').write_text('*.cpp\n*.go\nbuild/\n')
+        (self.root / 'counter.cpp').write_text('changed')
+        (self.root / 'build').mkdir()
+        (self.root / 'build/generated').write_text('output')
+        (self.root / 'node_modules').mkdir()
+        (self.root / 'node_modules/package.json').write_text('{}')
+        with patch.object(sandbox, 'BASELINE_PATHS', retained):
+            paths = sandbox.all_files()
+            self.assertIn('counter.cpp', paths)
+            self.assertIn('new.go', paths)
+            self.assertNotIn('build/generated', paths)
+            self.assertNotIn('node_modules/package.json', paths)
+            (self.root / 'counter.cpp').unlink()
+            self.assertNotIn('counter.cpp', sandbox.all_files())
+
+    def test_new_source_has_no_language_extension_gate(self):
+        for name in ('main.cpp', 'main.go', 'build.zig', 'Makefile', 'script.sh'):
+            (self.root / name).write_text('source')
+        self.assertEqual(5, len(sandbox.snapshot()['files']))
 
 
 if __name__ == '__main__':

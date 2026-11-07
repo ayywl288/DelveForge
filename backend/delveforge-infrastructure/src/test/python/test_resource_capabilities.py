@@ -50,11 +50,14 @@ class ResourceCapabilityTest(unittest.TestCase):
         self.assertTrue(sandbox.approved_resource('.env.example'))
 
     def test_model_list_search_reads_and_mutation_cannot_bypass_visibility(self):
-        self.assertEqual(['Main.java'], sandbox.dispatch('list_files', {})['files'])
-        self.assertEqual([], sandbox.dispatch('search_code', {'query': 'example.com'})['matches'])
+        self.assertEqual(['.env.example', 'Main.java'], sandbox.dispatch('list_files', {})['files'])
+        self.assertEqual('.env.example', sandbox.dispatch('search_code', {'query': 'example.com'})['matches'][0]['path'])
         for path in self.capabilities:
-            with self.assertRaises(sandbox.PolicyError):
-                sandbox.dispatch('read_file', {'path': path, 'resource': True})
+            if path == '.env.example':
+                self.assertIn('example.com', sandbox.dispatch('read_file', {'path': path})['_source'])
+            else:
+                with self.assertRaises(sandbox.PolicyError):
+                    sandbox.dispatch('read_file', {'path': path, 'resource': True})
             patch_text = '--- a/' + path + '\n+++ b/' + path + '\n@@ -1 +1 @@\n-x\n+y\n'
             with self.assertRaises(sandbox.PolicyError):
                 sandbox.dispatch('inspect_patch', {'patch': patch_text})
@@ -64,10 +67,8 @@ class ResourceCapabilityTest(unittest.TestCase):
         (self.root / '.env.example').write_text('API_URL=https://changed.example\n')
         self.assertFalse(sandbox.approved_resource('.env.example'))
         after = sandbox.snapshot()
-        with self.assertRaises(sandbox.PolicyError) as rejected:
-            sandbox.check_runtime_changes(before, after, set())
-        self.assertEqual('CHECK_MUTATED_SOURCE', rejected.exception.rule)
-        self.assertNotIn('changed.example', str(rejected.exception))
+        self.assertNotEqual(before['snapshot'], after['snapshot'])
+        self.assertNotIn('changed.example', json.dumps(after))
 
     def test_materializing_withheld_content_or_replacing_a_resource_with_a_link_is_rejected(self):
         (self.root / 'private.properties').write_bytes(self.secret)
@@ -82,15 +83,13 @@ class ResourceCapabilityTest(unittest.TestCase):
             sandbox.snapshot()
 
     def test_withholding_executable_test_sources_cannot_turn_remaining_checks_into_passes(self):
-        import frontend
         self.capabilities['SensitiveTest.java'] = {**self.identity('PRESERVED_ONLY', b'private test source'),
                                                  'blocksChecks': True}
-        with self.assertRaises(sandbox.CheckArgumentError):
-            sandbox.checks({'goal': 'test'})
-        with self.assertRaises(frontend.CheckUnavailable):
-            frontend.metadata(sandbox, {'goal': 'test'})
-        (self.root / 'package.json').write_text(json.dumps({'dependencies': {'vue': '3.5.1', 'vite': '6.0.0'}}))
-        self.assertEqual('UNAVAILABLE', frontend.describe(sandbox)['frontendProjects'][0]['goals']['test'])
+        snapshot = sandbox.snapshot(include_content=True)
+        self.assertEqual(1, snapshot['sourceView']['withheldSourceCount'])
+        self.assertNotIn('private test source', json.dumps(snapshot))
+        self.assertFalse((self.root / 'SensitiveTest.java').exists())
+
 
 
 if __name__ == '__main__':

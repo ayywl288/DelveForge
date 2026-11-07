@@ -42,12 +42,16 @@ class FullStackAgentSmokeTest {
     @ParameterizedTest
     @ValueSource(strings = {"maven", "npm", "pnpm"})
     void failedFullStackChecksAreCorrectedFrozenAndDeliveredWithoutTouchingOriginal(String manager) throws Exception {
-        org.junit.jupiter.api.Assumptions.assumeTrue(System.getProperty("delveforge.smoke.manager") == null
-                || manager.equals(System.getProperty("delveforge.smoke.manager")), "Explicit manager regression rerun");
         var fixture = new DockerAgentSandboxTest();
         fixture.temporary = Files.createDirectories(temporary.resolve("asset"));
         Path original = fixture.fixture();
         boolean mixed = !manager.equals("maven");
+        String mavenCommand = mixed ? "mvn -B test" : "sh mvnw -B test";
+        if (!mixed) {
+            Files.createDirectories(original.resolve(".mvn/wrapper"));
+            Files.writeString(original.resolve("mvnw"), Files.readString(Path.of("../../mvnw")).replace("\r\n", "\n"));
+            Files.copy(Path.of("../../.mvn/wrapper/maven-wrapper.properties"), original.resolve(".mvn/wrapper/maven-wrapper.properties"));
+        }
         String privateFixture = "fixture-" + java.util.UUID.randomUUID();
         Files.writeString(original.resolve(".env.example"), "API_URL=https://example.com\nAPI_TOKEN=${API_TOKEN}\n");
         Files.writeString(original.resolve(".env.local"), "DB_PASSWORD=" + privateFixture + "\n");
@@ -111,32 +115,35 @@ class FullStackAgentSmokeTest {
         List<AgentProtocol.ToolCall> actions = mixed ? List.of(
                 call("read_file", Map.of("path", "src/main/java/example/Counter.java")),
                 call("read_file", Map.of("path", "frontend/src/counter.ts")),
-                call("run_checks", Map.of("goal", "test")),
+                call("exec_command", Map.of("command", mavenCommand, "verification_scope", "Repository backend tests", "check_kind", "test")),
                 call("edit_file", Map.of("path", "frontend/package.json", "old_text", "\"vue\": \"3.5.17\"",
                         "new_text", "\"vue\": \"3.5.18\"")),
-                call("run_frontend_checks", Map.of("goal", "test")),
+                call("exec_command", Map.of("command", manager.equals("npm") ? "npm ci --ignore-scripts --no-audit --no-fund" : "pnpm install --frozen-lockfile --ignore-scripts", "directory", "frontend")),
                 call("edit_file", Map.of("path", "frontend/package.json", "old_text", "\"vue\": \"3.5.18\"",
                         "new_text", "\"vue\": \"3.5.17\"")),
                 call("edit_file", Map.of("path", lockPath, "old_text", legacyIntegrity, "new_text", corruptIntegrity)),
-                call("run_frontend_checks", Map.of("goal", "test")),
+                call("exec_command", Map.of("command", manager.equals("npm") ? "npm ci --ignore-scripts --no-audit --no-fund" : "pnpm install --frozen-lockfile --ignore-scripts", "directory", "frontend")),
                 call("edit_file", Map.of("path", lockPath, "old_text", corruptIntegrity, "new_text", legacyIntegrity)),
-                call("run_frontend_checks", Map.of("goal", "test")),
+                call("exec_command", Map.of("command", manager.equals("npm") ? "npm ci --ignore-scripts --no-audit --no-fund" : "pnpm install --frozen-lockfile --ignore-scripts", "directory", "frontend")),
+                call("exec_command", Map.of("command", manager + " run test", "directory", "frontend", "verification_scope", "Repository frontend tests", "check_kind", "test")),
                 call("edit_file", Map.of("path", "src/main/java/example/Counter.java", "old_text", "return n;", "new_text", "return n + 1;")),
                 call("edit_file", Map.of("path", "frontend/src/counter.ts", "old_text", "return value;", "new_text", "return 'bad';")),
-                call("run_frontend_checks", Map.of("goal", "typecheck")),
+                call("exec_command", Map.of("command", manager + " run typecheck", "directory", "frontend", "verification_scope", "Repository typecheck", "check_kind", "other")),
                 call("edit_file", Map.of("path", "frontend/src/counter.ts", "old_text", "return 'bad';", "new_text", "return value + 1;")),
-                call("run_checks", Map.of("goal", "test")),
-                call("run_frontend_checks", Map.of("goal", "typecheck")),
+                call("exec_command", Map.of("command", mavenCommand, "verification_scope", "Repository backend tests", "check_kind", "test")),
+                call("exec_command", Map.of("command", manager + " run typecheck", "directory", "frontend", "verification_scope", "Repository typecheck", "check_kind", "other")),
                 call("edit_file", Map.of("path", "frontend/src/App.vue", "old_text", "'./counter'", "new_text", "'./missing'")),
-                call("run_frontend_checks", Map.of("goal", "build")),
+                call("exec_command", Map.of("command", manager + " run build", "directory", "frontend", "verification_scope", "Repository build", "check_kind", "build")),
                 call("edit_file", Map.of("path", "frontend/src/App.vue", "old_text", "'./missing'", "new_text", "'./counter'")),
-                call("run_frontend_checks", Map.of("goal", "build")),
-                call("run_frontend_checks", Map.of("goal", "test"))) : List.of(
+                call("exec_command", Map.of("command", manager + " run build", "directory", "frontend", "verification_scope", "Repository build", "check_kind", "build")),
+                call("exec_command", Map.of("command", manager + " run test", "directory", "frontend", "verification_scope", "Repository frontend tests", "check_kind", "test")),
+                call("exec_command", Map.of("command", mavenCommand, "verification_scope", "Repository backend tests", "check_kind", "test")),
+                call("exec_command", Map.of("command", manager + " run typecheck", "directory", "frontend", "verification_scope", "Repository type checks", "check_kind", "other"))) : List.of(
                 call("read_file", Map.of("path", "src/main/java/example/Counter.java")),
-                call("run_checks", Map.of("goal", "test")),
+                call("exec_command", Map.of("command", mavenCommand, "verification_scope", "Repository backend tests", "check_kind", "test")),
                 call("edit_file", Map.of("path", "src/main/java/example/Counter.java", "old_text", "return n;",
                         "new_text", "return n + 1;")),
-                call("run_checks", Map.of("goal", "test")));
+                call("exec_command", Map.of("command", mavenCommand, "verification_scope", "Repository backend tests", "check_kind", "test")));
         AtomicInteger turn = new AtomicInteger();
         List<String> observations = new ArrayList<>();
         AgentModelPort model = (history, tools) -> {
@@ -149,7 +156,7 @@ class FullStackAgentSmokeTest {
         };
         String candidateId;
         AgentProtocol.Limits limits = AgentProtocol.Limits.defaults();
-        // 混合场景含故意损坏摘要和恢复后的两次安装；总等待须容纳两个已有准备时限及离线检查。
+        // 混合场景含故意损坏摘要和恢复后的原生安装；测试等待包含所有单次命令时限。
         int workflowSeconds = mixed ? 2 * limits.checkSeconds() * 3 + limits.checkSeconds() : 600;
         try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), limits)) {
@@ -164,13 +171,13 @@ class FullStackAgentSmokeTest {
         }
         String observed = String.join("\n", observations);
         assertFalse(observed.contains(privateFixture));
-        assertTrue(observed.contains("TESTS_FAILED"));
+        assertTrue(observed.contains("COMMAND_FAILED"));
         if (mixed) {
-            assertTrue(observed.contains("TYPECHECK_FAILED"));
-            assertTrue(observed.contains("FRONTEND_BUILD_FAILED"));
-            assertTrue(observed.contains("LOCKFILE_INVALID"));
+            assertTrue(observed.contains("TS2322"));
+            assertTrue(observed.contains("missing"));
+            assertTrue(observed.contains(manager.equals("npm") ? "EINTEGRITY" : "TARBALL_INTEGRITY"));
         }
-        assertTrue(observed.contains("TESTS_PASSED"));
+        assertTrue(observed.contains("COMMAND_SUCCEEDED"));
         var candidate = database.store.candidate(candidateId);
         if (mixed) {
             assertTrue(candidate.changedPaths().contains("frontend/src/counter.ts"));
@@ -179,22 +186,22 @@ class FullStackAgentSmokeTest {
             assertFalse(candidate.testEvidence().contains("FRONTEND"));
         }
         assertTrue(candidate.changedPaths().contains("src/main/java/example/Counter.java"));
-        assertEquals(4, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
+        assertEquals(6, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
         assertEquals("PROJECTED", json.readTree(candidate.testEvidence()).path("sourceView").path("kind").asText());
         assertEquals(1, json.readTree(candidate.testEvidence()).path("sourceView").path("preservedOnlyCount").asInt());
-        assertFalse(candidate.diff().contains("INSTALL_SCRIPT_RAN"));
+        assertFalse(candidate.changedPaths().stream().anyMatch(path -> path.endsWith("INSTALL_SCRIPT_RAN")),
+                candidate.changedPaths().toString());
         List<List<String>> containers = org.mockito.Mockito.mockingDetails(process).getInvocations().stream()
                 .filter(invocation -> invocation.getMethod().getName().equals("run"))
                 .map(invocation -> ((List<?>) invocation.getArgument(0)).stream().map(Object::toString).toList())
                 .filter(command -> command.contains("run") && command.contains("--name")).toList();
-        // 基线预检先准备一次；三次依赖配置变更各自失效，后续同配置检查复用准备。
-        assertEquals(mixed ? 4 : 0, containers.stream().filter(command -> command.stream()
-                .anyMatch(value -> value.endsWith("-frontend-prepare"))).count());
+        assertTrue(containers.stream().noneMatch(command -> command.stream()
+                .anyMatch(value -> value.endsWith("-frontend-prepare") || value.endsWith("-frontend-check"))));
         for (List<String> command : containers) {
-            if (command.stream().anyMatch(value -> value.endsWith("-frontend-check"))) {
-                assertEquals("none", command.get(command.indexOf("--network") + 1));
+            if (command.stream().anyMatch(value -> value.endsWith("-command"))) {
                 assertTrue(command.contains("--read-only"));
-                assertTrue(command.stream().anyMatch(value -> value.endsWith("target=/dependencies,readonly")));
+                assertTrue(command.get(command.indexOf("--network") + 1).endsWith("-network"));
+                assertFalse(command.stream().anyMatch(value -> value.contains(official.toString())));
             }
         }
         assertEquals(baseline, fixture.git(official, "rev-parse", "HEAD"));

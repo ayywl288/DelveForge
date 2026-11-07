@@ -141,9 +141,9 @@ public final class GitRepositoryCompatibility {
         try {
             layout = MavenRepositoryLayout.inspect(buildPoms);
         } catch (MavenRepositoryLayout.Unsupported failure) {
-            // 构建布局/JDK 不是 Git 安全准入；运行前必须由真实环境预检重新判断。
+            // 构建布局/JDK 不是 Git 安全准入；原生命令负责报告实际构建能力。
             issues.add(new Issue("REQUIRES_EXPLICIT_USER_DECISION", failure.code(), "",
-                    failure.getMessage() + " 构建就绪性在首次模型调用前单独检查。", false));
+                    failure.getMessage() + " Agent 将读取仓库指引并通过原生命令确认构建能力。", false));
         }
         Map<String, byte[]> modulePoms = new LinkedHashMap<>(buildPoms);
         List<String> generated = new ArrayList<>();
@@ -204,7 +204,7 @@ public final class GitRepositoryCompatibility {
                     immutable.add(path);
                     issues.add(new Issue("SUPPORT_WITH_BOUNDED_ADAPTATION", capability.executionAvailable()
                             ? "PUBLIC_READ_ONLY_RESOURCE" : "PRESERVED_ONLY_RESOURCE", path,
-                            capability.executionAvailable() ? "已校验公开资源；保留原字节，只读执行，不提供模型内容。"
+                            capability.executionAvailable() ? "已校验公开资源；保留原字节，执行与模型可读，真实只读挂载禁止修改。"
                                     : "仅保留在可信 Git；不提供模型或执行容器。依赖它的检查可能不可用或失败。", false));
                     continue;
                 }

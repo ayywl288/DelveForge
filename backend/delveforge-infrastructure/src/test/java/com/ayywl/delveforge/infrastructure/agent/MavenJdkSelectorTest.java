@@ -15,13 +15,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class MavenJdkSelectorTest {
     @Test
-    void discoveryBudgetIsAnExplicitEnvironmentDiagnostic() {
+    void discoveryBudgetStopsOptionalInferenceWithoutRejectingTheRepository() {
         Map<String, byte[]> poms = new java.util.HashMap<>();
         for (int i = 0; i < 129; i++) {
             poms.put("module-" + i + "/pom.xml", "<project/>".getBytes(StandardCharsets.UTF_8));
         }
-        assertEquals("MAVEN_MODULE_LIMIT", assertThrows(AgentException.class,
-                () -> new MavenJdkSelector().roots(poms)).code());
+        assertEquals(java.util.List.of(), new MavenJdkSelector().roots(poms));
     }
 
     @Test
