@@ -4,11 +4,15 @@ import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.agent.AgentStore;
-import com.ayywl.delveforge.application.agent.CodingAgentService;
 import com.ayywl.delveforge.application.agent.CandidateDeliveryService;
+import com.ayywl.delveforge.application.agent.CodingAgentService;
 import com.ayywl.delveforge.application.agent.DeliveryStore;
-import com.ayywl.delveforge.application.port.workspace.CandidateDeliveryPort;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
+import com.ayywl.delveforge.application.port.ai.AiGateway;
+import com.ayywl.delveforge.application.port.workspace.CandidateDeliveryPort;
+import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
+import com.ayywl.delveforge.application.quickstart.QuickStartService;
+import com.ayywl.delveforge.application.quickstart.QuickStartStore;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.infrastructure.agent.AgentInstanceLock;
 import com.ayywl.delveforge.infrastructure.agent.AgentSandboxProperties;
@@ -16,6 +20,7 @@ import com.ayywl.delveforge.infrastructure.agent.DockerAgentSandbox;
 import com.ayywl.delveforge.infrastructure.agent.SpringAiAgentModel;
 import com.ayywl.delveforge.infrastructure.agent.SqliteAgentStore;
 import com.ayywl.delveforge.infrastructure.agent.SqliteDeliveryStore;
+import com.ayywl.delveforge.infrastructure.agent.SqliteQuickStartStore;
 import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
 import com.ayywl.delveforge.infrastructure.persistence.PersistenceProperties;
 
@@ -81,13 +86,26 @@ public class CodingAgentConfiguration {
 
     @Bean
     public CandidateDeliveryService candidateDeliveryService(AgentStore agents, DeliveryStore store,
-            CandidateDeliveryPort workspace, ExecutionPreparationState eligibility, AgentInstanceLock instanceLock) {
-        return new CandidateDeliveryService(agents, store, workspace, eligibility);
+            CandidateDeliveryPort workspace, ExecutionPreparationState eligibility, AgentInstanceLock instanceLock,
+            QuickStartService quickStart) {
+        return new CandidateDeliveryService(agents, store, workspace, eligibility, quickStart::afterDelivery);
     }
 
     @Bean
-    public ApplicationRunner reconcileAgentRuns(CodingAgentService agent, CandidateDeliveryService delivery) {
+    public QuickStartStore quickStartStore(DataSource source) {
+        return new SqliteQuickStartStore(source);
+    }
+
+    @Bean
+    public QuickStartService quickStartService(QuickStartStore store, WorkspaceReadPort workspace,
+            AiGateway ai, RepositorySecretPolicy secrets) {
+        return new QuickStartService(store, workspace, ai, secrets);
+    }
+
+    @Bean
+    public ApplicationRunner reconcileAgentRuns(CodingAgentService agent, CandidateDeliveryService delivery, QuickStartStore quickStart) {
         return arguments -> {
+            quickStart.interruptGenerating();
             agent.reconcile();
             delivery.start();
         };

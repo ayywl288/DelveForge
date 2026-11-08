@@ -30,9 +30,16 @@ public final class CandidateDeliveryService implements AutoCloseable {
     private final ScheduledExecutorService discovery = Executors.newSingleThreadScheduledExecutor(
             Thread.ofPlatform().daemon(true).name("candidate-delivery-discovery").factory());
     private volatile boolean closed;
+    private final java.util.function.Consumer<Delivery> afterDelivery;
 
     public CandidateDeliveryService(AgentStore agents, DeliveryStore store, CandidateDeliveryPort workspace,
             ExecutionPreparationState eligibility) {
+        this(agents, store, workspace, eligibility, delivery -> { });
+    }
+
+    public CandidateDeliveryService(AgentStore agents, DeliveryStore store, CandidateDeliveryPort workspace,
+            ExecutionPreparationState eligibility, java.util.function.Consumer<Delivery> afterDelivery) {
+        this.afterDelivery = afterDelivery;
         this.agents = agents;
         this.store = store;
         this.workspace = workspace;
@@ -121,6 +128,24 @@ public final class CandidateDeliveryService implements AutoCloseable {
 
     /** 可同步调用以验证每个持久化截面；跨进程仍由持久化预约和 Workspace 原生锁约束。 */
     public Delivery deliver(String candidateId) {
+        Delivery delivered = deliverCandidate(candidateId);
+        notifyDelivered(delivered);
+        return delivered;
+    }
+
+    private void notifyDelivered(Delivery delivered) {
+        if (delivered.state() == Delivery.State.COMPLETED) {
+            try {
+                afterDelivery.accept(delivered);
+            } catch (RuntimeException failure) {
+                // 指南失败不能倒退已接受的交付，也不重放正式文件写入。
+                LOG.log(System.Logger.Level.WARNING, "operation=quickstart.schedule plan={0} result=unavailable",
+                        delivered.planId());
+            }
+        }
+    }
+
+    private Delivery deliverCandidate(String candidateId) {
         Delivery delivery = reserve(candidateId);
         if (delivery.state() == Delivery.State.COMPLETED) {
             return delivery;
@@ -222,7 +247,7 @@ public final class CandidateDeliveryService implements AutoCloseable {
         }
     }
 
-    /** 显式补齐已接受的最终交付；不调用模型，不重放补丁或创建提交。 */
+    /** 显式补齐已接受的最终交付；不重放补丁或创建提交，接受后可异步生成指南。 */
     public Delivery completePlan(String candidateId) {
         agents.candidate(candidateId);
         Delivery accepted = store.get(candidateId);
@@ -234,7 +259,9 @@ public final class CandidateDeliveryService implements AutoCloseable {
                 throw new AgentException("SNAPSHOT_INTEGRITY", "Plan closure requires the unchanged accepted Git state");
             }
             store.completePlan(accepted);
-            return store.get(candidateId);
+            Delivery completed = store.get(candidateId);
+            notifyDelivered(completed);
+            return completed;
         }
     }
 
@@ -243,6 +270,10 @@ public final class CandidateDeliveryService implements AutoCloseable {
             JsonNode evidence = new ObjectMapper().readTree(candidate.testEvidence());
             if (evidence == null) {
                 throw new AgentException("EVIDENCE_INVALID", "Frozen test evidence is empty");
+            }
+            if (evidence.path("evidenceVersion").asInt() == 8
+                    && !candidate.runId().equals(evidence.path("runId").asText())) {
+                throw new AgentException("EVIDENCE_INVALID", "Execution evidence belongs to a different Run");
             }
             if (evidence.path("evidenceVersion").asInt() == 5) {
                 Set<String> paths = new java.util.HashSet<>();

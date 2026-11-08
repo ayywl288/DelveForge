@@ -87,11 +87,15 @@ export function visualFixture(scenario: string, path: string, query?: URLSearchP
     if (path.startsWith('/software-assets/')) return a;
     if (path.startsWith('/repository-profiles/')) return repo;
     if (path.startsWith('/product-directions/')) return selected;
+    if (path.endsWith('/quick-start')) return { planId: p.id, candidateId: 'candidate-visual-1', revision: 'd'.repeat(40), status: 'AVAILABLE', stale: false, updatedAt: '2026-11-08T00:00:00Z', reason: null,
+        markdown: '## 环境要求\n- **Java 21**\n- **Node 22** 与 pnpm\n## 配置\n复制仓库提供的环境示例，填写本地配置；秘密值不包含在指南中。\n## 安装依赖\n```sh\n./mvnw package\npnpm --dir frontend install --frozen-lockfile\n```\n## 启动项目\n```sh\njava -jar target/report-kit.jar\npnpm --dir frontend dev\n```\n请根据 README 中的说明访问本地地址。以上为合成界面数据，命令未执行验证。' };
     if (path.endsWith('/agent-runs')) return scenario.startsWith('initial') ? [] : [run];
     if (path.endsWith('/stream')) return [
         { kind: 'RUNNING', summary: '隔离沙箱已准备，开始当前 Step。' },
         { kind: 'TOOL_FINISHED', summary: JSON.stringify({ tool: 'read_file', path: 'src/main/java/reports/ReportService.java', durationMs: 12, ok: true }) },
         { kind: 'TOOL_FINISHED', summary: JSON.stringify({ tool: 'apply_patch', path: 'src/main/java/reports/ReportScheduler.java', durationMs: 18, ok: true, classification: 'PATCH_APPLIED' }) },
+        { kind: 'WORKING_NOTES', summary: JSON.stringify({tasks: [{title: '检查已有导出接口', status: 'completed'}, {title: '实现周期调度', status: 'completed'}, {title: '运行检查并记录限制', status: 'in_progress'}]}) },
+        { kind: 'TOOL_FINISHED', summary: JSON.stringify({tool: 'exec_command', command: './mvnw test', directory: '.', exitCode: 1, durationMs: 1532, ok: false, classification: 'COMMAND_FAILED', resultRecorded: true, stdout: 'Tests run: 12, Failures: 1, Skipped: 0', stderr: 'SchedulerTest > scheduledTime: expected local timezone', outputTruncated: false}) },
         { kind: 'MODEL_REQUEST', summary: '正在结合现有导出接口准备下一次检查。' },
     ].map((event, i) => ({ ...event, sequence: i + 1, runId: run.id, at: '2026-10-31T02:16:00Z' }));
     if (path.startsWith('/agent-runs/')) return run;

@@ -146,10 +146,16 @@ class NativeFrontendDeliverySmokeTest {
             var terminal = CodingAgentServiceTest.awaitTerminal(agent, run.id(), 1200);
             assertEquals(AgentRunState.SUCCEEDED, terminal.state(), terminal.reason() + "\n" + String.join("\n", observed));
             candidateId = terminal.candidateId();
+            // Run 终态先于异步资源清理；独立 Delivery 必须等实际释放占用，不能绕过预约边界。
+            for (int wait = 0; wait < 600 && !database.store.abandoned().isEmpty(); wait++) {
+                Thread.sleep(100);
+            }
+            assertTrue(database.store.abandoned().isEmpty(), "Cleanup did not release Run: "
+                    + database.store.events(run.id(), 0, 200));
         }
         var candidate = database.store.candidate(candidateId);
         var evidence = json.readTree(candidate.testEvidence());
-        assertEquals(7, evidence.path("evidenceVersion").asInt());
+        assertEquals(8, evidence.path("evidenceVersion").asInt());
         var checks = evidence.path("checks");
         var recordedIds = json.createArrayNode();
         var observedIds = json.createArrayNode();

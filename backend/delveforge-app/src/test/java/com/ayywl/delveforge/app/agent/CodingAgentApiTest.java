@@ -7,25 +7,25 @@ import com.ayywl.delveforge.domain.agent.AgentRunState;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-import java.nio.file.Path;
-import java.time.Instant;
-import java.util.UUID;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
@@ -52,6 +52,18 @@ class CodingAgentApiTest {
     AgentStore store;
     @LocalServerPort
     int port;
+
+    @Test
+    void quickStartIsReadOnlyUntilExplicitEligibleGeneration() {
+        String path = "/api/evolution-plans/absent/quick-start";
+        var response = http.getForEntity(path, com.fasterxml.jackson.databind.JsonNode.class);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("UNAVAILABLE", response.getBody().path("status").asText());
+        var rejected = http.postForEntity(path, null, com.fasterxml.jackson.databind.JsonNode.class);
+        assertEquals(HttpStatus.CONFLICT, rejected.getStatusCode());
+        assertEquals("QUICK_START_NOT_READY", rejected.getBody().path("code").asText());
+        assertEquals(java.util.List.of(), store.runs("absent", "absent", null, 50));
+    }
 
     @Test
     void retainedLogsArePagedAsJsonWithoutRequiringALiveSandbox() throws Exception {

@@ -10,6 +10,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AgentToolsProtocolTest {
     @Test
+    void structuredChecklistIsOptionalAndCannotChangeAuthorization() {
+        AgentTools.validate(new AgentProtocol.ToolCall("plan", "update_plan",
+                "{\"tasks\":[{\"title\":\"Inspect repository\",\"status\":\"in_progress\"}]}"), AgentProtocol.Limits.defaults());
+        AgentTools.validate(new AgentProtocol.ToolCall("plan", "update_plan", "{\"tasks\":[]}"), AgentProtocol.Limits.defaults());
+        for (String invalid : List.of("{\"notes\":\"free text\"}", "{\"tasks\":[{\"title\":\"x\",\"status\":\"approved\"}]}",
+                "{\"tasks\":[],\"authorizedStep\":\"another\"}")) {
+            assertThrows(AgentException.class, () -> AgentTools.validate(new AgentProtocol.ToolCall("plan", "update_plan", invalid),
+                    AgentProtocol.Limits.defaults()));
+        }
+        assertFalse(AgentTools.mutation("update_plan"));
+    }
+
+    @Test
     void setupNeedsNoVerificationMetadataAndInvalidPairsExplainHowToRecover() throws Exception {
         var limits = AgentProtocol.Limits.defaults();
         for (String command : List.of("npm ci", "pnpm install --frozen-lockfile")) {

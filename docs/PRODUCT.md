@@ -1,6 +1,8 @@
 # PRODUCT.md
 
-**2026-11-07 Agent Loop Convergence 当前行为：** 保持用户审阅 Plan 与逐 Step 确认；Agent 可更新可选工作笔记，查看跨调用保留的净化命令日志并修正普通失败。平台核验最终报告所引用的真实执行和源码/视图完整性后，正常冻结并自动 Delivery；技术事实和 Agent 对业务充分性的判断分别显示。命令变体不成为永久义务，隔离资源数量不再一票否决。必要验证未完成的工作只保留、不可交付。见 [ADR-0025](decisions/0025-agent-loop-convergence.md)。
+**2026-11-08 当前产品合同：** 用户审阅 Plan 并逐 Step 授权；Agent 自主检查仓库、实施和修正，以完成报告说明结果与限制。平台保留全部执行事实并核验源码/隔离/Candidate/独立 Delivery；失败检查或未运行 E2E 不自动否决 completed，failed 不产生 Candidate。当前清单可选。全部 Step 正式交付后生成独立 Quick Start；指南失败不撤销交付。见 [ADR-0026](decisions/0026-factual-completion-and-plan-quick-start.md)。下方 v7 及更早完成门槛是历史合同，不适用于活动 v8。
+
+**2026-11-07 历史 v7 行为（已由 ADR-0026 替代）：** 保持用户审阅 Plan 与逐 Step 确认；Agent 可更新可选工作笔记，查看跨调用保留的净化命令日志并修正普通失败。平台核验最终报告所引用的真实执行和源码/视图完整性后，正常冻结并自动 Delivery；技术事实和 Agent 对业务充分性的判断分别显示。命令变体不成为永久义务，隔离资源数量不再一票否决。必要验证未完成的工作只保留、不可交付。见 [ADR-0025](decisions/0025-agent-loop-convergence.md)。
 
 **2026-11-07 历史 v6 通用执行合同（完成政策已由 ADR-0025 替代）：** 用户授权 Step 在隔离工作区内通过文件工具、精确编辑及仓库原生命令完成。Maven/前端格式和报告解析器不再作为进入或完成门槛。当前源码的必要命令成功可形成 Candidate，正常自动 Delivery 和逐 Step/Plan 完成边界保持；命令成功不等于业务验收。无足够验证时安全保留未验证、不可交付的部分成果。公开只读资源可被执行和模型读取，私人保留资源不进入执行视图。详见 [ADR-0024](decisions/0024-generic-agent-command-path.md)，该决定替代下方较早的活动语言适配约定；历史事实不改写。
 

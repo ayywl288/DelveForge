@@ -10,9 +10,9 @@ import com.ayywl.delveforge.domain.evolution.PreparationProvenance;
 import com.ayywl.delveforge.infrastructure.workspace.GitWorkspaceAdapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -118,7 +118,7 @@ class ReadToolRecoveryDockerTest {
                 && message.text().contains(path)));
         var candidate = database.store.candidate(terminal.candidateId());
         var evidence = json.readTree(candidate.testEvidence());
-        assertEquals(7, evidence.path("evidenceVersion").asInt());
+        assertEquals(8, evidence.path("evidenceVersion").asInt());
         var executed = json.readTree(observed.stream().filter(message -> checks.id().equals(message.callId()))
                 .findFirst().orElseThrow().text()).path("result");
         assertEquals(terminal.id(), evidence.path("runId").asText());
@@ -128,7 +128,7 @@ class ReadToolRecoveryDockerTest {
                 evidence.path("agentReport").path("executions"));
         assertEquals(evidence.path("finalSnapshot"), executed.path("snapshot"));
         assertEquals(evidence.path("finalSnapshot"), executed.path("afterSnapshot"));
-        assertEquals("COMMAND_VERIFIED", evidence.path("verificationLevel").asText());
+        assertEquals("FACTUAL_RECORD", evidence.path("verificationLevel").asText());
         assertEquals(List.of(path, testPath), candidate.changedPaths());
         var events = database.store.events(terminal.id(), 0, 200);
         assertEquals(10, terminal.toolCalls());

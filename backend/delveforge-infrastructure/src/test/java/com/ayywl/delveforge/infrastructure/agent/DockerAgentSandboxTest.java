@@ -25,9 +25,9 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.spy;
@@ -234,7 +234,7 @@ class DockerAgentSandboxTest {
             assertTrue(candidate.diff().contains("UUID.randomUUID()"));
             assertTrue(candidate.diff().contains("Password:</label>"));
             assertFalse(candidate.diff().contains("embedded-private-value"));
-            assertTrue(candidate.testEvidence().contains("COMMAND_VERIFIED"));
+            assertTrue(candidate.testEvidence().contains("FACTUAL_RECORD"));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertTrue(git(official, "status", "--porcelain").isEmpty());
         } finally {
@@ -266,7 +266,7 @@ class DockerAgentSandboxTest {
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", path,
                     "old_text", "return n;", "new_text", "return n + 1;")).contains("\"ok\":true"));
             assertTrue(tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test")).contains("COMMAND_SUCCEEDED"));
-            assertTrue(finish(sandbox, id).testEvidence().contains("COMMAND_VERIFIED"));
+            assertTrue(finish(sandbox, id).testEvidence().contains("FACTUAL_RECORD"));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertTrue(git(official, "status", "--porcelain").isEmpty());
         } finally {
@@ -391,7 +391,7 @@ class DockerAgentSandboxTest {
             assertFalse(candidate.diff().contains("synthetic-private-value"));
             assertTrue(candidate.changedPaths().contains("src/main/java/example/Auth.java"));
             assertTrue(candidate.changedPaths().contains("src/main/java/example/Counter.java"));
-            assertEquals("COMMAND_VERIFIED", json.readTree(candidate.testEvidence()).path("verificationLevel").asText());
+            assertEquals("FACTUAL_RECORD", json.readTree(candidate.testEvidence()).path("verificationLevel").asText());
             assertTrue(Files.readString(auth).contains("int ordinary = 1;"));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertTrue(git(official, "status", "--porcelain").isEmpty());
@@ -454,7 +454,8 @@ class DockerAgentSandboxTest {
             org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, lastCommand));
             String missing = tool(sandbox, id, "exec_command", Map.of("command", "test -f src/main/java/example/Auth.java"));
             assertTrue(missing.contains("COMMAND_FAILED"));
-            org.junit.jupiter.api.Assertions.assertNotNull(FixtureCompletion.submit(sandbox, id, lastCommand));
+            org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, lastCommand));
+            assertEquals(1, lastCommand.path("exitCode").asInt());
 
         } finally {
             sandbox.cleanup(id);
@@ -824,9 +825,8 @@ class DockerAgentSandboxTest {
             String passed = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "directory", "independent"));
             assertTrue(passed.contains("COMMAND_SUCCEEDED"), passed);
             assertEquals("independent", json.readTree(passed).path("result").path("directory").asText());
-            assertTrue(sandbox.completionFeedback(id, "{\"status\":\"completed\",\"validationComplete\":false,\"summary\":\"Necessary root check unresolved\"}", () -> false) != null);
-            assertEquals("UNRESOLVED_CHECK_FAILURE",
-                    assertThrows(AgentException.class, () -> sandbox.finish(id, () -> false)).code());
+            org.junit.jupiter.api.Assertions.assertNull(sandbox.completionFeedback(id, "{\"status\":\"completed\",\"summary\":\"Independent work complete\",\"limitations\":[\"Root check failed\"]}", () -> false));
+            org.junit.jupiter.api.Assertions.assertNotNull(sandbox.finish(id, () -> false));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertTrue(git(official, "status", "--porcelain").isEmpty());
         } finally {

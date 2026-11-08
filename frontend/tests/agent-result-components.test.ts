@@ -107,7 +107,7 @@ it("renders parser-free generic success without invented test counts and keeps a
     expect(root.querySelector(".evidence-status")?.textContent).toBe("必要命令已通过");
     expect(root.querySelector(".test-counts")).toBeNull();
     expect(root.querySelectorAll(".current-evidence-list li")).toHaveLength(0);
-    expect(root.querySelector<HTMLDetailsElement>(".evidence-history")?.open).toBe(false);
-    expect(root.querySelectorAll(".evidence-history li")).toHaveLength(2);
-    expect(root.querySelector(".evidence-history li")?.textContent).toContain("命令成功");
+    expect(root.querySelector(".evidence-history")).toBeNull();
+    expect(root.textContent).toContain("完整命令与日志见本次 Agent Run");
+    expect(root.querySelectorAll(".evidence-history li")).toHaveLength(0);
 });

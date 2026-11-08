@@ -1,7 +1,7 @@
 <script setup lang="ts">
 export type NavigationIconName = "projects" | "discovery" | "repository" | "direction" | "planning" | "evolution"
   | "plus" | "file" | "code" | "layers" | "reuse" | "warning" | "evidence" | "git" | "lock"
-  | "check" | "clock" | "play" | "arrow" | "refresh" | "user" | "activity" | "target" | "heart" | "close" | "stop";
+  | "check" | "copy" | "clock" | "play" | "arrow" | "refresh" | "user" | "activity" | "target" | "heart" | "close" | "stop";
 defineProps<{ name: NavigationIconName }>();
 
 const paths: Record<NavigationIconName, string> = {
@@ -21,6 +21,7 @@ const paths: Record<NavigationIconName, string> = {
   git: "M6 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z M6 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4z M18 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4z M6 7v10 M18 7v2a4 4 0 0 1-4 4h-4a4 4 0 0 0-4 4",
   lock: "M5 10h14v11H5z M8 10V6a4 4 0 0 1 8 0v4 M12 14v3",
   check: "M4 12l5 5L20 6",
+  copy: "M9 9h12v12H9z M5 15H3V3h12v2",
   clock: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z M12 6v6l4 2",
   play: "M7 3l14 9-14 9z",
   arrow: "M4 12h16 M14 6l6 6-6 6",

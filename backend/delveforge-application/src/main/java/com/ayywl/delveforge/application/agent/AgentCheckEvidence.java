@@ -13,7 +13,7 @@ public final class AgentCheckEvidence {
     }
 
     public static void requireAcceptable(JsonNode evidence) {
-        if (evidence != null && evidence.path("evidenceVersion").asInt() == 7) {
+        if (evidence != null && Set.of(7, 8).contains(evidence.path("evidenceVersion").asInt())) {
             CompletionEvidence.requireAcceptable(evidence);
             return;
         }

@@ -20,9 +20,9 @@ final class FixtureCompletion {
                 && "exec_command".equals(message.toolName())).map(message -> parse(message.text()).path("result"))
                 .filter(result -> result.has("invocationId")).toList();
         String snapshot = receipts.isEmpty() ? "" : receipts.getLast().path("afterSnapshot").asText();
-        var report = JSON.createObjectNode().put("status", "completed").put("validationComplete", true)
-                .put("summary", "Deterministic fixture checks completed; earlier failures retained")
-                .put("limitations", "Fixture execution view only; no live model or product acceptance");
+        var report = JSON.createObjectNode().put("status", "completed")
+                .put("summary", "Deterministic fixture checks completed; earlier failures retained");
+        report.putArray("limitations").add("Fixture execution view only; no live model or product acceptance");
         var ids = report.putArray("executions");
         receipts.stream().filter(receipt -> receipt.path("classification").asText().equals("COMMAND_SUCCEEDED")
                 && snapshot.equals(receipt.path("snapshot").asText())
@@ -32,9 +32,9 @@ final class FixtureCompletion {
     }
 
     static String submit(AgentSandboxPort sandbox, String id, JsonNode result) {
-        var report = JSON.createObjectNode().put("status", "completed").put("validationComplete", true)
-                .put("summary", "Fixture author selected this actual execution")
-                .put("limitations", "Recorded execution view only");
+        var report = JSON.createObjectNode().put("status", "completed")
+                .put("summary", "Fixture author selected this actual execution");
+        report.putArray("limitations").add("Recorded execution view only");
         report.putArray("executions").add(result.path("invocationId").asText());
         return sandbox.completionFeedback(id, report.toString(), () -> false);
     }

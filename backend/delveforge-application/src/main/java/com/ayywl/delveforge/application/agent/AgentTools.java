@@ -17,7 +17,7 @@ public final class AgentTools {
             "read_file", Set.of("path", "start_line", "line_count"),
             "edit_file", Set.of("path", "old_text", "new_text"),
             "exec_command", Set.of("command", "directory", "timeout_seconds"),
-            "update_plan", Set.of("notes"),
+            "update_plan", Set.of("tasks"),
             "read_log", Set.of("invocation_id", "stream", "offset", "limit"));
 
     private AgentTools() {
@@ -76,11 +76,15 @@ public final class AgentTools {
                         "\"path\":{\"type\":\"string\"},\"query\":{\"type\":\"string\"}", "\"query\""),
                 spec("read_file", "读取UTF-8文本。默认从第1行读120行，最多300行。净化结果不可作为原文覆盖。",
                         "\"path\":{\"type\":\"string\"},\"start_line\":{\"type\":\"integer\"},\"line_count\":{\"type\":\"integer\"}", "\"path\""),
-                spec("edit_file", "优先使用精确文本编辑：path 为相对路径，old_text 必须与当前文件中的一个唯一片段完全一致，new_text 替换该片段。新文件 old_text 为空且必须不存在。不要输出 diff 行数，不要重复已成功的编辑；冲突先重新读取。",
+                spec("edit_file", "优先使用精确文本编辑：path 为相对路径，old_text 必须与当前文件中的一个唯一片段完全一致，new_text 替换该片段。新文件 old_text 为空且必须不存在。不要输出 diff 行数，不要重复已成功的编辑；冲突先重新读取当前文件，做一次有依据的重试。批量转换、格式化或完整生成文件可使用 Shell，不要盲目重复冲突。",
                         "\"path\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"},\"new_text\":{\"type\":\"string\"}",
                         "\"path\",\"old_text\",\"new_text\""),
-                spec("update_plan", "可选的本 Run 工作笔记，依据实际仓库记录任务、进度、发现、阻塞和下一步；每次替换最新笔记，最多4000字符。不改变 Step 授权，也不是验证证据。",
-                        "\"notes\":{\"type\":\"string\",\"maxLength\":4000}", "\"notes\""),
+                spec("update_plan", "可选的当前工作清单；tasks 每项含 title 和 pending/in_progress/completed 状态。"
+                        + "更新替换整个清单，不修改源码、Step 授权或完成判定；完成标记只是 Agent 判断。最多20项。",
+                        "\"tasks\":{\"type\":\"array\",\"maxItems\":20,\"items\":{\"type\":\"object\","
+                                + "\"additionalProperties\":false,\"properties\":{\"title\":{\"type\":\"string\"},"
+                                + "\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\"]}},"
+                                + "\"required\":[\"title\",\"status\"]}}", "\"tasks\""),
                 spec("read_log", "按 exec_command 返回的 invocationId 读取已净化日志；stream 为 stdout/stderr/command，offset 为字符偏移，limit 默认4000最多8000。日志不在源码内，Run 清理后仍可读取；返回 nextOffset 和丢弃标记。",
                         "\"invocation_id\":{\"type\":\"string\"},\"stream\":{\"type\":\"string\",\"enum\":[\"stdout\",\"stderr\",\"command\"]},"
                                 + "\"offset\":{\"type\":\"integer\"},\"limit\":{\"type\":\"integer\"}", "\"invocation_id\""),
@@ -157,14 +161,15 @@ public final class AgentTools {
                 var field = fields.next();
                 if (!FIELDS.get(call.name()).contains(field.getKey())
                         || (Set.of("offset", "limit", "start_line", "line_count", "timeout_seconds").contains(field.getKey())
-                        ? !field.getValue().isIntegralNumber() : !field.getValue().isTextual())) {
+                        ? !field.getValue().isIntegralNumber() : field.getKey().equals("tasks")
+                            ? !field.getValue().isArray() : !field.getValue().isTextual())) {
                     throw new AgentException("INVALID_ARGUMENTS", "Unexpected argument or argument type");
                 }
             }
             String required = switch (call.name()) {
                 case "exec_command" -> "command";
                 case "search_code" -> "query";
-                case "update_plan" -> "notes";
+                case "update_plan" -> null;
                 case "read_log" -> "invocation_id";
                 case "read_file", "edit_file" -> "path";
                 default -> null;
@@ -172,8 +177,19 @@ public final class AgentTools {
             if (required != null && (!args.hasNonNull(required) || args.path(required).asText().isBlank())) {
                 throw new AgentException("INVALID_ARGUMENTS", "Missing required tool argument");
             }
-            if (call.name().equals("update_plan") && args.path("notes").asText().length() > Math.min(4000, limits.maxContextChars() / 4)) {
-                throw new AgentException("INVALID_ARGUMENTS", "Working notes exceed this context budget");
+            if (call.name().equals("update_plan")) {
+                JsonNode tasks = args.path("tasks");
+                if (!tasks.isArray() || tasks.size() > 20
+                        || args.toString().length() > Math.min(4000, limits.maxContextChars() / 4)) {
+                    throw new AgentException("INVALID_ARGUMENTS", "Working checklist exceeds this context budget");
+                }
+                for (JsonNode task : tasks) {
+                    if (!task.isObject() || task.size() != 2 || !task.path("title").isTextual()
+                            || task.path("title").asText().isBlank() || task.path("title").asText().length() > 200
+                            || !Set.of("pending", "in_progress", "completed").contains(task.path("status").asText())) {
+                        throw new AgentException("INVALID_ARGUMENTS", "Invalid checklist task");
+                    }
+                }
             }
             if (call.name().equals("read_log") && (!args.path("invocation_id").asText().matches("[0-9a-f-]{36}")
                     || !Set.of("stdout", "stderr", "command").contains(args.path("stream").asText("stdout"))

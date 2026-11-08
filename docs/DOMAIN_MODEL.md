@@ -1,6 +1,8 @@
 # DOMAIN_MODEL.md
 
-**2026-11-07 Agent Loop Convergence 当前语义：** [ADR-0025](decisions/0025-agent-loop-convergence.md) 替代活动命令字符串义务与隔离资源数量否决。v7 完成报告引用实际本 Run 最终源码/执行视图上的成功调用；必要验证显式未完成不能冻结。笔记只属 Agent 工作记忆，非授权或证据；业务充分性和旧失败处理判断归于 Agent，不以通用测试清单判定。私密资源仍隔离并原字节保留；授权、Candidate 不可变性、正式 Delivery、可信 revision、逐 Step 和 Plan 收尾不变。旧 v1–v6 不追认或改写。
+**2026-11-08 当前完成语义：** [ADR-0026](decisions/0026-factual-completion-and-plan-quick-start.md) 明确将 v8 的 completed/failed 归为 Agent 判断；平台核验全部真实收据、引用及硬安全/源码完整性，不以失败检查、缺少 E2E 或 validationComplete 否决 completed。成功冻结和正式 Delivery 仍不证明业务正确；failed 保留安全部分成果但不产生 Candidate。授权、可信 revision、全部 Step 正常 Delivery 后 Plan 收尾及历史状态不变。Quick Start 是 Plan 说明产物，其失败不改变领域终态。下方 v7 及更早门槛保留历史含义。
+
+**2026-11-07 历史 v7 语义（已由 ADR-0026 替代）：** [ADR-0025](decisions/0025-agent-loop-convergence.md) 替代活动命令字符串义务与隔离资源数量否决。v7 完成报告引用实际本 Run 最终源码/执行视图上的成功调用；必要验证显式未完成不能冻结。笔记只属 Agent 工作记忆，非授权或证据；业务充分性和旧失败处理判断归于 Agent，不以通用测试清单判定。私密资源仍隔离并原字节保留；授权、Candidate 不可变性、正式 Delivery、可信 revision、逐 Step 和 Plan 收尾不变。旧 v1–v6 不追认或改写。
 
 **2026-11-07 历史 v6 验证语义（活动路径已由 ADR-0025 替代）：** [ADR-0024](decisions/0024-generic-agent-command-path.md) 定义活动 evidenceVersion=6：保留本次 Step/仓库必要命令范围，由运行时提供实际结果和源码关联；所有必要命令最新成功且命令前后均对应最终冻结源码，方可自动交付。源码/配置/依赖变化使旧证据失效。未知测试数量保持未知；报告可补充结果但不是语言准入门槛。已观察失败不能通过删除/跳过检查清除，v6 不推断历史债务。v5 历史债务强可比规则仍适用于旧记录；成功最终检查取消“必须修改测试”与配置 identity 相等的附加门槛。未验证部分成果不是 Candidate，不推进 Step/Plan；PUBLIC_RESOURCE 执行可读即模型可读，写保护真实生效。原资产保护、正式 revision、自动 Delivery 与全部必需 Step 成功后才完成 Plan 的不变量不变。
 

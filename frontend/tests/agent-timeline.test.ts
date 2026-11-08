@@ -947,13 +947,17 @@ it("keeps both command streams escaped and collapsed alongside duration, cwd and
     expect(definition.open).toBe(false);
     definition.querySelector<HTMLElement>("summary")!.click();
     expect(definition.open).toBe(true);
-    expect(definition.querySelector("pre")?.textContent).toBe("sh check.sh");
+    expect(row.querySelectorAll('[aria-label="命令"]')).toHaveLength(1);
+    expect(definition.querySelector("pre")?.textContent).toBe("BUILD FAILURE");
     const output = definition;
     expect(row.querySelectorAll("details")).toHaveLength(1);
     expect(output.textContent).toContain("已截断");
-    expect(output.querySelectorAll("pre")).toHaveLength(3);
+    expect(output.querySelectorAll("pre")).toHaveLength(1);
+    expect(output.querySelector("select")).toBeNull();
+    [...output.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "错误输出")!.click();
+    await settle();
     expect(output.querySelector("img")).toBeNull();
-    expect(output.querySelector('[aria-label="命令错误输出"]')?.textContent).toContain("<img");
+    expect(output.querySelector('[aria-label="命令输出"]')?.textContent).toContain("<img");
 });
 
 it("differentiates directory, argument, timeout, cancellation and unavailable command results", async () => {
@@ -997,7 +1001,7 @@ it("keeps successful long commands in a one-line preview with the complete text 
     expect(row.querySelector(".command-preview")?.textContent).toBe(command);
     expect(row.querySelector(".command-explanation")).toBeNull();
     expect(row.querySelector<HTMLDetailsElement>(".command-disclosure")!.open).toBe(false);
-    expect(row.querySelector('[aria-label="完整命令"]')?.textContent).toBe(command);
+    expect(row.querySelector('[aria-label="命令"]')?.textContent).toBe(command);
     expect(row.querySelector(".activity-result")?.textContent).toContain("命令退出成功");
     expect(row.textContent).not.toContain("业务验收通过");
 });
@@ -1031,7 +1035,7 @@ it("attributes notes and completion judgments while preserving compacted and fai
         fact(2, "CONTEXT_COMPACTED"), fact(3, "MODEL_COMPLETED", JSON.stringify({ status: "completed",
             summary: "Agent selected a recheck", limitations: "private resources untested" }))];
     await settle();
-    expect(root.textContent).toContain("Agent 工作笔记");
+    expect(root.textContent).toContain("当前工作清单");
     expect(root.textContent).toContain("[ ] stale item");
     expect(root.textContent).toContain("较早上下文已压缩");
     expect(root.textContent).toContain("Agent 完成报告");
@@ -1048,5 +1052,19 @@ it("does not promise a full command log when retention was exhausted", async () 
     expect(row.textContent).toContain("命令预览已截断");
     expect(row.textContent).toContain("超出保留上限");
     expect(row.textContent).not.toContain("可在下方日志流");
-    expect(row.querySelector(".log-controls")).toBeNull();
+    expect([...row.querySelectorAll("button")].some(button => button.textContent === "完整命令")).toBe(false);
+});
+
+it("replaces the working checklist without duplicate tool or plan timeline rows", async () => {
+    const { root, props } = mount(false);
+    props.events = [fact(1, "WORKING_NOTES", JSON.stringify({tasks: [{title: "Old item", status: "pending"}]})),
+        tool(2, "TOOL_STARTED", {tool: "update_plan", toolCallId: "plan-1"}),
+        fact(3, "WORKING_NOTES", JSON.stringify({tasks: [{title: "Inspect repository", status: "completed"}, {title: "Run focused checks", status: "in_progress"}]})),
+        tool(4, "TOOL_FINISHED", {tool: "update_plan", toolCallId: "plan-1", ok: true})];
+    await settle();
+    expect(root.querySelectorAll(".working-plan")).toHaveLength(1);
+    expect(root.querySelectorAll(".working-plan li")).toHaveLength(2);
+    expect(root.textContent).not.toContain("Old item");
+    expect(root.textContent).toContain("1 / 2 完成");
+    expect(root.querySelector('[data-kind="update_plan"]')).toBeNull();
 });

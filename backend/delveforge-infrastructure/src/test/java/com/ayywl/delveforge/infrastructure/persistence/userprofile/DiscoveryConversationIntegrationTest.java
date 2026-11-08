@@ -3,8 +3,8 @@ package com.ayywl.delveforge.infrastructure.persistence.userprofile;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
-import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository;
 import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository.Command;
+import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository;
 import com.ayywl.delveforge.application.port.persistence.ProjectContextRepository;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryConversationService;
@@ -302,7 +302,7 @@ class DiscoveryConversationIntegrationTest {
             statement.executeUpdate("INSERT INTO user_profile(id,status,revision) VALUES('legacy','EXPLORING',4)");
             statement.executeUpdate("INSERT INTO user_profile_sufficiency(profile_id,revision) VALUES('legacy',4)");
         }
-        assertEquals(1, Flyway.configure().dataSource(url, "", "").load().migrate().migrationsExecuted);
+        assertEquals(2, Flyway.configure().dataSource(url, "", "").load().migrate().migrationsExecuted);
         try (var connection = DriverManager.getConnection(url); var statement = connection.createStatement()) {
             try (var result = statement.executeQuery("SELECT revision FROM user_profile WHERE id='legacy'")) {
                 assertTrue(result.next());

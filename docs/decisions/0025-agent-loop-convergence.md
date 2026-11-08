@@ -1,5 +1,7 @@
 # ADR-0025：Agent 循环收敛与执行事实核验
 
+> 活动完成门槛和自由文本清单已由 [ADR-0026](0026-factual-completion-and-plan-quick-start.md) 替代。下文保留 v7 历史合同。
+
 - 状态：Accepted，2026-11-07，本次用户明确授权。
 - 范围：现有单 Agent、Application/Workspace、Docker、冻结 Candidate 与独立自动 Delivery。
 - 替代 ADR-0024 的活动 command+cwd 永久义务、scope/kind 注册、失败用例永远必须同名通过及 withheldSourceCount 一票否决。证据 v1–v6 仍按原版本解释，历史失败不追认成功。
