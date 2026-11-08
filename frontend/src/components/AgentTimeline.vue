@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import NavigationIcon from "./NavigationIcon.vue";
 import AgentActivityRow from "./AgentActivityRow.vue";
@@ -9,7 +9,6 @@ import { activityState, buildActivities, currentActivity, checkSummary, explorat
 
 const props = withDefaults(defineProps<{ events: AgentEvent[]; run: AgentRun; connection: string; presentation?: RunPresentation; showUsage?: boolean }>(), { showUsage: true });
 const developerExpanded = ref(false);
-const rawExpanded = ref(false);
 const viewport = ref<HTMLElement>();
 const following = ref(true);
 const unseen = ref(false);
@@ -60,32 +59,38 @@ function removeImmediately(_element: Element, done: () => void) { done(); }
 function trackScroll() {
     const element = viewport.value;
     if (!element) return;
-    following.value = element.scrollHeight - element.clientHeight - element.scrollTop < 40;
+    const bottom = element.getBoundingClientRect().bottom;
+    following.value = bottom >= 0 && bottom <= window.innerHeight + 40;
     if (following.value) unseen.value = false;
 }
 function latest() {
     visibleCount.value = 40;
     following.value = true;
     unseen.value = false;
-    void nextTick(() => { if (viewport.value) viewport.value.scrollTop = viewport.value.scrollHeight; });
+    void nextTick(() => viewport.value?.lastElementChild?.scrollIntoView?.({ block: "nearest" }));
 }
 async function earlier() {
     visibleCount.value += 40;
     following.value = false;
     await nextTick();
-    if (viewport.value) viewport.value.scrollTop = 0;
+    viewport.value?.scrollIntoView?.({ block: "start" });
 }
 watch(() => props.events.at(-1)?.sequence, async () => {
-    const follow = following.value;
-    if (!follow) {
+    const hadActivities = previousCount > 0;
+    const bottom = viewport.value?.getBoundingClientRect().bottom ?? 0;
+    const follow = following.value && bottom >= 0 && bottom <= window.innerHeight + 40;
+    following.value = follow;
+    if (hadActivities && !follow) {
         unseen.value = true;
         visibleCount.value += Math.max(0, chronological.value.length - previousCount);
     }
     previousCount = chronological.value.length;
     await nextTick();
-    if (follow && following.value && viewport.value) viewport.value.scrollTop = viewport.value.scrollHeight;
+    if (hadActivities && follow && following.value) viewport.value?.lastElementChild?.scrollIntoView?.({ block: "nearest" });
 });
-watch(() => props.run.id, () => { following.value = true; unseen.value = false; visibleCount.value = 40; previousCount = 0; filesExpanded.value = false; fileCount.value = 40; developerExpanded.value = false; rawExpanded.value = false; patchesExpanded.value = false; patchCount.value = 40; checksExpanded.value = false; checkCount.value = 40; });
+onMounted(() => window.addEventListener("scroll", trackScroll, { passive: true }));
+onUnmounted(() => window.removeEventListener("scroll", trackScroll));
+watch(() => props.run.id, () => { following.value = true; unseen.value = false; visibleCount.value = 40; previousCount = 0; filesExpanded.value = false; fileCount.value = 40; developerExpanded.value = false; patchesExpanded.value = false; patchCount.value = 40; checksExpanded.value = false; checkCount.value = 40; });
 </script>
 
 <template>
@@ -115,7 +120,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
         <p v-if="patches.blocked || patches.uncertain || patches.failed" class="patch-alert" role="alert">代码修改需核对：{{ patches.blocked }} 次安全拒绝 · {{ patches.uncertain }} 次结果不明 · {{ patches.failed }} 次失败。详见代码修改记录；不代表 Candidate 或交付成功。</p>
         <h4 class="operations-title">重要操作</h4>
         <button v-if="chronological.length > visible.length" class="text-button earlier-activity" @click="earlier">查看更早活动（已加载 {{ chronological.length }} 项）</button>
-        <div ref="viewport" class="timeline-viewport" tabindex="0" aria-label="运行活动，可滚动查看历史" @scroll="trackScroll">
+        <div ref="viewport" class="timeline-viewport" tabindex="0" aria-label="运行活动，随页面查看历史">
             <TransitionGroup name="activity-entry" tag="ol" class="agent-timeline" :data-terminal="state.terminal" @leave="removeImmediately">
                 <AgentActivityRow v-for="row in visible" :key="row.key" :activity="row" compact />
             </TransitionGroup>
@@ -124,7 +129,6 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
         <button v-if="!following" class="secondary compact-button latest-activity" @click="latest">{{ unseen ? '有新活动 · 回到最新' : '回到最新活动' }}</button>
         <p v-if="chronological.length > 40" class="meta">显示 {{ visible.length }} / {{ chronological.length }} 项已加载时间线活动。</p>
         <p v-if="checks.blocked" class="check-blocker" role="alert">{{ checks.sourceBlocked ? '检查期间检测到文件变化，本次检查已停止。' : '检查被安全规则停止，请核对开发者详情。' }}</p>
-        <p v-else-if="checks.failed" class="check-blocker">已记录 {{ checks.failed }} 次未通过的命令尝试，处理结果见验证摘要。</p>
         <details class="developer-details" :open="developerExpanded">
             <summary @click.prevent="developerExpanded = !developerExpanded">开发者详情</summary>
             <div class="developer-content">
@@ -133,7 +137,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
         <details v-if="checks.count" :key="checks.key" class="check-summary" :open="checksExpanded">
             <summary @click.prevent="checksExpanded = !checksExpanded"><NavigationIcon name="check" />命令与检查 · 历史
                 <strong class="check-latest" :data-tone="checks.latest?.outcome">{{ checks.label }}</strong>
-                <span class="check-count">{{ checks.count }} 次尝试<span v-if="checks.failed"> · 历史 {{ checks.failed }} 次未通过</span></span>
+                <span class="check-count">{{ checks.count }} 次尝试<span v-if="checks.failed"> · 历史命令尝试 {{ checks.failed }} 次未通过（不等同于当前失败测试）</span></span>
                 <span v-if="checks.detail" class="check-detail">{{ checks.detail }}</span>
             </summary>
             <template v-if="checksExpanded"><p class="exploration-note">当前结果绑定最近已记录的源码版本；以下为全部命令尝试，最近记录在前。缺失的历史不会推断为通过。</p>
@@ -170,9 +174,6 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
             </template>
         </details>
         <ol class="developer-event-history"><AgentActivityRow v-for="row in diagnosticActivities" :key="row.key" :activity="row" /></ol>
-        <details class="original-events" :open="rawExpanded"><summary @click.prevent="rawExpanded = !rawExpanded">原始事件记录 · {{ events.length }}</summary>
-            <ol v-if="rawExpanded"><li v-for="event in events.filter(item => item.runId === run.id)" :key="event.sequence"><strong>{{ event.kind }}</strong><pre>{{ event.summary }}</pre></li></ol>
-        </details>
             </div>
         </details>
         <p v-if="events.length === 1000" class="meta">已加载最近 1000 条事件；更早事件受现有保留范围限制。</p>
@@ -184,7 +185,6 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .developer-details { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; }
 .developer-details > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
 .developer-event-history { list-style: none; padding: 0; margin: 20px 0; }
-.original-events pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .working-plan h4 { margin: 0; font-size: 14px; }
 .working-plan ul { list-style: none; padding: 0; }
 .working-plan li { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 14px; }
@@ -248,7 +248,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .model-waiting i:nth-child(2) { animation-delay: 150ms; }
 .model-waiting i:nth-child(3) { animation-delay: 300ms; }
 @keyframes model-wait { 50% { opacity: .35; transform: translateY(-2px); } }
-.timeline-viewport { max-height: 34rem; overflow: auto; scrollbar-width: thin; overflow-anchor: none; padding: 6px 4px; }
+.timeline-viewport { padding: 6px 4px; }
 .agent-timeline { list-style: none; margin: 0; padding: 0; }
 .exploration-summary { margin: 0 0 18px; padding: 10px 0 14px; min-width: 0; border-bottom: 1px solid var(--line); }
 .exploration-summary summary { cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; padding: 5px 0; }

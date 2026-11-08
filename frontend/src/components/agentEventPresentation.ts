@@ -8,6 +8,7 @@ export const isPatchTool = (tool: string | undefined): boolean => tool === "appl
 export type ActivityOutcome = "running" | "completed" | "failed" | "conflict" | "unknown" | "recorded" | "blocked" | "interrupted";
 export interface AgentActivity {
     key: string;
+    title?: string;
     event: AgentEvent;
     finish?: AgentEvent;
     tool?: string;
@@ -129,16 +130,23 @@ const preflightStages: Record<string, string> = {
     FRONTEND_CHECK: "前端检查", DEPENDENCY_PREPARATION: "受控依赖准备",
 };
 export function preflightProgress(event: AgentEvent) {
-    if (event.kind !== "PREFLIGHT_PROGRESS") return;
-    const data = summaryFields(event);
-    if (typeof data.stage !== "string" || !Object.hasOwn(preflightStages, data.stage)
-        || !["STARTED", "COMPLETED", "FAILED"].includes(String(data.status))) return;
+    if (!["PREFLIGHT_PROGRESS", "ENVIRONMENT_PREFLIGHT"].includes(event.kind)) return;
+    const outcome = event.summary.split("\n")[0];
+    const data = event.kind === "ENVIRONMENT_PREFLIGHT" ? {
+        stage: "PREFLIGHT", classification: outcome,
+        status: ["READY", "READY_BASELINE_FAILURE"].includes(outcome ?? "") ? "COMPLETED"
+            : ["ENVIRONMENT_BLOCKED", "SECURITY_BLOCKED", "SELECTION_REQUIRED"].includes(outcome ?? "") ? "FAILED" : "UNKNOWN",
+    } as Record<string, unknown> : summaryFields(event);
+    if (typeof data.stage !== "string" || !Object.hasOwn(preflightStages, data.stage)) return;
     const goal = ["test", "verify", "build", "typecheck"].includes(String(data.goal)) ? String(data.goal) : "";
     const result = typeof data.classification === "string" && /^[A-Z_]{1,80}$/.test(data.classification)
         ? data.classification : "";
-    const status = String(data.status);
+    const rawStatus = String(data.status);
+    const status = rawStatus === "IN_PROGRESS" ? "STARTED" : rawStatus === "SUCCESS" ? "COMPLETED"
+        : ["STARTED", "COMPLETED", "FAILED", "CANCELLED", "INTERRUPTED"].includes(rawStatus) ? rawStatus : "UNKNOWN";
     return { title: `${preflightStages[data.stage]}${goal ? ` · ${goal}` : ""} · ${
-        status === "STARTED" ? "进行中" : status === "FAILED" ? "受阻" : "已结束"}`,
+        status === "STARTED" ? "进行中" : status === "FAILED" ? "失败" : status === "COMPLETED" ? "已完成"
+            : status === "CANCELLED" ? "已取消" : status === "INTERRUPTED" ? "已中断" : "结果未记录"}`,
         stage: data.stage, goal, directory: safePath(data.directory), result, status,
         duration: typeof data.durationMs === "number" && Number.isFinite(data.durationMs) && data.durationMs >= 0
             && status !== "STARTED" ? data.durationMs : undefined };
@@ -262,7 +270,11 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
     const facts = events.filter(event => event.runId === run.id && event.kind !== "MODEL_USAGE");
     const starts = new Map<string, AgentEvent[]>();
     const finishes = new Map<string, AgentEvent[]>();
+    const preflights = new Map<string, number>();
     for (const event of facts) {
+        const progress = preflightProgress(event);
+        // 同一阶段/工程/目标仅展示最后一个持久事实；原始事件不改写。
+        if (progress) preflights.set(JSON.stringify([progress.stage, progress.directory, progress.goal]), event.sequence);
         const key = correlation(event);
         const map = event.kind === "TOOL_STARTED" ? starts : event.kind === "TOOL_FINISHED" ? finishes : null;
         if (key && map) map.set(key, [...map.get(key) ?? [], event]);
@@ -281,6 +293,7 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
         const data = summaryFields(result);
         const startData = summaryFields(event);
         const progress = preflightProgress(event);
+        if (progress && preflights.get(JSON.stringify([progress.stage, progress.directory, progress.goal])) !== event.sequence) continue;
         const toolEvent = ["TOOL_STARTED", "TOOL_FINISHED"].includes(event.kind);
         const tool = toolEvent ? recordedTool(event) : undefined;
         const pending = toolEvent && event.kind === "TOOL_STARTED" && !finish;
@@ -297,13 +310,15 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
         if (event.kind === "MODEL_PROVIDER_DIAGNOSTIC") {
             outcome = data.category === "SUCCESS" ? "completed" : "failed";
         }
-        if (progress) outcome = progress.status === "FAILED" ? "blocked"
-            : progress.status === "COMPLETED" ? "completed" : state.terminal ? "interrupted" : "recorded";
+        if (progress) outcome = progress.status === "FAILED" ? "failed" : progress.status === "COMPLETED" ? "completed"
+            : ["CANCELLED", "INTERRUPTED"].includes(progress.status) ? "interrupted"
+            : progress.status === "STARTED" && !state.terminal ? "running" : "unknown";
         const target = progress?.directory ?? (tool ? safePath(startData.path) ?? safePath(startData.module) ?? safePath(startData.directory)
             ?? safePath(data.path) ?? safePath(data.module) ?? safePath(data.directory) : undefined);
         const invocationNs = numeric(data, "invocationDurationNs");
         const internalMs = numeric(data, "durationMs");
         activities.push({ key: `${event.runId}:${event.sequence}`, event, finish, tool, target,
+            title: progress && outcome === "unknown" ? progress.title.replace(/ · [^·]+$/, " · 结果未记录") : progress?.title,
             targetWithheld: startData.targetState === "withheld" || data.targetState === "withheld",
             resultUncertain: (data.resultRecorded === false || isPatchTool(tool) && classification(result) === 'PATCH_CONFLICT')
                 && !patchNotStarted(data, tool),
@@ -311,7 +326,7 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
                 : event.summary !== event.kind ? safeClassification(event.summary) : undefined,
             duration: progress?.duration ?? (tool && !pending ? invocationNs !== undefined ? invocationNs / 1e6 : internalMs : undefined),
             durationSource: invocationNs !== undefined ? "invocation" : internalMs !== undefined ? "internal" : undefined,
-            outcome, active: !!active });
+            outcome, active: progress ? outcome === "running" : !!active });
     }
     return activities;
 }
@@ -341,7 +356,7 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
     }
     if (run.cancelRequested) return { ...staticState, title: "已请求取消，等待运行结束" };
     if (state.state === "PREPARING") {
-        const milestones = events.filter(event => event.runId === run.id).map(preflightProgress)
+        const milestones = activities.map(activity => preflightProgress(activity.event))
             .filter((progress): progress is NonNullable<typeof progress> => !!progress);
         const pending = new Map<string, (typeof milestones)[number]>();
         for (const milestone of milestones) {
@@ -352,7 +367,8 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
         }
         const latest = milestones.at(-1);
         const progress = latest?.status === "FAILED" ? latest : [...pending.values()].at(-1) ?? latest;
-        if (progress) return { ...staticState, active: progress.status === "STARTED", tone: progress.status === "FAILED" ? "blocked" : "running",
+        if (progress) return { ...staticState, active: progress.status === "STARTED", tone: progress.status === "FAILED" ? "failed"
+            : progress.status === "COMPLETED" ? "completed" : progress.status === "STARTED" ? "running" : "recorded",
             title: progress.title, detail: [progress.directory, progress.result].filter(Boolean).join(" · ") };
     }
     if (active?.event.kind === "MODEL_REQUEST") {

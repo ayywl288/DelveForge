@@ -553,7 +553,7 @@ onUnmounted(deactivate);
 .agent-run-panel h3, .agent-changes h3 { margin: 0; font-size: 17px; line-height: 1.5; }
 .run-workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; }
 .run-history { min-width: 0; border-right: 1px solid var(--line); padding-right: 20px; }
-.run-history ul { list-style: none; padding: 0; margin: 10px 0; max-height: 34rem; overflow: auto; }
+.run-history ul { list-style: none; padding: 0; margin: 10px 0; }
 .run-history .run-choice { width: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 5px; padding: 10px; text-align: left; color: var(--muted); font-size: 12px; line-height: 1.5; margin-bottom: 4px; }
 .run-choice-heading { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
 .run-choice-heading strong { font-size: 14px; color: var(--ink); }
@@ -601,7 +601,7 @@ select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
 @media (max-width: 1050px) {
   .run-workspace { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .run-history { border-right: 0; padding-right: 0; }
-  .run-history ul { display: flex; gap: 8px; max-height: none; }
+  .run-history ul { display: flex; gap: 8px; overflow-x: auto; }
   .run-history li { flex: 0 0 210px; }
 }
 @media (max-width: 640px) {

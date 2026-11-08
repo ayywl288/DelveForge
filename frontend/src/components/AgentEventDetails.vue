@@ -59,6 +59,7 @@ function changeStream(value: string) { stream.value = value; page.value = null; 
 .command-disclosure select { width: auto; margin-left: 8px; font-size: 13px; }
 .output-label { color: var(--muted); font-size: 12px; }
 .command-details pre { white-space: pre-wrap; }
+.command-disclosure pre { max-height: 28rem; overflow: auto; }
 .log-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
 .activity-facts { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 5px 0; }
 .activity-facts > div { display: flex; align-items: baseline; gap: 6px; min-width: 0; }

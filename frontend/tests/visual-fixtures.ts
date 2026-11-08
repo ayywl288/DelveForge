@@ -91,7 +91,9 @@ export function visualFixture(scenario: string, path: string, query?: URLSearchP
         markdown: '# Report Kit\n\n## 前置条件\n- Java 21\n- Node 22 与 pnpm\n- Docker\n## 1. 必要配置\n复制仓库提供的环境示例，填写本地数据库配置。\n## 2. 安装依赖\n```sh\n./mvnw package\npnpm --dir frontend install --frozen-lockfile\n```\n## 3. 启动基础服务\n```sh\ndocker compose up -d\n```\n## 4. 启动应用\n```sh\njava -jar target/report-kit.jar\npnpm --dir frontend dev\n```\n## 5. 访问地址\n[http://localhost:5173](http://localhost:5173)\n\n## 生成依据\n- `README.md`\n- `docs/development.md`\n- `pom.xml`\n- `frontend/package.json`' };
     if (path.endsWith('/agent-runs')) return scenario.startsWith('initial') ? [] : [run];
     if (path.endsWith('/stream')) return [
+        { kind: 'PREFLIGHT_PROGRESS', summary: JSON.stringify({stage: 'PREFLIGHT', status: 'STARTED', directory: '', goal: '', durationMs: 0}) },
         { kind: 'ENVIRONMENT_PREFLIGHT', summary: 'READY\n' + JSON.stringify({probes: [{directory: '.', goal: 'runtime', output: 'Java 21; Node 22'}]}) },
+        { kind: 'PREFLIGHT_PROGRESS', summary: JSON.stringify({stage: 'PREFLIGHT', status: 'COMPLETED', directory: '', goal: '', classification: 'READY', durationMs: 1422}) },
         { kind: 'RUNNING', summary: '隔离沙箱已准备，开始当前 Step。' },
         { kind: 'TOOL_FINISHED', summary: JSON.stringify({ tool: 'read_file', path: 'src/main/java/reports/ReportService.java', durationMs: 12, ok: true }) },
         { kind: 'TOOL_FINISHED', summary: JSON.stringify({ tool: 'apply_patch', path: 'src/main/java/reports/ReportScheduler.java', durationMs: 18, ok: true, classification: 'PATCH_APPLIED' }) },
