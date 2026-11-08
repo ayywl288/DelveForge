@@ -45,3 +45,29 @@ CandidateDeliveryService 在交付接受后通知指南服务；正常交付路�
 ## 验证边界
 
 本次不调用付费 Provider 或真实目标项目 AgentRun；它们明确为 NOT RUN。确定性测试只能证明上述编排、事实和安全边界，不证明任意仓库或业务任务必然成功。实际执行记录见 [验证报告](../validation/final-agent-workflow-20261108.md)。
+
+## 2026-11-08：启动材料与呈现的有限细化
+
+这次明确授权仅改进材料和呈现，不改变上述完成、授权、交付及独立模型调用合同。
+
+QuickStartSources 仍为 Application 内确定性收集器，不是 RepositoryUnderstanding 或 Scout。通过只读 Workspace
+按最终 Delivery commit 列出深度不超过 8 的树，最多尝试 64 个文件、接纳 32 个文件；单文件原文最多 64 KiB，
+净化后单段最多 12K 字符、全部材料包含路径标记最多 48K 字符。先完整净化，再按完整行截断，并标注截断。
+根 README 优先，接着考虑根 README 的本地文档链接、中文/英文开发安装文档、模块构建清单和 Wrapper、
+启动脚本与配置；不递归跟随链接，不读依赖/生成物目录、不联网获取材料。
+
+专用可信原文读取仅用于本收集器，不能据此解释为全局模型披露或沙箱执行权限放宽。路径先按既有排除规则检查，
+`.env.example` 是唯一窄例外，只保留规范变量名，所有取值和注释均丢弃。常规文本复用 sanitizeSource 与 sanitizeOutput；
+XML 凭据元素的值先替换。无法保留结构的私钥块、敏感 YAML 多行块及常见命令行口令形式整文件跳过；
+二进制/解码替换字符和超限文件跳过。原文不写日志、不持久化、不进入 AiGateway。既有规则仍是已知凭据形式识别，
+不引入通用秘密检测器。通用 readModelFile、RepositoryContentPolicy、RepositorySecretPolicy 均不修改。
+
+应用标题由净化后的根 README 一级标题确定；无可靠标题时用原 Software Asset 仓库目录名，不用 WorkingCopy 随机目录或
+Plan 功能名。manifest 交叉核对、明确记载/推导命令的区分、缺失内容的单条说明属于单次模型请求的生成约束，
+不冒充对自然语言真实性的确定性证明。指南不运行命令；正文最多 6K 字符，连同系统附加标题、真实来源路径与 revision
+总计最多 12K 字符。来源保存在原 Markdown 字段末尾，无存储迁移；旧指南仍可阅读，只有显式重新生成才消费模型。
+
+Run 的开发者详情保留事件、原始命令、stdout/stderr、分页、保留上限及元数据。最终源码证据按已有 snapshot/afterSnapshot
+字段区分，不从命令字符串推断业务活动，不改变 v8 completion。测试报告跨执行计数始终标累计与可能重复；历史失败不变成
+唯一当前失败用例数。高级设置保留 targetJdk 自动默认以及兼容的 checkDirectories 请求字段，后者仅用于 Maven 根/JDK 选择，
+界面改称 Maven 工程根目录覆盖，不宣称影响 Agent 探索或授权。费用确认保持原入口。

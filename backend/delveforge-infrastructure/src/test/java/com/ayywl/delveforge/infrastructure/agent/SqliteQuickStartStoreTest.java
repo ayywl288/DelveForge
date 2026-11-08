@@ -32,6 +32,9 @@ class SqliteQuickStartStoreTest {
                 + "','" + "b".repeat(40) + "','managed','original','COMPLETED','" + revision
                 + "',NULL,'2026-11-08T00:00:00Z',0)");
         assertEquals("candidate", store.finalDelivery("plan").orElseThrow().candidateId());
+        database.sql("UPDATE software_asset SET location='assets/Bookstore'");
+        assertEquals("assets/Bookstore", store.finalDelivery("plan").orElseThrow().repositoryLocation());
+        assertEquals("managed", store.finalDelivery("plan").orElseThrow().location());
         store.save(new QuickStart("plan", "candidate", revision, "AVAILABLE", "## 启动\nread README", null,
                 Instant.parse("2026-11-08T00:01:00Z"), false));
         assertEquals("AVAILABLE", new SqliteQuickStartStore(database.source).find("plan").orElseThrow().status());

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { executionFacts, presentTestEvidence, presentCheckRows, presentSourceView } from "./agentResultPresentation";
 const props = defineProps<{ evidence: string }>();
 const result = computed(() => presentTestEvidence(props.evidence));
@@ -7,40 +7,63 @@ const checks = computed(() => presentCheckRows(props.evidence));
 const report = computed(() => { try { const value = JSON.parse(props.evidence); return [7, 8].includes(value.evidenceVersion) ? value.agentReport : null; } catch { return null; } });
 const generic = computed(() => { try { return [6, 7, 8].includes(JSON.parse(props.evidence).evidenceVersion); } catch { return false; } });
 const facts = computed(() => executionFacts(props.evidence));
+const finalFacts = computed(() => executionFacts(props.evidence, true));
+const summary = computed(() => typeof report.value?.summary === "string"
+    ? report.value.summary.split(/\n+|(?<=[。！？])\s*/u).map((line: string) => line.replace(/^[-*]\s*/, "").trim()).filter(Boolean) : []);
+const limitations = computed(() => Array.isArray(report.value?.limitations)
+    ? report.value.limitations.filter((item: unknown) => typeof item === "string")
+    : typeof report.value?.limitations === "string" ? [report.value.limitations] : []);
+const detailsOpen = ref(false);
 const sourceView = computed(() => presentSourceView(props.evidence));
 </script>
 <template>
-    <section class="candidate-evidence" aria-label="测试结果" :data-tone="result.tone">
-        <div class="evidence-heading"><h4>测试结果</h4><strong class="evidence-status">{{ result.label }}</strong></div>
-        <p class="verification-outcome">{{ result.outcome }}<span v-if="result.scope" class="evidence-scope"> · {{ result.scope }}</span></p>
+    <section class="candidate-evidence" aria-label="实现与验证结果" :data-tone="result.tone">
+        <section v-if="summary.length" class="implementation-summary" aria-label="实现摘要">
+            <h4>实现摘要 <span class="evidence-scope">Agent 报告</span></h4>
+            <ul><li v-for="(item, index) in summary.slice(0, 5)" :key="index">{{ item }}</li></ul>
+        </section>
+        <div class="evidence-heading"><h4>验证</h4><span class="evidence-attribution">平台执行事实</span></div>
+        <template v-if="finalFacts">
+            <p v-if="finalFacts.total">最终源码上的 {{ finalFacts.total }} 次命令：成功 {{ finalFacts.succeeded }} · 失败 {{ finalFacts.failed }} · 超时 {{ finalFacts.timedOut }} · 取消 {{ finalFacts.cancelled }}</p>
+            <p v-else>最终源码上没有已记录的命令结果。</p>
+            <p class="evidence-scope">{{ finalFacts.reports }} 次带测试报告，{{ finalFacts.unknown }} 次无报告详情。退出零不证明测试或业务通过。</p>
+            <p v-if="finalFacts.reports">报告累计执行 {{ finalFacts.executed }} 项，失败 / 错误 {{ finalFacts.failures }} 项，跳过 {{ finalFacts.skipped }} 项（含重复执行，不是唯一用例数）。</p>
+            <p v-if="facts && facts.total > finalFacts.total" class="evidence-scope">另有 {{ facts.total - finalFacts.total }} 次旧源码或源码身份不完整的尝试，保留在开发者详情。</p>
+        </template>
+        <template v-else>
+            <p class="verification-outcome"><strong class="evidence-status">{{ result.label }}</strong> · {{ result.outcome }}<span v-if="result.scope" class="evidence-scope"> · {{ result.scope }}</span></p>
+            <dl v-if="result.counts" class="test-counts">
+                <div><dt>已执行</dt><dd>{{ result.counts.executed }}</dd></div>
+                <div><dt>通过</dt><dd>{{ result.counts.passed ?? '未记录' }}</dd></div>
+                <div><dt>失败</dt><dd>{{ result.counts.failed ?? '未记录' }}</dd></div>
+                <div><dt>错误</dt><dd>{{ result.counts.errored ?? '未记录' }}</dd></div>
+                <div><dt>跳过</dt><dd>{{ result.counts.skipped ?? '未记录' }}</dd></div>
+            </dl>
+            <ul v-if="!generic && checks.length" class="check-evidence-list" aria-label="各项检查证据"><li v-for="(check, index) in checks" :key="index">{{ check.scope }} · {{ check.label }}<strong v-if="check.stale"> · 旧源码结果</strong></li></ul>
+        </template>
         <p v-if="sourceView" class="evidence-scope">{{ sourceView }}</p>
-        <dl v-if="result.counts" class="test-counts">
-            <div><dt>已执行</dt><dd>{{ result.counts.executed }}</dd></div>
-            <div><dt>通过</dt><dd>{{ result.counts.passed ?? '未记录' }}</dd></div>
-            <div><dt>失败</dt><dd>{{ result.counts.failed ?? '未记录' }}</dd></div>
-            <div><dt>错误</dt><dd>{{ result.counts.errored ?? '未记录' }}</dd></div>
-            <div><dt>跳过</dt><dd>{{ result.counts.skipped ?? '未记录' }}</dd></div>
-        </dl>
-        <dl v-if="facts" class="test-counts" aria-label="全部执行记录汇总">
-            <div><dt>命令总数</dt><dd>{{ facts.total }}</dd></div><div><dt>进程成功</dt><dd>{{ facts.succeeded }}</dd></div>
-            <div><dt>进程失败</dt><dd>{{ facts.failed }}</dd></div><div><dt>超时</dt><dd>{{ facts.timedOut }}</dd></div>
-            <div><dt>取消</dt><dd>{{ facts.cancelled }}</dd></div>
-        </dl>
-        <p v-if="facts" class="evidence-scope">{{ facts.reports }} 次有测试报告，{{ facts.unknown }} 次无报告详情；{{ facts.stale }} 次属于旧源码。报告累计执行 {{ facts.executed }} 项，失败或错误 {{ facts.failures }} 项，跳过 {{ facts.skipped }} 项，包含重复执行。未执行的检查见 Agent 限制说明。</p>
-        <h4 v-if="report">Agent 判断</h4>
-        <p v-if="report?.summary">{{ report.summary }}</p>
-        <p v-if="report?.limitations">Agent 报告限制：{{ Array.isArray(report.limitations) ? report.limitations.join('；') : report.limitations }}</p>
-        <p v-if="generic" class="evidence-scope">完整命令与日志见本次 Agent Run 的「命令与检查」。</p>
-        <ul v-if="!generic && checks.length" class="check-evidence-list" aria-label="各项检查证据">
-            <li v-for="(check, index) in checks" :key="index">
-                <span>{{ check.scope }}</span> · {{ check.label }}
-                <span v-if="check.executed !== null"> · 已执行 {{ check.executed }} 项测试</span>
-                <strong v-if="check.stale"> · 旧源码结果</strong>
-            </li>
-        </ul>
+        <section v-if="limitations.length" class="result-limitations" aria-label="剩余限制"><h4>剩余限制 <span class="evidence-scope">Agent 报告</span></h4>
+            <ul><li v-for="(item, index) in limitations" :key="index">{{ item }}</li></ul>
+        </section>
+        <p v-if="generic" class="evidence-scope">完整命令与日志见本次 Agent Run 的「开发者详情」。</p>
+        <details class="result-developer" :open="detailsOpen"><summary @click.prevent="detailsOpen = !detailsOpen">开发者详情 · 完整报告与执行历史</summary>
+            <template v-if="detailsOpen">
+                <p v-if="facts">全部 Run 尝试累计：命令 {{ facts.total }} 次，成功 {{ facts.succeeded }}，失败 {{ facts.failed }}，超时 {{ facts.timedOut }}，取消 {{ facts.cancelled }}。报告累计执行 {{ facts.executed }} 项，失败 / 错误 {{ facts.failures }} 项，跳过 {{ facts.skipped }} 项，包含历史重试与重复用例。</p>
+                <p v-if="report?.summary">{{ report.summary }}</p>
+                <p>完整命令与保留日志见本次运行的「开发者详情」。</p>
+                <pre>{{ evidence }}</pre>
+            </template>
+        </details>
     </section>
 </template>
 <style scoped>
+.implementation-summary, .result-limitations { margin-bottom: 24px; }
+.result-limitations { margin-top: 24px; }
+.candidate-evidence ul { padding-left: 20px; line-height: 1.8; }
+.candidate-evidence p { font-size: 14px; line-height: 1.7; }
+.result-developer { margin-top: 20px; font-size: 13px; }
+.result-developer summary { cursor: pointer; color: var(--muted); }
+.result-developer pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .candidate-evidence { padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--line); min-width: 0; }
 .evidence-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; }
 h4 { font-size: 15px; margin: 0; }

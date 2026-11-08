@@ -21,7 +21,7 @@ public final class SqliteQuickStartStore implements QuickStartStore {
     @Override
     public Optional<Basis> finalDelivery(String planId) {
         try (Connection connection = source.getConnection(); var statement = connection.prepareStatement("""
-                SELECT d.candidate_id,d.revision,d.location FROM evolution_plan p
+                SELECT d.candidate_id,d.revision,d.location,a.location FROM evolution_plan p
                 JOIN working_copy w ON w.id=p.working_copy_id
                 JOIN software_asset a ON a.id=p.base_asset_id
                 JOIN evolution_step s ON s.plan_id=p.id
@@ -38,7 +38,8 @@ public final class SqliteQuickStartStore implements QuickStartStore {
                 """)) {
             statement.setString(1, planId);
             try (var row = statement.executeQuery()) {
-                return row.next() ? Optional.of(new Basis(planId, row.getString(1), row.getString(2), row.getString(3)))
+                return row.next() ? Optional.of(new Basis(planId, row.getString(1), row.getString(2),
+                        row.getString(3), row.getString(4)))
                         : Optional.empty();
             }
         } catch (SQLException failure) {

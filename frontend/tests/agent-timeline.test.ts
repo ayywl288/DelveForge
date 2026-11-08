@@ -74,8 +74,8 @@ it("shows the full model explanation only once in a closed technical disclosure"
     await settle();
     expect(root.querySelector(".current-activity")?.textContent).toContain("运行失败 · MODEL_INCOMPLETE");
     expect(root.querySelector(".current-activity")?.textContent).not.toContain("后端检查仍有错误");
-    expect(root.textContent?.split("后端检查仍有错误，需要核对。")).toHaveLength(2);
-    const explanation = root.querySelector<HTMLDetailsElement>('[data-kind="MODEL_INCOMPLETE"] .activity-technical')!;
+    expect(root.querySelector(".agent-timeline")?.textContent?.split("后端检查仍有错误，需要核对。")).toHaveLength(2);
+    const explanation = root.querySelector<HTMLDetailsElement>('.developer-details [data-kind="MODEL_INCOMPLETE"] .activity-technical')!;
     expect(explanation.open).toBe(false);
     expect(explanation.textContent).toContain("模型说明（未独立验证）");
     explanation.querySelector<HTMLElement>("summary")!.click();
@@ -135,7 +135,7 @@ it("numerical model usage remains diagnostic data without adding timeline action
     await settle();
     expect(root.querySelector('[data-sequence="2"]')).toBeNull();
     expect(root.textContent).not.toContain("promptTokens");
-    expect(root.querySelector(".current-activity")?.textContent).toContain("请求模型");
+    expect(root.querySelector(".current-activity")?.textContent).toContain("Agent 正在规划下一步");
 });
 it("follows the latest event until the reader scrolls up, then offers an explicit return", async () => {
     const { root, props } = mount();
@@ -357,11 +357,11 @@ it("uses persisted request activity when the Run snapshot is behind, independent
     props.connection = "连接中断，正在重连";
     props.events = [fact(1, "PREPARING"), fact(2, "MODEL_REQUEST")]; await settle();
     expect(root.querySelector('.model-waiting[aria-hidden="true"]')?.children).toHaveLength(3);
-    expect(root.querySelector('.current-activity')?.textContent).toContain("等待模型响应");
+    expect(root.querySelector('.current-activity')?.textContent).toContain("Agent 正在规划下一步");
     expect(root.querySelector(".snapshot-note")?.textContent).toContain("运行概览待同步");
     props.events.push(fact(3, "FAILED", "POLICY_REJECTED")); await settle();
     expect(root.querySelector(".model-waiting, .is-active")).toBeNull();
-    expect(root.querySelector('[data-sequence="3"] code')?.textContent).toBe("POLICY_REJECTED");
+    expect(root.querySelector(".current-detail")?.textContent).toContain("POLICY_REJECTED");
     props.run.state = "FAILED"; await settle();
     expect(root.querySelector(".snapshot-note")).toBeNull();
 });
@@ -376,7 +376,7 @@ it("keeps readable status and supplies reduced-motion overrides for every active
     const { root, props } = mount();
     props.events = [fact(1, "MODEL_REQUEST")]; await settle();
     expect(root.querySelector('[role="status"]')?.textContent).toContain("事件连接");
-    expect(root.querySelector('.current-activity[role="status"]')?.textContent).toContain("等待模型响应");
+    expect(root.querySelector('.current-activity[role="status"]')?.textContent).toContain("Agent 正在规划下一步");
     const rowStyles = readFileSync("src/components/AgentActivityRow.vue", "utf8");
     const timelineStyles = readFileSync("src/components/AgentTimeline.vue", "utf8");
     expect(rowStyles).toMatch(/prefers-reduced-motion: reduce[^}]+animation: none/s);
@@ -544,7 +544,7 @@ it("updates one persistent current surface through real requests, file work and 
     props.events = Array.from({ length: 10 }, (_, index) => fact(index + 1, "MODEL_REQUEST", `request=${index + 1}`));
     props.events.push(fact(11, "MODEL_REQUEST", "request=11")); await settle();
     expect(root.querySelector('.current-activity')).toBe(surface);
-    expect(surface.textContent).toContain("正在请求模型 · 第 11 次请求");
+    expect(surface.textContent).toContain("Agent 正在规划下一步");
     expect(root.querySelectorAll('.model-waiting')).toHaveLength(1);
     expect(root.querySelectorAll('.agent-timeline [data-kind="MODEL_REQUEST"]')).toHaveLength(0);
     expect(root.querySelector('.model-statistics')?.textContent).toBe("模型调用 10 次");
@@ -688,7 +688,7 @@ it("animates genuinely active work and supplies static reduced-motion states", a
     const {root,props}=mount(false);
     props.events=[fact(1,'MODEL_REQUEST','request=61')]; await settle();
     expect(root.querySelectorAll('.activity-bar')).toHaveLength(1);
-    expect(root.querySelector('.current-title')?.textContent).toContain('第 61 次请求');
+    expect(root.querySelector('.current-title')?.textContent).toContain('Agent 正在规划下一步');
     props.run.cancelRequested=true; await settle();
     expect(root.querySelector('.activity-bar,.model-waiting')).toBeNull();
     const css=readFileSync('src/components/AgentTimeline.vue','utf8');
@@ -735,7 +735,7 @@ it("terminal event and safe model subcategory are visible before the Run snapsho
     expect(root.querySelector('.current-title')?.textContent).toContain("运行失败");
     expect(root.querySelector('.current-detail')?.textContent).toContain("MODEL_PROTOCOL");
     expect(root.querySelector('.current-detail')?.textContent).toContain("RESPONSE_TRUNCATED");
-    const failed = root.querySelector('[data-kind="MODEL_FAILED"]')!;
+    const failed = root.querySelector('.developer-details [data-kind="MODEL_FAILED"]')!;
     expect(failed.getAttribute('data-tone')).toBe('failed');
     expect(failed.textContent).toContain("模型请求失败");
     expect(failed.textContent).toContain("LENGTH");
@@ -943,18 +943,18 @@ it("keeps both command streams escaped and collapsed alongside duration, cwd and
     expect(row.textContent).toContain("245 ms");
     expect(row.textContent).toContain("退出码 7");
     expect(row.textContent).toContain("命令返回非零退出码");
-    const definition = row.querySelector<HTMLDetailsElement>(".command-disclosure")!;
-    expect(definition.open).toBe(false);
-    definition.querySelector<HTMLElement>("summary")!.click();
-    expect(definition.open).toBe(true);
+    expect(row.querySelector(".command-disclosure")).toBeNull();
+    [...row.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("查看已保存输出"))!.click();
+    await settle();
+    const definition = row.querySelector<HTMLElement>(".command-disclosure")!;
     expect(row.querySelectorAll('[aria-label="命令"]')).toHaveLength(1);
     expect(definition.querySelector("pre")?.textContent).toBe("BUILD FAILURE");
     const output = definition;
-    expect(row.querySelectorAll("details")).toHaveLength(1);
+    expect(row.querySelectorAll("details")).toHaveLength(0);
     expect(output.textContent).toContain("已截断");
     expect(output.querySelectorAll("pre")).toHaveLength(1);
-    expect(output.querySelector("select")).toBeNull();
-    [...output.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "错误输出")!.click();
+    const stream = output.querySelector<HTMLSelectElement>("select")!;
+    stream.value = "stderr"; stream.dispatchEvent(new Event("change"));
     await settle();
     expect(output.querySelector("img")).toBeNull();
     expect(output.querySelector('[aria-label="命令输出"]')?.textContent).toContain("<img");
@@ -1000,7 +1000,7 @@ it("keeps successful long commands in a one-line preview with the complete text 
     const row = root.querySelector('[data-kind="exec_command"]')!;
     expect(row.querySelector(".command-preview")?.textContent).toBe(command);
     expect(row.querySelector(".command-explanation")).toBeNull();
-    expect(row.querySelector<HTMLDetailsElement>(".command-disclosure")!.open).toBe(false);
+    expect(row.querySelector(".command-disclosure")).toBeNull();
     expect(row.querySelector('[aria-label="命令"]')?.textContent).toBe(command);
     expect(row.querySelector(".activity-result")?.textContent).toContain("命令退出成功");
     expect(row.textContent).not.toContain("业务验收通过");
@@ -1019,14 +1019,17 @@ it("pages retained logs without rerunning commands and keeps one command disclos
     await settle();
     root.querySelector<HTMLElement>(".check-summary > summary")!.click(); await settle();
     const row = root.querySelector(".check-history li")!;
-    expect(row.querySelectorAll("details")).toHaveLength(1);
-    row.querySelector<HTMLElement>(".command-disclosure > summary")!.click();
-    [...row.querySelectorAll("button")].find(button => button.textContent === "从头读取")!.click();
+    expect(row.querySelectorAll("details")).toHaveLength(0);
+    [...row.querySelectorAll("button")].find(button => button.textContent === "查看完整日志")!.click();
     await settle();
     expect(mocked).toHaveBeenCalledWith(expect.stringContaining(`/logs/${identity}?stream=stdout&offset=0`), expect.anything());
     await vi.waitFor(() => expect(row.textContent).toContain("retained diagnostic <script>data</script>"));
     expect(row.querySelector("script")).toBeNull();
     expect(row.textContent).toContain("超出保留上限");
+    mocked.mockResolvedValueOnce(new Response(JSON.stringify({ok: true, result: {content: " next page", nextOffset: 4010, hasMore: false, logDiscarded: true}}), {status: 200, headers: {"Content-Type": "application/json"}}));
+    [...row.querySelectorAll("button")].find(button => button.textContent === "加载更多")!.click();
+    await vi.waitFor(() => expect(row.textContent).toContain("retained diagnostic <script>data</script> next page"));
+    expect(mocked).toHaveBeenLastCalledWith(expect.stringContaining("stream=stdout&offset=4000"), expect.anything());
 });
 
 it("attributes notes and completion judgments while preserving compacted and failed history", async () => {
@@ -1067,4 +1070,30 @@ it("replaces the working checklist without duplicate tool or plan timeline rows"
     expect(root.textContent).not.toContain("Old item");
     expect(root.textContent).toContain("1 / 2 完成");
     expect(root.querySelector('[data-kind="update_plan"]')).toBeNull();
+});
+
+it("keeps checklist outside the timeline and command evidence inside closed developer details", async () => {
+    const { root, props } = mount(false);
+    props.events = [fact(1, "WORKING_NOTES", JSON.stringify({tasks: [{title: "实现取货点", status: "in_progress"}]})),
+        tool(2, "TOOL_FINISHED", {tool: "exec_command", command: "echo sensitive-diagnostic", stdout: "raw stdout", stderr: "raw stderr",
+            directory: ".", exitCode: 1, ok: false, classification: "COMMAND_FAILED", resultRecorded: true}), fact(3, "FINALIZING")];
+    await settle();
+    expect(root.querySelector(".activity-section .working-plan")).toBeNull();
+    expect(root.querySelectorAll(".working-plan")).toHaveLength(1);
+    expect(root.querySelector(".agent-timeline")?.textContent).toContain("冻结 Candidate");
+    expect(root.querySelector(".agent-timeline")?.textContent).not.toContain("echo sensitive-diagnostic");
+    expect(root.querySelector(".check-blocker")?.textContent).toContain("未通过");
+    expect(root.querySelector<HTMLDetailsElement>(".developer-details")!.open).toBe(false);
+    root.querySelector<HTMLElement>(".developer-details > summary")!.click(); await settle();
+    await expandChecks(root);
+    const command = root.querySelector(".command-details")!;
+    expect(command.closest(".developer-details")).not.toBeNull();
+    expect(command.querySelectorAll('[aria-label="命令"]')).toHaveLength(1);
+    expect(command.textContent).not.toContain("raw stdout");
+    [...command.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.includes("查看已保存输出"))!.click(); await settle();
+    expect(command.textContent).toContain("raw stdout");
+    const stream = command.querySelector<HTMLSelectElement>("select")!;
+    stream.value = "stderr"; stream.dispatchEvent(new Event("change")); await settle();
+    expect(command.textContent).toContain("raw stderr");
+    expect(command.querySelectorAll('[aria-label="命令"]')).toHaveLength(1);
 });

@@ -1,5 +1,7 @@
 # PRODUCT.md
 
+**2026-11-08 Agent Run / Quick Start 体验细化：** 普通视图展示当前清单、重要活动、实现摘要、验证事实和限制；原始命令、日志、统计与预检探针折叠到开发者详情。Quick Start 根据最终交付版本的有界、安全启动材料生成，项目名称优先采用根 README，不随新功能改名。费用确认、停止、单 Agent、v8 与正式交付合同不变。
+
 **2026-11-08 当前产品合同：** 用户审阅 Plan 并逐 Step 授权；Agent 自主检查仓库、实施和修正，以完成报告说明结果与限制。平台保留全部执行事实并核验源码/隔离/Candidate/独立 Delivery；失败检查或未运行 E2E 不自动否决 completed，failed 不产生 Candidate。当前清单可选。全部 Step 正式交付后生成独立 Quick Start；指南失败不撤销交付。见 [ADR-0026](decisions/0026-factual-completion-and-plan-quick-start.md)。下方 v7 及更早完成门槛是历史合同，不适用于活动 v8。
 
 **2026-11-07 历史 v7 行为（已由 ADR-0026 替代）：** 保持用户审阅 Plan 与逐 Step 确认；Agent 可更新可选工作笔记，查看跨调用保留的净化命令日志并修正普通失败。平台核验最终报告所引用的真实执行和源码/视图完整性后，正常冻结并自动 Delivery；技术事实和 Agent 对业务充分性的判断分别显示。命令变体不成为永久义务，隔离资源数量不再一票否决。必要验证未完成的工作只保留、不可交付。见 [ADR-0025](decisions/0025-agent-loop-convergence.md)。

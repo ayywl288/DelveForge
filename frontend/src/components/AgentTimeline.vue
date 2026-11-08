@@ -8,6 +8,8 @@ import type { RunPresentation } from "./agentResultPresentation";
 import { activityState, buildActivities, currentActivity, checkSummary, explorationSummary, isExploration, isPatchTool, isCheckTool, patchSummary, toolNames } from "./agentEventPresentation";
 
 const props = withDefaults(defineProps<{ events: AgentEvent[]; run: AgentRun; connection: string; presentation?: RunPresentation; showUsage?: boolean }>(), { showUsage: true });
+const developerExpanded = ref(false);
+const rawExpanded = ref(false);
 const viewport = ref<HTMLElement>();
 const following = ref(true);
 const unseen = ref(false);
@@ -20,6 +22,9 @@ const patchCount = ref(40);
 const visiblePatches = computed(() => patches.value.activities.slice(0, patchCount.value));
 const current = computed(() => {
     const result = currentActivity(activities.value, props.events, props.run);
+    if (activities.value.some(activity => activity.active && activity.event.kind === "MODEL_REQUEST")) {
+        return { ...result, title: "Agent 正在规划下一步", detail: "" };
+    }
     if (props.presentation && props.run.state === "SUCCEEDED" && result.title === "Candidate 已冻结") {
         return { ...result, title: props.presentation.label, detail: props.presentation.detail, tone: props.presentation.tone };
     }
@@ -39,7 +44,11 @@ const workingPlan = computed(() => {
     } catch { /* 历史自由文本笔记只读展示。 */ }
     return { tasks: [], legacy: latest.summary };
 });
-const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && !isPatchTool(activity.tool) && !isCheckTool(activity.tool) && activity.event.kind !== "MODEL_REQUEST" && activity.event.kind !== "WORKING_NOTES" && activity.tool !== "update_plan" && !routineProviderDiagnostic(activity)));
+const chronological = computed(() => activities.value.filter(activity => !activity.tool && !["PREFLIGHT_PROGRESS", "ENVIRONMENT_PREFLIGHT", "CONTEXT_COMPACTED", "DELIVERY_INTENT", "DELIVERY_APPLIED", "DELIVERY_COMMIT_READY", "DELIVERY_PUBLISHED", "RESOURCES_RELEASED"].includes(activity.event.kind) && !isExploration(activity) && !isPatchTool(activity.tool) && !isCheckTool(activity.tool) && activity.event.kind !== "MODEL_REQUEST" && activity.event.kind !== "WORKING_NOTES" && activity.tool !== "update_plan" && !routineProviderDiagnostic(activity)));
+const diagnosticActivities = computed(() => activities.value.filter(activity => !activity.tool
+    && ["SANDBOX_READY", "ENVIRONMENT_PREFLIGHT", "MODEL_FAILED", "MODEL_INCOMPLETE", "MODEL_COMPLETED",
+        "COMPLETION_CHECK_REJECTED", "PREFLIGHT_PROGRESS", "CONTEXT_COMPACTED", "MODEL_PROVIDER_DIAGNOSTIC"].includes(activity.event.kind)
+    && !routineProviderDiagnostic(activity)));
 const visible = computed(() => chronological.value.slice(-visibleCount.value));
 const fileCount = ref(40);
 const filesExpanded = ref(false);
@@ -76,24 +85,25 @@ watch(() => props.events.at(-1)?.sequence, async () => {
     await nextTick();
     if (follow && following.value && viewport.value) viewport.value.scrollTop = viewport.value.scrollHeight;
 });
-watch(() => props.run.id, () => { following.value = true; unseen.value = false; visibleCount.value = 40; previousCount = 0; filesExpanded.value = false; fileCount.value = 40; patchesExpanded.value = false; patchCount.value = 40; checksExpanded.value = false; checkCount.value = 40; });
+watch(() => props.run.id, () => { following.value = true; unseen.value = false; visibleCount.value = 40; previousCount = 0; filesExpanded.value = false; fileCount.value = 40; developerExpanded.value = false; rawExpanded.value = false; patchesExpanded.value = false; patchCount.value = 40; checksExpanded.value = false; checkCount.value = 40; });
 </script>
 
 <template>
-    <section class="activity-section" :data-terminal="state.terminal" aria-labelledby="agent-activity-title">
-        <div class="section-row"><h3 id="agent-activity-title">执行活动</h3>
-            <p class="stream-status" role="status">事件连接：{{ connection }}</p></div>
-        <p v-if="state.snapshotBehind" class="snapshot-note" role="status">已收到较新的持久化活动，运行概览待同步。</p>
-        <p v-if="!events.length" class="meta">等待持久化事件。</p>
-        <section v-if="workingPlan" class="working-plan" aria-label="当前工作清单">
+    <section v-if="workingPlan" class="working-plan" aria-label="当前工作清单">
             <div class="section-row"><h4>当前工作清单</h4><span v-if="workingPlan.tasks.length">{{ workingPlan.tasks.filter(task => task.status === 'completed').length }} / {{ workingPlan.tasks.length }} 完成</span></div>
             <ul v-if="workingPlan.tasks.length"><li v-for="(task, index) in workingPlan.tasks" :key="index" :data-status="task.status">
                 <NavigationIcon :name="task.status === 'completed' ? 'check' : task.status === 'in_progress' ? 'activity' : 'planning'" />
                 <span>{{ task.title }}</span><small>{{ { pending: '待处理', in_progress: '进行中', completed: '已完成' }[task.status] }}</small>
             </li></ul>
             <p v-else-if="workingPlan.legacy">{{ workingPlan.legacy }}</p>
-            <p class="meta">由 Agent 更新；清单状态不代表独立验证结果。</p>
+
         </section>
+    <section class="activity-section" :data-terminal="state.terminal" aria-labelledby="agent-activity-title">
+        <div class="section-row"><h3 id="agent-activity-title">执行活动</h3>
+            <p class="stream-status" role="status">事件连接：{{ connection }}</p></div>
+        <p v-if="state.snapshotBehind" class="snapshot-note" role="status">已收到较新的持久化活动，运行概览待同步。</p>
+        <p v-if="!events.length" class="meta">等待持久化事件。</p>
+
         <div class="current-activity" :data-active="current.active" :data-tone="current.tone" role="status" aria-live="polite" aria-atomic="true">
             <NavigationIcon :name="current.tone === 'failed' ? 'warning' : current.tone === 'blocked' ? 'lock' : current.tone === 'completed' ? 'check' : 'activity'" />
             <div class="current-copy"><p v-if="!state.terminal" class="current-label">当前活动</p><Transition name="current-change" @leave="removeImmediately"><div :key="current.title + current.detail" class="current-content"><p class="current-title">{{ current.title }}
@@ -101,18 +111,25 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
                 <p v-if="current.detail" class="current-detail">{{ current.detail }}</p></div></Transition></div>
         </div>
         <div v-if="current.active" class="activity-bar" aria-hidden="true"></div>
-        <p v-if="showUsage !== false" class="model-statistics">模型调用 {{ run.modelCalls ?? '待同步' }}{{ run.modelCalls === undefined ? '' : ' 次' }}</p>
+
         <p v-if="patches.blocked || patches.uncertain || patches.failed" class="patch-alert" role="alert">代码修改需核对：{{ patches.blocked }} 次安全拒绝 · {{ patches.uncertain }} 次结果不明 · {{ patches.failed }} 次失败。详见代码修改记录；不代表 Candidate 或交付成功。</p>
         <h4 class="operations-title">重要操作</h4>
         <button v-if="chronological.length > visible.length" class="text-button earlier-activity" @click="earlier">查看更早活动（已加载 {{ chronological.length }} 项）</button>
         <div ref="viewport" class="timeline-viewport" tabindex="0" aria-label="运行活动，可滚动查看历史" @scroll="trackScroll">
             <TransitionGroup name="activity-entry" tag="ol" class="agent-timeline" :data-terminal="state.terminal" @leave="removeImmediately">
-                <AgentActivityRow v-for="row in visible" :key="row.key" :activity="row" />
+                <AgentActivityRow v-for="row in visible" :key="row.key" :activity="row" compact />
             </TransitionGroup>
             <p v-if="!visible.length" class="meta">暂无已记录的重要操作。</p>
         </div>
         <button v-if="!following" class="secondary compact-button latest-activity" @click="latest">{{ unseen ? '有新活动 · 回到最新' : '回到最新活动' }}</button>
         <p v-if="chronological.length > 40" class="meta">显示 {{ visible.length }} / {{ chronological.length }} 项已加载时间线活动。</p>
+        <p v-if="checks.blocked" class="check-blocker" role="alert">{{ checks.sourceBlocked ? '检查期间检测到文件变化，本次检查已停止。' : '检查被安全规则停止，请核对开发者详情。' }}</p>
+        <p v-else-if="checks.failed" class="check-blocker">已记录 {{ checks.failed }} 次未通过的命令尝试，处理结果见验证摘要。</p>
+        <details class="developer-details" :open="developerExpanded">
+            <summary @click.prevent="developerExpanded = !developerExpanded">开发者详情</summary>
+            <div class="developer-content">
+            <slot name="developer" />
+            <p v-if="showUsage !== false" class="model-statistics">模型调用 {{ run.modelCalls ?? '待同步' }} 次</p>
         <details v-if="checks.count" :key="checks.key" class="check-summary" :open="checksExpanded">
             <summary @click.prevent="checksExpanded = !checksExpanded"><NavigationIcon name="check" />命令与检查 · 历史
                 <strong class="check-latest" :data-tone="checks.latest?.outcome">{{ checks.label }}</strong>
@@ -125,7 +142,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
                 </ol><button v-if="checkCount < checks.count" class="secondary compact-button more-checks" @click="checkCount += 40">显示更多检查记录</button>
             </template>
         </details>
-        <p v-if="checks.blocked" class="check-blocker" role="alert">{{ checks.sourceBlocked ? '检查期间检测到文件变化，本次检查已停止。' : '检查被安全规则停止，请核对运行记录。' }}</p>
+
         <details :key="patches.key" class="patch-summary" :open="patchesExpanded">
             <summary @click.prevent="patchesExpanded = !patchesExpanded"><NavigationIcon name="code" />精确编辑 · 执行历史
                 <span class="patch-count"><span :key="`${patches.count}:${patches.applied}:${patches.conflicts}:${patches.blocked}:${patches.uncertain}`" class="counter-values">已加载 {{ patches.count }} 次尝试 · 已应用 {{ patches.applied }} · 冲突 {{ patches.conflicts }} · 安全拒绝 {{ patches.blocked }} · 结果不明 {{ patches.uncertain }} · 失败 {{ patches.failed }}</span></span>
@@ -152,18 +169,30 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
                 <button v-if="fileCount < exploration.count" class="secondary compact-button more-exploration" @click="fileCount += 40">显示更多文件操作</button>
             </template>
         </details>
+        <ol class="developer-event-history"><AgentActivityRow v-for="row in diagnosticActivities" :key="row.key" :activity="row" /></ol>
+        <details class="original-events" :open="rawExpanded"><summary @click.prevent="rawExpanded = !rawExpanded">原始事件记录 · {{ events.length }}</summary>
+            <ol v-if="rawExpanded"><li v-for="event in events.filter(item => item.runId === run.id)" :key="event.sequence"><strong>{{ event.kind }}</strong><pre>{{ event.summary }}</pre></li></ol>
+        </details>
+            </div>
+        </details>
         <p v-if="events.length === 1000" class="meta">已加载最近 1000 条事件；更早事件受现有保留范围限制。</p>
     </section>
 </template>
 
 <style scoped>
-.working-plan { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.working-plan { padding: 20px; margin-bottom: 24px; background: var(--canvas); border: 1px solid var(--line); border-radius: 12px; }
+.developer-details { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; }
+.developer-details > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.developer-event-history { list-style: none; padding: 0; margin: 20px 0; }
+.original-events pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .working-plan h4 { margin: 0; font-size: 14px; }
 .working-plan ul { list-style: none; padding: 0; }
-.working-plan li { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; font-size: 14px; }
+.working-plan li { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 14px; }
 .working-plan li .navigation-icon { width: 16px; height: 16px; flex-shrink: 0; }
 .working-plan li span { flex: 1; overflow-wrap: anywhere; }
 .working-plan li small { color: var(--muted); flex-shrink: 0; }
+.working-plan li[data-status="in_progress"] { color: var(--accent); font-weight: 600; }
+.working-plan li[data-status="pending"] { color: var(--muted); }
 .working-plan li[data-status="completed"] .navigation-icon { color: var(--success); }
 .working-plan > p { white-space: pre-wrap; }
 
@@ -176,7 +205,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .check-latest[data-tone="failed"] { color: var(--danger); }
 .check-latest[data-tone="blocked"], .check-blocker { color: var(--warning); }
 .check-blocker { margin: 10px 0 0 28px; font-size: 13px; line-height: 1.6; }
-.check-history { list-style: none; margin: 14px 0 10px; padding: 0; max-height: 26rem; overflow: auto; scrollbar-width: thin; }
+.check-history { list-style: none; margin: 14px 0 10px; padding: 0;  scrollbar-width: thin; }
 
 .activity-section { min-width: 0; line-height: 1.6; }
 .activity-section h3 { font-size: 17px; line-height: 1.5; margin: 0; }
@@ -203,7 +232,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .patch-count { display: grid; }
 .counter-values { grid-area: 1/1; animation: counter-update 220ms ease-out; }
 @keyframes counter-update { from { color: var(--accent); } }
-.patch-operations { list-style: none; padding: 12px 8px 0 0; max-height: 24rem; overflow: auto; overflow-anchor: none; scrollbar-width: thin; }
+.patch-operations { list-style: none; padding: 12px 8px 0 0;  overflow-anchor: none; scrollbar-width: thin; }
 .activity-section[data-terminal="true"] .current-activity { padding: 10px 12px; }
 .activity-section[data-terminal="true"] .counter-values { animation: none; }
 .activity-section[data-terminal="true"] .current-change-enter-active, .activity-section[data-terminal="true"] .current-change-leave-active { transition: none; }
@@ -225,7 +254,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .exploration-summary summary { cursor: pointer; font-size: 14px; font-weight: 600; line-height: 1.6; overflow-wrap: anywhere; padding: 5px 0; }
 .exploration-summary summary .navigation-icon { width: 15px; height: 15px; vertical-align: middle; margin-right: 8px; color: var(--muted); }
 .exploration-count, .exploration-previews { display: block; margin: 3px 0 0 28px; font-size: 12px; color: var(--muted); font-weight: 400; }
-.exploration-operations { list-style: none; padding: 12px 8px 0 0; margin: 10px 0; max-height: 24rem; overflow: auto; overflow-anchor: none; scrollbar-width: thin; }
+.exploration-operations { list-style: none; padding: 12px 8px 0 0; margin: 10px 0;  overflow-anchor: none; scrollbar-width: thin; }
 .exploration-note { font-size: 12px; line-height: 1.6; color: var(--muted); margin: 6px 0; }
 .exploration-current, .exploration-attention { display: block; font-size: 13px; font-weight: 400; line-height: 1.6; margin: 6px 0; overflow-wrap: anywhere; }
 .exploration-current { color: var(--accent); }

@@ -205,11 +205,13 @@ export function candidateFileChanges(paths: readonly string[], diff: string): Pr
 }
 
 /** 汇总全部收据，不从 Agent 选择的引用推断遗漏失败与任务无关。 */
-export function executionFacts(raw: string) {
+export function executionFacts(raw: string, finalSourceOnly = false) {
     try {
         const value = JSON.parse(raw);
         if (value.evidenceVersion !== 8 || !Array.isArray(value.checks)) return null;
-        const checks = value.checks.filter(record) as Record<string, unknown>[];
+        const checks = (value.checks.filter(record) as Record<string, unknown>[]).filter(check => !finalSourceOnly
+            || typeof value.finalSnapshot === "string" && /^[0-9a-f]{64}$/.test(value.finalSnapshot)
+                && check.snapshot === value.finalSnapshot && check.afterSnapshot === value.finalSnapshot);
         const reports = checks.flatMap(check => record(check.testReport) && check.testReport.availability === "AVAILABLE" ? [check.testReport] : []);
         return { total: checks.length, succeeded: checks.filter(check => check.exitCode === 0 && !check.timedOut && !check.cancelled).length,
             failed: checks.filter(check => check.exitCode !== 0 && !check.timedOut && !check.cancelled).length,

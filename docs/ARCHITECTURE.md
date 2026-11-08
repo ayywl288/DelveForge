@@ -1,5 +1,7 @@
 # ARCHITECTURE.md
 
+**2026-11-08 Quick Start 材料细化：** Application 内 QuickStartSources 通过既有 WorkspaceReadPort.readFile 可信读取固定 Delivery commit，仅限有界启动材料，并在同一专用收集边界完整净化后才交给 AiGateway。它不调用 readModelFile，也不修改该方法或全局 RepositoryContentPolicy / RepositorySecretPolicy 的语义。真实环境文件、私钥等继续排除；唯一例外 `.env.example` 仅输出变量名与统一占位值。无新 Port、Adapter、Agent、数据库迁移或命令执行，详见 ADR-0026 补充。
+
 **2026-11-08 当前架构：** [ADR-0026](decisions/0026-factual-completion-and-plan-quick-start.md) 定义 v8 事实核验，保留 v1–v7 读者和现有模块/单 Agent/Docker/Candidate/Delivery。QuickStartService 在正式接受后复用 AiGateway 与只读 Workspace，V28 的 plan_quick_start 独立存储说明产物；失败不进入交付事务。工具协议仍 v9。下方 v7 完成布尔值和成功调用门槛仅为历史。
 
 **2026-11-07 历史 v7 架构（已由 ADR-0026 替代）：** [ADR-0025](decisions/0025-agent-loop-convergence.md) 在现有边界内加入可选 Run 工作笔记和有界日志读取；活动命令不注册验证义务。Application 保留授权/上下文与事实核验，Infrastructure 记录进程、日志、执行视图及源码身份；活动证据 v7，容器协议仍 v9。没有模块、数据库迁移、编排引擎或审批变更。下方 v6 注册义务和 blanket withheld 拒绝是已替代的历史政策。

@@ -57,7 +57,7 @@ const emit = defineEmits<{ deliver: [] }>();
         || delivery.state === 'RECOVERY_REQUIRED'" :disabled="pending"
         @click="emit('deliver')">重新核对并交付已有结果</button>
       <AgentTestEvidence :evidence="candidate.testEvidence" />
-      <p class="meta">全部步骤正式交付后，可在项目导航的「快速启动」查看启动指南。</p>
+      <p class="meta">{{ completedDelivery ? '可在项目导航的「快速启动」查看已完成计划的启动指南。' : '全部步骤正式交付后，可在项目导航的「快速启动」查看启动指南。' }}</p>
       </template>
     </section>
 </template>

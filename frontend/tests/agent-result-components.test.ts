@@ -45,7 +45,8 @@ it("renders TESTED counts and NOT_TESTED honestly without rendering original JSO
   cleanup.push(()=>app.unmount());await settle();
   expect(root.querySelector(".evidence-status")?.textContent).toBe("已测试");
   expect([...root.querySelectorAll("dd")].map(node=>node.textContent)).toEqual(["28","28","0","0","2"]);
-  expect(root.querySelector("details, pre")).toBeNull();
+  expect(root.querySelector<HTMLDetailsElement>(".result-developer")?.open).toBe(false);
+  expect(root.querySelector("pre")).toBeNull();
   expect(root.textContent).not.toContain(props.evidence);
   props.evidence='{"status":"NOT_TESTED"}';await settle();
   expect(root.querySelector(".evidence-status")?.textContent).toBe("未运行测试");

@@ -53,9 +53,14 @@ const pending = ref(false);
 const connection = ref("尚未连接");
 const jdk = ref("");
 const checkDirectories = ref("");
+const javaSettingsRelevant = computed(() => {
+  const profile = props.s.repositories.find(item => item.id === props.s.plan?.baseRepositoryProfileId);
+  return !profile?.techStack.length || profile.techStack.some(value => /java|maven|spring|jdk/i.test(value))
+    || preflight.value?.outcome === "SELECTION_REQUIRED";
+});
 const preflightDescriptions: Record<string, string> = {
   READY: "隔离工作区与执行环境可用；尚不代表构建或测试通过。",
-  READY_BASELINE_FAILURE: "检查路径可执行；已有失败须在最终完整检查中修复或证明为可比较的历史债务。",
+  READY_BASELINE_FAILURE: "检查路径可执行；基线已有失败，处理情况以最终报告和执行事实为准。",
   ENVIRONMENT_BLOCKED: "检查环境尚未就绪，本次未调用模型。",
   SECURITY_BLOCKED: "源码或沙箱边界未获确认，本次未调用模型。",
   SELECTION_REQUIRED: "多个工程需要明确选择，本次未调用模型。",
@@ -401,11 +406,17 @@ onUnmounted(deactivate);
           aria-describedby="run-stop-status" @click="cancelRun"><NavigationIcon name="stop" />{{ stopPending || stopConfirmed ? '正在停止' : '停止运行' }}</button>
       </div>
       <template v-if="run">
-        <AgentTimeline :key="run.id" :events="events" :run="run" :connection="connection" :presentation="runPresentation ?? undefined" :show-usage="false" />
-        <div class="run-summary" :data-state="run.state">
-        <div class="section-row run-status-row"><h3 v-if="runPresentation" class="run-status" :data-state="run.state" :data-tone="runPresentation.tone" role="status"><NavigationIcon :name="runIcon(runPresentation)" />{{ runPresentation.label }}</h3>
-          </div>
-        <dl class="run-statistics" aria-label="已保存运行统计">
+        <AgentTimeline :key="run.id" :events="events" :run="run" :connection="connection" :presentation="runPresentation ?? undefined" :show-usage="false">
+          <template #developer>
+        <section class="run-technical" aria-label="运行标识">
+          <p><span>Run</span> <code>{{ run.id }}</code></p>
+          <p><span>运行状态</span> <code>{{ run.state }}</code></p>
+          <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
+        <dl class="run-times">
+          <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
+          <div><dt>结束时间</dt><dd><time v-if="run.endedAt" :datetime="run.endedAt">{{ new Date(run.endedAt).toLocaleString() }}</time><span v-else>未记录</span></dd></div>
+        </dl>
+        </section>        <dl class="run-statistics" aria-label="已保存运行统计">
           <div><dt>模型调用</dt><dd>{{ numberText(run.modelCalls) }} <span>次</span></dd></div>
           <div><dt>工具调用</dt><dd>{{ numberText(run.toolCalls) }} <span>次</span></dd></div>
           <div><dt>累计 tokens</dt><dd>{{ run.tokens === null ? '未报告' : numberText(run.tokens) }}</dd></div>
@@ -423,8 +434,14 @@ onUnmounted(deactivate);
           </li></ul>
           <p v-if="preflight.operation" class="meta">最后检查：{{ preflight.operation }}</p>
           <p v-if="preflight.reason" class="meta">{{ preflight.reason }}</p>
-          <p class="meta">基线预检不代表最终修改通过检查。需要选择时，在运行配置中填写本步骤相关的目录。</p>
+          <p class="meta">基线预检不代表最终修改通过检查。</p>
         </section>
+          </template>
+        </AgentTimeline>
+        <div class="run-summary" :data-state="run.state">
+        <div class="section-row run-status-row"><h3 v-if="runPresentation" class="run-status" :data-state="run.state" :data-tone="runPresentation.tone" role="status"><NavigationIcon :name="runIcon(runPresentation)" />{{ runPresentation.label }}</h3>
+          </div>
+        <p v-if="preflight" class="preflight-status" :data-ready="preflight.outcome.startsWith('READY')" role="status">{{ preflight.outcome.startsWith('READY') ? '运行环境已准备' : preflightDescriptions[preflight.outcome] }}<span v-if="preflight.outcome === 'READY_BASELINE_FAILURE'"> · 基线检查有失败，详见开发者详情。</span><span v-else-if="!preflight.outcome.startsWith('READY') && preflight.reason"> {{ preflight.reason.slice(0, 240) }}</span></p>
         <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
         <p v-else-if="runPresentation" class="meta">{{ runPresentation.detail }}</p>
@@ -433,15 +450,7 @@ onUnmounted(deactivate);
           沙箱工具协议不兼容。请按 docs/LOCAL_SETUP.md 的协议排障说明构建兼容镜像，显式配置镜像后再重启应用。
         </p>
         <p v-if="run.reason === 'NO_PROGRESS'" class="run-failure" role="alert">检测到重复的工具循环，且没有新的观察或成功修改，运行已停止。</p>
-        <details class="run-technical"><summary>开发者详情 · 运行标识</summary>
-          <p><span>Run</span> <code>{{ run.id }}</code></p>
-          <p><span>运行状态</span> <code>{{ run.state }}</code></p>
-          <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
-        <dl class="run-times">
-          <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
-          <div><dt>结束时间</dt><dd><time v-if="run.endedAt" :datetime="run.endedAt">{{ new Date(run.endedAt).toLocaleString() }}</time><span v-else>未记录</span></dd></div>
-        </dl>
-        </details>
+
         </div>
         <p v-if="resourceBlocked" class="resource-warning" role="alert"><NavigationIcon name="warning" />资源协调待核对：所属资源或保留材料尚未完成核对。请先检查 Docker 与后端安全诊断，再判断能否重新运行。</p>
         <p v-if="run.retained && terminal(run)" class="meta">最终化材料已保留，请核对失败原因。</p>
@@ -453,7 +462,7 @@ onUnmounted(deactivate);
     <section class="panel agent-controls" aria-labelledby="agent-controls-title">
       <div class="workbench-heading"><div><h2 id="agent-controls-title">{{ initialLayout ? '准备执行当前步骤' : '步骤与运行配置' }}</h2></div>
         <span class="meta"><NavigationIcon name="lock" />隔离编码 · 逐步授权</span></div>
-      <p class="workbench-intro">Agent 在隔离沙箱中编码与检查，冻结结果通过校验后自动交付。</p>
+
       <div class="step-configuration"><label for="agent-step">当前步骤</label>
       <select id="agent-step" :value="step?.id" @change="stepId = ($event.target as HTMLSelectElement).value">
         <option v-for="(item, index) in s.plan.steps" :key="item.id" :value="item.id">Step {{ String(index + 1).padStart(2, '0') }} · {{ item.goal }}</option>
@@ -472,17 +481,19 @@ onUnmounted(deactivate);
         <button v-if="step.status === 'PENDING_CONFIRMATION' && !prerequisiteIssue" :disabled="!canConfirm"
           @click="confirmStep">确认此步骤</button>
         <template v-if="step.status === 'READY'">
-          <div class="jdk-field"><label for="agent-jdk">运行环境</label>
+          <details v-if="javaSettingsRelevant" class="advanced-run-settings"><summary>高级设置</summary>
+          <div class="jdk-field"><label for="agent-jdk">目标项目构建 JDK（Agent 沙箱）</label>
             <select id="agent-jdk" v-model="jdk"><option value="">自动选择 JDK</option><option value="17">JDK 17</option><option value="21">JDK 21</option></select></div>
-          <div class="check-directories-field"><label for="agent-check-directories">本步骤相关目录（可选）</label>
-            <input id="agent-check-directories" v-model="checkDirectories" maxlength="2000" placeholder="例如：server, apps/web" aria-describedby="agent-check-directories-help" />
-            <p id="agent-check-directories-help" class="meta">留空由 Agent 读取仓库指引发现入口；多个目录用逗号分隔，仓库根目录填“.”。目录提示不扩大修改授权。</p></div>
+          <div class="check-directories-field"><label for="agent-check-directories">Maven 工程根目录覆盖（可选）</label>
+            <input id="agent-check-directories" v-model="checkDirectories" maxlength="2000" placeholder="例如：backend/bookstore" aria-describedby="agent-check-directories-help" />
+            <p id="agent-check-directories-help" class="meta">仅影响 Maven / JDK 选择，不影响 Agent 仓库探索或修改授权。留空自动选择；多项用逗号分隔，根目录填“.”。</p></div>
+          </details>
           <div class="start-action"><button :disabled="!canStart" @click="reviewStart">{{ latest ? '重新开始编码' : '开始 Agent' }}</button>
-            <p class="meta">仅运行当前已授权 Step</p></div>
+</div>
         </template>
         </div>
       </template>
-      <p class="agent-usage-notice">执行会产生外部 API 费用；模型、工具次数和 tokens 按实际报告展示，不按累计用量或总时长自动停止。可随时停止；停止不是暂停，当前不支持断点续跑。单次操作超时、沙箱资源限制与重复无进展检测仍生效。</p>
+
       <p v-if="error || syncError" role="alert" class="error">{{ error || syncError }}</p>
     </section>
     </template>
@@ -502,6 +513,11 @@ onUnmounted(deactivate);
 </template>
 
 <style scoped>
+.advanced-run-settings { width: 100%; }
+.advanced-run-settings summary { cursor: pointer; font-size: 14px; }
+.advanced-run-settings .jdk-field { width: 100%; max-width: 360px; margin: 16px 0; }
+.preflight-status { font-size: 14px; color: var(--warning); }
+.preflight-status[data-ready="true"] { color: var(--muted); }
 .budget-acknowledgment { display: flex; align-items: flex-start; gap: 10px; margin-top: 16px; }
 .budget-acknowledgment input { flex: 0 0 auto; margin-top: 4px; }
 .check-directories-field { flex: 1 1 280px; max-width: 560px; min-width: 0; }

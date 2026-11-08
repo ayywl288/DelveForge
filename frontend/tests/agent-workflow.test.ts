@@ -6,7 +6,7 @@ import { api } from "../src/api/client";
 import type { AgentCandidate, AgentRun, Delivery } from "../src/api/agentTypes";
 import type { EvolutionPlan } from "../src/api/types";
 import { createSession } from "../src/state/session";
-import { copy, plan } from "./fixtures";
+import { copy, plan, repository } from "./fixtures";
 
 class Events extends EventTarget {
   static instances: Events[] = [];
@@ -167,7 +167,7 @@ it("correlated SSE activity updates in place and replay never duplicates a compl
   expect(row.getAttribute("data-tone")).toBe("completed");
   expect(row.querySelector(".activity-duration")?.textContent).toBe("15 ms");
   expect(row.querySelector(".activity-target")?.textContent).toBe("src/Counter.java");
-  expect(root.querySelector(".agent-usage-notice")?.textContent).toContain("停止不是暂停");
+  expect(root.querySelector(".agent-usage-notice")).toBeNull();
   expect(row.textContent).not.toContain("RESULT");
 });
 
@@ -180,7 +180,7 @@ it("persisted live and failed events override activity animation while the Run o
   expect(root.querySelector(".snapshot-note")?.textContent).toContain("运行概览待同步");
   stream.fact(2, "FAILED", "POLICY_REJECTED"); await settle();
   expect(root.querySelector(".is-active, .model-waiting")).toBeNull();
-  expect(root.querySelector('[data-sequence="2"] code')?.textContent).toBe("POLICY_REJECTED");
+  expect(root.querySelector(".current-detail")?.textContent).toContain("POLICY_REJECTED");
   expect(root.querySelector(".agent-changes")?.textContent).toContain("此 Run 尚无冻结 Candidate");
 });
 
@@ -529,7 +529,7 @@ it("unifies Run status, failure and times without duplicating diagnostics or exp
     reason: "DOCKER_FAILURE", modelCalls: 0, toolCalls: 0, baseline: "0123456789abcdef".repeat(4),
     endedAt: "2026-10-22T01:02:03Z" };
   const { root } = mount([failed]); await settle();
-  const overview = root.querySelector(".run-summary")!;
+  const overview = root.querySelector(".developer-details")!;
   const value = (label: string) => [...overview.querySelectorAll("dt")]
     .find(node => node.textContent === label)?.nextElementSibling;
   expect(root.querySelectorAll(".run-status")).toHaveLength(1);
@@ -539,9 +539,9 @@ it("unifies Run status, failure and times without duplicating diagnostics or exp
   expect(value("结束时间")?.querySelector("time")?.getAttribute("datetime")).toBe(failed.endedAt);
   expect(value("开始时间")?.textContent).toBe(new Date(failed.startedAt).toLocaleString());
   expect(root.querySelector(".run-metadata, #run-technical-title")).toBeNull();
-  expect(overview.querySelector<HTMLDetailsElement>(".run-technical")!.open).toBe(false);
+  expect((overview as HTMLDetailsElement).open).toBe(false);
   expect(overview.querySelector(".run-technical")?.textContent).toContain(failed.id);
-  expect(overview.querySelector(".run-status")?.textContent).not.toContain(failed.id);
+  expect(root.querySelector(".run-status")?.textContent).not.toContain(failed.id);
   expect(root.textContent).not.toContain(failed.baseline);
   expect(api.agentRun).toHaveBeenCalledWith(failed.id);
   expect(failed.baseline).toBe("0123456789abcdef".repeat(4));
@@ -620,7 +620,7 @@ it("shows active persisted activity independently of SSE connectivity and keeps 
   const { root } = mount([running()]); await settle();
   const stream = Events.instances.at(-1)!;
   stream.fact(1, "MODEL_REQUEST", "request=1"); await settle();
-  expect(root.querySelector('.current-activity[data-active="true"]')?.textContent).toContain("正在请求模型 · 第 1 次请求");
+  expect(root.querySelector('.current-activity[data-active="true"]')?.textContent).toContain("Agent 正在规划下一步");
   stream.onerror?.(); await settle();
   expect(root.querySelector(".run-status")?.textContent).toContain("编码中");
   expect(root.querySelector(".stream-status")?.textContent).toContain("正在重连");
@@ -680,9 +680,10 @@ it.each(["AVAILABLE", "UNAVAILABLE"] as const)("completed Delivery retains read-
   expect(root.querySelector(".candidate-overview .file-change-summary")).toBeNull();
   expect(root.querySelector(".final-file-list")?.textContent ?? "").not.toContain("candidate-1.java");
   expect(root.querySelector(".evidence-status")?.textContent).toContain("未运行测试");
-  expect(root.querySelector(".agent-changes details, .agent-changes pre")).toBeNull();
+  expect(root.querySelector<HTMLDetailsElement>(".agent-changes .result-developer")?.open).toBe(false);
+  expect(root.querySelector(".agent-changes pre")).toBeNull();
   expect(root.querySelector(".agent-changes")?.textContent).not.toContain("NOT_TESTED");
-  expect(root.querySelector(".agent-changes")?.textContent).not.toContain("开发者详情");
+  expect(root.querySelector<HTMLDetailsElement>(".agent-changes .result-developer")?.open).toBe(false);
   expect(root.querySelector(".agent-changes")?.textContent).not.toContain("查看最终差异");
   expect(root.querySelector("#step-final-changes")?.textContent).toContain(availability === "AVAILABLE" ? "cumulative.java" : "历史 Git 对象已不可用");
   expect(root.textContent).toContain("已正式接受的完整步骤变更");
@@ -770,4 +771,29 @@ it("loads official Delivery for a nonselected historical success without changin
   expect(root.querySelectorAll(".run-choice strong")[1]?.textContent).toBe("步骤已完成");
   expect(root.querySelector(".run-status")?.textContent).toBe("本次运行失败");
   expect(root.querySelector(".agent-changes .file-change-summary")).toBeNull();
+});
+
+it("defaults to automatic JDK and confines Maven overrides to relevant advanced settings", async () => {
+  const {root, s} = mount(); await settle();
+  const settings = root.querySelector<HTMLDetailsElement>(".advanced-run-settings")!;
+  expect(settings.open).toBe(false);
+  expect(root.querySelector<HTMLSelectElement>("#agent-jdk")!.value).toBe("");
+  expect(settings.textContent).toContain("目标项目构建 JDK（Agent 沙箱）");
+  expect(settings.textContent).toContain("Maven 工程根目录覆盖");
+  expect(settings.textContent).toContain("不影响 Agent 仓库探索或修改授权");
+  s.repositories = [{...repository(), id: s.plan!.baseRepositoryProfileId, techStack: ["Python", "Flask"]}]; await settle();
+  expect(root.querySelector("#agent-jdk")).toBeNull();
+  s.repositories[0]!.techStack = ["Java 17", "Maven"]; await settle();
+  expect(root.querySelector("#agent-jdk")).not.toBeNull();
+});
+it("keeps successful preflight compact and exposes blockers outside diagnostics", async () => {
+  const {root} = mount([running()]); await settle();
+  const stream = Events.instances.at(-1)!;
+  stream.fact(1, "ENVIRONMENT_PREFLIGHT", "READY\n" + JSON.stringify({probes: [{directory: "backend", goal: "test", output: "long-probe-output"}]})); await settle();
+  expect(root.querySelector(".preflight-status")?.textContent).toBe("运行环境已准备");
+  expect(root.querySelector(".preflight-summary")?.closest(".developer-details")).not.toBeNull();
+  expect(root.querySelector<HTMLDetailsElement>(".developer-details")?.open).toBe(false);
+  stream.fact(2, "ENVIRONMENT_PREFLIGHT", "ENVIRONMENT_BLOCKED\n" + JSON.stringify({reason: "Docker 未启动，请启动后重试"})); await settle();
+  expect(root.querySelector(".preflight-status")?.textContent).toContain("Docker 未启动，请启动后重试");
+  expect(root.querySelector(".preflight-status")?.closest("details")).toBeNull();
 });

@@ -88,9 +88,10 @@ export function visualFixture(scenario: string, path: string, query?: URLSearchP
     if (path.startsWith('/repository-profiles/')) return repo;
     if (path.startsWith('/product-directions/')) return selected;
     if (path.endsWith('/quick-start')) return { planId: p.id, candidateId: 'candidate-visual-1', revision: 'd'.repeat(40), status: 'AVAILABLE', stale: false, updatedAt: '2026-11-08T00:00:00Z', reason: null,
-        markdown: '## 环境要求\n- **Java 21**\n- **Node 22** 与 pnpm\n## 配置\n复制仓库提供的环境示例，填写本地配置；秘密值不包含在指南中。\n## 安装依赖\n```sh\n./mvnw package\npnpm --dir frontend install --frozen-lockfile\n```\n## 启动项目\n```sh\njava -jar target/report-kit.jar\npnpm --dir frontend dev\n```\n请根据 README 中的说明访问本地地址。以上为合成界面数据，命令未执行验证。' };
+        markdown: '# Report Kit\n\n## 前置条件\n- Java 21\n- Node 22 与 pnpm\n- Docker\n## 1. 必要配置\n复制仓库提供的环境示例，填写本地数据库配置。\n## 2. 安装依赖\n```sh\n./mvnw package\npnpm --dir frontend install --frozen-lockfile\n```\n## 3. 启动基础服务\n```sh\ndocker compose up -d\n```\n## 4. 启动应用\n```sh\njava -jar target/report-kit.jar\npnpm --dir frontend dev\n```\n## 5. 访问地址\n[http://localhost:5173](http://localhost:5173)\n\n## 生成依据\n- `README.md`\n- `docs/development.md`\n- `pom.xml`\n- `frontend/package.json`' };
     if (path.endsWith('/agent-runs')) return scenario.startsWith('initial') ? [] : [run];
     if (path.endsWith('/stream')) return [
+        { kind: 'ENVIRONMENT_PREFLIGHT', summary: 'READY\n' + JSON.stringify({probes: [{directory: '.', goal: 'runtime', output: 'Java 21; Node 22'}]}) },
         { kind: 'RUNNING', summary: '隔离沙箱已准备，开始当前 Step。' },
         { kind: 'TOOL_FINISHED', summary: JSON.stringify({ tool: 'read_file', path: 'src/main/java/reports/ReportService.java', durationMs: 12, ok: true }) },
         { kind: 'TOOL_FINISHED', summary: JSON.stringify({ tool: 'apply_patch', path: 'src/main/java/reports/ReportScheduler.java', durationMs: 18, ok: true, classification: 'PATCH_APPLIED' }) },
@@ -101,7 +102,10 @@ export function visualFixture(scenario: string, path: string, query?: URLSearchP
     if (path.startsWith('/agent-runs/')) return run;
     if (path.endsWith('/delivery')) return { candidateId: run.candidateId, state: scenario === 'delivery' ? 'COMPLETED' : scenario === 'recovery' ? 'RECOVERY_REQUIRED' : 'DELIVERY_BLOCKED', revision: scenario === 'delivery' ? 'd'.repeat(40) : null, reason: scenario === 'delivery' ? null : scenario === 'recovery' ? 'MUTATION_STATE_UNKNOWN' : 'WORKING_COPY_BUSY' };
     if (path.endsWith('/diff')) return 'diff --git a/src/main/java/reports/ReportScheduler.java b/src/main/java/reports/ReportScheduler.java\nnew file mode 100644\n--- /dev/null\n+++ b/src/main/java/reports/ReportScheduler.java\n@@ -0,0 +1 @@\n+class ReportScheduler {}\n';
-    if (path.startsWith('/agent-candidates/')) return { id: run.candidateId, runId: run.id, baseline: run.baseline, expectedTree: 'b'.repeat(40), sha256: 'f'.repeat(64), changedPaths: ['src/main/java/reports/ReportScheduler.java', 'src/test/java/reports/ReportSchedulerTest.java'], diffBytes: 1340, testEvidence: '{"status":"NOT_TESTED"}', createdAt: run.endedAt };
+    if (path.startsWith('/agent-candidates/')) return { id: run.candidateId, runId: run.id, baseline: run.baseline, expectedTree: 'b'.repeat(40), sha256: 'f'.repeat(64), changedPaths: ['src/main/java/reports/ReportScheduler.java', 'src/test/java/reports/ReportSchedulerTest.java'], diffBytes: 1340, testEvidence: JSON.stringify({evidenceVersion: 8, status: 'TESTED', finalSnapshot: 'a'.repeat(64),
+        agentReport: {status: 'completed', summary: '新增周期与时区配置。复用已有导出服务连接调度入口。补充重复触发和时区边界测试。', limitations: ['浏览器 E2E 未执行，需手动检查完整导出流程。'], executions: ['final-check']},
+        checks: [{invocationId: 'old-check', snapshot: 'b'.repeat(64), afterSnapshot: 'b'.repeat(64), command: './mvnw test', exitCode: 1, testReport: {availability: 'AVAILABLE', executedTests: 12, failures: 1, errors: 0, skipped: 0}},
+            {invocationId: 'final-check', snapshot: 'a'.repeat(64), afterSnapshot: 'a'.repeat(64), command: './mvnw test', exitCode: 0, testReport: {availability: 'AVAILABLE', executedTests: 14, failures: 0, errors: 0, skipped: 1}}]}), createdAt: run.endedAt };
     if (path.endsWith('/final-changes')) return { planId: p.id, stepId: 'step-2', baselineRevision: 'c'.repeat(40), verifiedRevision: 'd'.repeat(40), availability: 'AVAILABLE', reason: null, baselineTree: 'b'.repeat(40), verifiedTree: 'e'.repeat(40), files: [{ path: 'src/main/java/reports/ReportScheduler.java', changeType: 'ADDED' }], counts: { added: 1, modified: 0, deleted: 0 } };
     if (path.startsWith('/evolution-plans/')) return p;
     if (path.startsWith('/working-copies/')) return wc;

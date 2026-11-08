@@ -59,3 +59,34 @@ it("counts every receipt, keeps test failures separate from zero Shell exits and
     expect(root.textContent).toContain("E2E 未执行");
     expect(root.querySelector(".evidence-history")).toBeNull();
 });
+
+it("separates project identity, prerequisites and collapsed source provenance", async () => {
+    vi.spyOn(api, "quickStart").mockResolvedValue({...guide, markdown: "# 纸上书店\n\n## 前置条件\n- Java 17\n- Docker\n## 1. 必要配置\n复制环境示例\n## 5. 访问地址\n[打开应用](http://localhost:5173)\n## 生成依据\n- `README.md`\n- `document/开发指南.md`"});
+    const root = mount(QuickStartView, {planId: "plan", completed: true}); await settle();
+    expect(root.querySelector("h2")?.textContent).toContain("纸上书店");
+    expect(root.querySelectorAll(".prerequisites li")).toHaveLength(2);
+    const sources = root.querySelector<HTMLDetailsElement>(".guide-sources")!;
+    expect(sources.open).toBe(false);
+    expect(sources.textContent).toContain("document/开发指南.md");
+    expect(root.querySelector(".guide-markdown")?.textContent).not.toContain("README.md");
+    expect(root.querySelector("a")?.getAttribute("href")).toBe("http://localhost:5173");
+    expect(root.querySelectorAll(".guide-verification")).toHaveLength(1);
+});
+it("separates final-source validation from repeated historical test failures", async () => {
+    const finalSnapshot = "a".repeat(64), old = "b".repeat(64);
+    const receipt = { snapshot: old, afterSnapshot: old, exitCode: 1, timedOut: false, cancelled: false,
+        testReport: {availability: "AVAILABLE", executedTests: 10, failures: 2, errors: 0, skipped: 1} };
+    const evidence = JSON.stringify({evidenceVersion: 8, status: "TESTED", finalSnapshot,
+        checks: [receipt, receipt, {...receipt, snapshot: finalSnapshot, afterSnapshot: finalSnapshot, exitCode: 0,
+            testReport: {availability: "AVAILABLE", executedTests: 11, failures: 0, errors: 0, skipped: 1}}],
+        agentReport: {summary: "新增取货点查询。完善司机入口。", limitations: ["浏览器 E2E 未执行"]}});
+    const root = mount(AgentTestEvidence, {evidence}); await settle();
+    expect(root.querySelectorAll(".implementation-summary li")).toHaveLength(2);
+    expect(root.textContent).toContain("最终源码上的 1 次命令：成功 1 · 失败 0");
+    expect(root.textContent).toContain("另有 2 次旧源码");
+    expect(root.textContent).not.toContain("失败 / 错误 4");
+    expect(root.querySelector(".result-limitations")?.textContent).toContain("E2E 未执行");
+    root.querySelector<HTMLElement>(".result-developer summary")!.click(); await settle();
+    expect(root.textContent).toContain("失败 / 错误 4");
+    expect(root.textContent).toContain("包含历史重试与重复用例");
+});

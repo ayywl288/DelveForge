@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref } from "vue";
 import GuideInline from "./GuideInline.vue";
 import NavigationIcon from "./NavigationIcon.vue";
 const props = defineProps<{ markdown: string }>();
-type Block = { kind: "code" | "heading" | "paragraph" | "list"; text: string; level?: number; items?: string[] };
+type Block = { kind: "code" | "heading" | "paragraph" | "list"; text: string; level?: number; items?: string[]; prerequisites?: boolean };
 // 小型 Markdown 展示子集：全部内容由 Vue 文本节点转义，不接受 HTML 或远程资源。
 const blocks = computed(() => {
     const result: Block[] = [];
@@ -20,7 +20,7 @@ const blocks = computed(() => {
         } else if (/^\s*(?:[-*]|\d+\.) /.test(line)) {
             const items = [line.replace(/^\s*(?:[-*]|\d+\.) /, "")];
             while (i + 1 < lines.length && /^\s*(?:[-*]|\d+\.) /.test(lines[i + 1]!)) items.push(lines[++i]!.replace(/^\s*(?:[-*]|\d+\.) /, ""));
-            result.push({ kind: "list", text: "", items });
+            result.push({ kind: "list", text: "", items, prerequisites: /前置条件|prerequisites/i.test(result.at(-1)?.text ?? "") });
         } else if (line.trim()) {
             result.push({ kind: "paragraph", text: line });
         }
@@ -54,13 +54,15 @@ async function copy(text: string, index: number) {
                 <pre tabindex="0"><code>{{ block.text }}</code></pre>
             </div>
             <component v-else-if="block.kind === 'heading'" :is="`h${block.level}`"><GuideInline :text="block.text" /></component>
-            <ul v-else-if="block.kind === 'list'"><li v-for="(item, itemIndex) in block.items" :key="itemIndex"><GuideInline :text="item" /></li></ul>
+            <ul v-else-if="block.kind === 'list'" :class="{ prerequisites: block.prerequisites }"><li v-for="(item, itemIndex) in block.items" :key="itemIndex"><GuideInline :text="item" /></li></ul>
             <p v-else><GuideInline :text="block.text" /></p>
         </template>
         <p v-if="error" role="alert">{{ error }}</p><span class="sr-only" role="status">{{ copied >= 0 ? '命令已复制' : '' }}</span>
     </article>
 </template>
 <style scoped>
+.prerequisites { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; }
+.prerequisites li { padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--canvas); font-size: 13px; }
 .guide-markdown { max-width: 74ch; line-height: 1.8; overflow-wrap: anywhere; }
 .guide-markdown :is(h2,h3,h4) { margin: 28px 0 10px; line-height: 1.4; }
 .guide-markdown h2 { font-size: 21px; }.guide-markdown h3 { font-size: 17px; }

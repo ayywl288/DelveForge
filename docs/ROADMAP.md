@@ -1,5 +1,7 @@
 # ROADMAP.md
 
+**2026-11-08 当前授权任务：Agent Run UX Refinement and Quick Start Quality Improvement。** 仅安全启动材料收集、指南展示、Run 普通/开发者信息层级及高级配置命名；保持单 Agent、v8、安全、Candidate/Delivery 与 Plan 前置条件。实现和验证见 [交接报告](validation/agent-run-quickstart-refinement-20261108.md)。本地分支交付，不合并、不推送；付费模型与真实 AgentRun 为 NOT RUN。
+
 **2026-11-08 当前授权任务：Final Agent Workflow and Product Convergence。** 本轮包含结构化可选清单、提示与上下文、原生命令/日志、v8 完成与事实分离、Run/Delivery 展示及 Plan-level Quick Start；不扩展其他里程碑或建立新编排/验收体系。独立本地分支实施，不合并/推送，不使用付费模型或真实项目 AgentRun。契约见 [ADR-0026](decisions/0026-factual-completion-and-plan-quick-start.md)，实际验证见 [验证报告](validation/final-agent-workflow-20261108.md)。
 
 **2026-11-07 历史授权任务：Agent Loop Convergence。** 仅四条工作线：可选内部笔记、提示/上下文收敛、执行与日志可用性、移除机械门槛并保留事实核验/隔离/自动 Delivery。保持当前 MVP 及上游流程，无新审批/监督 Agent/适配框架。实施与回归见 [验证报告](validation/agent-loop-convergence-20261107.md)；本任务不发起付费模型或真实用户项目，不合并、不推送。

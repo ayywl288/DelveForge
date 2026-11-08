@@ -14,6 +14,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -42,13 +43,13 @@ class QuickStartServiceTest {
 
     private void sources() {
         when(store.finalDelivery("plan")).thenReturn(Optional.of(basis));
-        when(workspace.listEntries(any(), eq(basis.revision()), eq(""), eq(5)))
+        when(workspace.listEntries(any(), eq(basis.revision()), eq(""), eq(8)))
                 .thenReturn(List.of(new WorkspaceEntry("README.md", false, 120),
                         new WorkspaceEntry("package.json", false, 40), new WorkspaceEntry(".env.local", false, 30)));
-        when(workspace.readModelFile(any(), eq(basis.revision()), eq("README.md")))
-                .thenReturn(Optional.of("Run npm run start; http://localhost:4567"));
-        when(workspace.readModelFile(any(), eq(basis.revision()), eq("package.json")))
-                .thenReturn(Optional.of("{\"scripts\":{\"start\":\"node server.js\"}}"));
+        when(workspace.readFile(any(), eq(basis.revision()), eq("README.md")))
+                .thenReturn("Run npm run start; http://localhost:4567");
+        when(workspace.readFile(any(), eq(basis.revision()), eq("package.json")))
+                .thenReturn("{\"scripts\":{\"start\":\"node server.js\"}}");
     }
 
     @Test
@@ -64,7 +65,7 @@ class QuickStartServiceTest {
         service.generate(basis);
         verify(store).save(argThat(guide -> guide.status().equals("AVAILABLE")
                 && guide.revision().equals(basis.revision()) && guide.markdown().contains("npm run start")));
-        verify(workspace, never()).readModelFile(any(), anyString(), eq(".env.local"));
+        verify(workspace, never()).readFile(any(), anyString(), eq(".env.local"));
         verify(workspace, never()).headRevision(any(WorkspaceRef.class));
         doThrow(new RuntimeException("provider unavailable")).when(ai).generate(any());
         service.generate(basis);
@@ -79,5 +80,33 @@ class QuickStartServiceTest {
         when(store.finalDelivery("plan")).thenReturn(Optional.of(basis), Optional.empty());
         service.generate(basis);
         verify(store).save(argThat(guide -> guide.status().equals("UNAVAILABLE") && guide.reason().equals("QUICK_START_STALE")));
+    }
+
+    @Test
+    void unavailableGuideCanBeRegeneratedWithoutChangingDelivery() {
+        sources();
+        when(ai.generate(any())).thenThrow(new RuntimeException("provider unavailable"))
+                .thenReturn("## 启动\n```sh\n# 启动应用\nnpm run start\n```\n说明：仓库未说明数据库配置。");
+        service.generate(basis);
+        verify(store).save(argThat(guide -> guide.status().equals("UNAVAILABLE")));
+        clearInvocations(store);
+        service.generate(basis);
+        verify(store).save(argThat(guide -> guide.status().equals("AVAILABLE")
+                && guide.markdown().contains("# 启动应用\nnpm run start")
+                && guide.markdown().contains("仓库未说明数据库配置")
+                && guide.candidateId().equals(basis.candidateId())));
+    }
+
+    @Test
+    void emptyMaterialsAndOversizedResponseFailIndependently() {
+        when(store.finalDelivery("plan")).thenReturn(Optional.of(basis));
+        when(workspace.listEntries(any(), eq(basis.revision()), eq(""), eq(8))).thenReturn(List.of());
+        service.generate(basis);
+        verifyNoInteractions(ai);
+        verify(store).save(argThat(guide -> "QUICK_START_NO_SOURCES".equals(guide.reason())));
+        sources();
+        when(ai.generate(any())).thenReturn("x".repeat(6001));
+        service.generate(basis);
+        verify(store).save(argThat(guide -> "QUICK_START_INVALID".equals(guide.reason())));
     }
 }
