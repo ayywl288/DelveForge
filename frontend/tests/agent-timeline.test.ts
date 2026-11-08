@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import AgentTimeline from "../src/components/AgentTimeline.vue";
 import type { AgentEvent, AgentRun } from "../src/api/agentTypes";
 import { readFileSync } from "node:fs";
+import { buildActivities } from "../src/components/agentEventPresentation";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach(fn => fn()));
@@ -137,22 +138,71 @@ it("numerical model usage remains diagnostic data without adding timeline action
     expect(root.textContent).not.toContain("promptTokens");
     expect(root.querySelector(".current-activity")?.textContent).toContain("Agent 正在规划下一步");
 });
-it("follows the latest event until the reader scrolls up, then offers an explicit return", async () => {
+it("follows visible page activity without a nested scroller and preserves a reader away from the timeline", async () => {
     const { root, props } = mount();
+    props.events = [fact(1, "RUNNING")]; await settle();
     const scroll = root.querySelector<HTMLElement>(".timeline-viewport")!;
-    Object.defineProperties(scroll, { scrollHeight: { value: 1200 }, clientHeight: { value: 400 } });
-    props.events.push(fact(1, "MODEL_REQUEST")); await settle();
-    expect(scroll.scrollTop).toBe(1200);
-    scroll.scrollTop = 100; scroll.dispatchEvent(new Event("scroll")); await settle();
-    props.events.push(tool(2, "TOOL_STARTED")); await settle();
-    expect(scroll.scrollTop).toBe(100);
+    const move = vi.fn();
+    Object.defineProperty(scroll.lastElementChild!, "scrollIntoView", { value: move });
+    const bounds = vi.spyOn(scroll, "getBoundingClientRect").mockReturnValue({ bottom: 400 } as DOMRect);
+    props.events.push(fact(2, "MODEL_REQUEST")); await settle();
+    expect(move).toHaveBeenCalled(); move.mockClear();
+    bounds.mockReturnValue({ bottom: 1400 } as DOMRect);
+    window.dispatchEvent(new Event("scroll")); await settle();
+    props.events.push(tool(3, "TOOL_STARTED")); await settle();
+    expect(move).not.toHaveBeenCalled();
     const latest = root.querySelector<HTMLButtonElement>(".latest-activity")!;
     expect(latest.textContent).toContain("有新活动");
     latest.click(); await settle();
-    expect(scroll.scrollTop).toBe(1200);
+    expect(move).toHaveBeenCalled();
     expect(root.querySelector(".latest-activity")).toBeNull();
     expect(scroll.getAttribute("tabindex")).toBe("0");
-    expect(scroll.getAttribute("aria-label")).toContain("可滚动查看历史");
+    expect(scroll.getAttribute("aria-label")).toContain("随页面查看历史");
+    const css = readFileSync("src/components/AgentTimeline.vue", "utf8");
+    expect(css.match(/\.timeline-viewport\s*\{([^}]+)\}/)?.[1]).not.toMatch(/max-height|overflow:\s*auto/);
+});
+
+it.each([
+    ["STARTED", "running", "进行中"], ["IN_PROGRESS", "running", "进行中"],
+    ["COMPLETED", "completed", "已完成"], ["SUCCESS", "completed", "已完成"],
+    ["FAILED", "failed", "失败"], ["CANCELLED", "interrupted", "已取消"],
+    ["INTERRUPTED", "interrupted", "已中断"], [undefined, "unknown", "结果未记录"],
+])("maps preflight status %s without inventing cancellation", async (status, outcome, title) => {
+    const {root, props} = mount(false); props.run.state = "PREPARING";
+    props.events = [fact(1, "PREFLIGHT_PROGRESS", JSON.stringify({stage: "PREFLIGHT", status}))]; await settle();
+    const rows = buildActivities(props.events, props.run);
+    expect(rows).toHaveLength(1); expect(rows[0]?.outcome).toBe(outcome);
+    expect(root.querySelector(".developer-event-history")?.textContent).toContain(title);
+    if (status !== "CANCELLED" && status !== "INTERRUPTED") expect(root.textContent).not.toContain("已中断或取消");
+});
+it("coalesces preflight progress and saved result into one successful activity", async () => {
+    const {root, props} = mount(false); props.run.state = "SUCCEEDED";
+    props.events = [fact(1, "PREFLIGHT_PROGRESS", '{"stage":"PREFLIGHT","status":"STARTED"}'),
+        fact(2, "ENVIRONMENT_PREFLIGHT", 'READY\n{"probes":[]}'),
+        fact(3, "PREFLIGHT_PROGRESS", '{"stage":"PREFLIGHT","status":"COMPLETED","classification":"READY","durationMs":1422}')];
+    await settle();
+    expect(root.querySelectorAll(".developer-event-history > li")).toHaveLength(1);
+    expect(root.querySelector(".developer-event-history")?.textContent).toContain("已完成");
+    expect(root.querySelector(".developer-event-history")?.textContent).not.toMatch(/进行中|中断|取消/);
+    expect(props.events).toHaveLength(3);
+    props.events = props.events.slice(0, 2); await settle();
+    expect(buildActivities(props.events, props.run)[0]?.outcome).toBe("completed");
+    props.events = props.events.slice(0, 1); await settle();
+    expect(buildActivities(props.events, props.run)[0]?.outcome).toBe("unknown");
+    expect(root.querySelector(".developer-event-history")?.textContent).toContain("结果未记录");
+});
+it("keeps saved preflight failures visible and removes raw dumps and prominent historical command warnings", async () => {
+    const {root, props} = mount(false);
+    props.events = [fact(1, "ENVIRONMENT_PREFLIGHT", 'ENVIRONMENT_BLOCKED\n{"privateDebug":"do-not-render-raw"}'),
+        tool(2, "TOOL_FINISHED", {tool: "exec_command", command: "false", exitCode: 1, ok: false, classification: "COMMAND_FAILED"}),
+        fact(3, "FINALIZING")]; await settle();
+    expect(buildActivities(props.events, props.run)[0]?.outcome).toBe("failed");
+    expect(root.querySelector(".original-events")).toBeNull();
+    expect(root.textContent).not.toContain("原始事件记录");
+    expect(root.textContent).not.toContain("do-not-render-raw");
+    expect(root.querySelector(".check-blocker")).toBeNull();
+    expect(root.querySelector(".developer-details")?.textContent).toContain("历史命令尝试 1 次未通过");
+    expect(root.querySelector(".agent-timeline [data-sequence='3']")).not.toBeNull();
 });
 it("uses distinct static states without exposing unknown or generic raw diagnostics", async () => {
     const { root, props } = mount();
@@ -349,6 +399,17 @@ it("renders forty recent activities, reveals older loaded history, preserves rea
     expect(root.querySelectorAll("li")).toHaveLength(40);
     expect(root.querySelector("li")?.getAttribute("data-sequence")).toBe("11");
     expect(root.querySelector(".latest-activity")).toBeNull();
+});
+
+it("keeps the first offscreen history load bounded without pulling the page to the timeline", async () => {
+    const {root, props} = mount(false);
+    const viewport = root.querySelector<HTMLElement>(".timeline-viewport")!;
+    vi.spyOn(viewport, "getBoundingClientRect").mockReturnValue({bottom: 5000} as DOMRect);
+    const move = vi.fn(); Object.defineProperty(viewport, "scrollIntoView", {value: move});
+    props.events = Array.from({length: 500}, (_, index) => fact(index + 1, "FINALIZING")); await settle();
+    expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(40);
+    expect(root.querySelector(".agent-timeline li")?.getAttribute("data-sequence")).toBe("461");
+    expect(move).not.toHaveBeenCalled();
 });
 
 it("uses persisted request activity when the Run snapshot is behind, independently of SSE connection", async () => {
@@ -811,7 +872,7 @@ it("summarizes 100 checks without red intermediate milestones and retains every 
     expect(root.querySelectorAll(".agent-timeline li")).toHaveLength(2);
     expect(root.querySelector(".check-history")).toBeNull();
     expect(root.querySelector(".check-latest")?.textContent).toBe("测试通过");
-    expect(root.querySelector(".check-count")?.textContent).toContain("100 次尝试 · 历史 99 次未通过");
+    expect(root.querySelector(".check-count")?.textContent).toContain("100 次尝试 · 历史命令尝试 99 次未通过");
     expect(root.querySelector(".check-detail")?.textContent).toContain("已执行 12 项 · 失败 0 · 错误 0 · 跳过 2");
     await expandChecks(root);
     expect(root.querySelectorAll(".check-history li")).toHaveLength(40);
@@ -868,7 +929,7 @@ it("restores persisted preflight milestones without inventing agent calls", asyn
     props.events = [...props.events, fact(4, "PREFLIGHT_PROGRESS", JSON.stringify({ stage: "MAVEN_CHECK",
         status: "COMPLETED", directory: "backend/bookstore", goal: "test", classification: "TESTS_PASSED", durationMs: 2000 }))];
     await settle();
-    expect(root.querySelector(".current-activity")?.textContent).toContain("后端 Maven 检查 · test · 已结束");
+    expect(root.querySelector(".current-activity")?.textContent).toContain("后端 Maven 检查 · test · 已完成");
 });
 
 it("only a later confirmed release resolves a cleanup warning", async () => {
@@ -895,7 +956,7 @@ it("summarizes current checks without duplicate rows and preserves retries and s
     expect(root.querySelector(".current-checks")).toBeNull();
     expect(root.querySelector(".check-latest")?.textContent).toContain("命令退出成功");
     expect(root.querySelector(".check-count")?.textContent).toContain("2 次尝试");
-    expect(root.querySelector(".check-count")?.textContent).toContain("历史 1 次未通过");
+    expect(root.querySelector(".check-count")?.textContent).toContain("历史命令尝试 1 次未通过");
     expect(root.querySelector(".check-history")).toBeNull();
     await expandChecks(root);
     expect([...root.querySelectorAll(".check-history li")].map(row => row.getAttribute("data-sequence"))).toEqual(["2", "1"]);
@@ -1082,7 +1143,8 @@ it("keeps checklist outside the timeline and command evidence inside closed deve
     expect(root.querySelectorAll(".working-plan")).toHaveLength(1);
     expect(root.querySelector(".agent-timeline")?.textContent).toContain("冻结 Candidate");
     expect(root.querySelector(".agent-timeline")?.textContent).not.toContain("echo sensitive-diagnostic");
-    expect(root.querySelector(".check-blocker")?.textContent).toContain("未通过");
+    expect(root.querySelector(".check-blocker")).toBeNull();
+    expect(root.querySelector(".developer-details")?.textContent).toContain("历史命令尝试 1 次未通过");
     expect(root.querySelector<HTMLDetailsElement>(".developer-details")!.open).toBe(false);
     root.querySelector<HTMLElement>(".developer-details > summary")!.click(); await settle();
     await expandChecks(root);

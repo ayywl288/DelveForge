@@ -46,7 +46,7 @@ function duration(value: number) {
         :class="{ 'is-active': activity.active }">
         <span class="timeline-node" aria-hidden="true"><NavigationIcon :name="icon(activity)" /></span>
         <div class="timeline-body">
-            <div class="timeline-heading"><strong>{{ preflightProgress(activity.event)?.title ?? (activity.tool ? toolNames[activity.tool] : activity.event.kind === 'MODEL_PROVIDER_DIAGNOSTIC' ? providerDiagnosticTitle(activity.event) : names[activity.event.kind] ?? '历史运行活动') }}</strong>
+            <div class="timeline-heading"><strong>{{ activity.title ?? preflightProgress(activity.event)?.title ?? (activity.tool ? toolNames[activity.tool] : activity.event.kind === 'MODEL_PROVIDER_DIAGNOSTIC' ? providerDiagnosticTitle(activity.event) : names[activity.event.kind] ?? '历史运行活动') }}</strong>
                 <span v-if="target" class="activity-target">{{ command ? "目录 · " : "" }}{{ target }}</span>
                 <span v-if="activity.targetWithheld" class="target-note">{{ target ? '部分目标已隐藏' : '目标已隐藏' }}</span>
                 <span v-else-if="activity.tool && !target && !['apply_patch', 'edit_file'].includes(activity.tool)" class="target-note">目标未记录</span>

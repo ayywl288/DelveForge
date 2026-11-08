@@ -12,16 +12,19 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -33,6 +36,39 @@ class QuickStartServiceTest {
     private final QuickStartStore.Basis basis = new QuickStartStore.Basis("plan", "candidate", "a".repeat(40), "copy");
     private final QuickStartService service = new QuickStartService(store, workspace, ai,
             new DeterministicRepositorySecretPolicy());
+
+    @Test
+    void guideRequestSeparatesDocumentedDatabasePathsAndSuppressesIrrelevantNames() {
+        for (String instructions : List.of("首选宿主机 MySQL，localhost:3306；Compose 只启动其他基础服务。",
+                "推荐 Docker Compose 启动 MySQL，无需另装宿主机 MySQL。",
+                "MySQL 需自行安装在宿主机。启动其他服务：docker compose -f docker-compose.dev.yml up -d")) {
+            when(store.finalDelivery("plan")).thenReturn(Optional.of(basis));
+            when(workspace.listEntries(any(), eq(basis.revision()), eq(""), eq(8)))
+                    .thenReturn(List.of(new WorkspaceEntry("README.md", false, 200),
+                            new WorkspaceEntry("docker-compose.dev.yml", false, 200),
+                            new WorkspaceEntry("application.properties", false, 100)));
+            when(workspace.readFile(any(), eq(basis.revision()), eq("README.md")))
+                    .thenReturn("# 纸上书店\n" + instructions);
+            when(workspace.readFile(any(), eq(basis.revision()), eq("docker-compose.dev.yml")))
+                    .thenReturn("name: mybookstore-dev\nservices:\n  mysql:\n    image: mysql:8\n    ports:\n      - '3306:3306'\n");
+            when(workspace.readFile(any(), eq(basis.revision()), eq("application.properties")))
+                    .thenReturn("spring.datasource.url=${DB_URL}");
+            doAnswer(call -> {
+                String request = call.getArgument(0).toString();
+                assertTrue(request.contains(instructions));
+                for (String policy : List.of("除非影响实际启动参数，否则不解释这些命名差异", "不能要求二者同时启动",
+                        "分列互斥路径", "端口冲突和二选一", "未知映射不猜测端口", "不编造端口")) {
+                    assertTrue(request.contains(policy), policy);
+                }
+                assertTrue(request.contains("3306:3306"));
+                assertTrue(request.contains("spring.datasource.url=${DB_URL}"));
+                assertFalse(request.contains("名称冲突时说明差异"));
+                return "## 启动基础服务\n按文档选择数据库启动路径。";
+            }).when(ai).generate(any());
+            service.generate(basis);
+        }
+        verify(ai, times(3)).generate(any());
+    }
 
     @Test
     void incompletePlanCannotRequestModelGeneration() {
