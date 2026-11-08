@@ -1,8 +1,8 @@
 # 本地安装与启动
 
-Agent 容器协议仍为 **v9**，当前完成证据为 **v8**。本次只改平台 Java/Vue，未修改镜像资源；镜像必须通过启动器对当前工具文件的校验，仅 v9 标签相同不足以证明内容匹配。停止旧前后端后运行 `.\setup-delveforge.ps1`，启动器重新构建后端、启动新前端并核验/复用当前镜像。自定义有效镜像继续传 `-AgentImage21` / `-AgentImage17`。
+当前 Agent 容器协议为 **v9**，完成证据为 **v8**。更新代码后，先停止旧前后端再运行 `.\setup-delveforge.ps1`；启动器重新构建后端、启动前端并核验/复用兼容镜像。镜像必须通过当前工具文件校验，仅 v9 标签相同不足以证明内容匹配。自定义有效镜像继续传 `-AgentImage21` / `-AgentImage17`。
 当前活动路径为 `list_files / search_code / read_file / edit_file / update_plan / read_log / exec_command`，见 [ADR-0026](decisions/0026-factual-completion-and-plan-quick-start.md)。结构化清单可选；exec_command 不接收 verification_scope/check_kind，也不注册 command+cwd 永久义务。结束报告使用 status、summary、可选 limitations 数组和 executions 调用 ID 数组，不要求 validationComplete。平台核验本 Run 的事实身份、源码快照和执行视图，保留全部命令与测试报告事实；失败命令或未知测试详情不自动否决 completed，再走既有冻结与独立 Delivery。
-镜像保留 JDK 17/21、Node 22.16.0、npm 10.9.2、pnpm 12.9.1 和兼容 generation 6 的 pnpm 8.15.9。
+DelveForge 后端自身使用 JDK 21；目标项目的受控镜像提供 JDK 17/21、Maven、Node 22.16.0、npm 10.9.2、pnpm 12.9.1、兼容 generation 6 的 pnpm 8.15.9，以及 Python 3 基础环境。
 其他系统工具链须由可信镜像预装；没有任意 sudo 安装承诺。测试用 C++ 镜像另外预装 g++，默认产品镜像不含 C++/Go 编译器。
 
 每条命令以显式相对 cwd 启动新 shell，变量和 cwd 不继承，源码及项目本地依赖跨调用保留。
