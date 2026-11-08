@@ -65,6 +65,17 @@ public final class AgentToolActivity {
                 proposalLocation(summary, response.path("rejectedInput"));
             }
             count(summary, response, "durationMs");
+            if (classification.equals("POLICY_REJECTED")
+                    && response.path("policyStage").asText().equals("PATH_VALIDATION")
+                    && Set.of("PATH_FORMAT", "PROTECTED_CREDENTIAL_PATH", "FORBIDDEN_PATH", "RESOURCE_CAPABILITY")
+                            .contains(response.path("policyRule").asText())
+                    && response.path("readNotStarted").asBoolean() && response.path("mutationNotStarted").asBoolean()) {
+                summary.put("policyRule", response.path("policyRule").asText());
+                summary.put("policyStage", "PATH_VALIDATION");
+                summary.put("readNotStarted", true);
+                summary.put("mutationNotStarted", true);
+                summary.put("resultRecorded", true);
+            }
             if (AgentTools.readOnly(call.name()) && classification.equals("INVALID_TOOL_ARGUMENT")
                     && details.path("readNotStarted").asBoolean() && details.path("mutationNotStarted").asBoolean()) {
                 for (AgentTools.ReadError reason : AgentTools.ReadError.values()) {
@@ -129,7 +140,7 @@ public final class AgentToolActivity {
                 }
             }
             if (call.name().equals("exec_command")) {
-                for (String key : List.of("command", "directory", "scope", "kind", "testDetails", "invocationId")) {
+                for (String key : List.of("command", "directory", "scope", "kind", "testDetails", "invocationId", "logRef", "runId")) {
                     if (details.path(key).isTextual()) {
                         summary.put(key, secrets.sanitizeOutput(details.path(key).asText()));
                     }
@@ -146,7 +157,7 @@ public final class AgentToolActivity {
                         summary.put("instruction", instruction.substring(0, Math.min(1000, instruction.length())));
                     }
                 }
-                for (String key : List.of("timedOut", "cancelled", "outputTruncated", "sourceChanged")) {
+                for (String key : List.of("timedOut", "cancelled", "outputTruncated", "sourceChanged", "logDiscarded", "commandTruncated")) {
                     if (details.path(key).isBoolean()) {
                         summary.put(key, details.path(key).asBoolean());
                     }

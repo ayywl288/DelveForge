@@ -100,10 +100,10 @@ class NativeFrontendDeliverySmokeTest {
                 new DeterministicRepositorySecretPolicy());
         List<AgentProtocol.ToolCall> actions = List.of(
                 call("exec_command", Map.of("command", manager.equals("npm") ? "npm ci --ignore-scripts --no-audit --no-fund" : "pnpm install --frozen-lockfile --ignore-scripts")),
-                call("exec_command", Map.of("command", manager + " test", "verification_scope", "Repository counter and isolation tests", "check_kind", "test")),
+                call("exec_command", Map.of("command", manager + " test")),
                 call("edit_file", Map.of("path", "package.json", "old_text", "node --test tests/",
                         "new_text", "node --test tests/counter.test.mjs")),
-                call("exec_command", Map.of("command", manager + " test", "verification_scope", "Repository counter and isolation tests", "check_kind", "test")),
+                call("exec_command", Map.of("command", manager + " test")),
                 call("edit_file", Map.of("path", "src/counter.js", "old_text", "return value;", "new_text", "return value + 1;")),
                 call("edit_file", Map.of("path", "tests/isolation.test.mjs", "old_text", "", "new_text", """
                         import { test } from 'node:test';
@@ -128,8 +128,8 @@ class NativeFrontendDeliverySmokeTest {
                         """)),
                 call("edit_file", Map.of("path", "package.json", "old_text", "node --test tests/counter.test.mjs",
                         "new_text", "node --test tests/*.test.mjs")),
-                call("exec_command", Map.of("command", manager + " test", "verification_scope", "Repository counter and isolation tests", "check_kind", "test")),
-                call("exec_command", Map.of("command", manager + " run build", "verification_scope", "Repository production build", "check_kind", "build")));
+                call("exec_command", Map.of("command", manager + " test")),
+                call("exec_command", Map.of("command", manager + " run build")));
         AtomicInteger turn = new AtomicInteger();
         List<String> observed = new ArrayList<>();
         AgentModelPort model = (history, tools) -> {
@@ -137,7 +137,7 @@ class NativeFrontendDeliverySmokeTest {
             history.stream().filter(message -> message.role().equals("tool")).forEach(message -> observed.add(message.text()));
             int index = turn.getAndIncrement();
             return index < actions.size() ? new AgentProtocol.Reply("", List.of(actions.get(index)), 1L)
-                    : new AgentProtocol.Reply("{\"status\":\"completed\",\"summary\":\"Correct due-date offset\"}", List.of(), 1L);
+                    : new AgentProtocol.Reply(FixtureCompletion.report(history), List.of(), 1L);
         };
         String candidateId;
         try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,

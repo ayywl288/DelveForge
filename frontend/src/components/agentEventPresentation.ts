@@ -22,7 +22,7 @@ export interface AgentActivity {
 }
 export const toolNames: Record<string, string> = {
     list_files: "浏览文件", read_file: "读取文件", search_code: "搜索代码", apply_patch: "应用代码修改", edit_file: "精确编辑代码",
-    exec_command: "执行命令", run_checks: "运行 Maven 检查", run_frontend_checks: "运行前端检查",
+    update_plan: "更新工作笔记", read_log: "读取保留日志", exec_command: "执行命令", run_checks: "运行 Maven 检查", run_frontend_checks: "运行前端检查",
 };
 const activeKinds: Partial<Record<AgentRun["state"], string[]>> = {
     CREATED: ["CREATED"], PREPARING: ["PREPARING"], RUNNING: ["MODEL_REQUEST", "RUNNING"],
@@ -64,6 +64,10 @@ export function providerDiagnosticTitle(event: AgentEvent): string {
 
 export function commandPresentation(activity: AgentActivity) {
     const data = summaryFields(activity.finish ?? activity.event);
+    for (const stream of ["stdout", "stderr"]) {
+        if (typeof data[stream] === "string") data[stream] = data[stream].replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "")
+            .replace(/\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, "").replace(/\r\n?/g, "\n");
+    }
     const reason = String(data.reason ?? "");
     const explanations: Record<string, string> = {
         DIRECTORY_NOT_FOUND: "工作目录不存在或不是目录。先浏览仓库目录，再使用准确的相对路径；命令内不要重复目录前缀。",
@@ -403,6 +407,14 @@ export function checkSummary(activities: AgentActivity[], runId: string) {
         .find(data => typeof data.afterSnapshot === "string" || typeof data.snapshot === "string");
     const snapshot = source?.afterSnapshot ?? source?.snapshot;
     const executing = checks.some(activity => activity.active);
+    const nativeReceipts = checks.filter(check => typeof summaryFields(check.finish ?? check.event).runId === "string");
+    if (nativeReceipts.length) {
+        const latest = last;
+        return { key: `checks:${runId}`, activities: [...checks].reverse(), current: [], stale: false,
+            count: checks.length, latest, executing, label: latest ? latest.tool === "exec_command" ? commandPresentation(latest).label : verificationLabel(latest.classification) : "尚未执行命令",
+            detail: "逐次执行记录；完成范围见 Agent 报告", failed: checks.filter(check => check.outcome === "failed").length,
+            sourceBlocked: false, blocked: latest?.outcome === "blocked" };
+    }
     const byScope = new Map<string, AgentActivity>();
     for (const check of checks) {
         const result = summaryFields(check.finish ?? check.event);
@@ -452,6 +464,13 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
     const event = activity.finish ?? activity.event;
     const data = summaryFields(event);
     const rows: { label: string; value: string }[] = [];
+    if (activity.event.kind === "WORKING_NOTES") rows.push({ label: "Agent 工作笔记", value: activity.event.summary });
+    if (activity.event.kind === "MODEL_COMPLETED") {
+        const report = summaryFields(activity.event);
+        if (typeof report.summary === "string") rows.push({ label: "Agent 完成报告", value: report.summary });
+        if (typeof report.limitations === "string") rows.push({ label: "Agent 报告限制", value: report.limitations });
+    }
+
     if (isPatchTool(activity.tool) && patchNotStarted(data, activity.tool) && activity.classification !== 'POLICY_REJECTED') {
         rows.push({ label: '本次补丁', value: '未应用，已有修改保留' });
         const reasons: Record<string, string> = { CONTEXT_MISMATCH: '当前源码上下文不匹配', CHANGE_ALREADY_PRESENT: '变更已存在',

@@ -36,10 +36,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class CodingAgentApiTest {
     private static final Path DATABASE = Path.of("target", "agent-api", UUID.randomUUID() + ".db");
+    private static final Path LOG_ROOT = Path.of("target", "agent-api-logs", UUID.randomUUID().toString()).toAbsolutePath();
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("delveforge.persistence.database-file", DATABASE::toString);
+        registry.add("delveforge.agent.sandbox.root", LOG_ROOT::toString);
     }
 
     @Autowired
@@ -50,6 +52,28 @@ class CodingAgentApiTest {
     AgentStore store;
     @LocalServerPort
     int port;
+
+    @Test
+    void retainedLogsArePagedAsJsonWithoutRequiringALiveSandbox() throws Exception {
+        String run = UUID.randomUUID().toString();
+        String invocation = UUID.randomUUID().toString();
+        new JdbcTemplate(source).update("""
+                INSERT INTO agent_run(id,plan_id,step_id,working_copy_id,baseline,state,started_at,occupied)
+                VALUES(?,'logs-plan','logs-step','copy',?,'FAILED',?,0)
+                """, run, "a".repeat(40), Instant.now().toString());
+        Path logs = java.nio.file.Files.createDirectories(LOG_ROOT.resolve(run).resolve("command-logs"));
+        java.nio.file.Files.writeString(logs.resolve(invocation + ".json"),
+                "{\"stdout\":\"first-second\",\"logDiscarded\":false}");
+        String path = "/api/agent-runs/" + run + "/logs/" + invocation;
+        var response = http.getForEntity(path + "?offset=6&limit=3", com.fasterxml.jackson.databind.JsonNode.class);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("sec", response.getBody().path("result").path("content").asText());
+        assertEquals(9, response.getBody().path("result").path("nextOffset").asInt());
+        assertTrue(response.getBody().path("result").path("hasMore").asBoolean());
+        assertEquals(HttpStatus.BAD_REQUEST, http.getForEntity(path + "?limit=8001", String.class).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, http.getForEntity("/api/agent-runs/absent/logs/" + invocation,
+                String.class).getStatusCode());
+    }
 
     @Test
     void paidStartRequiresAnExplicitBudgetAcknowledgmentBeforeAnyRunReservation() {

@@ -77,6 +77,16 @@ public interface AgentSandboxPort {
         return null;
     }
 
+    /** 报告为 Agent 判断；实现只核对它引用的本 Run 执行事实。 */
+    default String completionFeedback(String runId, String report, BooleanSupplier cancelled) {
+        return completionFeedback(runId, cancelled);
+    }
+
+    /** 只按本 Run 的调用身份读取净化日志，不接受宿主路径。 */
+    default String readLog(String runId, String invocationId, String stream, int offset, int limit) {
+        throw new AgentException("INVALID_ARGUMENTS", "Command log is unavailable");
+    }
+
     Candidate finish(String runId, BooleanSupplier cancelled);
 
     /** 停止写入后保存未验证差异；不创建 Candidate，不授予 Delivery。 */

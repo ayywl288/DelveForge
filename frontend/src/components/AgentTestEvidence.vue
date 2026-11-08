@@ -4,8 +4,8 @@ import { presentTestEvidence, presentCheckRows, presentSourceView } from "./agen
 const props = defineProps<{ evidence: string }>();
 const result = computed(() => presentTestEvidence(props.evidence));
 const checks = computed(() => presentCheckRows(props.evidence));
-const current = computed(() => checks.value.filter(check => check.current));
-const generic = computed(() => { try { return JSON.parse(props.evidence).evidenceVersion === 6; } catch { return false; } });
+const report = computed(() => { try { const value = JSON.parse(props.evidence); return value.evidenceVersion === 7 ? value.agentReport : null; } catch { return null; } });
+const generic = computed(() => { try { return [6, 7].includes(JSON.parse(props.evidence).evidenceVersion); } catch { return false; } });
 const sourceView = computed(() => presentSourceView(props.evidence));
 </script>
 <template>
@@ -20,14 +20,13 @@ const sourceView = computed(() => presentSourceView(props.evidence));
             <div><dt>错误</dt><dd>{{ result.counts.errored ?? '未记录' }}</dd></div>
             <div><dt>跳过</dt><dd>{{ result.counts.skipped ?? '未记录' }}</dd></div>
         </dl>
-        <ul v-if="generic && current.length" class="current-evidence-list" aria-label="当前必要检查">
-            <li v-for="(check, index) in current" :key="index">{{ check.scope }} · {{ check.label }}</li>
-        </ul>
+        <p v-if="report?.summary">Agent 完成说明：{{ report.summary }}</p>
+        <p v-if="report?.limitations">Agent 报告限制：{{ report.limitations }}</p>
         <details v-if="generic && checks.length" class="evidence-history">
             <summary>全部命令历史（{{ checks.length }} 次，最近在前）</summary>
             <ul class="check-evidence-list" aria-label="命令历史">
                 <li v-for="(check, index) in checks" :key="index">
-                    {{ check.scope }} · {{ check.label }}
+                    {{ check.scope }} · {{ check.label }}<span v-if="check.current"> · 最终报告引用</span>
                     <strong v-if="check.stale"> · 旧源码结果</strong>
                     <span v-if="check.executed !== null"> · 已执行 {{ check.executed }} 项测试</span>
                 </li>

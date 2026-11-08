@@ -49,7 +49,7 @@ class RepositoryPreparationDockerTest {
                     source.toString(), prepared.revision(), "baseline compatibility", "Maven", "none", null),
                     AgentProtocol.Limits.defaults(), () -> false);
             assertEquals(17, sandbox.identity(id).targetJdk());
-            var response = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("baseline", "exec_command", json.writeValueAsString(Map.of("command", "mvn -B test", "directory", "backend", "verification_scope", "Backend tests", "check_kind", "test"))),
+            var response = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("baseline", "exec_command", json.writeValueAsString(Map.of("command", "mvn -B test", "directory", "backend"))),
                     () -> false));
             assertTrue(response.path("result").path("exitCode").isIntegralNumber(), response.toString());
             var result = response.path("result");
@@ -99,9 +99,10 @@ class RepositoryPreparationDockerTest {
                     json.writeValueAsString(Map.of("path", "src/main/java/example/Counter.java",
                             "old_text", "return n;", "new_text", "return n + 1;"))), () -> false));
             assertTrue(applied.path("ok").asBoolean(), applied.toString());
-            var checked = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("test", "exec_command", json.writeValueAsString(Map.of("command", "mvn -B test", "verification_scope", "Repository tests", "check_kind", "test"))), () -> false));
+            var checked = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("test", "exec_command", json.writeValueAsString(Map.of("command", "mvn -B test"))), () -> false));
             assertEquals("COMMAND_SUCCEEDED", checked.path("result").path("classification").asText(), checked.toString());
             assertTrue(checked.path("result").path("executedTests").asInt() > 0);
+            org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, checked.path("result")));
             var candidate = sandbox.finish(id, () -> false);
             assertEquals(prepared.revision(), candidate.baseline());
             assertEquals(java.util.List.of("src/main/java/example/Counter.java"), candidate.changedPaths());

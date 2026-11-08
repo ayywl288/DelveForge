@@ -106,7 +106,7 @@ it("renders parser-free generic success without invented test counts and keeps a
     app.mount(root); cleanup.push(() => app.unmount()); await settle();
     expect(root.querySelector(".evidence-status")?.textContent).toBe("必要命令已通过");
     expect(root.querySelector(".test-counts")).toBeNull();
-    expect(root.querySelectorAll(".current-evidence-list li")).toHaveLength(1);
+    expect(root.querySelectorAll(".current-evidence-list li")).toHaveLength(0);
     expect(root.querySelector<HTMLDetailsElement>(".evidence-history")?.open).toBe(false);
     expect(root.querySelectorAll(".evidence-history li")).toHaveLength(2);
     expect(root.querySelector(".evidence-history li")?.textContent).toContain("命令成功");

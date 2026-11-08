@@ -1,7 +1,7 @@
 # 本地安装与启动
 
-Agent 当前工具协议为 **v9**。升级后重新运行启动器构建并核验当前镜像；v8 及更早镜像在传入源码前被拒绝。
-当前活动路径为 `list_files / search_code / read_file / edit_file / exec_command`，见 [ADR-0024](decisions/0024-generic-agent-command-path.md)。
+Agent 容器协议仍为 **v9**，当前完成证据为 **v7**。本次只改平台 Java/Vue，未修改镜像资源，不需要因此重建已有有效 v9 镜像；v8 及更早镜像在传入源码前被拒绝。停止旧前后端后运行 `.\setup-delveforge.ps1`，启动器重新构建后端、启动新前端并核验/复用当前镜像。自定义有效镜像继续传 `-AgentImage21` / `-AgentImage17`。
+当前活动路径为 `list_files / search_code / read_file / edit_file / update_plan / read_log / exec_command`，见 [ADR-0025](decisions/0025-agent-loop-convergence.md)。笔记可选；exec_command 不再接收 verification_scope/check_kind，也不注册 command+cwd 永久义务。结束报告引用实际 invocationId，平台核验本 Run 的退出状态、源码快照、执行视图与已知测试结果，再走既有冻结与独立自动 Delivery。
 镜像保留 JDK 17/21、Node 22.16.0、npm 10.9.2、pnpm 12.9.1 和兼容 generation 6 的 pnpm 8.15.9。
 其他系统工具链须由可信镜像预装；没有任意 sudo 安装承诺。测试用 C++ 镜像另外预装 g++，默认产品镜像不含 C++/Go 编译器。
 
@@ -11,8 +11,8 @@ Agent 应读取 README/仓库指引/CI/清单/锁文件后运行原生 wrapper�
 公开资源模型/执行可读、只读挂载；私人保留项不物化。网络仅允许 ADR-0024 列出的公共工件主机，私有仓库、外部服务或其他下载主机需要另行明确环境支持。
 
 检查没有结构化报告时显示命令结果及“测试明细不可用”；这不是零测试或业务验收通过。源码改变后必须重跑必要检查。
-失败运行若安全捕获成功，会在配置的 Agent root 下对应 Run 目录保留 `partial.diff` 与 `partial-metadata.json`，不可交付，也不能恢复旧对话。
-当前用户操作与验收步骤见 [本次验证记录](validation/generic-agent-command-path-20261107.md)。下面旧专用检查说明保留为历史背景；与本段冲突时以 v9/ADR-0024 为准。
+失败运行若安全捕获成功，会在配置的 Agent root 下对应 Run 目录保留 `partial.diff` 与 `partial-metadata.json`，不可交付，也不能恢复旧对话。净化命令日志保存在该目录 `command-logs/`，总上限 16 MiB；清理容器后仍可通过 read_log 或界面翻页读取。预览截断与保留上限丢弃分别报告。
+当前用户操作与验收步骤见 [本次验证记录](validation/agent-loop-convergence-20261107.md)。下面旧专用检查说明保留为历史背景；与本段冲突时以 v9/ADR-0025 为准。启动沙箱成功不表示目标仓库依赖、私有输入或外部服务已经就绪。
 
 DelveForge 推荐在 **Windows + PowerShell** 下运行，面向本地使用，不建议直接部署到公网。
 

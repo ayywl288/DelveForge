@@ -83,7 +83,7 @@ class PatchConflictOrchestrationDockerTest {
         first.addAll(List.of(conflict, skippedSame, skippedDifferent));
         var corrected = call("edit_file", Map.of("path", path, "old_text", "return n;", "new_text", "return n + 1;"));
         var addedTest = call("edit_file", Map.of("path", testPath, "old_text", "", "new_text", test));
-        var checks = call("exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository regression tests", "check_kind", "test"));
+        var checks = call("exec_command", Map.of("command", "mvn -B test"));
         AtomicInteger requests = new AtomicInteger();
         List<List<AgentProtocol.Message>> observations = new ArrayList<>();
         AgentModelPort model = (history, tools) -> {
@@ -101,7 +101,7 @@ class PatchConflictOrchestrationDockerTest {
             if (turn == 4) {
                 return new AgentProtocol.Reply("", List.of(checks), 1L);
             }
-            return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+            return new AgentProtocol.Reply(FixtureCompletion.report(history), List.of(), 1L);
         };
         AgentProtocol.Run terminal;
         try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,

@@ -1,5 +1,5 @@
 import { createApp, h, nextTick, reactive } from "vue";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import AgentTimeline from "../src/components/AgentTimeline.vue";
 import type { AgentEvent, AgentRun } from "../src/api/agentTypes";
 import { readFileSync } from "node:fs";
@@ -943,17 +943,15 @@ it("keeps both command streams escaped and collapsed alongside duration, cwd and
     expect(row.textContent).toContain("245 ms");
     expect(row.textContent).toContain("退出码 7");
     expect(row.textContent).toContain("命令返回非零退出码");
-    const definition = row.querySelector<HTMLDetailsElement>(".command-definition")!;
+    const definition = row.querySelector<HTMLDetailsElement>(".command-disclosure")!;
     expect(definition.open).toBe(false);
     definition.querySelector<HTMLElement>("summary")!.click();
     expect(definition.open).toBe(true);
     expect(definition.querySelector("pre")?.textContent).toBe("sh check.sh");
-    const output = row.querySelector<HTMLDetailsElement>(".command-output")!;
-    expect(output.open).toBe(false);
-    output.querySelector<HTMLElement>("summary")!.click();
-    expect(output.open).toBe(true);
+    const output = definition;
+    expect(row.querySelectorAll("details")).toHaveLength(1);
     expect(output.textContent).toContain("已截断");
-    expect(output.querySelectorAll("pre")).toHaveLength(2);
+    expect(output.querySelectorAll("pre")).toHaveLength(3);
     expect(output.querySelector("img")).toBeNull();
     expect(output.querySelector('[aria-label="命令错误输出"]')?.textContent).toContain("<img");
 });
@@ -998,8 +996,57 @@ it("keeps successful long commands in a one-line preview with the complete text 
     const row = root.querySelector('[data-kind="exec_command"]')!;
     expect(row.querySelector(".command-preview")?.textContent).toBe(command);
     expect(row.querySelector(".command-explanation")).toBeNull();
-    expect(row.querySelector<HTMLDetailsElement>(".command-definition")!.open).toBe(false);
+    expect(row.querySelector<HTMLDetailsElement>(".command-disclosure")!.open).toBe(false);
     expect(row.querySelector('[aria-label="完整命令"]')?.textContent).toBe(command);
     expect(row.querySelector(".activity-result")?.textContent).toContain("命令退出成功");
     expect(row.textContent).not.toContain("业务验收通过");
+});
+
+
+it("pages retained logs without rerunning commands and keeps one command disclosure", async () => {
+    const { root, props } = mount(false);
+    const mocked = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true,
+        result: { content: "retained diagnostic <script>data</script>", nextOffset: 4000, hasMore: true, logDiscarded: true } }),
+        { status: 200, headers: { "Content-Type": "application/json" } }));
+    cleanup.push(() => mocked.mockRestore());
+    props.events = [tool(1, "TOOL_FINISHED", { tool: "exec_command", runId: "one", command: "sh check.sh",
+        directory: ".", exitCode: 1, classification: "COMMAND_FAILED", resultRecorded: true, ok: false,
+        logRef: identity, outputTruncated: true, stdout: "preview" })];
+    await settle();
+    root.querySelector<HTMLElement>(".check-summary > summary")!.click(); await settle();
+    const row = root.querySelector(".check-history li")!;
+    expect(row.querySelectorAll("details")).toHaveLength(1);
+    row.querySelector<HTMLElement>(".command-disclosure > summary")!.click();
+    [...row.querySelectorAll("button")].find(button => button.textContent === "从头读取")!.click();
+    await settle();
+    expect(mocked).toHaveBeenCalledWith(expect.stringContaining(`/logs/${identity}?stream=stdout&offset=0`), expect.anything());
+    await vi.waitFor(() => expect(row.textContent).toContain("retained diagnostic <script>data</script>"));
+    expect(row.querySelector("script")).toBeNull();
+    expect(row.textContent).toContain("超出保留上限");
+});
+
+it("attributes notes and completion judgments while preserving compacted and failed history", async () => {
+    const { root, props } = mount(false);
+    props.events = [fact(1, "WORKING_NOTES", "[ ] stale item; repository inspected"),
+        fact(2, "CONTEXT_COMPACTED"), fact(3, "MODEL_COMPLETED", JSON.stringify({ status: "completed",
+            summary: "Agent selected a recheck", limitations: "private resources untested" }))];
+    await settle();
+    expect(root.textContent).toContain("Agent 工作笔记");
+    expect(root.textContent).toContain("[ ] stale item");
+    expect(root.textContent).toContain("较早上下文已压缩");
+    expect(root.textContent).toContain("Agent 完成报告");
+    expect(root.textContent).toContain("private resources untested");
+});
+
+it("does not promise a full command log when retention was exhausted", async () => {
+    const { root, props } = mount(false);
+    props.events = [tool(1, "TOOL_FINISHED", { tool: "exec_command", command: "long preview",
+        commandTruncated: true, logDiscarded: true, directory: ".", exitCode: 0, ok: true,
+        classification: "COMMAND_SUCCEEDED", resultRecorded: true })];
+    await settle(); await expandChecks(root);
+    const row = root.querySelector('[data-kind="exec_command"]')!;
+    expect(row.textContent).toContain("命令预览已截断");
+    expect(row.textContent).toContain("超出保留上限");
+    expect(row.textContent).not.toContain("可在下方日志流");
+    expect(row.querySelector(".log-controls")).toBeNull();
 });

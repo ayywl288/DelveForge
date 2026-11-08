@@ -34,13 +34,13 @@ class AgentToolActivityTest {
                 () -> AgentTools.validate(command, AgentProtocol.Limits.defaults()));
         var record = json.readTree(activity.finished(command, identity,
                 AgentTools.argumentError(command, failure, AgentProtocol.Limits.defaults())));
-        assertEquals("VERIFICATION_FIELDS_REQUIRED", record.path("reason").asText());
+        assertEquals("INVALID_ARGUMENTS", record.path("reason").asText());
         assertEquals("frontend", record.path("directory").asText());
         assertTrue(record.path("command").asText().startsWith("npm ci"));
         assertFalse(record.toString().contains("private-fixture-value"));
         assertTrue(record.path("mutationNotStarted").asBoolean());
         assertFalse(record.has("exitCode"));
-        assertTrue(record.path("instruction").asText().contains("同时省略"));
+        assertTrue(record.path("instruction").asText().contains("字段名称"));
     }
 
     @Test

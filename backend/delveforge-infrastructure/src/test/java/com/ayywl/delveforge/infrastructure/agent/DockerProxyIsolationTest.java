@@ -99,9 +99,9 @@ class DockerProxyIsolationTest {
                     json.writeValueAsString(Map.of("path", "src/main/java/example/Counter.java",
                             "old_text", "return n;", "new_text", "return n + 1;"))), () -> false).contains("PATCH_APPLIED"));
             String checks = sandbox.tool(id, new AgentProtocol.ToolCall("test", "exec_command",
-                    json.writeValueAsString(Map.of("command", "mvn -B test", "verification_scope", "Cold Maven tests",
-                            "check_kind", "test"))), () -> false);
+                    json.writeValueAsString(Map.of("command", "mvn -B test"))), () -> false);
             assertTrue(checks.contains("COMMAND_SUCCEEDED"), checks);
+            org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, json.readTree(checks).path("result")));
             assertTrue(sandbox.finish(id, () -> false).changedPaths().contains("src/main/java/example/Counter.java"));
             assertEquals(Set.of("seed", "agent", "command", "capture"), inspected);
             assertEquals(baseline, fixture.git(official, "rev-parse", "HEAD"));
@@ -117,7 +117,14 @@ class DockerProxyIsolationTest {
                 Files.delete(configuration);
             }
         }
-        assertFalse(Files.exists(properties.root().resolve(id)));
+        try (var remaining = Files.list(properties.root().resolve(id))) {
+            assertEquals(List.of("command-logs"), remaining.map(path -> path.getFileName().toString()).toList());
+        }
+        try (var logs = Files.list(properties.root().resolve(id).resolve("command-logs"))) {
+            for (Path log : logs.toList()) {
+                assertFalse(Files.readString(log).contains("invented-password"));
+            }
+        }
         var containers = process.run(List.of("docker", "ps", "-aq", "--filter", "label=delveforge.run=" + id),
                 null, null, Duration.ofSeconds(20), 8192, () -> false, environment);
         assertEquals(0, containers.exitCode());

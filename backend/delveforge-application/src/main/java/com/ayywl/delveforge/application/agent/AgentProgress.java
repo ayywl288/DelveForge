@@ -26,7 +26,7 @@ final class AgentProgress {
             if (response instanceof ObjectNode object) {
                 object.remove("durationMs");
                 if (object.path("result") instanceof ObjectNode detail) {
-                    detail.remove(List.of("durationMs", "invocationId"));
+                    detail.remove(List.of("durationMs", "invocationId", "logRef"));
                     if (call.name().equals("exec_command")) {
                         // 原生命令的进度由源码身份和结果决定，日志时钟/进度条不能伪造新进展。
                         detail.remove(List.of("stdout", "stderr"));

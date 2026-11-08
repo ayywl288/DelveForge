@@ -90,14 +90,23 @@ class DockerAgentSandboxTest {
         return result.text().strip();
     }
 
+    private com.fasterxml.jackson.databind.JsonNode lastCommand;
+
+    private Candidate finish(DockerAgentSandbox sandbox, String id) {
+        org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, lastCommand));
+        return sandbox.finish(id, () -> false);
+    }
+
     private String tool(DockerAgentSandbox sandbox, String id, String name, Map<String, ?> arguments) throws Exception {
         if (name.equals("shell_patch")) {
             String encoded = java.util.Base64.getEncoder().encodeToString(arguments.get("patch").toString().getBytes(StandardCharsets.UTF_8));
             name = "exec_command";
             arguments = Map.of("command", "printf %s " + encoded + " | base64 -d | git apply --no-index --unidiff-zero --whitespace=nowarn -");
         }
-        return sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(), name,
+        String response = sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(), name,
                 json.writeValueAsString(arguments)), () -> false);
+        if (name.equals("exec_command")) lastCommand = json.readTree(response).path("result");
+        return response;
     }
 
     static String replacement(String path, String before, String after) {
@@ -151,8 +160,8 @@ class DockerAgentSandboxTest {
             }
             tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
                     "old_text", "return n;", "new_text", "return n + 1;"));
-            tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository tests", "check_kind", "test"));
-            var candidate = sandbox.finish(id, () -> false);
+            tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test"));
+            var candidate = finish(sandbox, id);
             assertFalse(candidate.diff().contains(privateValue));
             assertFalse(candidate.changedPaths().contains("private.properties"));
             assertFalse(candidate.changedPaths().contains(".env.example"));
@@ -219,8 +228,8 @@ class DockerAgentSandboxTest {
             assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, htmlRejection.rule());
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
                     "old_text", "return n;", "new_text", "return n + 1;")).contains("\"ok\":true"));
-            assertTrue(tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository tests", "check_kind", "test")).contains("COMMAND_SUCCEEDED"));
-            Candidate candidate = sandbox.finish(id, () -> false);
+            assertTrue(tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test")).contains("COMMAND_SUCCEEDED"));
+            Candidate candidate = finish(sandbox, id);
             assertTrue(candidate.diff().contains("${DB_PASSWORD:}"));
             assertTrue(candidate.diff().contains("UUID.randomUUID()"));
             assertTrue(candidate.diff().contains("Password:</label>"));
@@ -256,8 +265,8 @@ class DockerAgentSandboxTest {
                     .path("result").path("content").asText());
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", path,
                     "old_text", "return n;", "new_text", "return n + 1;")).contains("\"ok\":true"));
-            assertTrue(tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository tests", "check_kind", "test")).contains("COMMAND_SUCCEEDED"));
-            assertTrue(sandbox.finish(id, () -> false).testEvidence().contains("COMMAND_VERIFIED"));
+            assertTrue(tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test")).contains("COMMAND_SUCCEEDED"));
+            assertTrue(finish(sandbox, id).testEvidence().contains("COMMAND_VERIFIED"));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertTrue(git(official, "status", "--porcelain").isEmpty());
         } finally {
@@ -266,7 +275,33 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void observedFailedTestCannotBeSkippedOrDeletedToFreeze() throws Exception {
+    void allSkippedReportsRemainAvailableWithoutClaimingTestsExecuted() throws Exception {
+        Path official = fixture();
+        String baseline = git(official, "rev-parse", "HEAD");
+        String id = UUID.randomUUID().toString();
+        var sandbox = new DockerAgentSandbox(properties(temporary.resolve("skipped-report-runs")),
+                new DeterministicRepositorySecretPolicy());
+        try {
+            sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
+                    "unmounted", baseline, "observe skipped report", "tests", "reporting fixture", 21),
+                    AgentProtocol.Limits.defaults(), () -> false);
+            tool(sandbox, id, "edit_file", Map.of("path", "src/test/java/example/CounterTest.java",
+                    "old_text", "@Test", "new_text", "@org.junit.jupiter.api.Disabled @Test"));
+            assertTrue(json.readTree(tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test")))
+                    .path("ok").asBoolean());
+            var evidence = json.readTree(finish(sandbox, id).testEvidence());
+            assertEquals("NOT_TESTED", evidence.path("status").asText());
+            assertEquals("AVAILABLE", evidence.path("testDetails").asText());
+            assertEquals(0, evidence.path("checks").get(0).path("executedTests").asInt());
+            assertEquals(1, evidence.path("checks").get(0).path("skipped").asInt());
+            assertEquals("", git(official, "status", "--porcelain"));
+        } finally {
+            sandbox.cleanup(id);
+        }
+    }
+
+    @Test
+    void testInventoryChangesRemainObservedWithoutAutomaticSemanticApproval() throws Exception {
         Path official = fixture();
         String baseline = git(official, "rev-parse", "HEAD");
         String id = UUID.randomUUID().toString();
@@ -274,8 +309,7 @@ class DockerAgentSandboxTest {
         String originalTest = Files.readString(official.resolve(testPath));
         var sandbox = new DockerAgentSandbox(properties(temporary.resolve("missing-test-runs")),
                 new DeterministicRepositorySecretPolicy());
-        Map<String, String> check = Map.of("command", "mvn -B test", "verification_scope", "Counter tests",
-                "check_kind", "test");
+        Map<String, String> check = Map.of("command", "mvn -B test");
         try {
             sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
                     "unmounted", baseline, "increment", "Counter", "fix", 21), AgentProtocol.Limits.defaults(), () -> false);
@@ -283,16 +317,16 @@ class DockerAgentSandboxTest {
             tool(sandbox, id, "edit_file", Map.of("path", testPath, "old_text", "@Test",
                     "new_text", "@org.junit.jupiter.api.Disabled @Test"));
             assertTrue(json.readTree(tool(sandbox, id, "exec_command", check)).path("ok").asBoolean());
-            org.junit.jupiter.api.Assertions.assertNotNull(sandbox.completionFeedback(id, () -> false));
+            org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, lastCommand));
             assertTrue(json.readTree(tool(sandbox, id, "exec_command", Map.of("command",
                     "rm " + testPath + " && rm -rf target"))).path("ok").asBoolean());
             assertTrue(json.readTree(tool(sandbox, id, "exec_command", check)).path("ok").asBoolean());
-            org.junit.jupiter.api.Assertions.assertNotNull(sandbox.completionFeedback(id, () -> false));
+            org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, lastCommand));
             tool(sandbox, id, "edit_file", Map.of("path", testPath, "old_text", "", "new_text", originalTest));
             tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
                     "old_text", "return n;", "new_text", "return n + 1;"));
             assertTrue(json.readTree(tool(sandbox, id, "exec_command", check)).path("ok").asBoolean());
-            assertEquals(List.of("src/main/java/example/Counter.java"), sandbox.finish(id, () -> false).changedPaths());
+            assertEquals(List.of("src/main/java/example/Counter.java"), finish(sandbox, id).changedPaths());
             assertEquals("", git(official, "status", "--porcelain"));
         } finally {
             sandbox.cleanup(id);
@@ -346,14 +380,14 @@ class DockerAgentSandboxTest {
                             "new_text", "different-private-value")));
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
                     "old_text", "return n;", "new_text", "return n + 1;")).contains("\"ok\":true"));
-            var check = json.readTree(tool(sandbox, id, "exec_command", Map.of("command", "mvn -B verify", "verification_scope", "Repository tests", "check_kind", "test")));
+            var check = json.readTree(tool(sandbox, id, "exec_command", Map.of("command", "mvn -B verify")));
             assertEquals("COMMAND_SUCCEEDED", check.path("result").path("classification").asText());
             assertTrue(check.path("ok").asBoolean());
             assertFalse(check.toString().contains("synthetic-private-value"));
             assertFalse(check.toString().contains("synthetic-maven-session"));
             assertFalse(check.toString().contains("sk-" + "a".repeat(32)));
             assertTrue(check.path("result").path("executedTests").asInt() >= 2);
-            Candidate candidate = sandbox.finish(id, () -> false);
+            Candidate candidate = finish(sandbox, id);
             assertFalse(candidate.diff().contains("synthetic-private-value"));
             assertTrue(candidate.changedPaths().contains("src/main/java/example/Auth.java"));
             assertTrue(candidate.changedPaths().contains("src/main/java/example/Counter.java"));
@@ -399,7 +433,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void withheldHighRiskSourceStaysOutsideExecutionAndBlocksCompletion() throws Exception {
+    void withheldHighRiskSourceStaysOutsideExecutionWithoutBlanketVeto() throws Exception {
         Path official = fixture();
         Files.writeString(official.resolve("src/main/java/example/Auth.java"),
                 "package example; class Auth { String token = \"sk-" + "a".repeat(32) + "\"; }\n");
@@ -417,7 +451,10 @@ class DockerAgentSandboxTest {
                     () -> tool(sandbox, id, "read_file", Map.of("path", "src/main/java/example/Auth.java")));
             assertTrue(sandbox.preflight(id, () -> false).ready());
             assertTrue(tool(sandbox, id, "exec_command", Map.of("command", "test ! -e src/main/java/example/Auth.java")).contains("COMMAND_SUCCEEDED"));
-            assertTrue(sandbox.completionFeedback(id, () -> false).contains("withheld"));
+            org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, lastCommand));
+            String missing = tool(sandbox, id, "exec_command", Map.of("command", "test -f src/main/java/example/Auth.java"));
+            assertTrue(missing.contains("COMMAND_FAILED"));
+            org.junit.jupiter.api.Assertions.assertNotNull(FixtureCompletion.submit(sandbox, id, lastCommand));
 
         } finally {
             sandbox.cleanup(id);
@@ -467,7 +504,7 @@ class DockerAgentSandboxTest {
                     .contains("synthetic-fixture-password"));
             assertFalse(tool(sandbox, id, "search_code", Map.of("query", "password"))
                     .contains("synthetic-fixture-password"));
-            var checked = json.readTree(tool(sandbox, id, "exec_command", Map.of("command", "npm test", "verification_scope", "Repository tests", "check_kind", "test")));
+            var checked = json.readTree(tool(sandbox, id, "exec_command", Map.of("command", "npm test")));
             assertEquals("COMMAND_SUCCEEDED", checked.path("result").path("classification").asText());
             assertTrue(checked.path("result").path("stdout").asText().contains("pass 3"));
             assertFalse(checked.toString().contains("synthetic-vue-session"));
@@ -515,7 +552,7 @@ class DockerAgentSandboxTest {
                     () -> tool(sandbox, id, "read_file", Map.of("path", "../outside"))).code());
             assertEquals("POLICY_REJECTED", assertThrows(AgentException.class,
                     () -> tool(sandbox, id, "read_file", Map.of("path", ".git/config"))).code());
-            String failed = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository tests", "check_kind", "test"));
+            String failed = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test"));
             assertTrue(failed.contains("COMMAND_FAILED"), failed);
             String patch = """
                     --- a/src/main/java/example/Counter.java
@@ -537,7 +574,7 @@ class DockerAgentSandboxTest {
                     """;
             String applied = tool(sandbox, id, "shell_patch", Map.of("patch", patch));
             assertTrue(applied.contains("\"ok\":true"), applied);
-            String passed = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository tests", "check_kind", "test"));
+            String passed = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test"));
             assertTrue(passed.contains("COMMAND_SUCCEEDED"), passed);
             String changedPom = initialPom.replace("</dependencies>", """
                     <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId>
@@ -554,9 +591,9 @@ class DockerAgentSandboxTest {
                     """;
             assertTrue(tool(sandbox, id, "shell_patch", Map.of("patch", replacement("pom.xml", initialPom, changedPom)
                     + addedTest)).contains("\"ok\":true"));
-            String withNewDependency = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository tests", "check_kind", "test"));
+            String withNewDependency = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test"));
             assertTrue(withNewDependency.contains("COMMAND_SUCCEEDED"), withNewDependency);
-            Candidate candidate = sandbox.finish(id, () -> false);
+            Candidate candidate = finish(sandbox, id);
             assertEquals(5, candidate.changedPaths().size());
             assertTrue(candidate.changedPaths().contains("src/main/java/example/Added.java"));
             assertTrue(candidate.diff().contains("deleted file mode"));
@@ -742,7 +779,7 @@ class DockerAgentSandboxTest {
         try {
             sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", baseline,
                     "goal", "scope", "changes", 21), AgentProtocol.Limits.defaults(), () -> false);
-            String result = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository tests", "check_kind", "test"));
+            String result = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test"));
             // 此夹具故意有一个失败测试；测试实际执行才证明依赖准备成功，不能把环境问题当源码失败。
             assertTrue(result.contains("COMMAND_FAILED"), result);
             assertEquals(1, json.readTree(result).path("result").path("executedTests").asInt());
@@ -761,7 +798,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void passingUnrelatedMavenDirectoryCannotClearKnownFailure() throws Exception {
+    void explicitUnresolvedNecessaryValidationCannotFreezeDespiteOtherPassingCommand() throws Exception {
         Path official = fixture();
         String baseline = git(official, "rev-parse", "HEAD");
         String id = UUID.randomUUID().toString();
@@ -769,7 +806,7 @@ class DockerAgentSandboxTest {
         try {
             sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", baseline,
                     "goal", "scope", "changes", 21), AgentProtocol.Limits.defaults(), () -> false);
-            String failed = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository tests", "check_kind", "test"));
+            String failed = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test"));
             assertTrue(failed.contains("COMMAND_FAILED"), failed);
             assertEquals(".", json.readTree(failed).path("result").path("directory").asText());
             Map<String, String> files = Map.of("independent/pom.xml", pom(21),
@@ -784,9 +821,10 @@ class DockerAgentSandboxTest {
             }
             String applied = tool(sandbox, id, "shell_patch", Map.of("patch", patch.toString()));
             assertTrue(json.readTree(applied).path("ok").asBoolean(), applied);
-            String passed = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "directory", "independent", "verification_scope", "Independent tests", "check_kind", "test"));
+            String passed = tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test", "directory", "independent"));
             assertTrue(passed.contains("COMMAND_SUCCEEDED"), passed);
             assertEquals("independent", json.readTree(passed).path("result").path("directory").asText());
+            assertTrue(sandbox.completionFeedback(id, "{\"status\":\"completed\",\"validationComplete\":false,\"summary\":\"Necessary root check unresolved\"}", () -> false) != null);
             assertEquals("UNRESOLVED_CHECK_FAILURE",
                     assertThrows(AgentException.class, () -> sandbox.finish(id, () -> false)).code());
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));

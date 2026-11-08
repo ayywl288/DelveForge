@@ -93,11 +93,12 @@ class NativeWorkspaceCommandTest {
             JsonNode installed = tool(sandbox, id, "exec_command", Map.of("command", install));
             assertTrue(installed.path("ok").asBoolean(), installed.toString());
             assertTrue(tool(sandbox, id, "exec_command", Map.of("command", "test -f .cache/lifecycle")).path("ok").asBoolean());
-            Map<String, String> check = Map.of("command", manager + " test", "verification_scope", "Workspace linked library regression", "check_kind", "test");
+            Map<String, String> check = Map.of("command", manager + " test");
             assertFalse(tool(sandbox, id, "exec_command", check).path("ok").asBoolean());
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "packages/lib/index.cjs", "old_text", "value = 0", "new_text", "value = 1")).path("ok").asBoolean());
             JsonNode passed = tool(sandbox, id, "exec_command", check);
             assertTrue(passed.path("ok").asBoolean(), passed.toString());
+            org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, passed.path("result")));
             var candidate = sandbox.finish(id, () -> false);
             assertTrue(candidate.changedPaths().contains(manager.equals("npm") ? "package-lock.json" : "pnpm-lock.yaml"));
             assertTrue(candidate.changedPaths().contains("packages/lib/index.cjs"));

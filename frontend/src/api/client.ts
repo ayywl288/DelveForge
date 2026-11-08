@@ -116,6 +116,10 @@ const id = encodeURIComponent;
 const profile = (value: string) => `/user-profiles/${id(value)}`;
 const plan = (value: string) => `/evolution-plans/${id(value)}`;
 export const api = {
+  agentLog: (runId: string, invocationId: string, stream: string, offset: number) =>
+    request<{ ok: boolean; result: { content: string; nextOffset: number; hasMore: boolean; logDiscarded: boolean } }>(
+      `/agent-runs/${encodeURIComponent(runId)}/logs/${encodeURIComponent(invocationId)}?stream=${encodeURIComponent(stream)}&offset=${offset}&limit=4000`),
+
   projects: (offset = 0, deleted = false) =>
     request<ProjectSummary[]>(`/projects?offset=${offset}&limit=50&deleted=${deleted}`),
   deleteProject: (key: string, expectedVersion: number) =>

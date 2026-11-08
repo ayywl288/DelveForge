@@ -72,7 +72,7 @@ class ReadToolRecoveryDockerTest {
                 + "import static org.junit.jupiter.api.Assertions.assertEquals;\n"
                 + "class BoundaryTest { @Test void zero() { assertEquals(1, new Counter().next(0)); } }\n";
         var addedTest = call("edit_file", Map.of("path", testPath, "old_text", "", "new_text", test));
-        var checks = call("exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository regression tests", "check_kind", "test"));
+        var checks = call("exec_command", Map.of("command", "mvn -B test"));
         List<List<AgentProtocol.ToolCall>> turns = List.of(
                 List.of(edited, malformed, missing, invalidRange, pagination, query),
                 List.of(lookup, corrected), List.of(addedTest), List.of(checks));
@@ -83,7 +83,7 @@ class ReadToolRecoveryDockerTest {
             observed.addAll(history);
             int turn = requests.getAndIncrement();
             return turn < turns.size() ? new AgentProtocol.Reply("", turns.get(turn), 1L)
-                    : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+                    : new AgentProtocol.Reply(FixtureCompletion.report(history), List.of(), 1L);
         };
         AgentProtocol.Run terminal;
         try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,

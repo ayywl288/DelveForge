@@ -93,10 +93,10 @@ class DockerRetentionRecoveryTest {
         assertTrue(sandbox.tool(run.id(), new AgentProtocol.ToolCall("edit", "edit_file",
                 new ObjectMapper().writeValueAsString(Map.of("path", "src/main/java/example/Counter.java",
                         "old_text", "return n;", "new_text", "return n + 1;"))), () -> false).contains("PATCH_APPLIED"));
-        assertTrue(sandbox.tool(run.id(), new AgentProtocol.ToolCall("verify", "exec_command",
-                new ObjectMapper().writeValueAsString(Map.of("command", "mvn -B test",
-                        "verification_scope", "Repository tests", "check_kind", "test"))), () -> false)
-                .contains("COMMAND_SUCCEEDED"));
+        var checked = new ObjectMapper().readTree(sandbox.tool(run.id(), new AgentProtocol.ToolCall("verify", "exec_command",
+                new ObjectMapper().writeValueAsString(Map.of("command", "mvn -B test"))), () -> false));
+        assertEquals("COMMAND_SUCCEEDED", checked.path("result").path("classification").asText());
+        org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, run.id(), checked.path("result")));
         database.store.advance(run.id(), AgentRunState.RUNNING, AgentRunState.FINALIZING, null);
         Candidate candidate = sandbox.finish(run.id(), () -> false);
         assertEquals(candidate.diff(), Files.readString(material()));
@@ -204,7 +204,9 @@ class DockerRetentionRecoveryTest {
             try (var restart = service(new SqliteAgentStore(database.source), restartedSandbox())) {
                 restart.reconcile();
             }
-            assertFalse(Files.exists(properties.root().resolve(run.id())));
+            try (var remaining = Files.list(properties.root().resolve(run.id()))) {
+                assertEquals(List.of("command-logs"), remaining.map(path -> path.getFileName().toString()).toList());
+            }
             assertTrue(database.store.abandoned().isEmpty());
             assertEquals(candidate, new SqliteAgentStore(database.source).candidate(candidate.id()));
             assertEquals(AgentRunState.SUCCEEDED, database.store.get(run.id()).state());
