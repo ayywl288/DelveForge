@@ -43,7 +43,7 @@ class DockerMavenCompatibilityTest {
                     "compatibility", "compile", "build", null), AgentProtocol.Limits.defaults(), () -> false);
             assertEquals(21, sandbox.identity(id).targetJdk());
             String result = sandbox.tool(id, new AgentProtocol.ToolCall("java8-compile", "exec_command",
-                    "{\"command\":\"mvn -B compile\",\"verification_scope\":\"Java 8 source compatibility\",\"check_kind\":\"build\"}"), () -> false);
+                    "{\"command\":\"mvn -B compile\"}"), () -> false);
             assertTrue(result.contains("COMMAND_SUCCEEDED"), result);
             assertEquals(pom, Files.readString(official.resolve("pom.xml")));
             org.junit.jupiter.api.Assertions.assertArrayEquals(index, Files.readAllBytes(official.resolve(".git/index")));
@@ -78,7 +78,7 @@ class DockerMavenCompatibilityTest {
             assertFalse(json.readTree(wrongRoot).path("ok").asBoolean());
             assertFalse(json.readTree(wrongRoot).path("checkStarted").asBoolean());
             String result = sandbox.tool(id, new AgentProtocol.ToolCall("reactor-test", "exec_command",
-                    json.writeValueAsString(Map.of("command", "mvn -B test", "directory", "complete", "verification_scope", "Reactor tests", "check_kind", "test"))), () -> false);
+                    json.writeValueAsString(Map.of("command", "mvn -B test", "directory", "complete"))), () -> false);
             assertTrue(result.contains("COMMAND_SUCCEEDED"), result);
             assertTrue(json.readTree(result).path("result").path("executedTests").asInt() >= 2, result);
             // 在同一真实 reactor 的两个模块增加源码，验证最终捕获不局限于单模块或工具名单。
@@ -92,8 +92,9 @@ class DockerMavenCompatibilityTest {
                 assertTrue(json.readTree(applied).path("ok").asBoolean(), applied);
             }
             String rechecked = sandbox.tool(id, new AgentProtocol.ToolCall("reactor-retest", "exec_command",
-                    json.writeValueAsString(Map.of("command", "mvn -B test", "directory", "complete", "verification_scope", "Reactor tests", "check_kind", "test"))), () -> false);
+                    json.writeValueAsString(Map.of("command", "mvn -B test", "directory", "complete"))), () -> false);
             assertTrue(rechecked.contains("COMMAND_SUCCEEDED"), rechecked);
+            org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, json.readTree(rechecked).path("result")));
             var candidate = sandbox.finish(id, () -> false);
             assertEquals(java.util.Set.of(libraryPath, applicationPath), java.util.Set.copyOf(candidate.changedPaths()));
             assertEquals(revision, fixture.git(official, "rev-parse", "HEAD"));

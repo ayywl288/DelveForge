@@ -90,3 +90,16 @@ it("requires an explicit valid final snapshot binding before presenting a test p
         expect(presentTestEvidence(raw).counts).toBeNull();
     }
 });
+
+
+it("v7 shows only actual referenced current executions and refuses an explicitly unresolved report", () => {
+    const snapshot = "a".repeat(64);
+    const evidence = { evidenceVersion: 7, status: "NOT_TESTED", runId: "run", finalSnapshot: snapshot,
+        agentReport: { status: "completed", validationComplete: true, executions: ["pass"], limitations: "projected view" },
+        checks: [{ invocationId: "old", runId: "run", classification: "COMMAND_FAILED", exitCode: 1, snapshot },
+            { invocationId: "pass", runId: "run", classification: "COMMAND_SUCCEEDED", exitCode: 0,
+                snapshot, afterSnapshot: snapshot, timedOut: false, cancelled: false }] };
+    expect(presentTestEvidence(JSON.stringify(evidence)).label).toBe("引用执行已核验");
+    evidence.agentReport.validationComplete = false;
+    expect(presentTestEvidence(JSON.stringify(evidence)).tone).toBe("warning");
+});

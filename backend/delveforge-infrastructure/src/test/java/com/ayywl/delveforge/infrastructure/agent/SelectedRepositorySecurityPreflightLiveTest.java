@@ -67,8 +67,7 @@ class SelectedRepositorySecurityPreflightLiveTest {
             assertTrue(command != null && !command.isBlank(), "Provide the repository's actual verification command");
             String response = sandbox.tool(id, new AgentProtocol.ToolCall(UUID.randomUUID().toString(),
                     "exec_command", json.writeValueAsString(Map.of("directory",
-                            System.getProperty("delveforge.validation.command-directory", "."), "command", command,
-                            "verification_scope", "Explicit selected repository verification", "check_kind", "test"))),
+                            System.getProperty("delveforge.validation.command-directory", "."), "command", command))),
                     () -> false);
             var checked = json.readTree(response);
             evidence.set("nativeCheck", checked);

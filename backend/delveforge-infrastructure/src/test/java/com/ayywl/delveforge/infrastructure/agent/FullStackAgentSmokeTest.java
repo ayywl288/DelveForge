@@ -115,7 +115,7 @@ class FullStackAgentSmokeTest {
         List<AgentProtocol.ToolCall> actions = mixed ? List.of(
                 call("read_file", Map.of("path", "src/main/java/example/Counter.java")),
                 call("read_file", Map.of("path", "frontend/src/counter.ts")),
-                call("exec_command", Map.of("command", mavenCommand, "verification_scope", "Repository backend tests", "check_kind", "test")),
+                call("exec_command", Map.of("command", mavenCommand)),
                 call("edit_file", Map.of("path", "frontend/package.json", "old_text", "\"vue\": \"3.5.17\"",
                         "new_text", "\"vue\": \"3.5.18\"")),
                 call("exec_command", Map.of("command", manager.equals("npm") ? "npm ci --ignore-scripts --no-audit --no-fund" : "pnpm install --frozen-lockfile --ignore-scripts", "directory", "frontend")),
@@ -125,25 +125,25 @@ class FullStackAgentSmokeTest {
                 call("exec_command", Map.of("command", manager.equals("npm") ? "npm ci --ignore-scripts --no-audit --no-fund" : "pnpm install --frozen-lockfile --ignore-scripts", "directory", "frontend")),
                 call("edit_file", Map.of("path", lockPath, "old_text", corruptIntegrity, "new_text", legacyIntegrity)),
                 call("exec_command", Map.of("command", manager.equals("npm") ? "npm ci --ignore-scripts --no-audit --no-fund" : "pnpm install --frozen-lockfile --ignore-scripts", "directory", "frontend")),
-                call("exec_command", Map.of("command", manager + " run test", "directory", "frontend", "verification_scope", "Repository frontend tests", "check_kind", "test")),
+                call("exec_command", Map.of("command", manager + " run test", "directory", "frontend")),
                 call("edit_file", Map.of("path", "src/main/java/example/Counter.java", "old_text", "return n;", "new_text", "return n + 1;")),
                 call("edit_file", Map.of("path", "frontend/src/counter.ts", "old_text", "return value;", "new_text", "return 'bad';")),
-                call("exec_command", Map.of("command", manager + " run typecheck", "directory", "frontend", "verification_scope", "Repository typecheck", "check_kind", "other")),
+                call("exec_command", Map.of("command", manager + " run typecheck", "directory", "frontend")),
                 call("edit_file", Map.of("path", "frontend/src/counter.ts", "old_text", "return 'bad';", "new_text", "return value + 1;")),
-                call("exec_command", Map.of("command", mavenCommand, "verification_scope", "Repository backend tests", "check_kind", "test")),
-                call("exec_command", Map.of("command", manager + " run typecheck", "directory", "frontend", "verification_scope", "Repository typecheck", "check_kind", "other")),
+                call("exec_command", Map.of("command", mavenCommand)),
+                call("exec_command", Map.of("command", manager + " run typecheck", "directory", "frontend")),
                 call("edit_file", Map.of("path", "frontend/src/App.vue", "old_text", "'./counter'", "new_text", "'./missing'")),
-                call("exec_command", Map.of("command", manager + " run build", "directory", "frontend", "verification_scope", "Repository build", "check_kind", "build")),
+                call("exec_command", Map.of("command", manager + " run build", "directory", "frontend")),
                 call("edit_file", Map.of("path", "frontend/src/App.vue", "old_text", "'./missing'", "new_text", "'./counter'")),
-                call("exec_command", Map.of("command", manager + " run build", "directory", "frontend", "verification_scope", "Repository build", "check_kind", "build")),
-                call("exec_command", Map.of("command", manager + " run test", "directory", "frontend", "verification_scope", "Repository frontend tests", "check_kind", "test")),
-                call("exec_command", Map.of("command", mavenCommand, "verification_scope", "Repository backend tests", "check_kind", "test")),
-                call("exec_command", Map.of("command", manager + " run typecheck", "directory", "frontend", "verification_scope", "Repository type checks", "check_kind", "other"))) : List.of(
+                call("exec_command", Map.of("command", manager + " run build", "directory", "frontend")),
+                call("exec_command", Map.of("command", manager + " run test", "directory", "frontend")),
+                call("exec_command", Map.of("command", mavenCommand)),
+                call("exec_command", Map.of("command", manager + " run typecheck", "directory", "frontend"))) : List.of(
                 call("read_file", Map.of("path", "src/main/java/example/Counter.java")),
-                call("exec_command", Map.of("command", mavenCommand, "verification_scope", "Repository backend tests", "check_kind", "test")),
+                call("exec_command", Map.of("command", mavenCommand)),
                 call("edit_file", Map.of("path", "src/main/java/example/Counter.java", "old_text", "return n;",
                         "new_text", "return n + 1;")),
-                call("exec_command", Map.of("command", mavenCommand, "verification_scope", "Repository backend tests", "check_kind", "test")));
+                call("exec_command", Map.of("command", mavenCommand)));
         AtomicInteger turn = new AtomicInteger();
         List<String> observations = new ArrayList<>();
         AgentModelPort model = (history, tools) -> {
@@ -152,7 +152,7 @@ class FullStackAgentSmokeTest {
                     .forEach(message -> observations.add(message.text()));
             int index = turn.getAndIncrement();
             return index < actions.size() ? new AgentProtocol.Reply("", List.of(actions.get(index)), 1L)
-                    : new AgentProtocol.Reply("{\"status\":\"completed\",\"summary\":\"Counter increment\"}", List.of(), 1L);
+                    : new AgentProtocol.Reply(FixtureCompletion.report(history), List.of(), 1L);
         };
         String candidateId;
         AgentProtocol.Limits limits = AgentProtocol.Limits.defaults();
@@ -186,7 +186,7 @@ class FullStackAgentSmokeTest {
             assertFalse(candidate.testEvidence().contains("FRONTEND"));
         }
         assertTrue(candidate.changedPaths().contains("src/main/java/example/Counter.java"));
-        assertEquals(6, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
+        assertEquals(7, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
         assertEquals("PROJECTED", json.readTree(candidate.testEvidence()).path("sourceView").path("kind").asText());
         assertEquals(1, json.readTree(candidate.testEvidence()).path("sourceView").path("preservedOnlyCount").asInt());
         assertFalse(candidate.changedPaths().stream().anyMatch(path -> path.endsWith("INSTALL_SCRIPT_RAN")),

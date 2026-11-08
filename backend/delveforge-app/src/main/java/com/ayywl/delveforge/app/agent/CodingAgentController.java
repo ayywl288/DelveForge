@@ -67,6 +67,13 @@ public class CodingAgentController {
                 .body(streams.open(id, cursor));
     }
 
+    @GetMapping(value = "/api/agent-runs/{id}/logs/{invocationId}", produces = "application/json")
+    public String log(@PathVariable String id, @PathVariable String invocationId,
+            @RequestParam(defaultValue = "stdout") String stream,
+            @RequestParam(defaultValue = "0") int offset, @RequestParam(defaultValue = "4000") int limit) {
+        return service.readLog(id, invocationId, stream, offset, limit);
+    }
+
     @GetMapping("/api/agent-candidates/{id}/delivery")
     public Delivery delivery(@PathVariable String id) {
         return delivery.get(id);

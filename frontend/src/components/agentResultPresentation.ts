@@ -91,7 +91,10 @@ export function presentCheckRows(raw: string) {
         const latest = new Map(recorded.map(check => [key(check), check]));
         const required = new Set(Array.isArray(value.requiredChecks) ? value.requiredChecks.filter(record).map(key) : []);
         return [...recorded].reverse().map(check => ({
-            current: value.evidenceVersion === 6 && required.has(key(check)) && latest.get(key(check)) === check
+            current: value.evidenceVersion === 7 && record(value.agentReport) && Array.isArray(value.agentReport.executions)
+                && value.agentReport.executions.includes(check.invocationId)
+                && check.snapshot === value.finalSnapshot && check.afterSnapshot === value.finalSnapshot
+                || value.evidenceVersion === 6 && required.has(key(check)) && latest.get(key(check)) === check
                 && check.snapshot === value.finalSnapshot && check.afterSnapshot === value.finalSnapshot,
             scope: checkScope(check), label: verificationLabel(String(check.classification)),
             stale: check.snapshot !== value.finalSnapshot || (check.checkType === "COMMAND"
@@ -111,6 +114,19 @@ export function presentTestEvidence(raw: string): TestPresentation {
     const fresh = checks.filter(check => check.stale === false
         && typeof value.finalSnapshot === "string" && /^[0-9a-f]{64}$/.test(value.finalSnapshot)
         && check.snapshot === value.finalSnapshot);
+    if (value.evidenceVersion === 7) {
+        const report = record(value.agentReport) ? value.agentReport : {};
+        const refs = Array.isArray(report.executions) ? report.executions : [];
+        const valid = report.status === "completed" && report.validationComplete === true && refs.length > 0
+            && refs.every(id => checks.some(check => check.invocationId === id && check.runId === value.runId
+                && check.classification === "COMMAND_SUCCEEDED" && check.exitCode === 0
+                && check.timedOut === false && check.cancelled === false
+                && check.snapshot === value.finalSnapshot && check.afterSnapshot === value.finalSnapshot
+                && !(record(check.testReport) && (Number(check.testReport.failures) > 0 || Number(check.testReport.errors) > 0))));
+        return valid ? { label: "引用执行已核验", outcome: "执行事实对应冻结源码；检查范围与充分性由 Agent 报告说明。",
+            scope: `${refs.length} 次执行 · ${value.testDetails === "AVAILABLE" ? "有测试明细" : "测试明细未知"}`,
+            tone: "success", counts: null } : unknown;
+    }
     if (value.evidenceVersion === 6) {
         if (value.verificationLevel !== "COMMAND_VERIFIED" || !Array.isArray(value.requiredChecks)) return unknown;
         const required = value.requiredChecks.filter(record);

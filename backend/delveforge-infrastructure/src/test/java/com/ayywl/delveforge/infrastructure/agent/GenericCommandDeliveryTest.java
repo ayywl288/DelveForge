@@ -47,6 +47,7 @@ class GenericCommandDeliveryTest {
         Files.writeString(root.resolve("check.cpp"), "#include <cassert>\nint next(int);\nint main() { assert(next(1) == 2); assert(next(-1) == 0); }\n");
         Files.writeString(root.resolve("check.sh"), "set -eu\nmkdir -p build\ng++ counter.cpp check.cpp -o build/check\nbuild/check\n");
         Files.writeString(root.resolve(".env.example"), "API_URL=https://example.com\n");
+        Files.writeString(root.resolve("docker-compose.yml"), "services:\n  db:\n    environment:\n      MYSQL_ROOT_PASSWORD: fixture-private-value\n");
         Files.writeString(root.resolve(".env.local"), "PASSWORD=private-fixture-value\n");
         git.git(root, "init", "--template=");
         git.git(root, "add", ".");
@@ -88,10 +89,11 @@ class GenericCommandDeliveryTest {
         var sandbox = sandbox();
         List<AgentProtocol.ToolCall> actions = List.of(
                 call("read_file", Map.of("path", "README.md")),
-                call("exec_command", Map.of("command", "sh check.sh", "verification_scope", "README and Step: increment behavior", "check_kind", "test")),
+                call("exec_command", Map.of("command", "sh check.sh")),
+                call("update_plan", Map.of("notes", "Actual check failed; inspect counter.cpp. [ ] repair and recheck")),
                 call("read_file", Map.of("path", "counter.cpp")),
                 call("edit_file", Map.of("path", "counter.cpp", "old_text", "return n;", "new_text", "return n + 1;")),
-                call("exec_command", Map.of("command", "sh check.sh", "verification_scope", "README and Step: increment behavior", "check_kind", "test")));
+                call("exec_command", Map.of("command", "sh check.sh")));
         AtomicInteger turn = new AtomicInteger();
         List<String> observations = new ArrayList<>();
         AgentModelPort model = (history, tools) -> {
@@ -99,7 +101,7 @@ class GenericCommandDeliveryTest {
             history.stream().filter(message -> message.role().equals("tool")).forEach(message -> observations.add(message.text()));
             int index = turn.getAndIncrement();
             return index < actions.size() ? new AgentProtocol.Reply("", List.of(actions.get(index)), 1L)
-                    : new AgentProtocol.Reply("{\"status\":\"completed\",\"summary\":\"increment verified\"}", List.of(), 1L);
+                    : new AgentProtocol.Reply(FixtureCompletion.report(history), List.of(), 1L);
         };
         String candidateId;
         try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
@@ -113,7 +115,7 @@ class GenericCommandDeliveryTest {
         assertTrue(observations.stream().anyMatch(value -> value.contains("COMMAND_FAILED")));
         var candidate = database.store.candidate(candidateId);
         assertEquals(List.of("counter.cpp"), candidate.changedPaths());
-        assertEquals(6, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
+        assertEquals(7, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
         assertEquals(baseline, git.git(official, "rev-parse", "HEAD"));
         var deliveries = new SqliteDeliveryStore(database.source, eligibility);
         try (var delivery = new CandidateDeliveryService(database.store, deliveries, workspace, eligibility)) {
@@ -126,6 +128,8 @@ class GenericCommandDeliveryTest {
         assertEquals(candidate.expectedTree(), git.git(official, "rev-parse", "HEAD^{tree}"));
         assertEquals(baseline, git.git(original, "rev-parse", "HEAD"));
         assertFalse(Files.exists(official.resolve("build")));
+        assertEquals(Files.readString(original.resolve("docker-compose.yml")), Files.readString(official.resolve("docker-compose.yml")));
+        assertTrue(json.readTree(candidate.testEvidence()).path("sourceView").path("withheldSourceCount").asInt() > 0);
         try (var connection = database.source.getConnection(); var statement = connection.createStatement();
                 var state = statement.executeQuery("SELECT p.status, s.status FROM evolution_plan p "
                         + "JOIN evolution_step s ON s.plan_id=p.id WHERE p.id='plan' AND s.id='step'")) {
@@ -155,6 +159,10 @@ class GenericCommandDeliveryTest {
             var output = exec(sandbox, id, "python3 -c \"print('x'*100000)\"");
             assertTrue(output.path("result").path("outputTruncated").asBoolean());
             assertEquals(0, output.path("result").path("exitCode").asInt());
+            String logId = output.path("result").path("logRef").asText();
+            assertFalse(logId.isBlank());
+            assertEquals(4000, json.readTree(sandbox.readLog(id, logId, "stdout", 4000, 4000))
+                    .path("result").path("content").asText().length());
             var timeout = json.readTree(sandbox.tool(id, call("exec_command", Map.of("command", "sleep 30 & wait", "timeout_seconds", 1)), () -> false));
             assertTrue(timeout.path("result").path("timedOut").asBoolean());
             assertFalse(timeout.path("ok").asBoolean());
@@ -165,9 +173,9 @@ class GenericCommandDeliveryTest {
             assertTrue(cancelled.path("result").path("cancelled").asBoolean(), cancelled.toString());
             assertFalse(cancelled.path("ok").asBoolean());
             var verified = json.readTree(sandbox.tool(id, call("exec_command", Map.of(
-                    "command", "test -s counter.cpp", "verification_scope", "Required source presence", "check_kind", "other")), () -> false));
+                    "command", "test -s counter.cpp")), () -> false));
             assertTrue(verified.path("ok").asBoolean(), verified.toString());
-            assertNull(sandbox.completionFeedback(id, () -> false));
+            assertNull(FixtureCompletion.submit(sandbox, id, verified.path("result")));
             assertTrue(exec(sandbox, id, "printf 'int next(int n) { return n + 1; }\\n' > counter.cpp").path("result").path("sourceChanged").asBoolean());
             assertTrue(new AgentProcess().run(List.of("docker", "ps", "-q", "--filter", "name=df-" + id + "-command"), null, null,
                     java.time.Duration.ofSeconds(10), 1000, () -> false, Map.of()).text().isBlank(), "writer remains");
@@ -183,6 +191,7 @@ class GenericCommandDeliveryTest {
             assertTrue(retained.path("changedPaths").toString().contains("GUIDE.md"));
             sandbox.cleanup(id);
             assertTrue(Files.exists(Path.of(partial)));
+            assertTrue(json.readTree(sandbox.readLog(id, logId, "stdout", 0, 4000)).path("ok").asBoolean());
             assertEquals(baseline, git.git(original, "rev-parse", "HEAD"));
         } finally {
             sandbox.cleanup(id);

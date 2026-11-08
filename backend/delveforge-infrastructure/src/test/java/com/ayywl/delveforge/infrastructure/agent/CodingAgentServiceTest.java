@@ -205,6 +205,47 @@ class CodingAgentServiceTest {
     }
 
     @Test
+    void latestOptionalNotesSurviveCompactionAndDoNotInvokeWorkspaceOrGateCompletion() throws Exception {
+        var limits = new AgentProtocol.Limits(14000, 24000, 131072, 262144, 2097152, 10000, 30);
+        var count = new AtomicInteger();
+        var sawCompaction = new java.util.concurrent.atomic.AtomicBoolean();
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            var call = (AgentProtocol.ToolCall) invocation.getArgument(1);
+            return new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode().put("ok", true).set("result",
+                    new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode().put("path", "README.md")
+                            .put("content", call.id() + "x".repeat(2500))).toString();
+        });
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AgentModelPort model = (history, tools) -> {
+            int turn = count.incrementAndGet();
+            if (turn > 2) {
+                assertTrue(history.get(1).text().contains("authorizedStep"));
+                assertTrue(history.stream().anyMatch(message -> message.text().contains("最新工作笔记")
+                        && message.text().contains("[ ] stale item; native check now passed")));
+            }
+            sawCompaction.set(sawCompaction.get() || history.stream()
+                    .anyMatch(message -> message.text().startsWith("较早工具上下文已压缩")));
+            if (turn == 1 || turn == 2) {
+                return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("notes-" + turn,
+                        "update_plan", "{\"notes\":\"" + (turn == 1 ? "Initial repository finding"
+                                : "[ ] stale item; native check now passed") + "\"}")), 1L);
+            }
+            if (turn < 13) {
+                return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("read-" + turn,
+                        "read_file", "{\"path\":\"README.md\"}")), 1L);
+            }
+            return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+        };
+        try (var service = service(model, limits)) {
+            String id = service.start("plan", "step", 21).id();
+            assertEquals(AgentRunState.SUCCEEDED, awaitTerminal(service, id, 10).state());
+            assertTrue(sawCompaction.get());
+            assertEquals(2, service.events(id, 0, 200).stream().filter(event -> event.kind().equals("WORKING_NOTES")).count());
+            verify(sandbox, never()).tool(anyString(), org.mockito.ArgumentMatchers.<AgentProtocol.ToolCall>argThat(call -> call.name().equals("update_plan")), any());
+        }
+    }
+
+    @Test
     void instructionsSeparateExplorationFromFinalChecksAndKeepTemporaryLogsOutsideSource() throws Exception {
         var captured = new java.util.concurrent.atomic.AtomicReference<String>();
         AgentModelPort model = (history, tools) -> {
@@ -215,15 +256,12 @@ class CodingAgentServiceTest {
             var run = awaitTerminal(service, service.start("plan", "step", 21).id(), 10);
             assertEquals("MODEL_INCOMPLETE", run.reason());
             String instructions = captured.get();
-            assertTrue(instructions.contains("通常同时省略 verification_scope/check_kind"));
-            assertTrue(instructions.contains("先读取已有测试报告"));
-            assertTrue(instructions.contains("重试保持 command 和 directory 完全一致"));
-            assertTrue(instructions.contains("适用检查一经登记须全部重验"));
-            assertTrue(instructions.contains("绝不把测试/构建日志重定向到仓库相对路径"));
-            assertTrue(instructions.contains("临时输出只用 /tmp/"));
-            assertTrue(instructions.contains("不跨调用保留"));
-            assertTrue(instructions.contains("不要通过额外源码修改来清理日志"));
-            assertTrue(instructions.contains("停止无意义重试并如实报告"));
+            assertFalse(instructions.contains("verification_scope"));
+            assertFalse(instructions.contains("command 和 directory 完全一致"));
+            assertTrue(instructions.contains("invocationId"));
+            assertTrue(instructions.contains("不弱化测试"));
+            assertTrue(instructions.contains("update_plan 是可选"));
+            assertTrue(instructions.contains("stdout") || instructions.contains("read_log"));
         }
     }
 
@@ -249,8 +287,8 @@ class CodingAgentServiceTest {
             assertFalse(user.contains("\"acceptanceContext\":"));
             assertFalse(user.contains("userProfile"));
             assertFalse(user.contains("repositoryProfile"));
-            assertTrue(captured.get().get(3).text().contains("mavenDirectories"));
-            assertTrue(captured.get().get(3).text().contains("不是验证结果或额外授权"));
+            assertTrue(captured.get().get(2).text().contains("mavenDirectories"));
+            assertTrue(captured.get().get(2).text().contains("不是任务完成证据或额外授权"));
             verify(sandbox).checkCapabilities(eq(run.id()), any());
         }
     }
@@ -336,11 +374,11 @@ class CodingAgentServiceTest {
             assertEquals("MODEL_INCOMPLETE", run.reason());
             assertFalse(run.cancelRequested());
             assertNull(run.candidateId());
-            assertTrue(observed.stream().anyMatch(value -> value.contains("VERIFICATION_FIELDS_REQUIRED")));
+            assertTrue(observed.stream().anyMatch(value -> value.contains("INVALID_ARGUMENTS")));
             verify(sandbox, times(1)).tool(eq(run.id()), any(), any());
             verify(sandbox, never()).finish(anyString(), any());
             var invalid = service.events(run.id(), 0, 100).stream()
-                    .filter(event -> event.kind().equals("TOOL_FINISHED") && event.summary().contains("VERIFICATION_FIELDS_REQUIRED"))
+                    .filter(event -> event.kind().equals("TOOL_FINISHED") && event.summary().contains("INVALID_ARGUMENTS"))
                     .findFirst().orElseThrow();
             assertTrue(invalid.summary().contains("npm ci"));
             assertTrue(invalid.summary().contains("mutationNotStarted"));
@@ -396,6 +434,34 @@ class CodingAgentServiceTest {
             verify(sandbox, never()).finish(anyString(), any());
             verify(sandbox).cleanup(id);
             assertTrue(database.store.abandoned().isEmpty());
+        }
+    }
+
+    @Test
+    void provenPathRefusalRemainsClassifiedAndAllowsTheNextSafeRead() throws Exception {
+        var denied = new AgentProtocol.ToolCall("denied-path", "read_file", "{\"path\":\"README.md\"}");
+        var allowed = new AgentProtocol.ToolCall("allowed-path", "read_file", "{\"path\":\"src/Counter.java\"}");
+        when(sandbox.tool(anyString(), eq(denied), any())).thenThrow(new AgentPolicyRejection(
+                AgentPolicyRejection.Rule.RESOURCE_CAPABILITY, AgentPolicyRejection.Stage.PATH_VALIDATION));
+        when(sandbox.tool(anyString(), eq(allowed), any())).thenReturn(
+                "{\"ok\":true,\"result\":{\"path\":\"src/Counter.java\",\"content\":\"source\"}}");
+        AtomicInteger turns = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> switch (turns.getAndIncrement()) {
+            case 0 -> new AgentProtocol.Reply("", List.of(denied), 1L);
+            case 1 -> {
+                assertTrue(history.getLast().text().contains("RESOURCE_CAPABILITY"));
+                assertTrue(history.getLast().text().contains("readNotStarted"));
+                yield new AgentProtocol.Reply("", List.of(allowed), 1L);
+            }
+            default -> new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"fixture ends after corrected read\"}", List.of(), 1L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("MODEL_INCOMPLETE", awaitTerminal(service, id, 10).reason());
+            verify(sandbox).tool(anyString(), eq(allowed), any());
+            assertTrue(service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED"))
+                    .anyMatch(event -> event.summary().contains("RESOURCE_CAPABILITY")
+                            && event.summary().contains("PATH_VALIDATION")));
         }
     }
 
@@ -1136,7 +1202,7 @@ class CodingAgentServiceTest {
 
     @Test
     void completionObligationsReturnFeedbackBeforeFinalizingAndRepeatedUnchangedCompletionStops() throws Exception {
-        when(sandbox.completionFeedback(anyString(), any())).thenReturn(
+        when(sandbox.completionFeedback(anyString(), anyString(), any())).thenReturn(
                 "{\"classification\":\"UNRESOLVED_CHECK_FAILURE\",\"reason\":\"Current full check required\"}");
         AtomicInteger calls = new AtomicInteger();
         try (var service = service((history, tools) -> {
@@ -1159,7 +1225,7 @@ class CodingAgentServiceTest {
 
     @Test
     void correctedCompletionObligationsStillRequireNormalFreeze() throws Exception {
-        when(sandbox.completionFeedback(anyString(), any())).thenReturn(
+        when(sandbox.completionFeedback(anyString(), anyString(), any())).thenReturn(
                 "{\"classification\":\"UNRESOLVED_CHECK_FAILURE\"}", (String) null);
         when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
         try (var service = service((history, tools) -> new AgentProtocol.Reply(
@@ -1553,7 +1619,7 @@ class CodingAgentServiceTest {
                 return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
             }
             return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("check-" + request, "exec_command",
-                    "{\"command\":\"mvn -pl library -Dtest=CounterTest test\",\"directory\":\"nested\",\"verification_scope\":\"CounterTest\",\"check_kind\":\"test\"}")), 1L);
+                    "{\"command\":\"mvn -pl library -Dtest=CounterTest test\",\"directory\":\"nested\"}")), 1L);
         };
         try (var service = service(observing, limits)) {
             String id = service.start("plan", "step", null).id();

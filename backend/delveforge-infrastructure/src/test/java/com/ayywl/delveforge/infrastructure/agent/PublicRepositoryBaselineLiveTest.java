@@ -42,7 +42,7 @@ class PublicRepositoryBaselineLiveTest {
                     source.toString(), evidence.resolve("unused-original").toString(), baseline,
                     "Unmodified upstream baseline check", "complete", "none", 17), limits, () -> false);
             String result = sandbox.tool(run, new AgentProtocol.ToolCall("baseline-test", "exec_command",
-                    "{\"command\":\"mvn -B test\",\"directory\":\"complete\",\"verification_scope\":\"Upstream reactor tests\",\"check_kind\":\"test\"}"), () -> false);
+                    "{\"command\":\"mvn -B test\",\"directory\":\"complete\"}"), () -> false);
             var json = new ObjectMapper();
             Files.writeString(evidence.resolve("baseline.json"), json.writerWithDefaultPrettyPrinter()
                     .writeValueAsString(Map.of("baseline", baseline, "identity", sandbox.identity(run),

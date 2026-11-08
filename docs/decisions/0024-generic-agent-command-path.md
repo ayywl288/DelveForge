@@ -1,5 +1,7 @@
 # ADR-0024：以原生命令替代活动语言适配工作流
 
+> 活动完成义务、失败用例清单及 withheld 数量否决已由 [ADR-0025](0025-agent-loop-convergence.md) 替代；下文保留 v6 历史决定，其他隔离和执行边界继续适用。
+
 - 状态：Accepted（2026-11-07，当前任务用户明确授权）
 - 范围：现有单 Agent、Spring AI、Docker Workspace、Candidate/Delivery；不改变 Maven 模块、Aggregate 或数据库结构。
 - 替代：ADR-0021/0022 的活动工具路由、安装/检查分阶段与语言准入；ADR-0020 的 PUBLIC_RESOURCE 模型不可见约定；ADR-0023 的活动 v5 生成与“必须修改测试”门槛。旧持久化证据仍按历史版本读取。

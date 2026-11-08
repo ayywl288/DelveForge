@@ -1,6 +1,8 @@
 # ARCHITECTURE.md
 
-**2026-11-07 当前执行架构：** [ADR-0024](decisions/0024-generic-agent-command-path.md) 在现有单 Agent/Spring AI/Workspace 边界内替代活动 Maven/frontend 适配工作流。模型仅使用 list_files/search_code/read_file/edit_file/exec_command；Infrastructure 负责隔离原生命令、受控工件网络、实际源码变化与证据 v6。协议 v9；公开资源真实只读挂载且模型可读。命令进程与可信收据、正式副本隔离，完成前停止全部写入者。保留薄工具链配置和历史证据读者，不引入模块、Aggregate、编排引擎或数据库迁移。以下 v8、无网络脚本执行及专用完成门槛仅适用于旧版本。
+**2026-11-07 Agent Loop Convergence 当前架构：** [ADR-0025](decisions/0025-agent-loop-convergence.md) 在现有边界内加入可选 Run 工作笔记和有界日志读取；活动命令不注册验证义务。Application 保留授权/上下文与事实核验，Infrastructure 记录进程、日志、执行视图及源码身份；活动证据 v7，容器协议仍 v9。没有模块、数据库迁移、编排引擎或审批变更。下方 v6 注册义务和 blanket withheld 拒绝是已替代的历史政策。
+
+**2026-11-07 历史 v6 执行架构（完成政策已由 ADR-0025 替代）：** [ADR-0024](decisions/0024-generic-agent-command-path.md) 在现有单 Agent/Spring AI/Workspace 边界内替代活动 Maven/frontend 适配工作流。模型仅使用 list_files/search_code/read_file/edit_file/exec_command；Infrastructure 负责隔离原生命令、受控工件网络、实际源码变化与证据 v6。协议 v9；公开资源真实只读挂载且模型可读。命令进程与可信收据、正式副本隔离，完成前停止全部写入者。保留薄工具链配置和历史证据读者，不引入模块、Aggregate、编排引擎或数据库迁移。以下 v8、无网络脚本执行及专用完成门槛仅适用于旧版本。
 
 **2026-11-04 原随机演化收尾：** 现有 Agent 启动 API 可附带可选 acceptanceContext（最多 3000 字符），Application 将其净化为本次运行的解释性数据并记录既有审计事件。它不替换或持久修改已确认 Step，不授予额外修改权限，不替代费用确认、检查或交付债务确认；旧请求省略该字段仍保持原行为。无数据库、领域状态或模块调整。
 

@@ -72,7 +72,7 @@ class ReadToolRecoveryDockerTest {
                 + "import static org.junit.jupiter.api.Assertions.assertEquals;\n"
                 + "class BoundaryTest { @Test void zero() { assertEquals(1, new Counter().next(0)); } }\n";
         var addedTest = call("edit_file", Map.of("path", testPath, "old_text", "", "new_text", test));
-        var checks = call("exec_command", Map.of("command", "mvn -B test", "verification_scope", "Repository regression tests", "check_kind", "test"));
+        var checks = call("exec_command", Map.of("command", "mvn -B test"));
         List<List<AgentProtocol.ToolCall>> turns = List.of(
                 List.of(edited, malformed, missing, invalidRange, pagination, query),
                 List.of(lookup, corrected), List.of(addedTest), List.of(checks));
@@ -83,7 +83,7 @@ class ReadToolRecoveryDockerTest {
             observed.addAll(history);
             int turn = requests.getAndIncrement();
             return turn < turns.size() ? new AgentProtocol.Reply("", turns.get(turn), 1L)
-                    : new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+                    : new AgentProtocol.Reply(FixtureCompletion.report(history), List.of(), 1L);
         };
         AgentProtocol.Run terminal;
         try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
@@ -118,7 +118,16 @@ class ReadToolRecoveryDockerTest {
                 && message.text().contains(path)));
         var candidate = database.store.candidate(terminal.candidateId());
         var evidence = json.readTree(candidate.testEvidence());
-        assertEquals(6, evidence.path("evidenceVersion").asInt());
+        assertEquals(7, evidence.path("evidenceVersion").asInt());
+        var executed = json.readTree(observed.stream().filter(message -> checks.id().equals(message.callId()))
+                .findFirst().orElseThrow().text()).path("result");
+        assertEquals(terminal.id(), evidence.path("runId").asText());
+        assertEquals(terminal.id(), executed.path("runId").asText());
+        assertEquals(executed.path("invocationId"), evidence.path("checks").get(0).path("invocationId"));
+        assertEquals(json.createArrayNode().add(executed.path("invocationId")),
+                evidence.path("agentReport").path("executions"));
+        assertEquals(evidence.path("finalSnapshot"), executed.path("snapshot"));
+        assertEquals(evidence.path("finalSnapshot"), executed.path("afterSnapshot"));
         assertEquals("COMMAND_VERIFIED", evidence.path("verificationLevel").asText());
         assertEquals(List.of(path, testPath), candidate.changedPaths());
         var events = database.store.events(terminal.id(), 0, 200);

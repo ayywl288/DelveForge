@@ -2,7 +2,6 @@ package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentCheckEvidence;
-import com.ayywl.delveforge.application.agent.CommandCheckEvidence;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentTools;
@@ -60,7 +59,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         final Path directory;
         final Map<String, Entry> baseline = new LinkedHashMap<>();
         final List<JsonNode> checks = new ArrayList<>();
-        final Map<String, JsonNode> requiredChecks = new LinkedHashMap<>();
+        JsonNode agentReport;
         final Set<String> retainedPaths = new HashSet<>();
         final Map<String, String> baselineHashes = new LinkedHashMap<>();
         final Map<String, Map<String, Object>> resourceCapabilities = new LinkedHashMap<>();
@@ -716,6 +715,10 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (!arguments.isObject()) {
             return "{\"ok\":false,\"classification\":\"INVALID_ARGUMENTS\"}";
         }
+        if (call.name().equals("read_log")) {
+            return readLog(runId, arguments.path("invocation_id").asText(), arguments.path("stream").asText("stdout"),
+                    arguments.path("offset").asInt(), Math.min(arguments.path("limit").asInt(4000), session.limits.maxOutputBytes() / 8));
+        }
         if (call.name().equals("exec_command")) {
             return executeCommand(session, call, arguments, cancelled);
         }
@@ -835,24 +838,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             return directoryFeedback;
         }
         String command = arguments.path("command").asText();
-        String scope = arguments.path("verification_scope").asText();
-        String kind = arguments.path("check_kind").asText();
-        if (!scope.isBlank() && CommandCheckEvidence.trivial(command)) {
-            return AgentTools.commandError(AgentTools.CommandError.NOT_VERIFICATION_COMMAND, session.limits);
-        }
         JsonNode before = currentSnapshot(session, cancelled);
         retainSnapshot(session, before);
         JsonNode reportsBefore = invoke(session, "test_reports", json.createObjectNode(), cancelled).path("result");
-        if (!scope.isBlank()) {
-            session.requiredChecks.putIfAbsent(CommandCheckEvidence.key(command, directory),
-                    json.createObjectNode().put("command", command).put("directory", directory)
-                            .put("scope", scope).put("kind", kind));
-        }
-        JsonNode retainedScope = session.requiredChecks.get(CommandCheckEvidence.key(command, directory));
-        if (retainedScope != null) {
-            scope = retainedScope.path("scope").asText();
-            kind = retainedScope.path("kind").asText();
-        }
         String id = session.task.runId();
         String container = name(id, "command");
         String network = dependencyNetwork(session, cancelled);
@@ -903,7 +891,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             stopContainer(container);
             state = inspect("container", container).path("State");
             output = commands.run(List.of(properties.docker(), "logs", container), null, null, CONTROL_TIMEOUT,
-                    Math.max(1024, session.limits.maxOutputBytes() / 8), () -> false, Map.of(), true);
+                    CommandLogs.STREAM_BYTES, () -> false, Map.of(), true);
             if (output.exitCode() != 0) {
                 throw new AgentException("COMMAND_OUTPUT_UNAVAILABLE", "Cannot retrieve command output");
             }
@@ -911,22 +899,26 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             // 删除容器前必须确认所有写入者退出；失败保持占用，不能继续捕获或运行下一条命令。
             removeContainer(container);
         }
-        JsonNode after = currentSnapshot(session, () -> false);
-        retainSnapshot(session, after);
         int exit = state.path("ExitCode").asInt(-1);
-        ObjectNode result = json.createObjectNode().put("checkType", "COMMAND")
-                .put("invocationId", UUID.randomUUID().toString()).put("command", command).put("directory", directory)
-                .put("scope", scope).put("kind", kind)
+        String stdout = CommandLogs.readable(output.text(), secrets);
+        String stderr = CommandLogs.readable(output.diagnostic(), secrets);
+        String invocation = UUID.randomUUID().toString();
+        ObjectNode result = json.createObjectNode().put("checkType", "COMMAND").put("runId", id)
+                .put("invocationId", invocation).put("command", sanitize(command)).put("directory", directory)
                 .put("exitCode", exit).put("timedOut", timedOut).put("cancelled", wasCancelled)
-                .put("stdout", output.text()).put("stderr", output.diagnostic()).put("outputTruncated", output.truncated())
-                .put("snapshot", before.path("snapshot").asText()).put("afterSnapshot", after.path("snapshot").asText())
-                .put("sourceChanged", !before.path("snapshot").equals(after.path("snapshot")))
+                .put("stdout", stdout).put("stderr", stderr).put("logDiscarded", output.truncated())
                 .put("durationMs", java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started))
                 .put("classification", wasCancelled ? "COMMAND_CANCELLED" : timedOut ? "COMMAND_TIMED_OUT"
                         : exit == 0 ? "COMMAND_SUCCEEDED" : "COMMAND_FAILED")
                 .put("testDetails", "UNAVAILABLE");
+        // 源码捕获失败也保留命令终态及日志；不把缺少快照的记录提升为验证证据。
+        boolean retained = CommandLogs.save(session.directory, result);
+        JsonNode after = currentSnapshot(session, () -> false);
+        retainSnapshot(session, after);
+        result.put("snapshot", before.path("snapshot").asText()).put("afterSnapshot", after.path("snapshot").asText())
+                .put("sourceChanged", !before.path("snapshot").equals(after.path("snapshot")));
         result.set("sourceView", after.path("sourceView"));
-        if (!scope.isBlank() && kind.equals("test")) {
+        {
             JsonNode reports = invoke(session, "test_reports", json.createObjectNode()
                     .set("before", reportsBefore.path("fingerprints")), () -> false).path("result");
             result.set("testReport", reports);
@@ -937,7 +929,19 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 }
             }
         }
+        // 完整收据超出保留预算时，先前已保存的输出仍可读取，不能隐藏它的引用。
+        retained = CommandLogs.save(session.directory, (ObjectNode) sanitizeNode(result)) || retained;
+        result.put("logDiscarded", output.truncated() || !retained);
+        if (retained) {
+            result.put("logRef", invocation);
+        }
+        int previewLimit = Math.min(3000, Math.max(64, session.limits.maxOutputBytes() / 16));
+        result.put("stdout", CommandLogs.preview(stdout, previewLimit))
+                .put("stderr", CommandLogs.preview(stderr, previewLimit))
+                .put("outputTruncated", output.truncated() || stdout.length() > previewLimit || stderr.length() > previewLimit);
         session.checks.add(result.deepCopy());
+        result.put("commandTruncated", result.path("command").asText().length() > 2000);
+        result.put("command", CommandLogs.preview(result.path("command").asText(), 2000));
         if (result.path("testReport") instanceof ObjectNode report) {
             report.remove("cases");
         }
@@ -1142,18 +1146,27 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     public Preflight preflight(String runId, BooleanSupplier cancelled, Consumer<PreflightProgress> progress) {
         Session session = requireSession(runId);
         requireToolSuccess(invoke(session, "probe_environment", json.createObjectNode(), cancelled));
+        dependencyNetwork(session, cancelled);
         JsonNode source = currentSnapshot(session, cancelled);
         retainSnapshot(session, source);
         return new Preflight("READY", json.createObjectNode().put("execution", "native-shell")
                 .put("snapshot", source.path("snapshot").asText())
+                .put("readiness", "Sandbox available; repository prerequisites have not been established")
                 .put("instruction", "读取仓库指引、README、清单、锁文件和 CI，按当前 Step 确定并运行必要命令。")
                 .toString());
     }
 
     @Override
     public String checkCapabilities(String runId, BooleanSupplier cancelled) {
-        return "{\"execution\":\"exec_command\",\"cwdPersists\":false,\"filesPersist\":true,"
-                + "\"network\":\"controlled artifact proxy only\"}";
+        Session session = requireSession(runId);
+        return json.createObjectNode().put("execution", "exec_command").put("jdk", session.jdk)
+                .put("cwdPersists", false).put("environmentPersists", false).put("processesPersist", false)
+                .put("filesPersist", true).put("projectDependenciesPersist", true).put("tmpPersists", false)
+                .put("cache", "/m2; npm=/m2/npm-cache; pnpm=/m2/pnpm-store")
+                .put("logs", "read_log by invocationId; sanitized host retention, outside candidate source")
+                .put("network", "Controlled public Maven/npm artifact hosts only; no private registries or host services")
+                .put("readiness", "Discover actual installed tools and project prerequisites with native commands")
+                .set("sourceView", currentSnapshot(session, cancelled).path("sourceView")).toString();
     }
 
     @Override
@@ -1169,6 +1182,22 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     }
 
     @Override
+    public String readLog(String runId, String invocationId, String stream, int offset, int limit) {
+        return CommandLogs.read(directory(runId), invocationId, stream, offset, limit);
+    }
+
+    @Override
+    public String completionFeedback(String runId, String report, BooleanSupplier cancelled) {
+        Session session = requireSession(runId);
+        JsonNode proposed = parse(report.getBytes(StandardCharsets.UTF_8));
+        if (report.length() > 12000 || !proposed.isObject()) {
+            return "{\"classification\":\"EVIDENCE_INVALID\",\"reason\":\"Report exceeds bounds or is not an object\"}";
+        }
+        session.agentReport = sanitizeNode(proposed);
+        return completionFeedback(runId, cancelled);
+    }
+
+    @Override
     public String completionFeedback(String runId, BooleanSupplier cancelled) {
         Session session = requireSession(runId);
         JsonNode response = invoke(session, "snapshot", json.createObjectNode(), cancelled);
@@ -1177,13 +1206,13 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             evidence(session, response.path("result"));
             return null;
         } catch (AgentException failure) {
-            if (!Set.of("UNRESOLVED_CHECK_FAILURE", "EVIDENCE_INCOMPARABLE").contains(failure.code())) {
+            if (!Set.of("UNRESOLVED_CHECK_FAILURE", "EVIDENCE_INCOMPARABLE", "EVIDENCE_INVALID").contains(failure.code())) {
                 throw failure;
             }
             return json.createObjectNode().put("classification", failure.code())
                     .put("reason", sanitize(failure.getMessage()))
-                    .put("instruction", "按仓库指引重新运行缺失、失败或源码已过期的必要命令；保留原验证范围。"
-                            + "编译不能代替已要求的测试，跳过或删除检查不能清除已观察到的失败。")
+                    .put("instruction", "报告须以 executions 引用本 Run 最终源码上的成功 invocationId，并以 validationComplete 如实说明必要验证是否完成。"
+                            + "失败历史保留；解释后续处理和限制，不伪造、改写或引用过期结果为通过。")
                     .toString();
         }
     }
@@ -1329,6 +1358,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                         .put("runId", session.task.runId()).put("status", "UNVERIFIED_NON_DELIVERABLE")
                         .put("baseline", session.task.baseline()).put("sha256", Candidate.digest(patch))
                         .put("snapshot", snapshot.path("snapshot").asText())
+                        .<ObjectNode>set("sourceView", snapshot.path("sourceView"))
                         .set("changedPaths", json.valueToTree(changed)).toString(), StandardCharsets.UTF_8);
             } catch (IOException failure) {
                 throw new AgentException("FINALIZATION_STORAGE", "Cannot retain unverified partial work", failure);
@@ -1379,21 +1409,26 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     }
 
     private String evidence(Session session, JsonNode snapshot) {
-        ObjectNode evidence = json.createObjectNode().put("evidenceVersion", 6)
+        ObjectNode evidence = json.createObjectNode().put("evidenceVersion", 7).put("runId", session.task.runId())
                 .put("finalSnapshot", snapshot.path("snapshot").asText()).put("status", "NOT_TESTED")
                 .put("verificationLevel", "COMMAND_VERIFIED")
                 .put("testDetails", "UNAVAILABLE").put("executionBaselineTree", session.executionBaselineTree);
         evidence.set("sourceView", snapshot.path("sourceView"));
-        evidence.set("requiredChecks", json.valueToTree(session.requiredChecks.values()));
+        evidence.set("agentReport", session.agentReport == null ? json.createObjectNode() : session.agentReport);
+        Set<String> referenced = new HashSet<>();
+        evidence.path("agentReport").path("executions").forEach(reference -> referenced.add(reference.asText()));
         var checks = evidence.putArray("checks");
         for (JsonNode record : session.checks) {
             ObjectNode check = record.deepCopy();
             check.put("stale", !snapshot.path("snapshot").asText().equals(check.path("snapshot").asText())
                     || !check.path("snapshot").asText().equals(check.path("afterSnapshot").asText()));
             checks.add(check);
-            if (!check.path("stale").asBoolean() && check.path("testDetails").asText().equals("AVAILABLE")
-                    && check.path("executedTests").asInt() > 0) {
-                evidence.put("status", "TESTED").put("testDetails", "AVAILABLE");
+            if (referenced.contains(check.path("invocationId").asText()) && !check.path("stale").asBoolean()
+                    && check.path("testDetails").asText().equals("AVAILABLE")) {
+                evidence.put("testDetails", "AVAILABLE");
+                if (check.path("executedTests").asInt() > 0) {
+                    evidence.put("status", "TESTED");
+                }
             }
         }
         AgentCheckEvidence.requireAcceptable(evidence);
@@ -1468,7 +1503,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                         if (System.getProperty("os.name").startsWith("Windows")) {
                             Files.setAttribute(path, "dos:readonly", false, LinkOption.NOFOLLOW_LINKS);
                         }
-                        if (path.equals(directory.resolve("partial.diff"))
+                        if (path.startsWith(directory.resolve("command-logs"))
+                                || path.equals(directory) && Files.exists(directory.resolve("command-logs"))
+                                || path.equals(directory.resolve("partial.diff"))
                                 || path.equals(directory.resolve("partial-metadata.json"))
                                 || path.equals(directory) && Files.exists(directory.resolve("partial-metadata.json"))) {
                             continue;

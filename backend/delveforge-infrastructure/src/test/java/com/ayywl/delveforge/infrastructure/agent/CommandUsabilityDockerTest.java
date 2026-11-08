@@ -57,7 +57,7 @@ class CommandUsabilityDockerTest {
                 new DeterministicRepositorySecretPolicy());
         Map<String, String> check = Map.of("command",
                 "sh check.sh > /tmp/df-check.log 2>&1; status=$?; cat /tmp/df-check.log; exit \"$status\"",
-                "directory", ".", "verification_scope", "fixture state check", "check_kind", "test");
+                "directory", ".");
         try {
             sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", original.toString(),
                     "unmounted", baseline, "check fixture", "state", "check", 21),
@@ -69,7 +69,7 @@ class CommandUsabilityDockerTest {
             assertEquals(0, result.path("exitCode").asInt(-1));
             assertFalse(result.path("sourceChanged").asBoolean(true));
             assertEquals(result.path("snapshot"), result.path("afterSnapshot"));
-            assertNull(sandbox.completionFeedback(id, () -> false), "Unscoped diagnostic failure is not an obligation");
+            assertNull(FixtureCompletion.submit(sandbox, id, result), "Diagnostic failure is not an obligation");
             JsonNode logging = exec(sandbox, id, Map.of("command",
                     "printf diagnostic > /tmp/df-diagnostic.log; cat /tmp/df-diagnostic.log")).path("result");
             assertEquals("diagnostic", logging.path("stdout").asText());
@@ -79,12 +79,9 @@ class CommandUsabilityDockerTest {
             assertTrue(exec(sandbox, id, Map.of("command", "printf ready-again > state.txt"))
                     .path("result").path("sourceChanged").asBoolean());
             assertNotNull(sandbox.completionFeedback(id, () -> false), "Actual source mutation still invalidates checks");
-            assertTrue(exec(sandbox, id, check).path("ok").asBoolean());
-            assertNull(sandbox.completionFeedback(id, () -> false));
-            assertFalse(exec(sandbox, id, Map.of("command", "grep absent state.txt", "directory", ".",
-                    "verification_scope", "required missing state", "check_kind", "test")).path("ok").asBoolean());
-            assertTrue(exec(sandbox, id, check).path("ok").asBoolean());
-            assertNotNull(sandbox.completionFeedback(id, () -> false), "Another passing check cannot erase a failed obligation");
+            assertNull(FixtureCompletion.submit(sandbox, id, exec(sandbox, id, check).path("result")));
+            assertFalse(exec(sandbox, id, Map.of("command", "grep absent state.txt", "directory", ".")).path("ok").asBoolean());
+            assertNull(FixtureCompletion.submit(sandbox, id, exec(sandbox, id, check).path("result")), "Exploratory variants create no permanent obligation; old failures remain recorded");
             assertEquals("", git.git(original, "status", "--porcelain"));
         } finally {
             sandbox.cleanup(id);
@@ -197,8 +194,7 @@ class CommandUsabilityDockerTest {
             assertEquals(0, masked.path("result").path("exitCode").asInt(-1));
             assertTrue(masked.path("result").path("stdout").asText().contains("BUILD FAILURE"));
             JsonNode preserved = exec(sandbox, id, Map.of("command",
-                    "sh failing.sh > /tmp/df-check.log 2>&1; status=$?; grep BUILD /tmp/df-check.log; exit \"$status\"",
-                    "verification_scope", "fixture failing check", "check_kind", "test"));
+                    "sh failing.sh > /tmp/df-check.log 2>&1; status=$?; grep BUILD /tmp/df-check.log; exit \"$status\""));
             assertEquals(7, preserved.path("result").path("exitCode").asInt(-1));
             assertFalse(preserved.path("ok").asBoolean());
             assertNotNull(sandbox.completionFeedback(id, () -> false));

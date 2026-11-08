@@ -9,6 +9,7 @@ const command = computed(() => props.activity.tool === "exec_command" ? commandP
 const target = computed(() => command.value ? safePath(command.value.data.directory) : props.activity.target);
 const names: Record<string, string> = {
     UNVERIFIED_WORK_RETAINED: "未验证的修改已保留，不能交付", PARTIAL_CAPTURE_UNAVAILABLE: "无法安全保存部分修改",
+    WORKING_NOTES: "Agent 更新工作笔记", CONTEXT_COMPACTED: "较早上下文已压缩",
     MODEL_PROVIDER_DIAGNOSTIC: "模型请求尝试已记录",
     RESOURCES_RELEASED: "资源已核对并释放占用", ENVIRONMENT_PREFLIGHT: "环境预检结果已保存",
     CREATED: "运行已预约", PREPARING: "准备 Docker 沙箱", SANDBOX_READY: "隔离沙箱已就绪",
@@ -59,7 +60,7 @@ function duration(value: number) {
             </div>
             <p v-if="activity.resultUncertain" class="activity-uncertain">未取得完整工具结果，修改情况需核对。</p>
             <AgentEventDetails v-if="activity.tool" :activity="activity" />
-            <details v-else-if="activity.classification || ['SANDBOX_READY', 'MODEL_FAILED', 'MODEL_INCOMPLETE', 'COMPLETION_CHECK_REJECTED', 'PREFLIGHT_PROGRESS', 'MODEL_PROVIDER_DIAGNOSTIC'].includes(activity.event.kind)" class="activity-technical">
+            <details v-else-if="activity.classification || ['WORKING_NOTES', 'MODEL_COMPLETED', 'CONTEXT_COMPACTED', 'SANDBOX_READY', 'MODEL_FAILED', 'MODEL_INCOMPLETE', 'COMPLETION_CHECK_REJECTED', 'PREFLIGHT_PROGRESS', 'MODEL_PROVIDER_DIAGNOSTIC'].includes(activity.event.kind)" class="activity-technical">
                 <summary>{{ activity.event.kind === "MODEL_INCOMPLETE" ? "模型未完成说明" : "技术详情" }}</summary><code v-if="activity.classification">{{ activity.classification }}</code>
                 <AgentEventDetails :activity="activity" />
             </details>

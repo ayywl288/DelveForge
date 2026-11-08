@@ -17,10 +17,10 @@ class AgentToolsProtocolTest {
                     "{\"command\":\"" + command + "\",\"directory\":\"frontend\"}"), limits);
         }
         var cases = java.util.Map.of(
-                "\"verification_scope\":\"frontend tests\"", "VERIFICATION_FIELDS_REQUIRED",
-                "\"check_kind\":\"test\"", "VERIFICATION_FIELDS_REQUIRED",
-                "\"verification_scope\":\"tests\",\"check_kind\":\"install\"", "INVALID_CHECK_KIND",
-                "\"verification_scope\":\"\",\"check_kind\":\"test\"", "INVALID_VERIFICATION_SCOPE",
+                "\"verification_scope\":\"frontend tests\"", "INVALID_ARGUMENTS",
+                "\"check_kind\":\"test\"", "INVALID_ARGUMENTS",
+                "\"verification_scope\":\"tests\",\"check_kind\":\"install\"", "INVALID_ARGUMENTS",
+                "\"verification_scope\":\"\",\"check_kind\":\"test\"", "INVALID_ARGUMENTS",
                 "\"timeout_seconds\":999", "INVALID_TIMEOUT",
                 "\"directory\":\"\"", "INVALID_DIRECTORY");
         var json = new com.fasterxml.jackson.databind.ObjectMapper();
@@ -47,7 +47,7 @@ class AgentToolsProtocolTest {
             assertEquals("INVALID_ARGUMENTS", assertThrows(AgentException.class, () -> AgentTools.validate(
                     new AgentProtocol.ToolCall("id", "exec_command", arguments), AgentProtocol.Limits.defaults())).code());
         }
-        assertEquals(List.of("list_files", "search_code", "read_file", "edit_file", "exec_command"),
+        assertEquals(List.of("list_files", "search_code", "read_file", "edit_file", "update_plan", "read_log", "exec_command"),
                 AgentTools.definitions().stream().map(AgentProtocol.ToolSpec::name).toList());
         for (String retired : List.of("apply_patch", "run_checks", "run_frontend_checks")) {
             assertThrows(AgentModelFailure.class, () -> AgentTools.validate(

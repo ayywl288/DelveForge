@@ -13,6 +13,10 @@ public final class AgentCheckEvidence {
     }
 
     public static void requireAcceptable(JsonNode evidence) {
+        if (evidence != null && evidence.path("evidenceVersion").asInt() == 7) {
+            CompletionEvidence.requireAcceptable(evidence);
+            return;
+        }
         if (evidence != null && evidence.path("evidenceVersion").asInt() == 6) {
             CommandCheckEvidence.requireAcceptable(evidence);
             return;

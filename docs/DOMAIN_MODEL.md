@@ -1,6 +1,8 @@
 # DOMAIN_MODEL.md
 
-**2026-11-07 当前通用验证语义：** [ADR-0024](decisions/0024-generic-agent-command-path.md) 定义活动 evidenceVersion=6：保留本次 Step/仓库必要命令范围，由运行时提供实际结果和源码关联；所有必要命令最新成功且命令前后均对应最终冻结源码，方可自动交付。源码/配置/依赖变化使旧证据失效。未知测试数量保持未知；报告可补充结果但不是语言准入门槛。已观察失败不能通过删除/跳过检查清除，v6 不推断历史债务。v5 历史债务强可比规则仍适用于旧记录；成功最终检查取消“必须修改测试”与配置 identity 相等的附加门槛。未验证部分成果不是 Candidate，不推进 Step/Plan；PUBLIC_RESOURCE 执行可读即模型可读，写保护真实生效。原资产保护、正式 revision、自动 Delivery 与全部必需 Step 成功后才完成 Plan 的不变量不变。
+**2026-11-07 Agent Loop Convergence 当前语义：** [ADR-0025](decisions/0025-agent-loop-convergence.md) 替代活动命令字符串义务与隔离资源数量否决。v7 完成报告引用实际本 Run 最终源码/执行视图上的成功调用；必要验证显式未完成不能冻结。笔记只属 Agent 工作记忆，非授权或证据；业务充分性和旧失败处理判断归于 Agent，不以通用测试清单判定。私密资源仍隔离并原字节保留；授权、Candidate 不可变性、正式 Delivery、可信 revision、逐 Step 和 Plan 收尾不变。旧 v1–v6 不追认或改写。
+
+**2026-11-07 历史 v6 验证语义（活动路径已由 ADR-0025 替代）：** [ADR-0024](decisions/0024-generic-agent-command-path.md) 定义活动 evidenceVersion=6：保留本次 Step/仓库必要命令范围，由运行时提供实际结果和源码关联；所有必要命令最新成功且命令前后均对应最终冻结源码，方可自动交付。源码/配置/依赖变化使旧证据失效。未知测试数量保持未知；报告可补充结果但不是语言准入门槛。已观察失败不能通过删除/跳过检查清除，v6 不推断历史债务。v5 历史债务强可比规则仍适用于旧记录；成功最终检查取消“必须修改测试”与配置 identity 相等的附加门槛。未验证部分成果不是 Candidate，不推进 Step/Plan；PUBLIC_RESOURCE 执行可读即模型可读，写保护真实生效。原资产保护、正式 revision、自动 Delivery 与全部必需 Step 成功后才完成 Plan 的不变量不变。
 
 **2026-11-04 本次用户授权的基线感知合同：** 证据 v5 可逐测试证明同环境下没有新增失败、缺失/新增跳过，且当前功能检查通过。保持身份/失败指纹/测试定义的历史失败可作为明确的 BASELINE_DEBT 冻结；不计为测试通过，正式 Delivery 前须审阅并显式确认绑定 Candidate 差异及证据的 SHA。新失败、功能相关失败或不可比较结果仍阻塞；可信 revision 仅经正常 Delivery 接受推进。旧 v1–v4 与 FAILED Run 不改写，无旧 Run resume API。此补充替代下方“所有基线失败均须修复”的历史规则，其他状态和不变量保持；见 [ADR-0023](decisions/0023-baseline-aware-candidate-verification.md)。
 
