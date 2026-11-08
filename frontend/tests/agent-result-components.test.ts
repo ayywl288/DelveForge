@@ -2,8 +2,24 @@ import { createApp, h, nextTick, reactive } from "vue";
 import { afterEach, expect, it } from "vitest";
 import FileChangeSummary from "../src/components/FileChangeSummary.vue";
 import AgentTestEvidence from "../src/components/AgentTestEvidence.vue";
+import AgentResultSurface from "../src/components/AgentResultSurface.vue";
 import type { PresentedFileChange } from "../src/components/agentResultPresentation";
 const cleanup:(()=>void)[]=[];
+
+it("resets developer disclosure when switching Candidate even when evidence is identical", async () => {
+    const candidate = reactive({id: "first", runId: "run-1", baseline: "a".repeat(40), expectedTree: "b".repeat(40),
+        sha256: "c".repeat(64), changedPaths: [], diffBytes: 0, testEvidence: '{"status":"NOT_TESTED"}', createdAt: "2026-11-08T00:00:00Z"});
+    const root = document.createElement("div");
+    const app = createApp({render: () => h(AgentResultSurface, {planId: "plan", run: null, candidate, delivery: null,
+        runPresentation: null, officialStep: false, completedDelivery: false, candidateFiles: [],
+        filesLoading: false, filesUnavailable: false, pending: false})});
+    app.mount(root); cleanup.push(() => app.unmount()); await settle();
+    root.querySelector<HTMLElement>(".result-developer summary")!.click(); await settle();
+    expect(root.querySelector<HTMLDetailsElement>(".result-developer")!.open).toBe(true);
+    candidate.id = "second"; await settle();
+    expect(root.querySelector<HTMLDetailsElement>(".result-developer")!.open).toBe(false);
+    expect(root.querySelector(".result-developer pre")).toBeNull();
+});
 
 it("explains projected checks without implying full-checkout execution or exposing resource content", async () => {
     const props = reactive({ evidence: JSON.stringify({ status: "NOT_TESTED", sourceView: {

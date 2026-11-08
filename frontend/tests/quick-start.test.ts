@@ -72,6 +72,19 @@ it("separates project identity, prerequisites and collapsed source provenance", 
     expect(root.querySelector("a")?.getAttribute("href")).toBe("http://localhost:5173");
     expect(root.querySelectorAll(".guide-verification")).toHaveLength(1);
 });
+it("renders hostile source paths as literal text without links or injected elements", async () => {
+    const paths = ["docs/`[external](https://evil.example)/setup.md", "docs/``[second](https://evil.example)/开发指南.md",
+        "docs/**bold**_[label](https://evil.example)/install.md", "docs/<img src=x onerror=alert(1)>/setup.md"];
+    vi.spyOn(api, "quickStart").mockResolvedValue({...guide, markdown: "# 项目\n## 访问地址\n[应用](http://localhost:5173)\n## 生成依据\n"
+        + paths.map(path => "- `" + path + "`").join("\n")});
+    const root = mount(QuickStartView, {planId: "plan", completed: true}); await settle();
+    const sources = root.querySelector<HTMLDetailsElement>(".guide-sources")!;
+    sources.open = true;
+    expect(sources.querySelectorAll("a,img,strong,script")).toHaveLength(0);
+    for (const path of paths) expect(sources.textContent).toContain(path);
+    expect(root.querySelectorAll("a")).toHaveLength(1);
+    expect(root.querySelector("a")?.getAttribute("href")).toBe("http://localhost:5173");
+});
 it("separates final-source validation from repeated historical test failures", async () => {
     const finalSnapshot = "a".repeat(64), old = "b".repeat(64);
     const receipt = { snapshot: old, afterSnapshot: old, exitCode: 1, timedOut: false, cancelled: false,

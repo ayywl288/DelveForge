@@ -9,6 +9,8 @@ import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecr
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -21,6 +23,8 @@ import java.util.regex.Pattern;
 final class QuickStartSources {
     private static final int MAX_FILES = 32;
     private static final int MAX_CONTEXT = 48000;
+    private static final int MAX_ENV_VARIABLES = 256;
+    private static final int MAX_ENV_CHARACTERS = 12000;
     private static final Pattern LINK = Pattern.compile("\\[[^]\\r\\n]*]\\(<?([^\\s)>]+)>?(?:\\s+\"[^\"]*\")?\\)");
     private static final Pattern ENV_KEY = Pattern.compile("(?:export\\s+)?([A-Za-z_][A-Za-z0-9_]*)\\s*=.*");
     private static final Pattern CREDENTIAL_BLOCK = Pattern.compile(
@@ -118,10 +122,7 @@ final class QuickStartSources {
             return null;
         }
         if (name(path).equals(".env.example")) {
-            // 示例文件不信任任何取值，包含普通变量；只输出可识别的变量名。
-            return raw.lines().map(String::strip).map(ENV_KEY::matcher).filter(Matcher::matches)
-                    .map(match -> match.group(1) + "=<自行配置>").distinct()
-                    .reduce("", (left, right) -> left + right + "\n");
+            return environmentNames(raw);
         }
         // 多行配置凭据、私钥块和常见命令行口令无法靠单行键值净化保留结构，整份放弃。
         if (raw.matches("(?is).*-----BEGIN [A-Z ]*PRIVATE KEY-----.*")
@@ -138,6 +139,32 @@ final class QuickStartSources {
         } catch (RepositorySecretBoundaryException unsafe) {
             return null;
         }
+    }
+
+    private static String environmentNames(String raw) {
+        String placeholder = "=<自行配置>\n";
+        String truncated = "[变量列表已截断]\n";
+        StringBuilder result = new StringBuilder(MAX_ENV_CHARACTERS);
+        Set<String> names = new HashSet<>();
+        // 不保留任何取值或注释；在追加前限额，避免高密度变量和长变量名放大中间分配。
+        for (Iterator<String> lines = raw.lines().iterator(); lines.hasNext();) {
+            Matcher match = ENV_KEY.matcher(lines.next().strip());
+            if (!match.matches()) {
+                continue;
+            }
+            String name = match.group(1);
+            if (names.contains(name)) {
+                continue;
+            }
+            if (names.size() >= MAX_ENV_VARIABLES
+                    || result.length() + name.length() + placeholder.length() + truncated.length() > MAX_ENV_CHARACTERS) {
+                result.append(truncated);
+                break;
+            }
+            names.add(name);
+            result.append(name).append(placeholder);
+        }
+        return result.toString();
     }
 
     private static String localDocument(String link) {

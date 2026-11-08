@@ -56,7 +56,7 @@ const emit = defineEmits<{ deliver: [] }>();
       <button v-if="!delivery || ['DELIVERY_BLOCKED', 'PUBLISHED', 'COMMIT_READY', 'APPLIED'].includes(delivery.state)
         || delivery.state === 'RECOVERY_REQUIRED'" :disabled="pending"
         @click="emit('deliver')">重新核对并交付已有结果</button>
-      <AgentTestEvidence :evidence="candidate.testEvidence" />
+      <AgentTestEvidence :key="candidate.id" :evidence="candidate.testEvidence" />
       <p class="meta">{{ completedDelivery ? '可在项目导航的「快速启动」查看已完成计划的启动指南。' : '全部步骤正式交付后，可在项目导航的「快速启动」查看启动指南。' }}</p>
       </template>
     </section>

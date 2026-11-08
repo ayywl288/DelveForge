@@ -75,7 +75,8 @@ function savedCandidate(id = "candidate-1", runId = "run-1"): AgentCandidate {
 
 it("submits explicitly selected check directories only after the existing paid confirmation", async () => {
   const start = vi.spyOn(api, "startAgent").mockResolvedValue(running());
-  const { root } = mount(); await settle();
+  const { root, s } = mount();
+  s.repositories = [{...repository(), id: s.plan!.baseRepositoryProfileId}]; await settle();
   const directories = root.querySelector<HTMLInputElement>("#agent-check-directories")!;
   directories.value = "server, apps/web";
   directories.dispatchEvent(new Event("input", { bubbles: true }));
@@ -779,12 +780,43 @@ it("defaults to automatic JDK and confines Maven overrides to relevant advanced 
   expect(settings.open).toBe(false);
   expect(root.querySelector<HTMLSelectElement>("#agent-jdk")!.value).toBe("");
   expect(settings.textContent).toContain("目标项目构建 JDK（Agent 沙箱）");
-  expect(settings.textContent).toContain("Maven 工程根目录覆盖");
-  expect(settings.textContent).toContain("不影响 Agent 仓库探索或修改授权");
+  expect(root.querySelector("#agent-check-directories")).toBeNull();
   s.repositories = [{...repository(), id: s.plan!.baseRepositoryProfileId, techStack: ["Python", "Flask"]}]; await settle();
   expect(root.querySelector("#agent-jdk")).toBeNull();
   s.repositories[0]!.techStack = ["Java 17", "Maven"]; await settle();
   expect(root.querySelector("#agent-jdk")).not.toBeNull();
+  expect(root.querySelector(".advanced-run-settings")?.textContent).toContain("Maven 工程根目录覆盖");
+  expect(root.querySelector("#agent-check-directories")).not.toBeNull();
+  expect(root.textContent).toContain("不影响 Agent 仓库探索或修改授权");
+  s.repositories[0]!.techStack = ["Java 17", "Gradle"]; await settle();
+  expect(root.querySelector("#agent-jdk")).not.toBeNull();
+  expect(root.querySelector("#agent-check-directories")).toBeNull();
+});
+
+it("keeps historical call counts in selected Run developer details", async () => {
+  const old = {...running(), id: "old", state: "FAILED" as const, modelCalls: 41, toolCalls: 59};
+  const {root} = mount([running(), old]); await settle();
+  expect(root.querySelector(".run-history")?.textContent).not.toMatch(/模型|工具/);
+  vi.mocked(api.agentRun).mockResolvedValue(old);
+  root.querySelectorAll<HTMLButtonElement>(".run-choice")[1]!.click(); await settle();
+  const details = root.querySelector<HTMLDetailsElement>(".developer-details")!;
+  expect(details.open).toBe(false);
+  details.querySelector<HTMLElement>("summary")!.click(); await settle();
+  expect(details.querySelector(".run-statistics")?.textContent).toContain("模型调用41");
+  expect(details.querySelector(".run-statistics")?.textContent).toContain("工具调用59");
+});
+it("does not submit a previously entered Maven override after metadata changes to Gradle-only", async () => {
+  const start = vi.spyOn(api, "startAgent").mockResolvedValue(running());
+  const {root, s} = mount();
+  s.repositories = [{...repository(), id: s.plan!.baseRepositoryProfileId}]; await settle();
+  const directories = root.querySelector<HTMLInputElement>("#agent-check-directories")!;
+  directories.value = "server";
+  directories.dispatchEvent(new Event("input", {bubbles: true}));
+  s.repositories[0]!.techStack = ["Java 17", "Gradle"]; await settle();
+  expect(root.querySelector("#agent-check-directories")).toBeNull();
+  button(root, "开始 Agent").click(); await settle();
+  await acknowledgeBudget(root);
+  expect(start).toHaveBeenCalledExactlyOnceWith("plan-1", "step-1", true, undefined);
 });
 it("keeps successful preflight compact and exposes blockers outside diagnostics", async () => {
   const {root} = mount([running()]); await settle();

@@ -33,6 +33,62 @@ class QuickStartSourcesTest {
     private final DeterministicRepositorySecretPolicy secrets = new DeterministicRepositorySecretPolicy();
 
     @Test
+    void boundsDenseEnvironmentExampleBeforeItEntersTheModel() {
+        StringBuilder raw = new StringBuilder("# hiddenComment123\nDB_PASSWORD=realCredential123\nDB_PASSWORD=duplicateSecret123\n");
+        int variables = 0;
+        while (raw.length() < 65480) {
+            raw.append("V").append(variables++).append("=secretValue\n");
+        }
+        assertTrue(raw.length() > 64000 && raw.length() <= 65536);
+        assertTrue(variables > 3000);
+        QuickStartSources.Material material = environmentMaterial(raw.toString());
+        assertEquals(256, material.text().lines().filter(line -> line.endsWith("=<自行配置>")).count());
+        assertTrue(material.text().contains("变量列表已截断"));
+        assertFalse(material.text().contains("secretValue"));
+        assertFalse(material.text().contains("realCredential123"));
+        assertFalse(material.text().contains("duplicateSecret123"));
+        assertFalse(material.text().contains("hiddenComment123"));
+    }
+
+    @Test
+    void boundsEnvironmentOutputByCharactersAsWellAsVariableCount() {
+        StringBuilder raw = new StringBuilder();
+        for (int index = 0; index < 150; index++) {
+            raw.append("VARIABLE_").append(index).append("X".repeat(400)).append("=secretValue\n");
+        }
+        assertTrue(raw.length() > 63000 && raw.length() <= 65536);
+        QuickStartSources.Material material = environmentMaterial(raw.toString());
+        String body = material.text().substring(material.text().indexOf(" ---\n") + 5);
+        assertTrue(body.length() <= 12000);
+        assertTrue(body.contains("变量列表已截断"));
+        assertTrue(body.lines().filter(line -> line.endsWith("=<自行配置>")).count() < 150);
+        assertFalse(body.contains("secretValue"));
+    }
+
+    private QuickStartSources.Material environmentMaterial(String raw) {
+        WorkspaceReadPort workspace = mock(WorkspaceReadPort.class);
+        when(workspace.listEntries(any(), anyString(), anyString(), anyInt()))
+                .thenReturn(List.of(new WorkspaceEntry(".env.example", false, raw.length())));
+        when(workspace.readFile(any(), anyString(), anyString())).thenReturn(raw);
+        QuickStartStore.Basis basis = new QuickStartStore.Basis("plan", "candidate", "a".repeat(40), "repo");
+        QuickStartSources.Material material = new QuickStartSources(workspace, secrets).collect(basis);
+        QuickStartStore store = mock(QuickStartStore.class);
+        when(store.finalDelivery("plan")).thenReturn(Optional.of(basis));
+        AiGateway ai = mock(AiGateway.class);
+        when(ai.generate(any())).thenAnswer(call -> {
+            String request = call.getArgument(0).toString();
+            for (String forbidden : List.of("secretValue", "realCredential123", "duplicateSecret123", "hiddenComment123")) {
+                assertFalse(request.contains(forbidden), forbidden);
+            }
+            assertTrue(request.contains("DB_PASSWORD=<自行配置>") || request.contains("VARIABLE_0"));
+            return "## 必要配置\n请自行配置环境变量。";
+        });
+        new QuickStartService(store, workspace, ai, secrets).generate(basis);
+        verify(ai).generate(any());
+        return material;
+    }
+
+    @Test
     void realGitDeliverySourcesAreSanitizedBeforeSingleModelRequest() throws Exception {
         GitTestRepositories repositories = new GitTestRepositories();
         try {

@@ -58,6 +58,7 @@ QuickStartSources 仍为 Application 内确定性收集器，不是 RepositoryUn
 
 专用可信原文读取仅用于本收集器，不能据此解释为全局模型披露或沙箱执行权限放宽。路径先按既有排除规则检查，
 `.env.example` 是唯一窄例外，只保留规范变量名，所有取值和注释均丢弃。常规文本复用 sanitizeSource 与 sanitizeOutput；
+环境示例摘要用有界 StringBuilder，最多 256 个不同变量、12K 字符（含截断标记），在追加前检查限额，避免高密度输入的累计字符串复制。
 XML 凭据元素的值先替换。无法保留结构的私钥块、敏感 YAML 多行块及常见命令行口令形式整文件跳过；
 二进制/解码替换字符和超限文件跳过。原文不写日志、不持久化、不进入 AiGateway。既有规则仍是已知凭据形式识别，
 不引入通用秘密检测器。通用 readModelFile、RepositoryContentPolicy、RepositorySecretPolicy 均不修改。
@@ -66,8 +67,16 @@ XML 凭据元素的值先替换。无法保留结构的私钥块、敏感 YAML �
 Plan 功能名。manifest 交叉核对、明确记载/推导命令的区分、缺失内容的单条说明属于单次模型请求的生成约束，
 不冒充对自然语言真实性的确定性证明。指南不运行命令；正文最多 6K 字符，连同系统附加标题、真实来源路径与 revision
 总计最多 12K 字符。来源保存在原 Markdown 字段末尾，无存储迁移；旧指南仍可阅读，只有显式重新生成才消费模型。
+来源区单独作为纯文本 code 节点渲染，不再次解释 Markdown；路径中的反引号、链接或 HTML 标记不能生成链接或元素。
+
+当前性能边界：上述限额约束文件正文读取和模型材料，不约束完整 Tree 元数据枚举。现有 GitWorkspaceAdapter.listEntries
+先执行完整递归 ls-tree，再按深度/路径过滤；QuickStartSources 还会排序、建立候选映射。超大仓库的枚举时间及内存仍随
+完整树规模增长。本次 Review Fix 只记录此限制，不改 WorkspaceReadPort 或 Git 读取机制。
 
 Run 的开发者详情保留事件、原始命令、stdout/stderr、分页、保留上限及元数据。最终源码证据按已有 snapshot/afterSnapshot
 字段区分，不从命令字符串推断业务活动，不改变 v8 completion。测试报告跨执行计数始终标累计与可能重复；历史失败不变成
 唯一当前失败用例数。高级设置保留 targetJdk 自动默认以及兼容的 checkDirectories 请求字段，后者仅用于 Maven 根/JDK 选择，
 界面改称 Maven 工程根目录覆盖，不宣称影响 Agent 探索或授权。费用确认保持原入口。
+Maven 覆盖仅在当前 RepositoryProfile 技术栈明确包含 Maven 时显示和提交；未知元数据或 Gradle-only 项目不显示该项，
+JDK 自动选择和原有手动入口保持。运行历史仅列状态和时间，模型/工具调用数在选中 Run 的开发者详情查看；
+切换 Candidate 时，其结果开发者详情重新收起。

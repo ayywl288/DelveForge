@@ -53,6 +53,10 @@ const pending = ref(false);
 const connection = ref("尚未连接");
 const jdk = ref("");
 const checkDirectories = ref("");
+const mavenSettingsRelevant = computed(() => {
+  const profile = props.s.repositories.find(item => item.id === props.s.plan?.baseRepositoryProfileId);
+  return profile?.techStack.some(value => /\bmaven\b/i.test(value)) ?? false;
+});
 const javaSettingsRelevant = computed(() => {
   const profile = props.s.repositories.find(item => item.id === props.s.plan?.baseRepositoryProfileId);
   return !profile?.techStack.length || profile.techStack.some(value => /java|maven|spring|jdk/i.test(value))
@@ -267,7 +271,8 @@ async function startRun() {
   startReview.value = false;
   budgetAcknowledged.value = false;
   const selectedJdk = jdk.value ? Number(jdk.value) : undefined;
-  const directories = checkDirectories.value.split(/[,，\n]/).map(value => value.trim()).filter(Boolean);
+  const directories = mavenSettingsRelevant.value
+    ? checkDirectories.value.split(/[,，\n]/).map(value => value.trim()).filter(Boolean) : [];
   await action(selected => directories.length
     ? api.startAgent(selected.planId!, selected.stepId!, true, selectedJdk, directories)
     : api.startAgent(selected.planId!, selected.stepId!, true, selectedJdk), async started => {
@@ -393,7 +398,7 @@ onUnmounted(deactivate);
         <ul><li v-for="(item, index) in runs" :key="item.id"><button class="text-button run-choice" :aria-pressed="run?.id === item.id"
           @click="selectRun(item)"><span class="run-choice-heading"><strong>{{ presentRun(item, item.candidateId ? runDeliveries[item.candidateId] : null).label }}</strong><small v-if="index === 0">最新</small></span>
             <time :datetime="item.startedAt">{{ new Date(item.startedAt).toLocaleString() }}</time>
-            <span>模型 {{ item.modelCalls }} · 工具 {{ item.toolCalls }}</span></button></li></ul>
+            </button></li></ul>
         <p v-if="historyDeliveryError" class="meta" role="status">部分历史交付状态尚未读取，刷新记录可重试。</p>
         <button v-if="runs.length >= 50" class="secondary" @click="loadRuns(true)">读取更早的运行</button>
       </details>
@@ -484,7 +489,7 @@ onUnmounted(deactivate);
           <details v-if="javaSettingsRelevant" class="advanced-run-settings"><summary>高级设置</summary>
           <div class="jdk-field"><label for="agent-jdk">目标项目构建 JDK（Agent 沙箱）</label>
             <select id="agent-jdk" v-model="jdk"><option value="">自动选择 JDK</option><option value="17">JDK 17</option><option value="21">JDK 21</option></select></div>
-          <div class="check-directories-field"><label for="agent-check-directories">Maven 工程根目录覆盖（可选）</label>
+          <div v-if="mavenSettingsRelevant" class="check-directories-field"><label for="agent-check-directories">Maven 工程根目录覆盖（可选）</label>
             <input id="agent-check-directories" v-model="checkDirectories" maxlength="2000" placeholder="例如：backend/bookstore" aria-describedby="agent-check-directories-help" />
             <p id="agent-check-directories-help" class="meta">仅影响 Maven / JDK 选择，不影响 Agent 仓库探索或修改授权。留空自动选择；多项用逗号分隔，根目录填“.”。</p></div>
           </details>

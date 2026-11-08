@@ -49,7 +49,8 @@ onDeactivated(stop); onUnmounted(stop);
             <details class="guide-sources"><summary>生成依据</summary>
                 <p>Plan <code>{{ guide.planId }}</code> · Delivery <code>{{ guide.candidateId }}</code></p>
                 <p>版本 <code>{{ guide.revision }}</code></p>
-                <GuideMarkdown v-if="document.sources" :markdown="document.sources" />
+                <!-- 来源路径可能含 Markdown 标记，始终按文本显示，不能重新解析为链接。 -->
+                <pre v-if="document.sources" class="guide-source-text"><code>{{ document.sources }}</code></pre>
                 <p v-else>旧版指南未单独保存来源清单，可重新生成。</p>
             </details>
         </template>
@@ -62,6 +63,7 @@ onDeactivated(stop); onUnmounted(stop);
 .guide-version { font-size: 13px; color: var(--muted); margin: 12px 0; }
 .guide-sources { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
 .guide-sources summary { cursor: pointer; font-weight: 600; }.quick-start h2 { font-size: 18px; margin: 0; }
+.guide-source-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .quick-start .section-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
 .quick-start .meta { overflow-wrap: anywhere; }.guide-verification { font-size: 13px; color: var(--muted); }
 .stale-guide { color: var(--warning); }
