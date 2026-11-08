@@ -14,12 +14,12 @@
 
 做完课程项目或教程项目后，不知道下一步做什么？
 
-**DelveForge 是一个本地 Coding Agent 平台，帮助开发者结合需求和已有代码，找到适合继续开发的项目方向。** 它通过 AI 对话了解需求，分析指定的本地 Git 仓库并推荐改造方向。你逐步授权后，Agent 在隔离工作区浏览和编辑代码、执行仓库原生开发与测试命令，结果经冻结 Candidate 与独立 Delivery 流程交付，供你查看变更和验证事实。
+**DelveForge 是一个本地 Coding Agent 平台，帮助开发者结合需求和已有代码，找到适合继续开发的项目方向。** 它通过 AI 对话了解需求，分析指定的本地 Git 仓库并推荐改造方向。你逐步授权后，Agent 在隔离工作区浏览和编辑代码、执行仓库原生开发与测试命令，完成后供你查看变更和验证事实。
 
 
 ## 🚀 Quick Start
 
-推荐使用 **Windows + PowerShell**。需要 JDK 21、Git、Node.js（`^20.19.0 || >=22.12.0`）、pnpm 12.9.1 和 DeepSeek API Key；使用自动代码修改功能还需要 Docker Desktop（Linux 容器）。
+推荐使用 **Windows + PowerShell**。需要 JDK 21、Git、Node.js（`^20.19.0 || >=22.12.0`）、pnpm 12.9.1 和 DeepSeek API Key；使用自动代码修改功能还需要 Docker 环境（Linux 容器）。
 
 在 PowerShell 中获取仓库，并从仓库根目录启动：
 
