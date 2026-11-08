@@ -468,6 +468,7 @@ export function activityFacts(activity: AgentActivity): { label: string; value: 
     if (activity.event.kind === "MODEL_COMPLETED") {
         const report = summaryFields(activity.event);
         if (typeof report.summary === "string") rows.push({ label: "Agent 完成报告", value: report.summary });
+        if (Array.isArray(report.limitations)) rows.push({ label: "Agent 报告限制", value: report.limitations.filter(item => typeof item === "string").join("；") });
         if (typeof report.limitations === "string") rows.push({ label: "Agent 报告限制", value: report.limitations });
     }
 

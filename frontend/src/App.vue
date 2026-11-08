@@ -5,6 +5,7 @@ import DiscoveryView from "./views/DiscoveryView.vue";
 import RepositoryView from "./views/RepositoryView.vue";
 import DirectionsView from "./views/DirectionsView.vue";
 import PlanView from "./views/PlanView.vue";
+import QuickStartView from "./views/QuickStartView.vue";
 import EvolutionView from "./views/EvolutionView.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import ProjectsView from "./views/ProjectsView.vue";
@@ -38,6 +39,8 @@ function adaptNavigation() {
 }
 async function navigate(value: number) {
   stage.value = value;
+  if (value === 5 && s.plan) window.location.hash = `/plans/${encodeURIComponent(s.plan.id)}/quick-start`;
+  else if (window.location.hash.includes("/quick-start")) history.replaceState(null, "", window.location.pathname + window.location.search);
   await closeNavigation();
 }
 async function closeNavigation() {
@@ -99,6 +102,7 @@ const stages: { title: string; en: string; icon: NavigationIconName; description
     icon: "evolution",
     description: "查看 Agent 活动、检查证据与自动交付，接受正式提交后推进可信版本。",
   },
+  { title: "快速启动", en: "Quick Start", icon: "code", description: "从最终交付版本出发，安装、配置并启动项目。" },
 ];
 const done = computed(() => [
   s.profile?.status === "CONFIRMED",
@@ -139,10 +143,17 @@ function restoreIds() {
     planId: recover.plan.trim(),
   });
 }
+async function openQuickStartRoute() {
+  const match = /^#\/plans\/([A-Za-z0-9_-]{1,160})\/quick-start$/.exec(window.location.hash);
+  if (!match) return;
+  if (s.plan?.id !== match[1]) await s.importIds({ profileId: "", assetIds: [], repositoryIds: [], directionIds: [], planId: match[1]! });
+  if (s.plan?.id === match[1]) stage.value = 5;
+}
 onMounted(async () => {
   navigationMedia = window.matchMedia?.("(max-width: 900px)");
   navigationMedia?.addEventListener("change", adaptNavigation);
   document.addEventListener("focusin", trackNavigationFocus);
+  window.addEventListener("hashchange", openQuickStartRoute);
   const restored = await s.initialize();
   if (restored) stage.value = stageIndex(restored);
   else if (s.plan) stage.value = 4;
@@ -150,10 +161,12 @@ onMounted(async () => {
   else if (s.directions.length) stage.value = 2;
   else if (s.profile?.status === "CONFIRMED") stage.value = 1;
   else if (s.profile) stage.value = 0;
+  await openQuickStartRoute();
 });
 onUnmounted(() => {
   navigationMedia?.removeEventListener("change", adaptNavigation);
   document.removeEventListener("focusin", trackNavigationFocus);
+  window.removeEventListener("hashchange", openQuickStartRoute);
   s.dispose();
 });
 </script>
@@ -191,7 +204,7 @@ onUnmounted(() => {
       <p class="workflow-label">演化流程</p>
       <nav class="workflow-navigation" aria-label="演化阶段">
         <button
-          v-for="(item, index) in stages"
+          v-for="(item, index) in stages.slice(0, 5)"
           :key="item.en"
           class="nav-stage"
           :class="{ active: stage === index }"
@@ -203,6 +216,15 @@ onUnmounted(() => {
           <span v-if="done[index]" class="nav-result"><span class="sr-only">已有阶段结果</span></span>
         </button>
       </nav>
+      <div class="delivery-navigation">
+        <p class="workflow-label">交付成果</p>
+        <nav aria-label="项目指南">
+          <button class="nav-stage quick-start-entry" :class="{ active: stage === 5 }"
+            :aria-current="stage === 5 ? 'page' : undefined" @click="navigate(5)">
+            <NavigationIcon name="play" /><span class="nav-stage-name">快速启动<small lang="en">Quick Start</small></span>
+          </button>
+        </nav>
+      </div>
       <div class="sidebar-bottom">
         <p>
           <span
@@ -279,7 +301,7 @@ onUnmounted(() => {
         @authorize="openAuthorization"
           @next="stage = 4"
           @directions="stage = 2"
-      /><EvolutionView v-else :s="s" @planning="stage = 3" /></KeepAlive>
+      /><EvolutionView v-else-if="stage === 4" :s="s" @planning="stage = 3" /><QuickStartView v-else :plan-id="s.plan?.id" :completed="s.plan?.status === 'COMPLETED'" /></KeepAlive>
     </main>
   </div>
   <ConfirmDialog

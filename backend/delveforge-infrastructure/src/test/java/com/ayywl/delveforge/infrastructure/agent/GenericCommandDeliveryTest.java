@@ -71,8 +71,9 @@ class GenericCommandDeliveryTest {
         return json.readTree(sandbox.tool(id, call("exec_command", Map.of("command", command)), () -> false));
     }
 
-    @Test
-    void cppFailureCorrectionFrozenCandidateAndAutomaticDeliveryPreserveRemainingPlanSteps() throws Exception {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void cppFailureCorrectionFrozenCandidateAndAutomaticDeliveryPreserveRemainingPlanSteps(boolean finalPlan) throws Exception {
         Path original = fixture();
         String baseline = git.git(original, "rev-parse", "HEAD");
         var workspace = new GitWorkspaceAdapter(Files.createDirectories(temporary.resolve("managed")));
@@ -82,18 +83,23 @@ class GenericCommandDeliveryTest {
         database.setup(baseline, "standalone");
         database.sql("UPDATE software_asset SET location='" + original.toString().replace("'", "''") + "'");
         database.sql("UPDATE working_copy SET location='" + official.toString().replace("'", "''") + "'");
-        database.sql("INSERT INTO evolution_step(id,plan_id,position,goal,scope,status) VALUES('later','plan',1,'later','later','PENDING_CONFIRMATION')");
+        if (!finalPlan) {
+            database.sql("INSERT INTO evolution_step(id,plan_id,position,goal,scope,status) VALUES('later','plan',1,'later','later','PENDING_CONFIRMATION')");
+        }
         database.sql("INSERT INTO product_direction(id,user_profile_id,user_profile_revision,title,problem,target_product,user_fit,differentiation,technical_value,estimated_complexity,status,flow_id) VALUES('direction','user',1,'Counter','problem','target','fit','difference','value','small','SELECTED','standalone')");
         var eligibility = CodingAgentServiceTest.eligibility(baseline, official, workspace, original,
-                com.ayywl.delveforge.domain.evolution.PreparationProvenance.unchanged(baseline), false, true);
+                com.ayywl.delveforge.domain.evolution.PreparationProvenance.unchanged(baseline), false, !finalPlan);
         var sandbox = sandbox();
-        List<AgentProtocol.ToolCall> actions = List.of(
+        List<AgentProtocol.ToolCall> actions = new ArrayList<>(List.of(
                 call("read_file", Map.of("path", "README.md")),
                 call("exec_command", Map.of("command", "sh check.sh")),
-                call("update_plan", Map.of("notes", "Actual check failed; inspect counter.cpp. [ ] repair and recheck")),
+                call("update_plan", Map.of("tasks", List.of(Map.of("title", "Repair counter.cpp and recheck", "status", "in_progress")))),
                 call("read_file", Map.of("path", "counter.cpp")),
                 call("edit_file", Map.of("path", "counter.cpp", "old_text", "return n;", "new_text", "return n + 1;")),
-                call("exec_command", Map.of("command", "sh check.sh")));
+                call("exec_command", Map.of("command", "sh check.sh"))));
+        if (finalPlan) {
+            actions.add(call("exec_command", Map.of("command", "printf 'E2E browser unavailable\\n' >&2; exit 1")));
+        }
         AtomicInteger turn = new AtomicInteger();
         List<String> observations = new ArrayList<>();
         AgentModelPort model = (history, tools) -> {
@@ -115,15 +121,23 @@ class GenericCommandDeliveryTest {
         assertTrue(observations.stream().anyMatch(value -> value.contains("COMMAND_FAILED")));
         var candidate = database.store.candidate(candidateId);
         assertEquals(List.of("counter.cpp"), candidate.changedPaths());
-        assertEquals(7, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
+        assertEquals(8, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
         assertEquals(baseline, git.git(official, "rev-parse", "HEAD"));
         var deliveries = new SqliteDeliveryStore(database.source, eligibility);
-        try (var delivery = new CandidateDeliveryService(database.store, deliveries, workspace, eligibility)) {
+        var guides = new SqliteQuickStartStore(database.source);
+        var generations = new AtomicInteger();
+        var quickStart = new com.ayywl.delveforge.application.quickstart.QuickStartService(guides, workspace, request -> {
+            generations.incrementAndGet();
+            assertTrue(request.toString().contains("README.md"));
+            throw new com.ayywl.delveforge.application.agent.AgentException("FIXTURE_GUIDE_FAILURE", "No provider called");
+        }, new DeterministicRepositorySecretPolicy());
+        try (var delivery = new CandidateDeliveryService(database.store, deliveries, workspace, eligibility, quickStart::afterDelivery)) {
             delivery.start();
-            for (int wait = 0; wait < 100 && (delivery.get(candidateId) == null || delivery.get(candidateId).state() != Delivery.State.COMPLETED); wait++) {
+            for (int wait = 0; wait < 600 && (delivery.get(candidateId) == null || delivery.get(candidateId).state() != Delivery.State.COMPLETED); wait++) {
                 Thread.sleep(100);
             }
-            assertEquals(Delivery.State.COMPLETED, delivery.get(candidateId).state());
+            assertEquals(Delivery.State.COMPLETED, delivery.get(candidateId).state(),
+                    () -> database.store.events(candidate.runId(), 0, 200).toString());
         }
         assertEquals(candidate.expectedTree(), git.git(official, "rev-parse", "HEAD^{tree}"));
         assertEquals(baseline, git.git(original, "rev-parse", "HEAD"));
@@ -134,8 +148,23 @@ class GenericCommandDeliveryTest {
                 var state = statement.executeQuery("SELECT p.status, s.status FROM evolution_plan p "
                         + "JOIN evolution_step s ON s.plan_id=p.id WHERE p.id='plan' AND s.id='step'")) {
             assertTrue(state.next());
-            assertEquals("ACTIVE", state.getString(1));
+            assertEquals(finalPlan ? "COMPLETED" : "ACTIVE", state.getString(1));
             assertEquals("SUCCEEDED", state.getString(2));
+        }
+        if (finalPlan) {
+            for (int wait = 0; wait < 600 && (guides.find("plan").isEmpty()
+                    || guides.find("plan").orElseThrow().status().equals("GENERATING")); wait++) {
+                Thread.sleep(50);
+            }
+            assertEquals(1, generations.get(), () -> guides.find("plan").toString());
+            assertEquals("UNAVAILABLE", guides.find("plan").orElseThrow().status());
+            assertEquals(Delivery.State.COMPLETED, deliveries.get(candidateId).state());
+            assertEquals(git.git(official, "rev-parse", "HEAD"), guides.find("plan").orElseThrow().revision());
+            assertEquals(3, json.readTree(candidate.testEvidence()).path("checks").size());
+            assertTrue(candidate.testEvidence().contains("E2E browser unavailable"));
+        } else {
+            assertEquals(0, generations.get());
+            assertTrue(guides.finalDelivery("plan").isEmpty());
         }
     }
 

@@ -1,8 +1,8 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
+import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
-import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
@@ -59,22 +59,22 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.spy;
 
 class CodingAgentServiceTest {
     @TempDir
@@ -227,8 +227,8 @@ class CodingAgentServiceTest {
                     .anyMatch(message -> message.text().startsWith("较早工具上下文已压缩")));
             if (turn == 1 || turn == 2) {
                 return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("notes-" + turn,
-                        "update_plan", "{\"notes\":\"" + (turn == 1 ? "Initial repository finding"
-                                : "[ ] stale item; native check now passed") + "\"}")), 1L);
+                        "update_plan", "{\"tasks\":[{\"title\":\"" + (turn == 1 ? "Initial repository finding"
+                                : "[ ] stale item; native check now passed") + "\",\"status\":\"pending\"}]}")), 1L);
             }
             if (turn < 13) {
                 return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("read-" + turn,
@@ -246,10 +246,25 @@ class CodingAgentServiceTest {
     }
 
     @Test
+    void compactionRetainsFailedStreamsAndLogReferenceWithoutLegacyOutput() {
+        try (var service = service((history, tools) -> null, AgentProtocol.Limits.defaults())) {
+            var message = new AgentProtocol.Message("tool", """
+                    {"ok":false,"result":{"classification":"COMMAND_FAILED","exitCode":1,
+                    "stdout":"test assertion failed at CounterTest:42", "stderr":"browser executable unavailable",
+                    "invocationId":"actual-invocation", "logRef":"actual-invocation"}}
+                    """, List.of(), "call", "exec_command");
+            String fact = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "contextFact", message);
+            assertTrue(fact.contains("CounterTest:42"));
+            assertTrue(fact.contains("browser executable unavailable"));
+            assertTrue(fact.contains("actual-invocation"));
+        }
+    }
+
+    @Test
     void instructionsSeparateExplorationFromFinalChecksAndKeepTemporaryLogsOutsideSource() throws Exception {
         var captured = new java.util.concurrent.atomic.AtomicReference<String>();
         AgentModelPort model = (history, tools) -> {
-            captured.set(history.getFirst().text());
+            captured.set(history.getFirst().text() + "\n" + history.get(1).text() + "\n" + tools);
             return new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"fixture stop\"}", List.of(), 1L);
         };
         try (var service = service(model, AgentProtocol.Limits.defaults())) {
@@ -260,7 +275,7 @@ class CodingAgentServiceTest {
             assertFalse(instructions.contains("command 和 directory 完全一致"));
             assertTrue(instructions.contains("invocationId"));
             assertTrue(instructions.contains("不弱化测试"));
-            assertTrue(instructions.contains("update_plan 是可选"));
+            assertTrue(instructions.contains("可选的当前工作清单"));
             assertTrue(instructions.contains("stdout") || instructions.contains("read_log"));
         }
     }

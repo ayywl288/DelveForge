@@ -29,7 +29,17 @@ const checks = computed(() => checkSummary(activities.value, props.run.id));
 const checksExpanded = ref(false);
 const checkCount = ref(40);
 const visibleChecks = computed(() => checks.value.activities.slice(0, checkCount.value));
-const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && !isPatchTool(activity.tool) && !isCheckTool(activity.tool) && activity.event.kind !== "MODEL_REQUEST" && !routineProviderDiagnostic(activity)));
+const workingPlan = computed(() => {
+    const latest = [...props.events].reverse().find(event => event.runId === props.run.id && event.kind === "WORKING_NOTES");
+    if (!latest) return null;
+    try {
+        const value = JSON.parse(latest.summary);
+        if (Array.isArray(value.tasks)) return { tasks: value.tasks.filter((task: { title?: unknown; status?: unknown }) =>
+            typeof task.title === "string" && ["pending", "in_progress", "completed"].includes(String(task.status))) as { title: string; status: string }[], legacy: "" };
+    } catch { /* 历史自由文本笔记只读展示。 */ }
+    return { tasks: [], legacy: latest.summary };
+});
+const chronological = computed(() => activities.value.filter(activity => !isExploration(activity) && !isPatchTool(activity.tool) && !isCheckTool(activity.tool) && activity.event.kind !== "MODEL_REQUEST" && activity.event.kind !== "WORKING_NOTES" && activity.tool !== "update_plan" && !routineProviderDiagnostic(activity)));
 const visible = computed(() => chronological.value.slice(-visibleCount.value));
 const fileCount = ref(40);
 const filesExpanded = ref(false);
@@ -75,6 +85,15 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
             <p class="stream-status" role="status">事件连接：{{ connection }}</p></div>
         <p v-if="state.snapshotBehind" class="snapshot-note" role="status">已收到较新的持久化活动，运行概览待同步。</p>
         <p v-if="!events.length" class="meta">等待持久化事件。</p>
+        <section v-if="workingPlan" class="working-plan" aria-label="当前工作清单">
+            <div class="section-row"><h4>当前工作清单</h4><span v-if="workingPlan.tasks.length">{{ workingPlan.tasks.filter(task => task.status === 'completed').length }} / {{ workingPlan.tasks.length }} 完成</span></div>
+            <ul v-if="workingPlan.tasks.length"><li v-for="(task, index) in workingPlan.tasks" :key="index" :data-status="task.status">
+                <NavigationIcon :name="task.status === 'completed' ? 'check' : task.status === 'in_progress' ? 'activity' : 'planning'" />
+                <span>{{ task.title }}</span><small>{{ { pending: '待处理', in_progress: '进行中', completed: '已完成' }[task.status] }}</small>
+            </li></ul>
+            <p v-else-if="workingPlan.legacy">{{ workingPlan.legacy }}</p>
+            <p class="meta">由 Agent 更新；清单状态不代表独立验证结果。</p>
+        </section>
         <div class="current-activity" :data-active="current.active" :data-tone="current.tone" role="status" aria-live="polite" aria-atomic="true">
             <NavigationIcon :name="current.tone === 'failed' ? 'warning' : current.tone === 'blocked' ? 'lock' : current.tone === 'completed' ? 'check' : 'activity'" />
             <div class="current-copy"><p v-if="!state.terminal" class="current-label">当前活动</p><Transition name="current-change" @leave="removeImmediately"><div :key="current.title + current.detail" class="current-content"><p class="current-title">{{ current.title }}
@@ -108,11 +127,11 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
         </details>
         <p v-if="checks.blocked" class="check-blocker" role="alert">{{ checks.sourceBlocked ? '检查期间检测到文件变化，本次检查已停止。' : '检查被安全规则停止，请核对运行记录。' }}</p>
         <details :key="patches.key" class="patch-summary" :open="patchesExpanded">
-            <summary @click.prevent="patchesExpanded = !patchesExpanded"><NavigationIcon name="code" />代码修改 · 执行历史
+            <summary @click.prevent="patchesExpanded = !patchesExpanded"><NavigationIcon name="code" />精确编辑 · 执行历史
                 <span class="patch-count"><span :key="`${patches.count}:${patches.applied}:${patches.conflicts}:${patches.blocked}:${patches.uncertain}`" class="counter-values">已加载 {{ patches.count }} 次尝试 · 已应用 {{ patches.applied }} · 冲突 {{ patches.conflicts }} · 安全拒绝 {{ patches.blocked }} · 结果不明 {{ patches.uncertain }} · 失败 {{ patches.failed }}</span></span>
                 <span v-if="patches.active" class="patch-current" role="status">正在应用代码修改</span>
             </summary>
-            <p v-if="patchesExpanded" class="exploration-note">以下为逐次修改尝试；最终交付文件见下方变更清单。冲突、安全拒绝和结果不明均保留原记录。</p>
+            <p v-if="patchesExpanded" class="exploration-note">以下为编辑工具的逐次尝试；Shell 也可修改文件，最终变更以实际差异清单为准。冲突、安全拒绝和结果不明均保留原记录。</p>
             <template v-if="patchesExpanded"><ol class="patch-operations" aria-label="本 Run 补丁尝试，按时间排序" tabindex="0">
                 <AgentActivityRow v-for="activity in visiblePatches" :key="activity.key" :activity="activity" />
             </ol><button v-if="patchCount < patches.count" class="secondary compact-button more-patches" @click="patchCount += 40">显示更多补丁尝试</button></template>
@@ -138,6 +157,16 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 </template>
 
 <style scoped>
+.working-plan { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.working-plan h4 { margin: 0; font-size: 14px; }
+.working-plan ul { list-style: none; padding: 0; }
+.working-plan li { display: flex; align-items: baseline; gap: 10px; padding: 6px 0; font-size: 14px; }
+.working-plan li .navigation-icon { width: 16px; height: 16px; flex-shrink: 0; }
+.working-plan li span { flex: 1; overflow-wrap: anywhere; }
+.working-plan li small { color: var(--muted); flex-shrink: 0; }
+.working-plan li[data-status="completed"] .navigation-icon { color: var(--success); }
+.working-plan > p { white-space: pre-wrap; }
+
 .check-summary { min-width: 0; margin: 10px 0; padding: 12px 0 16px; border-bottom: 1px solid var(--line); }
 .check-summary summary { cursor: pointer; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .check-summary summary > .navigation-icon { width: 15px; height: 15px; vertical-align: middle; margin-right: 8px; color: var(--muted); }

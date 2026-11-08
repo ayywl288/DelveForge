@@ -19,30 +19,28 @@ async function load(offset = 0) {
     } catch { error.value = "日志未能读取，请重试。"; }
     finally { loading.value = false; }
 }
-function changeStream() { page.value = null; void load(); }
+function changeStream(value: string) { stream.value = value; page.value = null; if (command.value?.data.logRef) void load(); }
 </script>
 <template>
     <div v-if="command" class="command-details">
-        <p class="command-preview" translate="no"><code>{{ command.data.command || '命令正文未记录' }}</code></p>
+        <pre class="command-preview" tabindex="0" aria-label="命令" translate="no">{{ stream === 'command' && page ? page.content : command.data.command || '命令正文未记录' }}</pre>
         <details class="command-disclosure">
-            <summary>命令详情与输出</summary>
-            <pre tabindex="0" aria-label="完整命令" translate="no">{{ command.data.command || '命令正文未记录' }}</pre>
-            <p v-if="command.data.commandTruncated">命令预览已截断<span v-if="command.data.logRef">，可在下方日志流选择“完整命令”</span>。</p>
+            <summary>查看输出与诊断</summary>
+            <p v-if="command.data.commandTruncated">命令预览已截断{{ command.data.logRef ? '，可选择完整命令读取保留内容。' : '，完整内容未保留。' }}</p>
             <p v-if="command.explanation" class="command-explanation">{{ command.explanation }}</p>
-            <p v-if="command.data.scope">历史验证范围：{{ command.data.scope }}</p>
-            <p v-if="typeof command.data.exitCode === 'number'">{{ command.data.testDetails === "AVAILABLE" ? "已提供测试明细" : "测试明细未提供" }}<span v-if="command.data.sourceChanged"> · 源码已变化，需重验</span></p>
-            <template v-if="!page" v-for="name in ['stdout', 'stderr']" :key="name">
-                <template v-if="command.data[name]"><p class="output-label">{{ name === 'stdout' ? '标准输出' : '错误输出' }}</p>
-                    <pre tabindex="0" :aria-label="name === 'stdout' ? '命令标准输出' : '命令错误输出'" translate="no">{{ command.data[name] }}</pre>
-                </template>
-            </template>
+            <p v-if="typeof command.data.exitCode === 'number'">{{ command.data.testDetails === "AVAILABLE" ? "已提供测试明细" : "测试明细未提供；进程成功不代表测试通过" }}<span v-if="command.data.sourceChanged"> · 此命令修改了源码</span></p>
+            <div class="log-controls" role="group" aria-label="输出流">
+                <button v-for="name in ['stdout', 'stderr', ...(command.data.commandTruncated && command.data.logRef ? ['command'] : [])]" :key="name" type="button"
+                    class="secondary compact-button" :aria-pressed="stream === name" :disabled="loading" @click="changeStream(name)">
+                    {{ name === 'stdout' ? '标准输出' : name === 'stderr' ? '错误输出' : '完整命令' }}
+                </button>
+            </div>
+            <pre v-if="stream !== 'command'" tabindex="0" aria-label="命令输出" translate="no">{{ page ? page.content || '此日志流没有输出。' : command.data[stream] || '此日志流没有输出。' }}</pre>
             <p v-if="command.data.outputTruncated && !page">预览已截断<span v-if="command.data.logRef">，可翻页读取保留日志</span>。</p>
             <div v-if="command.data.logRef" class="log-controls">
-                <label>日志流 <select v-model="stream" :disabled="loading" @change="changeStream"><option value="stdout">标准输出</option><option value="stderr">错误输出</option><option value="command">完整命令</option></select></label>
                 <button type="button" :disabled="loading" @click="load(0)">{{ loading ? '读取中…' : '从头读取' }}</button>
                 <button v-if="page?.hasMore" type="button" :disabled="loading" @click="load(page!.nextOffset)">下一页</button>
             </div>
-            <pre v-if="page" tabindex="0" aria-label="保留日志" translate="no">{{ page.content || '此日志流没有输出。' }}</pre>
             <p v-if="page" role="status">已读至 {{ page.nextOffset }} 字符{{ page.hasMore ? '，后面还有内容' : '，已到保留末尾' }}</p>
             <p v-if="command.data.logDiscarded || page?.logDiscarded">超出保留上限的输出已丢弃。</p>
             <p v-if="error" role="alert">{{ error }}</p>
@@ -57,8 +55,8 @@ function changeStream() { page.value = null; void load(); }
 .command-details { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
 .command-details p { margin: 4px 0; }
 .command-explanation { color: var(--muted); line-height: 1.65; }
-.command-preview code { white-space: nowrap; }
-.command-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-preview { white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-controls button[aria-pressed="true"] { background: var(--canvas); color: var(--ink); border-color: var(--ink); }
 .command-disclosure summary { cursor: pointer; padding: 6px 0; }
 .output-label { color: var(--muted); font-size: 12px; }
 .command-details pre { max-height: 260px; overflow: auto; white-space: pre-wrap; }

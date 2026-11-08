@@ -126,7 +126,7 @@ class PatchConflictOrchestrationDockerTest {
         assertEquals(terminal.toolCalls(), events.stream().filter(event -> event.kind().equals("TOOL_FINISHED")).count());
         var candidate = database.store.candidate(terminal.candidateId());
         var evidence = json.readTree(candidate.testEvidence());
-        assertEquals(7, evidence.path("evidenceVersion").asInt());
+        assertEquals(8, evidence.path("evidenceVersion").asInt());
         var executed = json.readTree(observations.getLast().stream()
                 .filter(message -> checks.id().equals(message.callId())).findFirst().orElseThrow().text()).path("result");
         assertEquals(terminal.id(), evidence.path("runId").asText());
@@ -136,7 +136,7 @@ class PatchConflictOrchestrationDockerTest {
                 evidence.path("agentReport").path("executions"));
         assertEquals(evidence.path("finalSnapshot"), executed.path("snapshot"));
         assertEquals(evidence.path("finalSnapshot"), executed.path("afterSnapshot"));
-        assertEquals("COMMAND_VERIFIED", evidence.path("verificationLevel").asText());
+        assertEquals("FACTUAL_RECORD", evidence.path("verificationLevel").asText());
         assertEquals(List.of(path, testPath), candidate.changedPaths());
         if (earlierSuccess) {
             assertTrue(candidate.diff().contains("/* retained */"));

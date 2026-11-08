@@ -25,6 +25,7 @@ import type {
 import type { AgentRun, AgentCandidate, Delivery } from "./agentTypes";
 
 const messages: Record<string, string> = {
+  QUICK_START_NOT_READY: "全部步骤正式交付后才能生成指南。",
   PAID_USAGE_ACK_REQUIRED: "请先确认本次 API 费用及可用预算，再明确开始运行。",
   RUN_CONFLICT: "已有 Agent 正在运行或已冻结结果，请刷新运行记录。",
   DELIVERY_CONFLICT: "交付占用或授权已变化，请刷新交付状态。",
@@ -115,7 +116,10 @@ export async function request<T>(
 const id = encodeURIComponent;
 const profile = (value: string) => `/user-profiles/${id(value)}`;
 const plan = (value: string) => `/evolution-plans/${id(value)}`;
+export interface QuickStart { planId: string; candidateId: string | null; revision: string | null; status: "GENERATING" | "AVAILABLE" | "UNAVAILABLE"; markdown: string; reason: string | null; updatedAt: string | null; stale: boolean }
 export const api = {
+  quickStart: (key: string) => request<QuickStart>(`${plan(key)}/quick-start`),
+  generateQuickStart: (key: string) => request<QuickStart>(`${plan(key)}/quick-start`, "POST"),
   agentLog: (runId: string, invocationId: string, stream: string, offset: number) =>
     request<{ ok: boolean; result: { content: string; nextOffset: number; hasMore: boolean; logDiscarded: boolean } }>(
       `/agent-runs/${encodeURIComponent(runId)}/logs/${encodeURIComponent(invocationId)}?stream=${encodeURIComponent(stream)}&offset=${offset}&limit=4000`),

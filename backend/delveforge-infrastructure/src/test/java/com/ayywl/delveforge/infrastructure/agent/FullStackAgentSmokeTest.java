@@ -186,7 +186,7 @@ class FullStackAgentSmokeTest {
             assertFalse(candidate.testEvidence().contains("FRONTEND"));
         }
         assertTrue(candidate.changedPaths().contains("src/main/java/example/Counter.java"));
-        assertEquals(7, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
+        assertEquals(8, json.readTree(candidate.testEvidence()).path("evidenceVersion").asInt());
         assertEquals("PROJECTED", json.readTree(candidate.testEvidence()).path("sourceView").path("kind").asText());
         assertEquals(1, json.readTree(candidate.testEvidence()).path("sourceView").path("preservedOnlyCount").asInt());
         assertFalse(candidate.changedPaths().stream().anyMatch(path -> path.endsWith("INSTALL_SCRIPT_RAN")),

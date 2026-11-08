@@ -91,7 +91,7 @@ export function presentCheckRows(raw: string) {
         const latest = new Map(recorded.map(check => [key(check), check]));
         const required = new Set(Array.isArray(value.requiredChecks) ? value.requiredChecks.filter(record).map(key) : []);
         return [...recorded].reverse().map(check => ({
-            current: value.evidenceVersion === 7 && record(value.agentReport) && Array.isArray(value.agentReport.executions)
+            current: [7, 8].includes(Number(value.evidenceVersion)) && record(value.agentReport) && Array.isArray(value.agentReport.executions)
                 && value.agentReport.executions.includes(check.invocationId)
                 && check.snapshot === value.finalSnapshot && check.afterSnapshot === value.finalSnapshot
                 || value.evidenceVersion === 6 && required.has(key(check)) && latest.get(key(check)) === check
@@ -114,6 +114,15 @@ export function presentTestEvidence(raw: string): TestPresentation {
     const fresh = checks.filter(check => check.stale === false
         && typeof value.finalSnapshot === "string" && /^[0-9a-f]{64}$/.test(value.finalSnapshot)
         && check.snapshot === value.finalSnapshot);
+    if (value.evidenceVersion === 8) {
+        const failures = checks.filter(check => Number(check.exitCode) !== 0 || check.timedOut || check.cancelled).length;
+        const reports = checks.filter(check => record(check.testReport) && check.testReport.availability === "AVAILABLE");
+        const testFailures = reports.reduce((sum, check) => sum + Number((check.testReport as Record<string, unknown>).failures ?? 0)
+            + Number((check.testReport as Record<string, unknown>).errors ?? 0), 0);
+        return { label: "平台记录的执行事实", outcome: "Shell 结果与 Agent 完成判断分别展示；退出零不证明测试或业务通过。",
+            scope: `${checks.length} 次命令 · ${failures} 次非成功进程 · ${testFailures} 条测试失败/错误记录（包含历史重试）`,
+            tone: failures || testFailures ? "warning" : "neutral", counts: null };
+    }
     if (value.evidenceVersion === 7) {
         const report = record(value.agentReport) ? value.agentReport : {};
         const refs = Array.isArray(report.executions) ? report.executions : [];
@@ -193,4 +202,22 @@ export function candidateFileChanges(paths: readonly string[], diff: string): Pr
         if (path && paths.includes(path)) types.set(path, kind);
     }
     return paths.map(path => ({ path, changeType: types.get(path) ?? "UNKNOWN" }));
+}
+
+/** 汇总全部收据，不从 Agent 选择的引用推断遗漏失败与任务无关。 */
+export function executionFacts(raw: string) {
+    try {
+        const value = JSON.parse(raw);
+        if (value.evidenceVersion !== 8 || !Array.isArray(value.checks)) return null;
+        const checks = value.checks.filter(record) as Record<string, unknown>[];
+        const reports = checks.flatMap(check => record(check.testReport) && check.testReport.availability === "AVAILABLE" ? [check.testReport] : []);
+        return { total: checks.length, succeeded: checks.filter(check => check.exitCode === 0 && !check.timedOut && !check.cancelled).length,
+            failed: checks.filter(check => check.exitCode !== 0 && !check.timedOut && !check.cancelled).length,
+            timedOut: checks.filter(check => check.timedOut).length, cancelled: checks.filter(check => check.cancelled).length,
+            reports: reports.length, unknown: checks.length - reports.length,
+            stale: checks.filter(check => check.snapshot !== value.finalSnapshot || check.afterSnapshot !== value.finalSnapshot).length,
+            executed: reports.reduce((sum, report) => sum + Number(report.executedTests ?? 0), 0),
+            failures: reports.reduce((sum, report) => sum + Number(report.failures ?? 0) + Number(report.errors ?? 0), 0),
+            skipped: reports.reduce((sum, report) => sum + Number(report.skipped ?? 0), 0) };
+    } catch { return null; }
 }

@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { presentTestEvidence, presentCheckRows, presentSourceView } from "./agentResultPresentation";
+import { executionFacts, presentTestEvidence, presentCheckRows, presentSourceView } from "./agentResultPresentation";
 const props = defineProps<{ evidence: string }>();
 const result = computed(() => presentTestEvidence(props.evidence));
 const checks = computed(() => presentCheckRows(props.evidence));
-const report = computed(() => { try { const value = JSON.parse(props.evidence); return value.evidenceVersion === 7 ? value.agentReport : null; } catch { return null; } });
-const generic = computed(() => { try { return [6, 7].includes(JSON.parse(props.evidence).evidenceVersion); } catch { return false; } });
+const report = computed(() => { try { const value = JSON.parse(props.evidence); return [7, 8].includes(value.evidenceVersion) ? value.agentReport : null; } catch { return null; } });
+const generic = computed(() => { try { return [6, 7, 8].includes(JSON.parse(props.evidence).evidenceVersion); } catch { return false; } });
+const facts = computed(() => executionFacts(props.evidence));
 const sourceView = computed(() => presentSourceView(props.evidence));
 </script>
 <template>
@@ -20,18 +21,16 @@ const sourceView = computed(() => presentSourceView(props.evidence));
             <div><dt>错误</dt><dd>{{ result.counts.errored ?? '未记录' }}</dd></div>
             <div><dt>跳过</dt><dd>{{ result.counts.skipped ?? '未记录' }}</dd></div>
         </dl>
-        <p v-if="report?.summary">Agent 完成说明：{{ report.summary }}</p>
-        <p v-if="report?.limitations">Agent 报告限制：{{ report.limitations }}</p>
-        <details v-if="generic && checks.length" class="evidence-history">
-            <summary>全部命令历史（{{ checks.length }} 次，最近在前）</summary>
-            <ul class="check-evidence-list" aria-label="命令历史">
-                <li v-for="(check, index) in checks" :key="index">
-                    {{ check.scope }} · {{ check.label }}<span v-if="check.current"> · 最终报告引用</span>
-                    <strong v-if="check.stale"> · 旧源码结果</strong>
-                    <span v-if="check.executed !== null"> · 已执行 {{ check.executed }} 项测试</span>
-                </li>
-            </ul>
-        </details>
+        <dl v-if="facts" class="test-counts" aria-label="全部执行记录汇总">
+            <div><dt>命令总数</dt><dd>{{ facts.total }}</dd></div><div><dt>进程成功</dt><dd>{{ facts.succeeded }}</dd></div>
+            <div><dt>进程失败</dt><dd>{{ facts.failed }}</dd></div><div><dt>超时</dt><dd>{{ facts.timedOut }}</dd></div>
+            <div><dt>取消</dt><dd>{{ facts.cancelled }}</dd></div>
+        </dl>
+        <p v-if="facts" class="evidence-scope">{{ facts.reports }} 次有测试报告，{{ facts.unknown }} 次无报告详情；{{ facts.stale }} 次属于旧源码。报告累计执行 {{ facts.executed }} 项，失败或错误 {{ facts.failures }} 项，跳过 {{ facts.skipped }} 项，包含重复执行。未执行的检查见 Agent 限制说明。</p>
+        <h4 v-if="report">Agent 判断</h4>
+        <p v-if="report?.summary">{{ report.summary }}</p>
+        <p v-if="report?.limitations">Agent 报告限制：{{ Array.isArray(report.limitations) ? report.limitations.join('；') : report.limitations }}</p>
+        <p v-if="generic" class="evidence-scope">完整命令与日志见本次 Agent Run 的「命令与检查」。</p>
         <ul v-if="!generic && checks.length" class="check-evidence-list" aria-label="各项检查证据">
             <li v-for="(check, index) in checks" :key="index">
                 <span>{{ check.scope }}</span> · {{ check.label }}

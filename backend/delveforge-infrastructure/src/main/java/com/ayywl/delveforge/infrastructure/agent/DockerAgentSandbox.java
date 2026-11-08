@@ -1,11 +1,11 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
-import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentCheckEvidence;
+import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
-import com.ayywl.delveforge.application.agent.AgentTools;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
+import com.ayywl.delveforge.application.agent.AgentTools;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.agent.Candidate;
@@ -1211,7 +1211,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             }
             return json.createObjectNode().put("classification", failure.code())
                     .put("reason", sanitize(failure.getMessage()))
-                    .put("instruction", "报告须以 executions 引用本 Run 最终源码上的成功 invocationId，并以 validationComplete 如实说明必要验证是否完成。"
+                    .put("instruction", "executions 可省略；提供时只引用本 Run 当前源码/视图的实际 invocationId，失败结果保持失败。"
                             + "失败历史保留；解释后续处理和限制，不伪造、改写或引用过期结果为通过。")
                     .toString();
         }
@@ -1409,21 +1409,19 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     }
 
     private String evidence(Session session, JsonNode snapshot) {
-        ObjectNode evidence = json.createObjectNode().put("evidenceVersion", 7).put("runId", session.task.runId())
+        ObjectNode evidence = json.createObjectNode().put("evidenceVersion", 8).put("runId", session.task.runId())
                 .put("finalSnapshot", snapshot.path("snapshot").asText()).put("status", "NOT_TESTED")
-                .put("verificationLevel", "COMMAND_VERIFIED")
+                .put("verificationLevel", "FACTUAL_RECORD")
                 .put("testDetails", "UNAVAILABLE").put("executionBaselineTree", session.executionBaselineTree);
         evidence.set("sourceView", snapshot.path("sourceView"));
         evidence.set("agentReport", session.agentReport == null ? json.createObjectNode() : session.agentReport);
-        Set<String> referenced = new HashSet<>();
-        evidence.path("agentReport").path("executions").forEach(reference -> referenced.add(reference.asText()));
         var checks = evidence.putArray("checks");
         for (JsonNode record : session.checks) {
             ObjectNode check = record.deepCopy();
             check.put("stale", !snapshot.path("snapshot").asText().equals(check.path("snapshot").asText())
                     || !check.path("snapshot").asText().equals(check.path("afterSnapshot").asText()));
             checks.add(check);
-            if (referenced.contains(check.path("invocationId").asText()) && !check.path("stale").asBoolean()
+            if (!check.path("stale").asBoolean()
                     && check.path("testDetails").asText().equals("AVAILABLE")) {
                 evidence.put("testDetails", "AVAILABLE");
                 if (check.path("executedTests").asInt() > 0) {
