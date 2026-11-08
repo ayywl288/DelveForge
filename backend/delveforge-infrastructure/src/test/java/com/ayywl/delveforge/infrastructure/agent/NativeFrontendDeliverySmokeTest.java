@@ -149,8 +149,27 @@ class NativeFrontendDeliverySmokeTest {
         }
         var candidate = database.store.candidate(candidateId);
         var evidence = json.readTree(candidate.testEvidence());
-        assertEquals(6, evidence.path("evidenceVersion").asInt());
+        assertEquals(7, evidence.path("evidenceVersion").asInt());
         var checks = evidence.path("checks");
+        var recordedIds = json.createArrayNode();
+        var observedIds = json.createArrayNode();
+        checks.forEach(receipt -> recordedIds.add(receipt.path("invocationId")));
+        for (String observation : observed) {
+            var result = json.readTree(observation).path("result");
+            if (result.has("invocationId")) {
+                assertEquals(evidence.path("runId"), result.path("runId"));
+                observedIds.add(result.path("invocationId"));
+            }
+        }
+        assertEquals(5, recordedIds.size());
+        assertEquals(observedIds, recordedIds);
+        assertEquals(json.createArrayNode().add(recordedIds.get(3)).add(recordedIds.get(4)),
+                evidence.path("agentReport").path("executions"));
+        for (int index : List.of(3, 4)) {
+            assertEquals(evidence.path("finalSnapshot"), checks.get(index).path("snapshot"));
+            assertEquals(evidence.path("finalSnapshot"), checks.get(index).path("afterSnapshot"));
+            assertEquals(evidence.path("sourceView"), checks.get(index).path("sourceView"));
+        }
         assertEquals(0, checks.get(0).path("exitCode").asInt(), checks.get(0).toString());
         assertEquals("COMMAND_FAILED", checks.get(1).path("classification").asText());
         assertEquals("COMMAND_FAILED", checks.get(2).path("classification").asText());

@@ -126,7 +126,16 @@ class PatchConflictOrchestrationDockerTest {
         assertEquals(terminal.toolCalls(), events.stream().filter(event -> event.kind().equals("TOOL_FINISHED")).count());
         var candidate = database.store.candidate(terminal.candidateId());
         var evidence = json.readTree(candidate.testEvidence());
-        assertEquals(6, evidence.path("evidenceVersion").asInt());
+        assertEquals(7, evidence.path("evidenceVersion").asInt());
+        var executed = json.readTree(observations.getLast().stream()
+                .filter(message -> checks.id().equals(message.callId())).findFirst().orElseThrow().text()).path("result");
+        assertEquals(terminal.id(), evidence.path("runId").asText());
+        assertEquals(terminal.id(), executed.path("runId").asText());
+        assertEquals(executed.path("invocationId"), evidence.path("checks").get(0).path("invocationId"));
+        assertEquals(json.createArrayNode().add(executed.path("invocationId")),
+                evidence.path("agentReport").path("executions"));
+        assertEquals(evidence.path("finalSnapshot"), executed.path("snapshot"));
+        assertEquals(evidence.path("finalSnapshot"), executed.path("afterSnapshot"));
         assertEquals("COMMAND_VERIFIED", evidence.path("verificationLevel").asText());
         assertEquals(List.of(path, testPath), candidate.changedPaths());
         if (earlierSuccess) {

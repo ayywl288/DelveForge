@@ -90,3 +90,37 @@
 | b49e12d6-f75e-4d81-8441-75f36ddf0366 | a1c52f4fb85f387dbbbd978b8bebeb9182a44af2a6be401d688e0f7b5a228938 | 213398256a751690ab93f737cd97c3826693d651eb968b7ef940144b0b85cf04 |
 
 没有补造历史日志/执行顺序，没有把旧失败解释成新版本已验证成功。
+
+## 2026-11-07 审查跟进：当前运行时测试迁移
+
+从 `e80fda0` 到 `2422a2f830b2e97eee3c7463e35d0910dc687f78` 的差异复核确认：
+`ReadToolRecoveryDockerTest`、`PatchConflictOrchestrationDockerTest`、`NativeFrontendDeliverySmokeTest`
+使用当前运行时和 FixtureCompletion 创建新 Candidate，但版本断言仍为 6。本次仅将三处断言迁移为 7，
+并核对最终报告引用、实际工具返回的 invocationId、Run 归属及最终源码快照；前端夹具同时核对执行视图。
+原有错误恢复、冲突延迟写入、真实源码修改、原生命令、隔离、冻结和 Delivery 断言保留。
+其他直接受影响的条件测试未发现同类版本遗漏；历史证据兼容测试和生产代码均未修改。
+
+实际执行（22:29 完成）：
+
+```powershell
+$env:DELVEFORGE_AGENT_DOCKER='true'
+$env:DELVEFORGE_AGENT_IMAGE_21='delveforge-agent:protocol-v9-jdk21-05d760e3e30b9cdf00ef751d99bb44694db1a09bdf87311bfa43d8069ee336c6'
+$env:DELVEFORGE_AGENT_IMAGE_17='delveforge-agent:protocol-v9-jdk17-05d760e3e30b9cdf00ef751d99bb44694db1a09bdf87311bfa43d8069ee336c6'
+.\mvnw.cmd '-Dtest=ReadToolRecoveryDockerTest,PatchConflictOrchestrationDockerTest,NativeFrontendDeliverySmokeTest,CompletionEvidenceTest,CommandCheckEvidenceTest,AgentCheckEvidenceTest' '-Dsurefire.failIfNoSpecifiedTests=false' verify
+```
+
+| 测试类 | 实际用例 | 结果 |
+| --- | --- | --- |
+| ReadToolRecoveryDockerTest | 1 | PASS |
+| PatchConflictOrchestrationDockerTest | 2：earlierSuccess=false/true | PASS |
+| NativeFrontendDeliverySmokeTest | 4：npm/npm2/pnpm/pnpm6 | PASS |
+| CompletionEvidenceTest | 4 | PASS |
+| CommandCheckEvidenceTest | 7（历史 v6） | PASS |
+| AgentCheckEvidenceTest | 9（历史证据） | PASS |
+
+共 27 项，0 失败、0 错误、0 跳过；四模块 reactor `verify` / 构建成功，总耗时 13:56。
+原始日志：`target/convergence-review-followup.log`；XML 位于对应模块 `target/surefire-reports/`。
+本轮 7 个 Docker 用例均实际执行，更新了临时夹具的 proof；上文“未运行整套 NativeFrontend smoke”只描述前次验证，本轮已补齐。
+没有镜像重建、生产代码修复或新增完成门槛；前端和其他全量测试未重复运行，前次结果不冒充本轮结果。
+合并前 main 仍为 `e80fda0`，为本分支祖先；采用仓库已有的非快进合并方式保留实现与跟进提交。
+没有推送、付费调用、真实用户项目 Run、正式数据或旧 partial 产物修改；三个无关未跟踪目录保持原状。
