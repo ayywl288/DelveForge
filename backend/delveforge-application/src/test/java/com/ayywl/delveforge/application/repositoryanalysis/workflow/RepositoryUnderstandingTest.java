@@ -431,12 +431,12 @@ class RepositoryUnderstandingTest {
     void neverReadsAPathExcludedByTheSecretPolicy() {
         seedSources();
         // 放在路径末尾，避免改变其它文件的编号——固定响应按编号指向它们
-        workspace.given("zz/.env.local", "DB_PASSWORD=CANARY-ENV-VALUE-0001\n");
+        workspace.given("zz/.ssh/config.properties", "DB_PASSWORD=CANARY-ENV-VALUE-0001\n");
         aiGateway.respondAll(SCOUT_RESPONSE);
 
         understanding().understand(WORKSPACE, REVISION);
 
-        assertTrue(!workspace.readPaths().contains("zz/.env.local"),
+        assertTrue(!workspace.readPaths().contains("zz/.ssh/config.properties"),
                 "被排除的凭据文件不得被读取: " + workspace.readPaths());
         assertTrue(workspace.readPaths().contains(POM), "其余材料照常读取");
     }
@@ -466,18 +466,11 @@ class RepositoryUnderstandingTest {
      * <p>不存在「闸门没跑完就先读进来」这条路。
      */
     @Test
-    void failsClosedWhenThePathGateItselfFails() {
+    void obsoleteCredentialGateDoesNotBlockSelectedRepositoryInput() {
         seedSources();
         aiGateway.respondAll(SCOUT_RESPONSE);
-
-        RepositoryNotAnalyzableException failure = assertThrows(
-                RepositoryNotAnalyzableException.class,
-                () -> understandingWithPolicy(failingGate()).understand(WORKSPACE, REVISION));
-
-        assertEquals(RepositorySecretBoundaryException.class, failure.getCause().getClass());
-        assertTrue(failure.getMessage().contains(RepositoryUnderstanding.SECRET_BOUNDARY_FAILED),
-                "失败原因应当带上稳定的标识: " + failure.getMessage());
-        assertTrue(workspace.readPaths().isEmpty(), "闸门没跑完时不得读取任何文件");
+        understandingWithPolicy(failingGate()).understand(WORKSPACE, REVISION);
+        assertTrue(workspace.readPaths().contains(POM));
     }
 
     /**

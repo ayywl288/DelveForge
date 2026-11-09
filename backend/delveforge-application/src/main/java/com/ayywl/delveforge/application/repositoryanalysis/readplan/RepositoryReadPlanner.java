@@ -51,13 +51,10 @@ import java.util.Set;
  * 第二种形状是 ADR-0005 说的那处最小泛化：分层合并的结果没有模型给出的区域标签，
  * 因此需要一个不冒充查看计划的输入类型，而不是把规划本身分叉。
  *
- * <h2>两条通道共用一条凭据政策</h2>
+ * <h2>两条通道共用选定仓库输入边界</h2>
  *
- * <p>候选进入轮转之前先过一遍 {@code RepositorySecretPolicy} 的路径判定（ADR-0006 的
- * 第一个执行点）：命中政策的文件整份不进入材料，因此不会被读、也不会占用名额。
- * 被排除的候选以 {@code EXCLUDED_BY_SECRET_POLICY} 记一条诊断（只有路径，没有内容）。
- *
- * <p>这里只管「要不要读它」；已经读进来的内容怎么处理，由理解阶段末尾的净化负责。
+ * <p>只排除保留的控制目录，沿用 EXCLUDED_BY_SECRET_POLICY 诊断枚举兼容历史记录。
+ * 项目配置和环境示例参与普通预算轮转；内容形态不决定读取资格，见 ADR-0027。
  *
  * <h2>只看 metadata，不读内容</h2>
  *
@@ -85,7 +82,7 @@ import java.util.Set;
  */
 public final class RepositoryReadPlanner {
 
-    /** M4 扩展可能只缺少工程配置；仍使用同一基础材料预算和凭据政策。 */
+    /** M4 扩展可能只缺少工程配置；仍使用同一基础材料预算和控制目录边界。 */
     public RepositoryReadPlan planFoundation(RepositoryMap map) {
         return plan(map, new Lanes(List.of(), List.of()));
     }
@@ -94,14 +91,11 @@ public final class RepositoryReadPlanner {
 
     private final RepositoryMaterialBudget targetedSourceBudget;
 
-    private final RepositorySecretPolicy secretPolicy;
-
     /**
      * @param foundationBudget     基础材料的预算，不得为 {@code null}
      * @param targetedSourceBudget 定向源码的预算，不得为 {@code null}；
      *                             与前者是两份独立的预算，不会互相占用
-     * @param secretPolicy         凭据政策的第一个执行点，不得为 {@code null}；
-     *                             两条通道的候选在进入轮转之前先按路径过一遍它
+     * @param secretPolicy         保留构造参数以兼容既有装配；不再用凭据名判断任务输入资格
      */
     public RepositoryReadPlanner(RepositoryMaterialBudget foundationBudget,
                                  RepositoryMaterialBudget targetedSourceBudget,
@@ -118,7 +112,6 @@ public final class RepositoryReadPlanner {
         }
         this.foundationBudget = foundationBudget;
         this.targetedSourceBudget = targetedSourceBudget;
-        this.secretPolicy = secretPolicy;
     }
 
     /**
@@ -236,30 +229,15 @@ public final class RepositoryReadPlanner {
         }
     }
 
-    /**
-     * 凭据政策的第一个执行点（ADR-0006）：按**路径**整份排除。
-     *
-     * <p>它必须在候选进入轮转之前生效，理由有两条：
-     *
-     * <pre>
-     * 1. 没有进入候选队列的候选不会被读——被排除的文件因此不可能出现在材料里，
-     *    也就不可能出现在送往模型的请求里。这是本次分析里唯一能整份排除的地方。
-     * 2. 它不占用 maxFiles 名额。一个被挡下的 .env 不该让后面那个安全的候选失去机会——
-     *    那会让「仓库里多了一个凭据文件」变成「分析少看了一个正常文件」。
-     * </pre>
-     *
-     * <p>判定只看路径：此刻还没有内容可看（内容要读过才有），而二进制凭据也只有在
-     * 路径这一层才识别得出来。
-     *
-     * @param excluded 命中政策的候选按原顺序追加到这里，作为规划诊断
-     */
-    private boolean excludedFromMaterial(RepositoryMapEntry entry,
-                                         List<RepositoryMapEntry> excluded) {
-        if (!secretPolicy.excludes(entry.relativePath())) {
-            return false;
+    /** 仅排除保留的控制/宿主凭据目录，不按项目配置名称排除用户选定的任务输入。 */
+    private boolean excludedFromMaterial(RepositoryMapEntry entry, List<RepositoryMapEntry> excluded) {
+        boolean reserved = java.util.Arrays.stream(entry.relativePath().replace('\\', '/').split("/"))
+                .anyMatch(part -> java.util.Set.of(".git", ".hg", ".svn", ".ssh", ".aws", ".gnupg", ".m2")
+                        .contains(part.toLowerCase(java.util.Locale.ROOT)));
+        if (reserved) {
+            excluded.add(entry);
         }
-        excluded.add(entry);
-        return true;
+        return reserved;
     }
 
     /**

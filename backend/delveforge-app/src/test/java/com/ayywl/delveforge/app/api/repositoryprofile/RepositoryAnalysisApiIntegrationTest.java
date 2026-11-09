@@ -319,12 +319,12 @@ class RepositoryAnalysisApiIntegrationTest {
      * 因此它同时覆盖 RepositoryProfile、Evidence 与 API 响应。
      *
      * <pre>
-     * .env 里的口令            → 按路径整份不读，因此根本不会出现在请求里
+     * .env 里的口令            → 参与普通选材；已选入的已知赋值可尽力净化
      * application.yml 里的口令 → 读进来但被替换，键名与结构保留
      * </pre>
      */
     @Test
-    void neverSendsRepositorySecretsToTheProvider() throws Exception {
+    void analysisMaterialSanitizesKnownSyntheticAssignments() throws Exception {
         String assetId = registerAsset(true);
         WORKSPACE.givenFile("src/main/resources/application.yml",
                         "spring:\n  datasource:\n    password: CANARY-API-CONFIG-0001\n")
@@ -342,7 +342,7 @@ class RepositoryAnalysisApiIntegrationTest {
         assertFalse(body.contains("CANARY-API-CONFIG-0001"),
                 "配置里的凭据不得出现在响应里");
         assertFalse(body.contains("CANARY-API-ENV-0001"),
-                "被排除的文件里的凭据不得出现在响应里");
+                "已知环境赋值应经过分析材料净化");
         assertFalse(body.contains("CANARY-"), "响应体里不应出现任何金丝雀");
         assertTrue(body.contains(DeterministicRepositorySecretPolicy.REDACTION_MARKER),
                 "回显确实带回了收到的材料——否则上面的断言可能只是因为回显没生效");

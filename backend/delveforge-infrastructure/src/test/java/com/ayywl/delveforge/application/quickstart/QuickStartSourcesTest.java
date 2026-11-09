@@ -148,8 +148,8 @@ class QuickStartSourcesTest {
             verify(store).save(argThat(guide -> guide.status().equals("AVAILABLE")
                     && guide.markdown().startsWith("# 纸上书店\n") && guide.markdown().contains("## 生成依据")
                     && guide.markdown().contains(revision)));
-            assertTrue(workspace.readModelFile(ref, revision, "README.md").isEmpty(), "通用整文件策略不变");
-            assertTrue(workspace.readModelFile(ref, revision, "backend/bookstore/.env.example").isEmpty());
+            assertTrue(workspace.readModelFile(ref, revision, "README.md").isPresent(), "选定仓库内容可读，指南仍独立净化");
+            assertTrue(workspace.readModelFile(ref, revision, "backend/bookstore/.env.example").isPresent());
             assertTrue(secrets.excludes(".env.example"), "全局路径排除不变");
         } finally {
             repositories.deleteAll();

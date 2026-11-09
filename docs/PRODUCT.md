@@ -1,5 +1,7 @@
 # PRODUCT.md
 
+**2026-11-08 本次授权：选定仓库内容与离线执行。** 选定快照内普通源码和配置统一可供 Agent 读写；保留控制目录例外、宿主隔离和资源预算。依赖网络准备失败可降为明确离线执行，实际下载失败保留为命令事实。RUNNING 前持久化材料保留意图，捕获/停止/存储失败不清掉唯一现场。v8、逐 Step 授权、冻结与独立 Delivery 不变；容器协议 v10。见 [ADR-0027](decisions/0027-selected-repository-input-and-offline-execution.md)。下方旧内容隐藏与行保护规则仅为历史。
+
 **2026-11-08 Agent Run / Quick Start 体验细化：** 普通视图展示当前清单、重要活动、实现摘要、验证事实和限制；原始命令、日志、统计与预检探针折叠到开发者详情。Quick Start 根据最终交付版本的有界、安全启动材料生成，项目名称优先采用根 README，不随新功能改名。费用确认、停止、单 Agent、v8 与正式交付合同不变。
 
 **2026-11-08 当前产品合同：** 用户审阅 Plan 并逐 Step 授权；Agent 自主检查仓库、实施和修正，以完成报告说明结果与限制。平台保留全部执行事实并核验源码/隔离/Candidate/独立 Delivery；失败检查或未运行 E2E 不自动否决 completed，failed 不产生 Candidate。当前清单可选。全部 Step 正式交付后生成独立 Quick Start；指南失败不撤销交付。见 [ADR-0026](decisions/0026-factual-completion-and-plan-quick-start.md)。下方 v7 及更早完成门槛是历史合同，不适用于活动 v8。

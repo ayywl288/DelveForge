@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test;
  */
 class RepositoryReadPlannerSecretPolicyTest {
 
-    private static final String ENV = ".env";
+    private static final String ENV = ".ssh/config.properties";
     private static final String APPLICATION_YML = "application.yml";
     private static final String POM = "pom.xml";
     private static final String API = "src/main/java/com/x/Api.java";
@@ -121,14 +121,14 @@ class RepositoryReadPlannerSecretPolicyTest {
      * 而不是政策认出了什么——后者由政策自己的用例覆盖。
      */
     @Test
-    void targetedLaneHonorsTheSamePolicy() {
+    void targetedLaneDoesNotUseLegacyCredentialNameGates() {
         RepositoryMap map = map();
 
         RepositoryReadPlan plan = plan(map, excludingPath(API), GENEROUS);
 
-        assertFalse(paths(plan.targetedSourceEntries()).contains(API),
+        assertTrue(paths(plan.targetedSourceEntries()).contains(API),
                 "定向源码通道必须同样过政策");
-        assertEquals(List.of(API), excludedPaths(plan), "排除同样要留下诊断");
+        assertEquals(List.of(ENV), excludedPaths(plan), "排除同样要留下诊断");
     }
 
     /**
@@ -148,13 +148,13 @@ class RepositoryReadPlannerSecretPolicyTest {
                         ReadPlanFixtures.area(map, "再来", 4),
                         ReadPlanFixtures.area(map, "还是它", 4)));
 
-        assertEquals(List.of(API), excludedPaths(plan),
+        assertEquals(List.of(ENV), excludedPaths(plan),
                 "三个区域提到同一个文件，诊断仍然只有一条");
     }
 
     /** 分层路径交回的候选流也过政策：入口不同，政策同一个。 */
     @Test
-    void candidateStreamAlsoHonorsThePolicy() {
+    void candidateStreamDoesNotUseLegacyCredentialNameGates() {
         RepositoryMap map = map();
 
         RepositoryReadPlan plan = new RepositoryReadPlanner(
@@ -162,9 +162,18 @@ class RepositoryReadPlannerSecretPolicyTest {
                 .plan(map, RepositoryTargetedSourceCandidates.of(
                         map.analyzedRevision(), List.of(entryOf(map, 4))));
 
-        assertFalse(paths(plan.entries()).contains(API));
+        assertTrue(paths(plan.entries()).contains(API));
         assertTrue(paths(plan.foundationEntries()).contains(POM),
                 "基础材料通道不受影响，照常按类别轮转");
+    }
+
+    @Test
+    void selectedEnvironmentExampleRemainsAnAnalysisCandidate() {
+        RepositoryMap selected = RepositoryMap.of("input", List.of(entry(1, ".env.example"), entry(2, POM), entry(3, API)));
+        var result = new RepositoryReadPlanner(GENEROUS, GENEROUS, realPolicy).plan(selected,
+                RepositoryTargetedSourceCandidates.of(selected.analyzedRevision(), List.of(entryOf(selected, 3))));
+        assertTrue(paths(result.entries()).contains(".env.example"));
+        assertTrue(excludedPaths(result).isEmpty());
     }
 
     // ------------------------------------------------------------------ 辅助

@@ -1,11 +1,15 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentCheckEvidence;
+import com.ayywl.delveforge.application.agent.AgentCommandCaptureException;
+import com.ayywl.delveforge.application.agent.AgentCommandDiagnostics;
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.agent.AgentTools;
+import com.ayywl.delveforge.application.agent.CompletionEvidence;
+import com.ayywl.delveforge.application.agent.CompletionReferenceFailure;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.domain.agent.Candidate;
@@ -66,6 +70,9 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         String executionBaselineTree;
         String image;
         int jdk;
+        boolean dependencyNetworkSupported;
+        String commandNetwork;
+        String networkCapability = "NOT_PREPARED: downloads have not been tested";
 
         Session(Task task, AgentProtocol.Limits limits, Path directory) {
             this.task = task;
@@ -247,9 +254,10 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     null, CONTROL_TIMEOUT, 8192, cancelled).text().strip();
             String[] engineInfo = engine.split(" ");
             if (engineInfo.length != 2 || !engineInfo[0].equals("linux")
-                    || !engineInfo[1].matches("1\\.[0-9]+") || Integer.parseInt(engineInfo[1].substring(2)) < 48) {
-                throw new AgentException("DOCKER_ENVIRONMENT", "Linux Engine API 1.48+ is required for isolated dependency networking");
+                    || !engineInfo[1].matches("1\\.[0-9]+")) {
+                throw new AgentException("DOCKER_ENVIRONMENT", "Linux Docker Engine is required for sandbox execution");
             }
+            session.dependencyNetworkSupported = Integer.parseInt(engineInfo[1].substring(2)) >= 48;
             git(session, Map.of(), null, "init", "--bare", "--template=");
             if (task.baseline() == null || !task.baseline().matches("[0-9a-f]{40}")) {
                 throw new AgentException("BASELINE_MISMATCH", "A full trusted Git commit identity is required");
@@ -370,14 +378,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     private void requirePath(String path) {
         if (path == null || path.isBlank() || path.startsWith("/") || path.contains("\\") || path.length() > 512
                 || path.contains(":") || path.contains("\n") || path.contains("\r") || path.contains("\t")
-                || path.contains("\"") || secrets.excludes(path)) {
-            throw new AgentPolicyRejection(secrets.excludes(path == null ? "" : path)
-                    ? AgentPolicyRejection.Rule.PROTECTED_CREDENTIAL_PATH : AgentPolicyRejection.Rule.PATH_FORMAT,
+                || path.contains("\"")) {
+            throw new AgentPolicyRejection(AgentPolicyRejection.Rule.PATH_FORMAT,
                     AgentPolicyRejection.Stage.PATH_VALIDATION);
         }
         for (String part : path.split("/", -1)) {
             if (part.isEmpty() || part.equals(".") || part.equals("..") || part.equalsIgnoreCase(".git")
-                    || part.equalsIgnoreCase(".hg") || part.equalsIgnoreCase(".svn") || part.endsWith(" ") || part.endsWith(".")
+                    || Set.of(".hg", ".svn", ".ssh", ".aws", ".gnupg", ".m2").contains(part.toLowerCase(Locale.ROOT))
+                    || part.endsWith(" ") || part.endsWith(".")
                     || part.matches("(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?")) {
                 throw new AgentPolicyRejection(AgentPolicyRejection.Rule.FORBIDDEN_PATH,
                         AgentPolicyRejection.Stage.PATH_VALIDATION);
@@ -413,9 +421,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             if (part.isEmpty() || part.equals(".")) {
                 continue;
             }
-            if (part.equals("..") || Set.of(".git", ".hg", ".svn", ".ssh", ".aws", ".gnupg", ".m2",
-                    ".npmrc", ".netrc", ".pypirc").contains(part.toLowerCase(Locale.ROOT))
-                    || part.toLowerCase(Locale.ROOT).startsWith(".env") || secrets.excludes(part)) {
+            if (part.equals("..") || Set.of(".git", ".hg", ".svn", ".ssh", ".aws", ".gnupg", ".m2")
+                    .contains(part.toLowerCase(Locale.ROOT))) {
                 return false;
             }
             try {
@@ -535,7 +542,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 || !response.path("result").path("protocol").asText().equals("delveforge-sandbox")
                 || !response.path("result").path("version").isIntegralNumber()
                 || !response.path("result").path("version").canConvertToInt()
-                || response.path("result").path("version").asInt() != 9) {
+                || response.path("result").path("version").asInt() != 10) {
             throw incompatibleProtocol();
         }
     }
@@ -622,7 +629,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         if (path == null || path.isBlank()) {
             return AgentPolicyRejection.patchContentRejectedBeforeApply();
         }
-        SortedSet<Integer> lines = new TreeSet<>(secrets.mutationProtectedLines(path, proposed));
+        SortedSet<Integer> lines = new TreeSet<>();
         String[] inputLines = proposed.split(String.valueOf((char) 10), -1);
         for (int index = 0; index < inputLines.length; index++) {
             if (inputLines[index].contains(DeterministicRepositorySecretPolicy.REDACTION_MARKER)) {
@@ -676,11 +683,6 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             }
             var guard = new CredentialMutationGuard(secrets);
             guard.requireSafe(path, before, after, new CredentialMutationGuard.Changes(oldLines, newLines));
-            if (!preimage.equals("absent") && !postimage.equals("absent")
-                    && !preimage.substring(65).equals(postimage.substring(65))
-                    && !secrets.mutationProtectedLines(path, before).isEmpty()) {
-                throw AgentPolicyRejection.sourceEditRejectedBeforeApply();
-            }
             beforeImages.put(path, preimage);
             afterImages.put(path, postimage);
         }
@@ -843,7 +845,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         JsonNode reportsBefore = invoke(session, "test_reports", json.createObjectNode(), cancelled).path("result");
         String id = session.task.runId();
         String container = name(id, "command");
-        String network = dependencyNetwork(session, cancelled);
+        String network = commandNetwork(session, cancelled);
         List<String> launch = baseRun(id, "command", session.image, network, true);
         launch.addAll(List.of("--log-driver", "json-file", "--log-opt", "max-size=4m", "--log-opt", "max-file=2",
                 "--workdir", directory.equals(".") ? "/workspace" : "/workspace/" + directory,
@@ -910,27 +912,52 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 .put("durationMs", java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started))
                 .put("classification", wasCancelled ? "COMMAND_CANCELLED" : timedOut ? "COMMAND_TIMED_OUT"
                         : exit == 0 ? "COMMAND_SUCCEEDED" : "COMMAND_FAILED")
-                .put("testDetails", "UNAVAILABLE");
+                .put("diagnosticDigest", Candidate.digest(stdout + "\0" + stderr))
+                .put("progressDiagnosticDigest", AgentCommandDiagnostics.digest(stdout, stderr))
+                .put("testDetails", "UNAVAILABLE").put("executionStatus", "EXECUTED")
+                .put("captureStatus", "PENDING");
         // 源码捕获失败也保留命令终态及日志；不把缺少快照的记录提升为验证证据。
-        boolean retained = CommandLogs.save(session.directory, result);
-        JsonNode after = currentSnapshot(session, () -> false);
-        retainSnapshot(session, after);
-        result.put("snapshot", before.path("snapshot").asText()).put("afterSnapshot", after.path("snapshot").asText())
-                .put("sourceChanged", !before.path("snapshot").equals(after.path("snapshot")));
-        result.set("sourceView", after.path("sourceView"));
-        {
-            JsonNode reports = invoke(session, "test_reports", json.createObjectNode()
-                    .set("before", reportsBefore.path("fingerprints")), () -> false).path("result");
-            result.set("testReport", reports);
-            if (reports.path("availability").asText().equals("AVAILABLE")) {
-                result.put("testDetails", "AVAILABLE");
-                for (String count : List.of("executedTests", "failures", "skipped")) {
-                    result.set(count, reports.path(count));
+        boolean retained = false;
+        try {
+            retained = CommandLogs.save(session.directory, result);
+            JsonNode after = currentSnapshot(session, () -> false);
+            retainSnapshot(session, after);
+            result.put("snapshot", before.path("snapshot").asText()).put("afterSnapshot", after.path("snapshot").asText())
+                    .put("sourceChanged", !before.path("snapshot").equals(after.path("snapshot")));
+            result.set("sourceView", after.path("sourceView"));
+            {
+                JsonNode reports = invoke(session, "test_reports", json.createObjectNode()
+                        .set("before", reportsBefore.path("fingerprints")), () -> false).path("result");
+                result.set("testReport", reports);
+                if (reports.path("availability").asText().equals("AVAILABLE")) {
+                    result.put("testDetails", "AVAILABLE");
+                    for (String count : List.of("executedTests", "failures", "skipped")) {
+                        result.set(count, reports.path(count));
+                    }
                 }
             }
+            result.put("captureStatus", "CAPTURED");
+            // 完整收据超出保留预算时，先前已保存的输出仍可读取。
+            retained = CommandLogs.save(session.directory, (ObjectNode) sanitizeNode(result)) || retained;
+        } catch (RuntimeException failure) {
+            result.put("captureStatus", "FAILED").put("captureFailure", failure instanceof AgentPolicyRejection rejection
+                    ? rejection.rule().name()
+                    : failure instanceof AgentException classified ? classified.code() : "INTERNAL_FAILURE");
+            try {
+                retained = CommandLogs.save(session.directory, result) || retained;
+            } catch (RuntimeException recordingFailure) {
+                failure.addSuppressed(recordingFailure);
+            }
+            result.put("logRef", retained ? invocation : "")
+                    .put("stdout", CommandLogs.preview(stdout, 3000))
+                    .put("stderr", CommandLogs.preview(stderr, 3000))
+                    .put("commandTruncated", result.path("command").asText().length() > 2000)
+                    .put("command", CommandLogs.preview(result.path("command").asText(), 2000))
+                    .put("outputTruncated", output.truncated() || stdout.length() > 3000 || stderr.length() > 3000)
+                    .put("logDiscarded", output.truncated() || !retained);
+            throw new AgentCommandCaptureException(json.createObjectNode().put("ok", false)
+                    .set("result", sanitizeNode(result)).toString(), failure);
         }
-        // 完整收据超出保留预算时，先前已保存的输出仍可读取，不能隐藏它的引用。
-        retained = CommandLogs.save(session.directory, (ObjectNode) sanitizeNode(result)) || retained;
         result.put("logDiscarded", output.truncated() || !retained);
         if (retained) {
             result.put("logRef", invocation);
@@ -957,7 +984,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
     }
 
-    /** 完整源码先净化再切片；内部原文材料字段不进入模型工具结果。 */
+    /** 选定仓库原文按行切片，内部完整文件字段不重复进入模型工具结果。 */
     JsonNode sourceResponse(String tool, JsonNode response) {
         return sourceResponse(tool, response, Set.of());
     }
@@ -982,7 +1009,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             if (!result.path("_source").isTextual()) {
                 throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Complete source view is required");
             }
-            List<String> lines = sourceLines(secrets.sanitizeSource(path, result.path("_source").asText()));
+            List<String> lines = sourceLines(result.path("_source").asText());
             int first = result.path("startLine").asInt();
             int count = result.path("count").asInt();
             if (first < 1 || count < 1 || count > 300) {
@@ -1006,7 +1033,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Complete search source is required");
                 }
                 List<String> lines = sources.computeIfAbsent(path,
-                        key -> sourceLines(secrets.sanitizeSource(key, raw.asText())));
+                        key -> sourceLines(raw.asText()));
                 int line = match.path("line").asInt();
                 if (line < 1 || line > lines.size()) {
                     throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Invalid search source line");
@@ -1100,6 +1127,32 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 arguments.path("new_text").asText(), session.limits.maxPatchBytes());
     }
 
+    /** 网络不可用时只降为无网络；归属、隔离和停止失败仍中止，不回退到宿主网络。 */
+    private String commandNetwork(Session session, BooleanSupplier cancelled) {
+        if (session.commandNetwork != null) {
+            return session.commandNetwork;
+        }
+        if (!session.dependencyNetworkSupported) {
+            session.commandNetwork = "none";
+            session.networkCapability = "OFFLINE: Engine lacks isolated dependency networking; downloads unavailable";
+            return session.commandNetwork;
+        }
+        try {
+            session.commandNetwork = dependencyNetwork(session, cancelled);
+            session.networkCapability = "CONTROLLED: public Maven/npm proxy started; upstream downloads untested; "
+                    + "no private registries or host services";
+        } catch (AgentException failure) {
+            if (!Set.of("DOCKER_FAILURE", "TIME_LIMIT").contains(failure.code()) || cancelled.getAsBoolean()) {
+                throw failure;
+            }
+            stopContainer(name(session.task.runId(), "proxy"));
+            session.commandNetwork = "none";
+            session.networkCapability = "OFFLINE: dependency network setup failed (" + failure.code()
+                    + "); downloads unavailable; native offline commands remain available";
+        }
+        return session.commandNetwork;
+    }
+
     private String dependencyNetwork(Session session, BooleanSupplier cancelled) {
         String id = session.task.runId();
         String network = name(id, "network");
@@ -1146,10 +1199,11 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     public Preflight preflight(String runId, BooleanSupplier cancelled, Consumer<PreflightProgress> progress) {
         Session session = requireSession(runId);
         requireToolSuccess(invoke(session, "probe_environment", json.createObjectNode(), cancelled));
-        dependencyNetwork(session, cancelled);
+        commandNetwork(session, cancelled);
         JsonNode source = currentSnapshot(session, cancelled);
         retainSnapshot(session, source);
         return new Preflight("READY", json.createObjectNode().put("execution", "native-shell")
+                .put("network", session.networkCapability)
                 .put("snapshot", source.path("snapshot").asText())
                 .put("readiness", "Sandbox available; repository prerequisites have not been established")
                 .put("instruction", "读取仓库指引、README、清单、锁文件和 CI，按当前 Step 确定并运行必要命令。")
@@ -1164,7 +1218,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 .put("filesPersist", true).put("projectDependenciesPersist", true).put("tmpPersists", false)
                 .put("cache", "/m2; npm=/m2/npm-cache; pnpm=/m2/pnpm-store")
                 .put("logs", "read_log by invocationId; sanitized host retention, outside candidate source")
-                .put("network", "Controlled public Maven/npm artifact hosts only; no private registries or host services")
+                .put("network", session.networkCapability)
                 .put("readiness", "Discover actual installed tools and project prerequisites with native commands")
                 .set("sourceView", currentSnapshot(session, cancelled).path("sourceView")).toString();
     }
@@ -1205,6 +1259,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         try {
             evidence(session, response.path("result"));
             return null;
+        } catch (CompletionReferenceFailure rejection) {
+            return rejection.feedback();
         } catch (AgentException failure) {
             if (!Set.of("UNRESOLVED_CHECK_FAILURE", "EVIDENCE_INCOMPARABLE", "EVIDENCE_INVALID").contains(failure.code())) {
                 throw failure;
@@ -1303,11 +1359,6 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                     candidateText(git(session, Map.of(), null, "cat-file", "blob", previous.objectId()));
                 }
                 String content = candidateText(bytes);
-                if (previous != null && !previous.mode().equals(mode)
-                        && !secrets.mutationProtectedLines(path, candidateText(git(session, Map.of(), null,
-                                "cat-file", "blob", previous.objectId()))).isEmpty()) {
-                    throw new AgentException("CANDIDATE_POLICY", "Credential-bearing source mode must remain unchanged");
-                }
                 if (path.equals(".gitattributes") || path.endsWith("/.gitattributes")) {
                     if (content.matches("(?s).*(filter=|export-ignore|export-subst|working-tree-encoding|\\bident\\b).*")) {
                         throw new AgentException("GIT_ATTRIBUTES_UNSUPPORTED", "Unsupported Git attribute change");
@@ -1385,7 +1436,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     private String candidateText(byte[] bytes) {
         String content = decode(bytes);
         if (content.indexOf(0) >= 0) {
-            throw new AgentException("CANDIDATE_POLICY", "Changed source is binary or contains recognized credentials");
+            throw new AgentException("CANDIDATE_POLICY", "Changed source is binary");
         }
         return content;
     }
@@ -1399,7 +1450,7 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
             new CredentialMutationGuard(secrets).requireSafe(path, before == null ? null : candidateText(before),
                     after == null ? null : candidateText(after), CredentialMutationGuard.ranges(delta));
         } catch (AgentPolicyRejection rejected) {
-            throw new AgentException("CANDIDATE_POLICY", "Frozen source contains a prohibited credential mutation");
+            throw new AgentException("CANDIDATE_POLICY", "Frozen source contains a redaction placeholder");
         }
     }
 
@@ -1418,8 +1469,8 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         var checks = evidence.putArray("checks");
         for (JsonNode record : session.checks) {
             ObjectNode check = record.deepCopy();
-            check.put("stale", !snapshot.path("snapshot").asText().equals(check.path("snapshot").asText())
-                    || !check.path("snapshot").asText().equals(check.path("afterSnapshot").asText()));
+            check.put("stale", !CompletionEvidence.matchesFinalSource(snapshot.path("snapshot").asText(),
+                    snapshot.path("sourceView"), check));
             checks.add(check);
             if (!check.path("stale").asBoolean()
                     && check.path("testDetails").asText().equals("AVAILABLE")) {

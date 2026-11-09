@@ -1,5 +1,7 @@
 # DOMAIN_MODEL.md
 
+**2026-11-08 本次授权：选定仓库内容与离线执行。** 选定快照内普通源码和配置统一可供 Agent 读写；保留控制目录例外、宿主隔离和资源预算。依赖网络准备失败可降为明确离线执行，实际下载失败保留为命令事实。RUNNING 前持久化材料保留意图，捕获/停止/存储失败不清掉唯一现场。v8、逐 Step 授权、冻结与独立 Delivery 不变；容器协议 v10。见 [ADR-0027](decisions/0027-selected-repository-input-and-offline-execution.md)。下方旧内容隐藏与行保护规则仅为历史。
+
 **2026-11-08 当前完成语义：** [ADR-0026](decisions/0026-factual-completion-and-plan-quick-start.md) 明确将 v8 的 completed/failed 归为 Agent 判断；平台核验全部真实收据、引用及硬安全/源码完整性，不以失败检查、缺少 E2E 或 validationComplete 否决 completed。成功冻结和正式 Delivery 仍不证明业务正确；failed 保留安全部分成果但不产生 Candidate。授权、可信 revision、全部 Step 正常 Delivery 后 Plan 收尾及历史状态不变。Quick Start 是 Plan 说明产物，其失败不改变领域终态。下方 v7 及更早门槛保留历史含义。
 
 **2026-11-07 历史 v7 语义（已由 ADR-0026 替代）：** [ADR-0025](decisions/0025-agent-loop-convergence.md) 替代活动命令字符串义务与隔离资源数量否决。v7 完成报告引用实际本 Run 最终源码/执行视图上的成功调用；必要验证显式未完成不能冻结。笔记只属 Agent 工作记忆，非授权或证据；业务充分性和旧失败处理判断归于 Agent，不以通用测试清单判定。私密资源仍隔离并原字节保留；授权、Candidate 不可变性、正式 Delivery、可信 revision、逐 Step 和 Plan 收尾不变。旧 v1–v6 不追认或改写。

@@ -3,12 +3,13 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import NavigationIcon from "./NavigationIcon.vue";
 import AgentActivityRow from "./AgentActivityRow.vue";
-import { routineProviderDiagnostic } from "./agentEventPresentation";
+import { networkCapability, routineProviderDiagnostic } from "./agentEventPresentation";
 import type { RunPresentation } from "./agentResultPresentation";
 import { activityState, buildActivities, currentActivity, checkSummary, explorationSummary, isExploration, isPatchTool, isCheckTool, patchSummary, toolNames } from "./agentEventPresentation";
 
 const props = withDefaults(defineProps<{ events: AgentEvent[]; run: AgentRun; connection: string; presentation?: RunPresentation; showUsage?: boolean }>(), { showUsage: true });
 const developerExpanded = ref(false);
+const network = computed(() => networkCapability(props.events, props.run.id));
 const viewport = ref<HTMLElement>();
 const following = ref(true);
 const unseen = ref(false);
@@ -54,6 +55,7 @@ const filesExpanded = ref(false);
 const visibleFiles = computed(() => exploration.value.activities.slice(0, fileCount.value));
 const latestFile = computed(() => exploration.value.activities.at(-1));
 const state = computed(() => activityState(props.events, props.run));
+const checklistHeading = computed(() => state.value.terminal ? "最后记录的工作清单" : "当前工作清单");
 let previousCount = chronological.value.length;
 function removeImmediately(_element: Element, done: () => void) { done(); }
 function trackScroll() {
@@ -94,11 +96,13 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 </script>
 
 <template>
-    <section v-if="workingPlan" class="working-plan" aria-label="当前工作清单">
-            <div class="section-row"><h4>当前工作清单</h4><span v-if="workingPlan.tasks.length">{{ workingPlan.tasks.filter(task => task.status === 'completed').length }} / {{ workingPlan.tasks.length }} 完成</span></div>
-            <ul v-if="workingPlan.tasks.length"><li v-for="(task, index) in workingPlan.tasks" :key="index" :data-status="task.status">
-                <NavigationIcon :name="task.status === 'completed' ? 'check' : task.status === 'in_progress' ? 'activity' : 'planning'" />
-                <span>{{ task.title }}</span><small>{{ { pending: '待处理', in_progress: '进行中', completed: '已完成' }[task.status] }}</small>
+    <section v-if="workingPlan" class="working-plan" :aria-label="checklistHeading">
+            <div class="section-row"><h4>{{ checklistHeading }}</h4><span v-if="workingPlan.tasks.length">{{ workingPlan.tasks.filter(task => task.status === 'completed').length }} / {{ workingPlan.tasks.length }} 完成</span></div>
+            <ul v-if="workingPlan.tasks.length"><li v-for="(task, index) in workingPlan.tasks" :key="index" :data-status="task.status"
+                :class="{ 'active-task': task.status === 'in_progress' && !state.terminal }">
+                <NavigationIcon :name="task.status === 'completed' ? 'check' : task.status === 'in_progress' && !state.terminal ? 'activity' : 'planning'" />
+                <span>{{ task.title }}</span><small>{{ { pending: state.terminal ? '记录为待处理' : '待处理',
+                    in_progress: state.terminal ? '运行结束前未更新' : '进行中', completed: '已完成' }[task.status] }}</small>
             </li></ul>
             <p v-else-if="workingPlan.legacy">{{ workingPlan.legacy }}</p>
 
@@ -133,6 +137,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
             <summary @click.prevent="developerExpanded = !developerExpanded">开发者详情</summary>
             <div class="developer-content">
             <slot name="developer" />
+            <p v-if="network" class="meta">{{ network }}</p>
             <p v-if="showUsage !== false" class="model-statistics">模型调用 {{ run.modelCalls ?? '待同步' }} 次</p>
         <details v-if="checks.count" :key="checks.key" class="check-summary" :open="checksExpanded">
             <summary @click.prevent="checksExpanded = !checksExpanded"><NavigationIcon name="check" />命令与检查 · 历史
@@ -191,7 +196,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .working-plan li .navigation-icon { width: 16px; height: 16px; flex-shrink: 0; }
 .working-plan li span { flex: 1; overflow-wrap: anywhere; }
 .working-plan li small { color: var(--muted); flex-shrink: 0; }
-.working-plan li[data-status="in_progress"] { color: var(--accent); font-weight: 600; }
+.working-plan li.active-task { color: var(--accent); font-weight: 600; }
 .working-plan li[data-status="pending"] { color: var(--muted); }
 .working-plan li[data-status="completed"] .navigation-icon { color: var(--success); }
 .working-plan > p { white-space: pre-wrap; }

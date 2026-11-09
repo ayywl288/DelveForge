@@ -1,5 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
+import com.ayywl.delveforge.application.agent.AgentCheckEvidence;
+import com.ayywl.delveforge.application.agent.AgentCommandDiagnostics;
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
@@ -7,6 +9,7 @@ import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.agent.CodingAgentService;
+import com.ayywl.delveforge.application.agent.CompletionReferenceFailure;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
 import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
@@ -43,12 +46,15 @@ import com.ayywl.delveforge.domain.evolution.WorkingCopyStatus;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
@@ -68,6 +74,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -178,6 +185,10 @@ class CodingAgentServiceTest {
             verify(sandbox).retainPartial(run.id());
             verify(sandbox).cleanup(run.id());
             verify(sandbox, never()).finish(anyString(), any());
+            var ordered = inOrder(sandbox);
+            ordered.verify(sandbox).retainPartial(run.id());
+            ordered.verify(sandbox).stop(run.id());
+            ordered.verify(sandbox).cleanup(run.id());
         }
     }
 
@@ -447,7 +458,8 @@ class CodingAgentServiceTest {
             assertTrue(finish.sequence() < events.stream().filter(event -> event.kind().equals("FAILED")).findFirst().orElseThrow().sequence());
             assertTrue(events.stream().noneMatch(event -> event.summary().contains("private patch")));
             verify(sandbox, never()).finish(anyString(), any());
-            verify(sandbox).cleanup(id);
+            verify(sandbox, never()).cleanup(id);
+            assertTrue(service.get(id).retained());
             assertTrue(database.store.abandoned().isEmpty());
         }
     }
@@ -493,7 +505,8 @@ class CodingAgentServiceTest {
             String id = service.start("plan", "step", null).id();
             assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
             verify(sandbox, never()).finish(anyString(), any());
-            verify(sandbox).cleanup(id);
+            verify(sandbox, never()).cleanup(id);
+            assertTrue(service.get(id).retained());
         }
     }
 
@@ -556,7 +569,8 @@ class CodingAgentServiceTest {
             assertEquals(3, run.modelCalls());
             assertEquals(3, run.toolCalls());
             verify(sandbox, never()).finish(anyString(), any());
-            verify(sandbox).cleanup(id);
+            verify(sandbox, never()).cleanup(id);
+            assertTrue(service.get(id).retained());
             var lastResult = service.events(id, 0, 100).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).toList().getLast();
             var data = new com.fasterxml.jackson.databind.ObjectMapper().readTree(lastResult.summary());
             assertTrue(data.path("mutationNotStarted").asBoolean());
@@ -699,7 +713,8 @@ class CodingAgentServiceTest {
             assertTrue(result.path("invocationDurationNs").asLong() > 0);
             assertEquals(1, service.get(id).toolCalls());
             verify(sandbox, never()).finish(anyString(), any());
-            verify(sandbox).cleanup(id);
+            verify(sandbox, never()).cleanup(id);
+            assertTrue(service.get(id).retained());
         }
     }
 
@@ -1251,6 +1266,106 @@ class CodingAgentServiceTest {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void completionReferencesCanBeCorrectedOrRetainedAfterABoundedLoop(boolean correct) throws Exception {
+        String staleId = "11111111-1111-4111-8111-111111111111";
+        String currentId = "22222222-2222-4222-8222-222222222222";
+        var json = new ObjectMapper();
+        var git = new DockerAgentSandboxTest();
+        Path original = Files.createDirectories(temporary.resolve("source"));
+        Path work = temporary.resolve("run-copy");
+        Files.writeString(original.resolve("README.md"), "baseline\n");
+        git.git(original, "init", "--template=");
+        git.git(original, "add", "README.md");
+        git.git(original, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-qm", "baseline");
+        String baseline = git.git(original, "rev-parse", "HEAD");
+        git.git(temporary, "clone", "--no-hardlinks", original.toString(), work.toString());
+        Path partial = temporary.resolve("partial.diff");
+
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            Files.writeString(work.resolve("README.md"), "step work\n");
+            return "{\"ok\":true,\"result\":{\"sourceChanged\":true}}";
+        });
+        when(sandbox.retainPartial(anyString())).thenAnswer(invocation -> {
+            Files.writeString(partial, git.git(work, "diff", "HEAD"));
+            return partial.toString();
+        });
+        when(sandbox.completionFeedback(anyString(), anyString(), any())).thenAnswer(invocation -> {
+            // 固定收据替代容器运输；两次选择都走与冻结、Delivery 相同的事实校验。
+            ObjectNode evidence = json.createObjectNode().put("evidenceVersion", 8)
+                    .put("runId", (String) invocation.getArgument(0)).put("finalSnapshot", "a".repeat(64));
+            evidence.set("agentReport", json.readTree((String) invocation.getArgument(1)));
+            var view = evidence.putObject("sourceView").put("kind", "FULL").put("preservedOnlyCount", 0)
+                    .put("readOnlyResourceCount", 0).put("withheldSourceCount", 0);
+            var checks = evidence.putArray("checks");
+            for (String id : List.of(staleId, currentId)) {
+                String hash = id.equals(currentId) ? "a".repeat(64) : "b".repeat(64);
+                var check = checks.addObject().put("invocationId", id).put("runId", evidence.path("runId").asText())
+                        .put("snapshot", hash).put("afterSnapshot", hash).put("sourceChanged", false)
+                        .put("command", "verify").put("directory", ".").put("durationMs", 2).put("exitCode", 0)
+                        .put("timedOut", false).put("cancelled", false).put("classification", "COMMAND_SUCCEEDED")
+                        .put("stdout", "BUILD SUCCESS").put("stderr", "").put("outputTruncated", false);
+                check.set("sourceView", view);
+                check.putObject("testReport").put("availability", "AVAILABLE").put("executedTests", 53).put("failures", 0);
+            }
+            try {
+                AgentCheckEvidence.requireAcceptable(evidence);
+                return null;
+            } catch (CompletionReferenceFailure rejected) {
+                return rejected.feedback();
+            }
+        });
+        when(sandbox.finish(anyString(), any())).thenAnswer(invocation -> database.candidate(invocation.getArgument(0)));
+        AtomicInteger turns = new AtomicInteger();
+        AgentModelPort model = (history, tools) -> {
+            int turn = turns.incrementAndGet();
+            if (turn == 1) {
+                return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("edit", "edit_file",
+                        "{\"path\":\"README.md\",\"old_text\":\"baseline\",\"new_text\":\"step work\"}")), 1L);
+            }
+            String selected = staleId;
+            if (turn > 2) {
+                String feedback = history.getLast().text();
+                assertTrue(feedback.contains("STALE_SOURCE") && feedback.contains(currentId));
+                if (correct) {
+                    selected = currentId;
+                } else if (turn == 4) {
+                    assertTrue(feedback.contains("progressWarning"));
+                }
+            }
+            var report = json.createObjectNode().put("status", "completed").put("summary", "private-prose-" + turn);
+            report.putArray("executions").add(selected);
+            return new AgentProtocol.Reply(report.toString(), List.of(), 1L);
+        };
+        try (var agent = service(model, AgentProtocol.Limits.defaults())) {
+            String runId = agent.start("plan", "step", 21).id();
+            var terminal = awaitTerminal(agent, runId, 15);
+            var rejections = new SqliteAgentStore(database.source).events(runId, 0, 200).stream()
+                    .filter(event -> event.kind().equals("COMPLETION_CHECK_REJECTED")).toList();
+            assertEquals(correct ? 1 : 3, rejections.size());
+            for (var rejection : rejections) {
+                assertFalse(rejection.summary().contains("private-prose"));
+                assertEquals(staleId, json.readTree(rejection.summary()).path("submittedReferences").get(0).asText());
+            }
+            verify(sandbox, times(1)).tool(eq(runId), any(), any());
+            if (correct) {
+                assertEquals(AgentRunState.SUCCEEDED, terminal.state());
+                verify(sandbox).finish(eq(runId), any());
+            } else {
+                assertEquals("NO_PROGRESS", terminal.reason());
+                assertNull(terminal.candidateId());
+                assertTrue(terminal.retained());
+                assertTrue(Files.readString(partial).contains("+step work"));
+                assertEquals("STOPPED", json.readTree(rejections.getLast().summary()).path("progressStatus").asText());
+                verify(sandbox, never()).finish(anyString(), any());
+            }
+            assertEquals(baseline, git.git(original, "rev-parse", "HEAD"));
+            assertEquals("", git.git(original, "status", "--porcelain"));
+            assertEquals("baseline\n", Files.readString(original.resolve("README.md")));
+        }
+    }
+
     @Test
     void failedAttemptCanStartFreshAndFreezeWithoutChangingConfirmedStep() throws Exception {
         AtomicInteger requests = new AtomicInteger();
@@ -1309,6 +1424,8 @@ class CodingAgentServiceTest {
             service.reconcile();
             assertEquals(AgentRunState.INTERRUPTED, service.get(abandoned.id()).state());
             verify(sandbox).stop(abandoned.id());
+            verify(sandbox).cleanup(abandoned.id());
+            assertFalse(service.get(abandoned.id()).retained());
             assertTrue(database.store.abandoned().isEmpty());
         }
     }
@@ -1568,7 +1685,8 @@ class CodingAgentServiceTest {
             }
             assertEquals(AgentRunState.CANCELLED, awaitTerminal(service, id, 10).state());
             verify(sandbox, never()).finish(anyString(), any());
-            verify(sandbox).cleanup(id);
+            verify(sandbox, never()).cleanup(id);
+            assertTrue(service.get(id).retained());
         }
     }
 
@@ -1750,4 +1868,200 @@ class CodingAgentServiceTest {
         }
     }
 
+
+    @Test
+    void failedPartialCaptureRetainsRawMaterialAcrossRestartWithoutCandidate() throws Exception {
+        when(sandbox.retainPartial(anyString())).thenThrow(new AgentException("SOURCE_CAPTURE_LIMIT", "fixture"));
+        String id;
+        try (var agent = service((history, tools) -> new AgentProtocol.Reply(
+                "{\"status\":\"failed\",\"summary\":\"blocked\"}", List.of(), 1L), AgentProtocol.Limits.defaults())) {
+            id = agent.start("plan", "step", 21).id();
+            assertEquals(AgentRunState.FAILED, awaitTerminal(agent, id, 10).state());
+            assertTrue(new SqliteAgentStore(database.source).get(id).retained());
+            assertNull(agent.get(id).candidateId());
+            verify(sandbox, never()).cleanup(id);
+            agent.reconcile();
+            verify(sandbox, never()).cleanup(id);
+            assertTrue(database.store.abandoned().isEmpty());
+        }
+    }
+
+    @Test
+    void writerStopFailurePreservesOccupancyAndRestartRetainsRawWorkspace() throws Exception {
+        when(sandbox.retainPartial(anyString())).thenThrow(new AgentException("CLEANUP_FAILURE", "fixture"));
+        doThrow(new AgentException("CLEANUP_FAILURE", "fixture")).doNothing().when(sandbox).stop(anyString());
+        try (var agent = service((history, tools) -> new AgentProtocol.Reply(
+                "{\"status\":\"failed\",\"summary\":\"blocked\"}", List.of(), 1L), AgentProtocol.Limits.defaults())) {
+            String id = agent.start("plan", "step", 21).id();
+            awaitTerminal(agent, id, 10);
+            assertTrue(new SqliteAgentStore(database.source).get(id).retained());
+            assertEquals(1, database.store.abandoned().size());
+            verify(sandbox, never()).cleanup(id);
+            agent.reconcile();
+            assertTrue(database.store.abandoned().isEmpty());
+            verify(sandbox, never()).cleanup(id);
+        }
+    }
+
+    @Test
+    void retentionPersistenceFailurePreventsModelAndTerminalPersistenceFailurePreventsCleanup() throws Exception {
+        database.sql("CREATE TRIGGER fail_running BEFORE UPDATE ON agent_run WHEN NEW.state='RUNNING' "
+                + "BEGIN SELECT RAISE(ABORT,'injected'); END");
+        AtomicInteger calls = new AtomicInteger();
+        try (var agent = service((history, tools) -> {
+            calls.incrementAndGet();
+            return new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"blocked\"}", List.of(), 1L);
+        }, AgentProtocol.Limits.defaults())) {
+            String first = agent.start("plan", "step", 21).id();
+            awaitTerminal(agent, first, 10);
+            assertEquals(0, calls.get());
+            database.sql("DROP TRIGGER fail_running");
+            database.sql("CREATE TRIGGER fail_terminal BEFORE UPDATE ON agent_run WHEN NEW.state='FAILED' "
+                    + "BEGIN SELECT RAISE(ABORT,'injected'); END");
+            String second = agent.start("plan", "step", 21).id();
+            for (int wait = 0; wait < 200 && database.store.events(second, 0, 100).stream()
+                    .noneMatch(event -> event.kind().equals("CLEANUP_BLOCKED")); wait++) {
+                Thread.sleep(25);
+            }
+            assertTrue(new SqliteAgentStore(database.source).get(second).retained());
+            assertEquals(AgentRunState.RUNNING, agent.get(second).state());
+            verify(sandbox, never()).cleanup(second);
+            assertEquals(1, database.store.abandoned().size());
+            database.sql("DROP TRIGGER fail_terminal");
+            agent.reconcile();
+            assertEquals(AgentRunState.INTERRUPTED, agent.get(second).state());
+            assertTrue(database.store.abandoned().isEmpty());
+            verify(sandbox, never()).cleanup(second);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void restartRetainsUncapturedRunningWorkAndReleasesOnlyAfterStop(boolean terminalPersisted) {
+        var abandoned = database.run();
+        database.store.reserve(abandoned);
+        database.store.advance(abandoned.id(), AgentRunState.CREATED, AgentRunState.PREPARING, null);
+        database.store.advance(abandoned.id(), AgentRunState.PREPARING, AgentRunState.RUNNING, null);
+        if (terminalPersisted) {
+            database.store.advance(abandoned.id(), AgentRunState.RUNNING, AgentRunState.FAILED, "MODEL_INCOMPLETE");
+        }
+        var reloaded = spy(new SqliteAgentStore(database.source));
+        try (var restart = new CodingAgentService(null, reloaded, (history, tools) -> {
+            throw new AssertionError("Restart must not call the model");
+        }, sandbox, new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+            restart.reconcile();
+        }
+        var order = inOrder(sandbox, reloaded);
+        order.verify(sandbox).stop(abandoned.id());
+        order.verify(reloaded).release(abandoned.id(), true);
+        assertTrue(reloaded.get(abandoned.id()).retained());
+        assertEquals(terminalPersisted ? AgentRunState.FAILED : AgentRunState.INTERRUPTED,
+                reloaded.get(abandoned.id()).state());
+        assertNull(reloaded.get(abandoned.id()).candidateId());
+        assertTrue(reloaded.abandoned().isEmpty());
+        verify(sandbox, never()).cleanup(abandoned.id());
+        var retry = database.run();
+        reloaded.reserve(retry);
+        assertEquals(AgentRunState.CREATED, reloaded.get(retry.id()).state());
+        assertFalse(reloaded.get(retry.id()).retained());
+    }
+
+    @Test
+    void successfulPartialCaptureWithFailedReleaseKeepsRetentionAcrossRestart() throws Exception {
+        when(sandbox.retainPartial(anyString())).thenReturn("owned/partial-metadata.json");
+        database.sql("CREATE TRIGGER fail_release BEFORE UPDATE ON agent_run WHEN NEW.occupied=0 "
+                + "BEGIN SELECT RAISE(ABORT,'injected'); END");
+        String id;
+        try (var agent = service((history, tools) -> new AgentProtocol.Reply(
+                "{\"status\":\"failed\",\"summary\":\"blocked\"}", List.of(), 1L), AgentProtocol.Limits.defaults())) {
+            id = agent.start("plan", "step", 21).id();
+            awaitTerminal(agent, id, 10);
+        }
+        assertTrue(database.store.get(id).retained());
+        assertNull(database.store.get(id).candidateId());
+        assertEquals(1, database.store.abandoned().size());
+        verify(sandbox).cleanup(id);
+        database.sql("DROP TRIGGER fail_release");
+        var reloaded = new SqliteAgentStore(database.source);
+        try (var restart = new CodingAgentService(null, reloaded, (history, tools) -> {
+            throw new AssertionError("Restart must not call the model");
+        }, sandbox, new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+            restart.reconcile();
+        }
+        verify(sandbox, times(1)).cleanup(id);
+        assertTrue(reloaded.abandoned().isEmpty());
+        assertTrue(reloaded.get(id).retained());
+        var retry = database.run();
+        reloaded.reserve(retry);
+        assertEquals(AgentRunState.CREATED, reloaded.get(retry.id()).state());
+    }
+
+    @Test
+    void noisyCommandLoopWarnsModelThenStopsWithoutChangingRecordedOutput() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        AtomicBoolean warned = new AtomicBoolean();
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            int tick = calls.get();
+            String output = "[ERROR] dependency missing\n[INFO] Total time: " + tick + ".123 s\n";
+            var result = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode().put("ok", false);
+            result.putObject("result").put("classification", "COMMAND_FAILED").put("exitCode", 1)
+                    .put("stdout", output).put("stderr", "")
+                    .put("diagnosticDigest", Candidate.digest(output + "\0"))
+                    .put("progressDiagnosticDigest", AgentCommandDiagnostics.digest(output, ""));
+            return result.toString();
+        });
+        try (var agent = service((history, tools) -> {
+            int turn = calls.incrementAndGet();
+            if (turn == 3) {
+                warned.set(history.stream().anyMatch(message -> message.text().contains("progressWarning")));
+            }
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + turn,
+                    "exec_command", "{\"command\":\"mvn test\"}")), 1L);
+        }, AgentProtocol.Limits.defaults())) {
+            String id = agent.start("plan", "step", 21).id();
+            assertEquals("NO_PROGRESS", awaitTerminal(agent, id, 10).reason());
+            assertEquals(3, calls.get());
+            assertTrue(warned.get());
+            var finishes = agent.events(id, 0, 100).stream()
+                    .filter(event -> event.kind().equals("TOOL_FINISHED")).toList();
+            assertEquals(3, finishes.size());
+            for (int index = 0; index < finishes.size(); index++) {
+                assertTrue(finishes.get(index).summary().contains("Total time: " + (index + 1) + ".123 s"));
+            }
+        }
+    }
+
+    @Test
+    void executedCaptureFailureIsRecordedOnceAndNeverReplayed() throws Exception {
+        String invocation = java.util.UUID.randomUUID().toString();
+        String result = "{\"ok\":false,\"result\":{\"executionStatus\":\"EXECUTED\","
+                + "\"captureStatus\":\"FAILED\",\"captureFailure\":\"SOURCE_CAPTURE_LIMIT\","
+                + "\"exitCode\":0,\"classification\":\"COMMAND_SUCCEEDED\",\"invocationId\":\"" + invocation
+                + "\",\"stdout\":\"command finished\"}}";
+        when(sandbox.tool(anyString(), any(), any())).thenThrow(
+                new com.ayywl.delveforge.application.agent.AgentCommandCaptureException(result,
+                        new AgentException("SOURCE_CAPTURE_LIMIT", "fixture")));
+        when(sandbox.retainPartial(anyString())).thenThrow(new AgentException("SOURCE_CAPTURE_LIMIT", "fixture"));
+        AtomicInteger calls = new AtomicInteger();
+        try (var agent = service((history, tools) -> {
+            calls.incrementAndGet();
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("command", "exec_command",
+                    "{\"command\":\"sh implement.sh\"}")), 1L);
+        }, AgentProtocol.Limits.defaults())) {
+            String id = agent.start("plan", "step", 21).id();
+            assertEquals("COMMAND_CAPTURE_FAILED", awaitTerminal(agent, id, 10).reason());
+            assertEquals(1, calls.get());
+            verify(sandbox, times(1)).tool(eq(id), any(), any());
+            var events = database.store.events(id, 0, 200).stream().filter(event -> event.kind().equals("TOOL_FINISHED")).toList();
+            assertEquals(1, events.size());
+            var fact = new com.fasterxml.jackson.databind.ObjectMapper().readTree(events.getFirst().summary());
+            assertEquals(invocation, fact.path("invocationId").asText());
+            assertEquals(0, fact.path("exitCode").asInt(-1));
+            assertEquals("FAILED", fact.path("captureStatus").asText());
+            assertTrue(fact.path("resultRecorded").asBoolean());
+            assertTrue(agent.get(id).retained());
+            assertNull(agent.get(id).candidateId());
+            verify(sandbox, never()).cleanup(id);
+        }
+    }
 }

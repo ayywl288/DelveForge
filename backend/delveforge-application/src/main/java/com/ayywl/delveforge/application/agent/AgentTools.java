@@ -74,13 +74,14 @@ public final class AgentTools {
                         "\"path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\"},\"limit\":{\"type\":\"integer\"}", ""),
                 spec("search_code", "按字面量搜索当前源码，最多40处结果；不是正则或命令。",
                         "\"path\":{\"type\":\"string\"},\"query\":{\"type\":\"string\"}", "\"query\""),
-                spec("read_file", "读取UTF-8文本。默认从第1行读120行，最多300行。净化结果不可作为原文覆盖。",
+                spec("read_file", "读取UTF-8文本。默认从第1行读120行，最多300行。返回项目原文，可用于精确编辑；不要将命令日志中的脱敏值写回。",
                         "\"path\":{\"type\":\"string\"},\"start_line\":{\"type\":\"integer\"},\"line_count\":{\"type\":\"integer\"}", "\"path\""),
                 spec("edit_file", "优先使用精确文本编辑：path 为相对路径，old_text 必须与当前文件中的一个唯一片段完全一致，new_text 替换该片段。新文件 old_text 为空且必须不存在。不要输出 diff 行数，不要重复已成功的编辑；冲突先重新读取当前文件，做一次有依据的重试。批量转换、格式化或完整生成文件可使用 Shell，不要盲目重复冲突。",
                         "\"path\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"},\"new_text\":{\"type\":\"string\"}",
                         "\"path\",\"old_text\",\"new_text\""),
                 spec("update_plan", "可选的当前工作清单；tasks 每项含 title 和 pending/in_progress/completed 状态。"
-                        + "更新替换整个清单，不修改源码、Step 授权或完成判定；完成标记只是 Agent 判断。最多20项。",
+                        + "更新替换整个清单，不修改源码、Step 授权或完成判定；完成标记只是 Agent 判断。最多20项。"
+                        + "若本次维护过清单，收尾时按实际结果更新。只将有证据的事项标为完成，保留未完成事项，受阻时写明原因。",
                         "\"tasks\":{\"type\":\"array\",\"maxItems\":20,\"items\":{\"type\":\"object\","
                                 + "\"additionalProperties\":false,\"properties\":{\"title\":{\"type\":\"string\"},"
                                 + "\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\"]}},"

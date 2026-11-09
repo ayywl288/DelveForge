@@ -39,15 +39,15 @@ class AgentToolVisibilityTest {
     }
 
     @Test
-    void actualCredentialsAreStillRemovedAndOtherJsonKeepsCredentialKeyContext() throws Exception {
+    void projectSourceRemainsExactWhileOtherOutputIsSanitized() throws Exception {
         try (var service = new CodingAgentService(null, null, null, null,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             var payload = json.createObjectNode().put("path", "src/Auth.js").put("startLine", 1)
                     .put("totalLines", 1).put("content", "const token = 'synthetic-private-value';");
             String safe = service.safeToolResult("read_file", json.createObjectNode().put("ok", true)
                     .set("result", payload).toString());
-            assertFalse(safe.contains("synthetic-private-value"));
-            assertTrue(safe.contains("redacted-credential"));
+            assertTrue(safe.contains("synthetic-private-value"));
+            assertFalse(safe.contains("redacted-credential"));
             var unrelated = json.createObjectNode().put("password", "synthetic-private-value");
             assertFalse(service.safeToolResult("run_checks", unrelated.toString()).contains("synthetic-private-value"));
         }

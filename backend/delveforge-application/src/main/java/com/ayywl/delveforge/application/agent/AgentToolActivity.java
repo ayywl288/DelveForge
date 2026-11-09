@@ -17,7 +17,7 @@ import java.util.Set;
 /** 持久化工具活动的展示白名单；不保存参数正文，也不改变工具执行与模型历史。 */
 public final class AgentToolActivity {
     private static final Set<String> PROTECTED = Set.of(".git", ".hg", ".svn", ".ssh", ".aws", ".gnupg",
-            ".m2", ".npmrc", ".netrc", ".pypirc");
+            ".m2");
     private final ObjectMapper json = new ObjectMapper();
     private final RepositorySecretPolicy secrets;
     private final AgentProtocol.Limits limits;
@@ -140,7 +140,8 @@ public final class AgentToolActivity {
                 }
             }
             if (call.name().equals("exec_command")) {
-                for (String key : List.of("command", "directory", "scope", "kind", "testDetails", "invocationId", "logRef", "runId")) {
+                for (String key : List.of("command", "directory", "scope", "kind", "testDetails", "invocationId",
+                        "logRef", "runId", "executionStatus", "captureStatus", "captureFailure")) {
                     if (details.path(key).isTextual()) {
                         summary.put(key, secrets.sanitizeOutput(details.path(key).asText()));
                     }
@@ -204,6 +205,9 @@ public final class AgentToolActivity {
     }
 
     public String failed(AgentProtocol.ToolCall call, String identity, RuntimeException failure, Long invocationDurationNs) {
+        if (failure instanceof AgentCommandCaptureException capture) {
+            return finished(call, identity, capture.result(), invocationDurationNs);
+        }
         String classification = failure instanceof AgentException classified ? classified.code() : "INTERNAL_FAILURE";
         return failed(call, identity, classification, invocationDurationNs,
                 failure instanceof AgentPolicyRejection rejection ? rejection : null);
@@ -349,13 +353,13 @@ public final class AgentToolActivity {
         }
         // 展示接受沙箱路径规则的保守子集；实际访问仍由沙箱校验符号链接和文件系统边界。
         if (path.isEmpty() || path.length() > 256 || !path.matches("[\\p{L}\\p{N}._/ -]+")
-                || path.startsWith("/") || secrets.excludes(path) || !unchanged(path)) {
+                || path.startsWith("/") || !unchanged(path)) {
             return false;
         }
         for (String part : path.split("/", -1)) {
             String lower = part.toLowerCase(Locale.ROOT);
             if (part.isEmpty() || part.equals(".") || part.equals("..") || part.endsWith(".") || part.endsWith(" ")
-                    || PROTECTED.contains(lower) || lower.startsWith(".env") || secrets.excludes(part)
+                    || PROTECTED.contains(lower)
                     || part.matches("(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?")) {
                 return false;
             }

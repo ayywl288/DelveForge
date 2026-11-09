@@ -91,7 +91,7 @@ class DockerSandboxProtocolTest {
     @Test
     void acceptsOnlyExplicitCompatibleToolContract() throws Exception {
         assertDoesNotThrow(() -> DockerAgentSandbox.requireCompatibleProtocol(json.readTree(
-                "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":9}}")));
+                "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":10}}")));
     }
 
     @ParameterizedTest

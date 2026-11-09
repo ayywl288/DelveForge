@@ -30,6 +30,15 @@ def witnessed(patch_text):
 
 
 class SandboxPolicyTest(unittest.TestCase):
+    def test_selected_config_and_key_names_are_listed_and_read_without_content_filtering(self):
+        paths = ['.env', '.env.example', '.npmrc', 'fixture.key', 'id_rsa', 'application.properties']
+        for path in paths:
+            (self.root / path).write_text('token=synthetic-default\n')
+        listed = sandbox.dispatch('list_files', {})['files']
+        for path in paths:
+            self.assertIn(path, listed)
+            self.assertEqual('token=synthetic-default\n', sandbox.dispatch('read_file', {'path': path})['_source'])
+
     def test_invalid_read_range_never_reads_content_and_can_be_corrected(self):
         target = self.root / 'source.txt'
         target.write_bytes(b'one\ntwo\n')
@@ -58,7 +67,7 @@ class SandboxPolicyTest(unittest.TestCase):
     def test_sensitive_targets_stay_blocked_even_with_invalid_range(self):
         (self.root / 'link').symlink_to(self.root.parent, target_is_directory=True)
         with patch.object(sandbox, 'text', side_effect=AssertionError('must not read')):
-            for path in ('../outside', '/etc/passwd', '.env', '.ssh/config', 'link/outside'):
+            for path in ('../outside', '/etc/passwd', '.ssh/config', 'link/outside'):
                 with self.subTest(path=path):
                     with self.assertRaises(sandbox.PolicyError):
                         sandbox.dispatch('read_file', {'path': path, 'start_line': 0})
@@ -122,7 +131,7 @@ class SandboxPolicyTest(unittest.TestCase):
                                 capture_output=True, cwd=self.root, check=False)
         self.assertEqual(0, result.returncode)
         self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
-            'protocol': 'delveforge-sandbox', 'version': 9}},
+            'protocol': 'delveforge-sandbox', 'version': 10}},
             {k: v for k, v in json.loads(result.stdout).items() if k != 'durationMs'})
         self.assertEqual(before, list(self.root.iterdir()))
         self.assertEqual(b'', result.stderr)
@@ -144,14 +153,14 @@ class SandboxPolicyTest(unittest.TestCase):
         self.assertTrue(rules.issubset(set(re.findall(r'[A-Z][A-Z_]+', catalog))))
 
     def test_cli_policy_diagnostics_do_not_echo_patch_or_protected_path(self):
-        request = {'name': 'apply_patch', 'arguments': {'patch': '--- a/.env\n+++ b/.env\nprivate-patch-body'}}
+        request = {'name': 'apply_patch', 'arguments': {'patch': '--- a/.ssh/config\n+++ b/.ssh/config\nprivate-patch-body'}}
         result = subprocess.run([sys.executable, str(SOURCE)], input=json.dumps(request).encode(),
                                 capture_output=True, cwd=self.root, check=False)
         self.assertEqual(0, result.returncode)
         data = json.loads(result.stdout)
         self.assertEqual('POLICY_REJECTED', data['classification'])
-        self.assertEqual('PROTECTED_CREDENTIAL_PATH', data['policyRule'])
-        self.assertNotIn('.env', result.stdout.decode())
+        self.assertEqual('FORBIDDEN_PATH', data['policyRule'])
+        self.assertNotIn('.ssh/config', result.stdout.decode())
         self.assertNotIn('private-patch-body', result.stdout.decode())
         self.assertNotIn('reason', data)
 
@@ -163,8 +172,7 @@ class SandboxPolicyTest(unittest.TestCase):
 
     def test_path_restrictions(self):
         for value, rule in [(None, 'PATH_FORMAT'), ('x\\y', 'PATH_FORMAT'), ('x'*513, 'PATH_FORMAT'),
-                            ('.env', 'PROTECTED_CREDENTIAL_PATH'), ('keys/key.pem', 'PROTECTED_CREDENTIAL_PATH'),
-                            ('keys.pem/child', 'PROTECTED_CREDENTIAL_PATH'), ('../host', 'FORBIDDEN_PATH'),
+                            ('.ssh/config', 'FORBIDDEN_PATH'), ('../host', 'FORBIDDEN_PATH'),
                             ('/host', 'FORBIDDEN_PATH'), ('.git/config', 'FORBIDDEN_PATH'), ('CON.txt', 'FORBIDDEN_PATH')]:
             with self.subTest(rule=rule):
                 self.assert_policy(rule, lambda: sandbox.path_for(value))
@@ -175,7 +183,7 @@ class SandboxPolicyTest(unittest.TestCase):
         cases = [('GIT binary patch\n', 'PATCH_TYPE'), ('rename from old\n', 'PATCH_TYPE'),
                  ('copy to next\n', 'PATCH_TYPE'), ('new file mode 120000\n', 'PATCH_TYPE'),
                  ('diff --git wrong wrong\n', 'PATCH_DIFF_PATHS'), ('new mode 100600\n', 'PATCH_FILE_MODE'),
-                 ('--- plain.txt\n', 'PATCH_PATH_FORMAT'), ('--- a/.env\n', 'PROTECTED_CREDENTIAL_PATH'),
+                 ('--- plain.txt\n', 'PATCH_PATH_FORMAT'), ('--- a/.ssh/config\n', 'FORBIDDEN_PATH'),
                  ('--- a/../host\n', 'FORBIDDEN_PATH')]
         (self.root / 'safe.txt').write_text('unchanged', encoding='utf-8')
         with patch.object(sandbox, 'run_bounded') as execute:
@@ -193,7 +201,7 @@ class SandboxPolicyTest(unittest.TestCase):
     def test_malformed_patch_is_non_mutating_tool_error(self):
         with patch.object(sandbox, 'run_bounded') as execute:
             for diff in ['invalid patch', '--- a/a.txt\n+++ b/a.txt\n@@ bad @@\n',
-                         '--- a/a.txt\n+++ b/a.txt\n@@ -9,100 +9,100 @@\n--- a/.env\n+++ b/.env\n']:
+                         '--- a/a.txt\n+++ b/a.txt\n@@ -9,100 +9,100 @@\n--- a/.ssh/config\n+++ b/.ssh/config\n']:
                 with self.subTest():
                     with self.assertRaises(ValueError):
                         sandbox.dispatch('apply_patch', {'patch': diff})

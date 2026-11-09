@@ -7,6 +7,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentToolsProtocolTest {
     @Test
@@ -20,6 +21,10 @@ class AgentToolsProtocolTest {
                     AgentProtocol.Limits.defaults()));
         }
         assertFalse(AgentTools.mutation("update_plan"));
+        String guidance = AgentTools.definitions().stream().filter(tool -> tool.name().equals("update_plan"))
+                .findFirst().orElseThrow().description();
+        assertTrue(guidance.contains("若本次维护过清单") && guidance.contains("收尾时"));
+        assertTrue(guidance.contains("有证据") && guidance.contains("未完成") && guidance.contains("受阻"));
     }
 
     @Test

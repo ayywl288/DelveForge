@@ -113,6 +113,23 @@ class SqliteAgentStoreTest {
     }
 
     @Test
+    void runningFailureRetentionSurvivesReloadAndReleaseCannotEraseUncertainWork() {
+        var run = run();
+        store.reserve(run);
+        store.advance(run.id(), AgentRunState.CREATED, AgentRunState.PREPARING, null);
+        assertFalse(store.get(run.id()).retained());
+        store.advance(run.id(), AgentRunState.PREPARING, AgentRunState.RUNNING, null);
+        assertTrue(new SqliteAgentStore(source).get(run.id()).retained());
+        store.advance(run.id(), AgentRunState.RUNNING, AgentRunState.FAILED, "MODEL_INCOMPLETE");
+        store.release(run.id(), false);
+        var reloaded = new SqliteAgentStore(source);
+        assertTrue(reloaded.get(run.id()).retained());
+        assertEquals(null, reloaded.get(run.id()).candidateId());
+        assertTrue(reloaded.abandoned().isEmpty());
+        assertEquals("STOPPED_MATERIAL_RETAINED", reloaded.events(run.id(), 0, 100).getLast().summary());
+    }
+
+    @Test
     void frozenStepBaselineRejectsConcurrentReservationsButNewBaselineIsAllowed() throws Exception {
         var first = run();
         store.reserve(first);

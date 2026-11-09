@@ -36,7 +36,6 @@ public final class CompletionEvidence {
         }
         if (factual) {
             if (!report.path("summary").isTextual() || report.path("summary").asText().isBlank()
-                    || report.has("executions") && !report.path("executions").isArray()
                     || report.has("limitations") && !report.path("limitations").isArray()) {
                 throw new AgentException("EVIDENCE_INVALID", "Invalid completion report structure");
             }
@@ -63,28 +62,47 @@ public final class CompletionEvidence {
             for (JsonNode receipt : receipts.values()) {
                 requireReceipt(receipt);
             }
+            if (report.has("executions") && !report.path("executions").isArray()) {
+                throw new CompletionReferenceFailure("EVIDENCE_INVALID", "INVALID_REFERENCE_LIST",
+                        evidence, -1, report.path("executions"), null);
+            }
         }
         Set<String> referenced = new HashSet<>();
+        int index = -1;
         for (JsonNode reference : report.path("executions")) {
+            index++;
             JsonNode receipt = receipts.get(reference.asText());
-            if (!reference.isTextual() || !referenced.add(reference.asText()) || receipt == null) {
-                throw new AgentException("EVIDENCE_INVALID", "Unknown or duplicate execution reference");
+            if (!reference.isTextual() || receipt == null || !referenced.add(reference.asText())) {
+                String issue = !reference.isTextual() ? "INVALID_REFERENCE"
+                        : receipt == null ? "UNKNOWN_REFERENCE" : "DUPLICATE_REFERENCE";
+                throw new CompletionReferenceFailure("EVIDENCE_INVALID", issue, evidence, index, reference, receipt);
             }
             if (!factual && (receipt.path("exitCode").asInt() != 0 || receipt.path("timedOut").asBoolean()
                     || receipt.path("cancelled").asBoolean()
-                    || !receipt.path("classification").asText().equals("COMMAND_SUCCEEDED"))
-                    || !snapshot.equals(receipt.path("snapshot").asText())
-                    || !snapshot.equals(receipt.path("afterSnapshot").asText())
-                    || !view.equals(receipt.path("sourceView"))) {
-                throw new AgentException("UNRESOLVED_CHECK_FAILURE", "Referenced execution failed or is source/view stale");
+                    || !receipt.path("classification").asText().equals("COMMAND_SUCCEEDED"))) {
+                throw new CompletionReferenceFailure("UNRESOLVED_CHECK_FAILURE", "FAILED_EXECUTION",
+                        evidence, index, reference, receipt);
+            }
+            if (!matchesFinalSource(snapshot, view, receipt)) {
+                String issue = !snapshot.equals(receipt.path("snapshot").asText())
+                        || !snapshot.equals(receipt.path("afterSnapshot").asText()) ? "STALE_SOURCE" : "VIEW_MISMATCH";
+                throw new CompletionReferenceFailure("UNRESOLVED_CHECK_FAILURE", issue, evidence, index, reference, receipt);
             }
             JsonNode tests = receipt.path("testReport");
             if (!factual && tests.path("availability").asText().equals("AVAILABLE")
                     && (tests.path("failures").asInt() > 0 || tests.path("errors").asInt() > 0)) {
-                throw new AgentException("UNRESOLVED_CHECK_FAILURE", "Observed test failures contradict passing report");
+                throw new CompletionReferenceFailure("UNRESOLVED_CHECK_FAILURE", "FAILED_TEST_REPORT",
+                        evidence, index, reference, receipt);
             }
         }
     }
+
+    /** 收据只有在执行前后源码及执行视图均与最终状态一致时才能说明当前版本。 */
+    public static boolean matchesFinalSource(String snapshot, JsonNode view, JsonNode receipt) {
+        return snapshot.equals(receipt.path("snapshot").asText()) && snapshot.equals(receipt.path("afterSnapshot").asText())
+                && view.equals(receipt.path("sourceView"));
+    }
+
     private static void requireReceipt(JsonNode receipt) {
         for (String field : Set.of("command", "directory", "stdout", "stderr")) {
             if (!receipt.path(field).isTextual()) {

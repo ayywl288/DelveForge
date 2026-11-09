@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { resourcesBlocked } from "../components/agentEventPresentation";
+import { noProgressExplanation, resourcesBlocked } from "../components/agentEventPresentation";
 import { computed, nextTick, onActivated, onDeactivated, onMounted, onUnmounted, ref, watch } from "vue";
 import { api } from "../api/client";
 import type { AgentCandidate, AgentEvent, AgentRun, Delivery } from "../api/agentTypes";
@@ -454,7 +454,7 @@ onUnmounted(deactivate);
         <p v-if="run.reason === 'SANDBOX_PROTOCOL_INCOMPATIBLE'" class="run-failure" role="alert">
           沙箱工具协议不兼容。请按 docs/LOCAL_SETUP.md 的协议排障说明构建兼容镜像，显式配置镜像后再重启应用。
         </p>
-        <p v-if="run.reason === 'NO_PROGRESS'" class="run-failure" role="alert">检测到重复的工具循环，且没有新的观察或成功修改，运行已停止。</p>
+        <p v-if="run.reason === 'NO_PROGRESS'" class="run-failure" role="alert">{{ noProgressExplanation(events, run.id) }}</p>
 
         </div>
         <p v-if="resourceBlocked" class="resource-warning" role="alert"><NavigationIcon name="warning" />资源协调待核对：所属资源或保留材料尚未完成核对。请先检查 Docker 与后端安全诊断，再判断能否重新运行。</p>
@@ -510,9 +510,10 @@ onUnmounted(deactivate);
   </div>
   <ConfirmDialog :open="startReview" title="确认 API 费用与预算" confirm-label="确认费用并开始"
     :disabled="!budgetAcknowledged || !canStart" @close="startReview = false; budgetAcknowledged = false" @confirm="startRun">
-    <p>Agent 会调用已配置的外部模型 API，发送当前步骤目标和必要的已净化仓库材料，并持续编码、测试至可验证交付。</p>
-    <p>系统先实际预检所选工程的检查环境；预检受阻时不请求模型，也不消耗模型 tokens。</p>
+    <p>Agent 会调用已配置的外部模型 API，发送当前步骤目标和所选仓库材料，并持续编码、测试至可验证交付。</p>
+    <p>系统先检查隔离执行能力，并如实报告网络状态；依赖网络不可用时仍可执行离线任务，下载需要由实际命令确认。</p>
     <p>API 调用会产生费用，实际费用以服务商账单为准。累计调用、tokens 与总运行时长没有自动停止门槛；取消不能撤回已发生的费用。</p>
+    <p>所选仓库内容将提供给模型和隔离命令，也可能出现在日志中。请勿包含不愿暴露的有效凭据；日志脱敏不能保证任意命令的保密性。</p>
     <label class="budget-acknowledgment"><input v-model="budgetAcknowledged" type="checkbox" />我确认有足够的 API 预算，并愿意承担本次运行的实际费用。</label>
   </ConfirmDialog>
 </template>

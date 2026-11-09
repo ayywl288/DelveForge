@@ -222,25 +222,24 @@ class RepositoryCompatibilityIntegrationTest {
     }
 
     @Test
-    void recognizedCredentialTextIsImmutableWithoutLeakingItsValue() throws Exception {
+    void selectedConfigurationIsMutableWithoutPuttingValuesInCompatibilityReports() throws Exception {
         String canary = "CANARY-private-signing-material-1234567890";
         Path source = repositories.createCommitted("original", Map.of("pom.xml", POM,
                 "src/main/resources/application.properties", "jwt.secret=" + canary + "\n"));
         var report = compatibility.inspect(source, GitTestRepositories.headRevision(source)).report();
         assertTrue(report.supported());
-        assertTrue(report.immutablePaths().contains("src/main/resources/application.properties"));
+        assertFalse(report.immutablePaths().contains("src/main/resources/application.properties"));
         assertFalse(report.toString().contains(canary));
     }
 
     @Test
-    void sensitivePathsArePreservedOnlyWhileSpecialModesRemainExplicitBlockers() throws Exception {
+    void selectedEnvironmentIsSourceWhileSpecialModesRemainExplicitBlockers() throws Exception {
         Path source = repositories.createCommitted("original", Map.of("pom.xml", POM, ".env", "PRIVATE=canary"));
         var inspection = compatibility.inspect(source, GitTestRepositories.headRevision(source));
         assertTrue(inspection.report().supported());
-        assertEquals(RepositoryContentPolicy.Kind.PRESERVED_ONLY, inspection.resources().get(".env").kind());
-        assertFalse(inspection.resources().get(".env").executionAvailable());
-        assertFalse(inspection.resources().get(".env").modelVisible());
-        assertTrue(inspection.report().issues().stream().anyMatch(issue -> issue.code().equals("PRESERVED_ONLY_RESOURCE")));
+        assertTrue(inspection.resources().isEmpty());
+        assertFalse(inspection.report().immutablePaths().contains(".env"));
+        assertTrue(inspection.report().issues().stream().noneMatch(issue -> issue.code().equals("PRESERVED_ONLY_RESOURCE")));
         assertEquals("PRIVATE=canary", GitTestRepositories.runGit(source, "show", "HEAD:.env").trim());
         String object = GitTestRepositories.runGit(source, "rev-parse", "HEAD:pom.xml").trim();
         GitTestRepositories.runGit(source, "update-index", "--add", "--cacheinfo", "120000," + object + ",link");
@@ -261,14 +260,15 @@ class RepositoryCompatibilityIntegrationTest {
     }
 
     @Test
-    void withholdingContentCannotBypassGitTransformOrReservedDirectoryRules() throws Exception {
+    void selectedContentCannotBypassGitTransformOrReservedDirectoryRules() throws Exception {
         Path source = repositories.createCommitted("content-cannot-grant-structural-access", Map.of("pom.xml", POM,
                 ".gitattributes", "* filter=unsafe\n# password=private-fixture\n"));
         var report = compatibility.inspect(source, GitTestRepositories.headRevision(source)).report();
         assertFalse(report.supported());
         assertTrue(report.issues().stream().anyMatch(issue -> issue.code().equals("GIT_ATTRIBUTES_UNSUPPORTED")));
-        assertFalse(GitRepositoryCompatibility.safePath(".npmrc/hidden.txt"));
-        assertFalse(GitRepositoryCompatibility.safePath(".env/.env"));
+        assertTrue(GitRepositoryCompatibility.safePath(".npmrc/hidden.txt"));
+        assertTrue(GitRepositoryCompatibility.safePath(".env/.env"));
+        assertFalse(GitRepositoryCompatibility.safePath(".ssh/config"));
         assertTrue(GitRepositoryCompatibility.safePath(".env.example"));
     }
     @Test
@@ -427,7 +427,7 @@ class RepositoryCompatibilityIntegrationTest {
         assertTrue(inspection.report().supported(), inspection.report().issues().toString());
         assertTrue(inspection.report().generatedPaths().size() > 40);
         assertEquals("backend", inspection.report().mavenDirectory());
-        assertTrue(inspection.report().immutablePaths().contains("backend/src/main/resources/application.properties"));
+        assertFalse(inspection.report().immutablePaths().contains("backend/src/main/resources/application.properties"));
         var adapter = new GitWorkspaceAdapter(repositories.directory("managed-fintrack"));
         var prepared = adapter.provision(new WorkspaceRef(source.toString()), original, "copy");
         Path copy = Path.of(prepared.workspace().value());

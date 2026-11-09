@@ -94,10 +94,12 @@ export function presentCheckRows(raw: string) {
             current: [7, 8].includes(Number(value.evidenceVersion)) && record(value.agentReport) && Array.isArray(value.agentReport.executions)
                 && value.agentReport.executions.includes(check.invocationId)
                 && check.snapshot === value.finalSnapshot && check.afterSnapshot === value.finalSnapshot
+                && (value.evidenceVersion !== 8 || matchesFinalExecution(value, check))
                 || value.evidenceVersion === 6 && required.has(key(check)) && latest.get(key(check)) === check
                 && check.snapshot === value.finalSnapshot && check.afterSnapshot === value.finalSnapshot,
             scope: checkScope(check), label: verificationLabel(String(check.classification)),
-            stale: check.snapshot !== value.finalSnapshot || (check.checkType === "COMMAND"
+            stale: value.evidenceVersion === 8 ? !matchesFinalExecution(value, check)
+                : check.snapshot !== value.finalSnapshot || (check.checkType === "COMMAND"
                 ? check.afterSnapshot !== value.finalSnapshot : check.stale !== false),
             executed: (check.checkType === "COMMAND" && check.testDetails === "AVAILABLE") || ["TESTS_PASSED", "TESTS_FAILED"].includes(String(check.classification))
                 ? count(check.executedTests) : null,
@@ -204,20 +206,29 @@ export function candidateFileChanges(paths: readonly string[], diff: string): Pr
     return paths.map(path => ({ path, changeType: types.get(path) ?? "UNKNOWN" }));
 }
 
+function matchesFinalExecution(evidence: Record<string, unknown>, check: Record<string, unknown>) {
+    const final = evidence.sourceView, actual = check.sourceView;
+    return typeof evidence.finalSnapshot === "string" && /^[0-9a-f]{64}$/.test(evidence.finalSnapshot)
+        && check.snapshot === evidence.finalSnapshot && check.afterSnapshot === evidence.finalSnapshot
+        && record(final) && record(actual) && ["FULL", "PROJECTED"].includes(String(final.kind))
+        && ["preservedOnlyCount", "readOnlyResourceCount", "withheldSourceCount"].every(key => count(final[key]) !== null)
+        && Object.keys(final).length === Object.keys(actual).length
+        && Object.keys(final).every(key => final[key] === actual[key]);
+}
+
 /** 汇总全部收据，不从 Agent 选择的引用推断遗漏失败与任务无关。 */
 export function executionFacts(raw: string, finalSourceOnly = false) {
     try {
         const value = JSON.parse(raw);
         if (value.evidenceVersion !== 8 || !Array.isArray(value.checks)) return null;
         const checks = (value.checks.filter(record) as Record<string, unknown>[]).filter(check => !finalSourceOnly
-            || typeof value.finalSnapshot === "string" && /^[0-9a-f]{64}$/.test(value.finalSnapshot)
-                && check.snapshot === value.finalSnapshot && check.afterSnapshot === value.finalSnapshot);
+            || matchesFinalExecution(value, check));
         const reports = checks.flatMap(check => record(check.testReport) && check.testReport.availability === "AVAILABLE" ? [check.testReport] : []);
         return { total: checks.length, succeeded: checks.filter(check => check.exitCode === 0 && !check.timedOut && !check.cancelled).length,
             failed: checks.filter(check => check.exitCode !== 0 && !check.timedOut && !check.cancelled).length,
             timedOut: checks.filter(check => check.timedOut).length, cancelled: checks.filter(check => check.cancelled).length,
             reports: reports.length, unknown: checks.length - reports.length,
-            stale: checks.filter(check => check.snapshot !== value.finalSnapshot || check.afterSnapshot !== value.finalSnapshot).length,
+            stale: checks.filter(check => !matchesFinalExecution(value, check)).length,
             executed: reports.reduce((sum, report) => sum + Number(report.executedTests ?? 0), 0),
             failures: reports.reduce((sum, report) => sum + Number(report.failures ?? 0) + Number(report.errors ?? 0), 0),
             skipped: reports.reduce((sum, report) => sum + Number(report.skipped ?? 0), 0) };

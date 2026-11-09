@@ -807,18 +807,22 @@ class CandidateDeliveryTest {
 
     @ParameterizedTest
     @ValueSource(strings = {".env.example", ".npmrc", "sensitive.properties"})
-    void independentDeliveryRejectsForgedResourceChangesBeforeOfficialMutation(String path) throws Exception {
+    void independentDeliveryAcceptsSelectedConfigurationUnderTheSamePolicy(String path) throws Exception {
         String content = path.equals(".npmrc") ? "registry=https://registry.npmjs.org/\n"
                 : path.equals(".env.example") ? "API_URL=https://example.com\n" : "password=private-fixture\n";
         Files.writeString(temporary.resolve("result").resolve(path), content);
         refreshCandidate();
         try (var service = service()) {
-            assertEquals(Delivery.State.DELIVERY_BLOCKED, service.deliver(candidate.id()).state());
+            assertEquals(Delivery.State.COMPLETED, service.deliver(candidate.id()).state());
         }
-        assertEquals(baseline, git(copy, "rev-parse", "HEAD").strip());
-        assertEquals(baseline, scalar("SELECT last_verified_revision FROM working_copy"));
+        assertEquals(candidate.expectedTree(), git(copy, "rev-parse", "HEAD^{tree}").strip());
+        assertEquals(git(copy, "rev-parse", "HEAD").strip(), scalar("SELECT last_verified_revision FROM working_copy"));
         assertEquals("", git(copy, "status", "--porcelain"));
-        assertFalse(Files.exists(copy.resolve(path)));
+        assertTrue(Files.exists(copy.resolve(path)));
+        // 正式检出可按已有 core.autocrlf 使用 CRLF；对象内容与可信工作树需分别核对。
+        assertTrue(content.equals(git(copy, "show", "HEAD:" + path)), "Canonical configuration bytes differ");
+        workspace.requireTrustedState(new WorkspaceRef(copy.toString()), new WorkspaceRef(original.toString()),
+                git(copy, "rev-parse", "HEAD").strip());
     }
 
     @Test

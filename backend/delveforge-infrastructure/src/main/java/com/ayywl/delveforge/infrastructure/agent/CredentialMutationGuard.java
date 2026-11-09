@@ -8,13 +8,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
-/** 对已证明可重放的逐文件差异检查真实改动行；原文只在受控适配器内使用。 */
+/** 仅阻止把尽力脱敏标记误写回源码；项目配置值不再受旧凭据行规则限制。 */
 final class CredentialMutationGuard {
     private static final Pattern HUNK = Pattern.compile("^@@ -(\\d+)(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@.*");
-    private final RepositorySecretPolicy secrets;
 
     CredentialMutationGuard(RepositorySecretPolicy secrets) {
-        this.secrets = secrets;
     }
 
     record Range(int first, int count) {
@@ -53,16 +51,6 @@ final class CredentialMutationGuard {
     void requireSafe(String path, String before, String after, Changes changes) {
         before = before == null ? "" : before;
         after = after == null ? "" : after;
-        for (int line : secrets.mutationProtectedLines(path, before)) {
-            if (changes.oldLines().stream().anyMatch(range -> range.contains(line))) {
-                throw AgentPolicyRejection.sourceEditRejectedBeforeApply();
-            }
-        }
-        for (int line : secrets.mutationProtectedLines(path, after)) {
-            if (changes.newLines().stream().anyMatch(range -> range.contains(line))) {
-                throw AgentPolicyRejection.patchContentRejectedBeforeApply();
-            }
-        }
         String[] result = after.split("\n", -1);
         for (Range range : changes.newLines()) {
             for (int line = range.first(); line < range.first() + range.count(); line++) {

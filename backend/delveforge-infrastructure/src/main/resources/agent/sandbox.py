@@ -22,8 +22,8 @@ BASELINE_FILE_LIMIT = int(os.environ.get('DF_BASELINE_FILE_BYTES', '16777216'))
 BASELINE_TOTAL_LIMIT = int(os.environ.get('DF_BASELINE_TOTAL_BYTES', '134217728'))
 # v1 约定检查冲突的未修改证据、应用阶段未知及应用后捕获阶段；旧工具不能推断兼容。
 PROTOCOL_NAME = 'delveforge-sandbox'
-PROTOCOL_VERSION = 9
-PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2', '.npmrc', '.netrc', '.pypirc'}
+PROTOCOL_VERSION = 10
+PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2'}
 BASELINE_PATHS = set()
 RESOURCE_CAPABILITIES = {}
 
@@ -40,14 +40,6 @@ class PatchOutcomeUnknown(Exception):
     pass
 
 
-def credential_path(value):
-    name = value.rsplit('/', 1)[-1].casefold()
-    return (name in ('.env', '.npmrc', '.pypirc', '.netrc') or name.startswith('.env.')
-            or name.endswith(('.env', '.pem', '.key', '.p12', '.pfx', '.jks', '.keystore'))
-            or (re.fullmatch(r'id_(rsa|dsa|ecdsa|ed25519)([._-].*)?', name) and not name.endswith('.pub'))
-            or '/.aws/credentials' in '/' + value.casefold())
-
-
 def read_error(reason, instruction):
     return {'classification': 'INVALID_TOOL_ARGUMENT', 'reason': reason,
             'readNotStarted': True, 'mutationNotStarted': True, 'instruction': instruction}
@@ -61,18 +53,12 @@ def path_for(value, allow_root=False, resource=False):
     approved = value in RESOURCE_CAPABILITIES
     if approved and RESOURCE_CAPABILITIES[value]['kind'] != 'PUBLIC_RESOURCE' and not resource:
         raise PolicyError('RESOURCE_CAPABILITY', 'Resource content is not model-visible or editable')
-    if credential_path(value) and not (approved and (resource or RESOURCE_CAPABILITIES[value]['kind'] == 'PUBLIC_RESOURCE')):
-        raise PolicyError('PROTECTED_CREDENTIAL_PATH', 'Protected credential path')
     parts = value.split('/')
     if any(part in ('', '.', '..') or ':' in part or part.endswith((' ', '.'))
            or re.fullmatch(r'(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?', part)
            or part.casefold() in PROTECTED and not (approved and (resource or RESOURCE_CAPABILITIES[value]['kind'] == 'PUBLIC_RESOURCE') and part == parts[-1])
-           or part.casefold().startswith('.env') and not (approved and (resource or RESOURCE_CAPABILITIES[value]['kind'] == 'PUBLIC_RESOURCE') and part == parts[-1])
            for part in parts) or value.startswith('/'):
         raise PolicyError('FORBIDDEN_PATH', 'Forbidden path')
-    if not (approved and (resource or RESOURCE_CAPABILITIES[value]['kind'] == 'PUBLIC_RESOURCE')) and any(part.lower().endswith(
-            ('.pem', '.key', '.p12', '.pfx', '.jks', '.keystore')) for part in parts):
-        raise PolicyError('PROTECTED_CREDENTIAL_PATH', 'Protected credential path')
     path = ROOT
     for part in parts:
         path = path / part
@@ -398,7 +384,6 @@ def dispatch(name, args):
         if type(offset) is not int or type(limit) is not int or offset < 0 or not 1 <= limit <= 200:
             return read_error('INVALID_PAGINATION', 'offset 必须为非负整数，limit 必须为 1 到 200 的整数。')
         files = [p for p in all_files() if (p not in RESOURCE_CAPABILITIES or RESOURCE_CAPABILITIES[p]['kind'] == 'PUBLIC_RESOURCE')
-                 and (not credential_path(p) or p in RESOURCE_CAPABILITIES)
                  and (path == ROOT or (ROOT / p).is_relative_to(path))]
         selected = files[offset:offset + limit]
         directories = sorted({pathlib.PurePosixPath(value).parent.as_posix() for value in selected}

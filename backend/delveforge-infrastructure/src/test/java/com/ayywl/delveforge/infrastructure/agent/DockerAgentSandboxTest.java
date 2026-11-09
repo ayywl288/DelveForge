@@ -40,8 +40,8 @@ class DockerAgentSandboxTest {
     private final AgentProcess process = new AgentProcess();
 
     static AgentSandboxProperties properties(Path root) {
-        return new AgentSandboxProperties(root, "docker", Map.of(21, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_21", "delveforge-agent:protocol-v9-jdk21"),
-                17, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_17", "delveforge-agent:protocol-v9-jdk17")), 21, "delveforge-compatibility-tests",
+        return new AgentSandboxProperties(root, "docker", Map.of(21, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_21", "delveforge-agent:protocol-v10-jdk21"),
+                17, System.getenv().getOrDefault("DELVEFORGE_AGENT_IMAGE_17", "delveforge-agent:protocol-v10-jdk17")), 21, "delveforge-compatibility-tests",
                 "delveforge-compatibility-20261024-cache", "2g", "2", 256);
     }
 
@@ -124,7 +124,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void publicResourcesAreReadableImmutableAndPrivateResourcesRemainExcluded() throws Exception {
+    void selectedResourcesRemainReadableEditableAndPresentInFullSourceView() throws Exception {
         Path official = fixture();
         String privateValue = "fixture-" + UUID.randomUUID();
         Files.writeString(official.resolve(".env.example"), "API_URL=https://example.com\n");
@@ -135,7 +135,7 @@ class DockerAgentSandboxTest {
         var workspace = new com.ayywl.delveforge.infrastructure.workspace.GitWorkspaceAdapter(temporary.resolve("copies"));
         var ref = new com.ayywl.delveforge.application.port.workspace.WorkspaceRef(official.toString());
         assertTrue(workspace.readModelFile(ref, baseline, ".env.example").isPresent());
-        assertTrue(workspace.readModelFile(ref, baseline, "private.properties").isEmpty());
+        assertTrue(workspace.readModelFile(ref, baseline, "private.properties").isPresent());
         assertTrue(workspace.readModelFile(ref, baseline, "src/main/java/example/Counter.java").isPresent());
         var sandbox = new DockerAgentSandbox(properties(temporary.resolve("resource-runs")),
                 new DeterministicRepositorySecretPolicy());
@@ -146,26 +146,26 @@ class DockerAgentSandboxTest {
                     AgentProtocol.Limits.defaults(), () -> false);
             String listing = tool(sandbox, id, "list_files", Map.of());
             assertTrue(listing.contains(".env.example"));
-            assertFalse(listing.contains("private.properties"));
-            assertFalse(tool(sandbox, id, "search_code", Map.of("query", privateValue)).contains(privateValue));
+            assertTrue(listing.contains("private.properties"));
+            assertTrue(tool(sandbox, id, "search_code", Map.of("query", privateValue)).contains(privateValue));
             for (String path : List.of(".env.example", "private.properties")) {
                 if (path.equals("private.properties")) {
-                    assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id, "read_file", Map.of("path", path)));
+                    assertTrue(tool(sandbox, id, "read_file", Map.of("path", path)).contains(privateValue));
                 } else {
                     assertTrue(tool(sandbox, id, "read_file", Map.of("path", path)).contains("https://example.com"));
                 }
-                assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id, "edit_file",
-                        Map.of("path", path, "old_text", "", "new_text", "changed")));
-
+                assertTrue(tool(sandbox, id, "edit_file", Map.of("path", path,
+                        "old_text", path.equals("private.properties") ? privateValue : "https://example.com",
+                        "new_text", "synthetic-updated")).contains("PATCH_APPLIED"));
             }
             tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
                     "old_text", "return n;", "new_text", "return n + 1;"));
             tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test"));
             var candidate = finish(sandbox, id);
-            assertFalse(candidate.diff().contains(privateValue));
-            assertFalse(candidate.changedPaths().contains("private.properties"));
-            assertFalse(candidate.changedPaths().contains(".env.example"));
-            assertEquals("PROJECTED", json.readTree(candidate.testEvidence()).path("sourceView").path("kind").asText());
+            assertTrue(candidate.diff().contains("synthetic-updated"));
+            assertTrue(candidate.changedPaths().contains("private.properties"));
+            assertTrue(candidate.changedPaths().contains(".env.example"));
+            assertEquals("FULL", json.readTree(candidate.testEvidence()).path("sourceView").path("kind").asText());
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertEquals("", git(official, "status", "--porcelain"));
         } finally {
@@ -174,7 +174,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void configurationReferencesAndGeneratedTestValuesFreezeWhileActualCredentialsStayBlocked() throws Exception {
+    void configurationReferencesAndSyntheticDefaultsFreezeWithoutContentBasedRejection() throws Exception {
         Path official = fixture();
         String baseline = git(official, "rev-parse", "HEAD");
         String id = UUID.randomUUID().toString();
@@ -189,13 +189,10 @@ class DockerAgentSandboxTest {
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", path, "old_text", "", "new_text", configuration))
                     .contains("\"ok\":true"));
             assertTrue(tool(sandbox, id, "read_file", Map.of("path", path)).contains("${DB_PASSWORD:}"));
-            var rejection = assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id, "edit_file", Map.of(
-                    "path", path, "old_text", "${DB_PASSWORD:}", "new_text", "embedded-private-value")));
-            assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, rejection.rule());
-            assertTrue(rejection.sourceEditRejectedBeforeMutation());
-            String unchanged = tool(sandbox, id, "read_file", Map.of("path", path));
-            assertTrue(unchanged.contains("${DB_PASSWORD:}"));
-            assertFalse(unchanged.contains("embedded-private-value"));
+            assertTrue(tool(sandbox, id, "edit_file", Map.of(
+                    "path", path, "old_text", "${DB_PASSWORD:}", "new_text", "synthetic-default"))
+                    .contains("PATCH_APPLIED"));
+            assertTrue(tool(sandbox, id, "read_file", Map.of("path", path)).contains("synthetic-default"));
             String testPath = "src/test/java/example/GeneratedCredentialTest.java";
             String generated = """
                     package example;
@@ -210,11 +207,9 @@ class DockerAgentSandboxTest {
                     """;
             assertTrue(tool(sandbox, id, "edit_file", Map.of(
                     "path", testPath, "old_text", "", "new_text", generated)).contains("\"ok\":true"));
-            var literalRejection = assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id, "edit_file", Map.of(
-                    "path", testPath, "old_text", generated,
-                    "new_text", generated.replace("\"case-\" + java.util.UUID.randomUUID().toString()",
-                            "\"embedded-private-value\""))));
-            assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, literalRejection.rule());
+            assertTrue(tool(sandbox, id, "edit_file", Map.of("path", testPath, "old_text", generated,
+                    "new_text", generated.replace("String password = \"case-\" + java.util.UUID.randomUUID().toString();",
+                            "String password = \"case-synthetic-default\";"))).contains("PATCH_APPLIED"));
             assertTrue(tool(sandbox, id, "read_file", Map.of("path", testPath)).contains("UUID.randomUUID()"));
             String htmlPath = "src/main/resources/templates/login.html";
             String form = "<form><label for=\"password\">Password:</label>"
@@ -222,18 +217,17 @@ class DockerAgentSandboxTest {
             assertTrue(tool(sandbox, id, "edit_file", Map.of(
                     "path", htmlPath, "old_text", "", "new_text", form)).contains("\"ok\":true"));
             assertTrue(tool(sandbox, id, "read_file", Map.of("path", htmlPath)).contains("Password:</label>"));
-            var htmlRejection = assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id, "edit_file", Map.of(
+            assertTrue(tool(sandbox, id, "edit_file", Map.of(
                     "path", htmlPath, "old_text", form,
-                    "new_text", form.replace("<form>", "<form data-password=\"embedded-private-value\">"))));
-            assertEquals(AgentPolicyRejection.Rule.PATCH_CREDENTIALS, htmlRejection.rule());
+                    "new_text", form.replace("<form>", "<form data-password=\"synthetic-default\">")))
+                    .contains("PATCH_APPLIED"));
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
                     "old_text", "return n;", "new_text", "return n + 1;")).contains("\"ok\":true"));
             assertTrue(tool(sandbox, id, "exec_command", Map.of("command", "mvn -B test")).contains("COMMAND_SUCCEEDED"));
             Candidate candidate = finish(sandbox, id);
-            assertTrue(candidate.diff().contains("${DB_PASSWORD:}"));
+            assertTrue(candidate.diff().contains("synthetic-default"));
             assertTrue(candidate.diff().contains("UUID.randomUUID()"));
             assertTrue(candidate.diff().contains("Password:</label>"));
-            assertFalse(candidate.diff().contains("embedded-private-value"));
             assertTrue(candidate.testEvidence().contains("FACTUAL_RECORD"));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertTrue(git(official, "status", "--porcelain").isEmpty());
@@ -334,7 +328,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void sourceFixturesExecuteAndOrdinaryEditsFreezeWhileCredentialLinesStayProtected() throws Exception {
+    void sourceFixturesAndDefaultsRemainEditableThroughFreeze() throws Exception {
         Path official = fixture();
         Path auth = official.resolve("src/main/java/example/Auth.java");
         Files.writeString(auth, """
@@ -369,15 +363,15 @@ class DockerAgentSandboxTest {
                     temporary.resolve("original").toString(), baseline, "increment", "counter", "fix", 21),
                     AgentProtocol.Limits.defaults(), () -> false);
             String visible = tool(sandbox, id, "read_file", Map.of("path", "src/main/java/example/Auth.java"));
-            assertFalse(visible.contains("synthetic-private-value"));
-            assertTrue(visible.contains("redacted-credential"));
-            assertFalse(tool(sandbox, id, "search_code", Map.of("path", "src", "query", "password"))
+            assertTrue(visible.contains("synthetic-private-value"));
+            assertFalse(visible.contains("redacted-credential"));
+            assertTrue(tool(sandbox, id, "search_code", Map.of("path", "src", "query", "password"))
                     .contains("synthetic-private-value"));
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Auth.java",
                     "old_text", "int ordinary = 1;", "new_text", "int ordinary = 2;")).contains("\"ok\":true"));
-            assertThrows(AgentPolicyRejection.class, () -> tool(sandbox, id, "edit_file",
+            assertTrue(tool(sandbox, id, "edit_file",
                     Map.of("path", "src/main/java/example/Auth.java", "old_text", "synthetic-private-value",
-                            "new_text", "different-private-value")));
+                            "new_text", "different-private-value")).contains("\"ok\":true"));
             assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "src/main/java/example/Counter.java",
                     "old_text", "return n;", "new_text", "return n + 1;")).contains("\"ok\":true"));
             var check = json.readTree(tool(sandbox, id, "exec_command", Map.of("command", "mvn -B verify")));
@@ -388,7 +382,7 @@ class DockerAgentSandboxTest {
             assertFalse(check.toString().contains("sk-" + "a".repeat(32)));
             assertTrue(check.path("result").path("executedTests").asInt() >= 2);
             Candidate candidate = finish(sandbox, id);
-            assertFalse(candidate.diff().contains("synthetic-private-value"));
+            assertTrue(candidate.diff().contains("different-private-value"));
             assertTrue(candidate.changedPaths().contains("src/main/java/example/Auth.java"));
             assertTrue(candidate.changedPaths().contains("src/main/java/example/Counter.java"));
             assertEquals("FACTUAL_RECORD", json.readTree(candidate.testEvidence()).path("verificationLevel").asText());
@@ -401,7 +395,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void finalCaptureRejectsCredentialMutationOutsideTheEditingTool() throws Exception {
+    void finalCaptureAcceptsDefaultMutationOutsideTheEditingTool() throws Exception {
         Path official = fixture();
         Files.writeString(official.resolve("src/main/java/example/Auth.java"), """
                 package example;
@@ -423,8 +417,9 @@ class DockerAgentSandboxTest {
             var result = process.run(List.of("docker", "exec", sandbox.identity(id).containerId(), "python3", "-c", code),
                     temporary, null, Duration.ofSeconds(20), 8192, () -> false, Map.of());
             assertEquals(0, result.exitCode());
-            assertEquals("CANDIDATE_POLICY",
-                    assertThrows(AgentException.class, () -> sandbox.finish(id, () -> false)).code());
+            org.junit.jupiter.api.Assertions.assertNull(sandbox.completionFeedback(id,
+                    "{\"status\":\"completed\",\"summary\":\"Config update\"}", () -> false));
+            assertTrue(sandbox.finish(id, () -> false).changedPaths().contains("src/main/java/example/Auth.java"));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertTrue(git(official, "status", "--porcelain").isEmpty());
         } finally {
@@ -433,7 +428,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void withheldHighRiskSourceStaysOutsideExecutionWithoutBlanketVeto() throws Exception {
+    void selectedSourceWithTokenShapeRemainsAvailableInExecution() throws Exception {
         Path official = fixture();
         Files.writeString(official.resolve("src/main/java/example/Auth.java"),
                 "package example; class Auth { String token = \"sk-" + "a".repeat(32) + "\"; }\n");
@@ -447,12 +442,12 @@ class DockerAgentSandboxTest {
             sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
                     temporary.resolve("original").toString(), baseline, "observe", "counter", "checks", 21),
                     AgentProtocol.Limits.defaults(), () -> false);
-            assertThrows(AgentPolicyRejection.class,
-                    () -> tool(sandbox, id, "read_file", Map.of("path", "src/main/java/example/Auth.java")));
+            assertTrue(json.readTree(tool(sandbox, id, "read_file", Map.of("path", "src/main/java/example/Auth.java")))
+                    .path("ok").asBoolean());
             assertTrue(sandbox.preflight(id, () -> false).ready());
-            assertTrue(tool(sandbox, id, "exec_command", Map.of("command", "test ! -e src/main/java/example/Auth.java")).contains("COMMAND_SUCCEEDED"));
+            assertTrue(tool(sandbox, id, "exec_command", Map.of("command", "test -e src/main/java/example/Auth.java")).contains("COMMAND_SUCCEEDED"));
             org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, lastCommand));
-            String missing = tool(sandbox, id, "exec_command", Map.of("command", "test -f src/main/java/example/Auth.java"));
+            String missing = tool(sandbox, id, "exec_command", Map.of("command", "test -f missing.java"));
             assertTrue(missing.contains("COMMAND_FAILED"));
             org.junit.jupiter.api.Assertions.assertNull(FixtureCompletion.submit(sandbox, id, lastCommand));
             assertEquals(1, lastCommand.path("exitCode").asInt());
@@ -465,7 +460,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void frontendAuthenticationFixtureExecutesWithSanitizedReadsSearchesAndCheckOutput() throws Exception {
+    void frontendAuthenticationFixtureHasExactSourceReadsAndSanitizedCommandOutput() throws Exception {
         Path official = Files.createDirectories(temporary.resolve("frontend"));
         Path fixture = Path.of("src/test/resources/agent/native-frontend/npm");
         try (var paths = Files.walk(fixture)) {
@@ -501,9 +496,9 @@ class DockerAgentSandboxTest {
             sandbox.prepare(new AgentSandboxPort.Task(id, "plan", "step", "copy", official.toString(),
                     temporary.resolve("original").toString(), baseline, "observe", "frontend", "checks", 21),
                     AgentProtocol.Limits.defaults(), () -> false);
-            assertFalse(tool(sandbox, id, "read_file", Map.of("path", "tests/counter.test.mjs"))
+            assertTrue(tool(sandbox, id, "read_file", Map.of("path", "tests/counter.test.mjs"))
                     .contains("synthetic-fixture-password"));
-            assertFalse(tool(sandbox, id, "search_code", Map.of("query", "password"))
+            assertTrue(tool(sandbox, id, "search_code", Map.of("query", "password"))
                     .contains("synthetic-fixture-password"));
             var checked = json.readTree(tool(sandbox, id, "exec_command", Map.of("command", "npm test")));
             assertEquals("COMMAND_SUCCEEDED", checked.path("result").path("classification").asText());
@@ -611,7 +606,7 @@ class DockerAgentSandboxTest {
     }
 
     @Test
-    void secretReadsAreWithheldEditsRejectedAndOutputIsBounded() throws Exception {
+    void selectedConfigIsReadableEditableAndOutputRemainsBounded() throws Exception {
         Path official = fixture();
         Files.writeString(official.resolve("secret-config.txt"), "password=\"fixture-private-value\"\n");
         Files.writeString(official.resolve("large.txt"), "x".repeat(30000));
@@ -623,14 +618,13 @@ class DockerAgentSandboxTest {
         try {
             sandbox.prepare(new AgentSandboxPort.Task(id, "p", "s", "w", official.toString(), "original", baseline,
                     "goal", "scope", "changes", 21), AgentProtocol.Limits.defaults(), () -> false);
-            var read = assertThrows(AgentPolicyRejection.class,
-                    () -> tool(sandbox, id, "read_file", Map.of("path", "secret-config.txt")));
-            assertEquals(AgentPolicyRejection.Rule.RESOURCE_CAPABILITY, read.rule());
-            assertFalse(read.getMessage().contains("fixture-private-value"));
-            assertEquals("POLICY_REJECTED", assertThrows(AgentException.class, () -> tool(sandbox, id, "edit_file",
-                    Map.of("path", "secret-config.txt", "old_text", "password=\"fixture-private-value\"", "new_text", "ordinary=true"))).code());
+            assertTrue(tool(sandbox, id, "read_file", Map.of("path", "secret-config.txt")).contains("fixture-private-value"));
+            assertTrue(tool(sandbox, id, "edit_file", Map.of("path", "secret-config.txt",
+                    "old_text", "password=\"fixture-private-value\"", "new_text", "ordinary=true")).contains("PATCH_APPLIED"));
             assertTrue(tool(sandbox, id, "read_file", Map.of("path", "large.txt")).contains("OUTPUT_LIMIT"));
-            assertEquals("NO_CHANGES", assertThrows(AgentException.class, () -> sandbox.finish(id, () -> false)).code());
+            org.junit.jupiter.api.Assertions.assertNull(sandbox.completionFeedback(id,
+                    "{\"status\":\"completed\",\"summary\":\"Config update\"}", () -> false));
+            assertTrue(sandbox.finish(id, () -> false).changedPaths().contains("secret-config.txt"));
             assertEquals(baseline, git(official, "rev-parse", "HEAD"));
             assertTrue(git(official, "status", "--porcelain").isEmpty());
         } finally {

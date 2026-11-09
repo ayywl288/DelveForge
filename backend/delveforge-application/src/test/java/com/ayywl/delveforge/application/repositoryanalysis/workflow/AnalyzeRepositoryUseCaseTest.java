@@ -100,7 +100,7 @@ class AnalyzeRepositoryUseCaseTest {
                     // YAML 单引号的 '' 转义同样属于取值
                     + "    legacySecret: 'pre''CANARY-YAML-VALUE-0001'\n"
                     + "    host: localhost\n",
-            "zz/.env.local", "DB_PASSWORD=CANARY-ENV-VALUE-0001\n");
+            "zz/.ssh/config.properties", "DB_PASSWORD=CANARY-ENV-VALUE-0001\n");
 
     private static final Map<String, String> FILES_AT_A = Map.of(
             POM, "<project>spring-boot</project>",
@@ -422,7 +422,7 @@ class AnalyzeRepositoryUseCaseTest {
 
         useCase.analyze(ASSET_ID);
 
-        assertFalse(workspace.readPaths().contains("zz/.env.local"),
+        assertFalse(workspace.readPaths().contains("zz/.ssh/config.properties"),
                 "被排除的文件不得被读取: " + workspace.readPaths());
         assertTrue(workspace.readPaths().contains("src/main/resources/application.yml"),
                 "同一类的配置照常读取: " + workspace.readPaths());

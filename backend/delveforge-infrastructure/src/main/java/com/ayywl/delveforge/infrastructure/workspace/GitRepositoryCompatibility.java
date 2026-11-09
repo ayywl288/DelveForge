@@ -3,7 +3,6 @@ package com.ayywl.delveforge.infrastructure.workspace;
 import com.ayywl.delveforge.application.port.workspace.RepositoryCompatibility;
 import com.ayywl.delveforge.application.port.workspace.RepositoryCompatibility.Issue;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceException;
-import com.ayywl.delveforge.application.repositoryanalysis.extraction.RepositorySourceFile;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 
 import org.w3c.dom.Element;
@@ -189,7 +188,7 @@ public final class GitRepositoryCompatibility {
                     }
                     continue;
                 }
-                byte[] raw = entry.size() <= EDITABLE_FILE_BYTES || secrets.excludes(path)
+                byte[] raw = entry.size() <= EDITABLE_FILE_BYTES
                         ? blob(repository, entry.objectId()) : null;
                 if (path.equals(".gitattributes") || path.endsWith("/.gitattributes")) {
                     String attributes = raw == null ? null : utf8(raw);
@@ -219,11 +218,6 @@ public final class GitRepositoryCompatibility {
                     immutable.add(path);
                 } else {
                     textFiles++;
-                    if (!secrets.sanitize(List.of(new RepositorySourceFile(path, content)))
-                            .material().getFirst().content().equals(content)) {
-                        issues.add(new Issue("SUPPORT_WITH_BOUNDED_ADAPTATION", "SANITIZED_MODEL_MATERIAL", path,
-                                "分析材料保持既有保守净化；执行和修改能力由内容策略及行级保护另行约束。", false));
-                    }
                 }
             }
         }
@@ -253,9 +247,6 @@ public final class GitRepositoryCompatibility {
             if (part.isEmpty() || part.equals(".") || part.equals("..") || part.endsWith(" ") || part.endsWith(".")
                     || Set.of(".git", ".hg", ".svn", ".ssh", ".aws", ".gnupg", ".m2")
                             .contains(part.toLowerCase(Locale.ROOT))
-                    || part.toLowerCase(Locale.ROOT).startsWith(".env") && position < parts.length - 1
-                    || Set.of(".npmrc", ".pypirc", ".netrc").contains(part.toLowerCase(Locale.ROOT))
-                            && position < parts.length - 1
                     || part.matches("(?i)(con|prn|aux|nul|com[1-9]|lpt[1-9])(\\..*)?")) {
                 return false;
             }

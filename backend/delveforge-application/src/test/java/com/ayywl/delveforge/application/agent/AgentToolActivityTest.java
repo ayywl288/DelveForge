@@ -87,7 +87,7 @@ class AgentToolActivityTest {
         var after = new AgentPolicyRejection.SourceFileState("100644", "b".repeat(64));
         var visible = new AgentPolicyRejection.SourceChange("src/Counter.java",
                 AgentPolicyRejection.SourceChangeType.CONTENT, before, after, false);
-        var protectedFile = new AgentPolicyRejection.SourceChange("config/.env",
+        var protectedFile = new AgentPolicyRejection.SourceChange("config/.ssh/key",
                 AgentPolicyRejection.SourceChangeType.CONTENT, before, after, false);
         var changes = new AgentPolicyRejection.SourceChanges("c".repeat(64), "d".repeat(64), 2, 2,
                 List.of(visible, protectedFile), false);
@@ -101,7 +101,7 @@ class AgentToolActivityTest {
         assertEquals("src/Counter.java", metadata.path("sourceChanges").path("files").get(0).path("path").asText());
         assertEquals("b".repeat(64), metadata.path("sourceChanges").path("files").get(0)
                 .path("after").path("sha256").asText());
-        assertFalse(recorded.contains(".env"));
+        assertFalse(recorded.contains(".ssh/key"));
         assertFalse(metadata.path("resultRecorded").asBoolean());
         JsonNode missing = json.readTree(activity.failed(check, identity,
                 new AgentPolicyRejection(AgentPolicyRejection.Rule.CHECK_MUTATED_SOURCE,
@@ -181,16 +181,16 @@ class AgentToolActivityTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {".github/workflows/build.yml", ".gitignore", ".mvn/wrapper/maven-wrapper.properties", "src/Order Service.java"})
+    @ValueSource(strings = {".github/workflows/build.yml", ".gitignore", ".mvn/wrapper/maven-wrapper.properties", "src/Order Service.java", ".env", "keys/private.pem", "src/id_rsa"})
     void permittedDotDirectoriesAndSpacesRemainVisible(String path) throws Exception {
         assertEquals(path, json.readTree(activity.started(call("read_file", Map.of("path", path)), identity)).path("path").asText());
     }
 
     @Test
     void withheldTargetsAreDistinguishedWithoutEchoingProtectedNames() throws Exception {
-        JsonNode start = json.readTree(activity.started(call("read_file", Map.of("path", ".env")), identity));
+        JsonNode start = json.readTree(activity.started(call("read_file", Map.of("path", ".ssh/key")), identity));
         assertEquals("withheld", start.path("targetState").asText());
-        assertFalse(start.toString().contains(".env"));
+        assertFalse(start.toString().contains(".ssh/key"));
         JsonNode invalid = json.readTree(activity.started(new AgentProtocol.ToolCall("call", "read_file", "{}"), identity));
         assertFalse(invalid.has("targetState"));
         assertFalse(invalid.has("path"));
@@ -215,8 +215,8 @@ class AgentToolActivityTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"../secret", "src/../../secret", "/etc/passwd", "C:/host/data", "src\\file.java",
-            ".git/config", "src/.env.local", ".ssh/config", ".m2/settings.xml", ".aws/credentials",
-            "keys/private.pem", "src/id_rsa", "src/CON.txt", "src//file.java", "src/./file.java",
+            ".git/config", ".ssh/config", ".m2/settings.xml", ".aws/credentials",
+            "src/CON.txt", "src//file.java", "src/./file.java",
             "src/file.java/", "src/bad\nname", "src/bad\u0000name", "src/%2e%2e/secret"})
     void neverPersistsUnsafeOrProtectedPaths(String path) throws Exception {
         var call = call("read_file", Map.of("path", path));
@@ -252,7 +252,7 @@ class AgentToolActivityTest {
         assertFalse(fields.has("selectedTest"));
         assertFalse(fields.toString().contains("PrivateTest"));
         assertFalse(fields.toString().contains("/host/location"));
-        for (String directory : new String[]{"../../host", ".aws", "nested/private.key", "x".repeat(1000)}) {
+        for (String directory : new String[]{"../../host", ".aws", "nested/.ssh/key", "x".repeat(1000)}) {
             assertFalse(json.readTree(activity.started(call("run_checks", Map.of("directory", directory)), identity)).has("directory"));
         }
     }
@@ -261,7 +261,7 @@ class AgentToolActivityTest {
     void patchPathsRequireSuccessfulValidatedResultAndStayBounded() throws Exception {
         var patch = call("apply_patch", Map.of("patch", "private-patch-body"));
         assertFalse(activity.started(patch, identity).contains("private-patch-body"));
-        for (String paths : new String[]{"[\"src/A.java\",\".env\"]", "[\"../x\"]", "[5]"}) {
+        for (String paths : new String[]{"[\"src/A.java\",\".ssh/key\"]", "[\"../x\"]", "[5]"}) {
             JsonNode result = json.readTree(activity.finished(patch, identity,
                     "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\",\"paths\":" + paths + "}}"));
             assertFalse(result.has("paths"));

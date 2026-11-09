@@ -143,7 +143,7 @@ class GenericCommandDeliveryTest {
         assertEquals(baseline, git.git(original, "rev-parse", "HEAD"));
         assertFalse(Files.exists(official.resolve("build")));
         assertEquals(Files.readString(original.resolve("docker-compose.yml")), Files.readString(official.resolve("docker-compose.yml")));
-        assertTrue(json.readTree(candidate.testEvidence()).path("sourceView").path("withheldSourceCount").asInt() > 0);
+        assertEquals(0, json.readTree(candidate.testEvidence()).path("sourceView").path("withheldSourceCount").asInt());
         try (var connection = database.source.getConnection(); var statement = connection.createStatement();
                 var state = statement.executeQuery("SELECT p.status, s.status FROM evolution_plan p "
                         + "JOIN evolution_step s ON s.plan_id=p.id WHERE p.id='plan' AND s.id='step'")) {
@@ -179,9 +179,9 @@ class GenericCommandDeliveryTest {
                     temporary.resolve("unmounted").toString(), baseline, "increment", "counter.cpp", "fix", 21),
                     AgentProtocol.Limits.defaults(), () -> false);
             assertTrue(sandbox.preflight(id, () -> false).ready());
-            assertTrue(exec(sandbox, id, "test ! -e .env.local && test ! -e /var/run/docker.sock && test ! -e /source && test ! -e /host && test -z \"$DEEPSEEK_API_KEY\"").path("ok").asBoolean());
-            assertFalse(exec(sandbox, id, "printf changed > .env.example").path("ok").asBoolean());
-            assertTrue(exec(sandbox, id, "cat .env.example").path("result").path("stdout").asText().contains("https://example.com"));
+            assertTrue(exec(sandbox, id, "test -f .env.local && test ! -e /var/run/docker.sock && test ! -e /source && test ! -e /host && test -z \"$DEEPSEEK_API_KEY\"").path("ok").asBoolean());
+            assertTrue(exec(sandbox, id, "printf changed > .env.example").path("ok").asBoolean());
+            assertTrue(exec(sandbox, id, "cat .env.example").path("result").path("stdout").asText().contains("changed"));
             var networkResult = exec(sandbox, id, "python3 -c \"import socket; s=socket.socket(); s.settimeout(1); assert s.connect_ex(('1.1.1.1',443)) != 0\"");
             assertTrue(networkResult.path("ok").asBoolean(), networkResult.toString());
             assertFalse(exec(sandbox, id, "printf nope > /opt/delveforge/sandbox.py").path("ok").asBoolean());

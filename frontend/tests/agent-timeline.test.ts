@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import AgentTimeline from "../src/components/AgentTimeline.vue";
 import type { AgentEvent, AgentRun } from "../src/api/agentTypes";
 import { readFileSync } from "node:fs";
-import { buildActivities } from "../src/components/agentEventPresentation";
+import { buildActivities, commandPresentation, networkCapability, noProgressExplanation, safePath } from "../src/components/agentEventPresentation";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => cleanup.splice(0).forEach(fn => fn()));
@@ -12,6 +12,18 @@ const identity = "9d52e412-e03d-4419-a2fb-56322848b598";
 const tool = (sequence: number, kind: string, fields: Record<string, unknown> = {}) => fact(sequence, kind,
     JSON.stringify({ metadataVersion: 1, toolCallId: identity, tool: "read_file", path: "src/Counter.java", ...fields }));
 const important = (sequence: number) => fact(sequence, "TOOL_FINISHED", '{"tool":"run_checks","ok":true,"classification":"TESTS_PASSED"}');
+
+it("reports offline and untested controlled networking without assuming download availability", async () => {
+    const { root, props } = mount(false);
+    props.events = [fact(1, "ENVIRONMENT_PREFLIGHT", 'READY\n{"network":"OFFLINE: downloads unavailable"}')];
+    await settle();
+    expect(root.textContent).toContain("网络：离线运行，依赖下载不可用");
+    props.events = [fact(2, "ENVIRONMENT_PREFLIGHT", 'READY\n{"network":"CONTROLLED: upstream downloads untested"}')];
+    await settle();
+    expect(root.textContent).toContain("上游下载尚未验证");
+    expect(networkCapability([fact(3, "ENVIRONMENT_PREFLIGHT", "READY")], "one")).toBeUndefined();
+    expect(networkCapability(props.events, "another-run")).toBeUndefined();
+});
 
 it("shows a rejected command as not executed without an invented exit code", async () => {
     const { root, props } = mount(false);
@@ -65,6 +77,17 @@ it("shows completion diagnostics as escaped text and ignores other-run model exp
     expect(root.textContent).toContain("FAILURE_CHANGED; testSource=ContextTest.java");
     expect(root.textContent).not.toContain("other run");
     expect(root.querySelector("img")).toBeNull();
+});
+
+it("identifies a stopped completion loop only for the affected run", async () => {
+    const { root, props } = mount(false);
+    const event = fact(1, "COMPLETION_CHECK_REJECTED", JSON.stringify({ classification: "EVIDENCE_INVALID",
+        reason: "executions[0] 未知调用", progressStatus: "STOPPED" }));
+    props.events = [event];
+    await settle();
+    expect(root.textContent).toContain("executions[0] 未知调用");
+    expect(noProgressExplanation([event], "one")).toContain("完成报告反复被拒");
+    expect(noProgressExplanation([event], "other")).not.toContain("完成报告反复被拒");
 });
 
 it("shows the full model explanation only once in a closed technical disclosure", async () => {
@@ -359,7 +382,7 @@ it.each(["missing-version", "wrong-tool", "wrong-run", "duplicate-start", "finis
         expect(root.querySelector('[data-sequence="1"]')?.getAttribute("data-tone"))
             .toBe(variant === "finish-before-start" ? "completed" : variant === "wrong-run" ? "running" : "unknown");
     });
-it.each(["../secret.java", "E:\\private\\host.java", "/etc/passwd", ".env", "keys/id_rsa", "a".repeat(257),
+it.each(["../secret.java", "E:\\private\\host.java", "/etc/passwd", ".ssh/config", ".aws/credentials", "a".repeat(257),
     "src/github_pat_" + "a".repeat(30) + ".java", "src/AKIA" + "A".repeat(16) + ".java"])
     ("does not render unsafe legacy paths (%s)", async path => {
         const { root, props } = mount();
@@ -1130,7 +1153,61 @@ it("replaces the working checklist without duplicate tool or plan timeline rows"
     expect(root.querySelectorAll(".working-plan li")).toHaveLength(2);
     expect(root.textContent).not.toContain("Old item");
     expect(root.textContent).toContain("1 / 2 完成");
+    expect(root.querySelector(".working-plan .active-task small")?.textContent).toBe("进行中");
     expect(root.querySelector('[data-kind="update_plan"]')).toBeNull();
+});
+
+it("shows the last five of six completions when a successful run leaves its checklist unfinished", async () => {
+    const { root, props } = mount(false);
+    const tasks = [
+        ...Array.from({ length: 5 }, (_, i) => ({ title: `事项 ${i + 1}`, status: "completed" })),
+        { title: "README/DEMO 与 Maven 验证", status: "in_progress" },
+    ];
+    props.events = [fact(1, "WORKING_NOTES", JSON.stringify({ tasks }))];
+    props.run.state = "SUCCEEDED";
+    await settle();
+    const plan = root.querySelector(".working-plan")!;
+    expect(plan.getAttribute("aria-label")).toBe("最后记录的工作清单");
+    expect(plan.textContent).toContain("5 / 6 完成");
+    expect(plan.querySelectorAll('[data-status="completed"]')).toHaveLength(5);
+    const lastItem = plan.querySelector('[data-status="in_progress"]')!;
+    expect(lastItem.querySelector("span")?.textContent).toBe("README/DEMO 与 Maven 验证");
+    expect(lastItem.querySelector("small")?.textContent).toBe("运行结束前未更新");
+    expect(plan.querySelector(".active-task")).toBeNull();
+});
+
+it.each(["FAILED", "CANCELLED", "INTERRUPTED"] as const)("keeps unfinished checklist statuses on %s", async state => {
+    const { root, props } = mount(false);
+    props.run.state = state;
+    props.events = [fact(1, "WORKING_NOTES", JSON.stringify({ tasks: [
+        { title: "验证", status: "in_progress" }, { title: "文档", status: "pending" },
+    ] }))];
+    await settle();
+    const plan = root.querySelector(".working-plan")!;
+    expect(plan.querySelector("h4")?.textContent).toBe("最后记录的工作清单");
+    expect(plan.textContent).toContain("0 / 2 完成");
+    expect(plan.querySelector('[data-status="in_progress"] small')?.textContent).toBe("运行结束前未更新");
+    expect(plan.querySelector('[data-status="pending"] small')?.textContent).toBe("记录为待处理");
+    expect(plan.querySelector(".active-task")).toBeNull();
+});
+
+it("uses only this run's checklist and sees its terminal event before the snapshot refreshes", async () => {
+    const { root, props } = mount(false);
+    const notes = (title: string) => JSON.stringify({ tasks: [{ title, status: "in_progress" }] });
+    props.events = [fact(1, "WORKING_NOTES", notes("本次检查")),
+        { ...fact(2, "WORKING_NOTES", notes("另一次检查")), runId: "other" },
+        { ...fact(3, "SUCCEEDED"), runId: "other" }];
+    await settle();
+    const plan = root.querySelector(".working-plan")!;
+    expect(plan.querySelector("h4")?.textContent).toBe("当前工作清单");
+    expect(plan.querySelector(".active-task")?.textContent).toContain("本次检查");
+    expect(plan.textContent).not.toContain("另一次检查");
+    props.events.push(fact(4, "SUCCEEDED"));
+    await settle();
+    expect(props.run.state).toBe("RUNNING");
+    expect(plan.querySelector("h4")?.textContent).toBe("最后记录的工作清单");
+    expect(plan.textContent).toContain("运行结束前未更新");
+    expect(plan.querySelector(".active-task")).toBeNull();
 });
 
 it("keeps checklist outside the timeline and command evidence inside closed developer details", async () => {
@@ -1158,4 +1235,21 @@ it("keeps checklist outside the timeline and command evidence inside closed deve
     stream.value = "stderr"; stream.dispatchEvent(new Event("change")); await settle();
     expect(command.textContent).toContain("raw stderr");
     expect(command.querySelectorAll('[aria-label="命令"]')).toHaveLength(1);
+});
+
+it("distinguishes executed command capture failure from a command that never started", () => {
+    const run = { id: "one", state: "FAILED" } as AgentRun;
+    const event = tool(1, "TOOL_FINISHED", { tool: "exec_command", ok: false,
+        classification: "COMMAND_SUCCEEDED", exitCode: 0, resultRecorded: true,
+        executionStatus: "EXECUTED", captureStatus: "FAILED", captureFailure: "SOURCE_CAPTURE_LIMIT" });
+    const activity = buildActivities([event], run)[0]!;
+    const presentation = commandPresentation(activity);
+    expect(presentation.label).toBe("命令已执行，源码捕获失败");
+    expect(presentation.explanation).toContain("实际退出码：0");
+    expect(presentation.explanation).toContain("不要直接重放");
+    expect(activity.outcome).toBe("failed");
+});
+
+it.each(["application.properties", ".env.example", "keys/private.pem", ".npmrc"])("shows selected repository path %s", path => {
+    expect(safePath(path)).toBe(path);
 });

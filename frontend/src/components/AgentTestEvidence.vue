@@ -28,7 +28,7 @@ const sourceView = computed(() => presentSourceView(props.evidence));
             <p v-else>最终源码上没有已记录的命令结果。</p>
             <p class="evidence-scope">{{ finalFacts.reports }} 次带测试报告，{{ finalFacts.unknown }} 次无报告详情。退出零不证明测试或业务通过。</p>
             <p v-if="finalFacts.reports">报告累计执行 {{ finalFacts.executed }} 项，失败 / 错误 {{ finalFacts.failures }} 项，跳过 {{ finalFacts.skipped }} 项（含重复执行，不是唯一用例数）。</p>
-            <p v-if="facts && facts.total > finalFacts.total" class="evidence-scope">另有 {{ facts.total - finalFacts.total }} 次旧源码或源码身份不完整的尝试，保留在开发者详情。</p>
+            <p v-if="facts && facts.total > finalFacts.total" class="evidence-scope">另有 {{ facts.total - finalFacts.total }} 次执行的源码或视图与最终状态不匹配，详见开发者详情。</p>
         </template>
         <template v-else>
             <p class="verification-outcome"><strong class="evidence-status">{{ result.label }}</strong> · {{ result.outcome }}<span v-if="result.scope" class="evidence-scope"> · {{ result.scope }}</span></p>

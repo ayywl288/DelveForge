@@ -180,10 +180,10 @@ public final class SqliteAgentStore implements AgentStore {
             throw new AgentException("RUN_CONFLICT", "Illegal Run transition; success requires atomic Candidate freeze");
         }
         transaction(connection -> {
-            // 在任何最终化动作前提交保留意图；失败终态不得覆盖它。NO_CHANGES 证明没有候选材料。
+            // 在允许 Agent 写入前提交保留意图；失败终态不得覆盖它。NO_CHANGES 证明没有候选材料。
             requireOne(update(connection, """
                     UPDATE agent_run SET state=?,reason=?,ended_at=?,retained=CASE
-                        WHEN ?='FINALIZING' THEN 1
+                        WHEN ? IN ('RUNNING','FINALIZING') THEN 1
                         WHEN state='FINALIZING' AND ?='NO_CHANGES' THEN 0
                         ELSE retained END
                     WHERE id=? AND state=?

@@ -87,16 +87,18 @@ it("renders hostile source paths as literal text without links or injected eleme
 });
 it("separates final-source validation from repeated historical test failures", async () => {
     const finalSnapshot = "a".repeat(64), old = "b".repeat(64);
-    const receipt = { snapshot: old, afterSnapshot: old, exitCode: 1, timedOut: false, cancelled: false,
+    const sourceView = { kind: "FULL", preservedOnlyCount: 0, readOnlyResourceCount: 0, withheldSourceCount: 0 };
+    const receipt = { snapshot: old, afterSnapshot: old, sourceView, exitCode: 1, timedOut: false, cancelled: false,
         testReport: {availability: "AVAILABLE", executedTests: 10, failures: 2, errors: 0, skipped: 1} };
-    const evidence = JSON.stringify({evidenceVersion: 8, status: "TESTED", finalSnapshot,
-        checks: [receipt, receipt, {...receipt, snapshot: finalSnapshot, afterSnapshot: finalSnapshot, exitCode: 0,
+    const evidence = JSON.stringify({evidenceVersion: 8, status: "TESTED", finalSnapshot, sourceView,
+        checks: [receipt, {...receipt, snapshot: finalSnapshot, afterSnapshot: finalSnapshot,
+            sourceView: {...sourceView, readOnlyResourceCount: 1}}, {...receipt, snapshot: finalSnapshot, afterSnapshot: finalSnapshot, exitCode: 0,
             testReport: {availability: "AVAILABLE", executedTests: 11, failures: 0, errors: 0, skipped: 1}}],
         agentReport: {summary: "新增取货点查询。完善司机入口。", limitations: ["浏览器 E2E 未执行"]}});
     const root = mount(AgentTestEvidence, {evidence}); await settle();
     expect(root.querySelectorAll(".implementation-summary li")).toHaveLength(2);
     expect(root.textContent).toContain("最终源码上的 1 次命令：成功 1 · 失败 0");
-    expect(root.textContent).toContain("另有 2 次旧源码");
+    expect(root.textContent).toContain("另有 2 次执行的源码或视图与最终状态不匹配");
     expect(root.textContent).not.toContain("失败 / 错误 4");
     expect(root.querySelector(".result-limitations")?.textContent).toContain("E2E 未执行");
     root.querySelector<HTMLElement>(".result-developer summary")!.click(); await settle();

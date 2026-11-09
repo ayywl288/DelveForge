@@ -29,7 +29,7 @@ const activeKinds: Partial<Record<AgentRun["state"], string[]>> = {
     CREATED: ["CREATED"], PREPARING: ["PREPARING"], RUNNING: ["MODEL_REQUEST", "RUNNING"],
     FINALIZING: ["FINALIZING"],
 };
-const protectedParts = new Set([".git", ".hg", ".svn", ".ssh", ".aws", ".gnupg", ".m2", ".npmrc", ".netrc", ".pypirc"]);
+const protectedParts = new Set([".git", ".hg", ".svn", ".ssh", ".aws", ".gnupg", ".m2"]);
 const policyRules = new Set(["STORAGE_LOCATION", "PATH_FORMAT", "PROTECTED_CREDENTIAL_PATH", "FORBIDDEN_PATH", "SYMLINK_PATH",
     "AMBIGUOUS_GENERATED_PATH", "SOURCE_ENTRY_TYPE", "SOURCE_PROTECTED_ENTRY", "SOURCE_CASE_CONFLICT", "SOURCE_ENTRY_LIMIT",
     "SOURCE_FILE_LIMIT", "SOURCE_CAPTURE_LIMIT", "PATCH_SIZE", "PATCH_PREIMAGE", "PATCH_TYPE", "PATCH_DIFF_PATHS", "PATCH_FILE_MODE", "PATCH_PATH_FORMAT",
@@ -89,6 +89,9 @@ export function commandPresentation(activity: AgentActivity) {
         label = ["DIRECTORY_NOT_FOUND", "INVALID_DIRECTORY"].includes(reason) ? "工作目录无效，命令未启动"
             : activity.classification === "INVALID_ARGUMENTS" ? "参数无效，命令未启动" : "命令未启动";
         explanation = explanations[reason] ?? "命令未执行，请按反馈调整后重试。旧记录未说明具体参数原因，需核对工具字段与类型。";
+    } else if (data.captureStatus === "FAILED") {
+        label = "命令已执行，源码捕获失败";
+        explanation = `实际退出码：${data.exitCode ?? "未知"}。捕获失败原因：${data.captureFailure ?? "未记录"}。请检查保留现场；不要直接重放已执行的命令。`;
     } else if (data.cancelled === true) {
         label = "命令已取消"; explanation = "命令在取消后停止，本次结果不能作为通过的验证。";
     } else if (data.timedOut === true) {
@@ -117,10 +120,9 @@ export function safePath(value: unknown): string | undefined {
     if (typeof value !== "string" || value.length > 256 || credentialShape.test(value)
         || !/^[\p{L}\p{N}_./ -]+$/u.test(value) || value.startsWith("/")) return;
     if (value.split("/").some(part => !part || part === "." || part === ".." || part.endsWith(".") || part.endsWith(" ")
-        || protectedParts.has(part.toLowerCase()) || part.toLowerCase().startsWith(".env")
+        || protectedParts.has(part.toLowerCase())
         || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)
-        || /^(id_(rsa|dsa|ecdsa|ed25519)|credentials|service[-_]account)/i.test(part)
-        || /\.(pem|key|p12|pfx|jks|keystore|env)$/i.test(part) || /sk-[a-z0-9]{16,}/i.test(part))) return;
+        || /sk-[a-z0-9]{16,}/i.test(part))) return;
     return value;
 }
 
@@ -156,6 +158,17 @@ export function resourcesBlocked(events: AgentEvent[], runId?: string) {
     const last = events.filter(event => (!runId || event.runId === runId)
         && ["CLEANUP_BLOCKED", "RECONCILIATION_BLOCKED", "RESOURCES_RELEASED"].includes(event.kind)).at(-1);
     return !!last && last.kind !== "RESOURCES_RELEASED";
+}
+
+export function networkCapability(events: AgentEvent[], runId: string): string | undefined {
+    const event = events.filter(item => item.runId === runId && item.kind === "ENVIRONMENT_PREFLIGHT").at(-1);
+    if (!event) return;
+    try {
+        const data = JSON.parse(event.summary.slice(event.summary.indexOf("\n") + 1));
+        if (typeof data.network !== "string") return;
+        if (data.network.startsWith("OFFLINE:")) return "网络：离线运行，依赖下载不可用；可继续使用仓库和镜像中的已有资源。";
+        if (data.network.startsWith("CONTROLLED:")) return "网络：受控依赖代理已启动，上游下载尚未验证；实际可用性以命令结果为准。";
+    } catch { /* 历史记录缺少能力说明时，不推断网络可用。 */ }
 }
 
 const modelFailureReasons: Record<string, string> = {
@@ -194,9 +207,16 @@ export function modelIncompleteSummary(event: AgentEvent): string | undefined {
 function completionRejection(event: AgentEvent): string | undefined {
     const data = summaryFields(event);
     return event.kind === "COMPLETION_CHECK_REJECTED"
-        && ["UNRESOLVED_CHECK_FAILURE", "EVIDENCE_INCOMPARABLE"].includes(String(data.classification))
+        && ["UNRESOLVED_CHECK_FAILURE", "EVIDENCE_INCOMPARABLE", "EVIDENCE_INVALID"].includes(String(data.classification))
         && typeof data.reason === "string" && data.reason.length <= 2400 && !credentialShape.test(data.reason)
         ? data.reason : undefined;
+}
+
+export function noProgressExplanation(events: AgentEvent[], runId: string) {
+    const stopped = events.some(event => event.runId === runId && event.kind === "COMPLETION_CHECK_REJECTED"
+        && summaryFields(event).progressStatus === "STOPPED");
+    return stopped ? "完成报告反复被拒，运行已停止。请查看完成检查诊断和保留的修改记录。"
+        : "最近的操作重复且未产生新进展，运行已停止。可在时间线中核对此前的修改和执行记录。";
 }
 
 function correlation(event: AgentEvent) {

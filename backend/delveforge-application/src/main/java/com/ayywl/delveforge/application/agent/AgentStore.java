@@ -17,7 +17,7 @@ public interface AgentStore {
 
     List<AgentProtocol.Run> abandoned();
 
-    /** 进入 FINALIZING 时原子保存保留意图；失败终态保持，确认 NO_CHANGES 时才可解除。 */
+    /** 进入 RUNNING / FINALIZING 时原子保存保留意图；失败终态保持，确认 NO_CHANGES 时才可解除。 */
     void advance(String id, AgentRunState expected, AgentRunState next, String reason);
 
     void event(String id, String kind, String sanitizedSummary);

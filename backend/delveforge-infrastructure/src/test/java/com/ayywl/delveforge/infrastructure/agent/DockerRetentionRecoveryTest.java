@@ -217,23 +217,75 @@ class DockerRetentionRecoveryTest {
     }
 
     @Test
-    void ordinaryFailureCleansResourcesAndAllowsFreshReservation() {
+    void failureWithoutConfirmedCaptureRetainsRawWorkAndAllowsFreshReservation() throws Exception {
         try {
-            database.store.advance(run.id(), AgentRunState.RUNNING, AgentRunState.FAILED, "MODEL_CALL_LIMIT");
+            editRecoverableWork();
+            database.store.advance(run.id(), AgentRunState.RUNNING, AgentRunState.FAILED, "MODEL_INCOMPLETE");
             try (var restart = service(new SqliteAgentStore(database.source), restartedSandbox())) {
                 restart.reconcile();
             }
-            assertFalse(database.store.get(run.id()).retained());
+            assertStopped();
+            assertTrue(database.store.get(run.id()).retained());
             assertTrue(database.store.abandoned().isEmpty());
-            assertFalse(Files.exists(properties.root().resolve(run.id())));
-            var retry = new AgentProtocol.Run(UUID.randomUUID().toString(), "plan", "step", "copy", baseline,
-                    AgentRunState.CREATED, Instant.now(), null, null, null, false, false, 0, 0, null);
-            database.store.reserve(retry);
-            assertEquals(AgentRunState.CREATED, database.store.get(retry.id()).state());
+            assertTrue(Files.isDirectory(properties.root().resolve(run.id())));
+            assertEquals(null, database.store.get(run.id()).candidateId());
+            var retained = new AgentProcess().run(List.of("docker", "run", "--rm", "--network", "none",
+                    "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--mount",
+                    "type=volume,source=df-" + run.id() + "-source,target=/retained,readonly",
+                    properties.images().get(21), "python3", "-c",
+                    "from pathlib import Path; assert 'return n + 1;' in "
+                            + "Path('/retained/src/main/java/example/Counter.java').read_text()"),
+                    null, null, Duration.ofSeconds(20), 8192, () -> false, Map.of());
+            assertEquals(0, retained.exitCode());
+            assertFreshReservation();
             assertOfficialUnchanged();
         } finally {
             sandbox.cleanup(run.id());
         }
+    }
+
+    @Test
+    void successfulPartialCaptureCleansDisposableResourcesButPreservesNonCandidateAcrossRestart() throws Exception {
+        editRecoverableWork();
+        Path partial = Path.of(sandbox.retainPartial(run.id()));
+        String metadata = Files.readString(partial);
+        String diff = Files.readString(partial.resolveSibling("partial.diff"));
+        assertTrue(metadata.contains("UNVERIFIED_NON_DELIVERABLE"));
+        assertTrue(diff.contains("return n + 1;"));
+        database.store.advance(run.id(), AgentRunState.RUNNING, AgentRunState.FAILED, "MODEL_INCOMPLETE");
+        sandbox.stop(run.id());
+        sandbox.cleanup(run.id());
+        database.store.release(run.id(), true);
+        try (var restart = service(new SqliteAgentStore(database.source), restartedSandbox())) {
+            restart.reconcile();
+        }
+        var containers = new AgentProcess().run(List.of("docker", "ps", "-aq", "--filter",
+                "label=delveforge.run=" + run.id()), null, null, Duration.ofSeconds(20), 8192, () -> false, Map.of());
+        var volumes = new AgentProcess().run(List.of("docker", "volume", "ls", "-q", "--filter",
+                "label=delveforge.run=" + run.id()), null, null, Duration.ofSeconds(20), 8192, () -> false, Map.of());
+        assertEquals(0, containers.exitCode());
+        assertEquals(0, volumes.exitCode());
+        assertTrue(containers.text().isBlank());
+        assertTrue(volumes.text().isBlank());
+        assertEquals(metadata, Files.readString(partial));
+        assertEquals(diff, Files.readString(partial.resolveSibling("partial.diff")));
+        assertTrue(database.store.get(run.id()).retained());
+        assertEquals(null, database.store.get(run.id()).candidateId());
+        assertFreshReservation();
+        assertOfficialUnchanged();
+    }
+
+    private void editRecoverableWork() throws Exception {
+        assertTrue(sandbox.tool(run.id(), new AgentProtocol.ToolCall("edit", "edit_file",
+                new ObjectMapper().writeValueAsString(Map.of("path", "src/main/java/example/Counter.java",
+                        "old_text", "return n;", "new_text", "return n + 1;"))), () -> false).contains("PATCH_APPLIED"));
+    }
+
+    private void assertFreshReservation() {
+        var retry = new AgentProtocol.Run(UUID.randomUUID().toString(), "plan", "step", "copy", baseline,
+                AgentRunState.CREATED, Instant.now(), null, null, null, false, false, 0, 0, null);
+        database.store.reserve(retry);
+        assertEquals(AgentRunState.CREATED, database.store.get(retry.id()).state());
     }
 
     private static final class SimulatedExit extends Error {
