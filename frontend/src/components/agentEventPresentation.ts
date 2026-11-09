@@ -128,7 +128,7 @@ export function safePath(value: unknown): string | undefined {
 
 
 const preflightStages: Record<string, string> = {
-    PREFLIGHT: "运行前环境预检", MAVEN_CHECK: "后端 Maven 检查",
+    PREFLIGHT: "检查运行环境", MAVEN_CHECK: "后端 Maven 检查",
     FRONTEND_CHECK: "前端检查", DEPENDENCY_PREPARATION: "受控依赖准备",
 };
 export function preflightProgress(event: AgentEvent) {
@@ -167,7 +167,6 @@ export function networkCapability(events: AgentEvent[], runId: string): string |
         const data = JSON.parse(event.summary.slice(event.summary.indexOf("\n") + 1));
         if (typeof data.network !== "string") return;
         if (data.network.startsWith("OFFLINE:")) return "网络：离线运行，依赖下载不可用；可继续使用仓库和镜像中的已有资源。";
-        if (data.network.startsWith("CONTROLLED:")) return "网络：受控依赖代理已启动，上游下载尚未验证；实际可用性以命令结果为准。";
     } catch { /* 历史记录缺少能力说明时，不推断网络可用。 */ }
 }
 

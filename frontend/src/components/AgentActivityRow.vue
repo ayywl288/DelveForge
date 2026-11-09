@@ -4,7 +4,9 @@ import NavigationIcon, { type NavigationIconName } from "./NavigationIcon.vue";
 import AgentEventDetails from "./AgentEventDetails.vue";
 import { activityFacts, safePath, preflightProgress, providerDiagnosticTitle, commandPresentation, toolNames, type AgentActivity } from "./agentEventPresentation";
 
-const props = defineProps<{ activity: AgentActivity; compact?: boolean }>();
+const props = defineProps<{ activity: AgentActivity }>();
+const facts = computed(() => activityFacts(props.activity));
+const warning = computed(() => facts.value.find(fact => ["模型说明（未独立验证）", "完成检查诊断", "诊断"].includes(fact.label))?.value.slice(0, 240));
 const command = computed(() => props.activity.tool === "exec_command" ? commandPresentation(props.activity) : null);
 const target = computed(() => command.value ? safePath(command.value.data.directory) : props.activity.target);
 const names: Record<string, string> = {
@@ -59,12 +61,12 @@ function duration(value: number) {
                 <code v-else-if="!command && activity.classification && activity.tool">{{ activity.classification }}</code>
             </div>
             <p v-if="activity.resultUncertain" class="activity-uncertain">未取得完整工具结果，修改情况需核对。</p>
-            <AgentEventDetails v-if="activity.tool && !compact" :activity="activity" />
-            <details v-else-if="!compact && (activity.classification || ['WORKING_NOTES', 'MODEL_COMPLETED', 'CONTEXT_COMPACTED', 'SANDBOX_READY', 'MODEL_FAILED', 'MODEL_INCOMPLETE', 'COMPLETION_CHECK_REJECTED', 'PREFLIGHT_PROGRESS', 'MODEL_PROVIDER_DIAGNOSTIC'].includes(activity.event.kind))" class="activity-technical">
+            <AgentEventDetails v-if="activity.tool" :activity="activity" />
+            <details v-else-if="activity.classification || facts.length" class="activity-technical">
                 <summary>{{ activity.event.kind === "MODEL_INCOMPLETE" ? "模型未完成说明" : "技术详情" }}</summary><code v-if="activity.classification">{{ activity.classification }}</code>
                 <AgentEventDetails :activity="activity" />
             </details>
-            <p v-if="compact && ['MODEL_INCOMPLETE', 'COMPLETION_CHECK_REJECTED', 'MODEL_FAILED'].includes(activity.event.kind)" class="timeline-warning">{{ activityFacts(activity).find(fact => ['模型说明（未独立验证）', '完成检查诊断', '诊断'].includes(fact.label))?.value.slice(0, 240) }}</p>
+            <p v-if="!activity.tool && warning" class="timeline-warning">{{ warning }}</p>
             <p v-if="activity.event.kind === 'CLEANUP_BLOCKED'" class="timeline-warning">此处记录当时的清理失败；当前是否仍需协调以运行状态提示为准。</p>
         </div>
     </li>
@@ -73,6 +75,7 @@ function duration(value: number) {
 <style scoped>
 .activity-technical { margin-top: 5px; font-size: 12px; color: var(--muted); }
 .activity-technical summary { cursor: pointer; }
+.activity-technical[open] + .timeline-warning { display: none; }
 li { position: relative; display: flex; gap: 12px; padding: 0 0 16px; margin: 0; min-width: 0; }
 li:not(:last-child)::before { content: ""; position: absolute; left: 13px; top: 28px; bottom: 0; width: 1px; background: var(--line); }
 .timeline-node { flex: 0 0 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--canvas); color: var(--muted); }

@@ -3,9 +3,10 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { AgentEvent, AgentRun } from "../api/agentTypes";
 import NavigationIcon from "./NavigationIcon.vue";
 import AgentActivityRow from "./AgentActivityRow.vue";
+import AgentRunElapsed from "./AgentRunElapsed.vue";
 import { networkCapability, routineProviderDiagnostic } from "./agentEventPresentation";
 import type { RunPresentation } from "./agentResultPresentation";
-import { activityState, buildActivities, currentActivity, checkSummary, explorationSummary, isExploration, isPatchTool, isCheckTool, patchSummary, toolNames } from "./agentEventPresentation";
+import { activityState, buildActivities, currentActivity, checkSummary, explorationSummary, patchSummary, toolNames } from "./agentEventPresentation";
 
 const props = withDefaults(defineProps<{ events: AgentEvent[]; run: AgentRun; connection: string; presentation?: RunPresentation; showUsage?: boolean }>(), { showUsage: true });
 const developerExpanded = ref(false);
@@ -44,10 +45,8 @@ const workingPlan = computed(() => {
     } catch { /* 历史自由文本笔记只读展示。 */ }
     return { tasks: [], legacy: latest.summary };
 });
-const chronological = computed(() => activities.value.filter(activity => !activity.tool && !["PREFLIGHT_PROGRESS", "ENVIRONMENT_PREFLIGHT", "CONTEXT_COMPACTED", "DELIVERY_INTENT", "DELIVERY_APPLIED", "DELIVERY_COMMIT_READY", "DELIVERY_PUBLISHED", "RESOURCES_RELEASED"].includes(activity.event.kind) && !isExploration(activity) && !isPatchTool(activity.tool) && !isCheckTool(activity.tool) && activity.event.kind !== "MODEL_REQUEST" && activity.event.kind !== "WORKING_NOTES" && activity.tool !== "update_plan" && !routineProviderDiagnostic(activity)));
-const diagnosticActivities = computed(() => activities.value.filter(activity => !activity.tool
-    && ["SANDBOX_READY", "ENVIRONMENT_PREFLIGHT", "MODEL_FAILED", "MODEL_INCOMPLETE", "MODEL_COMPLETED",
-        "COMPLETION_CHECK_REJECTED", "PREFLIGHT_PROGRESS", "CONTEXT_COMPACTED", "MODEL_PROVIDER_DIAGNOSTIC"].includes(activity.event.kind)
+const chronological = computed(() => activities.value.filter(activity => !activity.tool
+    && activity.event.kind !== "MODEL_REQUEST" && activity.event.kind !== "WORKING_NOTES"
     && !routineProviderDiagnostic(activity)));
 const visible = computed(() => chronological.value.slice(-visibleCount.value));
 const fileCount = ref(40);
@@ -108,7 +107,8 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 
         </section>
     <section class="activity-section" :data-terminal="state.terminal" aria-labelledby="agent-activity-title">
-        <div class="section-row"><h3 id="agent-activity-title">执行活动</h3>
+        <div class="section-row"><div class="activity-heading"><h3 id="agent-activity-title">执行活动</h3>
+            <AgentRunElapsed :started-at="run.startedAt" :ended-at="run.endedAt" :terminal="state.terminal" /></div>
             <p class="stream-status" role="status">事件连接：{{ connection }}</p></div>
         <p v-if="state.snapshotBehind" class="snapshot-note" role="status">已收到较新的持久化活动，运行概览待同步。</p>
         <p v-if="!events.length" class="meta">等待持久化事件。</p>
@@ -121,12 +121,11 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
         </div>
         <div v-if="current.active" class="activity-bar" aria-hidden="true"></div>
 
-        <p v-if="patches.blocked || patches.uncertain || patches.failed" class="patch-alert" role="alert">代码修改需核对：{{ patches.blocked }} 次安全拒绝 · {{ patches.uncertain }} 次结果不明 · {{ patches.failed }} 次失败。详见代码修改记录；不代表 Candidate 或交付成功。</p>
         <h4 class="operations-title">重要操作</h4>
         <button v-if="chronological.length > visible.length" class="text-button earlier-activity" @click="earlier">查看更早活动（已加载 {{ chronological.length }} 项）</button>
         <div ref="viewport" class="timeline-viewport" tabindex="0" aria-label="运行活动，随页面查看历史">
             <TransitionGroup name="activity-entry" tag="ol" class="agent-timeline" :data-terminal="state.terminal" @leave="removeImmediately">
-                <AgentActivityRow v-for="row in visible" :key="row.key" :activity="row" compact />
+                <AgentActivityRow v-for="row in visible" :key="row.key" :activity="row" />
             </TransitionGroup>
             <p v-if="!visible.length" class="meta">暂无已记录的重要操作。</p>
         </div>
@@ -178,10 +177,8 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
                 <button v-if="fileCount < exploration.count" class="secondary compact-button more-exploration" @click="fileCount += 40">显示更多文件操作</button>
             </template>
         </details>
-        <ol class="developer-event-history"><AgentActivityRow v-for="row in diagnosticActivities" :key="row.key" :activity="row" /></ol>
             </div>
         </details>
-        <p v-if="events.length === 1000" class="meta">已加载最近 1000 条事件；更早事件受现有保留范围限制。</p>
     </section>
 </template>
 
@@ -189,7 +186,6 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .working-plan { padding: 20px; margin-bottom: 24px; background: var(--canvas); border: 1px solid var(--line); border-radius: 12px; }
 .developer-details { border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; }
 .developer-details > summary { cursor: pointer; font-weight: 600; font-size: 14px; }
-.developer-event-history { list-style: none; padding: 0; margin: 20px 0; }
 .working-plan h4 { margin: 0; font-size: 14px; }
 .working-plan ul { list-style: none; padding: 0; }
 .working-plan li { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 14px; }
@@ -215,6 +211,7 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .activity-section { min-width: 0; line-height: 1.6; }
 .activity-section h3 { font-size: 17px; line-height: 1.5; margin: 0; }
 .activity-section > .section-row { margin-bottom: 12px; }
+.activity-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
 .stream-status { font-size: 13px; color: var(--muted); margin: 0; }
 .current-activity { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-block: 1px solid var(--line); }
 .current-activity > .navigation-icon { width: 20px; height: 20px; color: var(--accent); flex-shrink: 0; margin-top: 3px; }
@@ -228,7 +225,6 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .activity-bar { height: 3px; position: relative; overflow: hidden; background: var(--selection); }
 .activity-bar::after { content: ''; position: absolute; inset: 0 auto 0 0; width: 30%; background: var(--accent); animation: monitor-activity 1.6s ease-in-out infinite; }
 @keyframes monitor-activity { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
-.patch-alert { font-size: 13px; color: var(--warning); margin: 8px 0 14px; }
 .patch-summary { border-bottom: 1px solid var(--line); padding: 10px 0 16px; }
 .patch-summary summary { cursor: pointer; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
 .patch-summary summary .navigation-icon { width: 15px; height: 15px; vertical-align: middle; margin-right: 8px; color: var(--muted); }

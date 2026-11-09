@@ -97,7 +97,7 @@ it("shows actual preflight choices without treating the baseline as final verifi
   expect(preflight.textContent).toContain("本次未调用模型");
   expect(preflight.textContent).toContain("server");
   expect(preflight.textContent).toContain("apps/web");
-  expect(preflight.textContent).toContain("不代表最终修改通过检查");
+  expect(preflight.textContent).not.toContain("基线预检不代表最终修改通过检查");
 });
 
 it("only an explicit start sends the request; real tool events are ordered and deduplicated", async () => {
@@ -531,18 +531,15 @@ it("unifies Run status, failure and times without duplicating diagnostics or exp
     endedAt: "2026-10-22T01:02:03Z" };
   const { root } = mount([failed]); await settle();
   const overview = root.querySelector(".developer-details")!;
-  const value = (label: string) => [...overview.querySelectorAll("dt")]
-    .find(node => node.textContent === label)?.nextElementSibling;
   expect(root.querySelectorAll(".run-status")).toHaveLength(1);
   expect(overview.querySelector(".run-reason code")?.textContent).toBe("DOCKER_FAILURE");
-  expect(value("开始时间")?.tagName).toBe("DD");
-  expect(value("开始时间")?.querySelector("time")?.getAttribute("datetime")).toBe(failed.startedAt);
-  expect(value("结束时间")?.querySelector("time")?.getAttribute("datetime")).toBe(failed.endedAt);
-  expect(value("开始时间")?.textContent).toBe(new Date(failed.startedAt).toLocaleString());
+  const timer = root.querySelector('[role="timer"]')!;
+  expect(timer.textContent).toBe("运行用时 02:03");
+  expect(timer.closest("details")).toBeNull();
+  expect(root.textContent).not.toMatch(/开始时间|结束时间/);
   expect(root.querySelector(".run-metadata, #run-technical-title")).toBeNull();
   expect((overview as HTMLDetailsElement).open).toBe(false);
-  expect(overview.querySelector(".run-technical")?.textContent).toContain(failed.id);
-  expect(root.querySelector(".run-status")?.textContent).not.toContain(failed.id);
+  expect(root.textContent).not.toContain(failed.id);
   expect(root.textContent).not.toContain(failed.baseline);
   expect(api.agentRun).toHaveBeenCalledWith(failed.id);
   expect(failed.baseline).toBe("0123456789abcdef".repeat(4));
@@ -551,12 +548,8 @@ it("unifies Run status, failure and times without duplicating diagnostics or exp
 
 it("missing diagnostic values remain honest and do not imply that a running Run has ended", async () => {
   const { root } = mount([running()]); await settle();
-  const fields = root.querySelector(".run-times")!;
-  expect([...fields.querySelectorAll("dt")].map(node => node.textContent))
-    .toEqual(["开始时间", "结束时间"]);
-  expect(fields.querySelectorAll("dd")[1]?.textContent).toBe("未记录");
+  expect(root.querySelector('[role="timer"]')?.textContent).toMatch(/^运行用时 [\d:]+$/);
   expect(root.querySelector(".run-reason")).toBeNull();
-  expect(fields.querySelectorAll("time")).toHaveLength(1);
   expect(root.querySelector(".run-status")?.textContent).toContain("编码中");
 });
 
@@ -661,7 +654,7 @@ it("keeps the latest 1000 persisted events ordered and deduplicated across repla
   expect(rows).toHaveLength(1000);
   expect(rows[0]?.getAttribute("data-sequence")).toBe("3");
   expect(rows[999]?.getAttribute("data-sequence")).toBe("1002");
-  expect(root.textContent).toContain("已加载最近 1000 条事件");
+  expect(root.textContent).not.toContain("已加载最近 1000 条事件");
 });
 
 it.each(["AVAILABLE", "UNAVAILABLE"] as const)("completed Delivery retains read-only cumulative final changes (%s)", async availability => {
@@ -679,12 +672,13 @@ it.each(["AVAILABLE", "UNAVAILABLE"] as const)("completed Delivery retains read-
   s.plan!.steps[0] = { ...s.plan!.steps[0]!, status: "SUCCEEDED", baselineRevision: "a".repeat(40), deliveryRevision: "b".repeat(40) };
   await settle();
   expect(root.querySelector(".candidate-overview .file-change-summary")).toBeNull();
+  expect(root.querySelector(".agent-changes")?.textContent).not.toMatch(/deliveryRevision|baselineRevision|正式接受版本|本步骤基线/);
   expect(root.querySelector(".final-file-list")?.textContent ?? "").not.toContain("candidate-1.java");
   expect(root.querySelector(".evidence-status")?.textContent).toContain("未运行测试");
-  expect(root.querySelector<HTMLDetailsElement>(".agent-changes .result-developer")?.open).toBe(false);
+  expect(root.querySelector(".agent-changes .result-developer")).toBeNull();
   expect(root.querySelector(".agent-changes pre")).toBeNull();
   expect(root.querySelector(".agent-changes")?.textContent).not.toContain("NOT_TESTED");
-  expect(root.querySelector<HTMLDetailsElement>(".agent-changes .result-developer")?.open).toBe(false);
+  expect(root.querySelector(".agent-changes")?.textContent).not.toContain("快速启动");
   expect(root.querySelector(".agent-changes")?.textContent).not.toContain("查看最终差异");
   expect(root.querySelector("#step-final-changes")?.textContent).toContain(availability === "AVAILABLE" ? "cumulative.java" : "历史 Git 对象已不可用");
   expect(root.textContent).toContain("已正式接受的完整步骤变更");
@@ -743,7 +737,9 @@ it("keeps a failed historical attempt failed after later official Delivery, refr
   s.plan!.steps[0]={...s.plan!.steps[0]!,status:"SUCCEEDED",baselineRevision:"a".repeat(40),deliveryRevision:"b".repeat(40)};
   await settle();
   vi.mocked(api.agentRun).mockImplementation(async id=>id===old.id?old:accepted);
-  expect(root.querySelector(".run-status")?.textContent).toBe("步骤已完成");
+  expect(root.querySelector(".run-summary")).toBeNull();
+  expect(root.querySelector(".current-activity")?.textContent).toContain("步骤已完成");
+  expect(root.querySelector('.selected-run a[href="#agent-changes-title"]')).toBeNull();
   expect(root.querySelector(".step-prerequisite")).toBeNull();
   expect(root.querySelectorAll(".file-change-summary")).toHaveLength(1);
   expect(root.querySelector(".final-file-list")?.textContent).toContain("official.java");
@@ -752,9 +748,9 @@ it("keeps a failed historical attempt failed after later official Delivery, refr
   expect(root.querySelector(".run-status")?.textContent).toBe("本次运行失败");
   expect(root.querySelector(".file-change-summary")).toBeNull();
   chooseRun(root,0);await settle();
-  expect(root.querySelector(".run-status")?.textContent).toBe("步骤已完成");
+  expect(root.querySelector(".current-activity")?.textContent).toContain("步骤已完成");
   button(root,"刷新记录").click();await settle();
-  expect(root.querySelector(".run-status")?.textContent).toBe("步骤已完成");
+  expect(root.querySelector(".current-activity")?.textContent).toContain("步骤已完成");
   expect(root.querySelectorAll(".run-history button")[1]?.textContent).toContain("本次运行失败");
   expect(api.startAgent).not.toHaveBeenCalled();
 });
@@ -821,11 +817,14 @@ it("does not submit a previously entered Maven override after metadata changes t
 it("keeps successful preflight compact and exposes blockers outside diagnostics", async () => {
   const {root} = mount([running()]); await settle();
   const stream = Events.instances.at(-1)!;
-  stream.fact(1, "ENVIRONMENT_PREFLIGHT", "READY\n" + JSON.stringify({probes: [{directory: "backend", goal: "test", output: "long-probe-output"}]})); await settle();
+  stream.fact(1, "ENVIRONMENT_PREFLIGHT", "READY\n" + JSON.stringify({network: "CONTROLLED: upstream downloads untested"})); await settle();
   expect(root.querySelector(".preflight-status")?.textContent).toBe("运行环境已准备");
-  expect(root.querySelector(".preflight-summary")?.closest(".developer-details")).not.toBeNull();
+  expect(root.querySelector(".preflight-summary")).toBeNull();
+  expect(root.textContent).not.toMatch(/运行前环境预检|隔离工作区与执行环境可用|基线预检不代表|受控依赖代理已启动/);
+  stream.fact(2, "ENVIRONMENT_PREFLIGHT", "READY\n" + JSON.stringify({probes: [{directory: "backend", goal: "test", output: "long-probe-output"}]})); await settle();
+  expect(root.querySelector(".developer-details .preflight-summary")?.textContent).toContain("long-probe-output");
   expect(root.querySelector<HTMLDetailsElement>(".developer-details")?.open).toBe(false);
-  stream.fact(2, "ENVIRONMENT_PREFLIGHT", "ENVIRONMENT_BLOCKED\n" + JSON.stringify({reason: "Docker 未启动，请启动后重试"})); await settle();
+  stream.fact(3, "ENVIRONMENT_PREFLIGHT", "ENVIRONMENT_BLOCKED\n" + JSON.stringify({reason: "Docker 未启动，请启动后重试"})); await settle();
   expect(root.querySelector(".preflight-status")?.textContent).toContain("Docker 未启动，请启动后重试");
   expect(root.querySelector(".preflight-status")?.closest("details")).toBeNull();
 });

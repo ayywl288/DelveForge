@@ -21,16 +21,20 @@ async function load(offset = 0) {
     finally { loading.value = false; }
 }
 function changeStream(value: string) { stream.value = value; page.value = null; if (command.value?.data.logRef) void load(); }
+function toggleLogs() {
+    logsOpen.value = !logsOpen.value;
+    if (logsOpen.value && !page.value) void load();
+}
 </script>
 <template>
     <div v-if="command" class="command-details">
-        <pre class="command-preview" tabindex="0" aria-label="命令" translate="no">{{ stream === 'command' && page ? page.content : command.data.command || '命令正文未记录' }}</pre>
+        <pre class="command-preview" tabindex="0" aria-label="命令" translate="no">{{ logsOpen && stream === 'command' && page ? page.content : command.data.command || '命令正文未记录' }}</pre>
         <p v-if="command.explanation" class="command-explanation">{{ command.explanation }}</p>
         <p v-if="command.data.sourceChanged">此命令修改了源码</p>
         <p v-if="command.data.commandTruncated">命令预览已截断{{ command.data.logRef ? '，可读取完整命令。' : '，完整内容未保留。' }}</p>
         <p v-if="command.data.logDiscarded && !logsOpen">超出保留上限的输出已丢弃。</p>
-        <button v-if="!logsOpen" type="button" class="text-button" @click="logsOpen = true; load()">{{ command.data.logRef ? '查看完整日志' : '查看已保存输出' }}</button>
-        <section v-else class="command-disclosure" aria-label="保留命令日志">
+        <button type="button" class="text-button" :aria-expanded="logsOpen" @click="toggleLogs">{{ logsOpen ? '收起日志' : command.data.logRef ? '查看完整日志' : '查看已保存输出' }}</button>
+        <section v-if="logsOpen" class="command-disclosure" aria-label="保留命令日志">
             <label>日志流 <select v-model="stream" :disabled="loading" @change="changeStream(stream)">
                 <option value="stdout">stdout · 标准输出</option><option value="stderr">stderr · 错误输出</option>
                 <option v-if="command.data.commandTruncated && command.data.logRef" value="command">完整命令</option>

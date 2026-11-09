@@ -63,7 +63,6 @@ const javaSettingsRelevant = computed(() => {
     || preflight.value?.outcome === "SELECTION_REQUIRED";
 });
 const preflightDescriptions: Record<string, string> = {
-  READY: "隔离工作区与执行环境可用；尚不代表构建或测试通过。",
   READY_BASELINE_FAILURE: "检查路径可执行；基线已有失败，处理情况以最终报告和执行事实为准。",
   ENVIRONMENT_BLOCKED: "检查环境尚未就绪，本次未调用模型。",
   SECURITY_BLOCKED: "源码或沙箱边界未获确认，本次未调用模型。",
@@ -413,23 +412,17 @@ onUnmounted(deactivate);
       <template v-if="run">
         <AgentTimeline :key="run.id" :events="events" :run="run" :connection="connection" :presentation="runPresentation ?? undefined" :show-usage="false">
           <template #developer>
-        <section class="run-technical" aria-label="运行标识">
-          <p><span>Run</span> <code>{{ run.id }}</code></p>
+        <section class="run-technical" aria-label="运行状态">
           <p><span>运行状态</span> <code>{{ run.state }}</code></p>
           <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
-        <dl class="run-times">
-          <div><dt>开始时间</dt><dd><time :datetime="run.startedAt">{{ new Date(run.startedAt).toLocaleString() }}</time></dd></div>
-          <div><dt>结束时间</dt><dd><time v-if="run.endedAt" :datetime="run.endedAt">{{ new Date(run.endedAt).toLocaleString() }}</time><span v-else>未记录</span></dd></div>
-        </dl>
-        </section>        <dl class="run-statistics" aria-label="已保存运行统计">
+        </section>
+        <dl class="run-statistics" aria-label="已保存运行统计">
           <div><dt>模型调用</dt><dd>{{ numberText(run.modelCalls) }} <span>次</span></dd></div>
           <div><dt>工具调用</dt><dd>{{ numberText(run.toolCalls) }} <span>次</span></dd></div>
           <div><dt>累计 tokens</dt><dd>{{ run.tokens === null ? '未报告' : numberText(run.tokens) }}</dd></div>
         </dl>
-        <p class="meta">模型统计按已返回调用累计；失败响应的已报告用量见活动诊断，未报告用量不估算。</p>
-        <section v-if="preflight" class="preflight-summary" aria-label="运行前环境预检">
-          <h4>运行前环境预检</h4>
-          <p>{{ preflightDescriptions[preflight.outcome] }}</p>
+        <div v-if="preflight && (preflight.outcome !== 'READY' || preflight.directories.length || preflight.probes.length || preflight.operation)" class="preflight-summary">
+          <p v-if="preflight.outcome !== 'READY'">{{ preflightDescriptions[preflight.outcome] }}</p>
           <p v-if="preflight.directories.length" class="meta">可选检查入口：<template v-for="(directory, index) in preflight.directories" :key="directory"><span v-if="index">、</span><code>{{ directory }}</code></template></p>
           <ul v-if="preflight.probes.length"><li v-for="(probe, index) in preflight.probes" :key="index">
             {{ probe.directory }} · {{ probe.goal }}：{{ probe.readiness === 'NOT_DECLARED' ? '未声明此项检查' : verificationLabel(probe.classification) }}
@@ -438,19 +431,17 @@ onUnmounted(deactivate);
             <details v-if="probe.output"><summary>检查诊断</summary><pre>{{ probe.output }}</pre></details>
           </li></ul>
           <p v-if="preflight.operation" class="meta">最后检查：{{ preflight.operation }}</p>
-          <p v-if="preflight.reason" class="meta">{{ preflight.reason }}</p>
-          <p class="meta">基线预检不代表最终修改通过检查。</p>
-        </section>
+          <p v-if="preflight.outcome !== 'READY' && preflight.reason" class="meta">{{ preflight.reason }}</p>
+        </div>
           </template>
         </AgentTimeline>
-        <div class="run-summary" :data-state="run.state">
+        <div v-if="runPresentation?.tone !== 'completed'" class="run-summary" :data-state="run.state">
         <div class="section-row run-status-row"><h3 v-if="runPresentation" class="run-status" :data-state="run.state" :data-tone="runPresentation.tone" role="status"><NavigationIcon :name="runIcon(runPresentation)" />{{ runPresentation.label }}</h3>
           </div>
         <p v-if="preflight" class="preflight-status" :data-ready="preflight.outcome.startsWith('READY')" role="status">{{ preflight.outcome.startsWith('READY') ? '运行环境已准备' : preflightDescriptions[preflight.outcome] }}<span v-if="preflight.outcome === 'READY_BASELINE_FAILURE'"> · 基线检查有失败，详见开发者详情。</span><span v-else-if="!preflight.outcome.startsWith('READY') && preflight.reason"> {{ preflight.reason.slice(0, 240) }}</span></p>
         <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
         <p v-else-if="runPresentation" class="meta">{{ runPresentation.detail }}</p>
-        <a v-if="candidate" class="delivery-jump" href="#agent-changes-title">核对文件、检查证据与交付 <NavigationIcon name="arrow" /></a>
         <p v-if="run.reason === 'SANDBOX_PROTOCOL_INCOMPATIBLE'" class="run-failure" role="alert">
           沙箱工具协议不兼容。请按 docs/LOCAL_SETUP.md 的协议排障说明构建兼容镜像，显式配置镜像后再重启应用。
         </p>
@@ -468,7 +459,8 @@ onUnmounted(deactivate);
       <div class="workbench-heading"><div><h2 id="agent-controls-title">{{ initialLayout ? '准备执行当前步骤' : '步骤与运行配置' }}</h2></div>
         <span class="meta"><NavigationIcon name="lock" />隔离编码 · 逐步授权</span></div>
 
-      <div class="step-configuration"><label for="agent-step">当前步骤</label>
+      <label for="agent-step">当前步骤</label>
+      <div class="step-configuration">
       <select id="agent-step" :value="step?.id" @change="stepId = ($event.target as HTMLSelectElement).value">
         <option v-for="(item, index) in s.plan.steps" :key="item.id" :value="item.id">Step {{ String(index + 1).padStart(2, '0') }} · {{ item.goal }}</option>
       </select>
@@ -478,11 +470,11 @@ onUnmounted(deactivate);
           <ul class="planned-change-list"><li v-for="(change, index) in step.plannedChanges" :key="index">{{ change }}</li></ul></details>
       </template></div>
       <template v-if="step">
-        <div v-if="prerequisiteIssue" class="step-lock-reason">
-          <p>{{ prerequisiteIssue }}</p>
-          <button class="text-button" @click="emit('planning')">前往演化规划核对准备与授权</button>
-        </div>
         <div class="execution-action-area">
+        <div v-if="prerequisiteIssue" class="step-lock-reason">
+          <button class="text-button" @click="emit('planning')">前往演化规划核对准备与授权</button>
+          <p>{{ prerequisiteIssue }}</p>
+        </div>
         <button v-if="step.status === 'PENDING_CONFIRMATION' && !prerequisiteIssue" :disabled="!canConfirm"
           @click="confirmStep">确认此步骤</button>
         <template v-if="step.status === 'READY'">
@@ -530,14 +522,15 @@ onUnmounted(deactivate);
 .check-directories-field label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
 .check-directories-field input { width: 100%; }
 .preflight-summary { margin-top: 20px; overflow-wrap: anywhere; }
-.preflight-summary h4 { margin-bottom: 8px; }
 .workbench-heading, .workbench-heading > .meta { display: flex; align-items: center; gap: 10px; }
 .workbench-heading { justify-content: space-between; flex-wrap: wrap; }
 .workbench-heading h2 { margin: 0; font-size: 19px; }
 .workbench-eyebrow { font-size: 12px; letter-spacing: .06em; color: var(--muted); margin: 0 0 6px; }
 .workbench-intro { font-size: 14px; line-height: 1.65; margin: 12px 0 22px; }
 .step-configuration { max-width: 780px; }
-.step-configuration > label, .jdk-field label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.agent-controls > label[for="agent-step"], .jdk-field label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+.agent-controls > label[for="agent-step"] { grid-column: 1 / -1; margin-top: 16px; }
+.execution-action-area .step-lock-reason { margin: 0; }
 .selected-step-summary { display: flex; align-items: baseline; gap: 12px; margin: 14px 0; }
 .selected-step-summary p { margin: 0; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
 .planned-changes { margin-top: 12px; font-size: 14px; }
@@ -583,9 +576,6 @@ onUnmounted(deactivate);
 .run-reason { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; font-size: 13px; margin: 12px 0; }
 .run-reason span { color: var(--muted); }
 .run-reason code { font-size: 12px; overflow-wrap: anywhere; }
-.run-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 24px; margin: 12px 0 20px; }
-.run-times dt { color: var(--muted); font-size: 12px; }
-.run-times dd { font-size: 13px; margin: 3px 0 0; }
 .run-status[data-state="FAILED"] { color: var(--danger); }
 .run-status[data-state="INTERRUPTED"], .run-status[data-state="CANCELLED"] { color: var(--muted); }
 .run-status[data-tone="recorded"] { color: var(--muted); }
@@ -611,7 +601,6 @@ select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
   .jdk-field { width: 100%; }
   .start-action { width: 100%; }
   .selected-step-summary { align-items: flex-start; }
-  .run-times { grid-template-columns: minmax(0, 1fr); }
   .run-statistics { gap: 10px; }
   .run-statistics dd { font-size: 17px; }
 }

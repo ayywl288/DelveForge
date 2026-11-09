@@ -37,7 +37,7 @@ async function go(name, width = 1440, height = 900) {
     page.consoleErrors = [];
     await page.goto(`http://127.0.0.1:4179/?visual=${name}`, { settleMs: 300 });
     await page.eval(async () => { await document.fonts.ready; });
-    const ready = name === 'delivery' ? '.accepted-revisions ~ .candidate-evidence'
+    const ready = name === 'delivery' ? '#step-final-changes ~ .candidate-evidence'
         : ['candidate','recovery'].includes(name) ? '.candidate-evidence'
         : ['evolution','execution-failed'].includes(name) ? '.activity-section .current-title'
         : name.startsWith('initial') ? '#agent-step'
@@ -206,7 +206,6 @@ async function sections() {
         await go('candidate',width);await shot('evolution',`candidate-results-${width}`,'冻结候选、文件、未运行测试与交付受阻','detail','.agent-changes');
         await open('.candidate-identity');await shot('evolution',`candidate-integrity-${width}`,'冻结基线、预期文件树与完整性标识','detail','.candidate-identity');
         await go('delivery',width);await shot('evolution',`accepted-results-${width}`,'已正式接受文件、可信 revision 与 NOT_TESTED','detail','.agent-changes');
-        await shot('evolution',`accepted-revision-${width}`,'正式接受版本与本步骤基线','detail','.accepted-revisions');
     }
 }
 async function edges() {

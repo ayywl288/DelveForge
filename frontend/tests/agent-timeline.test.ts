@@ -13,14 +13,15 @@ const tool = (sequence: number, kind: string, fields: Record<string, unknown> = 
     JSON.stringify({ metadataVersion: 1, toolCallId: identity, tool: "read_file", path: "src/Counter.java", ...fields }));
 const important = (sequence: number) => fact(sequence, "TOOL_FINISHED", '{"tool":"run_checks","ok":true,"classification":"TESTS_PASSED"}');
 
-it("reports offline and untested controlled networking without assuming download availability", async () => {
+it("reports unavailable downloads only for offline runs", async () => {
     const { root, props } = mount(false);
     props.events = [fact(1, "ENVIRONMENT_PREFLIGHT", 'READY\n{"network":"OFFLINE: downloads unavailable"}')];
     await settle();
     expect(root.textContent).toContain("网络：离线运行，依赖下载不可用");
     props.events = [fact(2, "ENVIRONMENT_PREFLIGHT", 'READY\n{"network":"CONTROLLED: upstream downloads untested"}')];
     await settle();
-    expect(root.textContent).toContain("上游下载尚未验证");
+    expect(networkCapability(props.events, "one")).toBeUndefined();
+    expect(root.textContent).not.toContain("上游下载尚未验证");
     expect(networkCapability([fact(3, "ENVIRONMENT_PREFLIGHT", "READY")], "one")).toBeUndefined();
     expect(networkCapability(props.events, "another-run")).toBeUndefined();
 });
@@ -98,8 +99,8 @@ it("shows the full model explanation only once in a closed technical disclosure"
     await settle();
     expect(root.querySelector(".current-activity")?.textContent).toContain("运行失败 · MODEL_INCOMPLETE");
     expect(root.querySelector(".current-activity")?.textContent).not.toContain("后端检查仍有错误");
-    expect(root.querySelector(".agent-timeline")?.textContent?.split("后端检查仍有错误，需要核对。")).toHaveLength(2);
-    const explanation = root.querySelector<HTMLDetailsElement>('.developer-details [data-kind="MODEL_INCOMPLETE"] .activity-technical')!;
+    expect(root.querySelector(".agent-timeline .timeline-warning")?.textContent).toBe("后端检查仍有错误，需要核对。");
+    const explanation = root.querySelector<HTMLDetailsElement>('.agent-timeline [data-kind="MODEL_INCOMPLETE"] .activity-technical')!;
     expect(explanation.open).toBe(false);
     expect(explanation.textContent).toContain("模型说明（未独立验证）");
     explanation.querySelector<HTMLElement>("summary")!.click();
@@ -152,6 +153,28 @@ function mount(expandFiles = true) {
     cleanup.push(() => { app.unmount(); root.remove(); });
     return { props, root };
 }
+it("ticks from the selected Run start and freezes at its recorded end", async () => {
+    vi.useFakeTimers();
+    try {
+        vi.setSystemTime(new Date("2026-10-23T01:59:59Z"));
+        const { root, props } = mount(false);
+        props.run.startedAt = "2026-10-23T01:00:00Z";
+        await settle();
+        const timer = root.querySelector('[role="timer"]')!;
+        expect(timer.textContent).toBe("运行用时 59:59");
+        vi.advanceTimersByTime(1000); await settle();
+        expect(timer.textContent).toBe("运行用时 1:00:00");
+        props.events = [fact(1, "SUCCEEDED")]; await settle();
+        expect(timer.textContent).toBe("运行用时 —");
+        props.run.state = "SUCCEEDED";
+        props.run.endedAt = "2026-10-23T01:59:58Z"; await settle();
+        vi.advanceTimersByTime(3000); await settle();
+        expect(timer.textContent).toBe("运行用时 59:58");
+        props.run = { ...props.run, id: "older", startedAt: "2026-10-22T00:00:00Z", endedAt: "2026-10-22T00:00:07Z" };
+        await settle();
+        expect(timer.textContent).toBe("运行用时 00:07");
+    } finally { vi.useRealTimers(); }
+});
 it("numerical model usage remains diagnostic data without adding timeline actions", async () => {
     const { root, props } = mount();
     props.events = [fact(1, "MODEL_REQUEST"), fact(2, "MODEL_USAGE",
@@ -195,7 +218,7 @@ it.each([
     props.events = [fact(1, "PREFLIGHT_PROGRESS", JSON.stringify({stage: "PREFLIGHT", status}))]; await settle();
     const rows = buildActivities(props.events, props.run);
     expect(rows).toHaveLength(1); expect(rows[0]?.outcome).toBe(outcome);
-    expect(root.querySelector(".developer-event-history")?.textContent).toContain(title);
+    expect(root.querySelector(".agent-timeline")?.textContent).toContain(title);
     if (status !== "CANCELLED" && status !== "INTERRUPTED") expect(root.textContent).not.toContain("已中断或取消");
 });
 it("coalesces preflight progress and saved result into one successful activity", async () => {
@@ -204,15 +227,38 @@ it("coalesces preflight progress and saved result into one successful activity",
         fact(2, "ENVIRONMENT_PREFLIGHT", 'READY\n{"probes":[]}'),
         fact(3, "PREFLIGHT_PROGRESS", '{"stage":"PREFLIGHT","status":"COMPLETED","classification":"READY","durationMs":1422}')];
     await settle();
-    expect(root.querySelectorAll(".developer-event-history > li")).toHaveLength(1);
-    expect(root.querySelector(".developer-event-history")?.textContent).toContain("已完成");
-    expect(root.querySelector(".developer-event-history")?.textContent).not.toMatch(/进行中|中断|取消/);
+    expect(root.querySelectorAll(".agent-timeline > li")).toHaveLength(1);
+    expect(root.querySelector(".agent-timeline")?.textContent).toContain("检查运行环境 · 已完成");
+    expect(root.querySelector(".agent-timeline")?.textContent).toContain("已完成");
+    expect(root.querySelector(".agent-timeline")?.textContent).not.toMatch(/进行中|中断|取消/);
     expect(props.events).toHaveLength(3);
     props.events = props.events.slice(0, 2); await settle();
     expect(buildActivities(props.events, props.run)[0]?.outcome).toBe("completed");
     props.events = props.events.slice(0, 1); await settle();
     expect(buildActivities(props.events, props.run)[0]?.outcome).toBe("unknown");
-    expect(root.querySelector(".developer-event-history")?.textContent).toContain("结果未记录");
+    expect(root.querySelector(".agent-timeline")?.textContent).toContain("结果未记录");
+});
+it("shows Run milestones in order while individual tool calls stay folded", async () => {
+    const { root, props } = mount(false);
+    props.events = [fact(1, "SANDBOX_READY"), tool(2, "TOOL_FINISHED", { ok: true }),
+        fact(3, "CONTEXT_COMPACTED"), tool(4, "TOOL_FINISHED", { tool: "edit_file", ok: true }),
+        tool(5, "TOOL_FINISHED", { tool: "exec_command", ok: true }), fact(6, "FINALIZING"),
+        fact(7, "DELIVERY_PUBLISHED"), fact(8, "DELIVERY_COMPLETED")];
+    await settle();
+    const list = root.querySelector(".agent-timeline")!;
+    expect(list.closest("details")).toBeNull();
+    expect([...list.children].map(row => row.getAttribute("data-sequence"))).toEqual(["1", "3", "6", "7", "8"]);
+    expect(list.textContent).toContain("隔离沙箱已就绪");
+    expect(list.textContent).toContain("较早上下文已压缩");
+    root.querySelector<HTMLElement>(".developer-details > summary")!.click(); await settle();
+    for (const sequence of [1, 3, 6, 7, 8]) {
+        expect(root.querySelectorAll(`[data-sequence="${sequence}"]`)).toHaveLength(1);
+        expect(root.querySelector(`.developer-details [data-sequence="${sequence}"]`)).toBeNull();
+    }
+    root.querySelector<HTMLElement>(".developer-details > summary")!.click(); await settle();
+    for (const selector of [".developer-details", ".exploration-summary", ".patch-summary", ".check-summary"]) {
+        expect(root.querySelector<HTMLDetailsElement>(selector)?.open).toBe(false);
+    }
 });
 it("keeps saved preflight failures visible and removes raw dumps and prominent historical command warnings", async () => {
     const {root, props} = mount(false);
@@ -656,7 +702,8 @@ it("keeps important milestones chronological and explains a known pre-mutation r
             policyRule: "SOURCE_CREDENTIALS", policyStage: "PATCH_SOURCE", resultRecorded: true, mutationNotStarted: true, alternativeAllowed: true })];
     await settle();
     expect(root.querySelector('.current-title')?.textContent).toContain("代码修改被安全策略拒绝");
-    expect(root.querySelector('.patch-alert')?.textContent).toContain('1 次安全拒绝');
+    expect(root.querySelector('.patch-count')?.textContent).toContain('安全拒绝 1');
+    expect(root.textContent).not.toContain("代码修改需核对");
     root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
     const refusal = root.querySelector('.patch-operations [data-sequence="3"]')!;
     expect(refusal.getAttribute('data-tone')).toBe('blocked');
@@ -713,7 +760,7 @@ it("updates one patch summary in place with actual outcomes and only applied saf
     expect(summary.querySelector('.patch-operations')?.textContent).toContain('src/Actual.java');
     expect(summary.querySelector('[data-sequence="3"]')?.textContent).toContain('未应用，已有修改保留');
     expect(summary.querySelector('.patch-operations')?.textContent).not.toContain('src/Unapplied.java');
-    expect(root.querySelector('.patch-alert')?.textContent).toContain('1 次安全拒绝');
+    expect(root.querySelector('.patch-count')?.textContent).toContain('安全拒绝 1');
     expect([...summary.querySelectorAll('li')].map(node=>node.getAttribute('data-sequence'))).toEqual(['1','3','4','5']);
     expect(root.querySelector('.activity-bar,.model-waiting,.is-active')).toBeNull();
 });
@@ -757,7 +804,7 @@ it.each(['apply_patch', 'edit_file'])("preserves live %s status, refusals and li
         .toEqual(['1', '2', '7']);
     await expandChecks(root);
     expect(root.querySelector('.check-history [data-sequence="6"]')).not.toBeNull();
-    expect(root.querySelector('.patch-alert')?.textContent).toContain('1 次安全拒绝');
+    expect(root.querySelector('.patch-count')?.textContent).toContain('安全拒绝 1');
     expect(root.querySelector('.exploration-count')?.textContent).toContain('1 次文件操作');
     expect(root.querySelector('.current-title')?.textContent).toContain('运行失败');
     expect(root.querySelector('.activity-bar')).toBeNull();
@@ -786,7 +833,7 @@ it("keeps legacy conflicts visible without retroactively claiming a pre-mutation
     props.events=[tool(1,'TOOL_FINISHED',{tool:'apply_patch',ok:true,classification:'PATCH_CONFLICT'})]; await settle();
     expect(root.querySelector('.patch-count')?.textContent).toContain('冲突 1');
     expect(root.querySelector('.patch-count')?.textContent).toContain('结果不明 1');
-    expect(root.querySelector('.patch-alert')?.textContent).toContain('1 次结果不明');
+    expect(root.querySelector('.patch-count')?.textContent).toContain('结果不明 1');
     root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
     expect(root.querySelector('.patch-operations .activity-uncertain')).not.toBeNull();
     expect(root.querySelector('.patch-operations')?.textContent).not.toContain('未应用，已有修改保留');
@@ -801,7 +848,7 @@ it("terminal MODEL_PROTOCOL takes precedence over an earlier recoverable source 
     props.run.state = "FAILED"; props.run.reason = "MODEL_PROTOCOL"; props.run.modelCalls = 10; await settle();
     expect(root.querySelector('.current-title')?.textContent).toContain("运行失败");
     expect(root.querySelector('.current-detail')?.textContent).toBe("MODEL_PROTOCOL");
-    expect(root.querySelector('.patch-alert')?.textContent).toContain("1 次安全拒绝");
+    expect(root.querySelector('.patch-count')?.textContent).toContain("安全拒绝 1");
     root.querySelector<HTMLElement>('.patch-summary summary')!.click(); await settle();
     expect(root.querySelector('.patch-operations')?.textContent).toContain("SOURCE_CREDENTIALS");
     expect(root.querySelector('.model-waiting, .is-active')).toBeNull();
@@ -819,7 +866,7 @@ it("terminal event and safe model subcategory are visible before the Run snapsho
     expect(root.querySelector('.current-title')?.textContent).toContain("运行失败");
     expect(root.querySelector('.current-detail')?.textContent).toContain("MODEL_PROTOCOL");
     expect(root.querySelector('.current-detail')?.textContent).toContain("RESPONSE_TRUNCATED");
-    const failed = root.querySelector('.developer-details [data-kind="MODEL_FAILED"]')!;
+    const failed = root.querySelector('.agent-timeline [data-kind="MODEL_FAILED"]')!;
     expect(failed.getAttribute('data-tone')).toBe('failed');
     expect(failed.textContent).toContain("模型请求失败");
     expect(failed.textContent).toContain("LENGTH");
@@ -1104,7 +1151,8 @@ it("pages retained logs without rerunning commands and keeps one command disclos
     root.querySelector<HTMLElement>(".check-summary > summary")!.click(); await settle();
     const row = root.querySelector(".check-history li")!;
     expect(row.querySelectorAll("details")).toHaveLength(0);
-    [...row.querySelectorAll("button")].find(button => button.textContent === "查看完整日志")!.click();
+    const toggle = [...row.querySelectorAll("button")].find(button => button.textContent === "查看完整日志")!;
+    toggle.click();
     await settle();
     expect(mocked).toHaveBeenCalledWith(expect.stringContaining(`/logs/${identity}?stream=stdout&offset=0`), expect.anything());
     await vi.waitFor(() => expect(row.textContent).toContain("retained diagnostic <script>data</script>"));
@@ -1114,6 +1162,16 @@ it("pages retained logs without rerunning commands and keeps one command disclos
     [...row.querySelectorAll("button")].find(button => button.textContent === "加载更多")!.click();
     await vi.waitFor(() => expect(row.textContent).toContain("retained diagnostic <script>data</script> next page"));
     expect(mocked).toHaveBeenLastCalledWith(expect.stringContaining("stream=stdout&offset=4000"), expect.anything());
+    expect(toggle.textContent).toBe("收起日志");
+    toggle.click(); await settle();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(row.querySelector(".command-disclosure")).toBeNull();
+    props.events = [...props.events, fact(2, "FINALIZING")]; await settle();
+    expect(row.querySelector(".command-disclosure")).toBeNull();
+    toggle.click(); await settle();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(row.querySelector(".command-disclosure")?.textContent).toContain(" next page");
+    expect(mocked).toHaveBeenCalledTimes(2);
 });
 
 it("attributes notes and completion judgments while preserving compacted and failed history", async () => {

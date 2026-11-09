@@ -42,7 +42,7 @@ try {
                         if (timeline.maxHeight !== 'none' || ['auto', 'scroll'].includes(timeline.overflowY)) {
                             throw Error('Timeline still scrolls inside the page');
                         }
-                        const preflight = document.querySelectorAll('.developer-event-history [data-kind="PREFLIGHT_PROGRESS"]');
+                        const preflight = document.querySelectorAll('.agent-timeline [data-kind="PREFLIGHT_PROGRESS"]');
                         if (preflight.length !== 1 || preflight[0].getAttribute('data-tone') !== 'completed') {
                             throw Error('Preflight did not collapse to one successful activity');
                         }

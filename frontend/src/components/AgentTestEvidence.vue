@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { executionFacts, presentTestEvidence, presentCheckRows, presentSourceView } from "./agentResultPresentation";
 const props = defineProps<{ evidence: string }>();
 const result = computed(() => presentTestEvidence(props.evidence));
@@ -13,7 +13,6 @@ const summary = computed(() => typeof report.value?.summary === "string"
 const limitations = computed(() => Array.isArray(report.value?.limitations)
     ? report.value.limitations.filter((item: unknown) => typeof item === "string")
     : typeof report.value?.limitations === "string" ? [report.value.limitations] : []);
-const detailsOpen = ref(false);
 const sourceView = computed(() => presentSourceView(props.evidence));
 </script>
 <template>
@@ -28,7 +27,7 @@ const sourceView = computed(() => presentSourceView(props.evidence));
             <p v-else>最终源码上没有已记录的命令结果。</p>
             <p class="evidence-scope">{{ finalFacts.reports }} 次带测试报告，{{ finalFacts.unknown }} 次无报告详情。退出零不证明测试或业务通过。</p>
             <p v-if="finalFacts.reports">报告累计执行 {{ finalFacts.executed }} 项，失败 / 错误 {{ finalFacts.failures }} 项，跳过 {{ finalFacts.skipped }} 项（含重复执行，不是唯一用例数）。</p>
-            <p v-if="facts && facts.total > finalFacts.total" class="evidence-scope">另有 {{ facts.total - finalFacts.total }} 次执行的源码或视图与最终状态不匹配，详见开发者详情。</p>
+            <p v-if="facts && facts.total > finalFacts.total" class="evidence-scope">另有 {{ facts.total - finalFacts.total }} 次执行的源码或视图与最终状态不匹配。</p>
         </template>
         <template v-else>
             <p class="verification-outcome"><strong class="evidence-status">{{ result.label }}</strong> · {{ result.outcome }}<span v-if="result.scope" class="evidence-scope"> · {{ result.scope }}</span></p>
@@ -45,15 +44,6 @@ const sourceView = computed(() => presentSourceView(props.evidence));
         <section v-if="limitations.length" class="result-limitations" aria-label="剩余限制"><h4>剩余限制 <span class="evidence-scope">Agent 报告</span></h4>
             <ul><li v-for="(item, index) in limitations" :key="index">{{ item }}</li></ul>
         </section>
-        <p v-if="generic" class="evidence-scope">完整命令与日志见本次 Agent Run 的「开发者详情」。</p>
-        <details class="result-developer" :open="detailsOpen"><summary @click.prevent="detailsOpen = !detailsOpen">开发者详情 · 完整报告与执行历史</summary>
-            <template v-if="detailsOpen">
-                <p v-if="facts">全部 Run 尝试累计：命令 {{ facts.total }} 次，成功 {{ facts.succeeded }}，失败 {{ facts.failed }}，超时 {{ facts.timedOut }}，取消 {{ facts.cancelled }}。报告累计执行 {{ facts.executed }} 项，失败 / 错误 {{ facts.failures }} 项，跳过 {{ facts.skipped }} 项，包含历史重试与重复用例。</p>
-                <p v-if="report?.summary">{{ report.summary }}</p>
-                <p>完整命令与保留日志见本次运行的「开发者详情」。</p>
-                <pre>{{ evidence }}</pre>
-            </template>
-        </details>
     </section>
 </template>
 <style scoped>
@@ -61,9 +51,6 @@ const sourceView = computed(() => presentSourceView(props.evidence));
 .result-limitations { margin-top: 24px; }
 .candidate-evidence ul { padding-left: 20px; line-height: 1.8; }
 .candidate-evidence p { font-size: 14px; line-height: 1.7; }
-.result-developer { margin-top: 20px; font-size: 13px; }
-.result-developer summary { cursor: pointer; color: var(--muted); }
-.result-developer pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .candidate-evidence { padding-top: 18px; margin-top: 18px; border-top: 1px solid var(--line); min-width: 0; }
 .evidence-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 12px; }
 h4 { font-size: 15px; margin: 0; }

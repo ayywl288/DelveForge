@@ -101,7 +101,5 @@ it("separates final-source validation from repeated historical test failures", a
     expect(root.textContent).toContain("另有 2 次执行的源码或视图与最终状态不匹配");
     expect(root.textContent).not.toContain("失败 / 错误 4");
     expect(root.querySelector(".result-limitations")?.textContent).toContain("E2E 未执行");
-    root.querySelector<HTMLElement>(".result-developer summary")!.click(); await settle();
-    expect(root.textContent).toContain("失败 / 错误 4");
-    expect(root.textContent).toContain("包含历史重试与重复用例");
+    expect(root.querySelector("details, pre")).toBeNull();
 });

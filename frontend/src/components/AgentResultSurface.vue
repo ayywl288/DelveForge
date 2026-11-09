@@ -33,10 +33,6 @@ const emit = defineEmits<{ deliver: [] }>();
           : '选择或开始运行后，可在此查看冻结 Candidate 的文件、检查证据与交付结果。' }}</p>
       <template v-else>
       <StepFinalChanges v-if="officialStep && step" :plan-id="planId" :step="step" />
-      <div v-if="officialStep && step" class="accepted-revisions" aria-label="正式接受的版本">
-        <RevisionText label="正式接受版本 · deliveryRevision" :value="step.deliveryRevision" />
-        <RevisionText label="本步骤基线 · baselineRevision" :value="step.baselineRevision" />
-      </div>
       <p v-else-if="completedDelivery" role="status">交付已完成，正在同步步骤的正式版本与文件清单。</p>
       <div v-else class="candidate-overview">
         <h4>候选变更</h4><p class="meta">以下是本次保存的编码结果，尚未完成正式交付。</p>
@@ -57,7 +53,6 @@ const emit = defineEmits<{ deliver: [] }>();
         || delivery.state === 'RECOVERY_REQUIRED'" :disabled="pending"
         @click="emit('deliver')">重新核对并交付已有结果</button>
       <AgentTestEvidence :key="candidate.id" :evidence="candidate.testEvidence" />
-      <p class="meta">{{ completedDelivery ? '可在项目导航的「快速启动」查看已完成计划的启动指南。' : '全部步骤正式交付后，可在项目导航的「快速启动」查看启动指南。' }}</p>
       </template>
     </section>
 </template>

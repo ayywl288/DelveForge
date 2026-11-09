@@ -6,7 +6,7 @@ import AgentResultSurface from "../src/components/AgentResultSurface.vue";
 import type { PresentedFileChange } from "../src/components/agentResultPresentation";
 const cleanup:(()=>void)[]=[];
 
-it("resets developer disclosure when switching Candidate even when evidence is identical", async () => {
+it("shows candidate verification without a report disclosure or navigation reminders", async () => {
     const candidate = reactive({id: "first", runId: "run-1", baseline: "a".repeat(40), expectedTree: "b".repeat(40),
         sha256: "c".repeat(64), changedPaths: [], diffBytes: 0, testEvidence: '{"status":"NOT_TESTED"}', createdAt: "2026-11-08T00:00:00Z"});
     const root = document.createElement("div");
@@ -14,11 +14,9 @@ it("resets developer disclosure when switching Candidate even when evidence is i
         runPresentation: null, officialStep: false, completedDelivery: false, candidateFiles: [],
         filesLoading: false, filesUnavailable: false, pending: false})});
     app.mount(root); cleanup.push(() => app.unmount()); await settle();
-    root.querySelector<HTMLElement>(".result-developer summary")!.click(); await settle();
-    expect(root.querySelector<HTMLDetailsElement>(".result-developer")!.open).toBe(true);
-    candidate.id = "second"; await settle();
-    expect(root.querySelector<HTMLDetailsElement>(".result-developer")!.open).toBe(false);
-    expect(root.querySelector(".result-developer pre")).toBeNull();
+    expect(root.querySelector(".candidate-evidence")?.textContent).toContain("未运行测试");
+    expect(root.textContent).not.toMatch(/完整报告与执行历史|完整命令与日志|快速启动/);
+    expect(root.querySelector(".candidate-evidence details, .candidate-evidence pre")).toBeNull();
 });
 
 it("explains projected checks without implying full-checkout execution or exposing resource content", async () => {
@@ -61,7 +59,7 @@ it("renders TESTED counts and NOT_TESTED honestly without rendering original JSO
   cleanup.push(()=>app.unmount());await settle();
   expect(root.querySelector(".evidence-status")?.textContent).toBe("已测试");
   expect([...root.querySelectorAll("dd")].map(node=>node.textContent)).toEqual(["28","28","0","0","2"]);
-  expect(root.querySelector<HTMLDetailsElement>(".result-developer")?.open).toBe(false);
+  expect(root.querySelector(".candidate-evidence details")).toBeNull();
   expect(root.querySelector("pre")).toBeNull();
   expect(root.textContent).not.toContain(props.evidence);
   props.evidence='{"status":"NOT_TESTED"}';await settle();
@@ -125,6 +123,6 @@ it("renders parser-free generic success without invented test counts and keeps a
     expect(root.querySelector(".test-counts")).toBeNull();
     expect(root.querySelectorAll(".current-evidence-list li")).toHaveLength(0);
     expect(root.querySelector(".evidence-history")).toBeNull();
-    expect(root.textContent).toContain("完整命令与日志见本次 Agent Run");
+    expect(root.textContent).not.toContain("完整命令与日志");
     expect(root.querySelectorAll(".evidence-history li")).toHaveLength(0);
 });
