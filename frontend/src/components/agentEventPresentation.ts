@@ -203,12 +203,25 @@ export function modelIncompleteSummary(event: AgentEvent): string | undefined {
         && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(summary) ? summary : undefined;
 }
 
+const rejectionReasons: Record<string, string> = {
+    STALE_SOURCE: "这次检查使用的是较早版本的代码，无法验证最终版本。",
+    VIEW_MISMATCH: "这次检查使用的文件与最终交付的文件不一致。",
+    UNKNOWN_REFERENCE: "报告引用的检查在本次运行中没有执行记录。",
+    INVALID_REFERENCE: "报告没有正确指出引用的是哪次检查。",
+    INVALID_REFERENCE_LIST: "报告中的检查记录格式有误。",
+    DUPLICATE_REFERENCE: "报告重复引用了同一次检查。",
+    FAILED_EXECUTION: "报告引用的命令未成功执行。",
+    FAILED_TEST_REPORT: "报告引用的测试仍有失败。",
+};
+
 function completionRejection(event: AgentEvent): string | undefined {
     const data = summaryFields(event);
-    return event.kind === "COMPLETION_CHECK_REJECTED"
-        && ["UNRESOLVED_CHECK_FAILURE", "EVIDENCE_INCOMPARABLE", "EVIDENCE_INVALID"].includes(String(data.classification))
-        && typeof data.reason === "string" && data.reason.length <= 2400 && !credentialShape.test(data.reason)
-        ? data.reason : undefined;
+    if (event.kind !== "COMPLETION_CHECK_REJECTED"
+        || !["UNRESOLVED_CHECK_FAILURE", "EVIDENCE_INCOMPARABLE", "EVIDENCE_INVALID"].includes(String(data.classification))
+        || typeof data.reason !== "string" || data.reason.length > 2400 || credentialShape.test(data.reason)) return undefined;
+    if (typeof data.issue === "string" && Object.hasOwn(rejectionReasons, data.issue)) return rejectionReasons[data.issue];
+    // 历史诊断可能只有 reason，剥离引用位置和执行标识，保留可读原因。
+    return data.reason.replace(/^executions(?:\[\d+\])?(?=\s|[:：])\s*(?:(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|\(非标准 ID\))\s*)?[:：]?\s*/i, "") || undefined;
 }
 
 export function noProgressExplanation(events: AgentEvent[], runId: string) {
@@ -301,6 +314,7 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
     const hidden = new Set<number>();
     const activities: AgentActivity[] = [];
     const state = activityState(facts, run);
+    let reportNeedsCorrection = false;
     for (const event of facts) {
         if (hidden.has(event.sequence)) continue;
         const key = correlation(event);
@@ -336,8 +350,13 @@ export function buildActivities(events: AgentEvent[], run: AgentRun): AgentActiv
             ?? safePath(data.path) ?? safePath(data.module) ?? safePath(data.directory) : undefined);
         const invocationNs = numeric(data, "invocationDurationNs");
         const internalMs = numeric(data, "durationMs");
-        activities.push({ key: `${event.runId}:${event.sequence}`, event, finish, tool, target,
-            title: progress && outcome === "unknown" ? progress.title.replace(/ · [^·]+$/, " · 结果未记录") : progress?.title,
+        let title = progress && outcome === "unknown" ? progress.title.replace(/ · [^·]+$/, " · 结果未记录") : progress?.title;
+        if (event.kind === "COMPLETION_CHECK_REJECTED") reportNeedsCorrection = true;
+        if (event.kind === "MODEL_COMPLETED" && reportNeedsCorrection) {
+            title = "完成报告已修正并通过检查";
+            reportNeedsCorrection = false;
+        }
+        activities.push({ key: `${event.runId}:${event.sequence}`, event, finish, tool, target, title,
             targetWithheld: startData.targetState === "withheld" || data.targetState === "withheld",
             resultUncertain: (data.resultRecorded === false || isPatchTool(tool) && classification(result) === 'PATCH_CONFLICT')
                 && !patchNotStarted(data, tool),
@@ -407,7 +426,8 @@ export function currentActivity(activities: AgentActivity[], events: AgentEvent[
     if (last?.classification === "POLICY_REJECTED") return { ...staticState, tone: "blocked",
         title: isPatchTool(last.tool) ? "代码修改被安全策略拒绝" : "工具操作被安全策略拒绝",
         detail: sourceEditNotStarted(summaryFields(last.finish ?? last.event), last.tool) ? "本次未修改源码" : "请核对运行诊断" };
-    if (last?.event.kind === "MODEL_COMPLETED") return { ...staticState, title: "模型已结束，等待冻结结果" };
+    if (last?.event.kind === "MODEL_COMPLETED") return { ...staticState, title: last.title ?? "模型已结束，等待冻结结果",
+        detail: last.title ? "等待冻结编码结果。" : "" };
     return { ...staticState, title: ({ CREATED: "运行已预约", PREPARING: "正在准备 Docker 沙箱", RUNNING: "等待下一项运行活动", FINALIZING: "正在冻结 Candidate" } as Record<string, string>)[state.state] ?? "等待运行活动" };
 }
 

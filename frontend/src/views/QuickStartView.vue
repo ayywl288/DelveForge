@@ -36,10 +36,20 @@ onDeactivated(stop); onUnmounted(stop);
 </script>
 <template>
     <section class="panel quick-start" aria-label="项目 Quick Start">
-        <div class="section-row"><h2>{{ guide?.status === 'AVAILABLE' ? document.title : '启动项目' }}<span v-if="guide?.status === 'AVAILABLE'" class="quick-start-label">Quick Start</span></h2><button v-if="completed" class="secondary" :disabled="loading || guide?.status === 'GENERATING'" @click="load(true)">{{ guide?.status === 'AVAILABLE' ? '重新生成指南' : '生成 / 重试指南' }}</button></div>
+        <div v-if="planId && guide?.status === 'GENERATING' && !error" class="guide-generating" role="status">
+            <div class="draft-page" aria-hidden="true">
+                <span class="draft-heading"></span>
+                <span class="draft-line"></span><span class="draft-line"></span><span class="draft-line"></span>
+            </div>
+            <div class="generation-copy">
+                <h2>正在生成启动指南</h2>
+                <p>正在根据最终交付文件整理安装、配置和启动说明。生成后会自动显示。</p>
+            </div>
+        </div>
+        <div v-else class="section-row"><h2>{{ guide?.status === 'AVAILABLE' ? document.title : '启动项目' }}<span v-if="guide?.status === 'AVAILABLE'" class="quick-start-label">Quick Start</span></h2><button v-if="completed" class="secondary" :disabled="loading || guide?.status === 'GENERATING'" @click="load(true)">{{ guide?.status === 'AVAILABLE' ? '重新生成指南' : '生成 / 重试指南' }}</button></div>
         <p v-if="!planId">打开一个演化项目后，在这里查看启动指南。</p>
-        <p v-else-if="guide?.status === 'GENERATING'" role="status">正在根据最终交付文件生成指南…</p>
-        <p v-else-if="guide?.status !== 'AVAILABLE'">{{ completed ? '启动指南暂不可用，代码交付已完成，可稍后重试生成。' : '全部步骤正式交付后，会在这里生成启动指南。' }}</p>
+        <p v-else-if="loading && !guide" role="status">正在读取启动指南…</p>
+        <p v-else-if="guide?.status !== 'AVAILABLE' && guide?.status !== 'GENERATING' && !error">{{ completed ? '启动指南暂不可用，代码交付已完成，可稍后重试生成。' : '全部步骤正式交付后，会在这里生成启动指南。' }}</p>
         <p v-if="error" role="alert">{{ error }} <button class="secondary compact-button" @click="load()">刷新</button></p>
         <template v-if="guide?.status === 'AVAILABLE'">
             <p v-if="guide.stale" class="stale-guide" role="status">此指南已过期：后续计划已改变交付项目。新计划全部交付后生成新指南。</p>
@@ -54,7 +64,7 @@ onDeactivated(stop); onUnmounted(stop);
                 <p v-else>旧版指南未单独保存来源清单，可重新生成。</p>
             </details>
         </template>
-        <p v-if="completed" class="meta">重新生成会调用模型并产生 API 费用。</p>
+        <p v-if="completed && guide?.status !== 'GENERATING'" class="meta">重新生成会调用模型并产生 API 费用。</p>
     </section>
 </template>
 <style scoped>
@@ -67,4 +77,32 @@ onDeactivated(stop); onUnmounted(stop);
 .quick-start .section-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; }
 .quick-start .meta { overflow-wrap: anywhere; }.guide-verification { font-size: 13px; color: var(--muted); }
 .stale-guide { color: var(--warning); }
+.guide-generating {
+    display: flex; align-items: center; gap: clamp(24px, 4vw, 56px); padding: clamp(22px, 4vw, 48px);
+    border-radius: 6px; background: linear-gradient(110deg, var(--selection), var(--surface) 90%);
+}
+.generation-copy { min-width: 0; }
+.generation-copy h2 { font-size: clamp(20px, 2vw, 26px); }
+.generation-copy > p { margin: 9px 0 0; color: var(--muted); line-height: 1.65; }
+.draft-page {
+    flex: none; width: 84px; height: 102px; box-sizing: border-box; padding: 19px 13px;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 4px;
+    box-shadow: 4px 4px 0 var(--selection), 5px 5px 0 var(--line);
+}
+.draft-page span { display: block; border-radius: 2px; background: var(--accent); }
+.draft-heading { width: 42%; height: 5px; margin-bottom: 15px; }
+.draft-line { height: 3px; margin-top: 8px; opacity: .45; transform-origin: left;
+    animation: guide-writing 2.8s ease-in-out infinite; }
+.draft-line:nth-child(3) { width: 87%; animation-delay: .16s; }
+.draft-line:last-child { width: 62%; animation-delay: .32s; }
+@keyframes guide-writing {
+    0%, 100% { transform: scaleX(.22); opacity: .25; }
+    50%, 80% { transform: scaleX(1); opacity: .55; }
+}
+@media (max-width: 520px) {
+    .guide-generating { align-items: flex-start; flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .draft-line { animation: none; }
+}
 </style>

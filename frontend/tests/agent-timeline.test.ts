@@ -86,9 +86,33 @@ it("identifies a stopped completion loop only for the affected run", async () =>
         reason: "executions[0] 未知调用", progressStatus: "STOPPED" }));
     props.events = [event];
     await settle();
-    expect(root.textContent).toContain("executions[0] 未知调用");
+    expect(root.textContent).toContain("未知调用");
+    expect(root.textContent).not.toContain("executions[0]");
     expect(noProgressExplanation([event], "one")).toContain("完成报告反复被拒");
     expect(noProgressExplanation([event], "other")).not.toContain("完成报告反复被拒");
+});
+
+it("shows the readable rejection and marks the accepted report only after the same Run corrects it", async () => {
+    const { root, props } = mount(false);
+    const reason = `executions[4] ${identity}：执行前或执行后的源码与最终源码不同。`;
+    const rejected = fact(1, "COMPLETION_CHECK_REJECTED", JSON.stringify({ issue: "STALE_SOURCE",
+        classification: "UNRESOLVED_CHECK_FAILURE", reason }));
+    const completion = fact(4, "MODEL_COMPLETED", JSON.stringify({ status: "completed", summary: "已确认最终版本" }));
+    const legacy = fact(3, "COMPLETION_CHECK_REJECTED", JSON.stringify({ classification: "EVIDENCE_INVALID", reason }));
+    props.events = [rejected, { ...completion, sequence: 2, runId: "other" }, legacy];
+    await settle();
+    expect(root.querySelector(".timeline-warning")?.textContent).toBe("这次检查使用的是较早版本的代码，无法验证最终版本。");
+    expect(root.querySelector('[data-kind="COMPLETION_CHECK_REJECTED"] details')).toBeNull();
+    expect(root.textContent).not.toContain("executions[");
+    expect(root.textContent).not.toContain(identity);
+    expect(root.textContent).not.toContain("完成报告已修正并通过检查");
+    props.events.push(completion); await settle();
+    expect(root.querySelectorAll('[data-kind="COMPLETION_CHECK_REJECTED"]')).toHaveLength(2);
+    expect(root.querySelector('[data-kind="MODEL_COMPLETED"] strong')?.textContent).toBe("完成报告已修正并通过检查");
+    expect(root.querySelector('[data-kind="MODEL_COMPLETED"] details')?.textContent).toContain("已确认最终版本");
+    expect(props.events[0]?.summary).toContain(identity);
+    props.events = [completion]; await settle();
+    expect(root.querySelector('[data-kind="MODEL_COMPLETED"] strong')?.textContent).toBe("模型已结束，等待冻结结果");
 });
 
 it("shows the full model explanation only once in a closed technical disclosure", async () => {

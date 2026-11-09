@@ -47,6 +47,28 @@ it("shows stale guide identity and explicit generation only after Plan completio
     await settle(); expect(generate).toHaveBeenCalledWith("plan");
     expect(root.textContent).toContain("代码交付已完成");
 });
+it("keeps the generating preview mounted between polls and replaces it with the finished guide", async () => {
+    vi.useFakeTimers();
+    const inProgress = { ...guide, status: "GENERATING" as const, markdown: "" };
+    const read = vi.spyOn(api, "quickStart").mockResolvedValueOnce(inProgress).mockResolvedValueOnce(inProgress)
+        .mockResolvedValue(guide);
+    const generate = vi.spyOn(api, "generateQuickStart");
+    const root = mount(QuickStartView, { planId: "plan", completed: true }); await settle();
+    const preview = root.querySelector('.guide-generating[role="status"]');
+    expect(preview?.textContent).toContain("正在生成启动指南");
+    expect(preview?.textContent).not.toContain(guide.revision!.slice(0, 12));
+    expect(preview?.querySelector('[aria-hidden="true"] .draft-line')).not.toBeNull();
+    expect(root.textContent).not.toContain("暂不可用");
+    expect(root.querySelector("button")).toBeNull();
+    await vi.advanceTimersByTimeAsync(2000); await settle();
+    expect(root.querySelector(".guide-generating")).toBe(preview);
+    await vi.advanceTimersByTimeAsync(2000); await settle();
+    expect(root.querySelector(".guide-generating")).toBeNull();
+    expect(root.querySelector(".guide-markdown")?.textContent).toContain("npm run dev");
+    expect(read).toHaveBeenCalledTimes(3);
+    expect(generate).not.toHaveBeenCalled();
+});
+
 it("counts every receipt, keeps test failures separate from zero Shell exits and omits command history", async () => {
     const receipt = {invocationId: "chosen", snapshot: "a".repeat(64), afterSnapshot: "a".repeat(64), exitCode: 0,
         timedOut: false, cancelled: false, testReport: {availability: "AVAILABLE", executedTests: 2, failures: 1, skipped: 0}};
