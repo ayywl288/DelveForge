@@ -56,8 +56,8 @@ class ConversationalDiscoveryTest {
         assertTrue(turn.sufficiency().assistantReply().contains("没关系"));
         assertEquals("你最近常用哪个工具？", turn.sufficiency().nextQuestion());
         assertEquals(2, requests.size());
-        assertTrue(requests.get(0).messages().get(1).content().contains("recentConversation"));
-        assertTrue(requests.get(1).messages().get(1).content().contains("我不知道"));
+        assertEquals("你想解决什么问题？", requests.get(0).messages().get(1).content());
+        assertTrue(requests.get(1).messages().getLast().content().contains("我不知道"));
     }
 
     @Test

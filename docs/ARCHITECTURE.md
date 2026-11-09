@@ -727,25 +727,31 @@ GET 每页最多 100 条，按原顺序返回，并单独返回最后未回答�
 刷新、后端重启和打开项目只读恢复，不自动调用 AI；旧画像无记录显示空历史。
 日志不记录原文、完整模型响应或 Prompt。
 
-**有界续聊与问题规划**
+**引导式探索与上下文预算**
 
-普通业务轮仍至多两次 Gateway 调用：提取事实，再评估兼回应及规划可选问题。
-明确附和或流程请求可跳过提取，只有一次评估。hasNewFacts=false 不能修改内容或新增依据；
-明确纠正通过现有 Domain 操作更新当前内容、撤回错误依据并增加本轮依据，历史快照不变。
-普通轮不调用 beginReview；足够也保持 EXPLORING，解释、澄清和接受跳过可仅回复。
+普通轮先关闭思考提取有依据的事实到候选画像，再用 Thinking Low 规划回复、上一问结果和下一步。
+附和、显式索取下一问等控制输入沿用已有的无事实快捷路径。规划结构不合法、问题重复、
+已跳过维度或充分性冲突时，允许一次仅规划阶段的修正。网络异常直接结束请求。两次校验均失败
+则明确失败，画像、Evidence、问题状态、邀请与消息均不提交。
 
-提取与评估使用服务端最近八条已接受消息（每条最多 2048 字符，优先保留真实问题）、
-最近八个问题、最多八类话题的最新讨论状态和跳过维度，不发送完整历史。
-兼容的客户端 recentConversation / previousQuestions 仍校验形状，但不作为产品续聊来源。
-上一问 ANSWERED / DEFERRED / OPEN 仅描述对话状态；解释为何提问保持 OPEN，未回答问题
-不会被新问题替换。跳过维度跨重启保留，只有真实用户轮主动重开才解除，不据拒答制造事实。
-历史问题全量在本地做规范化及有限的相似文本检查；模型结合话题状态避免语义重复。
-这不是通用语义记忆，也不能证明所有改写都被识别。
+ASK 展示一个新问题，KEEP_PENDING 回应并保留当前问题，PAUSE 在暂停或提供审阅选择时只回应。
+有上一问时给出 ASKED / ANSWERED / DEFERRED / REPLACED，无上一问用 NONE。
+只有明确跳过才阻止再次追问该维度；改换目标可以替换旧问题。服务端校验实际待答身份、
+有界问题文本和历史问题的规范化近似重复。主动索取 guidance 时前端优先聚焦现有问题，
+服务端对陈旧的并发索取拒绝再次生成。
 
-questionArea、deferredAreas、resumedAreas 均严格校验为已知维度，不属于 Profile / Evidence。
-主动 discovery-question 只在 EXPLORING 和当前 revision 可用；已有未回答问题时拒绝替换。
-该入口必须给出未跳过且未重复的可用问题，必要时从确定性缺口规划；耗尽则明确 502，
-不保存成功消息、不自动重试。Continue / Reopen 与提问仍是两次请求，提问失败保留真实探索状态。
+完整已提交历史按顺序使用 USER / ASSISTANT 消息，保留当时实际呈现的问题原文。
+两阶段各自的固定 System 指令之后是历史，最后一条 USER 承载当前输入、画像及必要的动态材料。
+客户端兼容字段仍校验形状，不进入正式对话历史。DeepSeek Adapter 复用当前模型的离线 tokenizer。
+默认窗口 1,000,000，提取/规划实际 max_tokens 分别为 8,192 / 16,384。
+可用输入的 90% 向上取整触发截断，以 75% 向下取整为目标；精确序列化的 HTTP 请求另限 8 MiB。
+只从模型请求中移除最早完整 requestId 组。必要材料超过可用预算时在网络发送前失败。
+日志只记录耗时、字节、token 与轮次数，不保存私人推理。
+
+按画像、按探索周期保存首次邀请的请求 ID 与用户选择。达到当前审阅条件且没有待答问题时，
+在助手回复下展示两个操作。接受后续输入或显式索取问题都记为继续；进入审阅仍走原显式用例。
+审阅后返回探索沿用同一周期，已确认画像显式重开开始新周期。侧栏以当前版本充分性为准。
+完整规范见 ADR-0019 的本次修订。
 
 review-readiness 返回 `{profileId, revision, sufficient: true|false|null, missingAreas}`：
 null 是未知，false 是已保存不足。界面只显示非阻塞审阅提示，不弹自动邀请、不自动进入审阅。
@@ -1487,10 +1493,10 @@ sequenceDiagram
         UD->>AI: Extract facts from real input
         AI-->>UD: Structured Profile Proposal
         UD->>AI: Assess candidate + Evidence / Propose next question
-        AI-->>UD: Final sufficiency + assistantReply + Optional nextQuestion
+        AI-->>UD: Readiness proposal + reply + prior outcome + next action
 
-        UD-->>O: assistantReply + Optional nextQuestion
-        O-->>U: Reply and optionally ask
+        UD-->>O: Accepted reply + action + review invitation if eligible
+        O-->>U: Reply, guide next action or offer review
 
         U->>O: Respond / clarify / skip / correct
         O->>UD: Process current intent

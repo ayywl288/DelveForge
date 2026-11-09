@@ -33,7 +33,21 @@ public record ProfileSufficiencyProposal(
         String questionArea,
         List<String> deferredAreas,
         String previousQuestionState,
-        List<String> resumedAreas) {
+        List<String> resumedAreas,
+        DialogueAction nextAction) {
+
+    public ProfileSufficiencyProposal(
+            boolean sufficient,
+            List<String> missingAreas,
+            String nextQuestion,
+            String assistantReply,
+            String questionArea,
+            List<String> deferredAreas,
+            String previousQuestionState,
+            List<String> resumedAreas) {
+        this(sufficient, missingAreas, nextQuestion, assistantReply, questionArea, deferredAreas,
+                previousQuestionState, resumedAreas, null);
+    }
 
     public ProfileSufficiencyProposal(boolean sufficient, List<String> missingAreas, String nextQuestion,
             String assistantReply, String questionArea, List<String> deferredAreas, String previousQuestionState) {

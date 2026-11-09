@@ -132,8 +132,11 @@ delveforge:
       # 流式绝对期限与 timeout 的连接 / 空闲期限独立；任何增量均不能延长它。
       stream-timeout: 300s
       # 显式限制总生成量（含思考），不接受因 length 截断的结果。
-      # 全部 AI 阶段共用此预算；提高上限可能增加费用，并非每次都会用满。
+      # 未单独声明工作负载预算的生成请求使用此上限。
       max-tokens: 98304
+      discovery-context-tokens: 1000000
+      extraction-output-tokens: 8192
+      dialogue-output-tokens: 16384
       max-response-bytes: 33554432
       max-event-bytes: 65536
       max-request-bytes: 8388608

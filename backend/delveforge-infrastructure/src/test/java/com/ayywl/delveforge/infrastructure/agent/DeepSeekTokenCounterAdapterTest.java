@@ -1,6 +1,8 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentProtocol;
+import com.ayywl.delveforge.application.port.ai.AiMessage;
+import com.ayywl.delveforge.application.port.ai.AiRole;
 import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,6 +41,30 @@ class DeepSeekTokenCounterAdapterTest {
                     assertEquals(fixture.path("tokens").asLong(), counter.countPromptTokens(messages, tools),
                             fixture.path("name").asText());
                 }
+            }
+        }
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = Thinking.class, names = {"DISABLED", "LOW"})
+    void countsToolFreeDiscoveryHistoryWithGenerationPrefix(Thinking mode) {
+        // 基础值来自官方 recipe 0.2.0 的 Chinese / no tools 样本；每对 a/b 是两枚正文、
+        // user/assistant 两枚角色标记、历史思考结束标记和 EOS，共六枚 token。
+        boolean low = mode == Thinking.LOW;
+        var history = new ArrayList<AiMessage>();
+        var user = AiRole.USER;
+        var assistant = AiRole.ASSISTANT;
+        history.add(new AiMessage(
+                AiRole.SYSTEM, low ? "Authorized step" : "仅执行已确认步骤。"));
+        var latest = new AiMessage(user,
+                low ? "Inspect files" : "读取下一页文件并核对行号。");
+        try (var counter = new DeepSeekTokenCounterAdapter("deepseek-flash", Thinking.HIGH)) {
+            for (int round = 0; round <= 12; round++) {
+                history.add(latest);
+                assertEquals((low ? 36 : 19) + 6 * round, counter.countDialogue(history, mode));
+                history.removeLast();
+                history.add(new AiMessage(user, "a"));
+                history.add(new AiMessage(assistant, "b"));
             }
         }
     }

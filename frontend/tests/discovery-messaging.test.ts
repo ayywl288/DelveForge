@@ -51,6 +51,25 @@ beforeEach(() => {
   }));
 });
 describe("Discovery 消息反馈与请求边界", () => {
+  it("恢复审阅邀请后可以直接续聊，接受新问题后只保留侧栏审阅入口", async () => {
+    const { s, root } = setup();
+    s.sufficiency = { sufficient: true, missingAreas: [], nextQuestion: null };
+    vi.spyOn(api, "conversation").mockResolvedValue({ messages: [
+      { sequence: 1, requestId: "invite", role: "agent", text: "现在可以检查这版目标了。", question: null,
+        questionState: null, createdAt: "2026-11-09T00:00:00Z", projectId: null },
+    ], before: null, pendingRequestId: null, invitationRequestId: "invite", unansweredQuestion: null });
+    await s.loadConversation(); await nextTick();
+    expect(root.querySelectorAll(".dialogue-choice button")).toHaveLength(2);
+    const ask = vi.spyOn(api, "discoveryQuestion");
+    vi.spyOn(api, "discoveryTurn").mockResolvedValue({ ...result(), sufficient: true, missingAreas: [],
+      nextAction: "ASK", previousQuestionState: "NONE", assistantReply: "我们可以聊聊查找旧笔记的过程。" });
+    await s.turn("我还想聊检索笔记"); await nextTick();
+    expect(ask).not.toHaveBeenCalled();
+    expect(root.querySelector(".dialogue-choice")).toBeNull();
+    expect(root.querySelector(".dialogue-question")?.textContent).toBe(result().nextQuestion);
+    expect(root.querySelector(".notebook-review")?.textContent).toContain("进入画像审阅");
+  });
+
   it("聊天摘要的六区及原始描述参与正常渲染，整体收起后可重新展开", async () => {
     const { s, root } = setup();
     s.profile = { ...profile(), interests: ["阅读整理"], evidence: [

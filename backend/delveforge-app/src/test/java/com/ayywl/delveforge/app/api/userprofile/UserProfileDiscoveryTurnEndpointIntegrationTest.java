@@ -63,11 +63,17 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
             }
             """;
 
-    private static final String SUFFICIENT_RESPONSE =
-            "{\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"希望先支持哪一种裁剪场景？\",\"assistantReply\":\"可以继续细化裁剪体验。\",\"questionArea\":\"exploration\",\"deferredAreas\":[]}";
+    private static final String QUESTION_RESPONSE =
+            "{\"previousQuestionState\":\"NONE\",\"nextAction\":\"ASK\",\"sufficient\":true,\"missingAreas\":[],\"nextQuestion\":\"希望先支持哪一种裁剪场景？\",\"assistantReply\":\"可以继续细化裁剪体验。\",\"questionArea\":\"exploration\",\"deferredAreas\":[]}";
+
+    private static final String SUFFICIENT_RESPONSE = """
+            {"previousQuestionState":"NONE","nextAction":"PAUSE","sufficient":true,"missingAreas":[],
+             "nextQuestion":null,"assistantReply":"可以继续细化裁剪体验。","questionArea":null,"deferredAreas":[]}
+            """;
 
     private static final String INSUFFICIENT_RESPONSE = """
             {
+              "nextAction": "ASK", "previousQuestionState": "NONE",
               "assistantReply": "为了选择合适的方向，还需要了解技术经验。",
               "questionArea": "technicalCapabilities",
               "deferredAreas": [],
@@ -121,7 +127,8 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sufficient").value(true))
                 .andExpect(jsonPath("$.missingAreas").isEmpty())
-                .andExpect(jsonPath("$.nextQuestion").value("希望先支持哪一种裁剪场景？"))
+                .andExpect(jsonPath("$.nextQuestion").doesNotExist())
+                .andExpect(jsonPath("$.reviewInvitation").value(true))
                 .andExpect(jsonPath("$.profile.status").value("EXPLORING"))
                 .andExpect(jsonPath("$.profile.revision").value(7));
 
@@ -139,7 +146,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         String id = createProfile();
         given(aiGateway.generate(any())).willReturn(
                 EXTRACTION_RESPONSE, INSUFFICIENT_RESPONSE,
-                "{\"hasNewFacts\":true,\"technicalCapabilities\":[\"Java\"],\"evidenceClaims\":[\"用户主要使用Java\"]}", SUFFICIENT_RESPONSE);
+                "{\"hasNewFacts\":true,\"technicalCapabilities\":[\"Java\"],\"evidenceClaims\":[\"用户主要使用Java\"]}", SUFFICIENT_RESPONSE.replace("NONE", "ANSWERED"));
 
         String nextQuestion = objectMapper.readTree(
                         mockMvc.perform(turn(id, USER_INPUT))
@@ -240,12 +247,12 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
     @Test
     void questionEndpointReadsTheCurrentProfileWithoutUpdatingIt() throws Exception {
         String id = createProfile();
-        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE.replace("\"nextQuestion\":\"希望先支持哪一种裁剪场景？\"", "\"nextQuestion\":null").replace("\"questionArea\":\"exploration\"", "\"questionArea\":null"));
+        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
         mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
         String before = mockMvc.perform(get("/api/user-profiles/{id}", id)).andReturn()
                 .getResponse().getContentAsString(StandardCharsets.UTF_8);
         int revision = objectMapper.readTree(before).path("revision").asInt();
-        given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
+        given(aiGateway.generate(any())).willReturn(QUESTION_RESPONSE);
 
         mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -272,7 +279,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(status().isConflict());
         Mockito.verifyNoInteractions(aiGateway);
 
-        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE.replace("\"nextQuestion\":\"希望先支持哪一种裁剪场景？\"", "\"nextQuestion\":null").replace("\"questionArea\":\"exploration\"", "\"questionArea\":null"));
+        given(aiGateway.generate(any())).willReturn(EXTRACTION_RESPONSE, SUFFICIENT_RESPONSE);
         mockMvc.perform(turn(id, USER_INPUT)).andExpect(status().isOk());
         given(aiGateway.generate(any())).willReturn(SUFFICIENT_RESPONSE);
         mockMvc.perform(post("/api/user-profiles/{id}/sufficiency-assessment", id)).andExpect(status().isOk());
@@ -287,6 +294,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(status().isConflict());
         mockMvc.perform(post("/api/user-profiles/{id}/reopen-discovery", id))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(7));
+        given(aiGateway.generate(any())).willReturn(QUESTION_RESPONSE);
         mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":7}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.nextQuestion").isString());
@@ -294,6 +302,10 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(jsonPath("$.status").value("EXPLORING"))
                 .andExpect(jsonPath("$.revision").value(7));
         Mockito.verify(aiGateway, Mockito.times(3)).generate(any());
+        given(aiGateway.generate(any())).willReturn("{\"hasNewFacts\":false}",
+                SUFFICIENT_RESPONSE.replace("NONE", "ANSWERED"));
+        mockMvc.perform(turn(id, "先做头像裁剪"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.reviewInvitation").value(true));
     }
 
     @Test
@@ -349,7 +361,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         String id = createProfile();
         given(aiGateway.generate(any())).willReturn("{\"hasNewFacts\":false}", """
                 {"sufficient":false,"missingAreas":["还需明确目标"],"assistantReply":"技术背景用于判断可行范围，可以先跳过。",
-                 "nextQuestion":null,"questionArea":null,"deferredAreas":["technicalCapabilities"]}
+                 "previousQuestionState":"NONE","nextAction":"PAUSE","nextQuestion":null,"questionArea":null,"deferredAreas":[]}
                 """);
         mockMvc.perform(post("/api/user-profiles/{id}/discovery-turn", id)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -386,18 +398,18 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         given(aiGateway.generate(any())).willReturn("""
                 {"sufficient":false,"missingAreas":["需要明确目标"],"assistantReply":"我们可以开始探索。",
                  "nextQuestion":null,"questionArea":null,"deferredAreas":[]}
-                """);
+                """, INSUFFICIENT_RESPONSE);
         mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":1}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sufficient").value(false))
-                .andExpect(jsonPath("$.nextQuestion").value("你希望这个项目帮助你完成什么成果，或展示什么能力？"));
+                .andExpect(jsonPath("$.nextQuestion").value("你平时主要用什么语言写代码？"));
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.revision").value(1)).andExpect(jsonPath("$.evidence").isEmpty())
                 .andExpect(jsonPath("$.status").value("EXPLORING"));
         mockMvc.perform(get("/api/user-profiles/{id}/review-readiness", id))
                 .andExpect(jsonPath("$.sufficient").value(false));
-        Mockito.verify(aiGateway, Mockito.times(1)).generate(any());
+        Mockito.verify(aiGateway, Mockito.times(2)).generate(any());
     }
 
     @Test
@@ -414,7 +426,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(jsonPath("$.code").value("EXTERNAL_CAPABILITY_UNAVAILABLE"));
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.revision").value(1)).andExpect(jsonPath("$.evidence").isEmpty());
-        Mockito.verify(aiGateway, Mockito.times(1)).generate(any());
+        Mockito.verify(aiGateway, Mockito.times(2)).generate(any());
     }
 
     @Test
@@ -434,7 +446,8 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 .andExpect(jsonPath("$.messages[0].role").value("user"))
                 .andExpect(jsonPath("$.messages[0].text").value(USER_INPUT))
                 .andExpect(jsonPath("$.messages[1].createdAt").isNotEmpty())
-                .andExpect(jsonPath("$.unansweredQuestion").value("希望先支持哪一种裁剪场景？"));
+                .andExpect(jsonPath("$.unansweredQuestion").doesNotExist())
+                .andExpect(jsonPath("$.invitationRequestId").value(requestId));
         mockMvc.perform(get("/api/user-profiles/{id}/discovery-requests/{requestId}", id, requestId))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.state").value("COMPLETED"))
                 .andExpect(jsonPath("$.revision").value(7)).andExpect(jsonPath("$.result.sufficient").value(true))

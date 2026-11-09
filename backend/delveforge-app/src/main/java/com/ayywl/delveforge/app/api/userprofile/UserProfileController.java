@@ -179,7 +179,7 @@ public class UserProfileController {
         requireCompleted(operation);
         SufficiencyAssessment result = operation.result();
         return new DiscoveryQuestionResponse(
-                request.revision(), result.sufficient(), result.missingAreas(), result.nextQuestion(), result.assistantReply());
+                request.revision(), result.sufficient(), result.missingAreas(), result.nextQuestion(), result.assistantReply(), result.nextAction());
     }
 
     public record OperationResponse(String requestId, String state, Integer revision, SufficiencyAssessment result) {
@@ -256,7 +256,7 @@ public class UserProfileController {
                 assessment.sufficient(),
                 assessment.missingAreas(),
                 assessment.nextQuestion(),
-                assessment.assistantReply(), assessment.previousQuestionState());
+                assessment.assistantReply(), assessment.previousQuestionState(), assessment.nextAction(), assessment.reviewInvitation());
     }
 
     private static SufficiencyAssessmentResponse toResponse(SufficiencyAssessment assessment) {

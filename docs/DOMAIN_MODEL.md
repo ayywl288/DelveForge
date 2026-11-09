@@ -1319,7 +1319,7 @@ stateDiagram-v2
   `sufficient=true` 时仍保持 `EXPLORING`；用户显式请求审阅后，Application 优先复用服务端针对该 ID + revision 保存的充分性及缺口；
   无记录才评估当前内容，充分时才调用 Domain 的 `beginReview()`。继续探索一次后可以连续回答多轮，不自动回到审阅。
 - 最低充分性、是否继续探索、是否进入审阅是独立概念。`EXPLORING` 的普通对话轮即使
-  `sufficient=true` 仍可继续补充；assistantReply 回应当前输入，nextQuestion 按语境可为空。
+  `sufficient=true` 仍可继续补充；assistantReply 回应当前输入，ASK、KEEP_PENDING、PAUSE 描述下一步。审阅邀请是对话记录，用户仍须显式进入审阅。
   问题用于深入与方向有关的场景或取舍，不为了填满六区。解释、不知道、拒答、流程请求本身
   不产生画像事实。下一问不是用户事实，不记录为 Evidence，也不因提问推进 revision。
 - 用户主动 Continue / Reopen 后可请求下一问；该能力仅在 EXPLORING、针对当前 revision

@@ -127,6 +127,12 @@ final class DeepSeekStreamingResponse {
     static void usage(JsonNode root, Stats stats) {
         JsonNode usage = root.path("usage");
         long prompt = count(usage.path("prompt_tokens"));
+        if (usage.has("prompt_cache_hit_tokens")) {
+            stats.cacheHit = count(usage.path("prompt_cache_hit_tokens"));
+        }
+        if (usage.has("prompt_cache_miss_tokens")) {
+            stats.cacheMiss = count(usage.path("prompt_cache_miss_tokens"));
+        }
         long completion = count(usage.path("completion_tokens"));
         long reasoning = count(usage.path("completion_tokens_details").path("reasoning_tokens"));
         if (prompt >= 0) {
@@ -196,6 +202,8 @@ final class DeepSeekStreamingResponse {
         long firstContentMs = -1;
         long firstReasoningMs = -1;
         long promptTokens = -1;
+        long cacheHit = -1;
+        long cacheMiss = -1;
         long completionTokens = -1;
         long reasoningTokens = -1;
     }

@@ -54,6 +54,12 @@
 .message-turn-header time { color: var(--muted); font-size: 12px; }
 .transcript-surface .message.user .message-speaker { color: var(--accent); }
 .transcript-surface .message p { max-width: 70ch; font-size: 15px; line-height: 1.9; }
+.transcript-surface .dialogue-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.transcript-surface .dialogue-question { margin: 6px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.transcript-surface .dialogue-choice { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.transcript-surface .dialogue-choice button { min-height: 36px; padding: 6px 12px; }
+.transcript-surface .dialogue-pending { color: var(--muted); margin: 0 0 6px; font-size: 14px; overflow-wrap: anywhere; }
+.transcript-surface .dialogue-pending strong { color: var(--ink); margin-right: 6px; }
 .transcript-surface .message .message-state { font-size: 12px; }
 .transcript-surface .accepted-state { justify-content: flex-end; }
 .transcript-surface .assistant-waiting { display: flex; align-items: center; gap: 12px; padding: 16px 18px; min-height: 52px; color: var(--muted); }
@@ -170,6 +176,7 @@
     .transcript-surface .message { padding: 14px; max-width: 96%; }
     .transcript-surface .message.user { max-width: 91%; }
     .message-turn-header { flex-wrap: wrap; gap: 4px 12px; }
+    .transcript-surface .dialogue-choice button { min-height: 44px; }
     .transcript-surface .composer { padding: 16px; }
     .transcript-surface .composer textarea { font-size: 16px; }
     .notebook-heading { padding: 20px 16px; }

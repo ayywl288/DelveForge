@@ -2,10 +2,7 @@ package com.ayywl.delveforge.application.userdiscovery.exploration;
 
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
-import com.ayywl.delveforge.application.port.ai.AiMessage;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
-import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
-import com.ayywl.delveforge.application.port.ai.AiRole;
 import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.ayywl.delveforge.application.userdiscovery.shared.ProfilePromptContext;
 import com.ayywl.delveforge.domain.evidence.Evidence;
@@ -85,7 +82,7 @@ public final class ProfileExtraction {
             无新事实时仅返回 {"hasNewFacts":false}。不知道、不愿回答、询问原因、询问是否足够、
             纠正指代不清或仅请求下一问都不产生事实；不要把拒答推断成没有能力或没有约束。
             有新事实时 hasNewFacts=true，且 evidenceClaims 必须提供本轮原文直接支持的依据。
-            recentConversation 是客户端提供的有界对话，只用于理解指代与问题，不可作为事实来源。
+            历史对话，只用于理解指代与问题，不可作为事实来源。
             currentEvidence 是当前依据数组；只有本轮明确纠正某条错误判断时，才可用
             retractedEvidenceIndices:[0] 指出应撤回的数组下标（从零开始）。同时给出纠正后的
             完整内容区与新 evidenceClaims，移除被纠正的错误内容、保留其他已知事实。
@@ -156,6 +153,11 @@ public final class ProfileExtraction {
 
     /** 完整对话轮的严格提取；撤回仅作用在候选副本，历史快照不改写。 */
     public void applyTurnTo(UserProfile candidate, String userInput, List<DiscoveryContext.Message> context) {
+        applyTurnTo(candidate, userInput, context, null, List.of());
+    }
+
+    public void applyTurnTo(UserProfile candidate, String userInput, List<DiscoveryContext.Message> context,
+            String pendingQuestion, List<String> deferredAreas) {
         requireUserInput(userInput);
         String control = userInput.strip().replaceAll("[\\s，。！？,.!?]", "");
         if (Set.of("嗯", "嗯嗯", "呢", "下一个问题是什么", "下一个问题是啥", "下一个问题",
@@ -166,16 +168,16 @@ public final class ProfileExtraction {
         payload.put("currentUserProfile", ProfilePromptContext.currentContent(candidate));
         payload.put("currentEvidence", candidate.evidence());
         payload.put("currentUserInput", userInput);
-        payload.put("recentConversation", context);
+        payload.put("pendingQuestion", pendingQuestion);
+        payload.put("deferredAreas", deferredAreas);
         String content;
         try {
             content = objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException exception) {
             throw new AiGatewayException("无法构造提取请求", exception);
         }
-        UserProfileProposalParser.TurnProposal turn = proposalParser.parseTurn(aiGateway.generate(new AiRequest(
-                List.of(new AiMessage(AiRole.SYSTEM, SYSTEM_INSTRUCTION + TURN_INSTRUCTION),
-                        new AiMessage(AiRole.USER, content)), AiResponseFormat.JSON, AiRequest.Thinking.DISABLED)),
+        UserProfileProposalParser.TurnProposal turn = proposalParser.parseTurn(aiGateway.generate(
+                DiscoveryContext.request(SYSTEM_INSTRUCTION + TURN_INSTRUCTION, context, content, AiRequest.Thinking.DISABLED)),
                 candidate.evidence().size());
         List<Evidence> originalEvidence = candidate.evidence();
         for (int index : turn.retractedEvidenceIndices()) {
@@ -200,11 +202,8 @@ public final class ProfileExtraction {
     }
 
     private AiRequest buildRequest(UserProfile profile, String userInput) {
-        return new AiRequest(
-                List.of(
-                        new AiMessage(AiRole.SYSTEM, SYSTEM_INSTRUCTION),
-                        new AiMessage(AiRole.USER, describeContext(profile, userInput))),
-                AiResponseFormat.JSON, AiRequest.Thinking.DISABLED);
+        return DiscoveryContext.request(SYSTEM_INSTRUCTION, List.of(), describeContext(profile, userInput),
+                AiRequest.Thinking.DISABLED);
     }
 
     /**

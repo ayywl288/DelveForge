@@ -38,14 +38,18 @@ public final class ProfileSufficiencyProposalParser {
      *                            或 sufficient 与其余字段互相矛盾
      */
     public ProfileSufficiencyProposal parse(String rawAiOutput) {
-        return parse(rawAiOutput, false);
+        return parse(rawAiOutput, false, false);
     }
 
     public ProfileSufficiencyProposal parseConversation(String rawAiOutput) {
-        return parse(rawAiOutput, true);
+        return parse(rawAiOutput, true, false);
     }
 
-    private ProfileSufficiencyProposal parse(String rawAiOutput, boolean conversation) {
+    public ProfileSufficiencyProposal parseGuided(String rawAiOutput) {
+        return parse(rawAiOutput, true, true);
+    }
+
+    private ProfileSufficiencyProposal parse(String rawAiOutput, boolean conversation, boolean guided) {
         JsonNode root = reader.read(rawAiOutput);
 
         JsonNode sufficientNode = root.get(FIELD_SUFFICIENT);
@@ -66,7 +70,9 @@ public final class ProfileSufficiencyProposalParser {
             String reply = blankToNull(text(root, "assistantReply"));
             String area = blankToNull(text(root, "questionArea"));
             String previousState = root.has("previousQuestionState") ? text(root, "previousQuestionState") : "OPEN";
-            if (!List.of("OPEN", "ANSWERED", "DEFERRED").contains(previousState == null ? "" : previousState)) {
+            List<String> states = guided ? List.of("NONE", "ASKED", "ANSWERED", "DEFERRED", "REPLACED")
+                    : List.of("OPEN", "ANSWERED", "DEFERRED");
+            if (!states.contains(previousState == null ? "" : previousState)) {
                 throw new AiGatewayException("上一问的对话状态不合法");
             }
             List<String> deferred = textArray(root, "deferredAreas");
@@ -87,8 +93,19 @@ public final class ProfileSufficiencyProposalParser {
             if (missingAreas == null || sufficientNode.booleanValue() != missingAreas.isEmpty()) {
                 throw new AiGatewayException("充分性与缺失信息矛盾");
             }
+            DialogueAction action = null;
+            if (guided) {
+                try {
+                    action = DialogueAction.valueOf(root.path("nextAction").asText(""));
+                } catch (IllegalArgumentException invalid) {
+                    throw new AiGatewayException("nextAction 必须是 ASK、KEEP_PENDING 或 PAUSE");
+                }
+                if ((action == DialogueAction.ASK) != (nextQuestion != null)) {
+                    throw new AiGatewayException("只有 ASK 可以携带新问题，且必须给出一个问题");
+                }
+            }
             return new ProfileSufficiencyProposal(sufficientNode.booleanValue(), missingAreas,
-                    nextQuestion, reply, area, deferred, previousState, resumed);
+                    nextQuestion, reply, area, deferred, previousState, resumed, action);
         }
 
         if (sufficientNode.booleanValue()) {

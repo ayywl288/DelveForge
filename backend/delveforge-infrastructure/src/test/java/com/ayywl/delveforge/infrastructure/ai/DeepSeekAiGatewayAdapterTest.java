@@ -1,14 +1,17 @@
 package com.ayywl.delveforge.infrastructure.ai;
 
+import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiMessage;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
+import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository.Memory;
 import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileExtraction;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.ProfileSufficiencyEvaluator;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+import com.ayywl.delveforge.infrastructure.agent.DeepSeekTokenCounterAdapter;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -53,6 +56,17 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
  */
 @ExtendWith(OutputCaptureExtension.class)
 class DeepSeekAiGatewayAdapterTest {
+    private static final DeepSeekTokenCounterAdapter COUNTER =
+            new DeepSeekTokenCounterAdapter("deepseek-flash", AiRequest.Thinking.HIGH);
+
+    @org.junit.jupiter.api.AfterAll
+    static void closeCounter() {
+        COUNTER.close();
+    }
+
+    private static AiGateway configuredGateway(DeepSeekProperties properties) {
+        return DeepSeekAiGatewayConfiguration.gateway(properties, () -> COUNTER);
+    }
 
     private static final String BASE_URL = "https://api.deepseek.example";
     private static final String API_KEY = "test-api-key";
@@ -67,7 +81,7 @@ class DeepSeekAiGatewayAdapterTest {
             restClientBuilder.build(),
             new ObjectMapper(),
             new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5),
-                    false, Duration.ofSeconds(10), 16384, 8388608, 65536, 8388608));
+                    false, Duration.ofSeconds(10), 16384, 8388608, 65536, 8388608), () -> COUNTER);
 
     @Test
     void profileExtractionAndDiscoveryTurnSelectTheirOwnWireMode() throws Exception {
@@ -78,21 +92,68 @@ class DeepSeekAiGatewayAdapterTest {
         server.expect(requestTo(BASE_URL + "/chat/completions"))
                 .andExpect(jsonPath("$.thinking.type").value("disabled"))
                 .andExpect(jsonPath("$.reasoning_effort").doesNotExist())
+                .andExpect(jsonPath("$.max_tokens").value(8192))
                 .andRespond(withSuccess(chatCompletion("{\"hasNewFacts\":false}"), MediaType.APPLICATION_JSON));
         server.expect(requestTo(BASE_URL + "/chat/completions"))
                 .andExpect(jsonPath("$.thinking.type").value("enabled"))
                 .andExpect(jsonPath("$.reasoning_effort").value("low"))
+                .andExpect(jsonPath("$.max_tokens").value(16384))
                 .andRespond(withSuccess(chatCompletion("""
                         {"sufficient":false,"missingAreas":["goal"],"assistantReply":"Continue",
-                         "nextQuestion":null,"questionArea":null,"deferredAreas":[]}
+                         "nextAction":"PAUSE","previousQuestionState":"NONE","nextQuestion":null,"questionArea":null,"deferredAreas":[]}
                         """), MediaType.APPLICATION_JSON));
         UserProfile profile = UserProfile.create(new UserProfileId("user"));
         var extraction = new ProfileExtraction(adapter, new ObjectMapper());
         extraction.applyTo(profile, "I like history");
         extraction.applyTurnTo(profile, "Tell me more", List.of());
-        new ProfileSufficiencyEvaluator(adapter, new ObjectMapper()).evaluateTurn(
-                profile, "How much is left?", List.of(), List.of());
+        new ProfileSufficiencyEvaluator(adapter, new ObjectMapper()).evaluateRemembered(
+                profile, "How much is left?", new Memory(List.of(), List.of(), List.of(), List.of(), null, false),
+                null, false);
         server.verify();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void trimsOnlyOldestCompleteDiscoveryTurnsBeforeOneHttpRequest(boolean tokenLimit) throws Exception {
+        List<AiMessage> history = new java.util.ArrayList<>();
+        List<Integer> starts = new java.util.ArrayList<>();
+        history.add(new AiMessage(AiRole.SYSTEM, "stable"));
+        for (int i = 0; i < 12; i++) {
+            starts.add(history.size());
+            history.add(new AiMessage(AiRole.USER, "场景" + i + " 我希望检索阅读笔记".repeat(5)));
+            history.add(new AiMessage(AiRole.ASSISTANT, "问题" + i));
+        }
+        history.add(new AiMessage(AiRole.USER, "current"));
+        int reserve = 30;
+        var properties = new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5), false,
+                Duration.ofSeconds(10), 16384, 8388608, 65536, tokenLimit ? 8388608 : 1500,
+                tokenLimit ? 180 : 1000000, reserve, reserve);
+        var gateway = new DeepSeekAiGatewayAdapter(restClientBuilder.build(), new ObjectMapper(), properties, () -> COUNTER);
+        server.expect(requestTo(BASE_URL + "/chat/completions")).andExpect(request -> {
+            byte[] bytes = ((org.springframework.mock.http.client.MockClientHttpRequest) request).getBodyAsBytes();
+            var body = new ObjectMapper().readTree(bytes);
+            var messages = body.get("messages");
+            assertEquals(reserve, body.get("max_tokens").asInt());
+            assertTrue(bytes.length <= properties.maxRequestBytes());
+            assertTrue(messages.size() > 2 && messages.size() < history.size());
+            assertEquals(0, messages.size() % 2);
+            int omitted = history.size() - messages.size();
+            List<AiMessage> kept = new java.util.ArrayList<>();
+            kept.add(history.getFirst());
+            kept.addAll(history.subList(omitted + 1, history.size()));
+            for (int index = 0; index < kept.size(); index++) {
+                assertEquals(kept.get(index).content(), messages.get(index).get("content").textValue());
+            }
+            if (tokenLimit) {
+                assertTrue(COUNTER.countDialogue(kept, AiRequest.Thinking.LOW) <= (180 - reserve) * 75 / 100);
+            }
+        }).andRespond(withSuccess(chatCompletion("ok"), MediaType.APPLICATION_JSON));
+        assertEquals("ok", gateway.generate(new AiRequest(history, AiResponseFormat.JSON, AiRequest.Thinking.LOW, starts)));
+        server.verify();
+        // 只有当前必要材料时，超限不能再削减，也不发起 HTTP 请求。
+        assertThrows(AiGatewayException.class, () -> gateway.generate(new AiRequest(
+                List.of(history.getFirst(), new AiMessage(AiRole.USER, "太长".repeat(2000))),
+                AiResponseFormat.JSON, AiRequest.Thinking.LOW, List.of())));
     }
 
     @Test
@@ -146,7 +207,7 @@ class DeepSeekAiGatewayAdapterTest {
                 restClientBuilder.build(),
                 new ObjectMapper(),
                 new DeepSeekProperties(BASE_URL, "  ", MODEL, Duration.ofSeconds(5),
-                        false, Duration.ofSeconds(10), 16384, 8388608, 65536, 8388608));
+                        false, Duration.ofSeconds(10), 16384, 8388608, 65536, 8388608), () -> COUNTER);
 
         assertThrows(AiGatewayException.class, () -> withoutKey.generate(jsonRequest()));
 
@@ -252,7 +313,7 @@ class DeepSeekAiGatewayAdapterTest {
         });
         provider.start();
         try {
-            var actual = new DeepSeekAiGatewayConfiguration().deepSeekAiGateway(new DeepSeekProperties(
+            var actual = configuredGateway(new DeepSeekProperties(
                     "http://127.0.0.1:" + provider.getAddress().getPort(), API_KEY, MODEL,
                     Duration.ofMillis(1500), false, Duration.ofSeconds(10), 16384, 8388608, 65536, 8388608));
             assertThrows(AiGatewayException.class, () -> actual.generate(jsonRequest()));
@@ -334,7 +395,7 @@ class DeepSeekAiGatewayAdapterTest {
                 .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
         var bounded = new DeepSeekAiGatewayAdapter(restClientBuilder.build(), new ObjectMapper(),
                 new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5),
-                        false, Duration.ofSeconds(10), 16384, 1024, 512, 8388608));
+                        false, Duration.ofSeconds(10), 16384, 1024, 512, 8388608), () -> COUNTER);
 
         assertThrows(AiGatewayException.class, () -> bounded.generate(jsonRequest()));
         server.verify();
@@ -468,9 +529,9 @@ class DeepSeekAiGatewayAdapterTest {
         }
     }
 
-    private static com.ayywl.delveforge.application.port.ai.AiGateway actualStream(HttpServer provider,
+    private static AiGateway actualStream(HttpServer provider,
             Duration idle, Duration absolute) {
-        return new DeepSeekAiGatewayConfiguration().deepSeekAiGateway(new DeepSeekProperties(
+        return configuredGateway(new DeepSeekProperties(
                 "http://127.0.0.1:" + provider.getAddress().getPort(), API_KEY, MODEL, idle,
                 true, absolute, 16384, 8388608, 65536, 8388608));
     }
@@ -478,7 +539,7 @@ class DeepSeekAiGatewayAdapterTest {
     private DeepSeekAiGatewayAdapter streamingAdapter(int responseBytes, int eventBytes) {
         return new DeepSeekAiGatewayAdapter(restClientBuilder.build(), new ObjectMapper(),
                 new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5),
-                        true, Duration.ofSeconds(10), 16384, responseBytes, eventBytes, 8388608));
+                        true, Duration.ofSeconds(10), 16384, responseBytes, eventBytes, 8388608), () -> COUNTER);
     }
 
     private static String streamChunk(String content, String reasoning, String finish) throws Exception {

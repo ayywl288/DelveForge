@@ -1,3 +1,4 @@
+import type { DialogueAction } from "../api/types";
 import type { DiscoveryRequestIdentity, DiscoveryOperation } from "../api/types";
 import { computed, reactive, ref, type UnwrapNestedRefs } from "vue";
 import { api, ApiError } from "../api/client";
@@ -29,9 +30,11 @@ export interface SessionIds {
   planId: string;
 }
 interface DiscoveryMessage {
+  nextAction?: DialogueAction;
   role: "user" | "agent";
   text: string;
   question?: string;
+  reviewInvitation?: boolean;
   state?: "pending" | "accepted" | "failed" | "uncertain";
   profileId?: string;
   failed?: boolean;
@@ -161,16 +164,19 @@ export function createSession() {
     if (!ids.assetIds.includes(asset.id)) ids.assetIds.push(asset.id);
     remember();
   }
-  function appendReply(reply: string | undefined, question: string | null) {
+  function appendReply(reply: string | undefined, question: string | null, action?: DiscoveryMessage["nextAction"], invite = false) {
     if (!profile.value || profile.value.status !== "EXPLORING") return;
+    for (const message of messages.value) {
+      if (message.reviewInvitation) message.reviewInvitation = false;
+    }
     let followUp = question?.trim() || null;
-    if (followUp && messages.value.some(message => message.role === "agent" && message.question === followUp)) {
+    if (!action && followUp && messages.value.some(message => message.role === "agent" && message.question === followUp)) {
       notice.value = "Agent 返回了本页已经提过的问题，未重复插入；可以直接补充想法或按需索取下一问。";
       followUp = null;
     }
     let text = reply?.trim() || "";
     if (followUp && !text.includes(followUp)) text = [text, followUp].filter(Boolean).join("\n\n");
-    if (text) messages.value.push({ role: "agent", text, ...(followUp ? { question: followUp } : {}) });
+    if (text) messages.value.push({ role: "agent", text, ...(action ? { nextAction: action } : {}), ...(invite ? { reviewInvitation: true } : {}), ...(followUp ? { question: followUp } : {}) });
     if (followUp) {
       activeQuestion.value = { profileId: profile.value.id, revision: profile.value.revision, text: followUp };
     }
@@ -219,7 +225,10 @@ export function createSession() {
       }
       const restored: DiscoveryMessage[] = history.messages.map(message => ({ role: message.role,
         text: message.question && !message.text.includes(message.question) ? [message.text, message.question].filter(Boolean).join("\n\n") : message.text,
-        ...(message.question ? { question: message.question } : {}), profileId: current.id,
+        ...(message.question ? { question: message.question } : {}),
+        ...(message.nextAction ? { nextAction: message.nextAction } : {}),
+        ...(message.role === "agent" && history.invitationRequestId === message.requestId ? { reviewInvitation: true } : {}),
+        profileId: current.id,
         state: message.role === "user" ? "accepted" : undefined, createdAt: message.createdAt }));
       messages.value = more ? [...restored, ...messages.value] : restored;
       conversationBefore.value = history.before;
@@ -314,7 +323,7 @@ export function createSession() {
       }
       finishDiscoveryRequest(current.id, identity.requestId);
       acceptSufficiency(result);
-      appendReply(result.assistantReply, result.nextQuestion);
+      appendReply(result.assistantReply, result.nextQuestion, result.nextAction);
     } catch (failure) {
       if (!belongs()) return;
       try { if (await reconcileDiscovery()) return; } catch { /* 保留编号，只读查询失败不授权重发。 */ }
@@ -798,8 +807,10 @@ export function createSession() {
           message.state = "accepted";
           profile.value = result.profile;
           acceptSufficiency(result);
-          if (result.previousQuestionState && result.previousQuestionState !== "OPEN") activeQuestion.value = null;
-          appendReply(result.assistantReply, result.nextQuestion);
+          if (result.previousQuestionState && !["OPEN", "ASKED"].includes(result.previousQuestionState)) {
+            activeQuestion.value = null;
+          }
+          appendReply(result.assistantReply, result.nextQuestion, result.nextAction, result.reviewInvitation);
         } catch (failure) {
           if (!isCurrent()) return;
           // 仅已知在保存前拒绝的契约可判为失败；断线、未知 5xx 均可能已提交。

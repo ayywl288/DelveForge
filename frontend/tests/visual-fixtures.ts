@@ -52,7 +52,7 @@ export function visualFixture(scenario: string, path: string, query?: URLSearchP
         wc.status = 'CLOSED';
         wc.currentRevision = wc.lastVerifiedRevision = 'd'.repeat(40);
     }
-    const stage = ({ discovery: 'DISCOVERY', 'discovery-waiting': 'DISCOVERY', review: 'DISCOVERY', 'review-incomplete': 'DISCOVERY', repository: 'REPOSITORY', stress: 'REPOSITORY', directions: 'DIRECTION', planning: 'PLANNING', 'planning-authorize': 'PLANNING', 'plan-proposed': 'PLANNING' } as Record<string, string>)[scenario] ?? 'EVOLUTION';
+    const stage = scenario.startsWith('discovery') ? 'DISCOVERY' : ({ discovery: 'DISCOVERY', 'discovery-waiting': 'DISCOVERY', review: 'DISCOVERY', 'review-incomplete': 'DISCOVERY', repository: 'REPOSITORY', stress: 'REPOSITORY', directions: 'DIRECTION', planning: 'PLANNING', 'planning-authorize': 'PLANNING', 'plan-proposed': 'PLANNING' } as Record<string, string>)[scenario] ?? 'EVOLUTION';
     const context = { id: 'visual-project', name: 'Report Kit · 周期报表', userProfileId: user.id, assetIds: [a.id], repositoryProfileIds: [repo.id], directionIds: [selected.id, ...alternatives.map(d => d.id)], planId: p.id,
         createdAt: '2026-10-30T08:00:00Z', updatedAt: '2026-10-31T02:20:00Z', version: 2, flowId: 'visual-flow', previousContextId: null, deletedAt: null };
     const summary = { key: 'project:visual-project', name: context.name, legacy: false, stage: 'EVOLUTION', direction: selected.targetProduct,
@@ -77,11 +77,36 @@ export function visualFixture(scenario: string, path: string, query?: URLSearchP
     }
     if (path.startsWith('/projects/')) return { key: summary.key, context, legacy: false, userProfile: user, assets: [a], repositoryProfiles: [repo], directions: [selected, ...alternatives], plan: p, workingCopy: scenario === 'plan-proposed' ? null : wc, stage, boundUserProfileRevision: 4, issues: [] };
     if (path.endsWith('/review-readiness')) return { profileId: user.id, revision: 4, sufficient: scenario !== 'review-incomplete', missingAreas: scenario === 'review-incomplete' ? ['需要进一步明确约束与使用场景。'] : [] };
-    if (path.includes('/conversation')) return { messages: [
+    if (path.includes('/conversation')) {
+        const messages = [
         { sequence: 1, requestId: 'request-1', role: 'agent', text: '从最近一次重复工作开始吧。你最想省下哪一部分时间？', question: null, questionState: null, createdAt: '2026-10-31T01:00:00Z', projectId: context.id },
         { sequence: 2, requestId: 'request-2', role: 'user', text: '每周五都要手动导出报表，然后逐项核对有没有遗漏。我已经有一个 Java 报表服务，希望先在现有代码上加周期调度。', question: null, questionState: null, createdAt: '2026-10-31T01:01:00Z', projectId: context.id },
-        { sequence: 3, requestId: 'request-2', role: 'agent', text: '保留已有服务是很清楚的起点。除了按时导出，你希望如何确认一次任务确实完成？', question: '你希望如何确认一次任务确实完成？', questionState: 'ASKED', createdAt: '2026-10-31T01:02:00Z', projectId: context.id },
-    ], before: null, pendingRequestId: null, unansweredQuestion: '你希望如何确认一次任务确实完成？' };
+        { sequence: 3, requestId: 'request-2', role: 'agent', text: '那就从现有的 Java 报表服务开始，先把周五的手动导出改成定时任务。', question: '你希望如何确认一次任务确实完成？', questionState: 'ASKED', createdAt: '2026-10-31T01:02:00Z', projectId: context.id },
+        ];
+        const pending = messages[2]!.question!;
+        let unansweredQuestion: string | null = pending;
+        let invitationRequestId: string | null = null;
+        if (scenario === 'discovery-pending') {
+            messages.push({ ...messages[1]!, sequence: 4, createdAt: '2026-10-31T01:03:00Z', requestId: 'request-3', text: '为什么要问怎么确认？' },
+                { ...messages[0]!, sequence: 5, createdAt: '2026-10-31T01:04:00Z', requestId: 'request-3',
+                  text: '因为生成文件和确认数据完整是两件事。想想上周你最后看了什么，才放心把报表交出去。' });
+        }
+        if (scenario === 'discovery-invitation' || scenario === 'discovery-continued') {
+            messages[2]!.questionState = 'ANSWERED';
+            messages.push({ ...messages[1]!, sequence: 4, createdAt: '2026-10-31T01:03:00Z', requestId: 'request-3', text: '我会核对导出的行数，也想看到失败原因。' },
+                { ...messages[0]!, sequence: 5, createdAt: '2026-10-31T01:04:00Z', requestId: 'request-3',
+                  text: '那第一版可以围绕两件事：每周按时导出，以及让你看见哪些数据需要补查。现在可以一起看看这份需求摘要。' });
+            unansweredQuestion = null;
+            invitationRequestId = 'request-3';
+            if (scenario === 'discovery-continued') {
+                invitationRequestId = null;
+                unansweredQuestion = '上周遇到行数不一致时，你是从哪里开始排查的？';
+                messages.push({ ...messages[2]!, sequence: 6, createdAt: '2026-10-31T01:05:00Z', requestId: 'request-4', questionState: 'ASKED',
+                    text: '我们再了解一下核对的过程。', question: unansweredQuestion });
+            }
+        }
+        return { messages, before: null, pendingRequestId: null, unansweredQuestion, invitationRequestId };
+    }
     if (path.startsWith('/user-profiles/')) return user;
     if (path.endsWith('/compatibility')) return { revision, status: 'COMPATIBLE', policyVersion: 'fixture', mavenDirectory: '.', modules: ['reports'], buildJdk: 21, sourceBytes: 45200, files: 24, textFiles: 24, opaqueFiles: 0, generatedPaths: [], immutablePaths: [], issues: [] };
     if (path.startsWith('/software-assets/')) return a;

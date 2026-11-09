@@ -1,6 +1,5 @@
 package com.ayywl.delveforge.application.userdiscovery.conversation;
 
-import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository;
 import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository.Command;
 import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository.History;
@@ -88,15 +87,6 @@ public final class DiscoveryConversationService {
             } else {
                 candidate = UserProfileCandidates.copyOf(expected);
                 result = questions.prepare(candidate, memory, readiness);
-            }
-            if (result.nextQuestion() != null && (conversations.previouslyAsked(id, result.nextQuestion())
-                    || memory.unansweredQuestion() != null && "OPEN".equals(result.previousQuestionState()))) {
-                if ("QUESTION".equals(command.kind())) {
-                    throw new AiGatewayException("没有未重复的可用问题");
-                }
-                result = new SufficiencyAssessment(result.sufficient(), result.missingAreas(), null,
-                        result.profileStatus(), result.assistantReply(), null, result.deferredAreas(),
-                        result.previousQuestionState(), result.resumedAreas());
             }
             return conversations.complete(expected, candidate, command, result);
         } catch (RuntimeException failure) {

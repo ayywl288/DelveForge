@@ -2,6 +2,7 @@ package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentTokenCounter;
+import com.ayywl.delveforge.application.port.ai.AiMessage;
 import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
 
 import ai.djl.huggingface.tokenizers.HuggingFaceTokenizer;
@@ -81,7 +82,17 @@ public final class DeepSeekTokenCounterAdapter implements AgentTokenCounter, Aut
 
     @Override
     public synchronized long countPromptTokens(List<AgentProtocol.Message> messages, List<AgentProtocol.ToolSpec> tools) {
-        var prompt = new DeepSeekPromptRenderer().render(messages, tools, instructions, thinking);
+        return count(new DeepSeekPromptRenderer().render(messages, tools, instructions, thinking));
+    }
+
+    /** 普通对话使用同一分词器；按请求的思考模式渲染，无工具或私有推理。 */
+    public synchronized long countDialogue(List<AiMessage> messages, Thinking mode) {
+        var history = messages.stream().map(message -> AgentProtocol.Message.text(
+                message.role().name().toLowerCase(java.util.Locale.ROOT), message.content())).toList();
+        return count(new DeepSeekPromptRenderer().render(history, List.of(), "", mode));
+    }
+
+    private long count(DeepSeekPromptRenderer.Rendered prompt) {
         long count = prompt.controls();
         for (String region : prompt.regions()) {
             count += tokenizer.encode(region, false, false).getIds().length;

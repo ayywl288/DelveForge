@@ -36,9 +36,23 @@ public record DeepSeekProperties(
         int maxTokens,
         int maxResponseBytes,
         int maxEventBytes,
-        @DefaultValue("8388608") int maxRequestBytes) {
+        @DefaultValue("8388608") int maxRequestBytes,
+        @DefaultValue("1000000") int discoveryContextTokens,
+        @DefaultValue("8192") int extractionOutputTokens,
+        @DefaultValue("16384") int dialogueOutputTokens) {
 
+    public DeepSeekProperties(String baseUrl, String apiKey, String model, Duration timeout, boolean streaming,
+            Duration streamTimeout, int maxTokens, int maxResponseBytes, int maxEventBytes, int maxRequestBytes) {
+        this(baseUrl, apiKey, model, timeout, streaming, streamTimeout, maxTokens, maxResponseBytes, maxEventBytes,
+                maxRequestBytes, 1000000, 8192, 16384);
+    }
+
+    @org.springframework.boot.context.properties.bind.ConstructorBinding
     public DeepSeekProperties {
+        if (Math.min(extractionOutputTokens, dialogueOutputTokens) <= 0
+                || Math.max(extractionOutputTokens, dialogueOutputTokens) >= discoveryContextTokens) {
+            throw new IllegalArgumentException("Discovery 输出预算必须小于上下文窗口");
+        }
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new IllegalArgumentException("必须配置 delveforge.ai.deepseek.base-url");
         }

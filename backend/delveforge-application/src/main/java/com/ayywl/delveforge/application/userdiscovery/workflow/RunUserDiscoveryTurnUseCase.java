@@ -136,7 +136,7 @@ public class RunUserDiscoveryTurnUseCase {
         ProfileExtraction.requireUserInput(input);
         UserProfile candidate = UserProfileCandidates.copyOf(expected);
         candidate.requireExplorationAllowed();
-        profileExtraction.applyTurnTo(candidate, input, memory.recent());
+        profileExtraction.applyTurnTo(candidate, input, memory.history(), memory.unansweredQuestion(), memory.deferredAreas());
         var established = candidate.revision() == expected.revision() ? readiness : null;
         SufficiencyAssessment result = profileSufficiencyEvaluator.evaluateRemembered(
                 candidate, input, memory, established, false);

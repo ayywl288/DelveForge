@@ -2,7 +2,13 @@ package com.ayywl.delveforge.infrastructure.ai;
 
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 
+import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
+import com.ayywl.delveforge.infrastructure.agent.DeepSeekTokenCounterAdapter;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.core.env.Environment;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -26,7 +32,18 @@ import java.net.http.HttpClient;
 public class DeepSeekAiGatewayConfiguration {
 
     @Bean
-    public AiGateway deepSeekAiGateway(DeepSeekProperties properties) {
+    @Lazy
+    public DeepSeekTokenCounterAdapter agentTokenCounter(DeepSeekProperties properties, Environment environment) {
+        return new DeepSeekTokenCounterAdapter(properties.model(),
+                environment.getProperty("delveforge.agent.thinking", Thinking.class, Thinking.HIGH));
+    }
+
+    @Bean
+    public AiGateway deepSeekAiGateway(DeepSeekProperties properties, ObjectProvider<DeepSeekTokenCounterAdapter> counter) {
+        return gateway(properties, counter::getObject);
+    }
+
+    static AiGateway gateway(DeepSeekProperties properties, java.util.function.Supplier<DeepSeekTokenCounterAdapter> counter) {
         HttpClient httpClient = HttpClient.newBuilder()
                 .connectTimeout(properties.timeout())
                 .build();
@@ -40,6 +57,6 @@ public class DeepSeekAiGatewayConfiguration {
                 .requestFactory(requestFactory)
                 .build();
 
-        return new DeepSeekAiGatewayAdapter(restClient, new ObjectMapper(), properties);
+        return new DeepSeekAiGatewayAdapter(restClient, new ObjectMapper(), properties, counter);
     }
 }

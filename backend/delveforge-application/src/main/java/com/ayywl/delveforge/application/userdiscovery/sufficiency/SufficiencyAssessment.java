@@ -29,7 +29,23 @@ public record SufficiencyAssessment(
         String questionArea,
         List<String> deferredAreas,
         String previousQuestionState,
-        List<String> resumedAreas) {
+        List<String> resumedAreas,
+        DialogueAction nextAction,
+        boolean reviewInvitation) {
+
+    public SufficiencyAssessment(
+            boolean sufficient,
+            List<String> missingAreas,
+            String nextQuestion,
+            UserProfileStatus profileStatus,
+            String assistantReply,
+            String questionArea,
+            List<String> deferredAreas,
+            String previousQuestionState,
+            List<String> resumedAreas) {
+        this(sufficient, missingAreas, nextQuestion, profileStatus, assistantReply, questionArea, deferredAreas,
+                previousQuestionState, resumedAreas, nextQuestion == null ? DialogueAction.PAUSE : DialogueAction.ASK, false);
+    }
 
     public SufficiencyAssessment(boolean sufficient, List<String> missingAreas, String nextQuestion,
             UserProfileStatus profileStatus, String assistantReply, String questionArea, List<String> deferredAreas,

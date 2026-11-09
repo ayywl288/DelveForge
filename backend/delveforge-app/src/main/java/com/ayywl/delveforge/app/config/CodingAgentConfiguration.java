@@ -22,7 +22,6 @@ import com.ayywl.delveforge.application.quickstart.QuickStartStore;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.infrastructure.agent.AgentInstanceLock;
 import com.ayywl.delveforge.infrastructure.agent.AgentSandboxProperties;
-import com.ayywl.delveforge.infrastructure.agent.DeepSeekTokenCounterAdapter;
 import com.ayywl.delveforge.infrastructure.agent.DockerAgentSandbox;
 import com.ayywl.delveforge.infrastructure.agent.SpringAiAgentModel;
 import com.ayywl.delveforge.infrastructure.agent.SqliteAgentStore;
@@ -63,11 +62,6 @@ public class CodingAgentConfiguration {
     @Bean
     public AgentModelPort agentModelPort(DeepSeekProperties properties, AgentContextBudget budget, Thinking thinking) {
         return new SpringAiAgentModel(properties, budget.responseTokens(), thinking);
-    }
-
-    @Bean
-    public DeepSeekTokenCounterAdapter agentTokenCounter(DeepSeekProperties properties, Thinking thinking) {
-        return new DeepSeekTokenCounterAdapter(properties.model(), thinking);
     }
 
     @Bean

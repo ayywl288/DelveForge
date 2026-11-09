@@ -2,6 +2,7 @@ package com.ayywl.delveforge.application.port.persistence;
 
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
 import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.DialogueAction;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
@@ -21,17 +22,17 @@ public interface DiscoveryConversationRepository {
     }
 
     record Message(long sequence, String requestId, String role, String text, String question,
-            String area, String questionState, Instant createdAt, String projectId) {
+            String area, String questionState, Instant createdAt, String projectId, DialogueAction nextAction) {
     }
 
-    record History(List<Message> messages, Long before, String pendingRequestId, String unansweredQuestion) {
+    record History(List<Message> messages, Long before, String pendingRequestId, String unansweredQuestion, String invitationRequestId) {
     }
 
     record Topic(String area, String question, String state) {
     }
 
-    record Memory(List<DiscoveryContext.Message> recent, List<String> questions,
-            List<String> deferredAreas, List<Topic> topics, String unansweredQuestion) {
+    record Memory(List<DiscoveryContext.Message> history, List<String> questions,
+            List<String> deferredAreas, List<Topic> topics, String unansweredQuestion, boolean invitationPresented) {
     }
 
     Optional<Operation> operation(UserProfileId id, String requestId);
@@ -53,5 +54,4 @@ public interface DiscoveryConversationRepository {
 
     Optional<DiscoveryReadiness> readiness(UserProfileId id, int revision);
 
-    boolean previouslyAsked(UserProfileId id, String question);
 }

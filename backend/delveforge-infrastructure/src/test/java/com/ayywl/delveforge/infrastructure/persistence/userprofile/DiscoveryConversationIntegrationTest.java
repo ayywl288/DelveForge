@@ -22,6 +22,9 @@ import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import com.ayywl.delveforge.domain.user.UserProfileStatus;
+import com.ayywl.delveforge.infrastructure.agent.DeepSeekTokenCounterAdapter;
+import com.ayywl.delveforge.infrastructure.ai.DeepSeekAiGatewayAdapter;
+import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
 import com.ayywl.delveforge.infrastructure.persistence.SqliteDataSourceConfiguration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,13 +41,18 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.http.client.MockClientHttpRequest;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import java.nio.file.Path;
 import java.sql.DriverManager;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -117,7 +125,7 @@ class DiscoveryConversationIntegrationTest {
     @Test
     void acceptedConversationAndExactUnansweredQuestionSurviveAdapterRestart() throws Exception {
         UserProfile profile = seed();
-        responses.add(reply(true, "首个使用者是谁？", "exploration", "OPEN", List.of()));
+        responses.add(reply(true, "首个使用者是谁？", "exploration", "NONE", List.of()));
         Command first = command("QUESTION", null, profile.revision());
         assertEquals("COMPLETED", service(gateway).submit(profile.id(), first).state());
         assertEquals(1, calls.size());
@@ -128,7 +136,7 @@ class DiscoveryConversationIntegrationTest {
         assertNotNull(history.messages().getFirst().createdAt());
         assertEquals(profile.revision(), profiles.findById(profile.id()).orElseThrow().revision());
         responses.add("{\"hasNewFacts\":false}");
-        responses.add(reply(false, null, null, "ANSWERED", List.of()));
+        responses.add(reply(true, null, null, "ANSWERED", List.of()));
         service(gateway).submit(profile.id(), command("TURN", "我自己使用，先做个人阅读整理", profile.revision()));
         history = restarted.history(profile.id(), null);
         assertEquals(List.of("agent", "user", "agent"), history.messages().stream()
@@ -143,7 +151,7 @@ class DiscoveryConversationIntegrationTest {
     void retryAndLostResponseRecoverExactlyOneAcceptedTurn() throws Exception {
         UserProfile profile = seed();
         responses.add("{\"hasNewFacts\":false}");
-        responses.add(reply(true, null, null, "ANSWERED", List.of()));
+        responses.add(reply(true, null, null, "NONE", List.of()));
         Command command = command("TURN", "我还希望能整理个人阅读笔记", profile.revision());
         var service = service(gateway);
         var original = service.submit(profile.id(), command);
@@ -163,7 +171,7 @@ class DiscoveryConversationIntegrationTest {
         jdbc.execute("CREATE TRIGGER conversation_injected_failure BEFORE INSERT ON discovery_message "
                 + "WHEN NEW.profile_id='" + profile.id().value() + "' BEGIN SELECT RAISE(ABORT,'fixture failure'); END");
         responses.add("{\"hasNewFacts\":true,\"constraints\":[\"每周两小时\"],\"evidenceClaims\":[\"用户每周两小时\"]}");
-        responses.add(reply(true, null, null, "ANSWERED", List.of()));
+        responses.add(reply(true, null, null, "NONE", List.of()));
         Command command = command("TURN", "改为每周两小时", profile.revision());
         try {
             assertThrows(RuntimeException.class, () -> service(gateway).submit(profile.id(), command));
@@ -195,7 +203,7 @@ class DiscoveryConversationIntegrationTest {
         CountDownLatch release = new CountDownLatch(1);
         Command command = command("TURN", "我想继续聊个人阅读笔记", profile.revision());
         var invocation = new AtomicInteger();
-        String assessment = reply(true, null, null, "ANSWERED", List.of());
+        String assessment = reply(true, null, null, "NONE", List.of());
         AiGateway paused = request -> {
             started.countDown();
             try {
@@ -236,17 +244,17 @@ class DiscoveryConversationIntegrationTest {
         assertEquals("INTERRUPTED", service(gateway).status(profile.id(), old.requestId(), null).state());
         assertTrue(calls.isEmpty());
         assertNull(conversations.history(profile.id(), null).pendingRequestId());
-        responses.add(reply(true, "想先整理哪类笔记？", "behaviors", "OPEN", List.of()));
+        responses.add(reply(true, "想先整理哪类笔记？", "behaviors", "NONE", List.of()));
         assertEquals("COMPLETED", service(gateway).submit(profile.id(), command("QUESTION", null, profile.revision())).state());
     }
 
     @Test
     void clarificationPreservesTheUnansweredQuestionAndDeclinedAreasSurviveReopening() throws Exception {
         UserProfile profile = seed();
-        responses.add(reply(true, "每周能投入多少时间？", "constraints", "OPEN", List.of()));
+        responses.add(reply(true, "每周能投入多少时间？", "constraints", "NONE", List.of()));
         service(gateway).submit(profile.id(), command("QUESTION", null, profile.revision()));
         responses.add("{\"hasNewFacts\":false}");
-        responses.add(reply(true, "首个使用者是谁？", "exploration", "OPEN", List.of()));
+        responses.add(reply(true, null, null, "ASKED", List.of()));
         service(gateway).submit(profile.id(), command("TURN", "为什么要问投入时间？", profile.revision()));
         assertEquals("每周能投入多少时间？", conversations.history(profile.id(), null).unansweredQuestion());
         responses.add("{\"hasNewFacts\":false}");
@@ -255,26 +263,27 @@ class DiscoveryConversationIntegrationTest {
         var restarted = new SqliteDiscoveryConversationRepository(source, manager, profiles, json);
         assertEquals(List.of("constraints"), restarted.memory(profile.id()).deferredAreas());
         assertNull(restarted.history(profile.id(), null).unansweredQuestion());
-        responses.add(reply(false, "每天可以花多少时间？", "constraints", "OPEN", List.of()));
+        responses.add(reply(true, "每天可以花多少时间？", "constraints", "NONE", List.of()));
         assertThrows(AiGatewayException.class, () -> service(gateway).submit(profile.id(), command("QUESTION", null, profile.revision())));
-        assertTrue(calls.getLast().messages().get(1).content().contains("conversationMemory"));
+        assertTrue(calls.getLast().messages().getLast().content().contains("conversationMemory"));
     }
 
     @Test
     void unchangedNegativeReadinessIsStableAndARealCorrectionReevaluates() throws Exception {
         UserProfile profile = seed();
         responses.add("{\"hasNewFacts\":false}");
-        responses.add(reply(false, null, null, "ANSWERED", List.of()));
+        responses.add(reply(false, null, null, "NONE", List.of()));
         assertFalse(service(gateway).submit(profile.id(), command("TURN", "希望再想想具体的使用场景", 1)).result().sufficient());
         responses.add("{\"hasNewFacts\":false}");
-        responses.add(reply(true, null, null, "ANSWERED", List.of()));
+        responses.add(reply(true, null, null, "NONE", List.of()));
+        responses.add(reply(false, null, null, "NONE", List.of()));
         assertFalse(service(gateway).submit(profile.id(), command("TURN", "暂时没有更多想法", 1)).result().sufficient());
         int callsBeforeReview = calls.size();
         assertFalse(new AssessProfileSufficiencyUseCase(profiles, new ProfileSufficiencyEvaluator(gateway, json))
                 .assess(profile.id(), 1).sufficient());
         assertEquals(callsBeforeReview, calls.size());
         responses.add("{\"hasNewFacts\":true,\"projectGoals\":[\"给阅读笔记做全文检索\"],\"evidenceClaims\":[\"用户明确阅读检索目标\"]}");
-        responses.add(reply(true, null, null, "ANSWERED", List.of()));
+        responses.add(reply(true, null, null, "NONE", List.of()));
         var result = service(gateway).submit(profile.id(), command("TURN", "具体想给阅读笔记做全文检索", 1));
         assertTrue(result.result().sufficient());
         assertTrue(result.revision() > 1);
@@ -286,7 +295,7 @@ class DiscoveryConversationIntegrationTest {
         UserProfile first = seed();
         UserProfile second = seed();
         assertTrue(conversations.history(first.id(), null).messages().isEmpty());
-        responses.add(reply(true, "先做哪些阅读功能？", "projectGoals", "OPEN", List.of()));
+        responses.add(reply(true, "先做哪些阅读功能？", "projectGoals", "NONE", List.of()));
         service(gateway).submit(first.id(), command("QUESTION", null, 1));
         assertTrue(conversations.history(second.id(), null).messages().isEmpty());
         assertEquals("NOT_FOUND", service(gateway).status(second.id(),
@@ -302,15 +311,38 @@ class DiscoveryConversationIntegrationTest {
             statement.executeUpdate("INSERT INTO user_profile(id,status,revision) VALUES('legacy','EXPLORING',4)");
             statement.executeUpdate("INSERT INTO user_profile_sufficiency(profile_id,revision) VALUES('legacy',4)");
         }
-        assertEquals(2, Flyway.configure().dataSource(url, "", "").load().migrate().migrationsExecuted);
+        Flyway.configure().dataSource(url, "", "").target("28").load().migrate();
+        try (var connection = DriverManager.getConnection(url); var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO discovery_request(profile_id,request_id,kind,fingerprint,state,owner_pid,owner_start,
+                        owner_token,expected_revision,result_revision,result_json,created_at)
+                    VALUES('legacy','old','QUESTION','fp','COMPLETED',1,'s','t',4,4,
+                    '{"sufficient":true,"missingAreas":[],"nextQuestion":"Old question?","profileStatus":"EXPLORING",
+                    "assistantReply":"Hello","questionArea":"exploration","deferredAreas":[],"previousQuestionState":"OPEN"}',
+                    '2026-10-29T00:00:00Z')
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO discovery_message(profile_id,request_id,role,text,question,area,question_state,created_at)
+                    VALUES('legacy','old','agent','Hello','Old question?','exploration','ASKED','2026-10-29T00:00:00Z')
+                    """);
+        }
+        assertEquals(1, Flyway.configure().dataSource(url, "", "").load().migrate().migrationsExecuted);
         try (var connection = DriverManager.getConnection(url); var statement = connection.createStatement()) {
             try (var result = statement.executeQuery("SELECT revision FROM user_profile WHERE id='legacy'")) {
                 assertTrue(result.next());
                 assertEquals(4, result.getInt(1));
             }
-            try (var result = statement.executeQuery("SELECT COUNT(*) FROM discovery_message")) {
+            try (var result = statement.executeQuery("SELECT sequence,text,question,question_state FROM discovery_message")) {
                 assertTrue(result.next());
-                assertEquals(0, result.getInt(1));
+                assertEquals(1, result.getInt(1));
+                assertEquals("Hello", result.getString(2));
+                assertEquals("Old question?", result.getString(3));
+                assertEquals("ASKED", result.getString(4));
+                assertFalse(result.next());
+            }
+            try (var result = statement.executeQuery("SELECT result_json FROM discovery_request")) {
+                assertTrue(result.next());
+                assertEquals("Old question?", json.readValue(result.getString(1), SufficiencyAssessment.class).nextQuestion());
             }
             try (var result = statement.executeQuery("SELECT sufficient FROM discovery_readiness WHERE profile_id='legacy'")) {
                 assertTrue(result.next());
@@ -342,7 +374,7 @@ class DiscoveryConversationIntegrationTest {
                 true, List.of(), null, profile.status(), "已处理");
         assertThrows(UserProfileStateException.class, () -> conversations.complete(profile, profile, pending, result));
         assertTrue(conversations.history(profile.id(), null).messages().isEmpty());
-        responses.add(reply(true, "需要整理哪些资料？", "behaviors", "OPEN", List.of()));
+        responses.add(reply(true, "需要整理哪些资料？", "behaviors", "NONE", List.of()));
         Command accepted = command("QUESTION", null, 1);
         service.submit(profile.id(), accepted);
         assertEquals("COMPLETED", service.cancel(profile.id(), accepted.requestId(), null).state());
@@ -350,27 +382,31 @@ class DiscoveryConversationIntegrationTest {
     }
 
     @Test
-    void serverContextIsBoundedKeepsLongReplyQuestionAndRejectsOlderRepeatedQuestions() throws Exception {
+    void fullContextKeepsLongReplyAndCorrectsAnOlderRepeatedQuestion() throws Exception {
         UserProfile profile = seed();
         String first = "你目前做过什么类型的开发？";
-        var response = json.readTree(reply(true, first, "exploration", "OPEN", List.of()));
+        var response = json.readTree(reply(false, first, "exploration", "NONE", List.of()));
         ((ObjectNode) response).put("assistantReply", "说明".repeat(1024));
         responses.add(json.writeValueAsString(response));
         service(gateway).submit(profile.id(), command("QUESTION", null, 1));
         var memory = conversations.memory(profile.id());
-        assertTrue(memory.recent().getLast().text().endsWith(first));
-        assertTrue(memory.recent().getLast().text().length() <= 2048);
+        assertTrue(memory.history().getLast().text().endsWith(first));
+        assertEquals("说明".repeat(1024) + "\n\n" + first, memory.history().getLast().text());
         for (int i = 0; i < 10; i++) {
-            responses.add(reply(true, "另一个角度" + UUID.randomUUID() + "？", "exploration", "ANSWERED", List.of()));
+            responses.add(reply(false, "另一个角度" + UUID.randomUUID() + "？", "exploration", "ANSWERED", List.of()));
             service(gateway).submit(profile.id(), command("TURN", "嗯", 1));
         }
         memory = conversations.memory(profile.id());
-        assertEquals(8, memory.recent().size());
-        assertEquals(8, memory.questions().size());
-        assertFalse(memory.questions().contains(first));
-        assertTrue(conversations.previouslyAsked(profile.id(), first));
-        responses.add(reply(true, first, "exploration", "ANSWERED", List.of()));
-        assertNull(service(gateway).submit(profile.id(), command("TURN", "嗯", 1)).result().nextQuestion());
+        assertEquals(21, memory.history().size());
+        assertEquals(11, memory.questions().size());
+        assertTrue(memory.questions().contains(first));
+        responses.add(reply(false, first, "exploration", "ANSWERED", List.of()));
+        String corrected = "哪些步骤最耗时间？";
+        responses.add(reply(false, corrected, "behaviors", "ANSWERED", List.of()));
+        int before = calls.size();
+        assertEquals(corrected, service(gateway).submit(profile.id(), command("TURN", "嗯", 1)).result().nextQuestion());
+        assertEquals(before + 2, calls.size());
+        assertTrue(calls.getLast().messages().getLast().content().contains("planningCorrection"));
         assertEquals(1, conversations.history(profile.id(), null).messages().stream()
                 .filter(message -> first.equals(message.question())).count());
         assertTrue(DiscoveryQuestions.equivalent(
@@ -378,10 +414,10 @@ class DiscoveryConversationIntegrationTest {
     }
 
     @Test
-    void historyPagesPreserveSequenceWithoutSendingTheWholeHistoryToAi() throws Exception {
+    void historyPagesAndModelContextBothPreserveSequence() throws Exception {
         UserProfile profile = seed();
         for (int i = 0; i < 51; i++) {
-            responses.add(reply(true, null, null, "ANSWERED", List.of()));
+            responses.add(reply(true, null, null, "NONE", List.of()));
             service(gateway).submit(profile.id(), command("TURN", "嗯", 1));
         }
         var recent = conversations.history(profile.id(), null);
@@ -391,22 +427,23 @@ class DiscoveryConversationIntegrationTest {
         assertEquals(2, older.messages().size());
         assertNull(older.before());
         assertTrue(older.messages().getLast().sequence() < recent.messages().getFirst().sequence());
-        assertEquals(8, conversations.memory(profile.id()).recent().size());
+        assertEquals(102, conversations.memory(profile.id()).history().size());
     }
 
     @Test
     void explicitlyReopenedTopicClearsOnlyItsDeferralAndSyntheticQuestionsCannotReopen() throws Exception {
         UserProfile profile = seed();
         responses.add("{\"hasNewFacts\":false}");
-        responses.add(reply(true, null, null, "DEFERRED", List.of("constraints", "painPoints")));
+        responses.add(reply(true, null, null, "NONE", List.of("constraints", "painPoints")));
         service(gateway).submit(profile.id(), command("TURN", "暂时不聊时间和痛点", 1));
         var proposal = (ObjectNode) json.readTree(
-                reply(true, null, null, "ANSWERED", List.of()));
+                reply(true, null, null, "NONE", List.of()));
         proposal.putArray("resumedAreas").add("constraints");
         responses.add("{\"hasNewFacts\":false}");
         responses.add(json.writeValueAsString(proposal));
         service(gateway).submit(profile.id(), command("TURN", "现在想讨论一下时间投入", 1));
         assertEquals(List.of("painPoints"), conversations.memory(profile.id()).deferredAreas());
+        proposal.put("nextAction", "ASK");
         proposal.put("nextQuestion", "最近哪种阅读操作最不顺手？");
         proposal.put("questionArea", "painPoints");
         proposal.putArray("resumedAreas").add("painPoints");
@@ -452,7 +489,7 @@ class DiscoveryConversationIntegrationTest {
         String database = temporary.resolve("backend-restart.sqlite").toString();
         UserProfile profile = seed();
         responses.add("{\"hasNewFacts\":false}");
-        responses.add(reply(true, "最先需要检索哪类笔记？", "behaviors", "ANSWERED", List.of()));
+        responses.add(reply(false, "最先需要检索哪类笔记？", "behaviors", "NONE", List.of()));
         Command request = command("TURN", "我想检索自己的阅读笔记", 1);
         try (var first = new SpringApplicationBuilder(TestApplication.class).web(WebApplicationType.NONE).run(
                 "--delveforge.persistence.database-file=" + database, "--spring.main.banner-mode=off")) {
@@ -503,7 +540,7 @@ class DiscoveryConversationIntegrationTest {
     }
 
     @Test
-    void unresolvedOriginalQuestionRemainsInTheBoundedExtractionContextAfterManyExplanations() throws Exception {
+    void bothStagesReceiveCompleteStableHistoryAfterManyExplanations() throws Exception {
         UserProfile profile = seed();
         String question = "你最先希望检索哪一种阅读笔记？";
         Command first = command("QUESTION", null, 1);
@@ -517,13 +554,162 @@ class DiscoveryConversationIntegrationTest {
                     new SufficiencyAssessment(true, List.of(), null, profile.status(), "可以从日常操作想起。"));
         }
         var memory = conversations.memory(profile.id());
-        assertEquals(8, memory.recent().size());
-        assertEquals(question, memory.recent().getFirst().text());
+        assertEquals(13, memory.history().size());
+        assertTrue(memory.history().getFirst().text().endsWith(question));
         assertEquals(question, memory.unansweredQuestion());
         responses.add("{\"hasNewFacts\":false}");
         responses.add(reply(true, null, null, "ANSWERED", List.of()));
         service(gateway).submit(profile.id(), command("TURN", "就刚才那一种，自己的阅读笔记", 1));
-        assertTrue(calls.getFirst().messages().get(1).content().contains(question));
+        assertEquals(memory.history(), conversations.memory(profile.id()).history().subList(0, 13));
+        for (var request : calls) {
+            assertEquals(memory.history().stream().map(m -> m.text()).toList(),
+                    request.messages().subList(1, 14).stream().map(m -> m.content()).toList());
+            assertEquals(List.of(1, 2, 4, 6, 8, 10, 12), request.discoveryTurnStarts());
+        }
+    }
+
+    @Test
+    void replacementFollowsUnknownOrChangedDirectionWithoutDeferringTheTopic() throws Exception {
+        UserProfile profile = seed();
+        String broad = "什么项目最适合你？";
+        responses.add(reply(false, broad, "projectGoals", "NONE", List.of()));
+        service(gateway).submit(profile.id(), command("QUESTION", null, 1));
+        for (String input : List.of("我不知道，可以举个例子吗？", "其实我更想做一个游戏")) {
+            String next = input.startsWith("我不知道") ? "上周你用过哪款小工具？" : "你想先做哪种游戏体验？";
+            responses.add("{\"hasNewFacts\":false}");
+            responses.add(reply(false, next, "interests", "REPLACED", List.of()));
+            service(gateway).submit(profile.id(), command("TURN", input, 1));
+            assertEquals(next, conversations.history(profile.id(), null).unansweredQuestion());
+            assertTrue(conversations.memory(profile.id()).deferredAreas().isEmpty());
+        }
+        assertEquals(List.of("REPLACED", "REPLACED", "ASKED"), conversations.history(profile.id(), null).messages()
+                .stream().filter(m -> m.question() != null).map(m -> m.questionState()).toList());
+        int before = calls.size();
+        assertThrows(UserProfileStateException.class, () -> service(gateway).submit(profile.id(), command("QUESTION", null, 1)));
+        assertEquals(before, calls.size());
+    }
+
+    @Test
+    void invalidCorrectionLeavesPendingQuestionProfileEvidenceAndHistoryUntouched() throws Exception {
+        UserProfile profile = seed();
+        responses.add(reply(false, "你打算先做什么？", "projectGoals", "NONE", List.of()));
+        service(gateway).submit(profile.id(), command("QUESTION", null, 1));
+        var history = conversations.history(profile.id(), null);
+        responses.add("{\"hasNewFacts\":true,\"constraints\":[\"一小时\"],\"evidenceClaims\":[\"可用一小时\"]}");
+        responses.add(reply(false, "你打算先做什么？", "projectGoals", "ANSWERED", List.of()));
+        responses.add(reply(false, "另一个问题？", "behaviors", "ASKED", List.of()));
+        Command invalid = command("TURN", "我只有一小时，想先试做阅读笔记", 1);
+        assertThrows(AiGatewayException.class, () -> service(gateway).submit(profile.id(), invalid));
+        assertEquals("FAILED", conversations.operation(profile.id(), invalid.requestId()).orElseThrow().state());
+        assertEquals(history, conversations.history(profile.id(), null));
+        assertEquals(profile.evidence(), profiles.findById(profile.id()).orElseThrow().evidence());
+        assertEquals(1, profiles.findById(profile.id()).orElseThrow().revision());
+        assertEquals(4, calls.size());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void invitationCanBeContinuedByButtonOrFreeInputAndDoesNotRepeat(boolean byButton) throws Exception {
+        UserProfile profile = seed();
+        Command first = command("TURN", "嗯", 1);
+        responses.add(reply(true, null, null, "NONE", List.of()));
+        var invite = service(gateway).submit(profile.id(), first);
+        assertTrue(invite.result().reviewInvitation());
+        assertEquals(first.requestId(), conversations.history(profile.id(), null).invitationRequestId());
+        Command follow = byButton ? command("QUESTION", null, 1) : command("TURN", "我还想整理读后感", 1);
+        if (!byButton) {
+            responses.add("{\"hasNewFacts\":false}");
+        }
+        responses.add(reply(true, "想怎么查找以前的笔记？", "behaviors", "NONE", List.of()));
+        assertFalse(service(gateway).submit(profile.id(), follow).result().reviewInvitation());
+        var restarted = new SqliteDiscoveryConversationRepository(source, manager, profiles, json);
+        assertNull(restarted.history(profile.id(), null).invitationRequestId());
+        assertTrue(restarted.memory(profile.id()).invitationPresented());
+        responses.add("{\"hasNewFacts\":true,\"projectGoals\":[\"给笔记做索引\"],\"evidenceClaims\":[\"用户需要索引\"]}");
+        responses.add(reply(true, "搜索时最常记得什么线索？", "behaviors", "ANSWERED", List.of()));
+        var later = service(gateway).submit(profile.id(), command("TURN", "需要给笔记做索引", 1));
+        assertTrue(later.revision() > 1);
+        assertFalse(later.result().reviewInvitation());
+        assertNull(restarted.history(profile.id(), null).invitationRequestId());
+        assertEquals(UserProfileStatus.EXPLORING, profiles.findById(profile.id()).orElseThrow().status());
+    }
+
+    @Test
+    void substantiveChangeClearsPositiveReadinessAndTheActiveInvitation() throws Exception {
+        UserProfile profile = seed();
+        responses.add(reply(true, null, null, "NONE", List.of()));
+        Command initial = command("TURN", "嗯", 1);
+        service(gateway).submit(profile.id(), initial);
+        assertEquals(initial.requestId(), conversations.history(profile.id(), null).invitationRequestId());
+        responses.add("""
+                {"hasNewFacts":true,"projectGoals":["重新考虑方向"],"evidenceClaims":["用户改变目标"]}
+                """);
+        responses.add(reply(false, "新方向中你最想尝试什么？", "projectGoals", "NONE", List.of()));
+        var changed = service(gateway).submit(profile.id(), command("TURN", "我想换方向，具体目标还没有想好", 1));
+        assertTrue(changed.revision() > 1);
+        assertFalse(conversations.readiness(profile.id(), changed.revision()).orElseThrow().sufficient());
+        assertNull(conversations.history(profile.id(), null).invitationRequestId());
+        assertTrue(conversations.memory(profile.id()).invitationPresented());
+    }
+
+    @Test
+    void bothStageRequestsTrimChatLocallyWhileSqlHistoryStaysComplete() throws Exception {
+        var profile = seed();
+        for (int index = 0; index < 15; index++) {
+            var turn = command("TURN", "第" + index + "轮：" + "阅读笔记".repeat(500), 1);
+            conversations.begin(profile, turn, "seed-" + index);
+            conversations.complete(profile, profile, turn, new SufficiencyAssessment(false,
+                    List.of("具体使用场景"), null, profile.status(), "可以再描述一下使用场景。"));
+        }
+        var accepted = conversations.memory(profile.id()).history();
+        var client = RestClient.builder().baseUrl("http://fixture.invalid");
+        var server = MockRestServiceServer.bindTo(client).build();
+        for (String response : List.of("{\"hasNewFacts\":false}",
+                reply(false, "最近想找回哪一条笔记？", "behaviors", "NONE", List.of()))) {
+            server.expect(request -> {
+                var bytes = ((MockClientHttpRequest) request).getBodyAsBytes();
+                assertTrue(bytes.length <= 18000);
+                var messages = json.readTree(bytes).get("messages");
+                assertTrue(messages.size() > 2 && messages.size() < accepted.size() + 2);
+                assertEquals(0, messages.size() % 2);
+                var suffix = accepted.subList(accepted.size() + 2 - messages.size(), accepted.size());
+                for (int index = 0; index < suffix.size(); index++) {
+                    assertEquals(suffix.get(index).text(), messages.get(index + 1).get("content").textValue());
+                }
+                assertTrue(messages.get(messages.size() - 1).get("content").textValue().contains("想试试检索"));
+            }).andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess(
+                    json.writeValueAsString(Map.of("choices", List.of(Map.of("finish_reason", "stop",
+                            "message", Map.of("content", response))))), MediaType.APPLICATION_JSON));
+        }
+        var settings = new DeepSeekProperties("http://fixture.invalid", "fixture", "deepseek-flash",
+                Duration.ofSeconds(5), false, Duration.ofSeconds(10), 16384, 8388608, 65536, 18000);
+        try (var counter = new DeepSeekTokenCounterAdapter("deepseek-flash", AiRequest.Thinking.HIGH)) {
+            var adapter = new DeepSeekAiGatewayAdapter(client.build(), json, settings, () -> counter);
+            service(adapter).submit(profile.id(), command("TURN", "想试试检索", 1));
+        }
+        server.verify();
+        assertEquals(32, conversations.history(profile.id(), null).messages().size());
+        assertEquals(accepted, conversations.memory(profile.id()).history().subList(0, 30));
+    }
+
+    @Test
+    void pausingDoesNotAnswerOrDeferAnUnresolvedQuestion() throws Exception {
+        var profile = seed();
+        String question = "先从哪个阅读场景开始？";
+        responses.add(reply(false, question, "behaviors", "NONE", List.of()));
+        service(gateway).submit(profile.id(), command("QUESTION", null, 1));
+        var pause = (ObjectNode) json.readTree(reply(false, null, null, "ASKED", List.of()));
+        pause.put("nextAction", "PAUSE");
+        pause.put("assistantReply", "好，等你想继续时再聊。");
+        responses.add("{\"hasNewFacts\":false}");
+        responses.add(json.writeValueAsString(pause));
+        service(gateway).submit(profile.id(), command("TURN", "我想先暂停", 1));
+        var history = conversations.history(profile.id(), null);
+        assertEquals(question, history.unansweredQuestion());
+        assertEquals("ASKED", history.messages().getFirst().questionState());
+        assertEquals("PAUSE", history.messages().getLast().nextAction().name());
+        assertNull(history.messages().getLast().question());
+        assertTrue(conversations.memory(profile.id()).deferredAreas().isEmpty());
     }
 
     private UserProfile seed() {
@@ -545,6 +731,7 @@ class DiscoveryConversationIntegrationTest {
         return json.writeValueAsString(Map.of("sufficient", sufficient,
                 "missingAreas", sufficient ? List.of() : List.of("具体使用场景"), "assistantReply", "可以继续从实际需求聊起。",
                 "nextQuestion", question == null ? "" : question, "questionArea", area == null ? "" : area,
+                "nextAction", question != null ? "ASK" : "ASKED".equals(previous) ? "KEEP_PENDING" : "PAUSE",
                 "deferredAreas", deferred, "previousQuestionState", previous));
     }
 }

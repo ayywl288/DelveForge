@@ -7,6 +7,8 @@ import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
 
+import com.ayywl.delveforge.infrastructure.agent.DeepSeekTokenCounterAdapter;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -25,6 +27,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,9 +58,11 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
     private final ObjectMapper objectMapper;
     private final DeepSeekProperties properties;
 
-    public DeepSeekAiGatewayAdapter(RestClient restClient,
-                                    ObjectMapper objectMapper,
-                                    DeepSeekProperties properties) {
+    private final java.util.function.Supplier<DeepSeekTokenCounterAdapter> counter;
+
+    public DeepSeekAiGatewayAdapter(RestClient restClient, ObjectMapper objectMapper, DeepSeekProperties properties,
+            java.util.function.Supplier<DeepSeekTokenCounterAdapter> counter) {
+        this.counter = java.util.Objects.requireNonNull(counter);
         this.restClient = restClient;
         this.objectMapper = objectMapper;
         this.properties = properties;
@@ -69,7 +74,7 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
         ReadProgress progress = new ReadProgress();
 
         try {
-            byte[] requestBody = objectMapper.writeValueAsBytes(toRequestBody(request));
+            byte[] requestBody = prepareRequest(request, progress);
             progress.requestBytes = requestBody.length;
             String responseBody = restClient.post()
                     .uri(CHAT_COMPLETIONS_PATH)
@@ -228,14 +233,15 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
                         + "requestBytes={} bodyBytes={} nonWhitespaceBytes={} headersMs={} firstByteMs={} "
                         + "lastByteMs={} contentType={} contentLength={} stream={} maxTokens={} events={} "
                         + "contentBytes={} reasoningBytes={} firstContentMs={} firstReasoningMs={} "
-                        + "promptTokens={} completionTokens={} reasoningTokens={} closeFailureType={}",
+                        + "promptTokens={} completionTokens={} reasoningTokens={} closeFailureType={} estimatedTokens={} retainedTurns={} omittedTurns={} cacheHit={} cacheMiss={}",
                         phase, code, progress.elapsedMs(), progress.status == 0 ? "UNKNOWN" : progress.status, types,
                         progress.requestBytes, progress.bodyBytes, progress.nonWhitespaceBytes, progress.headersMs,
                         progress.firstByteMs, progress.lastByteMs, progress.contentType, progress.contentLength,
-                        properties.streaming(), properties.maxTokens(), progress.stream.events,
+                        properties.streaming(), progress.maxTokens, progress.stream.events,
                         progress.stream.contentBytes, progress.stream.reasoningBytes, progress.stream.firstContentMs,
                         progress.stream.firstReasoningMs, progress.stream.promptTokens, progress.stream.completionTokens,
-                        progress.stream.reasoningTokens, progress.closeFailureType);
+                        progress.stream.reasoningTokens, progress.closeFailureType, progress.estimatedTokens,
+                        progress.retainedTurns, progress.omittedTurns, progress.stream.cacheHit, progress.stream.cacheMiss);
     }
 
     /** 调用内独占的观测状态；时间点相对于本次 Gateway 调用，不由整体 API 时长反推。 */
@@ -248,6 +254,10 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
         private volatile String closeFailureType = "NONE";
         private int status;
         private int requestBytes;
+        private int maxTokens;
+        private long estimatedTokens = -1;
+        private int retainedTurns;
+        private int omittedTurns;
         private long bodyBytes;
         private long nonWhitespaceBytes;
         private long headersMs = -1;
@@ -267,8 +277,68 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
         }
     }
 
-    private Map<String, Object> toRequestBody(AiRequest request) {
-        List<Map<String, String>> messages = request.messages().stream()
+    private byte[] prepareRequest(AiRequest request, ReadProgress progress) throws IOException {
+        if (request.discoveryTurnStarts() == null) {
+            progress.maxTokens = properties.maxTokens();
+            return objectMapper.writeValueAsBytes(toRequestBody(request, request.messages(), progress.maxTokens));
+        }
+        int output = request.thinking() == AiRequest.Thinking.DISABLED
+                ? properties.extractionOutputTokens() : properties.dialogueOutputTokens();
+        progress.maxTokens = output;
+        long usable = properties.discoveryContextTokens() - output;
+        var tokenizer = counter.get();
+        var starts = request.discoveryTurnStarts();
+        var full = measure(request, request.messages(), tokenizer, output);
+        boolean truncateTokens = full.tokens() >= (usable * 90 + 99) / 100;
+        int omitted = 0;
+        var selected = full;
+        if (truncateTokens || full.bytes().length > properties.maxRequestBytes()) {
+            // 切点均为完整请求的边界；二分查找满足双预算的最长后缀，避免逐轮重新分词。
+            long target = truncateTokens ? usable * 75 / 100 : usable;
+            int low = 0;
+            int high = starts.size();
+            while (low < high) {
+                int mid = (low + high) >>> 1;
+                var candidate = measureSuffix(request, mid, tokenizer, output);
+                if (candidate.tokens() <= target && candidate.bytes().length <= properties.maxRequestBytes()) {
+                    high = mid;
+                } else {
+                    low = mid + 1;
+                }
+            }
+            omitted = low;
+            selected = measureSuffix(request, omitted, tokenizer, output);
+        }
+        progress.estimatedTokens = selected.tokens();
+        progress.omittedTurns = omitted;
+        progress.retainedTurns = starts.size() - omitted;
+        if (selected.tokens() > usable || selected.bytes().length > properties.maxRequestBytes()) {
+            throw new AiGatewayException("Discovery 当前画像、输入和必要指令超出请求预算");
+        }
+        return selected.bytes();
+    }
+
+    private record Measured(long tokens, byte[] bytes) {
+    }
+
+    private Measured measureSuffix(AiRequest request, int omitted, DeepSeekTokenCounterAdapter tokenizer, int output)
+            throws IOException {
+        var starts = request.discoveryTurnStarts();
+        int offset = omitted == starts.size() ? request.messages().size() - 1 : starts.get(omitted);
+        List<AiMessage> messages = new ArrayList<>();
+        messages.add(request.messages().getFirst());
+        messages.addAll(request.messages().subList(offset, request.messages().size()));
+        return measure(request, messages, tokenizer, output);
+    }
+
+    private Measured measure(AiRequest request, List<AiMessage> messages, DeepSeekTokenCounterAdapter tokenizer,
+            int output) throws IOException {
+        return new Measured(tokenizer.countDialogue(messages, request.thinking()),
+                objectMapper.writeValueAsBytes(toRequestBody(request, messages, output)));
+    }
+
+    private Map<String, Object> toRequestBody(AiRequest request, List<AiMessage> history, int output) {
+        List<Map<String, String>> messages = history.stream()
                 .map(message -> Map.of(
                         "role", toProviderRole(message.role()),
                         "content", message.content()))
@@ -277,7 +347,7 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", properties.model());
         body.put("messages", messages);
-        body.put("max_tokens", properties.maxTokens());
+        body.put("max_tokens", output);
         body.put("stream", properties.streaming());
         if (request.thinking() != AiRequest.Thinking.DEFAULT) {
             boolean enabled = request.thinking() != AiRequest.Thinking.DISABLED;

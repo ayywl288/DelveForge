@@ -34,6 +34,7 @@ export interface UserProfile extends Record<ProfileSection, string[]> {
   revision: number;
   evidence: Evidence[];
 }
+export type DialogueAction = "ASK" | "KEEP_PENDING" | "PAUSE";
 export interface Sufficiency {
   sufficient: boolean;
   missingAreas: string[];
@@ -44,7 +45,9 @@ export interface DiscoveryContextMessage {
   text: string;
 }
 export interface DiscoveryTurn extends Sufficiency {
-  previousQuestionState?: "OPEN" | "ANSWERED" | "DEFERRED";
+  previousQuestionState?: "NONE" | "ASKED" | "ANSWERED" | "DEFERRED" | "REPLACED" | "OPEN";
+  nextAction?: DialogueAction;
+  reviewInvitation?: boolean;
   // 兼容旧后端响应；新 discovery-turn 总是返回正文。
   assistantReply?: string;
   profile: UserProfile;
@@ -53,6 +56,7 @@ export interface Assessment extends Sufficiency {
   profileStatus: UserProfile["status"];
 }
 export interface DiscoveryQuestion extends Sufficiency {
+  nextAction?: DialogueAction;
   assistantReply?: string;
   revision: number;
 }
@@ -255,12 +259,13 @@ export interface ResourceSummary {
 
 
 export interface ConversationMessage {
+  nextAction?: DialogueAction | null;
   sequence: number;
   requestId: string;
   role: "user" | "agent";
   text: string;
   question: string | null;
-  questionState: "ASKED" | "ANSWERED" | "DEFERRED" | null;
+  questionState: "ASKED" | "ANSWERED" | "DEFERRED" | "REPLACED" | null;
   createdAt: string;
   projectId: string | null;
 }
@@ -269,6 +274,7 @@ export interface ConversationHistory {
   before: number | null;
   pendingRequestId: string | null;
   unansweredQuestion: string | null;
+  invitationRequestId?: string | null;
 }
 export interface DiscoveryRequestIdentity {
   requestId: string;

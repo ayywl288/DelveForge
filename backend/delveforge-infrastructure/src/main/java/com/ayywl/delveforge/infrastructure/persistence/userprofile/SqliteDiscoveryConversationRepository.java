@@ -4,7 +4,7 @@ import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRe
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
 import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
-import com.ayywl.delveforge.application.userdiscovery.sufficiency.DiscoveryQuestions;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.DialogueAction;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
@@ -116,7 +116,7 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
                             WHERE profile_id=? AND question_state='ASKED' AND area IS NOT NULL
                             """, expected.id().value());
                 }
-                if (!"OPEN".equals(result.previousQuestionState())) {
+                if (List.of("ANSWERED", "DEFERRED", "REPLACED").contains(result.previousQuestionState())) {
                     jdbc.update("""
                         UPDATE discovery_message SET question_state=?
                         WHERE profile_id=? AND question_state='ASKED'
@@ -131,11 +131,16 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
             for (String area : result.deferredAreas()) {
                 jdbc.update("INSERT OR IGNORE INTO discovery_deferred_topic(profile_id,area) VALUES(?,?)",
                         expected.id().value(), area);
-                jdbc.update("UPDATE discovery_message SET question_state='DEFERRED' WHERE profile_id=? AND area=?",
-                        expected.id().value(), area);
             }
             insertMessage(expected.id(), command, "agent", result.assistantReply(), result.nextQuestion(),
                     result.questionArea());
+            if (result.reviewInvitation()) {
+                jdbc.update("INSERT INTO discovery_invitation(profile_id, request_id) VALUES(?,?)",
+                        expected.id().value(), command.requestId());
+            } else {
+                jdbc.update("UPDATE discovery_invitation SET choice='CONTINUE' WHERE profile_id=? AND choice IS NULL",
+                        expected.id().value());
+            }
             return findOperation(expected.id(), command.requestId()).orElseThrow();
         });
     }
@@ -184,7 +189,9 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
     public History history(UserProfileId id, Long before) {
         recoverExitedOwner(id);
         List<Message> messages = new ArrayList<>(jdbc.query("""
-                SELECT * FROM discovery_message WHERE profile_id=? AND sequence<? ORDER BY sequence DESC LIMIT 101
+                SELECT m.*, CASE WHEN m.role='agent' THEN json_extract(r.result_json, '$.nextAction') END AS next_action
+                FROM discovery_message m JOIN discovery_request r USING (profile_id, request_id)
+                WHERE m.profile_id=? AND sequence<? ORDER BY sequence DESC LIMIT 101
                 """, messageMapper(), id.value(), before == null ? Long.MAX_VALUE : before));
         boolean more = messages.size() > 100;
         if (more) {
@@ -195,48 +202,45 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
                 "SELECT request_id FROM discovery_request WHERE profile_id=? AND state='PENDING'",
                 String.class, id.value());
         return new History(List.copyOf(messages), more ? messages.getFirst().sequence() : null,
-                pending.isEmpty() ? null : pending.getFirst(), memory(id).unansweredQuestion());
+                pending.isEmpty() ? null : pending.getFirst(), pendingQuestion(id),
+                jdbc.queryForList("""
+                        SELECT i.request_id FROM discovery_invitation i JOIN user_profile p ON p.id=i.profile_id
+                        JOIN discovery_readiness r ON r.profile_id=p.id AND r.revision=p.revision
+                        WHERE i.profile_id=? AND i.choice IS NULL AND p.status='EXPLORING' AND r.sufficient=1
+                        """, String.class, id.value()).stream().findFirst().orElse(null));
     }
 
     @Override
     public Memory memory(UserProfileId id) {
-        List<Message> recent = new ArrayList<>(jdbc.query(
-                "SELECT * FROM discovery_message WHERE profile_id=? ORDER BY sequence DESC LIMIT 8",
-                messageMapper(), id.value()));
-        Collections.reverse(recent);
-        List<DiscoveryContext.Message> context = new ArrayList<>(recent.stream().map(message -> {
-            String question = message.question();
-            String text = message.text();
-            if (question != null && !text.contains(question)) {
-                text = text.substring(0, Math.min(text.length(), 2048 - question.length() - 2)) + "\n\n" + question;
-            }
-            return new DiscoveryContext.Message(message.role(), text.substring(0, Math.min(text.length(), 2048)));
-        }).toList());
+        List<DiscoveryContext.Message> context = jdbc.query("""
+                SELECT request_id, role, text, question FROM discovery_message WHERE profile_id=? ORDER BY sequence
+                """, (row, index) -> {
+                    String text = row.getString("text");
+                    String question = row.getString("question");
+                    if (question != null && !text.contains(question)) {
+                        text = text.isEmpty() ? question : text + "\n\n" + question;
+                    }
+                    return new DiscoveryContext.Message(row.getString("role"), text, row.getString("request_id"));
+                }, id.value());
         List<String> questions = jdbc.queryForList("""
-                SELECT question FROM discovery_message WHERE profile_id=? AND question IS NOT NULL
-                ORDER BY sequence DESC LIMIT 8
+                SELECT question FROM discovery_message WHERE profile_id=? AND question IS NOT NULL ORDER BY sequence
                 """, String.class, id.value());
         List<String> deferred = jdbc.queryForList(
                 "SELECT area FROM discovery_deferred_topic WHERE profile_id=? ORDER BY area", String.class, id.value());
         List<Topic> topics = jdbc.query("""
                 SELECT area,question,question_state FROM discovery_message WHERE profile_id=? AND sequence IN
                     (SELECT MAX(sequence) FROM discovery_message WHERE profile_id=? AND area IS NOT NULL GROUP BY area)
-                ORDER BY sequence DESC LIMIT 8
+                ORDER BY sequence DESC
                 """, (row, index) -> new Topic(row.getString(1), row.getString(2), row.getString(3)),
                 id.value(), id.value());
-        List<String> unanswered = jdbc.queryForList("""
-                SELECT question FROM discovery_message WHERE profile_id=? AND question_state='ASKED'
-                ORDER BY sequence DESC LIMIT 1
-                """, String.class, id.value());
-        String pendingQuestion = unanswered.isEmpty() ? null : unanswered.getFirst();
-        // 多轮解释可能把原问题挤出窗口；保留这条真实提问，仍严格限制为八条语境。
-        if (pendingQuestion != null && context.stream().noneMatch(message -> message.text().contains(pendingQuestion))) {
-            if (context.size() == 8) {
-                context.removeFirst();
-            }
-            context.addFirst(new DiscoveryContext.Message("agent", pendingQuestion));
-        }
-        return new Memory(List.copyOf(context), questions, deferred, topics, pendingQuestion);
+        boolean presented = jdbc.queryForObject("SELECT COUNT(*) FROM discovery_invitation WHERE profile_id=?",
+                Integer.class, id.value()) > 0;
+        return new Memory(List.copyOf(context), questions, deferred, topics, pendingQuestion(id), presented);
+    }
+
+    private String pendingQuestion(UserProfileId id) {
+        return jdbc.queryForList("SELECT question FROM discovery_message WHERE profile_id=? AND question_state='ASKED'",
+                String.class, id.value()).stream().findFirst().orElse(null);
     }
 
     @Override
@@ -244,12 +248,6 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
         return jdbc.query("SELECT sufficient,missing_json FROM discovery_readiness WHERE profile_id=? AND revision=?",
                 (row, index) -> new DiscoveryReadiness(row.getBoolean(1), decodeList(row.getString(2))),
                 id.value(), revision).stream().findFirst();
-    }
-
-    @Override
-    public boolean previouslyAsked(UserProfileId id, String question) {
-        return jdbc.queryForList("SELECT question FROM discovery_message WHERE profile_id=? AND question IS NOT NULL",
-                String.class, id.value()).stream().anyMatch(previous -> DiscoveryQuestions.equivalent(previous, question));
     }
 
     private void recoverExitedOwner(UserProfileId id) {
@@ -277,7 +275,8 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
     private RowMapper<Message> messageMapper() {
         return (row, index) -> new Message(row.getLong("sequence"), row.getString("request_id"),
                 row.getString("role"), row.getString("text"), row.getString("question"), row.getString("area"),
-                row.getString("question_state"), Instant.parse(row.getString("created_at")), row.getString("project_id"));
+                row.getString("question_state"), Instant.parse(row.getString("created_at")), row.getString("project_id"),
+                row.getString("next_action") == null ? null : DialogueAction.valueOf(row.getString("next_action")));
     }
 
     private String encode(Object value) {

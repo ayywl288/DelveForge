@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from "vue";
+import { computed, ref, watch, nextTick, onMounted } from "vue";
 import { profileSections, type ProfileSection } from "../api/types";
 import type { WorkspaceSession } from "../state/session";
 import StatusBadge from "../components/StatusBadge.vue";
@@ -18,6 +18,9 @@ const editValue = ref("");
 const reopen = ref(false);
 const chat = ref<HTMLElement>();
 const inspectorOpen = ref(true);
+const lastReply = computed(() => [...props.s.messages].reverse().find(message => message.role === "agent"));
+const pendingReminder = computed(() => props.s.nextQuestion && lastReply.value?.question !== props.s.nextQuestion
+  ? props.s.nextQuestion : null);
 const dimensionIcons: Record<ProfileSection, NavigationIconName> = {
   interests: "heart", behaviors: "activity", painPoints: "warning", technicalCapabilities: "code",
   projectGoals: "target", constraints: "lock",
@@ -53,6 +56,10 @@ watch(
     if (chat.value) chat.value.scrollTop = chat.value.scrollHeight;
   },
 );
+onMounted(async () => {
+  await nextTick();
+  if (chat.value) chat.value.scrollTop = chat.value.scrollHeight;
+});
 watch(activeTab, async value => {
   await nextTick();
   document.getElementById(value === "review" ? "review-heading" : "discovery-input")?.focus();
@@ -188,7 +195,16 @@ async function save() {
           <span class="message-speaker" aria-hidden="true">{{ message.role === 'user' ? '你' : 'DelveForge' }}</span>
           <time v-if="message.createdAt" class="meta" :datetime="message.createdAt">{{ new Date(message.createdAt).toLocaleString('zh-CN') }}</time>
           </header>
-          <p style="white-space: pre-wrap">{{ message.text }}</p>
+          <template v-if="message.question && message.text.endsWith(message.question)">
+            <p v-if="message.text.slice(0, -message.question.length).trim()" class="dialogue-text">{{ message.text.slice(0, -message.question.length).trimEnd() }}</p>
+            <p class="dialogue-question">{{ message.question }}</p>
+          </template>
+          <p v-else class="dialogue-text">{{ message.text }}</p>
+          <div v-if="message.reviewInvitation && s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient"
+            class="dialogue-choice" role="group" aria-label="画像已可审阅">
+            <button :disabled="!!s.busy || s.discoveryUncertain || s.conversationLoading" @click="enterReview">进入画像审阅</button>
+            <button class="secondary" :disabled="!!s.busy || s.discoveryUncertain || s.conversationLoading" @click="continueExploring">继续探索</button>
+          </div>
           <span v-if="message.state === 'pending'" class="message-state">
             <span class="message-spinner" aria-hidden="true"></span>正在提交
           </span>
@@ -211,18 +227,14 @@ async function save() {
         <p v-else-if="s.busy" class="request-note" role="status">
           {{ s.busy }}… 正在等待实际响应。
         </p>
-        <p
-          v-else-if="s.sufficiency?.sufficient && s.profile.status === 'EXPLORING' && !s.nextQuestion"
-          class="request-note"
-        >
-          已达到最低审阅条件。你可以继续补充想法、主动请 Agent 提问，或选择进入画像审阅。
-        </p>
       </div>
       <form v-show="activeTab === 'chat' && s.profile.status === 'EXPLORING'" class="composer" @submit.prevent="send">
+        <p v-if="pendingReminder" id="pending-question" class="dialogue-pending"><strong>待回答</strong> {{ pendingReminder }}</p>
         <label for="discovery-input">你的想法</label>
         <textarea
           id="discovery-input" name="discovery-input" autocomplete="off"
           v-model="input"
+          :aria-describedby="pendingReminder ? 'pending-question' : undefined"
           rows="3"
           placeholder="最近有什么事情，你希望软件能帮你做得更好？"
           :disabled="s.profile.status !== 'EXPLORING'"
@@ -258,11 +270,11 @@ async function save() {
       <p class="meta">画像版本 {{ s.profile.revision }} · {{ s.profile.status === 'CONFIRMED' ? '逐项展开查看已确认内容' : '逐项展开查看与纠正' }}</p>
       <div class="review-box notebook-review">
         <div v-if="s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient" class="readiness-banner" role="status">
-          已有足够信息供你审阅。可以继续补充想法，也可随时进入画像审阅。
+          你可以继续补充想法，也可以现在审阅。
         </div>
         <p v-if="s.sufficiency && !s.sufficiency.sufficient" class="muted">{{ s.sufficiency.missingAreas.join('；') }}</p>
-        <button v-if="s.profile.status === 'EXPLORING'" :disabled="!!s.busy || s.discoveryUncertain" @click="enterReview">进入画像审阅</button>
-        <button v-if="s.profile.status === 'EXPLORING'" class="secondary" :disabled="!!s.busy || s.discoveryUncertain" @click="continueExploring">
+        <button v-if="s.profile.status === 'EXPLORING'" class="secondary" :disabled="!!s.busy || s.discoveryUncertain || s.conversationLoading" @click="enterReview">进入画像审阅</button>
+        <button v-if="s.profile.status === 'EXPLORING'" class="text-button" :disabled="!!s.busy || s.discoveryUncertain || s.conversationLoading" @click="continueExploring">
           {{ s.nextQuestion ? '继续回答已有问题' : '请 Agent 提出下一问' }}</button>
       </div>
       </div>
