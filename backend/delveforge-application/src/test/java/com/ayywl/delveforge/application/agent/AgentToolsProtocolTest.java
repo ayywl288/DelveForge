@@ -11,6 +11,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentToolsProtocolTest {
     @Test
+    void fileToolGuidanceDescribesSizeContinuationAndBoundedExcerpts() {
+        var tools = AgentTools.definitions();
+        assertTrue(tools.get(0).description().contains("sizeBytes"));
+        assertTrue(tools.get(1).description().contains("400"));
+        assertTrue(tools.get(2).description().contains("nextStartLine"));
+        assertFalse(tools.get(2).schema().contains("maxOutputBytes"));
+    }
+
+    @Test
     void structuredChecklistIsOptionalAndCannotChangeAuthorization() {
         AgentTools.validate(new AgentProtocol.ToolCall("plan", "update_plan",
                 "{\"tasks\":[{\"title\":\"Inspect repository\",\"status\":\"in_progress\"}]}"), AgentProtocol.Limits.defaults());

@@ -42,7 +42,8 @@ class ReadToolRecoveryDockerTest {
         fixture.temporary = Files.createDirectories(temporary.resolve("asset"));
         Path original = fixture.fixture();
         Files.writeString(original.resolve(".gitattributes"), "* -text\n");
-        fixture.git(original, "add", ".gitattributes");
+        Files.writeString(original.resolve("long-line.txt"), "x".repeat(300000) + "\nsecond\n");
+        fixture.git(original, "add", ".gitattributes", "long-line.txt");
         fixture.git(original, "-c", "user.name=Fixture", "-c", "user.email=fixture@localhost", "commit", "-qm", "bytes");
         String baseline = fixture.git(original, "rev-parse", "HEAD");
         var workspace = new GitWorkspaceAdapter(Files.createDirectories(temporary.resolve("managed")));
@@ -66,6 +67,8 @@ class ReadToolRecoveryDockerTest {
         var pagination = call("list_files", Map.of("offset", -1));
         var query = call("search_code", Map.of("query", "x".repeat(201)));
         var lookup = call("list_files", Map.of("path", "src/main/java"));
+        var oversized = call("read_file", Map.of("path", "long-line.txt"));
+        var resumed = call("read_file", Map.of("path", "long-line.txt", "start_line", 2));
         var corrected = call("read_file", Map.of("path", path, "start_line", 1, "line_count", 10));
         String testPath = "src/test/java/example/BoundaryTest.java";
         String test = "package example;\nimport org.junit.jupiter.api.Test;\n"
@@ -75,7 +78,7 @@ class ReadToolRecoveryDockerTest {
         var checks = call("exec_command", Map.of("command", "mvn -B test"));
         List<List<AgentProtocol.ToolCall>> turns = List.of(
                 List.of(edited, malformed, missing, invalidRange, pagination, query),
-                List.of(lookup, corrected), List.of(addedTest), List.of(checks));
+                List.of(lookup, corrected, oversized), List.of(resumed, addedTest), List.of(checks));
         AtomicInteger requests = new AtomicInteger();
         List<AgentProtocol.Message> observed = new ArrayList<>();
         AgentModelPort model = (history, tools) -> {
@@ -114,8 +117,19 @@ class ReadToolRecoveryDockerTest {
         var read = json.readTree(observed.stream().filter(message -> corrected.id().equals(message.callId()))
                 .findFirst().orElseThrow().text());
         assertEquals(initial.replace("return n;", "return n + 1;"), read.path("result").path("content").asText());
-        assertTrue(observed.stream().anyMatch(message -> lookup.id().equals(message.callId())
-                && message.text().contains(path)));
+        var files = json.readTree(observed.stream().filter(message -> lookup.id().equals(message.callId()))
+                .findFirst().orElseThrow().text()).path("result").path("files");
+        assertEquals(path, files.get(0).path("path").asText());
+        assertEquals(read.path("result").path("content").asText().getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                files.get(0).path("sizeBytes").asInt());
+        var limit = json.readTree(observed.stream().filter(message -> oversized.id().equals(message.callId()))
+                .findFirst().orElseThrow().text());
+        assertEquals("OUTPUT_LIMIT", limit.path("classification").asText());
+        var second = json.readTree(observed.stream().filter(message -> resumed.id().equals(message.callId()))
+                .findFirst().orElseThrow().text()).path("result");
+        assertEquals("second\n", second.path("content").asText());
+        assertEquals(1, second.path("lineCount").asInt());
+        assertTrue(second.path("nextStartLine").isNull());
         var candidate = database.store.candidate(terminal.candidateId());
         var evidence = json.readTree(candidate.testEvidence());
         assertEquals(8, evidence.path("evidenceVersion").asInt());
@@ -131,8 +145,8 @@ class ReadToolRecoveryDockerTest {
         assertEquals("FACTUAL_RECORD", evidence.path("verificationLevel").asText());
         assertEquals(List.of(path, testPath), candidate.changedPaths());
         var events = database.store.events(terminal.id(), 0, 200);
-        assertEquals(10, terminal.toolCalls());
-        assertEquals(10, events.stream().filter(event -> event.kind().equals("TOOL_FINISHED")).count());
+        assertEquals(12, terminal.toolCalls());
+        assertEquals(12, events.stream().filter(event -> event.kind().equals("TOOL_FINISHED")).count());
         assertEquals(5, events.stream().filter(event -> event.kind().equals("TOOL_FINISHED")
                 && event.summary().contains("INVALID_TOOL_ARGUMENT") && event.summary().contains("readNotStarted")).count());
         for (Path repository : List.of(original, official)) {

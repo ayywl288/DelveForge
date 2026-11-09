@@ -1,5 +1,6 @@
 """固定协议的容器内工具。stdin JSON，stdout 有界 JSON；不接受 shell 字符串。"""
 import base64
+import codecs
 import hashlib
 import json
 import os
@@ -22,7 +23,11 @@ BASELINE_FILE_LIMIT = int(os.environ.get('DF_BASELINE_FILE_BYTES', '16777216'))
 BASELINE_TOTAL_LIMIT = int(os.environ.get('DF_BASELINE_TOTAL_BYTES', '134217728'))
 # v1 约定检查冲突的未修改证据、应用阶段未知及应用后捕获阶段；旧工具不能推断兼容。
 PROTOCOL_NAME = 'delveforge-sandbox'
-PROTOCOL_VERSION = 10
+PROTOCOL_VERSION = 11
+READ_CHUNK = 8192
+READ_ENDINGS = re.compile(r'\r\n|[\r\n]')
+# search_code 沿用 str.splitlines 对 Unicode 分隔符的识别。
+SEARCH_ENDINGS = re.compile(r'\r\n|[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]')
 PROTECTED = {'.git', '.hg', '.svn', '.ssh', '.aws', '.gnupg', '.m2'}
 BASELINE_PATHS = set()
 RESOURCE_CAPABILITIES = {}
@@ -333,7 +338,127 @@ def preview_patch(patch):
         return {'files': files}
 
 
-def dispatch(name, args):
+def open_source(path):
+    if not path.is_file():
+        raise ValueError('File does not exist')
+    return path.open('rb')
+
+
+def line_fragments(stream, endings):
+    """每次只保留一个解码块。None 表示行未结束，空终止符表示最后一行没有换行。"""
+    decoder = codecs.getincrementaldecoder('utf-8')()
+    pending_cr = ''
+    unfinished = False
+    while True:
+        raw = stream.read(READ_CHUNK)
+        if b'\x00' in raw:
+            raise ValueError('Binary files are unsupported')
+        chunk = pending_cr + decoder.decode(raw, final=not raw)
+        pending_cr = '\r' if raw and chunk.endswith('\r') else ''
+        if pending_cr:
+            chunk = chunk[:-1]
+        pos = 0
+        for match in endings.finditer(chunk):
+            yield chunk[pos:match.start()], match.group()
+            pos = match.end()
+            unfinished = False
+        if pos < len(chunk):
+            yield chunk[pos:], None
+            unfinished = True
+        if not raw:
+            if unfinished:
+                yield '', ''
+            return
+
+
+def compact_json(value):
+    return json.dumps(value, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+
+
+def read_envelope(result):
+    if result.get('classification') == 'OUTPUT_LIMIT':
+        return {'ok': False, **result}
+    return {'ok': True, 'tool': 'read_file', 'result': result}
+
+
+def read_range(path, relative, start, count, budget):
+    lines = []
+    parts = []
+    content_bytes = 0
+    number = 1
+    accepted = 0
+
+    def page(included, more, content=''):
+        return {'path': relative, 'startLine': start, 'lineCount': included, 'content': content,
+                'hasMore': more, 'nextStartLine': start + included if more else None}
+
+    def limited():
+        if accepted:
+            return page(accepted, True, ''.join(lines[:accepted]))
+        return {'classification': 'OUTPUT_LIMIT', 'reason': 'A complete source line exceeds the output budget.'}
+
+    def page_bytes(included, more):
+        metadata = page(included, more)
+        # Java 对可见响应添加 publicResource；它也占用同一模型输出预算。
+        metadata['publicResource'] = relative in RESOURCE_CAPABILITIES
+        return len(compact_json(read_envelope(metadata))) + content_bytes
+
+    with open_source(path) as stream:
+        fragments = line_fragments(stream, READ_ENDINGS)
+        fragment = next(fragments, None)
+        while fragment is not None:
+            body, ending = fragment
+            if number >= start:
+                part = body + (ending or '')
+                # JSON 字符串两端引号不计入拼接后的内容长度。
+                content_bytes += len(compact_json(part)) - 2
+                if content_bytes > budget:
+                    return limited()
+                parts.append(part)
+            fragment = next(fragments, None)
+            if ending is None:
+                continue
+            if number >= start:
+                included = len(lines) + 1
+                more = fragment is not None
+                if page_bytes(included, more) <= budget:
+                    accepted = included
+                # 很大的续读行号比 null 更长，追加最后一行有时反而能缩小整个响应。
+                elif not more or included == count or page_bytes(included + 1, False) + 1 > budget:
+                    return limited()
+                lines.append(''.join(parts))
+                parts.clear()
+                if included == count or not more:
+                    return page(included, more, ''.join(lines))
+            number += 1
+    return page(0, False)
+
+
+def search_file(path, relative, query, limit):
+    staged = []
+    number = 1
+    excerpt = tail = ''
+    matched = False
+    with open_source(path) as stream:
+        for body, ending in line_fragments(stream, SEARCH_ENDINGS):
+            # 达到上限后继续严格解码到 EOF，整个文件有效时才提交其匹配。
+            if len(staged) == limit:
+                continue
+            excerpt += body[:400 - len(excerpt)]
+            if not matched:
+                window = tail + body
+                matched = query in window
+                tail = window[1 - len(query):] if len(query) > 1 else ''
+            if ending is not None:
+                if matched:
+                    staged.append({'path': relative, 'line': number, 'excerpt': excerpt})
+                number += 1
+                excerpt = tail = ''
+                matched = False
+    return staged
+
+
+def dispatch(name, args, max_output_bytes=24000):
     if name == 'protocol':
         return {'protocol': PROTOCOL_NAME, 'version': PROTOCOL_VERSION}
     if name == 'initialize':
@@ -388,7 +513,8 @@ def dispatch(name, args):
         selected = files[offset:offset + limit]
         directories = sorted({pathlib.PurePosixPath(value).parent.as_posix() for value in selected}
                              - {'.'})
-        return {'files': selected, 'directories': directories, 'total': len(files),
+        entries = [{'path': value, 'sizeBytes': (ROOT / value).stat().st_size} for value in selected]
+        return {'files': entries, 'directories': directories, 'total': len(files),
                 'nextOffset': offset + limit if offset + limit < len(files) else None}
     if name == 'read_file':
         path = path_for(args.get('path'))
@@ -397,10 +523,7 @@ def dispatch(name, args):
             return read_error('INVALID_RANGE', 'start_line 必须为正整数，line_count 必须为 1 到 300 的整数。')
         if not path.exists():
             return read_error('PATH_NOT_FOUND', '该源码路径不存在；先用 list_files 查找，再使用返回的准确路径。')
-        content = text(path)
-        lines = content.splitlines(keepends=True)
-        return {'path': args['path'], 'startLine': start, 'totalLines': len(lines),
-                'count': count, '_source': content}
+        return read_range(path, args['path'], start, count, max_output_bytes)
     if name == 'search_code':
         prefix = args.get('path', '.')
         parent = path_for(prefix, True)
@@ -410,22 +533,18 @@ def dispatch(name, args):
         if not parent.exists():
             return read_error('PATH_NOT_FOUND', '该源码路径不存在；先用 list_files 查找，再使用返回的准确路径。')
         matches = []
-        sources = {}
         for relative in all_files():
             path = ROOT / relative
             if parent != ROOT and not path.is_relative_to(parent):
                 continue
             try:
-                content = text(path_for(relative))
+                staged = search_file(path_for(relative), relative, query, 40 - len(matches))
             except (ValueError, UnicodeError, PolicyError):
                 continue
-            for index, line in enumerate(content.splitlines(), 1):
-                if query in line:
-                    matches.append({'path': relative, 'line': index})
-                    sources[relative] = content
-                    if len(matches) == 40:
-                        return {'matches': matches, '_sources': sources, 'truncated': True}
-        return {'matches': matches, '_sources': sources, 'truncated': False}
+            matches.extend(staged)
+            if len(matches) == 40:
+                return {'matches': matches, 'truncated': True}
+        return {'matches': matches, 'truncated': False}
     if name == 'inspect_patch':
         return preview_patch(args['patch'])
     if name == 'apply_patch':
@@ -499,7 +618,14 @@ def main():
                     or type(resource.get('size')) is not int or not 0 <= resource['size'] <= BASELINE_FILE_LIMIT:
                 raise PolicyError('RESOURCE_CAPABILITIES', 'Invalid trusted resource identity')
             path_for(path, resource=True)
-        result = dispatch(request['name'], request.get('arguments', {}))
+        budget = request.get('maxOutputBytes', 24000)
+        result = dispatch(request['name'], request.get('arguments', {}), budget)
+        if request['name'] == 'read_file' and result.get('classification') != 'INVALID_TOOL_ARGUMENT':
+            wire = compact_json(read_envelope(result))
+            if len(wire) > budget:
+                wire = compact_json(read_envelope({'classification': 'OUTPUT_LIMIT', 'reason': 'Source response exceeds budget.'}))
+            sys.stdout.buffer.write(wire)
+            return
         print(json.dumps({'ok': result.get('classification') not in ('PATCH_CONFLICT', 'INVALID_TOOL_ARGUMENT'), 'tool': request['name'], 'durationMs': int(
             (time.monotonic() - started) * 1000), 'result': result}, ensure_ascii=True))
     except PolicyError as error:

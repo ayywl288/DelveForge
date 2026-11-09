@@ -91,7 +91,7 @@ class DockerSandboxProtocolTest {
     @Test
     void acceptsOnlyExplicitCompatibleToolContract() throws Exception {
         assertDoesNotThrow(() -> DockerAgentSandbox.requireCompatibleProtocol(json.readTree(
-                "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":10}}")));
+                "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":11}}")));
     }
 
     @ParameterizedTest
@@ -101,6 +101,7 @@ class DockerSandboxProtocolTest {
             "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":5}}",
             "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":6}}",
             "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":7}}",
+            "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":10}}",
             "{\"ok\":true,\"result\":{\"classification\":\"PATCH_CONFLICT\"}}",
             "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":\"1\"}}",
             "{\"ok\":true,\"tool\":\"protocol\",\"result\":{\"protocol\":\"delveforge-sandbox\",\"version\":1.0}}",
@@ -112,6 +113,7 @@ class DockerSandboxProtocolTest {
                 () -> DockerAgentSandbox.requireCompatibleProtocol(json.readTree(response)));
         assertEquals("SANDBOX_PROTOCOL_INCOMPATIBLE", failure.code());
         assertTrue(failure.getMessage().contains("new image tag"));
+        assertTrue(failure.getMessage().contains("v11"));
         assertTrue(failure.getMessage().contains("delveforge.agent.sandbox.images"));
         assertFalse(failure.getMessage().contains("private-detail"));
     }
@@ -137,8 +139,11 @@ class DockerSandboxProtocolTest {
                 <properties><maven.compiler.release>21</maven.compiler.release></properties></project>
                 """);
         Files.writeString(official.resolve("Counter.java"), "class Counter { int value = 1; }\n");
+        String escapedLine = ("\"\\\t中😀").repeat(40) + "\r\n";
+        Files.writeString(official.resolve("large.txt"), escapedLine.repeat(1500) + "end marker");
         command(List.of("git", "init", "--template="), official);
-        command(List.of("git", "add", "pom.xml", "Counter.java"), official);
+        Files.writeString(official.resolve(".gitattributes"), "* -text\n");
+        command(List.of("git", "add", "pom.xml", "Counter.java", "large.txt", ".gitattributes"), official);
         command(List.of("git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
                 "-c", "commit.gpgSign=false", "commit", "-m", "fixture"), official);
         String baseline = command(List.of("git", "rev-parse", "HEAD"), official).strip();
@@ -167,8 +172,30 @@ class DockerSandboxProtocolTest {
                 assertEquals(List.of("protocol"), operations);
                 return;
             }
-            sandbox.prepare(task, AgentProtocol.Limits.defaults(), () -> false);
+            var defaults = AgentProtocol.Limits.defaults();
+            var limits = new AgentProtocol.Limits(defaults.maxContextChars(), 2048, defaults.maxPatchBytes(),
+                    defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), defaults.checkSeconds());
+            sandbox.prepare(task, limits, () -> false);
             assertEquals(List.of("protocol", "initialize"), operations);
+            var page = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("range", "read_file",
+                    "{\"path\":\"large.txt\"}"), () -> false));
+            assertTrue(page.path("ok").asBoolean(), page.toString());
+            var result = page.path("result");
+            int returned = result.path("lineCount").asInt();
+            assertTrue(returned > 0 && returned < 120);
+            assertEquals(escapedLine.repeat(returned), result.path("content").asText());
+            assertTrue(result.path("hasMore").asBoolean());
+            assertEquals(1 + returned, result.path("nextStartLine").asInt());
+            assertTrue(page.toString().getBytes(StandardCharsets.UTF_8).length <= limits.maxOutputBytes());
+            var extra = ((com.fasterxml.jackson.databind.node.ObjectNode) result).deepCopy()
+                    .put("content", escapedLine.repeat(returned + 1)).put("lineCount", returned + 1)
+                    .put("nextStartLine", returned + 2);
+            assertTrue(json.createObjectNode().put("ok", true).put("tool", "read_file").set("result", extra)
+                    .toString().getBytes(StandardCharsets.UTF_8).length > limits.maxOutputBytes());
+            var search = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("find", "search_code",
+                    "{\"path\":\"large.txt\",\"query\":\"marker\"}"), () -> false));
+            assertEquals("end marker", search.at("/result/matches/0/excerpt").asText());
+            assertEquals(1501, search.at("/result/matches/0/line").asInt());
             var applied = json.readTree(sandbox.tool(id, new AgentProtocol.ToolCall("one", "edit_file",
                     json.writeValueAsString(Map.of("path", "Counter.java", "old_text", "value = 1", "new_text", "value = 2"))), () -> false));
             assertTrue(applied.path("ok").asBoolean());

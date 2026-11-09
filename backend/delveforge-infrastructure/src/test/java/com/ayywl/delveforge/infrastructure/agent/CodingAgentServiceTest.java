@@ -1160,6 +1160,47 @@ class CodingAgentServiceTest {
     }
 
     @Test
+    void compressedModelHistoryRetainsDiscoveredPathsAndReadContinuation() throws Exception {
+        var defaults = AgentProtocol.Limits.defaults();
+        var limits = new AgentProtocol.Limits(12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
+                defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), 10);
+        AtomicInteger requests = new AtomicInteger();
+        AtomicBoolean preserved = new AtomicBoolean();
+        when(sandbox.tool(anyString(), any(), any())).thenAnswer(invocation -> {
+            AgentProtocol.ToolCall call = invocation.getArgument(1);
+            if (call.name().equals("list_files")) {
+                return """
+                        {"ok":true,"result":{"files":[{"path":"src/Discovered.java","sizeBytes":1234},"old/Legacy.java"],
+                        "directories":["src","old"],"total":2,"nextOffset":null}}
+                        """;
+            }
+            return "{\"ok\":true,\"result\":{\"path\":\"notes\",\"content\":\"" + "x".repeat(3500)
+                    + "\\n\",\"startLine\":3,\"lineCount\":1,\"hasMore\":true,\"nextStartLine\":4}}";
+        });
+        when(sandbox.finish(anyString(), any())).thenThrow(new AgentException("NO_CHANGES", "No changes"));
+        AgentModelPort model = (history, tools) -> {
+            if (history.stream().anyMatch(message -> message.role().equals("user")
+                    && message.text().startsWith("较早工具上下文已压缩")
+                    && message.text().contains("\"files\":[\"src/Discovered.java\",\"old/Legacy.java\"]")
+                    && message.text().contains("\"nextStartLine\":4") && !message.text().contains("sizeBytes"))) {
+                preserved.set(true);
+            }
+            int turn = requests.incrementAndGet();
+            if (turn == 6) {
+                return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 1L);
+            }
+            return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call-" + turn,
+                    turn == 1 ? "list_files" : "read_file",
+                    turn == 1 ? "{}" : "{\"path\":\"notes\",\"start_line\":" + turn + "}")), 1L);
+        };
+        try (var service = service(model, limits)) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("NO_CHANGES", awaitTerminal(service, id, 10).reason());
+            assertTrue(preserved.get());
+        }
+    }
+
+    @Test
     void compressedHistoryRetainsReadErrorCorrectionWithoutUnsafeInput() throws Exception {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(12000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),

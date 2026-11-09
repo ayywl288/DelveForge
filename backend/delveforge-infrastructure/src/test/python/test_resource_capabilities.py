@@ -50,11 +50,11 @@ class ResourceCapabilityTest(unittest.TestCase):
         self.assertTrue(sandbox.approved_resource('.env.example'))
 
     def test_model_list_search_reads_and_mutation_cannot_bypass_visibility(self):
-        self.assertEqual(['.env.example', 'Main.java'], sandbox.dispatch('list_files', {})['files'])
+        self.assertEqual(['.env.example', 'Main.java'], [item['path'] for item in sandbox.dispatch('list_files', {})['files']])
         self.assertEqual('.env.example', sandbox.dispatch('search_code', {'query': 'example.com'})['matches'][0]['path'])
         for path in self.capabilities:
             if path == '.env.example':
-                self.assertIn('example.com', sandbox.dispatch('read_file', {'path': path})['_source'])
+                self.assertIn('example.com', sandbox.dispatch('read_file', {'path': path})['content'])
             else:
                 with self.assertRaises(sandbox.PolicyError):
                     sandbox.dispatch('read_file', {'path': path, 'resource': True})

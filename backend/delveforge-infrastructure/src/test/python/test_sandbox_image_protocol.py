@@ -103,7 +103,7 @@ class SandboxImageProtocolTest(unittest.TestCase):
                                 json.dumps({'name': 'protocol', 'arguments': {}}).encode())
         response = json.loads(output)
         self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
-            'protocol': 'delveforge-sandbox', 'version': 10}},
+            'protocol': 'delveforge-sandbox', 'version': 11}},
             {k: v for k, v in response.items() if k != 'durationMs'})
 
     def test_successful_patch_changes_exact_fixture_bytes(self):
@@ -111,6 +111,22 @@ class SandboxImageProtocolTest(unittest.TestCase):
         self.assertTrue(result['response']['ok'])
         self.assertEqual('PATCH_APPLIED', result['response']['result']['classification'])
         self.assertTrue(result['successfulBytes'])
+
+    def test_read_stdout_is_budgeted_before_java_and_can_resume(self):
+        code = r'''
+import json, pathlib, subprocess
+line = ('"\\\t中😀' * 40 + '\r\n')
+pathlib.Path('/workspace/ranges').write_bytes((line * 5000).encode())
+for start in (1, 2):
+    request = {'name': 'read_file', 'maxOutputBytes': 1024,
+               'arguments': {'path': 'ranges', 'start_line': start}}
+    wire = subprocess.check_output(['python3', '/opt/delveforge/sandbox.py'], input=json.dumps(request).encode())
+    page = json.loads(wire)['result']
+    assert len(wire) <= 1024 and page['lineCount'] == 1 and page['hasMore']
+    assert page['content'] == line and page['nextStartLine'] == start + 1
+print('ok')
+'''
+        self.assertEqual(b'ok\n', self.container(['python3', '-'], code.encode()))
 
     def test_pre_mutation_conflict_has_safe_feedback_and_unchanged_files(self):
         result = self.fixture('conflict')

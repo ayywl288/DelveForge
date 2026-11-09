@@ -604,9 +604,10 @@ public final class CodingAgentService implements AutoCloseable {
                 if (path.isBlank() || !path.equals(safe(path))) {
                     throw new AgentException("POLICY_REJECTED", "Unsafe source response path");
                 }
-                payload.put("path", path).put("startLine", data.path("startLine").asInt())
-                        .put("totalLines", data.path("totalLines").asInt())
-                        .put("content", data.path("content").asText());
+                payload.put("path", path).put("content", data.path("content").asText());
+                for (String field : List.of("startLine", "lineCount", "hasMore", "nextStartLine")) {
+                    payload.set(field, data.get(field));
+                }
             } else if (tool.equals("search_code") && data.path("matches").isArray()) {
                 var matches = payload.putArray("matches");
                 payload.put("truncated", data.path("truncated").asBoolean());
@@ -682,8 +683,11 @@ public final class CodingAgentService implements AutoCloseable {
             String contextPath = details.path("path").asText();
             if (!contextPath.isBlank() && contextPath.equals(safe(contextPath))) {
                 summary.put("path", contextPath);
-                summary.put("startLine", details.path("startLine").asInt());
-                summary.put("totalLines", details.path("totalLines").asInt());
+                for (String field : List.of("startLine", "lineCount", "hasMore", "nextStartLine")) {
+                    if (details.has(field)) {
+                        summary.put(field, details.get(field));
+                    }
+                }
             }
             addContextPaths(summary, "paths", details.path("paths"));
             addContextPaths(summary, "files", details.path("files"));
@@ -773,11 +777,12 @@ public final class CodingAgentService implements AutoCloseable {
     private void addContextPaths(Map<String, Object> summary, String field, JsonNode values) {
         List<String> paths = new ArrayList<>();
         for (JsonNode value : values) {
-            String path = value.asText();
             if (paths.size() == 12) {
                 break;
             }
-            if (value.isTextual() && path.length() <= 512 && path.equals(safe(path))) {
+            JsonNode entry = value.isObject() ? value.path("path") : value;
+            String path = entry.asText();
+            if (entry.isTextual() && path.length() <= 512 && path.equals(safe(path))) {
                 paths.add(path);
             }
         }

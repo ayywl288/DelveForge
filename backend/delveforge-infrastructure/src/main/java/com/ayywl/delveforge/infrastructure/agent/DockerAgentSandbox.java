@@ -511,9 +511,13 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
     private JsonNode invoke(Session session, String name, JsonNode arguments, BooleanSupplier cancelled) {
         try {
             byte[] input = json.writeValueAsBytes(Map.of("name", name, "arguments", arguments,
-                    "baselinePaths", session.retainedPaths, "resourceCapabilities", session.resourceCapabilities));
-            int maxBytes = Set.of("snapshot", "inspect_patch", "search_code").contains(name) ? Math.max(session.limits.maxCandidateBytes() * 16, 33554432)
-                    : Math.max(session.limits.maxFileBytes() * 8, 2097152);
+                    "baselinePaths", session.retainedPaths, "resourceCapabilities", session.resourceCapabilities,
+                    "maxOutputBytes", session.limits.maxOutputBytes()));
+            int maxBytes = switch (name) {
+                case "read_file" -> session.limits.maxOutputBytes();
+                case "snapshot", "inspect_patch" -> Math.max(session.limits.maxCandidateBytes() * 16, 33554432);
+                default -> Math.max(session.limits.maxFileBytes() * 8, 2097152);
+            };
             return parse(docker(List.of("exec", "-i",
                     name(session.task.runId(), "agent"), "python3", "/opt/delveforge/sandbox.py"), input,
                     CONTROL_TIMEOUT,
@@ -542,14 +546,14 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
                 || !response.path("result").path("protocol").asText().equals("delveforge-sandbox")
                 || !response.path("result").path("version").isIntegralNumber()
                 || !response.path("result").path("version").canConvertToInt()
-                || response.path("result").path("version").asInt() != 10) {
+                || response.path("result").path("version").asInt() != 11) {
             throw incompatibleProtocol();
         }
     }
 
     private static AgentException incompatibleProtocol() {
         return new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE",
-                "Sandbox tool protocol v9 is required. Build the current agent Dockerfile with a new image tag, "
+                "Sandbox tool protocol v11 is required. Build the current agent Dockerfile with a new image tag, "
                         + "configure delveforge.agent.sandbox.images, then explicitly restart the application. "
                         + "See docs/LOCAL_SETUP.md (sandbox protocol troubleshooting).");
     }
@@ -793,10 +797,10 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         rejectPolicy(response, AgentTools.mutation(call.name()) ? AgentPolicyRejection.Stage.PATCH_APPLICATION
                 : AgentPolicyRejection.Stage.TOOL_EXECUTION);
         requireCertainPatchOutcome(response);
-        JsonNode visible = sourceResponse(call.name(), response, session.resourceCapabilities.keySet());
+        JsonNode visible = sourceResponse(call.name(), arguments, response, session.resourceCapabilities);
         String safe = visible.toString();
         if (safe.getBytes(StandardCharsets.UTF_8).length > session.limits.maxOutputBytes()) {
-            return "{\"ok\":false,\"classification\":\"OUTPUT_LIMIT\",\"reason\":\"Request a smaller range\"}";
+            return "{\"ok\":false,\"classification\":\"OUTPUT_LIMIT\",\"reason\":\"Tool response exceeds the output budget\"}";
         }
         return safe;
     }
@@ -984,12 +988,12 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         }
     }
 
-    /** 选定仓库原文按行切片，内部完整文件字段不重复进入模型工具结果。 */
-    JsonNode sourceResponse(String tool, JsonNode response) {
-        return sourceResponse(tool, response, Set.of());
-    }
-
-    private JsonNode sourceResponse(String tool, JsonNode response, Set<String> publicPaths) {
+    /** 沙箱仅传输选中的完整行或匹配摘要；源码字段按原文进入可见响应。 */
+    JsonNode sourceResponse(String tool, JsonNode arguments, JsonNode response,
+            Map<String, Map<String, Object>> resources) {
+        if (response == null || !response.path("ok").isBoolean()) {
+            throw new AgentException("TOOL_PROTOCOL", "Missing tool response status");
+        }
         if (!response.path("ok").asBoolean() || !Set.of("read_file", "search_code").contains(tool)) {
             JsonNode visible = sanitizeNode(response);
             if (visible.path("result") instanceof ObjectNode result) {
@@ -1002,65 +1006,69 @@ public final class DockerAgentSandbox implements AgentSandboxPort {
         ObjectNode visible = json.createObjectNode().put("ok", true).put("tool", tool);
         ObjectNode data = json.createObjectNode();
         if (tool.equals("read_file")) {
-            String path = result.path("path").asText();
-            if (!publicPaths.contains(path)) {
-                requirePath(path);
+            String path = responsePath(result, resources);
+            JsonNode start = result.path("startLine");
+            JsonNode count = result.path("lineCount");
+            JsonNode next = result.path("nextStartLine");
+            boolean more = result.path("hasMore").asBoolean();
+            String content = result.path("content").textValue();
+            if (!path.equals(arguments.path("path").textValue()) || !start.isIntegralNumber()
+                    || start.bigIntegerValue().signum() < 1
+                    || !start.bigIntegerValue().equals(arguments.has("start_line")
+                            ? arguments.get("start_line").bigIntegerValue() : java.math.BigInteger.ONE)
+                    || !count.isIntegralNumber() || !count.canConvertToInt() || count.asInt() < 0 || count.asInt() > 300
+                    || count.asInt() > arguments.path("line_count").asInt(120)
+                    || !result.path("hasMore").isBoolean() || content == null || content.indexOf(0) >= 0
+                    || content.lines().count() != count.asInt()
+                    || (more && (count.asInt() == 0 || !(content.endsWith("\n") || content.endsWith("\r"))
+                        || !next.isIntegralNumber()
+                        || !next.bigIntegerValue().equals(start.bigIntegerValue().add(count.bigIntegerValue()))))
+                    || (!more && !next.isNull())) {
+                throw new AgentException("TOOL_PROTOCOL", "Invalid read_file range response");
             }
-            if (!result.path("_source").isTextual()) {
-                throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Complete source view is required");
+            data.put("publicResource", resources.containsKey(path)).put("path", sanitize(path));
+            for (String field : List.of("startLine", "lineCount", "content", "hasMore", "nextStartLine")) {
+                data.set(field, result.get(field));
             }
-            List<String> lines = sourceLines(result.path("_source").asText());
-            int first = result.path("startLine").asInt();
-            int count = result.path("count").asInt();
-            if (first < 1 || count < 1 || count > 300) {
-                throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Invalid source slice");
-            }
-            int start = Math.min(first - 1, lines.size());
-            data.put("publicResource", publicPaths.contains(path));
-            data.put("path", sanitize(path)).put("startLine", first).put("totalLines", result.path("totalLines").asInt())
-                    .put("content", String.join("", lines.subList(start, Math.min(start + count, lines.size()))));
         } else {
+            JsonNode entries = result.path("matches");
+            if (!entries.isArray() || entries.size() > 40 || !result.path("truncated").isBoolean()
+                    || result.path("truncated").asBoolean() != (entries.size() == 40)) {
+                throw new AgentException("TOOL_PROTOCOL", "Invalid search_code result list");
+            }
             var matches = data.putArray("matches");
-            data.put("truncated", result.path("truncated").asBoolean());
-            Map<String, List<String>> sources = new HashMap<>();
-            for (JsonNode match : result.path("matches")) {
-                String path = match.path("path").asText();
-                if (!publicPaths.contains(path)) {
-                    requirePath(path);
+            data.set("truncated", result.get("truncated"));
+            String prefix = arguments.path("path").asText(".");
+            for (JsonNode match : entries) {
+                String path = responsePath(match, resources);
+                JsonNode line = match.path("line");
+                String excerpt = match.path("excerpt").textValue();
+                if ((!prefix.isEmpty() && !prefix.equals(".") && !path.equals(prefix) && !path.startsWith(prefix + "/"))
+                        || !line.isIntegralNumber() || !line.canConvertToInt() || line.asInt() < 1 || excerpt == null
+                        || excerpt.codePointCount(0, excerpt.length()) > 400 || excerpt.indexOf(0) >= 0
+                        || excerpt.contains("\n") || excerpt.contains("\r")) {
+                    throw new AgentException("TOOL_PROTOCOL", "Invalid search_code matching line");
                 }
-                JsonNode raw = result.path("_sources").path(path);
-                if (!raw.isTextual()) {
-                    throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Complete search source is required");
-                }
-                List<String> lines = sources.computeIfAbsent(path,
-                        key -> sourceLines(raw.asText()));
-                int line = match.path("line").asInt();
-                if (line < 1 || line > lines.size()) {
-                    throw new AgentException("SANDBOX_PROTOCOL_INCOMPATIBLE", "Invalid search source line");
-                }
-                String excerpt = lines.get(line - 1);
-                while (!excerpt.isEmpty() && (excerpt.charAt(excerpt.length() - 1) == 10
-                        || excerpt.charAt(excerpt.length() - 1) == 13)) {
-                    excerpt = excerpt.substring(0, excerpt.length() - 1);
-                }
-                matches.addObject().put("publicResource", publicPaths.contains(path)).put("path", sanitize(path)).put("line", line)
-                        .put("excerpt", excerpt.substring(0, Math.min(excerpt.length(), 400)));
+                matches.addObject().put("publicResource", resources.containsKey(path)).put("path", sanitize(path))
+                        .put("line", line.asInt()).put("excerpt", excerpt);
             }
         }
         visible.set("result", data);
         return visible;
     }
 
-    private List<String> sourceLines(String content) {
-        List<String> lines = new ArrayList<>();
-        int start = 0;
-        while (start < content.length()) {
-            int end = content.indexOf(10, start);
-            end = end < 0 ? content.length() : end + 1;
-            lines.add(content.substring(start, end));
-            start = end;
+    private String responsePath(JsonNode entry, Map<String, Map<String, Object>> resources) {
+        String path = entry.path("path").textValue();
+        if (path == null) {
+            throw new AgentException("TOOL_PROTOCOL", "Missing source response path");
         }
-        return lines;
+        if (!resources.containsKey(path)) {
+            requirePath(path);
+        } else if (!"PUBLIC_RESOURCE".equals(resources.get(path).get("kind"))) {
+            throw new AgentPolicyRejection(AgentPolicyRejection.Rule.RESOURCE_CAPABILITY,
+                    AgentPolicyRejection.Stage.PATH_VALIDATION);
+        }
+        return path;
     }
 
     private JsonNode sanitizeNode(JsonNode node) {

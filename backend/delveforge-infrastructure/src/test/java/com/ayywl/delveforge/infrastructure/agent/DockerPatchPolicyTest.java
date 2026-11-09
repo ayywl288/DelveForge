@@ -55,7 +55,7 @@ class DockerPatchPolicyTest {
         for (String tool : java.util.List.of("run_checks", "run_frontend_checks", "describe_checks")) {
             var response = json.createObjectNode().put("ok", true).set("result",
                     json.createObjectNode().put("output", output).put("classification", "TESTS_FAILED"));
-            String visible = sandbox.sourceResponse(tool, response).toString();
+            String visible = sandbox.sourceResponse(tool, json.createObjectNode(), response, Map.of()).toString();
             assertTrue(visible.contains("Compilation error at Auth.java:12"));
             for (String secret : java.util.List.of("synthetic-bearer-value", "dXNlcjpwYXNz",
                     "ghp_" + "a".repeat(36), "sk-" + "b".repeat(32))) {
@@ -181,20 +181,47 @@ class DockerPatchPolicyTest {
 
     @Test
     void selectedSourceSlicesRemainExactForEditing() {
-        String complete = "ordinary();\n-----BEGIN PRIVATE KEY-----\nsynthetic-private-material\n-----END PRIVATE KEY-----\nnext();\n";
-        var data = json.createObjectNode().put("path", "src/Auth.js").put("startLine", 3).put("count", 1)
-                .put("totalLines", 5).put("_source", complete);
-        var read = sandbox.sourceResponse("read_file", json.createObjectNode().put("ok", true).set("result", data));
-        assertTrue(read.toString().contains("synthetic-private-material"));
-        assertFalse(read.toString().contains("_source"));
-        assertEquals("synthetic-private-material\n", read.path("result").path("content").asText());
-        var search = json.createObjectNode();
-        search.putArray("matches").addObject().put("path", "src/Auth.js").put("line", 3);
-        search.set("_sources", json.createObjectNode().put("src/Auth.js", complete));
-        var visible = sandbox.sourceResponse("search_code", json.createObjectNode().put("ok", true).set("result", search));
-        assertTrue(visible.toString().contains("synthetic-private-material"));
-        assertFalse(visible.toString().contains("_sources"));
+        String content = "synthetic-private-material\r\n";
+        var data = json.createObjectNode().put("path", "src/Auth.js").put("startLine", 3).put("lineCount", 1)
+                .put("hasMore", true).put("nextStartLine", 4).put("content", content);
+        var args = json.createObjectNode().put("path", "src/Auth.js").put("start_line", 3);
+        var envelope = json.createObjectNode().put("ok", true).set("result", data);
+        var read = sandbox.sourceResponse("read_file", args, envelope, Map.of());
+        assertEquals(data.deepCopy().put("publicResource", false), read.path("result"));
+        var resources = Map.of("src/Auth.js", Map.<String, Object>of("kind", "PUBLIC_RESOURCE"));
+        assertTrue(sandbox.sourceResponse("read_file", args, envelope, resources).at("/result/publicResource").asBoolean());
+
+        var search = json.createObjectNode().put("truncated", false);
+        search.putArray("matches").addObject().put("path", "src/Auth.js").put("line", 3)
+                .put("excerpt", "synthetic-private-material");
+        var visible = sandbox.sourceResponse("search_code", args, json.createObjectNode().put("ok", true)
+                .set("result", search), resources);
         assertEquals("synthetic-private-material", visible.path("result").path("matches").get(0).path("excerpt").asText());
+        assertTrue(visible.at("/result/matches/0/publicResource").asBoolean());
+    }
+
+    @Test
+    void incompleteOrInconsistentSourceResponsesFailClosed() {
+        var data = json.createObjectNode().put("path", "a").put("startLine", 2).put("lineCount", 1)
+                .put("hasMore", true).put("nextStartLine", 3).put("content", "a\r");
+        for (var invalid : java.util.List.of(data.deepCopy().without("content"), data.deepCopy().without("nextStartLine"),
+                data.deepCopy().put("nextStartLine", 4), data.deepCopy().put("hasMore", false),
+                data.deepCopy().put("lineCount", 2), data.deepCopy().put("content", "partial"),
+                data.deepCopy().put("startLine", "2"), data.deepCopy().put("path", "../outside"))) {
+            assertThrows(AgentException.class, () -> sandbox.sourceResponse("read_file",
+                    json.createObjectNode().put("path", "a").put("start_line", 2),
+                    json.createObjectNode().put("ok", true).set("result", invalid), Map.of()));
+        }
+        var match = json.createObjectNode().put("path", "a").put("line", 1).put("excerpt", "a");
+        for (var invalid : java.util.List.of(match.deepCopy().without("excerpt"), match.deepCopy().put("line", 0),
+                match.deepCopy().put("excerpt", "x".repeat(401)), match.deepCopy().put("path", "../outside"))) {
+            var result = json.createObjectNode().put("truncated", false);
+            result.putArray("matches").add(invalid);
+            assertThrows(AgentException.class, () -> sandbox.sourceResponse("search_code", json.createObjectNode(),
+                    json.createObjectNode().put("ok", true).set("result", result), Map.of()));
+        }
+        assertThrows(AgentException.class, () -> sandbox.sourceResponse("search_code", json.createObjectNode(),
+                json.createObjectNode().put("ok", true).set("result", json.createObjectNode()), Map.of()));
     }
 
     private com.fasterxml.jackson.databind.JsonNode preview(String path, String before, String after) {

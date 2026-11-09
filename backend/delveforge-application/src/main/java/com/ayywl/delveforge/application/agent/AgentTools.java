@@ -70,11 +70,11 @@ public final class AgentTools {
 
     public static List<AgentProtocol.ToolSpec> definitions(AgentProtocol.Limits limits) {
         return List.of(
-                spec("list_files", "分页列出当前沙箱文件；默认 path='.'，offset=0，limit=100，最大200。",
+                spec("list_files", "分页列出文件的相对路径 path 和字节数 sizeBytes；默认 path='.'，offset=0，limit=100，最大200。",
                         "\"path\":{\"type\":\"string\"},\"offset\":{\"type\":\"integer\"},\"limit\":{\"type\":\"integer\"}", ""),
-                spec("search_code", "按字面量搜索当前源码，最多40处结果；不是正则或命令。",
+                spec("search_code", "按区分大小写的字面量搜索源码，支持大文件。最多返回40个匹配行，每行摘录最多400个字符。",
                         "\"path\":{\"type\":\"string\"},\"query\":{\"type\":\"string\"}", "\"query\""),
-                spec("read_file", "读取UTF-8文本。默认从第1行读120行，最多300行。返回项目原文，可用于精确编辑；不要将命令日志中的脱敏值写回。",
+                spec("read_file", "读取预算内的完整 UTF-8 源码行，默认从第1行读120行，最多300行。hasMore 为真时从 nextStartLine 续读。返回原文，可用于精确编辑；不要将命令日志中的脱敏值写回。",
                         "\"path\":{\"type\":\"string\"},\"start_line\":{\"type\":\"integer\"},\"line_count\":{\"type\":\"integer\"}", "\"path\""),
                 spec("edit_file", "优先使用精确文本编辑：path 为相对路径，old_text 必须与当前文件中的一个唯一片段完全一致，new_text 替换该片段。新文件 old_text 为空且必须不存在。不要输出 diff 行数，不要重复已成功的编辑；冲突先重新读取当前文件，做一次有依据的重试。批量转换、格式化或完整生成文件可使用 Shell，不要盲目重复冲突。",
                         "\"path\":{\"type\":\"string\"},\"old_text\":{\"type\":\"string\"},\"new_text\":{\"type\":\"string\"}",

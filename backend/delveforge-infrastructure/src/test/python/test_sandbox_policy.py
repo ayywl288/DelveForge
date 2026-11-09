@@ -1,11 +1,13 @@
 """直接测试工具协议；临时目录与标准库替身，不启动 Docker、模型或 Agent Run。"""
 import importlib.util
+import io
 import json
 import pathlib
 import re
 import subprocess
 import sys
 import tempfile
+import tracemalloc
 import unittest
 from unittest.mock import patch
 
@@ -30,27 +32,186 @@ def witnessed(patch_text):
 
 
 class SandboxPolicyTest(unittest.TestCase):
+    def test_listing_paginates_ordered_metadata_without_reading_files(self):
+        (self.root / 'src').mkdir()
+        for path, raw in [('src/c', b''), ('src/b', '中'.encode()), ('a', b'\x00\xff')]:
+            (self.root / path).write_bytes(raw)
+        with patch.object(pathlib.Path, 'open', side_effect=AssertionError('listing must only stat')):
+            page = sandbox.dispatch('list_files', {'limit': 2})
+            last = sandbox.dispatch('list_files', {'offset': page['nextOffset'], 'limit': 2})
+        self.assertEqual({'files': [{'path': 'a', 'sizeBytes': 2}, {'path': 'src/b', 'sizeBytes': 3}],
+                          'total': 3, 'directories': ['src'], 'nextOffset': 2}, page)
+        self.assertEqual({'files': [{'path': 'src/c', 'sizeBytes': 0}],
+                          'total': 3, 'directories': ['src'], 'nextOffset': None}, last)
+
+    def test_ranges_preserve_line_endings_and_utf8_across_chunks(self):
+        lines = ['中😀\r\n', '\n', 'a\r', '\r\n', 'last']
+        path = self.root / 'mixed'
+        path.write_bytes(''.join(lines).encode())
+        with patch.object(sandbox, 'READ_CHUNK', 2):
+            for start in range(1, len(lines) + 3):
+                expected = lines[start - 1:start + 1]
+                result = sandbox.dispatch('read_file', {'path': 'mixed', 'start_line': start, 'line_count': 2})
+                more = start - 1 + len(expected) < len(lines)
+                self.assertEqual({'path': 'mixed', 'startLine': start, 'lineCount': len(expected),
+                                  'content': ''.join(expected), 'hasMore': more,
+                                  'nextStartLine': start + len(expected) if more else None}, result)
+        path.write_bytes(b'')
+        result = sandbox.dispatch('read_file', {'path': 'mixed'})
+        self.assertEqual((0, '', False, None), tuple(result[k] for k in ('lineCount', 'content', 'hasMore', 'nextStartLine')))
+
+    def tracked_stream(self, raw):
+        sizes = []
+
+        class Stream(io.BytesIO):
+            def read(self, size=-1):
+                self_case.assertEqual(sandbox.READ_CHUNK, size)
+                sizes.append(size)
+                return super().read(size)
+
+            def readline(self, *args):
+                raise AssertionError('must not buffer a whole line')
+
+        self_case = self
+        return patch.object(pathlib.Path, 'open', return_value=Stream(raw)), sizes
+
+    def test_large_skipped_and_lookahead_lines_use_bounded_reads(self):
+        long = b'x' * (1024 * 1024)
+        raw = long + b'\r\nwanted\n' + long
+        path = self.root / 'large'
+        path.write_bytes(raw)
+        for start, expected, next_line, max_reads in [(1, None, None, 2), (2, 'wanted\n', 3, 130)]:
+            opened, sizes = self.tracked_stream(raw)
+            with opened:
+                result = sandbox.dispatch('read_file', {'path': 'large', 'start_line': start, 'line_count': 1}, 1024)
+            if expected is None:
+                self.assertEqual('OUTPUT_LIMIT', result['classification'])
+            else:
+                self.assertEqual(expected, result['content'])
+                self.assertEqual(next_line, result['nextStartLine'])
+                self.assertTrue(result['hasMore'])
+            self.assertTrue(0 < len(sizes) <= max_reads, sizes)
+        path.write_bytes(b'ok\n' + long)
+        self.assertEqual(2, sandbox.dispatch('read_file', {'path': 'large'}, 1024)['nextStartLine'])
+
+    def test_exact_serialized_budget_and_repeated_continuations(self):
+        line = '"\\\t中😀\x01' * 20 + '\r\n'
+        path = self.root / 'quoted'
+        path.write_bytes((line * 7).encode())
+        expected = {'path': 'quoted', 'startLine': 1, 'lineCount': 3, 'content': line * 3,
+                    'hasMore': True, 'nextStartLine': 4}
+        wire = {'ok': True, 'tool': 'read_file', 'result': {**expected, 'publicResource': False}}
+        budget = len(json.dumps(wire, ensure_ascii=False, separators=(',', ':')).encode())
+        self.assertEqual(expected, sandbox.dispatch('read_file', {'path': 'quoted'}, budget))
+        self.assertEqual(2, sandbox.dispatch('read_file', {'path': 'quoted'}, budget - 1)['lineCount'])
+        start = 1
+        content = ''
+        while start is not None:
+            result = sandbox.dispatch('read_file', {'path': 'quoted', 'start_line': start}, budget)
+            content += result['content']
+            start = result['nextStartLine']
+        self.assertEqual(line * 7, content)
+
+    def test_read_rejects_binary_invalid_and_incomplete_utf8(self):
+        (self.root / 'directory').mkdir()
+        with patch.object(pathlib.Path, 'open', side_effect=AssertionError('must only open regular files')):
+            with self.assertRaises(ValueError):
+                sandbox.dispatch('read_file', {'path': 'directory'})
+        for raw in (b'one\x00', b'\xff', b'one\xe2\x82'):
+            (self.root / 'bad').write_bytes(raw)
+            with self.assertRaises(ValueError):
+                sandbox.dispatch('read_file', {'path': 'bad'})
+
+    def test_final_page_can_fit_when_a_large_continuation_number_would_overflow(self):
+        start = 1000000
+        content = 'y' * 1000 + '\na'
+        path = self.root / 'a'
+        path.write_bytes(b'\n' * (start - 1) + content.encode())
+        expected = dict(path='a', startLine=start, lineCount=2, content=content, hasMore=False, nextStartLine=None)
+        wire = {'ok': True, 'tool': 'read_file', 'result': dict(expected, publicResource=False)}
+        budget = len(json.dumps(wire, separators=(',', ':')).encode())
+        self.assertEqual(expected, sandbox.dispatch('read_file', {'path': 'a', 'start_line': start}, budget))
+        self.assertEqual('OUTPUT_LIMIT', sandbox.dispatch(
+            'read_file', {'path': 'a', 'start_line': start, 'line_count': 1}, budget)['classification'])
+
+    def test_search_large_line_boundary_and_eof_matches(self):
+        path = self.root / 'src'
+        path.mkdir()
+        prefix = b'short\r\n' + b'x' * (sandbox.READ_CHUNK * 64 - 8)
+        raw = prefix + '中Needle'.encode() + b'\rend Needle'
+        (path / 'large').write_bytes(raw)
+        (self.root / 'excluded').write_bytes(b'Needle')
+        opened, sizes = self.tracked_stream(raw)
+        with opened:
+            result = sandbox.dispatch('search_code', {'path': 'src', 'query': '中Needle'})
+        self.assertGreater(len(sizes), 64)
+        self.assertEqual({'matches': [{'path': 'src/large', 'line': 2, 'excerpt': 'x' * 400}],
+                          'truncated': False}, result)
+        self.assertEqual([2, 3], [m['line'] for m in sandbox.dispatch(
+            'search_code', {'path': 'src', 'query': 'Needle'})['matches']])
+        self.assertFalse(sandbox.dispatch('search_code', {'query': 'needle'})['matches'])
+        (path / 'boundary').write_bytes(b'x' * (sandbox.READ_CHUNK - 2) + b'Needle')
+        self.assertEqual(1, sandbox.dispatch('search_code', {'path': 'src/boundary', 'query': 'Needle'})['matches'][0]['line'])
+
+    def test_search_validates_after_40_candidates_and_stops_after_valid_limit(self):
+        for suffix in (b'\xff', b'\x00', b'\xe2\x82'):
+            (self.root / 'a-invalid').write_bytes(b'match\n' * 40 + b'x' * 300000 + suffix)
+            (self.root / 'b-valid').write_bytes(b'match\n' * 40)
+            (self.root / 'c-unused').write_bytes(b'match')
+            opened = []
+            original = pathlib.Path.open
+
+            def track(path, *args, **kwargs):
+                opened.append(path.name)
+                return original(path, *args, **kwargs)
+
+            with patch.object(pathlib.Path, 'open', track):
+                result = sandbox.dispatch('search_code', {'query': 'match'})
+            self.assertEqual(['a-invalid', 'b-valid'], opened)
+            self.assertTrue(result['truncated'])
+            self.assertEqual([{'path': 'b-valid', 'line': n, 'excerpt': 'match'}
+                              for n in range(1, 41)], result['matches'])
+
+    def test_long_skipped_and_matched_lines_are_never_accumulated(self):
+        path = self.root / 'long'
+        with path.open('wb') as stream:
+            stream.write(b'match')
+            for _ in range(512):
+                stream.write(b'x' * 8192)
+            stream.write(b'\nnext')
+        with patch.object(sandbox, 'all_files', return_value=['long']):
+            tracemalloc.start()
+            try:
+                read = sandbox.dispatch('read_file', {'path': 'long', 'start_line': 2})
+                search = sandbox.dispatch('search_code', {'query': 'match'})
+                peak = tracemalloc.get_traced_memory()[1]
+            finally:
+                tracemalloc.stop()
+        self.assertEqual('next', read['content'])
+        self.assertEqual('match' + 'x' * 395, search['matches'][0]['excerpt'])
+        self.assertLess(peak, 1024 * 1024, '4 MiB line accumulated by a streaming tool')
+
     def test_selected_config_and_key_names_are_listed_and_read_without_content_filtering(self):
         paths = ['.env', '.env.example', '.npmrc', 'fixture.key', 'id_rsa', 'application.properties']
         for path in paths:
-            (self.root / path).write_text('token=synthetic-default\n')
+            (self.root / path).write_bytes(b'token=synthetic-default\n')
         listed = sandbox.dispatch('list_files', {})['files']
         for path in paths:
-            self.assertIn(path, listed)
-            self.assertEqual('token=synthetic-default\n', sandbox.dispatch('read_file', {'path': path})['_source'])
+            self.assertIn({'path': path, 'sizeBytes': 24}, listed)
+            self.assertEqual('token=synthetic-default\n', sandbox.dispatch('read_file', {'path': path})['content'])
 
     def test_invalid_read_range_never_reads_content_and_can_be_corrected(self):
         target = self.root / 'source.txt'
         target.write_bytes(b'one\ntwo\n')
-        with patch.object(sandbox, 'text', side_effect=AssertionError('must not read')):
+        with patch.object(pathlib.Path, 'open', side_effect=AssertionError('must not read')):
             for values in ({'start_line': 0}, {'line_count': 301}, {'start_line': True}):
                 with self.subTest(values=values):
                     result = sandbox.dispatch('read_file', {'path': 'source.txt', **values})
                     self.assert_read_error(result, 'INVALID_RANGE')
-        self.assertEqual('one\ntwo\n', sandbox.dispatch('read_file', {'path': 'source.txt'})['_source'])
+        self.assertEqual('one\ntwo\n', sandbox.dispatch('read_file', {'path': 'source.txt'})['content'])
 
     def test_missing_sources_are_recoverable_without_read_or_enumeration(self):
-        with patch.object(sandbox, 'text', side_effect=AssertionError('must not read')), \
+        with patch.object(pathlib.Path, 'open', side_effect=AssertionError('must not read')), \
                 patch.object(sandbox, 'all_files', side_effect=AssertionError('must not enumerate')):
             for tool in ('read_file', 'list_files', 'search_code'):
                 with self.subTest(tool=tool):
@@ -66,7 +227,7 @@ class SandboxPolicyTest(unittest.TestCase):
 
     def test_sensitive_targets_stay_blocked_even_with_invalid_range(self):
         (self.root / 'link').symlink_to(self.root.parent, target_is_directory=True)
-        with patch.object(sandbox, 'text', side_effect=AssertionError('must not read')):
+        with patch.object(pathlib.Path, 'open', side_effect=AssertionError('must not read')):
             for path in ('../outside', '/etc/passwd', '.ssh/config', 'link/outside'):
                 with self.subTest(path=path):
                     with self.assertRaises(sandbox.PolicyError):
@@ -131,7 +292,7 @@ class SandboxPolicyTest(unittest.TestCase):
                                 capture_output=True, cwd=self.root, check=False)
         self.assertEqual(0, result.returncode)
         self.assertEqual({'ok': True, 'tool': 'protocol', 'result': {
-            'protocol': 'delveforge-sandbox', 'version': 10}},
+            'protocol': 'delveforge-sandbox', 'version': 11}},
             {k: v for k, v in json.loads(result.stdout).items() if k != 'durationMs'})
         self.assertEqual(before, list(self.root.iterdir()))
         self.assertEqual(b'', result.stderr)

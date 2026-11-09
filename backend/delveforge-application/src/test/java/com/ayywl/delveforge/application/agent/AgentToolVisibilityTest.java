@@ -30,10 +30,12 @@ class AgentToolVisibilityTest {
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             String content = "const token = this.getToken();\n";
             var result = json.createObjectNode().put("path", "src/Auth.js").put("startLine", 1)
-                    .put("totalLines", 1).put("content", content).put("_source", "private-field-never-forwarded");
+                    .put("lineCount", 1).put("hasMore", true).put("nextStartLine", 2)
+                    .put("content", content).put("_source", "private-field-never-forwarded");
             var raw = json.createObjectNode().put("ok", true).set("result", result);
             String safe = service.safeToolResult("read_file", raw.toString());
             assertEquals(content, json.readTree(safe).path("result").path("content").asText());
+            assertEquals(result.deepCopy().without("_source"), json.readTree(safe).path("result"));
             assertFalse(safe.contains("private-field-never-forwarded"));
         }
     }
@@ -43,7 +45,8 @@ class AgentToolVisibilityTest {
         try (var service = new CodingAgentService(null, null, null, null,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             var payload = json.createObjectNode().put("path", "src/Auth.js").put("startLine", 1)
-                    .put("totalLines", 1).put("content", "const token = 'synthetic-private-value';");
+                    .put("lineCount", 1).put("hasMore", false).putNull("nextStartLine")
+                    .put("content", "const token = 'synthetic-private-value';");
             String safe = service.safeToolResult("read_file", json.createObjectNode().put("ok", true)
                     .set("result", payload).toString());
             assertTrue(safe.contains("synthetic-private-value"));
