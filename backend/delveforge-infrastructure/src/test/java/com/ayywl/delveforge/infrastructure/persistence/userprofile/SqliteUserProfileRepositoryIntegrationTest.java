@@ -339,6 +339,9 @@ class SqliteUserProfileRepositoryIntegrationTest {
         assertTrue(evidenceRows(PROFILE_ID, 1).isEmpty());
         assertEquals(1, revisionAnchorCount(PROFILE_ID, 1), "revision 1 确实已保存");
         assertEquals(0, revisionAnchorCount(PROFILE_ID, 2), "revision 2 从未保存");
+        assertTrue(repository.findSections(PROFILE_ID, 1).orElseThrow().interests().isEmpty());
+        assertTrue(repository.findSections(PROFILE_ID, 2).isEmpty());
+        assertTrue(repository.findSections(new UserProfileId("other"), 1).isEmpty());
     }
 
     /**
@@ -552,6 +555,14 @@ class SqliteUserProfileRepositoryIntegrationTest {
 
         assertEquals(1, sectionItemRows(PROFILE_ID, 5).size(), "revision 5 的快照不应被 revision 6 覆盖");
         assertEquals(2, sectionItemRows(PROFILE_ID, 6).size());
+        repository.save(UserProfile.reconstitute(PROFILE_ID, UserProfileStatus.EXPLORING, 7,
+                List.of("i"), List.of("b"), List.of("p"), List.of("t"), List.of("g"), List.of("c"), List.of()));
+        assertEquals(new UserProfileRepository.Sections(List.of("i"), List.of("b"), List.of("p"), List.of("t"),
+                List.of("g"), List.of("c")), repository.findSections(PROFILE_ID, 7).orElseThrow());
+        var historical = repository.findSections(PROFILE_ID, 5).orElseThrow();
+        assertEquals(List.of("兴趣"), historical.interests());
+        assertTrue(historical.behaviors().isEmpty());
+        assertEquals(List.of("行为"), repository.findSections(PROFILE_ID, 6).orElseThrow().behaviors());
     }
 
     private int revisionAnchorCount(UserProfileId id, int revision) {

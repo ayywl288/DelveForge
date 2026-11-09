@@ -602,7 +602,7 @@ class CandidateDeliveryTest {
                         new WorkingCopyId("copy"), EvolutionPlanStatus.valueOf(scalar("SELECT status FROM evolution_plan"))),
                 WorkingCopy.reconstitute(trusted.id(), trusted.sourceAssetId(), trusted.sourceRevision(), trusted.location(),
                         scalar("SELECT current_revision FROM working_copy"), scalar("SELECT last_verified_revision FROM working_copy"),
-                        WorkingCopyStatus.valueOf(scalar("SELECT status FROM working_copy"))), fixture.asset()))
+                        WorkingCopyStatus.valueOf(scalar("SELECT status FROM working_copy"))), fixture.asset(), fixture.direction()))
                 .when(state).loadAcceptedDeliveryMetadata(any(), any());
         return new CandidateDeliveryService(agents, new SqliteDeliveryStore(source, state), workspace, state);
     }

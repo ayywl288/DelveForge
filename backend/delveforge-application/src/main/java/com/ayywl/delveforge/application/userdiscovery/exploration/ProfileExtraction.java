@@ -175,7 +175,8 @@ public final class ProfileExtraction {
         }
         UserProfileProposalParser.TurnProposal turn = proposalParser.parseTurn(aiGateway.generate(new AiRequest(
                 List.of(new AiMessage(AiRole.SYSTEM, SYSTEM_INSTRUCTION + TURN_INSTRUCTION),
-                        new AiMessage(AiRole.USER, content)), AiResponseFormat.JSON)), candidate.evidence().size());
+                        new AiMessage(AiRole.USER, content)), AiResponseFormat.JSON, AiRequest.Thinking.DISABLED)),
+                candidate.evidence().size());
         List<Evidence> originalEvidence = candidate.evidence();
         for (int index : turn.retractedEvidenceIndices()) {
             candidate.retractEvidence(originalEvidence.get(index));
@@ -203,7 +204,7 @@ public final class ProfileExtraction {
                 List.of(
                         new AiMessage(AiRole.SYSTEM, SYSTEM_INSTRUCTION),
                         new AiMessage(AiRole.USER, describeContext(profile, userInput))),
-                AiResponseFormat.JSON);
+                AiResponseFormat.JSON, AiRequest.Thinking.DISABLED);
     }
 
     /**

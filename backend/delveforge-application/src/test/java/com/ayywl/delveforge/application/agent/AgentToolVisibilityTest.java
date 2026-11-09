@@ -14,7 +14,7 @@ class AgentToolVisibilityTest {
 
     @Test
     void checkResponsesRemoveBareAuthenticationSchemesBeforeModelOrActivityConsumption() {
-        try (var service = new CodingAgentService(null, null, null, null,
+        try (var service = new CodingAgentService(null, null, null, null, null,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults(),
                 (messages, tools) -> 0L, new AgentContextBudget(1000000, 8192, 0.90))) {
             String output = json.createObjectNode().put("output", "failure at line 12; Bearer synthetic-bearer-value")
@@ -27,7 +27,7 @@ class AgentToolVisibilityTest {
 
     @Test
     void sourceViewsRetainRuntimeExpressionsAndDropUnrecognizedPrivateFields() throws Exception {
-        try (var service = new CodingAgentService(null, null, null, null,
+        try (var service = new CodingAgentService(null, null, null, null, null,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults(),
                 (messages, tools) -> 0L, new AgentContextBudget(1000000, 8192, 0.90))) {
             String content = "const token = this.getToken();\n";
@@ -44,7 +44,7 @@ class AgentToolVisibilityTest {
 
     @Test
     void projectSourceRemainsExactWhileOtherOutputIsSanitized() throws Exception {
-        try (var service = new CodingAgentService(null, null, null, null,
+        try (var service = new CodingAgentService(null, null, null, null, null,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults(),
                 (messages, tools) -> 0L, new AgentContextBudget(1000000, 8192, 0.90))) {
             var payload = json.createObjectNode().put("path", "src/Auth.js").put("startLine", 1)

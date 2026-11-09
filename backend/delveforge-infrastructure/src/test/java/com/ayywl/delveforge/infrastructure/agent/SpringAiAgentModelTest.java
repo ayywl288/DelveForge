@@ -1,26 +1,21 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
-import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentException;
+import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentTools;
+import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
 import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
-import org.springframework.ai.chat.metadata.ChatResponseMetadata;
-import org.springframework.ai.chat.metadata.DefaultUsage;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.model.Generation;
 
+import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -34,8 +29,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class SpringAiAgentModelTest {
     private final ObjectMapper json = new ObjectMapper();
@@ -65,7 +58,7 @@ class SpringAiAgentModelTest {
         server.start();
         Duration timeout = Duration.ofSeconds(3);
         model = new SpringAiAgentModel(new DeepSeekProperties("http://127.0.0.1:" + server.getAddress().getPort(),
-                "fixture-only-key", "fixture-model", timeout, false, timeout, 65536, 1048576, 65536, 900000), 8192);
+                "fixture-only-key", "fixture-model", timeout, false, timeout, 65536, 1048576, 65536, 900000), 65536);
     }
 
     @AfterEach
@@ -79,7 +72,8 @@ class SpringAiAgentModelTest {
     }
 
     private String response(String finish, List<Map<String, Object>> calls, String text, boolean usage) throws Exception {
-        Map<String, Object> message = Map.of("role", "assistant", "content", text, "tool_calls", calls);
+        Map<String, Object> message = Map.of("role", "assistant", "content", text, "tool_calls", calls,
+                "reasoning_content", "synthetic-private-" + finish);
         Map<String, Object> result = new java.util.LinkedHashMap<>(Map.of("id", "fixture-response", "model", "fixture-model",
                 "choices", List.of(Map.of("index", 0, "finish_reason", finish, "message", message))));
         if (usage) {
@@ -93,13 +87,65 @@ class SpringAiAgentModelTest {
     }
 
     @Test
-    void agentExplicitlyUsesNonThinkingProtocolWithoutChangingModelOrResponseLimit() throws Exception {
+    void agentUsesThinkingHighWithConfiguredModelAndReserve() throws Exception {
         body = response("tool_calls", List.of(call("read", "read_file", "{\"path\":\"src/A.java\"}")), "", true);
         model.call(history(), AgentTools.definitions());
         JsonNode request = requests.getFirst();
-        assertEquals("disabled", request.path("thinking").path("type").asText());
+        assertEquals("enabled", request.path("thinking").path("type").asText());
+        assertEquals("high", request.path("reasoning_effort").asText());
         assertEquals("fixture-model", request.path("model").asText());
-        assertEquals(8192, request.path("max_tokens").asInt());
+        assertEquals(65536, request.path("max_tokens").asInt());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(value = Thinking.class, names = {"DISABLED", "MAX"})
+    void configuredModesControlBothWireParametersAndReplay(Thinking mode) throws Exception {
+        Duration timeout = Duration.ofSeconds(3);
+        model = new SpringAiAgentModel(new DeepSeekProperties("http://127.0.0.1:" + server.getAddress().getPort(),
+                "fixture-only-key", "fixture-model", timeout, false, timeout, 65536, 1048576, 65536, 900000), 32768, mode);
+        var history = new ArrayList<>(history());
+        history.add(new AgentProtocol.Message("assistant", "previous", List.of(), null, null, "private-prior"));
+        history.add(AgentProtocol.Message.text("user", "continue"));
+        body = response("stop", List.of(), "done", true);
+        var reply = model.call(history, AgentTools.definitions());
+        var request = requests.getFirst();
+        assertEquals(32768, request.required("max_tokens").asInt());
+        assertEquals(mode == Thinking.DISABLED ? "disabled" : "enabled", request.at("/thinking/type").asText());
+        assertEquals(mode == Thinking.MAX, request.has("reasoning_effort"));
+        assertEquals(mode == Thinking.MAX, request.at("/messages/2").has("reasoning_content"));
+        assertEquals(mode == Thinking.MAX, reply.reasoningContent() != null);
+        if (mode == Thinking.MAX) {
+            assertEquals("max", request.required("reasoning_effort").asText());
+        }
+    }
+
+    @Test
+    void malformedContentAndAmbiguousCallResultsAreRejectedBeforeDispatch() throws Exception {
+        var payload = json.readTree(response("tool_calls", List.of(call("same", "read_file", "{}"),
+                call("same", "edit_file", "{}")), "", false));
+        body = payload.toString();
+        assertEquals(AgentModelFailure.Reason.TOOL_ID_INVALID, assertThrows(AgentModelFailure.class,
+                () -> model.call(history(), AgentTools.definitions())).reason());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) payload.at("/choices/0/message"))
+                .putObject("content").put("private", "untrusted");
+        body = payload.toString();
+        var failure = assertThrows(AgentModelFailure.class, () -> model.call(history(), AgentTools.definitions()));
+        assertEquals(AgentModelFailure.Reason.OUTPUT_INVALID, failure.reason());
+        assertFalse(failure.getMessage().contains("private"));
+    }
+
+    @Test
+    void missingAssistantReasoningCannotDispatchOrBeReconstructed() throws Exception {
+        var payload = json.readTree(response("tool_calls", List.of(call("edit", "edit_file", "{}")), "", false));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) payload.at("/choices/0/message")).remove("reasoning_content");
+        body = payload.toString();
+        assertEquals(AgentModelFailure.Reason.REASONING_MISSING, assertThrows(AgentModelFailure.class,
+                () -> model.call(history(), AgentTools.definitions())).reason());
+        var history = new ArrayList<>(history());
+        history.add(AgentProtocol.Message.text("assistant", "synthetic"));
+        assertEquals(AgentModelFailure.Reason.REASONING_MISSING, assertThrows(AgentModelFailure.class,
+                () -> model.call(history, AgentTools.definitions())).reason());
+        assertEquals(1, requests.size());
     }
 
     @Test
@@ -111,10 +157,9 @@ class SpringAiAgentModelTest {
         body = payload.toString();
         var messages = List.of(AgentProtocol.Message.text("user", "Fix the failing test."));
         var reply = model.call(messages, List.of());
-        try (var counter = new DeepSeekTokenCounterAdapter("deepseek-flash")) {
+        try (var counter = new DeepSeekTokenCounterAdapter("deepseek-flash", Thinking.HIGH)) {
             long estimate = counter.countPromptTokens(messages, List.of());
-            assertEquals(9, estimate);
-            assertEquals(11, reply.usage().promptTokens() - estimate);
+            assertTrue(estimate > 9);
         }
         assertEquals(20L, reply.usage().promptTokens());
         assertEquals(8192L, reply.usage().completionTokens());
@@ -165,9 +210,9 @@ class SpringAiAgentModelTest {
         assertEquals(AgentModelFailure.FinishReason.LENGTH, failure.response().finishReason());
         assertEquals(8212L, failure.response().reportedTokens());
         assertEquals(1, failure.response().toolCallCount());
-        assertEquals(8192, failure.response().responseTokenLimit());
+        assertEquals(65536, failure.response().responseTokenLimit());
         assertEquals(1, requests.size());
-        assertEquals(8192, requests.getFirst().path("max_tokens").asInt());
+        assertEquals(65536, requests.getFirst().path("max_tokens").asInt());
         String diagnostic = json.writeValueAsString(failure.diagnostic(11, false));
         assertFalse(diagnostic.contains("private"));
         assertFalse(failure.getMessage().contains("private"));
@@ -186,14 +231,12 @@ class SpringAiAgentModelTest {
     }
 
     @Test
-    void missingResponseAndMissingOutputHaveDifferentSafeReasons() {
+    void missingResponseAndMissingOutputHaveDifferentSafeReasons() throws Exception {
         assertEquals(AgentModelFailure.Reason.RESPONSE_MISSING,
                 assertThrows(AgentModelFailure.class, () -> model.decode(null)).reason());
-        Generation generation = mock(Generation.class);
-        when(generation.getMetadata()).thenReturn(ChatGenerationMetadata.builder().finishReason("stop").build());
+        body = "{\"choices\":[{\"finish_reason\":\"stop\"}]}";
         assertEquals(AgentModelFailure.Reason.OUTPUT_MISSING, assertThrows(AgentModelFailure.class,
-                () -> model.decode(new ChatResponse(List.of(generation)))).reason());
-        assertTrue(requests.isEmpty());
+                () -> model.call(history(), AgentTools.definitions())).reason());
     }
 
     @Test
@@ -201,9 +244,9 @@ class SpringAiAgentModelTest {
         body = response("tool_calls", List.of(call("", "edit_file", "{\"patch\":\"private\"}")), "", false);
         assertEquals(AgentModelFailure.Reason.TOOL_ID_INVALID,
                 assertThrows(AgentModelFailure.class, () -> model.call(history(), AgentTools.definitions())).reason());
-        var message = AssistantMessage.builder().content("").toolCalls(List.of(
-                new AssistantMessage.ToolCall("one", "other", "read_file", "{}"))).build();
-        var failure = assertThrows(AgentModelFailure.class, () -> model.decode(new ChatResponse(List.of(new Generation(message)))));
+        body = response("tool_calls", List.of(Map.of("id", "one", "type", "other", "function",
+                Map.of("name", "read_file", "arguments", "{}"))), "", false);
+        var failure = assertThrows(AgentModelFailure.class, () -> model.call(history(), AgentTools.definitions()));
         assertEquals(AgentModelFailure.Reason.TOOL_CALL_TYPE_INVALID, failure.reason());
         assertFalse(failure.getMessage().contains("other"));
     }
@@ -237,13 +280,15 @@ class SpringAiAgentModelTest {
         body = response("stop", List.of(), "completed", true);
         var recorded = new ArrayList<>(history());
         recorded.add(new AgentProtocol.Message("assistant", "", List.of(
-                new AgentProtocol.ToolCall("edit-once", "edit_file", "{}")), null, null));
+                new AgentProtocol.ToolCall("edit-once", "edit_file", "{}")), null, null, "synthetic-private-retry"));
         recorded.add(new AgentProtocol.Message("tool", "{\"ok\":true}", List.of(), "edit-once", "edit_file"));
         long start = System.nanoTime();
         var reply = model.call(recorded, AgentTools.definitions());
         assertEquals(2, requests.size());
         assertEquals(requests.get(0), requests.get(1));
         assertEquals(4, requests.get(1).path("messages").size());
+        assertEquals("synthetic-private-retry", requests.get(1).at("/messages/2/reasoning_content").asText());
+        assertEquals("synthetic-private-stop", reply.reasoningContent());
         assertNull(reply.tokens());
         assertEquals(20L, reply.usage().promptTokens());
         assertTrue(Duration.ofNanos(System.nanoTime() - start).toSeconds() < 6);
@@ -293,7 +338,7 @@ class SpringAiAgentModelTest {
         var history = new ArrayList<>(history());
         var first = model.call(history, AgentTools.definitions());
         assertEquals(List.of("apply-one", "apply-two"), first.calls().stream().map(AgentProtocol.ToolCall::id).toList());
-        history.add(new AgentProtocol.Message("assistant", first.text(), first.calls(), null, null));
+        history.add(first.assistantMessage(first.text()));
         history.add(new AgentProtocol.Message("tool", "{\"ok\":true,\"result\":{\"classification\":\"PATCH_APPLIED\"}}",
                 List.of(), "apply-one", "edit_file"));
         history.add(new AgentProtocol.Message("tool", "{\"ok\":false,\"classification\":\"POLICY_REJECTED\","
@@ -311,18 +356,30 @@ class SpringAiAgentModelTest {
         assertEquals("apply-one", messages.get(3).path("tool_call_id").asText());
         assertEquals("apply-two", messages.get(4).path("tool_call_id").asText());
         assertEquals("SOURCE_CREDENTIALS", json.readTree(messages.get(4).path("content").asText()).path("policyRule").asText());
-        assertEquals(2, requests.size());
+        assertEquals("synthetic-private-tool_calls", messages.get(2).path("reasoning_content").asText());
+        history.add(continuation.assistantMessage(continuation.text()));
+        history.add(AgentProtocol.Message.text("user", "Completion rejected"));
+        body = response("tool_calls", List.of(call("read-next", "read_file", "{}")), "", false);
+        var second = model.call(history, AgentTools.definitions());
+        history.add(second.assistantMessage(second.text()));
+        history.add(new AgentProtocol.Message("tool", "{}", List.of(), "read-next", "read_file"));
+        body = response("stop", List.of(), "done", true);
+        model.call(history, AgentTools.definitions());
+        messages = requests.getLast().path("messages");
+        assertEquals("synthetic-private-stop", messages.get(5).path("reasoning_content").asText());
+        assertEquals("synthetic-private-tool_calls", messages.get(7).path("reasoning_content").asText());
+        assertEquals("read-next", messages.get(8).path("tool_call_id").asText());
+        assertFalse(model.drainDiagnostics().toString().contains("synthetic-private"));
+        assertFalse(second.toString().contains("synthetic-private"));
+        assertFalse(json.writeValueAsString(second).contains("synthetic-private"));
+        assertFalse(json.writeValueAsString(second.assistantMessage("")).contains("synthetic-private"));
     }
 
     @Test
-    void untrustedFinishReasonNeverEntersFailureDiagnostics() throws Exception {
-        var message = AssistantMessage.builder().content("private-output").toolCalls(List.of(
-                new AssistantMessage.ToolCall("", "function", "edit_file", "private-patch"))).build();
-        var response = new ChatResponse(List.of(new Generation(message,
-                ChatGenerationMetadata.builder().finishReason("private-finish-reason").build())),
-                ChatResponseMetadata.builder().usage(new DefaultUsage(2, 3, 5)).build());
-        var failure = assertThrows(AgentModelFailure.class, () -> model.decode(response));
-        assertEquals(AgentModelFailure.FinishReason.OTHER, failure.response().finishReason());
+    void incompleteFinishDoesNotReturnExecutableCallsOrLeakBody() throws Exception {
+        body = response("content_filter", List.of(call("private-id", "edit_file", "private-patch")), "private-output", true);
+        var failure = assertThrows(AgentModelFailure.class, () -> model.call(history(), AgentTools.definitions()));
+        assertEquals(AgentModelFailure.FinishReason.CONTENT_FILTER, failure.response().finishReason());
         assertFalse(json.writeValueAsString(failure.diagnostic(1, false)).contains("private"));
     }
 }

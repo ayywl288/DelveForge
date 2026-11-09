@@ -24,11 +24,10 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentModelLoggingPolicyTest {
     @Test
-    void actualSdkPromptWarningIsReproducedAndApplicationPolicySuppressesIt() throws Exception {
+    void providerProtocolFailureDoesNotLogPromptOrReasoning() throws Exception {
         var configuration = new YamlPropertySourceLoader().load("application", new ClassPathResource("application.yml")).getFirst();
         Object configured = configuration.getProperty("logging.level.org.springframework.ai.deepseek.DeepSeekChatModel");
         assertEquals("ERROR", configured);
@@ -41,7 +40,7 @@ class AgentModelLoggingPolicyTest {
             exchange.getResponseBody().write(body);
             exchange.close();
         });
-        Logger logger = (Logger) LoggerFactory.getLogger("org.springframework.ai.deepseek.DeepSeekChatModel");
+        Logger logger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
         Level previous = logger.getLevel();
         boolean additive = logger.isAdditive();
         ListAppender<ILoggingEvent> captured = new ListAppender<>();
@@ -53,10 +52,12 @@ class AgentModelLoggingPolicyTest {
             Duration timeout = Duration.ofSeconds(3);
             var model = new SpringAiAgentModel(new DeepSeekProperties("http://127.0.0.1:" + server.getAddress().getPort(),
                     "fixture-only-key", "fixture-model", timeout, false, timeout, 8192, 1048576, 65536, 8388608), 8192);
-            var history = List.of(AgentProtocol.Message.text("user", "synthetic-private-prompt-marker"));
+            var history = List.of(AgentProtocol.Message.text("user", "synthetic-private-prompt-marker"),
+                    new AgentProtocol.Message("assistant", "visible", List.of(), null, null, "private-reason-marker"),
+                    AgentProtocol.Message.text("user", "Retry"));
             logger.setLevel(Level.INFO);
             assertThrows(AgentModelFailure.class, () -> model.call(history, AgentTools.definitions()));
-            assertTrue(captured.list.stream().anyMatch(e -> e.getFormattedMessage().contains("synthetic-private-prompt-marker")));
+            assertFalse(captured.list.stream().anyMatch(e -> e.getFormattedMessage().contains("private")));
             captured.list.clear();
             logger.setLevel(Level.valueOf(configured.toString()));
             var failure = assertThrows(AgentModelFailure.class, () -> model.call(history, AgentTools.definitions()));

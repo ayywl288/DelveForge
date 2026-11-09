@@ -2,6 +2,7 @@ package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentTokenCounter;
+import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
 
 import ai.djl.huggingface.tokenizers.HuggingFaceTokenizer;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,14 +18,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** 离线计数，专属当前 DeepSeek V4.1 Flash 权重与非思考模板。 */
+/** 离线计数，专属当前 DeepSeek V4.1 Flash 权重与文本模板。 */
 public final class DeepSeekTokenCounterAdapter implements AgentTokenCounter, AutoCloseable {
     private static final String RESOURCE = "/deepseek-v4.1-flash-1017/";
     private static final String SHA256 = "c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b";
     private final HuggingFaceTokenizer tokenizer;
     private final String instructions;
 
-    public DeepSeekTokenCounterAdapter(String model) {
+    private final Thinking thinking;
+
+    public DeepSeekTokenCounterAdapter(String model, Thinking thinking) {
+        if (thinking == null || thinking == Thinking.DEFAULT) {
+            throw new IllegalArgumentException("Agent tokenizer requires an explicit thinking mode");
+        }
+        this.thinking = thinking;
         if (!Set.of("deepseek-flash", "DeepSeek-V4.1-Flash-1017", "DeepSeek-V4.1-Flash").contains(model)) {
             throw new IllegalArgumentException("No matching Agent tokenizer for configured model: " + model);
         }
@@ -74,7 +81,7 @@ public final class DeepSeekTokenCounterAdapter implements AgentTokenCounter, Aut
 
     @Override
     public synchronized long countPromptTokens(List<AgentProtocol.Message> messages, List<AgentProtocol.ToolSpec> tools) {
-        var prompt = new DeepSeekPromptRenderer().render(messages, tools, instructions);
+        var prompt = new DeepSeekPromptRenderer().render(messages, tools, instructions, thinking);
         long count = prompt.controls();
         for (String region : prompt.regions()) {
             count += tokenizer.encode(region, false, false).getIds().length;

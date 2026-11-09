@@ -23,6 +23,13 @@ public final class InMemoryUserProfileRepository implements UserProfileRepositor
 
     private final Map<UserProfileId, Integer> sufficientRevisions = new HashMap<>();
 
+    private final Map<UserProfileId, Map<Integer, Sections>> revisions = new HashMap<>();
+
+    @Override
+    public Optional<Sections> findSections(UserProfileId id, int revision) {
+        return Optional.ofNullable(revisions.getOrDefault(id, Map.of()).get(revision));
+    }
+
     private int saveCount;
 
     @Override
@@ -30,6 +37,9 @@ public final class InMemoryUserProfileRepository implements UserProfileRepositor
         if (!java.util.Objects.equals(sufficientRevisions.get(profile.id()), profile.revision())) {
             sufficientRevisions.remove(profile.id());
         }
+        revisions.computeIfAbsent(profile.id(), ignored -> new HashMap<>()).put(profile.revision(),
+                new Sections(profile.interests(), profile.behaviors(), profile.painPoints(),
+                        profile.technicalCapabilities(), profile.projectGoals(), profile.constraints()));
         profiles.put(profile.id(), profile);
         saveCount++;
     }

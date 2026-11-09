@@ -97,7 +97,7 @@ class AgentContextConvergenceTest {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(maxSummaryChars * 4, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
                 defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), defaults.checkSeconds());
-        return new CodingAgentService(null, null, null, null, new DeterministicRepositorySecretPolicy(), limits,
+        return new CodingAgentService(null, null, null, null, null, new DeterministicRepositorySecretPolicy(), limits,
                 (messages, tools) -> messages.stream().mapToLong(m -> m.text().length()).sum(),
                 new AgentContextBudget(50000, 100, 0.90));
     }
@@ -114,7 +114,7 @@ class AgentContextConvergenceTest {
     void pairsReorderedResultsAndWhitelistsAllHistoricalTools() throws Exception {
         var json = new ObjectMapper();
         var limits = AgentProtocol.Limits.defaults();
-        var service = new CodingAgentService(null, null, null, null, new DeterministicRepositorySecretPolicy(),
+        var service = new CodingAgentService(null, null, null, null, null, new DeterministicRepositorySecretPolicy(),
                 limits, (messages, tools) -> messages.stream().mapToLong(m -> m.text().length()).sum(),
                 new AgentContextBudget(50000, 100, 0.90));
         var calls = List.of(
@@ -196,7 +196,7 @@ class AgentContextConvergenceTest {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(18000, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
                 defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), defaults.checkSeconds());
-        var service = new CodingAgentService(null, null, null, null, new DeterministicRepositorySecretPolicy(), limits,
+        var service = new CodingAgentService(null, null, null, null, null, new DeterministicRepositorySecretPolicy(), limits,
                 (messages, tools) -> messages.stream().mapToLong(m -> m.text().length()).sum(),
                 new AgentContextBudget(11000, 1, 0.90));
         var json = new ObjectMapper();

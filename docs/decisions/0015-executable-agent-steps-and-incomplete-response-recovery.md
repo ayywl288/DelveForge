@@ -2,6 +2,14 @@
 
 Status: Accepted for 2026-10-25 autonomous FinTrack stabilization.
 
+## 2026-11-09：支持思考模式的工具对话
+
+默认 Coding Agent 使用 Thinking High。此决定替代下文为早期消息合同关闭 thinking 的处理。Spring AI 1.1.8 的高层 ChatModel 解码思考内容，却在重新构造 Assistant 消息时丢弃该字段。Infrastructure 直接使用同版本的 `DeepSeekApi`，其 `ChatCompletionMessage` 同时支持 `reasoning_content`、可见内容及工具调用。HTTP 拦截器补充该版本没有类型字段的模式参数，并继续负责最终字节预算和有限重试。Application 是唯一工具派发者。
+
+携带工具时，所有保留的 Assistant 消息均重放模型原有的思考内容，包括仅回复文字后收到平台纠正的轮次。截断响应整轮丢弃，平台说明使用 User 消息。压缩按完整交互组移除思考和结果，仅投影有界事实。思考内容只驻留活跃 Run 内存。
+
+执行前从所选方向引用的画像版本、已接受 Plan 和历史仓库快照读取解释性上下文。`authorizedStep` 和可信基线继续决定唯一修改范围。验证和配置见 [Agent 思考模式与启动上下文](../validation/agent-thinking-context-20261109.md)。
+
 ## 2026-11-06：纠正次数只限制连续响应失败
 
 旧计数在整个 Run 累加；回归证明三次分散的截断或结束格式错误，即使每次之间都成功修改源码，

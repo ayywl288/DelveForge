@@ -2,6 +2,8 @@ package com.ayywl.delveforge.application.agent;
 
 import com.ayywl.delveforge.domain.agent.AgentRunState;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.time.Instant;
 import java.util.List;
 
@@ -13,7 +15,18 @@ public final class AgentProtocol {
     public record ToolCall(String id, String name, String arguments) {
     }
 
-    public record Message(String role, String text, List<ToolCall> calls, String callId, String toolName) {
+    /** reasoningContent 仅供当前 Run 向模型重放，排除在通用 JSON 和日志表示之外。 */
+    public record Message(String role, String text, List<ToolCall> calls, String callId, String toolName,
+            @JsonIgnore String reasoningContent) {
+        public Message(String role, String text, List<ToolCall> calls, String callId, String toolName) {
+            this(role, text, calls, callId, toolName, null);
+        }
+
+        @Override
+        public String toString() {
+            return "Agent message[role=" + role + ", calls=" + calls.size() + "]";
+        }
+
         public Message {
             calls = calls == null ? List.of() : List.copyOf(calls);
         }
@@ -27,7 +40,20 @@ public final class AgentProtocol {
             Long cacheHitTokens, Long cacheMissTokens) {
     }
 
-    public record Reply(String text, List<ToolCall> calls, Long tokens, Usage usage) {
+    public record Reply(String text, List<ToolCall> calls, Long tokens, Usage usage, @JsonIgnore String reasoningContent) {
+        public Reply(String text, List<ToolCall> calls, Long tokens, Usage usage) {
+            this(text, calls, tokens, usage, null);
+        }
+
+        public Message assistantMessage(String visibleText) {
+            return new Message("assistant", visibleText, calls, null, null, reasoningContent);
+        }
+
+        @Override
+        public String toString() {
+            return "Agent reply[calls=" + calls.size() + ", tokens=" + tokens + "]";
+        }
+
         public Reply(String text, List<ToolCall> calls, Long tokens) {
             this(text, calls, tokens, null);
         }

@@ -12,6 +12,7 @@ import com.ayywl.delveforge.application.port.workspace.WorkspaceRef;
 import com.ayywl.delveforge.application.repositoryanalysis.asset.SoftwareAssetNotFoundException;
 import com.ayywl.delveforge.domain.asset.AssetUsagePolicy;
 import com.ayywl.delveforge.domain.asset.SoftwareAsset;
+import com.ayywl.delveforge.domain.direction.ProductDirection;
 import com.ayywl.delveforge.domain.direction.ProductDirectionStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlan;
 import com.ayywl.delveforge.domain.evolution.EvolutionPlanId;
@@ -71,15 +72,15 @@ public final class ExecutionPreparationState {
         WorkingCopy copy = copies.findById(copyId).orElseThrow(() -> new WorkingCopyNotFoundException(copyId));
         SoftwareAsset asset = assets.findById(plan.baseAssetId())
                 .orElseThrow(() -> new SoftwareAssetNotFoundException(plan.baseAssetId()));
-        if (directions.findById(plan.productDirectionId())
-                .orElseThrow(() -> new ProductDirectionNotFoundException(plan.productDirectionId())).status()
-                != ProductDirectionStatus.SELECTED) {
+        ProductDirection direction = directions.findById(plan.productDirectionId())
+                .orElseThrow(() -> new ProductDirectionNotFoundException(plan.productDirectionId()));
+        if (!direction.id().equals(plan.productDirectionId()) || direction.status() != ProductDirectionStatus.SELECTED) {
             throw new EvolutionPlanStateException("Direction is no longer SELECTED");
         }
 
         new AssetUsagePolicy().requireEvolutionBaseAllowed(asset);
         inspection.requirePreparationProvenance(new WorkspaceRef(copy.location()), copy.preparation());
-        return new Loaded(plan, copy, asset);
+        return new Loaded(plan, copy, asset, direction);
     }
 
     /** Delivery 恢复期间物理 Git 可能已到 C；这里只检查授权与数据库可信基线。 */
@@ -109,6 +110,6 @@ public final class ExecutionPreparationState {
         return actual;
     }
 
-    public record Loaded(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset asset) {
+    public record Loaded(EvolutionPlan plan, WorkingCopy copy, SoftwareAsset asset, ProductDirection direction) {
     }
 }

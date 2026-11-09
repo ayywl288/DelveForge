@@ -2,19 +2,23 @@ package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentCheckEvidence;
 import com.ayywl.delveforge.application.agent.AgentCommandDiagnostics;
+import com.ayywl.delveforge.application.agent.AgentContextBudget;
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentModelFailure;
-import com.ayywl.delveforge.application.agent.AgentContextBudget;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
+import com.ayywl.delveforge.application.agent.AgentStartupContext;
 import com.ayywl.delveforge.application.agent.CodingAgentService;
 import com.ayywl.delveforge.application.agent.CompletionReferenceFailure;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
+import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
 import com.ayywl.delveforge.application.port.persistence.EvolutionPlanRepository;
 import com.ayywl.delveforge.application.port.persistence.ProductDirectionRepository;
 import com.ayywl.delveforge.application.port.persistence.SoftwareAssetRepository;
+import com.ayywl.delveforge.application.port.persistence.RepositoryProfileRepository;
+import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.port.persistence.WorkingCopyRepository;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
@@ -39,11 +43,13 @@ import com.ayywl.delveforge.domain.evolution.EvolutionPlanStatus;
 import com.ayywl.delveforge.domain.evolution.EvolutionStep;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepId;
 import com.ayywl.delveforge.domain.evolution.EvolutionStepStatus;
+import com.ayywl.delveforge.domain.evolution.PreparationProvenance;
 import com.ayywl.delveforge.domain.evolution.StepExecutionPolicy;
 import com.ayywl.delveforge.domain.evolution.TargetState;
 import com.ayywl.delveforge.domain.evolution.WorkingCopy;
 import com.ayywl.delveforge.domain.evolution.WorkingCopyId;
 import com.ayywl.delveforge.domain.evolution.WorkingCopyStatus;
+import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfile;
 import com.ayywl.delveforge.domain.repositoryprofile.RepositoryProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 
@@ -59,6 +65,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -128,11 +135,12 @@ class CodingAgentServiceTest {
                         EvolutionStepStatus.READY)));
         if (remainingStep) {
             steps.add(EvolutionStep.reconstitute(new EvolutionStepId("later"), planId,
-                    "later", "later", List.of("later"), EvolutionStepStatus.PENDING_CONFIRMATION));
+                    "later", "later", List.of("unselected-future-change"), EvolutionStepStatus.PENDING_CONFIRMATION));
         }
         EvolutionPlan plan = EvolutionPlan.reconstitute(planId, new ProductDirectionId("direction"), assetId, profileId,
-                new CurrentState("current", List.of(), List.of(), List.of()), new TargetState("problem", "target", "difference"),
-                List.of(), List.of("修复递增逻辑"), steps, List.of(), List.of(evidence), copyId, EvolutionPlanStatus.ACTIVE);
+                new CurrentState("current", List.of("count"), List.of("server"), List.of("single-user")),
+                new TargetState("problem", "target", "difference"),
+                List.of("counter"), List.of("修复递增逻辑"), steps, List.of("compatibility"), List.of(evidence), copyId, EvolutionPlanStatus.ACTIVE);
         WorkingCopy copy = WorkingCopy.reconstitute(copyId, assetId, provenance.originalRevision(), official.toString(), baseline,
                 baseline, WorkingCopyStatus.READY, provenance);
         SoftwareAsset asset = SoftwareAsset.create(assetId, SoftwareAssetType.GIT_REPOSITORY,
@@ -295,7 +303,7 @@ class CodingAgentServiceTest {
     }
 
     @Test
-    void transfersPersistedTargetStateWithoutLoadingUnrelatedPlanningHistory() throws Exception {
+    void transfersTargetStateAndMarksMissingHistoricalSnapshots() throws Exception {
         when(sandbox.checkCapabilities(anyString(), any())).thenReturn(
                 "{\"mavenDirectories\":[\".\"],\"frontendProjects\":[],\"frontendProjectCount\":0}");
         var captured = new java.util.concurrent.atomic.AtomicReference<List<AgentProtocol.Message>>();
@@ -314,11 +322,87 @@ class CodingAgentServiceTest {
             assertTrue(user.contains("\"targetProduct\":\"target\""));
             assertTrue(user.contains("authorizedStep"));
             assertFalse(user.contains("\"acceptanceContext\":"));
-            assertFalse(user.contains("userProfile"));
-            assertFalse(user.contains("repositoryProfile"));
+            var data = new com.fasterxml.jackson.databind.ObjectMapper().readTree(user.substring(user.indexOf('{')));
+            var background = data.required("background");
+            assertFalse(background.required("userProfile").required("available").asBoolean());
+            assertFalse(background.required("historicalRepositoryProfile").required("available").asBoolean());
+            assertEquals("step", data.required("authorizedStep").required("id").asText());
             assertTrue(captured.get().get(2).text().contains("mavenDirectories"));
             assertTrue(captured.get().get(2).text().contains("不是任务完成证据或额外授权"));
             verify(sandbox).checkCapabilities(eq(run.id()), any());
+        }
+    }
+
+    @Test
+    void projectsOnlyDirectionBoundSnapshotsAndOrderedGoalsIntoTheActualModelPrompt() throws Exception {
+        var profiles = mock(UserProfileRepository.class);
+        var repositories = mock(RepositoryProfileRepository.class);
+        var secrets = new DeterministicRepositorySecretPolicy();
+        var startup = new AgentStartupContext(profiles, repositories, secrets);
+        var sections = new UserProfileRepository.Sections(List.of("interest"), List.of("behavior"), List.of("pain"),
+                List.of("skill"), List.of("goal"), List.of("constraint"));
+        when(profiles.findSections(new UserProfileId("user"), 1)).thenReturn(Optional.of(sections));
+        var profile = mock(RepositoryProfile.class);
+        when(profile.id()).thenReturn(new RepositoryProfileId("profile"));
+        when(profile.assetId()).thenReturn(new SoftwareAssetId("asset"));
+        when(profile.techStack()).thenReturn(List.of("Java"));
+        when(profile.analyzedRevision()).thenReturn("historical-revision");
+        when(repositories.findById(profile.id())).thenReturn(Optional.of(profile));
+        String baseline = "a".repeat(40);
+        var state = eligibility(baseline, temporary.resolve("official"), mock(WorkingCopyInspectionPort.class),
+                temporary.resolve("original"), PreparationProvenance.unchanged(baseline), false, true);
+        var histories = new java.util.concurrent.CopyOnWriteArrayList<List<AgentProtocol.Message>>();
+        AgentModelPort model = (history, tools) -> {
+            histories.add(history);
+            if (histories.size() == 1) {
+                return new AgentProtocol.Reply("invalid completion", List.of(), 1L, null, "internal-recovery-marker");
+            }
+            return new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"fixture stop\"}", List.of(), 1L);
+        };
+        try (var service = new CodingAgentService(startup, state, database.store, model, sandbox, secrets,
+                AgentProtocol.Limits.defaults(), (messages, tools) -> 100, new AgentContextBudget(1000000, 65536, 0.90))) {
+            String id = service.start("plan", "step", 21).id();
+            assertEquals("MODEL_INCOMPLETE", awaitTerminal(service, id, 10).reason());
+            String prompt = histories.getFirst().get(1).text();
+            var data = new com.fasterxml.jackson.databind.ObjectMapper().readTree(prompt.substring(prompt.indexOf('{')));
+            var background = data.required("background");
+            var user = background.required("userProfile");
+            assertTrue(user.required("available").asBoolean());
+            assertEquals("user", user.required("id").asText());
+            assertEquals(1, user.required("revision").asInt());
+            var expected = Map.of("interests", "interest", "behaviors", "behavior", "painPoints", "pain",
+                    "technicalCapabilities", "skill", "projectGoals", "goal", "constraints", "constraint");
+            expected.forEach((field, value) -> assertEquals(value, user.required(field).get(0).asText()));
+            var direction = background.required("selectedDirection");
+            assertEquals("direction", direction.required("id").asText());
+            assertEquals("match", direction.required("userFit").asText());
+            assertEquals("value", direction.required("technicalValue").asText());
+            var repo = background.required("historicalRepositoryProfile");
+            assertEquals("historical-revision", repo.required("analyzedRevision").asText());
+            assertEquals("Java", repo.required("techStack").get(0).asText());
+            var plan = background.required("acceptedPlan");
+            assertEquals("current", plan.required("currentState").required("summary").asText());
+            assertEquals("count", plan.at("/currentState/capabilities/0").asText());
+            assertEquals("server", plan.at("/currentState/modules/0").asText());
+            assertEquals("single-user", plan.at("/currentState/limitations/0").asText());
+            assertEquals("compatibility", plan.at("/risks/0").asText());
+            assertEquals("counter", plan.at("/reusableCapabilities/0").asText());
+            assertFalse(prompt.contains("unselected-future-change"));
+            var steps = plan.required("steps");
+            assertEquals(2, steps.size());
+            assertTrue(steps.get(0).required("authorized").asBoolean());
+            assertEquals("READY", steps.get(0).required("status").asText());
+            assertEquals(2, steps.get(1).required("order").asInt());
+            assertEquals("later", steps.get(1).required("goal").asText());
+            assertEquals("PENDING_CONFIRMATION", steps.get(1).required("status").asText());
+            assertFalse(steps.get(1).required("authorized").asBoolean());
+            assertFalse(steps.get(1).has("plannedChanges"));
+            assertFalse(data.required("authorizedStep").toString().contains("later"));
+            assertFalse(prompt.contains("src/main/java/example/Counter.java"));
+            assertEquals("internal-recovery-marker", histories.get(1).stream()
+                    .filter(m -> m.role().equals("assistant")).findFirst().orElseThrow().reasoningContent());
+            assertFalse(database.store.events(id, 0, 200).toString().contains("internal-recovery-marker"));
+            verify(profiles, never()).findById(any());
         }
     }
 
@@ -1740,8 +1824,8 @@ class CodingAgentServiceTest {
         AgentModelPort model = (history, tools) -> new AgentProtocol.Reply(
                 "{\"status\":\"completed\",\"summary\":\"private model text\"}", List.of(), 30L,
                 new AgentProtocol.Usage(20L, 10L, 30L, 5L, null));
-        try (var counter = new DeepSeekTokenCounterAdapter("deepseek-flash");
-                var service = new CodingAgentService(eligibility, database.store, model, sandbox,
+        try (var counter = new DeepSeekTokenCounterAdapter("deepseek-flash", Thinking.HIGH);
+                var service = new CodingAgentService(TestAgentServices.startup(), eligibility, database.store, model, sandbox,
                         new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults(), counter,
                         new AgentContextBudget(1000000, 8192, 0.90))) {
             String id = service.start("plan", "step", null).id();

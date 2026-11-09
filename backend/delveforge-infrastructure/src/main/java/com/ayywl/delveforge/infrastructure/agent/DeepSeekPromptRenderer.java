@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.AgentProtocol;
+import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.json.JsonWriteFeature;
@@ -16,7 +17,7 @@ import java.util.List;
 import java.util.StringJoiner;
 import java.util.regex.Pattern;
 
-/** DeepSeek recipe 0.2.0 的 V4.1 文本、非思考模板。仅模板插入的控制符占一个特殊 token。 */
+/** DeepSeek recipe 0.2.0 的 V4.1 文本模板。仅模板插入的控制符占一个特殊 token。 */
 final class DeepSeekPromptRenderer {
     private static final Pattern TEMPLATE_CONTROLS = Pattern.compile("｜DSML｜|</?think>");
     private static final Pattern ASSISTANT_CONTROLS = Pattern.compile("<｜/?(?:ref|box|point|polygon)｜>");
@@ -28,7 +29,7 @@ final class DeepSeekPromptRenderer {
     record Rendered(List<String> regions, int controls) {
     }
 
-    Rendered render(List<AgentProtocol.Message> messages, List<AgentProtocol.ToolSpec> tools, String instructions) {
+    Rendered render(List<AgentProtocol.Message> messages, List<AgentProtocol.ToolSpec> tools, String instructions, Thinking thinking) {
         control(); // BOS
         var ordered = orderedResults(messages);
         if (!tools.isEmpty() && (ordered.isEmpty() || !"system".equals(ordered.getFirst().role()))) {
@@ -37,9 +38,22 @@ final class DeepSeekPromptRenderer {
         String previous = "";
         for (int i = 0; i < ordered.size(); i++) {
             var message = ordered.get(i);
+            if (i == 0 && thinking != Thinking.DISABLED) {
+                control(); // system
+                int effort = switch (thinking) {
+                    case LOW -> 50;
+                    case HIGH -> 75;
+                    case MAX -> 100;
+                    default -> throw new IllegalArgumentException("Unsupported thinking effort");
+                };
+                plain.append("Reasoning Effort: ").append(effort)
+                        .append(" (range 1-100, the higher the value, the more thorough the reasoning)\n\n");
+            }
             switch (message.role()) {
                 case "system" -> {
-                    control();
+                    if (i > 0 || thinking == Thinking.DISABLED) {
+                        control();
+                    }
                     plain.append(message.text());
                     if (i == 0 && !tools.isEmpty()) {
                         toolPrompt(tools, instructions);
@@ -59,7 +73,13 @@ final class DeepSeekPromptRenderer {
                 }
                 case "assistant" -> {
                     control();
-                    control(); // 非思考模式的 </think>
+                    control(); // 历史 Assistant 的思考起始或结束标记
+                    if (thinking != Thinking.DISABLED && i > 0 && !tools.isEmpty()) {
+                        if (message.reasoningContent() != null) {
+                            markedText(message.reasoningContent(), ASSISTANT_CONTROLS);
+                        }
+                        control(); // </think>
+                    }
                     markedText(message.text(), ASSISTANT_CONTROLS);
                     if (!message.calls().isEmpty()) {
                         toolCalls(message.calls());
@@ -70,7 +90,7 @@ final class DeepSeekPromptRenderer {
             }
             previous = message.role();
         }
-        control(); // 生成前缀：assistant + </think>
+        control(); // 生成前缀：assistant 后接所选模式的思考标记
         control();
         return new Rendered(regions, controls);
     }

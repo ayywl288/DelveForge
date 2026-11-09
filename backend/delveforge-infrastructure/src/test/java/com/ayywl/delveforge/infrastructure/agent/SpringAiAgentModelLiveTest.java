@@ -16,27 +16,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @EnabledIfEnvironmentVariable(named = "DELVEFORGE_AGENT_LIVE", matches = "true")
 class SpringAiAgentModelLiveTest {
     @Test
-    void nativeToolCallIsReceivedExecutedOnceAndContinued() {
+    void thinkingReplaysTwoReadRoundsAndProducesBothNonces() throws Exception {
         SpringAiAgentModel model = new SpringAiAgentModel(new DeepSeekProperties(
                 "https://api.deepseek.com", System.getenv("DEEPSEEK_API_KEY"), "deepseek-flash",
-                Duration.ofSeconds(90), false, Duration.ofSeconds(90), 4096, 1048576, 65536, 8388608), 4096);
+                Duration.ofSeconds(90), false, Duration.ofSeconds(90), 65536, 1048576, 65536, 8388608), 65536);
         var history = new ArrayList<AgentProtocol.Message>();
-        history.add(AgentProtocol.Message.text("system", "必须先调用 read_file 读取 pom.xml，收到工具结果后只回复其中的 nonce。"));
+        history.add(AgentProtocol.Message.text("system", "先调用 read_file 读取 first.txt，再根据工具返回的 next 字段读取第二个文件。不要一次请求两个文件。最后回复两个 nonce。"));
         history.add(AgentProtocol.Message.text("user", "开始"));
         var specs = List.of(new AgentProtocol.ToolSpec("read_file", "读取文件",
                 "{\"type\":\"object\",\"properties\":{\"path\":{\"type\":\"string\"}},\"required\":[\"path\"]}"));
-        var first = model.call(history, specs);
-        assertEquals(1, first.calls().size());
-        assertEquals("read_file", first.calls().getFirst().name());
-        int executed = 0;
-        var call = first.calls().getFirst();
-        history.add(new AgentProtocol.Message("assistant", first.text(), first.calls(), null, null));
-        executed++;
-        history.add(new AgentProtocol.Message("tool", "{\"nonce\":\"task1-native-48179\"}",
-                List.of(), call.id(), call.name()));
-        var second = model.call(history, specs);
-        assertTrue(second.calls().isEmpty());
-        assertTrue(second.text().contains("task1-native-48179"));
-        assertEquals(1, executed);
+        for (String file : List.of("first.txt", "second.txt")) {
+            var reply = model.call(history, specs);
+            assertEquals(1, reply.calls().size());
+            assertTrue(reply.reasoningContent() != null && !reply.reasoningContent().isBlank());
+            var call = reply.calls().getFirst();
+            assertEquals("read_file", call.name());
+            assertEquals(file, new com.fasterxml.jackson.databind.ObjectMapper().readTree(call.arguments())
+                    .required("path").asText());
+            history.add(reply.assistantMessage(reply.text()));
+            String result = file.equals("first.txt") ? "{\"nonce\":\"alpha-48179\",\"next\":\"second.txt\"}"
+                    : "{\"nonce\":\"beta-76391\"}";
+            history.add(new AgentProtocol.Message("tool", result, List.of(), call.id(), call.name()));
+        }
+        var finalReply = model.call(history, specs);
+        assertTrue(finalReply.calls().isEmpty());
+        assertTrue(finalReply.text().contains("alpha-48179"));
+        assertTrue(finalReply.text().contains("beta-76391"));
     }
 }

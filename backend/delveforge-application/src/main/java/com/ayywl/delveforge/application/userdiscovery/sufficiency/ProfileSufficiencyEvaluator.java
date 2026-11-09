@@ -322,7 +322,8 @@ public final class ProfileSufficiencyEvaluator {
         try {
             return new AiRequest(List.of(new AiMessage(AiRole.SYSTEM, SYSTEM_INSTRUCTION
                     + (userInput == null ? "" : CONVERSATION_INSTRUCTION)),
-                    new AiMessage(AiRole.USER, objectMapper.writeValueAsString(payload))), AiResponseFormat.JSON);
+                    new AiMessage(AiRole.USER, objectMapper.writeValueAsString(payload))), AiResponseFormat.JSON,
+                    userInput == null ? AiRequest.Thinking.DEFAULT : AiRequest.Thinking.LOW);
         } catch (JsonProcessingException exception) {
             throw new AiGatewayException("无法构造 AI 请求内容", exception);
         }

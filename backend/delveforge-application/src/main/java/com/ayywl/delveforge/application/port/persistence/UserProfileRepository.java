@@ -4,6 +4,7 @@ import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryRead
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -17,7 +18,7 @@ import java.util.Optional;
  * 方法集合只覆盖当前 Use Case 的最小需求。后续 Use Case 出现新的持久化需求时，
  * 再按该需求扩展，而不是提前为可能的查询场景预留方法。
  *
- * <p>本 Port 的方法集合只表达当前状态：没有按历史 revision 查询的入口。
+ * <p>当前状态与按版本查找的只读内容投影分别提供。
  * 但实现必须为每次保存保留该 revision 的内容快照，使
  * {@code UserProfileId + revision} 具备恢复当时内容的基础（DOMAIN_MODEL.md §10.3）。
  */
@@ -53,6 +54,21 @@ public interface UserProfileRepository {
      * @throws IllegalStateException 过期保存，或同一 revision 的内容冲突
      */
     void save(UserProfile profile);
+
+    /** 历史内容不含当时的状态或对话，仅包含指定版本保存的六个内容区。 */
+    record Sections(List<String> interests, List<String> behaviors, List<String> painPoints,
+            List<String> technicalCapabilities, List<String> projectGoals, List<String> constraints) {
+        public Sections {
+            interests = List.copyOf(interests);
+            behaviors = List.copyOf(behaviors);
+            painPoints = List.copyOf(painPoints);
+            technicalCapabilities = List.copyOf(technicalCapabilities);
+            projectGoals = List.copyOf(projectGoals);
+            constraints = List.copyOf(constraints);
+        }
+    }
+
+    Optional<Sections> findSections(UserProfileId id, int revision);
 
     /**
      * 按标识查找 User Profile。

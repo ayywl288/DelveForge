@@ -1,6 +1,6 @@
 # ARCHITECTURE.md
 
-**2026-11-09 Agent 上下文预算。** Application 通过 `AgentTokenCounter` 估算单次完整输入，包括当轮笔记及工具定义。Infrastructure 使用固定版本 DeepSeek V4.1 Flash 分词器与非思考文本模板。压缩保留已确认 Step、执行环境及最近完整交互，旧工具结果按调用 ID 提取元数据。发送前独立检查 HTTP 字节上限，超限可压缩后重试一次。`MODEL_USAGE` 记录估计、提供者输入用量及差值。参数见[本地配置](LOCAL_SETUP.md#4-自定义配置)。
+**2026-11-09 Agent 上下文预算。** Application 通过 `AgentTokenCounter` 估算单次完整输入，包括当轮笔记及工具定义。Infrastructure 使用固定版本 DeepSeek V4.1 Flash 分词器，按请求的思考模式和强度渲染完整文本模板。压缩保留已确认 Step、执行环境及最近完整交互，旧工具结果按调用 ID 提取元数据。思考文本只随当前 Run 内保留的 Assistant 消息重放。发送前独立检查 HTTP 字节上限，超限可压缩后重试一次。`MODEL_USAGE` 记录估计、提供者输入用量及差值。参数见[本地配置](LOCAL_SETUP.md#4-自定义配置)。
 
 **2026-11-08 本次授权：选定仓库内容与离线执行。** 选定快照内普通源码和配置统一可供 Agent 读写；保留控制目录例外、宿主隔离和资源预算。依赖网络准备失败可降为明确离线执行，实际下载失败保留为命令事实。RUNNING 前持久化材料保留意图，捕获/停止/存储失败不清掉唯一现场。v8、逐 Step 授权、冻结与独立 Delivery 不变；容器协议 v11：文件清单附带字节数，按预算读取完整源码行并返回续读位置，分块搜索仅传输有界摘录。见 [ADR-0027](decisions/0027-selected-repository-input-and-offline-execution.md)。下方旧内容隐藏与行保护规则仅为历史。
 
@@ -1752,8 +1752,8 @@ V17 在 ProjectFlowContext 添加 deleted_at，删除和恢复共用现有 versi
 这是工具协议的错误分类修正，不新增持久状态、跨 Run 恢复或授权。验证见
 [只读工具错误修正](validation/read-tool-error-recovery-20261104.md)。
 
-[ADR-0015](decisions/0015-executable-agent-steps-and-incomplete-response-recovery.md) 定义当前非 thinking 工具模式、活跃 Run 内有限丢弃/重生成截断响应和真实用量语义。
-Application 不依赖提供者 reasoning 类型；Infrastructure 在返回 Reply 前仍拒绝全部截断参数。恢复不扩大 Domain、Workspace 或 Delivery 权限，不恢复跨 Run 对话。
+[ADR-0015](decisions/0015-executable-agent-steps-and-incomplete-response-recovery.md) 定义思考模式下的工具历史重放、活跃 Run 内有限丢弃/重生成截断响应和真实用量语义。
+Application 的内部消息保留模型返回的思考字段；Infrastructure 使用 Spring AI 1.1.8 的 `DeepSeekApi` 消息 DTO 收发，返回 Reply 前拒绝全部截断参数。恢复不扩大 Domain、Workspace 或 Delivery 权限，不恢复跨 Run 对话。
 
 
 2026-10-25 补充：Application 的 `edit_file` 工具在 Infrastructure 内从当前受控源文本生成标准 diff，后续复用既有 `inspect_patch` 与 `apply_patch`。该转换不新增直接文件写入通道，不改变 Workspace、凭据保护、冻结验证或 Delivery 的权限边界；详见 ADR-0015。

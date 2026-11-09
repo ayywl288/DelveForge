@@ -279,6 +279,13 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
         body.put("messages", messages);
         body.put("max_tokens", properties.maxTokens());
         body.put("stream", properties.streaming());
+        if (request.thinking() != AiRequest.Thinking.DEFAULT) {
+            boolean enabled = request.thinking() != AiRequest.Thinking.DISABLED;
+            body.put("thinking", Map.of("type", enabled ? "enabled" : "disabled"));
+            if (enabled) {
+                body.put("reasoning_effort", request.thinking().name().toLowerCase(java.util.Locale.ROOT));
+            }
+        }
         if (properties.streaming()) {
             body.put("stream_options", Map.of("include_usage", true));
         }

@@ -4,52 +4,53 @@ import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
+import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
 import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.Message;
-import org.springframework.ai.chat.messages.SystemMessage;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
-import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.deepseek.DeepSeekChatModel;
-import org.springframework.ai.deepseek.DeepSeekChatOptions;
+import org.springframework.ai.deepseek.api.DeepSeekApi.ChatCompletionMessage;
+import org.springframework.ai.deepseek.api.DeepSeekApi.FunctionTool;
 import org.springframework.ai.deepseek.api.DeepSeekApi;
-import org.springframework.ai.tool.ToolCallback;
-import org.springframework.ai.tool.definition.DefaultToolDefinition;
-import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
-import org.springframework.retry.support.RetryTemplate;
 import org.springframework.web.client.RestClient;
 
 import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 只交换模型消息，不执行工具；禁用框架循环并用不可执行 Callback 防止双重派发。 */
+/** 只交换模型消息，不执行工具；直接使用 Spring AI 的消息 API，Application 独占工具派发。 */
 public final class SpringAiAgentModel implements AgentModelPort {
     private static final ObjectMapper JSON = new ObjectMapper();
-    private final DeepSeekChatModel model;
+    private final DeepSeekApi api;
     private final DeepSeekProperties properties;
     private final int responseTokens;
+    private final Thinking thinking;
     private final ThreadLocal<List<java.util.Map<String, Object>>> diagnostics = ThreadLocal.withInitial(ArrayList::new);
 
     public SpringAiAgentModel(DeepSeekProperties properties, int responseTokens) {
+        this(properties, responseTokens, Thinking.HIGH);
+    }
+
+    public SpringAiAgentModel(DeepSeekProperties properties, int responseTokens, Thinking thinking) {
+        if (thinking == null || thinking == Thinking.DEFAULT) {
+            throw new IllegalArgumentException("Coding Agent requires an explicit thinking mode");
+        }
+        this.thinking = thinking;
         this.properties = properties;
         this.responseTokens = responseTokens;
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder()
                 .connectTimeout(properties.timeout()).build());
         factory.setReadTimeout(properties.timeout());
-        DeepSeekApi api = DeepSeekApi.builder().baseUrl(properties.baseUrl())
+        api = DeepSeekApi.builder().baseUrl(properties.baseUrl())
                 .apiKey(properties.apiKey() == null || properties.apiKey().isBlank() ? "unconfigured" : properties.apiKey())
                 .restClientBuilder(RestClient.builder().requestFactory(factory).requestInterceptor((request, body, execution) -> {
-                    // 当前消息合同不携带提供者 reasoning_content，显式关闭默认 thinking，避免不完整的工具会话。
                     ObjectNode payload = (ObjectNode) JSON.readTree(body);
-                    payload.set("thinking", JSON.createObjectNode().put("type", "disabled"));
+                    boolean enabled = thinking != Thinking.DISABLED;
+                    payload.putObject("thinking").put("type", enabled ? "enabled" : "disabled");
+                    if (enabled) {
+                        payload.put("reasoning_effort", thinking.name().toLowerCase(java.util.Locale.ROOT));
+                    }
                     byte[] assembled = JSON.writeValueAsBytes(payload);
                     if (assembled.length > properties.maxRequestBytes()) {
                         throw new AgentException("REQUEST_BYTES_LIMIT", "Serialized Agent request exceeds safe transport budget");
@@ -66,6 +67,10 @@ public final class SpringAiAgentModel implements AgentModelPort {
                                     "httpStatus", status, "attempt", attempt, "responsePresent", true,
                                     "durationMs", java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)));
                             if (attempt == 3 || !java.util.Set.of(408, 429, 500, 502, 503, 504).contains(status)) {
+                                if (status >= 400) {
+                                    response.close();
+                                    throw new AgentModelFailure(AgentModelFailure.Reason.PROVIDER_CALL_FAILED);
+                                }
                                 return response;
                             }
                             long delay = retryDelay(response.getHeaders().getFirst("Retry-After"), attempt);
@@ -83,10 +88,6 @@ public final class SpringAiAgentModel implements AgentModelPort {
                     }
                     throw new java.io.IOException("Provider attempts exhausted");
                 })).build();
-        model = DeepSeekChatModel.builder().deepSeekApi(api)
-                .defaultOptions(DeepSeekChatOptions.builder().model(properties.model())
-                        .maxTokens(responseTokens).internalToolExecutionEnabled(false).build())
-                .retryTemplate(RetryTemplate.builder().maxAttempts(1).build()).build();
     }
 
     @Override
@@ -95,37 +96,21 @@ public final class SpringAiAgentModel implements AgentModelPort {
         if (properties.apiKey() == null || properties.apiKey().isBlank()) {
             throw new AgentException("MODEL_CONFIGURATION", "Configure the model API key outside the sandbox");
         }
-        List<Message> messages = new ArrayList<>();
-        for (AgentProtocol.Message message : history) {
-            switch (message.role()) {
-                case "system" -> messages.add(new SystemMessage(message.text()));
-                case "user" -> messages.add(new UserMessage(message.text()));
-                case "assistant" -> messages.add(AssistantMessage.builder().content(message.text())
-                        .toolCalls(message.calls().stream().map(call -> new AssistantMessage.ToolCall(
-                                call.id(), "function", call.name(), call.arguments())).toList()).build());
-                case "tool" -> messages.add(ToolResponseMessage.builder().responses(List.of(
-                        new ToolResponseMessage.ToolResponse(message.callId(), message.toolName(), message.text())))
-                        .build());
-                default -> throw new AgentModelFailure(AgentModelFailure.Reason.CONVERSATION_ROLE_UNSUPPORTED);
-            }
-        }
-        List<ToolCallback> callbacks = tools.stream().map(spec -> (ToolCallback) new ToolCallback() {
-            @Override
-            public ToolDefinition getToolDefinition() {
-                return new DefaultToolDefinition(spec.name(), spec.description(), spec.schema());
-            }
-
-            @Override
-            public String call(String arguments) {
-                throw new AgentException("DOUBLE_TOOL_EXECUTION", "Only Application may dispatch Agent tools");
-            }
-        }).toList();
-        ChatResponse response;
+        // ChatModel 1.1.8 转换 Assistant 时丢弃 reasoningContent；底层消息 DTO 保留该字段。
+        boolean replay = thinking != Thinking.DISABLED && !tools.isEmpty();
+        var messages = history.stream().map(message -> providerMessage(message, replay)).toList();
+        var definitions = tools.stream().map(spec -> new FunctionTool(
+                new FunctionTool.Function(spec.description(), spec.name(), spec.schema()))).toList();
+        var request = new DeepSeekApi.ChatCompletionRequest(messages, properties.model(), null, responseTokens,
+                null, null, null, false, null, null, null, null, definitions.isEmpty() ? null : definitions, null);
+        DeepSeekApi.ChatCompletion response;
         try {
-            response = model.call(new Prompt(messages, DeepSeekChatOptions.builder()
-                    .toolCallbacks(callbacks).internalToolExecutionEnabled(false).build()));
+            response = api.chatCompletionEntity(request).getBody();
         } catch (RuntimeException failure) {
             for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+                if (cause instanceof AgentModelFailure protocol) {
+                    throw protocol;
+                }
                 if (cause instanceof AgentException rejected
                         && java.util.Set.of("REQUEST_BYTES_LIMIT", "CANCELLED").contains(rejected.code())) {
                     throw rejected;
@@ -135,9 +120,30 @@ public final class SpringAiAgentModel implements AgentModelPort {
             throw new AgentModelFailure(AgentModelFailure.Reason.PROVIDER_CALL_FAILED);
         }
         AgentProtocol.Reply reply = decode(response);
+        if (thinking != Thinking.DISABLED && !tools.isEmpty() && reply.reasoningContent() == null) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.REASONING_MISSING);
+        }
         // 失败尝试可能已产生费用但未报告 usage；不能把最终响应用量冒充全部尝试的总量。
         return diagnostics.get().size() > 1
-                ? new AgentProtocol.Reply(reply.text(), reply.calls(), null, reply.usage()) : reply;
+                ? new AgentProtocol.Reply(reply.text(), reply.calls(), null, reply.usage(), reply.reasoningContent()) : reply;
+    }
+
+    private ChatCompletionMessage providerMessage(AgentProtocol.Message message, boolean replay) {
+        var role = switch (message.role()) {
+            case "assistant" -> ChatCompletionMessage.Role.ASSISTANT;
+            case "tool" -> ChatCompletionMessage.Role.TOOL;
+            case "system" -> ChatCompletionMessage.Role.SYSTEM;
+            case "user" -> ChatCompletionMessage.Role.USER;
+            default -> throw new AgentModelFailure(AgentModelFailure.Reason.CONVERSATION_ROLE_UNSUPPORTED);
+        };
+        String reasoning = role == ChatCompletionMessage.Role.ASSISTANT && replay ? message.reasoningContent() : null;
+        if (role == ChatCompletionMessage.Role.ASSISTANT && replay && reasoning == null) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.REASONING_MISSING);
+        }
+        var calls = message.calls().stream().map(call -> new ChatCompletionMessage.ToolCall(call.id(), "function",
+                new ChatCompletionMessage.ChatCompletionFunction(call.name(), call.arguments()))).toList();
+        return new ChatCompletionMessage(message.text(), role, message.toolName(), message.callId(),
+                calls.isEmpty() ? null : calls, null, reasoning);
     }
 
     @Override
@@ -174,16 +180,19 @@ public final class SpringAiAgentModel implements AgentModelPort {
         }
     }
 
-    AgentProtocol.Reply decode(ChatResponse response) {
-        var result = response == null ? null : response.getResult();
-        var output = result == null ? null : result.getOutput();
-        var usage = response == null || response.getMetadata() == null ? null : response.getMetadata().getUsage();
-        Long tokens = usage == null || usage.getTotalTokens() == null || usage.getTotalTokens() <= 0
-                ? null : usage.getTotalTokens().longValue();
-        var finish = AgentModelFailure.FinishReason.from(result == null || result.getMetadata() == null
-                ? null : result.getMetadata().getFinishReason());
+    AgentProtocol.Reply decode(DeepSeekApi.ChatCompletion response) {
+        var result = response == null || response.choices() == null || response.choices().isEmpty()
+                ? null : response.choices().getFirst();
+        var output = result == null ? null : result.message();
+        var usage = response == null ? null : response.usage();
+        Long tokens = usage == null || usage.totalTokens() == null || usage.totalTokens() <= 0
+                ? null : usage.totalTokens().longValue();
+        var finish = AgentModelFailure.FinishReason.from(result == null || result.finishReason() == null
+                ? null : result.finishReason().name());
+        var toolCalls = output == null ? null : output.toolCalls();
+        Integer toolCount = output == null ? null : Integer.valueOf(toolCalls == null ? 0 : toolCalls.size());
         var observed = new AgentModelFailure.Response(response != null, result != null, output != null, finish,
-                output == null || output.getToolCalls() == null ? null : output.getToolCalls().size(), responseTokens, tokens);
+                toolCount, responseTokens, tokens);
         if (response == null) {
             throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_MISSING, observed);
         }
@@ -197,36 +206,40 @@ public final class SpringAiAgentModel implements AgentModelPort {
         if (output == null) {
             throw new AgentModelFailure(AgentModelFailure.Reason.OUTPUT_MISSING, observed);
         }
-        if (output.getToolCalls() == null) {
+        if (output.rawContent() != null && !(output.rawContent() instanceof String)) {
+            throw new AgentModelFailure(AgentModelFailure.Reason.OUTPUT_INVALID, observed);
+        }
+        if (output.role() != ChatCompletionMessage.Role.ASSISTANT
+                || finish != AgentModelFailure.FinishReason.STOP && finish != AgentModelFailure.FinishReason.TOOL_CALLS
+                || (finish == AgentModelFailure.FinishReason.TOOL_CALLS) != (toolCalls != null && !toolCalls.isEmpty())) {
             throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_CALL_STRUCTURE_INVALID, observed);
         }
         List<AgentProtocol.ToolCall> calls = new ArrayList<>();
-        for (AssistantMessage.ToolCall call : output.getToolCalls()) {
-            if (call == null) {
+        var callIds = new java.util.HashSet<String>();
+        for (var call : toolCalls == null ? List.<ChatCompletionMessage.ToolCall>of() : toolCalls) {
+            if (call == null || call.function() == null) {
                 throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_CALL_STRUCTURE_INVALID, observed);
             }
             if (!"function".equals(call.type())) {
                 throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_CALL_TYPE_INVALID, observed);
             }
-            if (call.id() == null || call.id().isBlank() || call.id().length() > 200) {
+            if (call.id() == null || call.id().isBlank() || call.id().length() > 200 || !callIds.add(call.id())) {
                 throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_ID_INVALID, observed);
             }
-            if (call.name() == null || call.name().isBlank()) {
+            if (call.function().name() == null || call.function().name().isBlank()) {
                 throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_NAME_INVALID, observed);
             }
-            if (call.arguments() == null) {
+            if (call.function().arguments() == null) {
                 throw new AgentModelFailure(AgentModelFailure.Reason.TOOL_ARGUMENTS_INVALID, observed);
             }
-            calls.add(new AgentProtocol.ToolCall(call.id(), call.name(), call.arguments()));
+            calls.add(new AgentProtocol.ToolCall(call.id(), call.function().name(), call.function().arguments()));
         }
-        Long cached = null;
-        if (usage != null && usage.getNativeUsage() instanceof DeepSeekApi.Usage nativeUsage
-                && nativeUsage.promptTokensDetails() != null) {
-            cached = numerical(nativeUsage.promptTokensDetails().cachedTokens());
-        }
+        Long cached = usage == null || usage.promptTokensDetails() == null ? null
+                : numerical(usage.promptTokensDetails().cachedTokens());
         AgentProtocol.Usage reported = tokens == null ? null : new AgentProtocol.Usage(
-                numerical(usage.getPromptTokens()), numerical(usage.getCompletionTokens()), tokens, cached, null);
-        return new AgentProtocol.Reply(output.getText() == null ? "" : output.getText(), calls, tokens, reported);
+                numerical(usage.promptTokens()), numerical(usage.completionTokens()), tokens, cached, null);
+        return new AgentProtocol.Reply(output.content() == null ? "" : output.content(), calls, tokens, reported,
+                thinking == Thinking.DISABLED ? null : output.reasoningContent());
     }
 
     private Long numerical(Integer value) {

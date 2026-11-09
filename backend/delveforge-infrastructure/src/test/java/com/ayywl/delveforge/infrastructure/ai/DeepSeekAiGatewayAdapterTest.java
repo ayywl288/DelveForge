@@ -5,6 +5,10 @@ import com.ayywl.delveforge.application.port.ai.AiMessage;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.ai.AiResponseFormat;
 import com.ayywl.delveforge.application.port.ai.AiRole;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileExtraction;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.ProfileSufficiencyEvaluator;
+import com.ayywl.delveforge.domain.user.UserProfile;
+import com.ayywl.delveforge.domain.user.UserProfileId;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -66,10 +70,38 @@ class DeepSeekAiGatewayAdapterTest {
                     false, Duration.ofSeconds(10), 16384, 8388608, 65536, 8388608));
 
     @Test
+    void profileExtractionAndDiscoveryTurnSelectTheirOwnWireMode() throws Exception {
+        server.expect(requestTo(BASE_URL + "/chat/completions"))
+                .andExpect(jsonPath("$.thinking.type").value("disabled"))
+                .andExpect(jsonPath("$.reasoning_effort").doesNotExist())
+                .andRespond(withSuccess(chatCompletion("{\"interests\":[\"history\"]}"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(BASE_URL + "/chat/completions"))
+                .andExpect(jsonPath("$.thinking.type").value("disabled"))
+                .andExpect(jsonPath("$.reasoning_effort").doesNotExist())
+                .andRespond(withSuccess(chatCompletion("{\"hasNewFacts\":false}"), MediaType.APPLICATION_JSON));
+        server.expect(requestTo(BASE_URL + "/chat/completions"))
+                .andExpect(jsonPath("$.thinking.type").value("enabled"))
+                .andExpect(jsonPath("$.reasoning_effort").value("low"))
+                .andRespond(withSuccess(chatCompletion("""
+                        {"sufficient":false,"missingAreas":["goal"],"assistantReply":"Continue",
+                         "nextQuestion":null,"questionArea":null,"deferredAreas":[]}
+                        """), MediaType.APPLICATION_JSON));
+        UserProfile profile = UserProfile.create(new UserProfileId("user"));
+        var extraction = new ProfileExtraction(adapter, new ObjectMapper());
+        extraction.applyTo(profile, "I like history");
+        extraction.applyTurnTo(profile, "Tell me more", List.of());
+        new ProfileSufficiencyEvaluator(adapter, new ObjectMapper()).evaluateTurn(
+                profile, "How much is left?", List.of(), List.of());
+        server.verify();
+    }
+
+    @Test
     void sendsMessagesWithJsonResponseFormatAndReturnsContent() throws Exception {
         server.expect(requestTo(BASE_URL + "/chat/completions"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer " + API_KEY))
+                .andExpect(jsonPath("$.thinking").doesNotExist())
+                .andExpect(jsonPath("$.reasoning_effort").doesNotExist())
                 .andExpect(jsonPath("$.model").value(MODEL))
                 .andExpect(jsonPath("$.messages[0].role").value("system"))
                 .andExpect(jsonPath("$.messages[0].content").value("系统指令"))

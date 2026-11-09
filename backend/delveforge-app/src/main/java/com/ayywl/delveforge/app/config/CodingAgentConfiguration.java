@@ -4,6 +4,7 @@ import com.ayywl.delveforge.application.agent.AgentContextBudget;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
+import com.ayywl.delveforge.application.agent.AgentStartupContext;
 import com.ayywl.delveforge.application.agent.AgentStore;
 import com.ayywl.delveforge.application.agent.AgentTokenCounter;
 import com.ayywl.delveforge.application.agent.CandidateDeliveryService;
@@ -11,6 +12,9 @@ import com.ayywl.delveforge.application.agent.CodingAgentService;
 import com.ayywl.delveforge.application.agent.DeliveryStore;
 import com.ayywl.delveforge.application.evolution.preparation.ExecutionPreparationState;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
+import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
+import com.ayywl.delveforge.application.port.persistence.RepositoryProfileRepository;
+import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.port.workspace.CandidateDeliveryPort;
 import com.ayywl.delveforge.application.port.workspace.WorkspaceReadPort;
 import com.ayywl.delveforge.application.quickstart.QuickStartService;
@@ -52,20 +56,25 @@ public class CodingAgentConfiguration {
     }
 
     @Bean
-    public AgentModelPort agentModelPort(DeepSeekProperties properties, AgentContextBudget budget) {
-        return new SpringAiAgentModel(properties, budget.responseTokens());
+    public Thinking agentThinking(Environment environment) {
+        return environment.getProperty("delveforge.agent.thinking", Thinking.class, Thinking.HIGH);
     }
 
     @Bean
-    public DeepSeekTokenCounterAdapter agentTokenCounter(DeepSeekProperties properties) {
-        return new DeepSeekTokenCounterAdapter(properties.model());
+    public AgentModelPort agentModelPort(DeepSeekProperties properties, AgentContextBudget budget, Thinking thinking) {
+        return new SpringAiAgentModel(properties, budget.responseTokens(), thinking);
+    }
+
+    @Bean
+    public DeepSeekTokenCounterAdapter agentTokenCounter(DeepSeekProperties properties, Thinking thinking) {
+        return new DeepSeekTokenCounterAdapter(properties.model(), thinking);
     }
 
     @Bean
     public AgentContextBudget agentContextBudget(Environment environment) {
         return new AgentContextBudget(
                 environment.getProperty("delveforge.agent.context-window-tokens", Integer.class, 1000000),
-                environment.getProperty("delveforge.agent.response-tokens", Integer.class, 8192),
+                environment.getProperty("delveforge.agent.response-tokens", Integer.class, 65536),
                 environment.getProperty("delveforge.agent.compaction-threshold", Double.class, 0.90));
     }
 
@@ -77,7 +86,8 @@ public class CodingAgentConfiguration {
     @Bean
     public CodingAgentService codingAgentService(ExecutionPreparationState eligibility, AgentStore store,
             AgentModelPort model, AgentSandboxPort sandbox, RepositorySecretPolicy secrets,
-            AgentInstanceLock instanceLock, Environment environment, AgentTokenCounter counter, AgentContextBudget budget) {
+            AgentInstanceLock instanceLock, Environment environment, AgentTokenCounter counter, AgentContextBudget budget,
+            UserProfileRepository profiles, RepositoryProfileRepository repositories) {
         AgentProtocol.Limits defaults = AgentProtocol.Limits.defaults();
         // 只配置技术材料和单次操作限制；累计调用、tokens 与总时长不作执行配额。
         AgentProtocol.Limits limits = new AgentProtocol.Limits(
@@ -88,7 +98,8 @@ public class CodingAgentConfiguration {
                 limit(environment, "max-candidate-bytes", defaults.maxCandidateBytes()),
                 limit(environment, "max-files", defaults.maxFiles()),
                 limit(environment, "check-seconds", defaults.checkSeconds()));
-        return new CodingAgentService(eligibility, store, model, sandbox, secrets, limits, counter, budget);
+        return new CodingAgentService(new AgentStartupContext(profiles, repositories, secrets),
+                eligibility, store, model, sandbox, secrets, limits, counter, budget);
     }
 
     private static int limit(Environment environment, String name, int fallback) {

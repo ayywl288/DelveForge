@@ -1,0 +1,259 @@
+[
+  {
+    "name": "tools and notes",
+    "effort": "high",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Authorized step"
+      },
+      {
+        "role": "user",
+        "content": "Inspect files"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "Synthetic fixture 0 <｜ref｜> <think>",
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "0-a",
+            "function": {
+              "name": "inspect",
+              "arguments": "{\"path\": \"a\"}"
+            }
+          },
+          {
+            "type": "function",
+            "id": "0-b",
+            "function": {
+              "name": "inspect",
+              "arguments": "{\"path\": \"b\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "OK",
+        "tool_call_id": "0-a"
+      },
+      {
+        "role": "tool",
+        "content": "OK",
+        "tool_call_id": "0-b"
+      },
+      {
+        "role": "assistant",
+        "content": "Checking",
+        "reasoning_content": "Synthetic fixture 1 <｜ref｜> <think>",
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "1-a",
+            "function": {
+              "name": "inspect",
+              "arguments": "{\"path\": \"a\"}"
+            }
+          },
+          {
+            "type": "function",
+            "id": "1-b",
+            "function": {
+              "name": "inspect",
+              "arguments": "{\"path\": \"b\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "OK",
+        "tool_call_id": "1-a"
+      },
+      {
+        "role": "tool",
+        "content": "OK",
+        "tool_call_id": "1-b"
+      },
+      {
+        "role": "user",
+        "content": "Current notes"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "inspect",
+          "description": "Read a file",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "tokens": 485
+  },
+  {
+    "name": "tools and notes",
+    "effort": "max",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Authorized step"
+      },
+      {
+        "role": "user",
+        "content": "Inspect files"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "reasoning_content": "Synthetic fixture 0 <｜ref｜> <think>",
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "0-a",
+            "function": {
+              "name": "inspect",
+              "arguments": "{\"path\": \"a\"}"
+            }
+          },
+          {
+            "type": "function",
+            "id": "0-b",
+            "function": {
+              "name": "inspect",
+              "arguments": "{\"path\": \"b\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "OK",
+        "tool_call_id": "0-a"
+      },
+      {
+        "role": "tool",
+        "content": "OK",
+        "tool_call_id": "0-b"
+      },
+      {
+        "role": "assistant",
+        "content": "Checking",
+        "reasoning_content": "Synthetic fixture 1 <｜ref｜> <think>",
+        "tool_calls": [
+          {
+            "type": "function",
+            "id": "1-a",
+            "function": {
+              "name": "inspect",
+              "arguments": "{\"path\": \"a\"}"
+            }
+          },
+          {
+            "type": "function",
+            "id": "1-b",
+            "function": {
+              "name": "inspect",
+              "arguments": "{\"path\": \"b\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "OK",
+        "tool_call_id": "1-a"
+      },
+      {
+        "role": "tool",
+        "content": "OK",
+        "tool_call_id": "1-b"
+      },
+      {
+        "role": "user",
+        "content": "Current notes"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "inspect",
+          "description": "Read a file",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "tokens": 485
+  },
+  {
+    "name": "no tools",
+    "effort": "low",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Authorized step"
+      },
+      {
+        "role": "user",
+        "content": "Inspect files"
+      }
+    ],
+    "tools": [],
+    "tokens": 36
+  },
+  {
+    "name": "no system",
+    "effort": "high",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Inspect files"
+      }
+    ],
+    "tools": [],
+    "tokens": 33
+  },
+  {
+    "name": "prior reasoning ignored without tools",
+    "effort": "max",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Authorized step"
+      },
+      {
+        "role": "user",
+        "content": "Inspect files"
+      },
+      {
+        "role": "assistant",
+        "content": "OK",
+        "reasoning_content": "fixture"
+      },
+      {
+        "role": "user",
+        "content": "Current notes"
+      }
+    ],
+    "tools": [],
+    "tokens": 43
+  }
+]

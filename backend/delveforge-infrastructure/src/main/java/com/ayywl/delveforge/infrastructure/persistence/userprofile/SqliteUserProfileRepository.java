@@ -86,6 +86,18 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Optional<Sections> findSections(UserProfileId id, int revision) {
+        if (revisionMapper.count(id.value(), revision) == 0) {
+            return Optional.empty();
+        }
+        var items = loadSections(id.value(), revision);
+        return Optional.of(new Sections(section(items, Section.INTERESTS), section(items, Section.BEHAVIORS),
+                section(items, Section.PAIN_POINTS), section(items, Section.TECHNICAL_CAPABILITIES),
+                section(items, Section.PROJECT_GOALS), section(items, Section.CONSTRAINTS)));
+    }
+
+    @Override
     @Transactional
     public void save(UserProfile profile) {
         String profileId = profile.id().value();
