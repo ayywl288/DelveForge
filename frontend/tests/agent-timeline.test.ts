@@ -377,7 +377,7 @@ it.each(["legacy plain text", '{"tool":', 'null', '["unknown"]', '{"unrecognized
         props.events = [fact(1, "UNKNOWN_KIND", summary)]; await settle();
         expect(root.querySelector(".activity-target, .activity-facts, pre, .event-details, .advanced-event-details")).toBeNull();
         expect(root.textContent).not.toContain(summary.startsWith('{"unrecognized"') ? "recorded-value" : summary);
-        expect(root.querySelector("strong")?.textContent).toBe("历史运行活动");
+        expect(root.querySelector('[data-sequence="1"] strong')?.textContent).toBe("历史运行活动");
         expect(props.events[0]!.summary).toBe(summary);
     });
 it("transitions a reliably correlated operation in place while preserving standalone event order", async () => {
@@ -505,7 +505,7 @@ it("does not animate historical requests when a snapshot already reached finaliz
 it("keeps readable status and supplies reduced-motion overrides for every active and entry animation", async () => {
     const { root, props } = mount();
     props.events = [fact(1, "MODEL_REQUEST")]; await settle();
-    expect(root.querySelector('[role="status"]')?.textContent).toContain("事件连接");
+    expect(root.querySelector('.stream-status[role="status"]')?.textContent).toContain("事件连接");
     expect(root.querySelector('.current-activity[role="status"]')?.textContent).toContain("Agent 正在规划下一步");
     const rowStyles = readFileSync("src/components/AgentActivityRow.vue", "utf8");
     const timelineStyles = readFileSync("src/components/AgentTimeline.vue", "utf8");

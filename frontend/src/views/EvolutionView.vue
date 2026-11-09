@@ -8,7 +8,7 @@ import StatusBadge from "../components/StatusBadge.vue";
 import AgentResultSurface from "../components/AgentResultSurface.vue";
 import ExecutionWorkspace from "../components/ExecutionWorkspace.vue";
 import AgentTimeline from "../components/AgentTimeline.vue";
-import { candidateFileChanges, presentRun, verificationLabel, type PresentedFileChange, type RunPresentation } from "../components/agentResultPresentation";
+import { candidateFileChanges, presentRun, runStates, verificationLabel, type PresentedFileChange, type RunPresentation } from "../components/agentResultPresentation";
 import NavigationIcon from "../components/NavigationIcon.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import type { NavigationIconName } from "../components/NavigationIcon.vue";
@@ -24,10 +24,6 @@ const run = ref<AgentRun | null>(null);
 const initialLayout = computed(() => !run.value && runs.value.length === 0);
 const candidate = ref<AgentCandidate | null>(null);
 const delivery = ref<Delivery | null>(null);
-const runStateLabels: Record<AgentRun["state"], string> = {
-  CREATED: "已创建运行", PREPARING: "准备沙箱", RUNNING: "编码中", FINALIZING: "正在冻结结果",
-  SUCCEEDED: "编码结果已冻结", FAILED: "本次运行失败", CANCELLED: "运行已取消", INTERRUPTED: "运行已中断",
-};
 const deliveryStateLabels: Record<Delivery["state"], string> = {
   INTENT: "交付意图已保存", APPLIED: "正式差异已应用", COMMIT_READY: "交付提交已准备",
   PUBLISHED: "交付提交已发布", COMPLETED: "正式交付已完成", DELIVERY_BLOCKED: "正式交付受阻",
@@ -380,7 +376,7 @@ onUnmounted(deactivate);
     <button @click="emit('planning')">前往规划</button></section>
   <div v-else class="evolution-workspace">
     <ol v-if="!initialLayout" class="execution-chain" aria-label="编码与交付边界">
-      <li><span>Agent Run</span><strong>{{ run ? runStateLabels[run.state] : '尚未读到运行' }}</strong></li>
+      <li><span>Agent Run</span><strong>{{ run ? runStates[run.state].label : '尚未读到运行' }}</strong></li>
       <li><span>Frozen Candidate</span><strong>{{ candidate ? '已冻结编码结果' : run?.candidateId ? '冻结详情待读取' : '尚无冻结结果' }}</strong></li>
       <li><span>Formal Delivery</span><strong>{{ delivery ? deliveryStateLabels[delivery.state] : (run?.candidateId ? '交付状态未读回' : '尚无正式交付') }}</strong></li>
     </ol>
@@ -412,10 +408,7 @@ onUnmounted(deactivate);
       <template v-if="run">
         <AgentTimeline :key="run.id" :events="events" :run="run" :connection="connection" :presentation="runPresentation ?? undefined" :show-usage="false">
           <template #developer>
-        <section class="run-technical" aria-label="运行状态">
-          <p><span>运行状态</span> <code>{{ run.state }}</code></p>
-          <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
-        </section>
+        <p v-if="run.reason" class="run-reason"><span>原因</span><code>{{ run.reason }}</code></p>
         <dl class="run-statistics" aria-label="已保存运行统计">
           <div><dt>模型调用</dt><dd>{{ numberText(run.modelCalls) }} <span>次</span></dd></div>
           <div><dt>工具调用</dt><dd>{{ numberText(run.toolCalls) }} <span>次</span></dd></div>
@@ -435,10 +428,9 @@ onUnmounted(deactivate);
         </div>
           </template>
         </AgentTimeline>
-        <div v-if="runPresentation?.tone !== 'completed'" class="run-summary" :data-state="run.state">
-        <div class="section-row run-status-row"><h3 v-if="runPresentation" class="run-status" :data-state="run.state" :data-tone="runPresentation.tone" role="status"><NavigationIcon :name="runIcon(runPresentation)" />{{ runPresentation.label }}</h3>
+        <div v-if="terminal(run) && runPresentation?.tone !== 'completed'" class="run-summary" :data-state="run.state">
+        <div v-if="runPresentation && runPresentation.label !== runStates[run.state].label" class="section-row run-status-row"><h3 class="run-status" :data-state="run.state" :data-tone="runPresentation.tone" role="status"><NavigationIcon :name="runIcon(runPresentation)" />{{ runPresentation.label }}</h3>
           </div>
-        <p v-if="preflight" class="preflight-status" :data-ready="preflight.outcome.startsWith('READY')" role="status">{{ preflight.outcome.startsWith('READY') ? '运行环境已准备' : preflightDescriptions[preflight.outcome] }}<span v-if="preflight.outcome === 'READY_BASELINE_FAILURE'"> · 基线检查有失败，详见开发者详情。</span><span v-else-if="!preflight.outcome.startsWith('READY') && preflight.reason"> {{ preflight.reason.slice(0, 240) }}</span></p>
         <p v-if="dockerPreparationFailed" class="run-failure">Docker 沙箱准备失败，尚未开始编码；模型与工具调用均为 0。</p>
         <p v-else-if="['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(run.state)" class="meta">本次编码未交付。当前步骤仍保留确认；新运行仍须通过执行前核对。</p>
         <p v-else-if="runPresentation" class="meta">{{ runPresentation.detail }}</p>
@@ -448,6 +440,7 @@ onUnmounted(deactivate);
         <p v-if="run.reason === 'NO_PROGRESS'" class="run-failure" role="alert">{{ noProgressExplanation(events, run.id) }}</p>
 
         </div>
+        <p v-if="preflight && runPresentation?.tone !== 'completed' && (run.state !== 'RUNNING' || preflight.outcome !== 'READY')" class="preflight-status" :data-ready="preflight.outcome.startsWith('READY')" role="status">{{ preflight.outcome.startsWith('READY') ? '运行环境已准备' : preflightDescriptions[preflight.outcome] }}<span v-if="preflight.outcome === 'READY_BASELINE_FAILURE'"> · 基线检查有失败，详见开发者详情。</span><span v-else-if="!preflight.outcome.startsWith('READY') && preflight.reason"> {{ preflight.reason.slice(0, 240) }}</span></p>
         <p v-if="resourceBlocked" class="resource-warning" role="alert"><NavigationIcon name="warning" />资源协调待核对：所属资源或保留材料尚未完成核对。请先检查 Docker 与后端安全诊断，再判断能否重新运行。</p>
         <p v-if="run.retained && terminal(run)" class="meta">最终化材料已保留，请核对失败原因。</p>
       </template>
@@ -606,6 +599,4 @@ select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
 }
 .run-status[data-tone="blocked"] { color: var(--warning); }
 .run-status[data-tone="completed"] { color: var(--success); }
-.run-technical { font-size: 12px; color: var(--muted); margin: 14px 0; overflow-wrap: anywhere; }
-.run-technical summary { cursor: pointer; }
 </style>

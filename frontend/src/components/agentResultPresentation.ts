@@ -1,4 +1,16 @@
 import type { AgentRun, Delivery } from "../api/agentTypes";
+import type { NavigationIconName } from "./NavigationIcon.vue";
+
+export const runStates = {
+    CREATED: { label: "已创建运行", icon: "clock" },
+    PREPARING: { label: "准备沙箱", icon: "clock" },
+    RUNNING: { label: "编码中", icon: "activity" },
+    FINALIZING: { label: "正在冻结结果", icon: "clock" },
+    SUCCEEDED: { label: "编码已完成", icon: "check" },
+    FAILED: { label: "本次运行失败", icon: "warning" },
+    CANCELLED: { label: "运行已取消", icon: "stop" },
+    INTERRUPTED: { label: "运行已中断", icon: "warning" },
+} satisfies Record<AgentRun["state"], { label: string; icon: NavigationIconName }>;
 
 export interface RunPresentation {
     label: string;

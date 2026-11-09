@@ -176,7 +176,7 @@ it("persisted live and failed events override activity animation while the Run o
   const { root } = mount([{ ...running(), state: "PREPARING" }]); await settle();
   const stream = Events.instances.at(-1)!;
   stream.fact(1, "MODEL_REQUEST", "request=1"); await settle();
-  expect(root.querySelector(".run-status")?.textContent).toContain("准备沙箱");
+  expect(root.querySelector(".run-state-badge")?.textContent).toContain("准备沙箱");
   expect(root.querySelector(".model-waiting")).not.toBeNull();
   expect(root.querySelector(".snapshot-note")?.textContent).toContain("运行概览待同步");
   stream.fact(2, "FAILED", "POLICY_REJECTED"); await settle();
@@ -271,7 +271,7 @@ it("accepted cancellation stays pending through a stale poll and disappears only
   vi.mocked(api.agentRun).mockResolvedValue({...running(),state:'CANCELLED',cancelRequested:true});
   Events.instances.at(-1)!.fact(2,'CANCELLED'); await vi.advanceTimersByTimeAsync(200); await settle();
   expect(root.querySelector('.monitor-stop')).toBeNull();
-  expect(root.querySelector('.run-status')?.textContent).toContain('已取消');
+  expect(root.querySelector('.run-state-badge')?.textContent).toContain('已取消');
   expect(root.querySelector('.activity-bar,.is-active,.model-waiting')).toBeNull();
 });
 
@@ -285,7 +285,7 @@ it("a poll started before cancellation cannot restore a terminal Run to running"
   expect(root.querySelector('.monitor-stop')).toBeNull();
   poll.resolve(running()); await settle();
   expect(root.querySelector('.monitor-stop')).toBeNull();
-  expect(root.querySelector('.run-status')?.textContent).toContain('已取消');
+  expect(root.querySelector('.run-state-badge')?.textContent).toContain('已取消');
 });
 
 it("refresh reloads saved Run history and the event stream without issuing a business POST", async () => {
@@ -512,7 +512,7 @@ it("explains failed Docker preparation and resource reconciliation without inven
   expect(root.querySelector(".run-metadata")).toBeNull();
   expect(root.querySelector(".run-reason code")?.textContent).toBe("DOCKER_FAILURE");
   expect(root.querySelector(".run-statistics")?.textContent).toContain("0");
-  expect(root.querySelector(".run-status[role='status']")?.textContent).toContain("本次运行失败");
+  expect(root.querySelector(".run-state-badge[role='status']")?.textContent).toContain("本次运行失败");
   expect(root.querySelector(".agent-changes")?.textContent).toContain("此 Run 尚无冻结 Candidate");
   expect(root.querySelector('[data-sequence="3"]')?.getAttribute("data-tone")).toBe("blocked");
   expect(root.querySelectorAll(".is-active")).toHaveLength(0);
@@ -531,7 +531,7 @@ it("unifies Run status, failure and times without duplicating diagnostics or exp
     endedAt: "2026-10-22T01:02:03Z" };
   const { root } = mount([failed]); await settle();
   const overview = root.querySelector(".developer-details")!;
-  expect(root.querySelectorAll(".run-status")).toHaveLength(1);
+  expect(root.querySelectorAll(".run-state-badge")).toHaveLength(1);
   expect(overview.querySelector(".run-reason code")?.textContent).toBe("DOCKER_FAILURE");
   const timer = root.querySelector('[role="timer"]')!;
   expect(timer.textContent).toBe("运行用时 02:03");
@@ -550,23 +550,28 @@ it("missing diagnostic values remain honest and do not imply that a running Run 
   const { root } = mount([running()]); await settle();
   expect(root.querySelector('[role="timer"]')?.textContent).toMatch(/^运行用时 [\d:]+$/);
   expect(root.querySelector(".run-reason")).toBeNull();
-  expect(root.querySelector(".run-status")?.textContent).toContain("编码中");
+  expect(root.querySelector(".run-summary")).toBeNull();
+  expect(root.querySelector(".run-state-badge strong")?.textContent).toBe("编码中");
 });
 
-it.each(["CREATED", "PREPARING", "RUNNING", "FINALIZING", "FAILED", "CANCELLED", "INTERRUPTED", "SUCCEEDED"] as const)
-  ("uses real Run state in the status summary without implying Delivery acceptance (%s)", async state => {
+it.each([
+  ["CREATED", "已创建运行"], ["PREPARING", "准备沙箱"], ["RUNNING", "编码中"], ["FINALIZING", "正在冻结结果"],
+  ["FAILED", "本次运行失败"], ["CANCELLED", "运行已取消"], ["INTERRUPTED", "运行已中断"], ["SUCCEEDED", "编码已完成"],
+] as const)("shows the selected Run state in the activity header (%s)", async (state, label) => {
     const actual: AgentRun = { ...running(), state, candidateId: state === "SUCCEEDED" ? "candidate-1" : null };
     vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
     vi.spyOn(api, "delivery").mockResolvedValue(null);
     const start = vi.spyOn(api, "startAgent");
     const { root } = mount([actual]); await settle();
-    const summary = root.querySelector(".run-summary")!;
-    expect(summary.getAttribute("data-state")).toBe(state);
-    expect(summary.querySelector('[role="status"]')?.getAttribute("data-state")).toBe(state);
-    expect(summary.querySelector('.navigation-icon[aria-hidden="true"]')).not.toBeNull();
-    expect(summary.textContent).not.toContain("交付完成");
-    if (state === "SUCCEEDED") expect(summary.textContent).toContain("等待正式交付确认");
-    if (["FAILED", "CANCELLED", "INTERRUPTED"].includes(state)) expect(summary.textContent).toContain("本次编码未交付");
+    const badge = root.querySelector(".activity-heading .run-state-badge[role='status']")!;
+    expect(badge.getAttribute("data-state")).toBe(state);
+    expect(badge.querySelector("strong")?.textContent).toBe(label);
+    expect(badge.querySelector('.navigation-icon[aria-hidden="true"]')).not.toBeNull();
+    expect(badge.closest("details")).toBeNull();
+    expect(root.querySelector(".developer-details")?.textContent).not.toContain("运行状态");
+    const summary = root.querySelector(".run-summary");
+    if (state === "SUCCEEDED") expect(summary?.textContent).toContain("等待正式交付确认");
+    if (["FAILED", "CANCELLED", "INTERRUPTED"].includes(state)) expect(summary?.textContent).toContain("本次编码未交付");
     expect(start).not.toHaveBeenCalled();
   });
 
@@ -616,7 +621,8 @@ it("shows active persisted activity independently of SSE connectivity and keeps 
   stream.fact(1, "MODEL_REQUEST", "request=1"); await settle();
   expect(root.querySelector('.current-activity[data-active="true"]')?.textContent).toContain("Agent 正在规划下一步");
   stream.onerror?.(); await settle();
-  expect(root.querySelector(".run-status")?.textContent).toContain("编码中");
+  expect(root.querySelector(".run-summary")).toBeNull();
+  expect(root.querySelector(".run-state-badge strong")?.textContent).toBe("编码中");
   expect(root.querySelector(".stream-status")?.textContent).toContain("正在重连");
   stream.fact(2, "TOOL_FINISHED", '{"tool":"run_checks","ok":false,"classification":"BUILD_FAILED","durationMs":12}'); await settle();
   expect(root.querySelectorAll(".is-active")).toHaveLength(0);
@@ -738,6 +744,7 @@ it("keeps a failed historical attempt failed after later official Delivery, refr
   await settle();
   vi.mocked(api.agentRun).mockImplementation(async id=>id===old.id?old:accepted);
   expect(root.querySelector(".run-summary")).toBeNull();
+  expect(root.querySelector(".run-state-badge strong")?.textContent).toBe("编码已完成");
   expect(root.querySelector(".current-activity")?.textContent).toContain("步骤已完成");
   expect(root.querySelector('.selected-run a[href="#agent-changes-title"]')).toBeNull();
   expect(root.querySelector(".step-prerequisite")).toBeNull();
@@ -745,7 +752,7 @@ it("keeps a failed historical attempt failed after later official Delivery, refr
   expect(root.querySelector(".final-file-list")?.textContent).toContain("official.java");
   expect(root.querySelector(".final-file-list")?.textContent).not.toContain("candidate-1.java");
   chooseRun(root,1);await settle();
-  expect(root.querySelector(".run-status")?.textContent).toBe("本次运行失败");
+  expect(root.querySelector(".run-state-badge strong")?.textContent).toBe("本次运行失败");
   expect(root.querySelector(".file-change-summary")).toBeNull();
   chooseRun(root,0);await settle();
   expect(root.querySelector(".current-activity")?.textContent).toContain("步骤已完成");
@@ -766,7 +773,7 @@ it("loads official Delivery for a nonselected historical success without changin
   expect(root.querySelectorAll(".run-choice strong")[1]?.textContent).toBe("候选已冻结，交付状态待核对");
   accepted.resolve({candidateId:"candidate-1",state:"COMPLETED",revision:"b".repeat(40),reason:null});await settle();
   expect(root.querySelectorAll(".run-choice strong")[1]?.textContent).toBe("步骤已完成");
-  expect(root.querySelector(".run-status")?.textContent).toBe("本次运行失败");
+  expect(root.querySelector(".run-state-badge strong")?.textContent).toBe("本次运行失败");
   expect(root.querySelector(".agent-changes .file-change-summary")).toBeNull();
 });
 
@@ -818,7 +825,8 @@ it("keeps successful preflight compact and exposes blockers outside diagnostics"
   const {root} = mount([running()]); await settle();
   const stream = Events.instances.at(-1)!;
   stream.fact(1, "ENVIRONMENT_PREFLIGHT", "READY\n" + JSON.stringify({network: "CONTROLLED: upstream downloads untested"})); await settle();
-  expect(root.querySelector(".preflight-status")?.textContent).toBe("运行环境已准备");
+  expect(root.querySelector(".run-summary, .preflight-status")).toBeNull();
+  expect(root.querySelector("#agent-activity-title")?.textContent).toBe("执行活动");
   expect(root.querySelector(".preflight-summary")).toBeNull();
   expect(root.textContent).not.toMatch(/运行前环境预检|隔离工作区与执行环境可用|基线预检不代表|受控依赖代理已启动/);
   stream.fact(2, "ENVIRONMENT_PREFLIGHT", "READY\n" + JSON.stringify({probes: [{directory: "backend", goal: "test", output: "long-probe-output"}]})); await settle();

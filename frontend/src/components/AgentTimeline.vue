@@ -5,7 +5,7 @@ import NavigationIcon from "./NavigationIcon.vue";
 import AgentActivityRow from "./AgentActivityRow.vue";
 import AgentRunElapsed from "./AgentRunElapsed.vue";
 import { networkCapability, routineProviderDiagnostic } from "./agentEventPresentation";
-import type { RunPresentation } from "./agentResultPresentation";
+import { runStates, type RunPresentation } from "./agentResultPresentation";
 import { activityState, buildActivities, currentActivity, checkSummary, explorationSummary, patchSummary, toolNames } from "./agentEventPresentation";
 
 const props = withDefaults(defineProps<{ events: AgentEvent[]; run: AgentRun; connection: string; presentation?: RunPresentation; showUsage?: boolean }>(), { showUsage: true });
@@ -108,6 +108,9 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
         </section>
     <section class="activity-section" :data-terminal="state.terminal" aria-labelledby="agent-activity-title">
         <div class="section-row"><div class="activity-heading"><h3 id="agent-activity-title">执行活动</h3>
+            <span class="run-state-badge" role="status" :data-state="run.state" :title="run.state">
+                <NavigationIcon :name="runStates[run.state].icon" /><span>运行状态</span><strong>{{ runStates[run.state].label }}</strong>
+            </span>
             <AgentRunElapsed :started-at="run.startedAt" :ended-at="run.endedAt" :terminal="state.terminal" /></div>
             <p class="stream-status" role="status">事件连接：{{ connection }}</p></div>
         <p v-if="state.snapshotBehind" class="snapshot-note" role="status">已收到较新的持久化活动，运行概览待同步。</p>
@@ -211,7 +214,14 @@ watch(() => props.run.id, () => { following.value = true; unseen.value = false; 
 .activity-section { min-width: 0; line-height: 1.6; }
 .activity-section h3 { font-size: 17px; line-height: 1.5; margin: 0; }
 .activity-section > .section-row { margin-bottom: 12px; }
-.activity-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.activity-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; }
+.run-state-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 5px;
+    color: var(--accent); background: color-mix(in srgb, currentColor 12%, transparent); font-size: 13px; white-space: nowrap; }
+.run-state-badge .navigation-icon { width: 15px; height: 15px; }
+.run-state-badge[data-state="SUCCEEDED"] { color: var(--success); }
+.run-state-badge[data-state="FAILED"] { color: var(--danger); }
+.run-state-badge[data-state="INTERRUPTED"] { color: var(--warning); }
+.run-state-badge[data-state="CANCELLED"] { color: var(--muted); }
 .stream-status { font-size: 13px; color: var(--muted); margin: 0; }
 .current-activity { display: flex; align-items: flex-start; gap: 12px; padding: 14px 0; border-block: 1px solid var(--line); }
 .current-activity > .navigation-icon { width: 20px; height: 20px; color: var(--accent); flex-shrink: 0; margin-top: 3px; }
