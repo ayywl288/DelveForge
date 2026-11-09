@@ -1,9 +1,11 @@
 package com.ayywl.delveforge.app.config;
 
+import com.ayywl.delveforge.application.agent.AgentContextBudget;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentSandboxPort;
 import com.ayywl.delveforge.application.agent.AgentStore;
+import com.ayywl.delveforge.application.agent.AgentTokenCounter;
 import com.ayywl.delveforge.application.agent.CandidateDeliveryService;
 import com.ayywl.delveforge.application.agent.CodingAgentService;
 import com.ayywl.delveforge.application.agent.DeliveryStore;
@@ -16,6 +18,7 @@ import com.ayywl.delveforge.application.quickstart.QuickStartStore;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.RepositorySecretPolicy;
 import com.ayywl.delveforge.infrastructure.agent.AgentInstanceLock;
 import com.ayywl.delveforge.infrastructure.agent.AgentSandboxProperties;
+import com.ayywl.delveforge.infrastructure.agent.DeepSeekTokenCounterAdapter;
 import com.ayywl.delveforge.infrastructure.agent.DockerAgentSandbox;
 import com.ayywl.delveforge.infrastructure.agent.SpringAiAgentModel;
 import com.ayywl.delveforge.infrastructure.agent.SqliteAgentStore;
@@ -49,8 +52,21 @@ public class CodingAgentConfiguration {
     }
 
     @Bean
-    public AgentModelPort agentModelPort(DeepSeekProperties properties, Environment environment) {
-        return new SpringAiAgentModel(properties, environment.getProperty("delveforge.agent.response-tokens", Integer.class, 8192));
+    public AgentModelPort agentModelPort(DeepSeekProperties properties, AgentContextBudget budget) {
+        return new SpringAiAgentModel(properties, budget.responseTokens());
+    }
+
+    @Bean
+    public DeepSeekTokenCounterAdapter agentTokenCounter(DeepSeekProperties properties) {
+        return new DeepSeekTokenCounterAdapter(properties.model());
+    }
+
+    @Bean
+    public AgentContextBudget agentContextBudget(Environment environment) {
+        return new AgentContextBudget(
+                environment.getProperty("delveforge.agent.context-window-tokens", Integer.class, 1000000),
+                environment.getProperty("delveforge.agent.response-tokens", Integer.class, 8192),
+                environment.getProperty("delveforge.agent.compaction-threshold", Double.class, 0.90));
     }
 
     @Bean
@@ -61,7 +77,7 @@ public class CodingAgentConfiguration {
     @Bean
     public CodingAgentService codingAgentService(ExecutionPreparationState eligibility, AgentStore store,
             AgentModelPort model, AgentSandboxPort sandbox, RepositorySecretPolicy secrets,
-            AgentInstanceLock instanceLock, Environment environment) {
+            AgentInstanceLock instanceLock, Environment environment, AgentTokenCounter counter, AgentContextBudget budget) {
         AgentProtocol.Limits defaults = AgentProtocol.Limits.defaults();
         // 只配置技术材料和单次操作限制；累计调用、tokens 与总时长不作执行配额。
         AgentProtocol.Limits limits = new AgentProtocol.Limits(
@@ -72,7 +88,7 @@ public class CodingAgentConfiguration {
                 limit(environment, "max-candidate-bytes", defaults.maxCandidateBytes()),
                 limit(environment, "max-files", defaults.maxFiles()),
                 limit(environment, "check-seconds", defaults.checkSeconds()));
-        return new CodingAgentService(eligibility, store, model, sandbox, secrets, limits);
+        return new CodingAgentService(eligibility, store, model, sandbox, secrets, limits, counter, budget);
     }
 
     private static int limit(Environment environment, String name, int fallback) {

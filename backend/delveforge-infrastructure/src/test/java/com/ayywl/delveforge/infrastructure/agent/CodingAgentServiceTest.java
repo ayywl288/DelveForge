@@ -4,6 +4,7 @@ import com.ayywl.delveforge.application.agent.AgentCheckEvidence;
 import com.ayywl.delveforge.application.agent.AgentCommandDiagnostics;
 import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentModelFailure;
+import com.ayywl.delveforge.application.agent.AgentContextBudget;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentPolicyRejection;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
@@ -173,7 +174,7 @@ class CodingAgentServiceTest {
                 ? new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("edit", "exec_command",
                     "{\"command\":\"sh implement.sh\"}")), 1L)
                 : new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"Required service unavailable\"}", List.of(), 1L);
-        try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
+        try (var agent = TestAgentServices.create(eligibility, database.store, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             var run = agent.start("plan", "step", 21);
             var terminal = awaitTerminal(agent, run.id(), 20);
@@ -201,7 +202,7 @@ class CodingAgentServiceTest {
             requests.incrementAndGet();
             throw new AssertionError("Preflight must stop before model invocation");
         };
-        try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
+        try (var agent = TestAgentServices.create(eligibility, database.store, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             var run = agent.start("plan", "step", 21);
             var terminal = awaitTerminal(agent, run.id(), 20);
@@ -257,16 +258,18 @@ class CodingAgentServiceTest {
     }
 
     @Test
-    void compactionRetainsFailedStreamsAndLogReferenceWithoutLegacyOutput() {
+    void compactionRetainsFailedCommandReferenceWithoutStreamContent() {
         try (var service = service((history, tools) -> null, AgentProtocol.Limits.defaults())) {
             var message = new AgentProtocol.Message("tool", """
                     {"ok":false,"result":{"classification":"COMMAND_FAILED","exitCode":1,
                     "stdout":"test assertion failed at CounterTest:42", "stderr":"browser executable unavailable",
                     "invocationId":"actual-invocation", "logRef":"actual-invocation"}}
                     """, List.of(), "call", "exec_command");
-            String fact = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "contextFact", message);
-            assertTrue(fact.contains("CounterTest:42"));
-            assertTrue(fact.contains("browser executable unavailable"));
+            String fact = org.springframework.test.util.ReflectionTestUtils.invokeMethod(service, "compactedSummary",
+                    List.of(new AgentProtocol.Message("assistant", "", List.of(new AgentProtocol.ToolCall(
+                            "call", "exec_command", "{\"command\":\"test\"}")), null, null), message));
+            assertFalse(fact.contains("CounterTest:42"));
+            assertFalse(fact.contains("browser executable unavailable"));
             assertTrue(fact.contains("actual-invocation"));
         }
     }
@@ -412,7 +415,7 @@ class CodingAgentServiceTest {
     }
 
     CodingAgentService service(AgentModelPort model, AgentProtocol.Limits limits) {
-        return new CodingAgentService(eligibility, database.store, model, sandbox,
+        return TestAgentServices.create(eligibility, database.store, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), limits);
     }
 
@@ -500,7 +503,7 @@ class CodingAgentServiceTest {
         when(sandbox.tool(anyString(), any(), any())).thenThrow(new AgentException("POLICY_REJECTED", "private rejection"));
         AgentModelPort model = (history, tools) -> new AgentProtocol.Reply("", List.of(
                 new AgentProtocol.ToolCall("call", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"private\"}")), 1L);
-        try (var service = new CodingAgentService(eligibility, failingStore, model, sandbox,
+        try (var service = TestAgentServices.create(eligibility, failingStore, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
             assertEquals("POLICY_REJECTED", awaitTerminal(service, id, 10).reason());
@@ -653,7 +656,7 @@ class CodingAgentServiceTest {
         doThrow(new AgentException("PERSISTENCE_FAILURE", "private diagnostic"))
                 .when(failingStore).event(anyString(), eq("TOOL_FINISHED"), anyString());
         when(sandbox.tool(anyString(), any(), any())).thenThrow(AgentPolicyRejection.sourceEditRejectedBeforeApply());
-        try (var service = new CodingAgentService(eligibility, failingStore,
+        try (var service = TestAgentServices.create(eligibility, failingStore,
                 (history, tools) -> new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("call", "edit_file", "{\"path\":\"src/Example.java\",\"old_text\":\"before\",\"new_text\":\"private\"}")), 1L),
                 sandbox, new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", null).id();
@@ -1737,7 +1740,10 @@ class CodingAgentServiceTest {
         AgentModelPort model = (history, tools) -> new AgentProtocol.Reply(
                 "{\"status\":\"completed\",\"summary\":\"private model text\"}", List.of(), 30L,
                 new AgentProtocol.Usage(20L, 10L, 30L, 5L, null));
-        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+        try (var counter = new DeepSeekTokenCounterAdapter("deepseek-flash");
+                var service = new CodingAgentService(eligibility, database.store, model, sandbox,
+                        new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults(), counter,
+                        new AgentContextBudget(1000000, 8192, 0.90))) {
             String id = service.start("plan", "step", null).id();
             var run = awaitTerminal(service, id, 10);
             assertEquals(AgentRunState.SUCCEEDED, run.state());
@@ -1746,10 +1752,57 @@ class CodingAgentServiceTest {
                     .findFirst().orElseThrow();
             var fields = new com.fasterxml.jackson.databind.ObjectMapper().readTree(event.summary());
             assertEquals(20L, fields.path("promptTokens").asLong());
+            long estimate = fields.required("estimatedPromptTokens").longValue();
+            assertTrue(estimate > 0);
+            assertEquals(20L - estimate, fields.required("promptTokenDifference").longValue());
             assertEquals(10L, fields.path("completionTokens").asLong());
             assertEquals(5L, fields.path("cacheHitTokens").asLong());
             assertTrue(fields.path("cacheMissTokens").isNull());
             assertFalse(event.summary().contains("private"));
+        }
+    }
+
+    @Test
+    void localByteRejectionCompactsOnceWithoutRepeatingTheTool() throws Exception {
+        var attempts = new AtomicInteger();
+        when(sandbox.tool(anyString(), any(), any())).thenReturn(
+                "{\"ok\":true,\"result\":{\"files\":[\"readme.md\"],\"discard\":\"old-body\"}}");
+        when(sandbox.finish(anyString(), any())).thenAnswer(inv -> database.candidate(inv.getArgument(0)));
+        AgentModelPort model = (history, tools) -> {
+            int attempt = attempts.incrementAndGet();
+            if (attempt == 1) {
+                return new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall("one", "list_files", "{}")), 4L);
+            }
+            if (attempt == 2) {
+                assertTrue(history.getLast().text().contains("old-body"));
+                throw new AgentException("REQUEST_BYTES_LIMIT", "Local byte guard");
+            }
+            assertTrue(history.getLast().text().contains("readme.md"));
+            assertFalse(history.getLast().text().contains("old-body"));
+            return new AgentProtocol.Reply("{\"status\":\"completed\"}", List.of(), 7L);
+        };
+        try (var service = service(model, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            var run = awaitTerminal(service, id, 10);
+            assertEquals(AgentRunState.SUCCEEDED, run.state());
+            assertEquals(2, run.modelCalls());
+            assertEquals(11L, run.tokens());
+            assertEquals(3, attempts.get());
+            verify(sandbox, times(1)).tool(anyString(), any(), any());
+        }
+    }
+
+    @Test
+    void secondLocalByteRejectionEndsRun() throws Exception {
+        var attempts = new AtomicInteger();
+        try (var service = service((history, tools) -> {
+            attempts.incrementAndGet();
+            throw new AgentException("REQUEST_BYTES_LIMIT", "Local byte guard");
+        }, AgentProtocol.Limits.defaults())) {
+            String id = service.start("plan", "step", null).id();
+            assertEquals("REQUEST_BYTES_LIMIT", awaitTerminal(service, id, 10).reason());
+            assertEquals(2, attempts.get());
+            verify(sandbox, never()).tool(anyString(), any(), any());
         }
     }
 
@@ -1987,7 +2040,7 @@ class CodingAgentServiceTest {
             database.store.advance(abandoned.id(), AgentRunState.RUNNING, AgentRunState.FAILED, "MODEL_INCOMPLETE");
         }
         var reloaded = spy(new SqliteAgentStore(database.source));
-        try (var restart = new CodingAgentService(null, reloaded, (history, tools) -> {
+        try (var restart = TestAgentServices.create(null, reloaded, (history, tools) -> {
             throw new AssertionError("Restart must not call the model");
         }, sandbox, new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             restart.reconcile();
@@ -2024,7 +2077,7 @@ class CodingAgentServiceTest {
         verify(sandbox).cleanup(id);
         database.sql("DROP TRIGGER fail_release");
         var reloaded = new SqliteAgentStore(database.source);
-        try (var restart = new CodingAgentService(null, reloaded, (history, tools) -> {
+        try (var restart = TestAgentServices.create(null, reloaded, (history, tools) -> {
             throw new AssertionError("Restart must not call the model");
         }, sandbox, new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             restart.reconcile();

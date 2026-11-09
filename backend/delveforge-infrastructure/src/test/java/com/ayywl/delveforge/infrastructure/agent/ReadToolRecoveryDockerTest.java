@@ -89,7 +89,7 @@ class ReadToolRecoveryDockerTest {
                     : new AgentProtocol.Reply(FixtureCompletion.report(history), List.of(), 1L);
         };
         AgentProtocol.Run terminal;
-        try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
+        try (var agent = TestAgentServices.create(eligibility, database.store, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             String id = agent.start("plan", "step", 21).id();
             terminal = CodingAgentServiceTest.awaitTerminal(agent, id, 600);

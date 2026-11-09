@@ -108,7 +108,7 @@ class RepositoryInputExecutionTest {
                     : new AgentProtocol.Reply("{\"status\":\"completed\",\"summary\":\"Offline config update\"}", List.of(), 1L);
         };
         String candidateId;
-        try (var service = new CodingAgentService(eligibility, database.store, model, sandbox, secrets, AgentProtocol.Limits.defaults())) {
+        try (var service = TestAgentServices.create(eligibility, database.store, model, sandbox, secrets, AgentProtocol.Limits.defaults())) {
             String id = service.start("plan", "step", 21).id();
             var terminal = CodingAgentServiceTest.awaitTerminal(service, id, 90);
             assertEquals(AgentRunState.SUCCEEDED, terminal.state(), terminal.reason());

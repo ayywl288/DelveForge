@@ -19,7 +19,7 @@ class SpringAiAgentModelLiveTest {
     void nativeToolCallIsReceivedExecutedOnceAndContinued() {
         SpringAiAgentModel model = new SpringAiAgentModel(new DeepSeekProperties(
                 "https://api.deepseek.com", System.getenv("DEEPSEEK_API_KEY"), "deepseek-flash",
-                Duration.ofSeconds(90), false, Duration.ofSeconds(90), 4096, 1048576, 65536), 4096);
+                Duration.ofSeconds(90), false, Duration.ofSeconds(90), 4096, 1048576, 65536, 8388608), 4096);
         var history = new ArrayList<AgentProtocol.Message>();
         history.add(AgentProtocol.Message.text("system", "必须先调用 read_file 读取 pom.xml，收到工具结果后只回复其中的 nonce。"));
         history.add(AgentProtocol.Message.text("user", "开始"));

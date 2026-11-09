@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.ai;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 
 import java.time.Duration;
 
@@ -22,6 +23,7 @@ import java.time.Duration;
  * @param maxTokens Provider 总生成 token 上限，包含其思考输出
  * @param maxResponseBytes HTTP 响应总字节上限
  * @param maxEventBytes 单个 SSE 事件字节上限
+ * @param maxRequestBytes Agent 实际序列化请求的独立字节上限
  */
 @ConfigurationProperties("delveforge.ai.deepseek")
 public record DeepSeekProperties(
@@ -33,7 +35,8 @@ public record DeepSeekProperties(
         Duration streamTimeout,
         int maxTokens,
         int maxResponseBytes,
-        int maxEventBytes) {
+        int maxEventBytes,
+        @DefaultValue("8388608") int maxRequestBytes) {
 
     public DeepSeekProperties {
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -49,7 +52,8 @@ public record DeepSeekProperties(
                 || streamTimeout.compareTo(timeout) < 0) {
             throw new IllegalArgumentException("流式绝对期限不得小于连接 / 空闲期限");
         }
-        if (maxTokens <= 0 || maxResponseBytes <= 0 || maxEventBytes <= 0 || maxEventBytes > maxResponseBytes) {
+        if (maxRequestBytes <= 0 || maxTokens <= 0 || maxResponseBytes <= 0
+                || maxEventBytes <= 0 || maxEventBytes > maxResponseBytes) {
             throw new IllegalArgumentException("Provider 输出及响应预算必须为正且事件不得超过总响应预算");
         }
     }

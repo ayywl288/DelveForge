@@ -65,7 +65,7 @@ class SpringAiAgentModelTest {
         server.start();
         Duration timeout = Duration.ofSeconds(3);
         model = new SpringAiAgentModel(new DeepSeekProperties("http://127.0.0.1:" + server.getAddress().getPort(),
-                "fixture-only-key", "fixture-model", timeout, false, timeout, 65536, 1048576, 65536), 8192);
+                "fixture-only-key", "fixture-model", timeout, false, timeout, 65536, 1048576, 65536, 900000), 8192);
     }
 
     @AfterEach
@@ -109,7 +109,13 @@ class SpringAiAgentModelTest {
         ((com.fasterxml.jackson.databind.node.ObjectNode) payload.path("usage"))
                 .putObject("prompt_tokens_details").put("cached_tokens", 10);
         body = payload.toString();
-        var reply = model.call(history(), AgentTools.definitions());
+        var messages = List.of(AgentProtocol.Message.text("user", "Fix the failing test."));
+        var reply = model.call(messages, List.of());
+        try (var counter = new DeepSeekTokenCounterAdapter("deepseek-flash")) {
+            long estimate = counter.countPromptTokens(messages, List.of());
+            assertEquals(9, estimate);
+            assertEquals(11, reply.usage().promptTokens() - estimate);
+        }
         assertEquals(20L, reply.usage().promptTokens());
         assertEquals(8192L, reply.usage().completionTokens());
         assertEquals(8212L, reply.usage().totalTokens());
@@ -129,15 +135,25 @@ class SpringAiAgentModelTest {
     void serializedEscapingAndToolDefinitionsAreCheckedBeforeNetworkSubmission() {
         var escaped = List.of(AgentProtocol.Message.text("system", "\u0001".repeat(200000)));
         var first = assertThrows(AgentException.class, () -> model.call(escaped, AgentTools.definitions()));
-        assertEquals("CONTEXT_LIMIT", first.code());
+        assertEquals("REQUEST_BYTES_LIMIT", first.code());
         var second = assertThrows(AgentException.class, () -> model.call(history(), List.of(
                 new AgentProtocol.ToolSpec("large", "x".repeat(910000), "{}"))));
-        assertEquals("CONTEXT_LIMIT", second.code());
+        assertEquals("REQUEST_BYTES_LIMIT", second.code());
         var expanded = new ArrayList<>(history());
         expanded.add(AgentProtocol.Message.text("system", "x".repeat(910000)));
-        assertEquals("CONTEXT_LIMIT", assertThrows(AgentException.class,
+        assertEquals("REQUEST_BYTES_LIMIT", assertThrows(AgentException.class,
                 () -> model.call(expanded, AgentTools.definitions())).code());
         assertTrue(requests.isEmpty());
+    }
+
+    @Test
+    void responseReserveDoesNotCountTowardSerializedRequestBytes() throws Exception {
+        var timeout = Duration.ofSeconds(3);
+        var properties = new DeepSeekProperties("http://127.0.0.1:" + server.getAddress().getPort(),
+                "fixture-only-key", "fixture-model", timeout, false, timeout, 65536, 1048576, 65536, 2048);
+        body = response("stop", List.of(), "completed", true);
+        new SpringAiAgentModel(properties, 8192).call(history(), List.of());
+        assertEquals(1, requests.size());
     }
 
     @Test
@@ -229,7 +245,7 @@ class SpringAiAgentModelTest {
         assertEquals(requests.get(0), requests.get(1));
         assertEquals(4, requests.get(1).path("messages").size());
         assertNull(reply.tokens());
-        assertNull(reply.usage());
+        assertEquals(20L, reply.usage().promptTokens());
         assertTrue(Duration.ofNanos(System.nanoTime() - start).toSeconds() < 6);
         var diagnostics = model.drainDiagnostics();
         assertEquals(503, diagnostics.get(0).get("httpStatus"));

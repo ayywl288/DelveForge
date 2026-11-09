@@ -9,3 +9,7 @@ mvnw text eol=lf
 mvnw.cmd text eol=crlf
 *.cmd text eol=crlf
 *.bat text eol=crlf
+
+# Preserve the pinned tokenizer bytes and the recipe prompt line endings.
+/backend/delveforge-infrastructure/src/main/resources/deepseek-v4.1-flash-1017/tokenizer.json -text
+/backend/delveforge-infrastructure/src/main/resources/deepseek-v4.1-flash-1017/tool-instructions.txt text eol=lf

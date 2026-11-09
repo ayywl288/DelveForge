@@ -33,8 +33,6 @@ import java.util.List;
 /** 只交换模型消息，不执行工具；禁用框架循环并用不可执行 Callback 防止双重派发。 */
 public final class SpringAiAgentModel implements AgentModelPort {
     private static final ObjectMapper JSON = new ObjectMapper();
-    // UTF-8 请求字节上界有意保守，另预留响应额度；这不是精确 token 计数或模型容量声明。
-    private static final int MAX_REQUEST_BYTES = 900000;
     private final DeepSeekChatModel model;
     private final DeepSeekProperties properties;
     private final int responseTokens;
@@ -53,8 +51,8 @@ public final class SpringAiAgentModel implements AgentModelPort {
                     ObjectNode payload = (ObjectNode) JSON.readTree(body);
                     payload.set("thinking", JSON.createObjectNode().put("type", "disabled"));
                     byte[] assembled = JSON.writeValueAsBytes(payload);
-                    if ((long) assembled.length + responseTokens > MAX_REQUEST_BYTES) {
-                        throw new AgentException("CONTEXT_LIMIT", "Serialized Agent request exceeds safe transport budget");
+                    if (assembled.length > properties.maxRequestBytes()) {
+                        throw new AgentException("REQUEST_BYTES_LIMIT", "Serialized Agent request exceeds safe transport budget");
                     }
                     for (int attempt = 1; attempt <= 3; attempt++) {
                         if (Thread.currentThread().isInterrupted()) {
@@ -129,7 +127,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
         } catch (RuntimeException failure) {
             for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
                 if (cause instanceof AgentException rejected
-                        && java.util.Set.of("CONTEXT_LIMIT", "CANCELLED").contains(rejected.code())) {
+                        && java.util.Set.of("REQUEST_BYTES_LIMIT", "CANCELLED").contains(rejected.code())) {
                     throw rejected;
                 }
             }
@@ -139,7 +137,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
         AgentProtocol.Reply reply = decode(response);
         // 失败尝试可能已产生费用但未报告 usage；不能把最终响应用量冒充全部尝试的总量。
         return diagnostics.get().size() > 1
-                ? new AgentProtocol.Reply(reply.text(), reply.calls(), null, null) : reply;
+                ? new AgentProtocol.Reply(reply.text(), reply.calls(), null, reply.usage()) : reply;
     }
 
     @Override

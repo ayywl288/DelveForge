@@ -1,0 +1,19 @@
+tokenizer.json
+DeepSeek-V4.1-Flash-1017, revision 1bae0e1088993b9b82de08f59de5be5a34e42170
+https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017/blob/1bae0e1088993b9b82de08f59de5be5a34e42170/tokenizer.json
+SHA-256 c90dfa01249db1be4245780a052ede752e1361c612ac6d08e2bdada7d599476b
+See LICENSE for the model repository's MIT license.
+
+tool-instructions.txt and the text-only V4.1 rendering rules
+Derived from deepseek-recipe-encoding 0.2.0, src/v4/mod.rs and src/v4/dsv41.rs.
+https://docs.rs/crate/deepseek-recipe-encoding/0.2.0/source/src/v4/
+See RECIPE-LICENSE for DeepSeek's MIT license.
+
+The offline test fixtures in deepseek-recipe-0.2.0.json contain OpenAI-format
+messages and function definitions. Each expected count is the length returned
+by the official deepseek-recipe 0.2.0 Python bindings for:
+    request = ChatCompletionRequest(dict(model="DeepSeek-V4.1-Flash",
+        thinking={"type": "disabled"}, messages=messages, tools=tools))
+    conversation = request.convert(ConversionOptions()).conversation
+    encoder = DeepseekV41Encoding().with_tokenizer(Tokenizer.from_str(tokenizer_json))
+    expected = len(encoder.encode(conversation))

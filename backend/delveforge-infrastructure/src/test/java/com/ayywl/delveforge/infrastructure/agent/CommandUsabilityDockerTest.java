@@ -115,7 +115,7 @@ class CommandUsabilityDockerTest {
                     "exec_command", json.createObjectNode().put("command", command).toString())), 1L)
                     : new AgentProtocol.Reply("{\"status\":\"failed\",\"summary\":\"fixture finished\"}", List.of(), 1L);
         };
-        try (var service = new CodingAgentService(eligibility, database.store, model, sandbox,
+        try (var service = TestAgentServices.create(eligibility, database.store, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             var run = CodingAgentServiceTest.awaitTerminal(service, service.start("plan", "step", 21).id(), 180);
             assertEquals("MODEL_INCOMPLETE", run.reason());

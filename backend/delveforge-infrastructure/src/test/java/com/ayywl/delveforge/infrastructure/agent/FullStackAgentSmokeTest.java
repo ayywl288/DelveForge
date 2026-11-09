@@ -158,7 +158,7 @@ class FullStackAgentSmokeTest {
         AgentProtocol.Limits limits = AgentProtocol.Limits.defaults();
         // 混合场景含故意损坏摘要和恢复后的原生安装；测试等待包含所有单次命令时限。
         int workflowSeconds = mixed ? 2 * limits.checkSeconds() * 3 + limits.checkSeconds() : 600;
-        try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
+        try (var agent = TestAgentServices.create(eligibility, database.store, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), limits)) {
             var run = agent.start("plan", "step", 21);
             var terminal = CodingAgentServiceTest.awaitTerminal(agent, run.id(), workflowSeconds);

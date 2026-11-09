@@ -52,7 +52,7 @@ class AgentModelLoggingPolicyTest {
         try {
             Duration timeout = Duration.ofSeconds(3);
             var model = new SpringAiAgentModel(new DeepSeekProperties("http://127.0.0.1:" + server.getAddress().getPort(),
-                    "fixture-only-key", "fixture-model", timeout, false, timeout, 8192, 1048576, 65536), 8192);
+                    "fixture-only-key", "fixture-model", timeout, false, timeout, 8192, 1048576, 65536, 8388608), 8192);
             var history = List.of(AgentProtocol.Message.text("user", "synthetic-private-prompt-marker"));
             logger.setLevel(Level.INFO);
             assertThrows(AgentModelFailure.class, () -> model.call(history, AgentTools.definitions()));

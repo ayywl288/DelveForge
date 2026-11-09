@@ -5,6 +5,8 @@ delveforge:
   agent:
     enabled: ${DELVEFORGE_AGENT_ENABLED:true}
     response-tokens: 8192
+    context-window-tokens: 1000000
+    compaction-threshold: 0.90
     sandbox:
       root: ${DELVEFORGE_AGENT_ROOT:${user.dir}/data/agent-runs}
       docker: ${DELVEFORGE_DOCKER:docker}
@@ -133,6 +135,7 @@ delveforge:
       max-tokens: 98304
       max-response-bytes: 33554432
       max-event-bytes: 65536
+      max-request-bytes: 8388608
 
 spring:
   application:

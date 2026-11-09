@@ -17,6 +17,11 @@
     <description>DeepSeek、Persistence、Git、Filesystem、Shell、Build / Test 等外部能力 Adapter</description>
 
     <dependencies>
+        <dependency>
+            <groupId>ai.djl.huggingface</groupId>
+            <artifactId>tokenizers</artifactId>
+            <version>0.40.0</version>
+        </dependency>
         <!-- 正式 Delivery 的 no-replace / 目录句柄能力；选择与替代方案见 ADR-0013。 -->
         <dependency>
             <groupId>net.java.dev.jna</groupId>

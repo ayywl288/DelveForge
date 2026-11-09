@@ -46,18 +46,23 @@ public final class CodingAgentService implements AutoCloseable {
     private final RepositorySecretPolicy secrets;
     private final AgentProtocol.Limits limits;
     private final AgentToolActivity activity;
+    private final AgentTokenCounter counter;
+    private final AgentContextBudget budget;
     private final ObjectMapper json = new ObjectMapper();
     private final Map<String, Thread> workers = new ConcurrentHashMap<>();
     private volatile boolean closed;
 
     public CodingAgentService(ExecutionPreparationState eligibility, AgentStore store, AgentModelPort model,
-            AgentSandboxPort sandbox, RepositorySecretPolicy secrets, AgentProtocol.Limits limits) {
+            AgentSandboxPort sandbox, RepositorySecretPolicy secrets, AgentProtocol.Limits limits,
+            AgentTokenCounter counter, AgentContextBudget budget) {
         this.eligibility = eligibility;
         this.store = store;
         this.model = model;
         this.sandbox = sandbox;
         this.secrets = secrets;
         this.limits = limits;
+        this.counter = counter;
+        this.budget = budget;
         this.activity = new AgentToolActivity(secrets, limits);
     }
 
@@ -304,11 +309,14 @@ public final class CodingAgentService implements AutoCloseable {
         int acceptedCalls = 0;
         int consecutiveTruncatedCorrections = 0;
         String workingNotes = "";
+        var tools = AgentTools.definitions(limits);
+        boolean truncated = false;
         while (true) {
             requireCurrent(task, cancelled);
             request = incrementUsage(request);
             int previousMessages = history.size();
-            compress(history, false, workingNotes.length() + 80);
+            Prompt input = compress(history, workingNotes, tools, false, truncated);
+            truncated = false;
             if (history.size() < previousMessages) {
                 store.event(task.runId(), "CONTEXT_COMPACTED", "Earlier observations compacted; latest notes retained separately");
             }
@@ -316,14 +324,22 @@ public final class CodingAgentService implements AutoCloseable {
                 // 发出请求后用量可能未知；预检尚未请求模型时的已知零值不能延续到这里。
                 store.usage(task.runId(), acceptedCalls, toolCalls, null);
             }
-            store.event(task.runId(), "MODEL_REQUEST", "request=" + request);
+            store.event(task.runId(), "MODEL_REQUEST", "request=" + request + ", estimatedPromptTokens=" + input.tokens());
             AgentProtocol.Reply reply;
             try {
-                List<AgentProtocol.Message> input = new ArrayList<>(history);
-                if (!workingNotes.isBlank()) {
-                    input.add(AgentProtocol.Message.text("user", "最新工作笔记（Agent 自述，不是授权或验证证据）：\n" + workingNotes));
+                try {
+                    reply = model.call(input.messages(), tools);
+                } catch (AgentException failure) {
+                    if (!"REQUEST_BYTES_LIMIT".equals(failure.code())) {
+                        throw failure;
+                    }
+                    // 首次请求在发送前被本地拒绝；仅重建同一轮输入，不重放任何工具。
+                    requireCurrent(task, cancelled);
+                    input = compress(history, workingNotes, tools, true, false);
+                    store.event(task.runId(), "MODEL_REQUEST_RETRY", "Local request byte limit; retrying once, "
+                            + "estimatedPromptTokens=" + input.tokens());
+                    reply = model.call(input.messages(), tools);
                 }
-                reply = model.call(List.copyOf(input), AgentTools.definitions(limits));
             } catch (AgentModelFailure failure) {
                 recordModelFailure(task.runId(), request, false, failure);
                 if (failure.reason() != AgentModelFailure.Reason.RESPONSE_TRUNCATED
@@ -337,7 +353,7 @@ public final class CodingAgentService implements AutoCloseable {
                 history.add(AgentProtocol.Message.text("user", "上次模型响应被截断，内容及工具请求已全部丢弃，未执行其中任何修改。"
                         + "保留此前成功工具的实际结果。下一次只请求一个较小的工具动作或小范围补丁，"
                         + "不要续接截断文本，不要重新执行已成功的补丁。"));
-                compress(history, true);
+                truncated = true;
                 store.event(task.runId(), "MODEL_RESPONSE_RECOVERY", "Incomplete response discarded; requesting a smaller action");
                 continue;
             } finally {
@@ -350,7 +366,7 @@ public final class CodingAgentService implements AutoCloseable {
             consecutiveTruncatedCorrections = 0;
             acceptedCalls = incrementUsage(acceptedCalls);
             if (reply.usage() != null) {
-                store.event(task.runId(), "MODEL_USAGE", usageSummary(request, reply.usage()));
+                store.event(task.runId(), "MODEL_USAGE", usageSummary(request, input.tokens(), reply.usage()));
             }
             if (reply.tokens() == null) {
                 unknownUsage = true;
@@ -647,88 +663,96 @@ public final class CodingAgentService implements AutoCloseable {
         return value + 1;
     }
 
-    private String eventSummary(String tool, String result) {
-        try {
-            JsonNode node = json.readTree(result);
-            JsonNode details = node.path("result");
-            Map<String, Object> summary = new LinkedHashMap<>(Map.of("tool", tool, "ok", node.path("ok").asBoolean(),
-                    "classification", node.path("classification").asText(details.path("classification").asText("RESULT")),
-                    "snapshot", details.path("snapshot").asText(""), "tests", details.path("tests").asInt(),
-                    "executedTests", details.path("executedTests").asInt(), "skipped", details.path("skipped").asInt(),
-                    "durationMs", node.path("durationMs").asLong(),
-                    "failures", details.path("failures").asInt(), "errors", details.path("errors").asInt()));
-            summary.put("goal", details.path("goal").asText(""));
-            summary.put("directory", details.path("directory").asText(""));
-            summary.put("checkType", details.path("checkType").asText("MAVEN"));
-            summary.put("module", details.path("module").asText(""));
-            summary.put("selectedTest", details.path("selectedTest").asText(""));
-            if (tool.equals("exec_command")) {
-                for (String key : List.of("command", "scope", "kind", "afterSnapshot", "invocationId", "exitCode",
-                        "timedOut", "cancelled", "outputTruncated", "sourceChanged", "testDetails")) {
-                    if (details.has(key)) {
-                        summary.put(key, details.get(key));
-                    }
+    /** 摘要只接收各工具声明的标量与路径，源文件、日志和编辑正文不进入旧历史。 */
+    private ObjectNode contextFact(AgentProtocol.ToolCall call, String tool, String id, JsonNode response) {
+        JsonNode result = response.path("result");
+        ObjectNode fact = json.createObjectNode().put("kind", "tool").put("tool", tool)
+                .put("ok", response.path("ok").asBoolean());
+        if (id != null) {
+            fact.put("callId", excerpt(safe(id), 200));
+        }
+        String classification = response.path("classification").asText(result.path("classification").asText("RESULT"));
+        fact.put("classification", excerpt(safe(classification), 128));
+        if (call != null) {
+            try {
+                var args = json.readTree(call.arguments());
+                var selected = fact.putObject("arguments");
+                switch (tool) {
+                    case "list_files" -> copyMetadata(selected, args, "path", "offset", "limit");
+                    case "search_code" -> copyMetadata(selected, args, "path", "query");
+                    case "read_file" -> copyMetadata(selected, args, "path", "start_line", "line_count");
+                    case "edit_file" -> copyMetadata(selected, args, "path");
+                    case "exec_command" -> copyMetadata(selected, args, "command", "directory", "timeout_seconds");
+                    case "read_log" -> copyMetadata(selected, args, "invocation_id", "stream", "offset", "limit");
+                    default -> { }
                 }
-                for (String key : List.of("tests", "executedTests", "skipped", "failures", "errors")) {
-                    if (!details.has(key)) {
-                        summary.remove(key);
-                    }
+                // 已拒绝的非法路径不回显；其他独立、已筛选的参数仍可用于纠正。
+                if ("RELATIVE_PATH_REQUIRED".equals(result.path("reason").asText())) {
+                    selected.remove("path");
                 }
+            } catch (IOException invalid) {
+                // 已被工具拒绝的非法 JSON 不回显到后续请求。
             }
-            for (String field : List.of("reason", "instruction", "mutationNotStarted", "readNotStarted", "policyRule", "policyStage")) {
-                if (node.has(field)) {
-                    summary.put(field, node.path(field));
-                }
+        }
+        copyMetadata(fact, response, "reason", "instruction", "mutationStarted", "mutationNotStarted", "readNotStarted",
+                "policyRule", "policyStage");
+        copyMetadata(fact, result, "reason", "instruction", "mutationNotStarted", "readNotStarted");
+        switch (tool) {
+            case "list_files" -> {
+                addContextPaths(fact, "files", result.path("files"));
+                addContextPaths(fact, "directories", result.path("directories"));
+                copyMetadata(fact, result, "total", "nextOffset");
             }
-            String contextPath = details.path("path").asText();
-            if (!contextPath.isBlank() && contextPath.equals(safe(contextPath))) {
-                summary.put("path", contextPath);
-                for (String field : List.of("startLine", "lineCount", "hasMore", "nextStartLine")) {
-                    if (details.has(field)) {
-                        summary.put(field, details.get(field));
-                    }
-                }
-            }
-            addContextPaths(summary, "paths", details.path("paths"));
-            addContextPaths(summary, "files", details.path("files"));
-            if (details.has("nextOffset")) {
-                summary.put("nextOffset", details.path("nextOffset"));
-            }
-            if (AgentTools.readOnly(tool) && summary.get("classification").equals("INVALID_TOOL_ARGUMENT")
-                    && details.path("readNotStarted").asBoolean() && details.path("mutationNotStarted").asBoolean()) {
-                for (AgentTools.ReadError reason : AgentTools.ReadError.values()) {
-                    if (reason.name().equals(details.path("reason").asText())) {
-                        summary.put("reason", reason.name());
-                        summary.put("readNotStarted", true);
-                        summary.put("mutationNotStarted", true);
-                        summary.put("instruction", reason.instruction());
-                    }
-                }
-            } else if (summary.get("classification").equals("PATCH_CONFLICT")) {
-                summary.put("mutationNotStarted", details.path("mutationNotStarted").asBoolean());
-                summary.put("instruction", "补丁未应用；重新读取当前源码、核对行尾与hunk，不重复相同补丁。此前成功修改仍保留。");
-                String reason = details.path("conflictReason").asText();
-                if (List.of("CHANGE_ALREADY_PRESENT", "INVALID_DIFF", "PATH_STATE_MISMATCH", "CONTEXT_MISMATCH", "CHECK_FAILED").contains(reason)) {
-                    summary.put("conflictReason", reason);
-                }
-                List<String> paths = new ArrayList<>();
-                for (JsonNode path : details.path("paths")) {
-                    if (paths.size() == 8) {
+            case "search_code" -> {
+                var matches = fact.putArray("matches");
+                for (var match : result.path("matches")) {
+                    if (matches.size() == 12) {
                         break;
                     }
-                    if (path.isTextual() && path.asText().length() <= 512
-                            && path.asText().equals(safe(path.asText()))) {
-                        paths.add(path.asText());
-                    }
+                    copyMetadata(matches.addObject(), match, "path", "line");
                 }
-                summary.put("paths", paths);
-            } else if (summary.get("classification").equals("PATCH_NOT_EXECUTED")) {
-                summary.put("mutationNotStarted", true);
-                summary.put("instruction", "本轮前次写入冲突，后续预生成写入未执行；依据当前读取重新生成编辑。");
+                copyMetadata(fact, result, "truncated");
             }
-            return json.writeValueAsString(summary);
-        } catch (IOException failure) {
-            throw new AgentException("TOOL_PROTOCOL", "Tool result must be structured JSON");
+            case "read_file" -> copyMetadata(fact, result, "path", "startLine", "lineCount", "hasMore", "nextStartLine");
+            case "edit_file" -> {
+                copyMetadata(fact, result, "mutationStarted", "conflictReason", "path");
+                addContextPaths(fact, "paths", result.path("paths"));
+                addContextPaths(fact, "changedPaths", result.path("changedPaths"));
+                if ("PATCH_CONFLICT".equals(classification)) {
+                    fact.put("instruction", "补丁未应用；重新读取当前源码、核对行尾与hunk，不重复相同补丁。此前成功修改仍保留。");
+                } else if ("PATCH_NOT_EXECUTED".equals(classification)) {
+                    fact.put("instruction", "本轮前次写入冲突，后续预生成写入未执行；依据当前读取重新生成编辑。");
+                }
+            }
+            case "exec_command", "run_checks" -> {
+                copyMetadata(fact, response, "durationMs");
+                copyMetadata(fact, result, "durationMs", "invocationId", "logRef",
+                        "snapshot", "afterSnapshot", "exitCode", "timedOut", "cancelled", "sourceChanged",
+                        "outputTruncated", "logDiscarded", "goal", "directory", "module", "selectedTest",
+                        "checkType", "executionStatus", "testDetails", "tests", "executedTests", "failures", "errors",
+                        "skipped", "scope");
+                if (result.path("kind").isTextual()) {
+                    fact.put("executionKind", excerpt(safe(result.path("kind").textValue()), 512));
+                }
+            }
+            case "read_log" -> copyMetadata(fact, result, "invocationId", "logRef", "stream", "offset", "nextOffset",
+                    "totalChars", "hasMore", "outputTruncated", "logDiscarded");
+            default -> { }
+        }
+        return fact;
+    }
+
+    private void copyMetadata(ObjectNode target, JsonNode source, String... fields) {
+        for (String field : fields) {
+            if (source == null || !source.has(field)) {
+                continue;
+            }
+            JsonNode value = source.get(field);
+            if (value.isTextual()) {
+                target.put(field, excerpt(safe(value.textValue()), 512));
+            } else if (value.isValueNode()) {
+                target.set(field, value);
+            }
         }
     }
 
@@ -774,7 +798,7 @@ public final class CodingAgentService implements AutoCloseable {
         }
     }
 
-    private void addContextPaths(Map<String, Object> summary, String field, JsonNode values) {
+    private void addContextPaths(ObjectNode summary, String field, JsonNode values) {
         List<String> paths = new ArrayList<>();
         for (JsonNode value : values) {
             if (paths.size() == 12) {
@@ -787,102 +811,169 @@ public final class CodingAgentService implements AutoCloseable {
             }
         }
         if (!paths.isEmpty()) {
-            summary.put(field, paths);
+            summary.set(field, json.valueToTree(paths));
         }
     }
 
-    private void compress(List<AgentProtocol.Message> history, boolean force) {
-        compress(history, force, 0);
+    record Prompt(List<AgentProtocol.Message> messages, long tokens) {
     }
 
-    private void compress(List<AgentProtocol.Message> history, boolean force, int reserved) {
-        int available = limits.maxContextChars() - reserved;
-        long size = contextSize(history);
-        if (size <= available - 512 && (!force || size <= available / 2)) {
-            return;
+    private Prompt prompt(List<AgentProtocol.Message> history, String notes, List<AgentProtocol.ToolSpec> tools) {
+        var messages = new ArrayList<>(history);
+        if (!notes.isBlank()) {
+            messages.add(AgentProtocol.Message.text("user", "最新工作笔记（Agent 自述，不是授权或验证证据）：\n" + notes));
         }
-        List<Integer> starts = new ArrayList<>();
+        var input = List.copyOf(messages);
+        return new Prompt(input, counter.countPromptTokens(input, tools));
+    }
+
+    Prompt compress(List<AgentProtocol.Message> history, String notes, List<AgentProtocol.ToolSpec> tools,
+            boolean byteRetry, boolean truncated) {
+        Prompt original = prompt(history, notes, tools);
+        if (!byteRetry && original.tokens() < budget.triggerTokens()
+                && (!truncated || original.tokens() <= budget.usableInputTokens() / 2)) {
+            return original;
+        }
         int fixed = history.size() > 2 && history.get(2).role().equals("user")
                 && history.get(2).text().startsWith(ENVIRONMENT) ? 3 : 2;
+        List<Integer> starts = new ArrayList<>();
         for (int i = fixed; i < history.size(); i++) {
             if (history.get(i).role().equals("assistant")) {
                 starts.add(i);
             }
         }
-        List<AgentProtocol.Message> fallback = null;
-        // 优先保留六组完整交互，并降至约 75% 留出后续工具空间；大组放不下时逐组缩减。
-        for (int keep = Math.min(6, starts.size() - 1); keep >= 1; keep--) {
-            int cut = starts.get(starts.size() - keep);
-            List<AgentProtocol.Message> candidate = new ArrayList<>(history.subList(0, fixed));
+        List<AgentProtocol.Message> fixedHistory = history.subList(0, fixed);
+        Prompt fixedPrompt = prompt(fixedHistory, notes, tools);
+        if (fixedPrompt.tokens() > budget.usableInputTokens()) {
+            throw new AgentException("CONTEXT_LIMIT", "Fixed Agent context and tools exceed usable input capacity");
+        }
+        if (history.size() == fixed) {
+            return original;
+        }
+        // 按完整交互逐组缩减。字节拒绝时至少压缩一组，即便 token 尚有余量。
+        int maxKeep = Math.min(6, starts.size());
+        if (byteRetry && maxKeep == starts.size() && maxKeep > 0) {
+            maxKeep--;
+        }
+        long target = fixedPrompt.tokens() >= budget.targetTokens() ? budget.usableInputTokens() : budget.targetTokens();
+        for (int keep = maxKeep; keep >= 0; keep--) {
+            int cut = keep == 0 ? history.size() : starts.get(starts.size() - keep);
+            if (cut == fixed) {
+                continue;
+            }
+            var candidate = new ArrayList<>(fixedHistory);
             candidate.add(AgentProtocol.Message.text("user", compactedSummary(history.subList(fixed, cut))));
             candidate.addAll(history.subList(cut, history.size()));
-            long retained = contextSize(candidate);
-            if (retained <= available - 512) {
-                fallback = candidate;
-                if (retained <= available * 3L / 4) {
-                    break;
+            Prompt retained = prompt(candidate, notes, tools);
+            if (keep == 0 && retained.tokens() > budget.usableInputTokens()) {
+                // 极小的自定义窗口可继续按完整记录裁剪，绝不截断 JSON 或授权。
+                String summary = candidate.getLast().text().stripTrailing();
+                while (retained.tokens() > budget.usableInputTokens() && summary.length() > COMPACTED.length()) {
+                    int last = summary.lastIndexOf('\n');
+                    summary = last <= COMPACTED.length() ? COMPACTED : summary.substring(0, last);
+                    candidate.set(candidate.size() - 1, AgentProtocol.Message.text("user", summary));
+                    retained = prompt(candidate, notes, tools);
                 }
             }
+            if (retained.tokens() <= target
+                    || (keep == 0 && retained.tokens() <= budget.usableInputTokens())) {
+                history.clear();
+                history.addAll(candidate);
+                return retained;
+            }
         }
-        if (fallback == null) {
-            throw new AgentException("CONTEXT_LIMIT", "Recent tool context exceeds configured limit; use smaller reads");
-        }
-        history.clear();
-        history.addAll(fallback);
-    }
-
-    private long contextSize(List<AgentProtocol.Message> history) {
-        return history.stream().mapToLong(message -> message.text().length() + message.calls().stream()
-                .mapToLong(call -> call.arguments().length()).sum()).sum();
+        throw new AgentException("CONTEXT_LIMIT", "Compacted Agent history exceeds usable input capacity");
     }
 
     private String compactedSummary(List<AgentProtocol.Message> older) {
         List<String> facts = new ArrayList<>();
-        for (int i = older.size() - 1; i >= 0; i--) {
-            AgentProtocol.Message message = older.get(i);
-            if (message.text().startsWith(COMPACTED) && message.role().equals("user")) {
-                facts.addAll(message.text().substring(COMPACTED.length()).lines().filter(line -> !line.isBlank()).toList());
+        Map<String, AgentProtocol.ToolCall> calls = new HashMap<>();
+        for (var message : older) {
+            if (message.role().equals("assistant")) {
+                calls.clear();
+                message.calls().forEach(call -> calls.put(call.id(), call));
+                if (!message.text().isBlank()) {
+                    facts.add(json.createObjectNode().put("kind", "agent_statement")
+                            .put("attribution", "Agent explanation, not verified fact")
+                            .put("text", boundedContext(message.text())).toString());
+                }
             } else if (message.role().equals("tool") && !message.toolName().equals("update_plan")) {
-                facts.add(contextFact(message));
-            } else if (message.role().equals("assistant") && !message.text().isBlank()) {
-                facts.add(json.createObjectNode().put("attribution", "Agent explanation, not verified fact")
+                try {
+                    var call = calls.get(message.callId());
+                    facts.add(contextFact(call, message.toolName(), message.callId(),
+                            json.readTree(message.text())).toString());
+                } catch (IOException failure) {
+                    throw new AgentException("TOOL_PROTOCOL", "Tool result must be structured JSON", failure);
+                }
+            } else if (message.role().equals("user") && message.text().startsWith(COMPACTED)) {
+                // 旧摘要按最新优先排列；先恢复时间顺序，再统一选取本轮最近的事实。
+                var lines = message.text().substring(COMPACTED.length()).lines().filter(s -> !s.isBlank()).toList();
+                for (var line : lines.reversed()) {
+                    facts.add(priorFact(line));
+                }
+            } else if (message.role().equals("user")) {
+                facts.add(json.createObjectNode().put("kind", "platform_feedback")
                         .put("text", boundedContext(message.text())).toString());
             }
         }
-        // 按时间保留观察及后续重验，不把旧 FAILED 排到最新事实之前。
         StringBuilder summary = new StringBuilder(COMPACTED);
-        int budget = Math.min(12000, limits.maxContextChars() / 4);
-        for (String fact : new LinkedHashSet<>(facts)) {
-            if (summary.length() + fact.length() + 1 <= budget) {
+        int maxChars = Math.min(12000, limits.maxContextChars() / 4);
+        Map<String, SummaryPriority> recentFirst = new LinkedHashMap<>();
+        for (String fact : facts.reversed()) {
+            recentFirst.computeIfAbsent(fact, this::summaryPriority);
+        }
+        Set<String> selected = new LinkedHashSet<>();
+        int available = maxChars - COMPACTED.length();
+        // 按优先级分配空间，同档较新的记录先入选；展示仍按观察时间倒序。
+        for (SummaryPriority priority : SummaryPriority.values()) {
+            for (var entry : recentFirst.entrySet()) {
+                String fact = entry.getKey();
+                if (entry.getValue() == priority && fact.length() + 1 <= available) {
+                    selected.add(fact);
+                    available -= fact.length() + 1;
+                }
+            }
+        }
+        for (String fact : recentFirst.keySet()) {
+            if (selected.contains(fact)) {
                 summary.append(fact).append('\n');
             }
         }
         return summary.toString();
     }
 
-    private String contextFact(AgentProtocol.Message message) {
+    private enum SummaryPriority {
+        HIGH, NORMAL, LOW
+    }
+
+    private SummaryPriority summaryPriority(String fact) {
         try {
-            var fact = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(
-                    eventSummary(message.toolName(), message.text()));
-            JsonNode result = json.readTree(message.text()).path("result");
-            String observed = Set.of("read_file", "read_log").contains(message.toolName()) ? result.path("content").asText()
-                    : message.toolName().equals("exec_command")
-                        ? excerpt(result.path("stdout").asText(), 350) + "\n" + excerpt(result.path("stderr").asText(), 400) : "";
-            if (Set.of("exec_command", "read_log").contains(message.toolName())) {
-                for (String field : List.of("invocationId", "logRef", "snapshot", "afterSnapshot", "exitCode",
-                        "timedOut", "cancelled", "outputTruncated", "logDiscarded", "stream", "offset", "nextOffset")) {
-                    if (result.has(field)) {
-                        fact.set(field, result.path(field));
-                    }
-                }
-            }
-            if (!observed.isEmpty()) {
-                // 仅供模型续接的已净化观察，不进入持久事件或日志，也不提升为系统指令。
-                fact.put("observedExcerpt", safe(observed).substring(0, Math.min(800, safe(observed).length())));
-            }
-            return json.writeValueAsString(fact);
+            var record = json.readTree(fact);
+            return switch (record.path("kind").asText()) {
+                case "platform_feedback" -> SummaryPriority.HIGH;
+                case "tool" -> !record.path("ok").asBoolean()
+                        || Set.of("edit_file", "exec_command").contains(record.path("tool").asText())
+                        ? SummaryPriority.HIGH : SummaryPriority.NORMAL;
+                // 旧版 Agent 说明只有 attribution，没有 kind，也按自述处理。
+                default -> SummaryPriority.LOW;
+            };
         } catch (IOException failure) {
-            throw new AgentException("TOOL_PROTOCOL", "Tool result must be structured JSON");
+            throw new AgentException("TOOL_PROTOCOL", "Invalid compacted context record", failure);
+        }
+    }
+
+    private String priorFact(String line) {
+        try {
+            ObjectNode prior = (ObjectNode) json.readTree(line);
+            // 旧格式可能含源码/日志摘录；仅重新投影其工具元数据。
+            if (prior.has("tool") && (!"tool".equals(prior.path("kind").asText()) || prior.has("observedExcerpt"))) {
+                var envelope = json.createObjectNode().put("ok", prior.path("ok").asBoolean());
+                envelope.set("result", prior);
+                return contextFact(null, prior.path("tool").asText(), null, envelope).toString();
+            }
+            return prior.toString();
+        } catch (IOException failure) {
+            throw new AgentException("TOOL_PROTOCOL", "Invalid compacted context record", failure);
         }
     }
 
@@ -903,11 +994,14 @@ public final class CodingAgentService implements AutoCloseable {
         return sandbox.readLog(runId, invocationId, stream, offset, limit);
     }
 
-    private String usageSummary(int request, AgentProtocol.Usage usage) {
+    private String usageSummary(int request, long estimate, AgentProtocol.Usage usage) {
         try {
             Map<String, Object> fields = new LinkedHashMap<>();
             fields.put("request", request);
+            fields.put("usageScope", "responding_attempt");
+            fields.put("estimatedPromptTokens", estimate);
             fields.put("promptTokens", usage.promptTokens());
+            fields.put("promptTokenDifference", usage.promptTokens() == null ? null : usage.promptTokens() - estimate);
             fields.put("completionTokens", usage.completionTokens());
             fields.put("totalTokens", usage.totalTokens());
             fields.put("cacheHitTokens", usage.cacheHitTokens());

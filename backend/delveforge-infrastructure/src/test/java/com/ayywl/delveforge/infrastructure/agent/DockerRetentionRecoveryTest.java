@@ -80,7 +80,7 @@ class DockerRetentionRecoveryTest {
     }
 
     private CodingAgentService service(AgentStore store, AgentSandboxPort adapter) {
-        return new CodingAgentService(null, store, (history, tools) -> {
+        return TestAgentServices.create(null, store, (history, tools) -> {
             throw new AssertionError("Restart must never resume the model");
         }, adapter, new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults());
     }

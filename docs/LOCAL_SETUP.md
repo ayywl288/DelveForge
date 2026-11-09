@@ -62,6 +62,8 @@ cd DelveForge
 
 <a id="agent-build-preflight"></a>
 
+Agent 的单次输入预算可用 `delveforge.agent.context-window-tokens`（默认 1,000,000）、`response-tokens`（默认 8,192）与 `compaction-threshold`（默认 0.90）调整。默认在估计输入达到 892,628 tokens 时压缩，目标为 743,856 tokens。分词器和 CPU 原生库随应用打包；如环境已配置 DJL 的 `RUST_FLAVOR`，请设为 `cpu` 或移除此变量。当前模板适配 `deepseek-flash` 当前的 V4.1-Flash-1017 文本合同。`delveforge.ai.deepseek.max-request-bytes` 独立限制 HTTP 请求大小，默认 8 MiB。
+
 ## 5. 常见问题
 
 - **启动时提示版本不匹配**：检查 `JAVA_HOME`、`java -version`、`node --version` 和 `pnpm --version`。

@@ -1,5 +1,7 @@
 # ARCHITECTURE.md
 
+**2026-11-09 Agent 上下文预算。** Application 通过 `AgentTokenCounter` 估算单次完整输入，包括当轮笔记及工具定义。Infrastructure 使用固定版本 DeepSeek V4.1 Flash 分词器与非思考文本模板。压缩保留已确认 Step、执行环境及最近完整交互，旧工具结果按调用 ID 提取元数据。发送前独立检查 HTTP 字节上限，超限可压缩后重试一次。`MODEL_USAGE` 记录估计、提供者输入用量及差值。参数见[本地配置](LOCAL_SETUP.md#4-自定义配置)。
+
 **2026-11-08 本次授权：选定仓库内容与离线执行。** 选定快照内普通源码和配置统一可供 Agent 读写；保留控制目录例外、宿主隔离和资源预算。依赖网络准备失败可降为明确离线执行，实际下载失败保留为命令事实。RUNNING 前持久化材料保留意图，捕获/停止/存储失败不清掉唯一现场。v8、逐 Step 授权、冻结与独立 Delivery 不变；容器协议 v11：文件清单附带字节数，按预算读取完整源码行并返回续读位置，分块搜索仅传输有界摘录。见 [ADR-0027](decisions/0027-selected-repository-input-and-offline-execution.md)。下方旧内容隐藏与行保护规则仅为历史。
 
 **2026-11-08 Quick Start 材料细化：** Application 内 QuickStartSources 通过既有 WorkspaceReadPort.readFile 可信读取固定 Delivery commit，仅限有界启动材料，并在同一专用收集边界完整净化后才交给 AiGateway。它不调用 readModelFile，也不修改该方法或全局 RepositoryContentPolicy / RepositorySecretPolicy 的语义。真实环境文件、私钥等继续排除；唯一例外 `.env.example` 仅输出变量名与统一占位值。无新 Port、Adapter、Agent、数据库迁移或命令执行，详见 ADR-0026 补充。

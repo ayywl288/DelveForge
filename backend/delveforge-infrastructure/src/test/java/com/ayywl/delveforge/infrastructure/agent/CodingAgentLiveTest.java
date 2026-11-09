@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.agent;
 
 import com.ayywl.delveforge.application.agent.CodingAgentService;
+import com.ayywl.delveforge.application.agent.AgentContextBudget;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.port.workspace.WorkingCopyInspectionPort;
 import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicRepositorySecretPolicy;
@@ -53,8 +54,10 @@ class CodingAgentLiveTest {
         var sandbox = new DockerAgentSandbox(DockerAgentSandboxTest.properties(temporary.resolve("runs")), policy);
         var model = new SpringAiAgentModel(new DeepSeekProperties("https://api.deepseek.com",
                 System.getenv("DEEPSEEK_API_KEY"), "deepseek-flash", Duration.ofSeconds(90), false,
-                Duration.ofSeconds(90), 8192, 1048576, 65536), 8192);
-        try (var service = new CodingAgentService(state, database.store, model, sandbox, policy, AgentProtocol.Limits.defaults())) {
+                Duration.ofSeconds(90), 8192, 1048576, 65536, 8388608), 8192);
+        try (var counter = new DeepSeekTokenCounterAdapter("deepseek-flash");
+                var service = new CodingAgentService(state, database.store, model, sandbox, policy,
+                        AgentProtocol.Limits.defaults(), counter, new AgentContextBudget(1000000, 8192, 0.90))) {
             String id = service.start("plan", "step", 21).id();
             var terminal = CodingAgentServiceTest.awaitTerminal(service, id, 1200);
             assertEquals(AgentRunState.SUCCEEDED, terminal.state(), terminal.reason() + " " + service.events(id, 0, 200));

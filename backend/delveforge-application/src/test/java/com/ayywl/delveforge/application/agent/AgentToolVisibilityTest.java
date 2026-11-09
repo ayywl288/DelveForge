@@ -15,7 +15,8 @@ class AgentToolVisibilityTest {
     @Test
     void checkResponsesRemoveBareAuthenticationSchemesBeforeModelOrActivityConsumption() {
         try (var service = new CodingAgentService(null, null, null, null,
-                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults(),
+                (messages, tools) -> 0L, new AgentContextBudget(1000000, 8192, 0.90))) {
             String output = json.createObjectNode().put("output", "failure at line 12; Bearer synthetic-bearer-value")
                     .toString();
             String visible = service.safeToolResult("run_frontend_checks", output);
@@ -27,7 +28,8 @@ class AgentToolVisibilityTest {
     @Test
     void sourceViewsRetainRuntimeExpressionsAndDropUnrecognizedPrivateFields() throws Exception {
         try (var service = new CodingAgentService(null, null, null, null,
-                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults(),
+                (messages, tools) -> 0L, new AgentContextBudget(1000000, 8192, 0.90))) {
             String content = "const token = this.getToken();\n";
             var result = json.createObjectNode().put("path", "src/Auth.js").put("startLine", 1)
                     .put("lineCount", 1).put("hasMore", true).put("nextStartLine", 2)
@@ -43,7 +45,8 @@ class AgentToolVisibilityTest {
     @Test
     void projectSourceRemainsExactWhileOtherOutputIsSanitized() throws Exception {
         try (var service = new CodingAgentService(null, null, null, null,
-                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
+                new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults(),
+                (messages, tools) -> 0L, new AgentContextBudget(1000000, 8192, 0.90))) {
             var payload = json.createObjectNode().put("path", "src/Auth.js").put("startLine", 1)
                     .put("lineCount", 1).put("hasMore", false).putNull("nextStartLine")
                     .put("content", "const token = 'synthetic-private-value';");

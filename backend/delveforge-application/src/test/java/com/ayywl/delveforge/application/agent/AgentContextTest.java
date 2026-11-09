@@ -4,7 +4,6 @@ import com.ayywl.delveforge.application.repositoryanalysis.secret.DeterministicR
 
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,17 +34,12 @@ class AgentContextTest {
         var defaults = AgentProtocol.Limits.defaults();
         var limits = new AgentProtocol.Limits(budget, defaults.maxOutputBytes(), defaults.maxPatchBytes(),
                 defaults.maxFileBytes(), defaults.maxCandidateBytes(), defaults.maxFiles(), 180);
-        return new CodingAgentService(null, null, null, null, new DeterministicRepositorySecretPolicy(), limits);
+        return new CodingAgentService(null, null, null, null, new DeterministicRepositorySecretPolicy(), limits,
+                (messages, tools) -> size(messages), new AgentContextBudget(budget + 1, 1, 0.90));
     }
 
     private void compact(CodingAgentService service, List<AgentProtocol.Message> history) throws Exception {
-        var method = CodingAgentService.class.getDeclaredMethod("compress", List.class, boolean.class);
-        method.setAccessible(true);
-        try {
-            method.invoke(service, history, false);
-        } catch (InvocationTargetException failure) {
-            throw (RuntimeException) failure.getCause();
-        }
+        service.compress(history, "", List.of(), false, false);
     }
 
     private List<AgentProtocol.Message> history() {
@@ -82,6 +76,41 @@ class AgentContextTest {
             } else if (message.role().equals("tool")) {
                 assertTrue(history.subList(0, i).stream().anyMatch(previous -> previous.calls().stream()
                         .anyMatch(call -> call.id().equals(message.callId()))));
+            }
+        }
+    }
+
+    @Test
+    void countsEffectiveInputAtExactTriggerAndRecountsCompactedHistory() {
+        var defaults = new AgentContextBudget(1000000, 8192, 0.90);
+        assertEquals(991808, defaults.usableInputTokens());
+        assertEquals(892628, defaults.triggerTokens());
+        assertEquals(743856, defaults.targetTokens());
+        assertEquals(7, new AgentContextBudget(101, 1, 0.07).triggerTokens());
+        var tools = List.of(new AgentProtocol.ToolSpec("read_file", "read text", "{\"type\":\"object\"}"));
+        for (long initial : List.of(899L, 900L, 901L)) {
+            var observed = new ArrayList<List<AgentProtocol.Message>>();
+            AgentTokenCounter counter = (messages, definitions) -> {
+                assertEquals(tools, definitions);
+                assertTrue(messages.getLast().text().contains("latest notes"));
+                observed.add(messages);
+                return messages.stream().anyMatch(m -> !m.calls().isEmpty()) ? initial : 500;
+            };
+            var service = new CodingAgentService(null, null, null, null, new DeterministicRepositorySecretPolicy(),
+                    AgentProtocol.Limits.defaults(), counter, new AgentContextBudget(1100, 100, 0.90));
+            var history = history();
+            group(history, 1, 20);
+            var before = List.copyOf(history);
+            var input = service.compress(history, "latest notes", tools, false, false);
+            assertEquals(input.messages(), observed.getLast());
+            if (initial == 899) {
+                assertEquals(before, history);
+                assertEquals(1, observed.size());
+                assertEquals(899, input.tokens());
+            } else {
+                assertTrue(history.getLast().text().startsWith("较早工具上下文已压缩"));
+                assertEquals(500, input.tokens());
+                assertTrue(observed.size() >= 3);
             }
         }
     }
@@ -132,7 +161,7 @@ class AgentContextTest {
         assertTrue(size(history) <= 11488);
         assertTrue(history.get(2).text().contains("PATCH_APPLIED"));
         assertTrue(history.get(2).text().contains("src/Changed.java"));
-        assertTrue(history.get(2).text().contains("Java 8 compatibility"));
+        assertFalse(history.get(2).text().contains("Java 8 compatibility"));
         assertTrue(history.get(2).text().contains("TESTS_FAILED"));
         assertEquals("user", history.get(2).role());
         assertFalse(history.get(0).text().contains("Java 8"));

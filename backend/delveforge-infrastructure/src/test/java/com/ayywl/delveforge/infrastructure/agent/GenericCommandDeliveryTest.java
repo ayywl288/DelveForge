@@ -110,7 +110,7 @@ class GenericCommandDeliveryTest {
                     : new AgentProtocol.Reply(FixtureCompletion.report(history), List.of(), 1L);
         };
         String candidateId;
-        try (var agent = new CodingAgentService(eligibility, database.store, model, sandbox,
+        try (var agent = TestAgentServices.create(eligibility, database.store, model, sandbox,
                 new DeterministicRepositorySecretPolicy(), AgentProtocol.Limits.defaults())) {
             var run = agent.start("plan", "step", 21);
             var terminal = CodingAgentServiceTest.awaitTerminal(agent, run.id(), 300);

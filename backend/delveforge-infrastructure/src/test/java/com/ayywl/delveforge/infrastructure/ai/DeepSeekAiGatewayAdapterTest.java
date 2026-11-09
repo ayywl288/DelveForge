@@ -63,7 +63,7 @@ class DeepSeekAiGatewayAdapterTest {
             restClientBuilder.build(),
             new ObjectMapper(),
             new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5),
-                    false, Duration.ofSeconds(10), 16384, 8388608, 65536));
+                    false, Duration.ofSeconds(10), 16384, 8388608, 65536, 8388608));
 
     @Test
     void sendsMessagesWithJsonResponseFormatAndReturnsContent() throws Exception {
@@ -114,7 +114,7 @@ class DeepSeekAiGatewayAdapterTest {
                 restClientBuilder.build(),
                 new ObjectMapper(),
                 new DeepSeekProperties(BASE_URL, "  ", MODEL, Duration.ofSeconds(5),
-                        false, Duration.ofSeconds(10), 16384, 8388608, 65536));
+                        false, Duration.ofSeconds(10), 16384, 8388608, 65536, 8388608));
 
         assertThrows(AiGatewayException.class, () -> withoutKey.generate(jsonRequest()));
 
@@ -222,7 +222,7 @@ class DeepSeekAiGatewayAdapterTest {
         try {
             var actual = new DeepSeekAiGatewayConfiguration().deepSeekAiGateway(new DeepSeekProperties(
                     "http://127.0.0.1:" + provider.getAddress().getPort(), API_KEY, MODEL,
-                    Duration.ofMillis(1500), false, Duration.ofSeconds(10), 16384, 8388608, 65536));
+                    Duration.ofMillis(1500), false, Duration.ofSeconds(10), 16384, 8388608, 65536, 8388608));
             assertThrows(AiGatewayException.class, () -> actual.generate(jsonRequest()));
             String logs = output.getAll();
             assertTrue(logs.contains("phase=RESPONSE_BODY code=PROVIDER_RESPONSE_READ_FAILED"));
@@ -302,7 +302,7 @@ class DeepSeekAiGatewayAdapterTest {
                 .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
         var bounded = new DeepSeekAiGatewayAdapter(restClientBuilder.build(), new ObjectMapper(),
                 new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5),
-                        false, Duration.ofSeconds(10), 16384, 1024, 512));
+                        false, Duration.ofSeconds(10), 16384, 1024, 512, 8388608));
 
         assertThrows(AiGatewayException.class, () -> bounded.generate(jsonRequest()));
         server.verify();
@@ -440,13 +440,13 @@ class DeepSeekAiGatewayAdapterTest {
             Duration idle, Duration absolute) {
         return new DeepSeekAiGatewayConfiguration().deepSeekAiGateway(new DeepSeekProperties(
                 "http://127.0.0.1:" + provider.getAddress().getPort(), API_KEY, MODEL, idle,
-                true, absolute, 16384, 8388608, 65536));
+                true, absolute, 16384, 8388608, 65536, 8388608));
     }
 
     private DeepSeekAiGatewayAdapter streamingAdapter(int responseBytes, int eventBytes) {
         return new DeepSeekAiGatewayAdapter(restClientBuilder.build(), new ObjectMapper(),
                 new DeepSeekProperties(BASE_URL, API_KEY, MODEL, Duration.ofSeconds(5),
-                        true, Duration.ofSeconds(10), 16384, responseBytes, eventBytes));
+                        true, Duration.ofSeconds(10), 16384, responseBytes, eventBytes, 8388608));
     }
 
     private static String streamChunk(String content, String reasoning, String finish) throws Exception {
