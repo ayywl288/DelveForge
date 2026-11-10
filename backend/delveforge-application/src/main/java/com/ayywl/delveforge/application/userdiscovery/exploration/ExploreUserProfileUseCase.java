@@ -76,7 +76,8 @@ public class ExploreUserProfileUseCase {
         UserProfile expected = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
         UserProfile candidate = UserProfileCandidates.copyOf(expected);
 
-        profileExtraction.applyTo(candidate, userInput);
+        profileExtraction.applyTo(candidate, userInput,
+                userProfileRepository.sectionsWithSupersededItems(userProfileId, expected.revision()));
 
         userProfileRepository.saveIfUnchanged(candidate, expected);
         return candidate;

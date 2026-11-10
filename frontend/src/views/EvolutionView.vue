@@ -45,6 +45,12 @@ const officialStep = computed(() => completedDelivery.value && step.value?.id ==
     && step.value?.status === "SUCCEEDED" && step.value.deliveryRevision === delivery.value?.revision);
 const error = ref("");
 const syncError = ref("");
+const deliveryLabel = computed(() => {
+  if (delivery.value) return deliveryStateLabels[delivery.value.state];
+  const id = run.value?.candidateId;
+  if (!id) return "尚无正式交付";
+  return !syncError.value && runDeliveries.value[id] === null ? "等待自动交付" : "交付状态未读回";
+});
 const pending = ref(false);
 const connection = ref("尚未连接");
 const jdk = ref("");
@@ -120,7 +126,7 @@ function rememberDelivery(id: string, actual: Delivery | null) {
 async function loadHistoryDeliveries(items: AgentRun[], planId: string, selectedStep: string, version: number) {
     const belongs = () => active && historyEpoch === version && props.s.plan?.id === planId && step.value?.id === selectedStep;
     const results = await Promise.allSettled(items.filter(item => item.state === "SUCCEEDED" && item.candidateId
-        && !Object.hasOwn(runDeliveries.value, item.candidateId)).map(async item => {
+        && item.id !== run.value?.id && runDeliveries.value[item.candidateId]?.state !== "COMPLETED").map(async item => {
         const accepted = await api.delivery(item.candidateId!);
         if (belongs() && runs.value.some(current => current.id === item.id && current.candidateId === item.candidateId)) {
             rememberDelivery(item.candidateId!, accepted);
@@ -160,11 +166,13 @@ async function updateStatus(version: number) {
     run.value = actual;
     runs.value = runs.value.map(item => item.id === actual.id ? actual : item);
     if (actual.candidateId) {
-      const [frozen, accepted] = await Promise.all([api.candidate(actual.candidateId), api.delivery(actual.candidateId)]);
+      const frozen = await api.candidate(actual.candidateId);
       if (!belongs()) return;
       if (frozen.id !== actual.candidateId || frozen.runId !== actual.id) throw new Error("冻结结果与当前运行不一致。");
       if (candidate.value?.id !== frozen.id) candidateFiles.value = candidateFileChanges(frozen.changedPaths, "");
       candidate.value = frozen;
+      const accepted = await api.delivery(frozen.id);
+      if (!belongs() || candidate.value?.id !== frozen.id) return;
       delivery.value = rememberDelivery(frozen.id, accepted);
       if (accepted?.state === "COMPLETED" && step.value?.status !== "SUCCEEDED") await props.s.refreshPlan();
       if (belongs() && delivery.value?.state !== "COMPLETED" && filesAttemptedId !== frozen.id) void loadCandidateFiles();
@@ -378,7 +386,7 @@ onUnmounted(deactivate);
     <ol v-if="!initialLayout" class="execution-chain" aria-label="编码与交付边界">
       <li><span>Agent Run</span><strong>{{ run ? runStates[run.state].label : '尚未读到运行' }}</strong></li>
       <li><span>Frozen Candidate</span><strong>{{ candidate ? '已冻结编码结果' : run?.candidateId ? '冻结详情待读取' : '尚无冻结结果' }}</strong></li>
-      <li><span>Formal Delivery</span><strong>{{ delivery ? deliveryStateLabels[delivery.state] : (run?.candidateId ? '交付状态未读回' : '尚无正式交付') }}</strong></li>
+      <li><span>Formal Delivery</span><strong>{{ deliveryLabel }}</strong></li>
     </ol>
     <a v-if="activeRun" class="activity-jump" href="#agent-run-workspace">查看当前活动与停止控制 <NavigationIcon name="arrow" /></a>
     <a v-else-if="candidate" class="activity-jump" href="#agent-changes-title">{{ delivery?.state === 'DELIVERY_BLOCKED' || delivery?.state === 'RECOVERY_REQUIRED' ? '交付需核对：查看原因、证据与代码结果' : '查看冻结文件、检查证据与正式交付' }} <NavigationIcon name="arrow" /></a>

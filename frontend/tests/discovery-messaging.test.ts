@@ -51,6 +51,28 @@ beforeEach(() => {
   }));
 });
 describe("Discovery 消息反馈与请求边界", () => {
+  it("替换原问后的即时消息与重新读取都呈现同一条追问，解释保持可见", async () => {
+    const { s, root } = setup();
+    const question = "哪个小场景最值得先动手？";
+    const explanation = "为什么从生活中找例子？熟悉的场景比较容易描述。";
+    vi.spyOn(api, "discoveryTurn").mockResolvedValue({ ...result(), nextAction: "ASK",
+      previousQuestionState: "REPLACED", assistantReply: explanation, nextQuestion: question });
+    await s.turn("我不知道怎么回答这个问题。"); await nextTick();
+    const check = () => {
+      const reply = root.querySelector(".message.agent")!;
+      expect(reply.querySelector(".dialogue-text")?.textContent).toBe(explanation);
+      expect(reply.querySelector(".dialogue-question")?.textContent).toBe(question);
+      expect(reply.textContent!.split(question)).toHaveLength(2);
+    };
+    check();
+    vi.spyOn(api, "conversation").mockResolvedValue({ messages: [{ sequence: 1, requestId: "replacement",
+      role: "agent", text: explanation, question, questionState: "ASKED", nextAction: "ASK",
+      createdAt: "2026-11-09T00:00:00Z", projectId: null }], before: null,
+      pendingRequestId: null, unansweredQuestion: question });
+    await s.loadConversation(); await nextTick();
+    check();
+  });
+
   it("恢复审阅邀请后可以直接续聊，接受新问题后只保留侧栏审阅入口", async () => {
     const { s, root } = setup();
     s.sufficiency = { sufficient: true, missingAreas: [], nextQuestion: null };

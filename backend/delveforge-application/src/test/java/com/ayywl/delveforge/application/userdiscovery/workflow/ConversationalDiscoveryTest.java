@@ -89,7 +89,7 @@ class ConversationalDiscoveryTest {
     void correctionReplacesInvalidCurrentFactAndRetractsOnlyItsEvidence() throws Exception {
         UserProfile original = seed();
         responses.add("""
-                {"hasNewFacts":true,"technicalCapabilities":["Python接口经验"],
+                {"hasNewFacts":true,"technicalCapabilities":["Python接口经验"],"replacements":{"technicalCapabilities":{"Java接口经验":"Python接口经验"}},
                  "retractedEvidenceIndices":[0],"evidenceClaims":["用户纠正为Python接口经验"]}
                 """);
         responses.add(reply(true, "已按你本轮说明纠正为 Python 经验。", null, null, List.of()));
@@ -107,7 +107,7 @@ class ConversationalDiscoveryTest {
     void topicChangeKeepsOtherFactsAndExplicitAbsenceOfConstraintsIsMeaningful() throws Exception {
         UserProfile original = seed();
         responses.add("""
-                {"hasNewFacts":true,"projectGoals":["做AI阅读辅助项目"],"constraints":["没有重要约束"],
+                {"hasNewFacts":true,"projectGoals":["做AI阅读辅助项目"],"replacements":{"projectGoals":{"做阅读笔记工具":"做AI阅读辅助项目"},"constraints":{"每周三小时":"没有重要约束"}},"constraints":["没有重要约束"],
                  "evidenceClaims":["用户改做AI阅读辅助项目且明确没有重要约束"]}
                 """);
         responses.add(reply(true, "可以围绕 AI 阅读体验继续探索。", null, null, List.of()));
@@ -159,7 +159,7 @@ class ConversationalDiscoveryTest {
             assertEquals(original.evidence(), repository.findById(ID).orElseThrow().evidence());
         }
         responses.clear();
-        responses.add("{\"hasNewFacts\":true,\"projectGoals\":[\"新目标\"],\"evidenceClaims\":[\"用户明确新目标\"]}");
+        responses.add("{\"hasNewFacts\":true,\"projectGoals\":[\"新目标\"],\"replacements\":{\"projectGoals\":{\"做阅读笔记工具\":\"新目标\"}},\"evidenceClaims\":[\"用户明确新目标\"]}");
         responses.add(reply(true, "回复", null, "constraints", List.of()));
         int saves = repository.saveCount();
         assertThrows(AiGatewayException.class, () -> useCase.run(ID, "明确新目标"));
@@ -197,7 +197,7 @@ class ConversationalDiscoveryTest {
     void failedAssessmentAfterRetractionCannotMutateLoadedOrPersistedEvidence() {
         UserProfile original = seed();
         responses.add("""
-                {"hasNewFacts":true,"technicalCapabilities":["Python"],"retractedEvidenceIndices":[0],
+                {"hasNewFacts":true,"technicalCapabilities":["Python"],"replacements":{"technicalCapabilities":{"Java接口经验":"Python"}},"retractedEvidenceIndices":[0],
                  "evidenceClaims":["用户纠正为Python"]}
                 """);
         responses.add("不是json");
@@ -214,7 +214,7 @@ class ConversationalDiscoveryTest {
         UserProfile original = seed();
         AiGateway racing = request -> {
             if (request.messages().getFirst().content().contains("hasNewFacts")) {
-                return "{\"hasNewFacts\":true,\"projectGoals\":[\"旧请求目标\"],\"evidenceClaims\":[\"旧请求依据\"]}";
+                return "{\"hasNewFacts\":true,\"projectGoals\":[\"旧请求目标\"],\"replacements\":{\"projectGoals\":{\"做阅读笔记工具\":\"旧请求目标\"}},\"evidenceClaims\":[\"旧请求依据\"]}";
             }
             original.updateConstraints(List.of("并发更新的投入范围"));
             try {

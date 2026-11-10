@@ -2,6 +2,7 @@ package com.ayywl.delveforge.application.userdiscovery.shared;
 
 import com.ayywl.delveforge.domain.user.UserProfile;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -15,8 +16,8 @@ public final class ProfilePromptContext {
     private ProfilePromptContext() {
     }
 
-    public static Map<String, Object> currentContent(UserProfile profile) {
-        Map<String, Object> content = new LinkedHashMap<>();
+    public static Map<String, List<String>> currentContent(UserProfile profile) {
+        Map<String, List<String>> content = new LinkedHashMap<>();
         content.put("interests", profile.interests());
         content.put("behaviors", profile.behaviors());
         content.put("painPoints", profile.painPoints());

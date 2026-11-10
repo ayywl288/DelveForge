@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 把 AI 返回的原始文本解析为 {@link UserProfileProposal}。
@@ -90,6 +91,35 @@ public final class UserProfileProposalParser {
             throw new AiGatewayException("新事实或纠正必须提供本轮输入支持的依据");
         }
         return new TurnProposal(proposal, List.copyOf(retracted));
+    }
+
+    /** 先核对所有分区，再允许候选撤回 Evidence 或更新内容。 */
+    void validateSectionChanges(String raw, Map<String, List<String>> current, String input,
+            List<String> groundedSections) {
+        JsonNode root = reader.read(raw);
+        for (var entry : current.entrySet()) {
+            String field = entry.getKey();
+            List<String> next = section(root, field);
+            if (next == null) {
+                continue;
+            }
+            List<String> before = entry.getValue();
+            List<String> removed = before.stream().filter(value -> !next.contains(value)).toList();
+            List<String> added = next.stream().filter(value -> !before.contains(value)).toList();
+            boolean corrected = groundedSections.contains(field);
+            if ((corrected || !removed.isEmpty()) && added.stream().anyMatch(value -> !input.contains(value))) {
+                throw new AiGatewayException("画像分区 " + field + " 的新条目没有本轮原文依据");
+            }
+            JsonNode replacements = root.path("replacements").path(field);
+            for (String old : removed) {
+                JsonNode target = replacements.path(old);
+                boolean replace = target.isTextual() && added.contains(target.textValue());
+                boolean delete = target.isNull() && input.contains(old);
+                if (!replace && !delete) {
+                    throw new AiGatewayException("画像分区 " + field + " 缺少对既有条目的明确纠正");
+                }
+            }
+        }
     }
 
     public record TurnProposal(UserProfileProposal profile, List<Integer> retractedEvidenceIndices) {

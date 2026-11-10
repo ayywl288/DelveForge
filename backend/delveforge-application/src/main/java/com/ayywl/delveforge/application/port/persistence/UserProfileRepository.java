@@ -68,6 +68,9 @@ public interface UserProfileRepository {
         }
     }
 
+    /** 历史快照里存在当前版本已无条目的分区。只供提取校验，不推定当时的修改人。 */
+    List<String> sectionsWithSupersededItems(UserProfileId id, int revision);
+
     Optional<Sections> findSections(UserProfileId id, int revision);
 
     /**

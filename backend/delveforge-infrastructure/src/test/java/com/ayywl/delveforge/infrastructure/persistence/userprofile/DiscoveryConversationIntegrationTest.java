@@ -10,6 +10,10 @@ import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryConversationService;
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
 import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileExtraction;
+import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileRequest;
+import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.review.ConfirmUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.review.ReopenDiscoveryUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AskDiscoveryQuestionUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AssessProfileSufficiencyUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.DiscoveryQuestions;
@@ -170,7 +174,7 @@ class DiscoveryConversationIntegrationTest {
         JdbcTemplate jdbc = new JdbcTemplate(source);
         jdbc.execute("CREATE TRIGGER conversation_injected_failure BEFORE INSERT ON discovery_message "
                 + "WHEN NEW.profile_id='" + profile.id().value() + "' BEGIN SELECT RAISE(ABORT,'fixture failure'); END");
-        responses.add("{\"hasNewFacts\":true,\"constraints\":[\"每周两小时\"],\"evidenceClaims\":[\"用户每周两小时\"]}");
+        responses.add("{\"hasNewFacts\":true,\"constraints\":[\"每周两小时\"],\"replacements\":{\"constraints\":{\"每周五小时\":\"每周两小时\"}},\"evidenceClaims\":[\"用户每周两小时\"]}");
         responses.add(reply(true, null, null, "NONE", List.of()));
         Command command = command("TURN", "改为每周两小时", profile.revision());
         try {
@@ -188,8 +192,8 @@ class DiscoveryConversationIntegrationTest {
     @Test
     void extractionSuccessAndAssessmentFailureDoNotCommitHalfATurn() {
         UserProfile profile = seed();
-        responses.add("{\"hasNewFacts\":true,\"constraints\":[\"新的范围\"],\"evidenceClaims\":[\"用户修改范围\"]}");
-        Command command = command("TURN", "我想修改投入范围", profile.revision());
+        responses.add("{\"hasNewFacts\":true,\"constraints\":[\"新的范围\"],\"replacements\":{\"constraints\":{\"每周五小时\":\"新的范围\"}},\"evidenceClaims\":[\"用户修改范围\"]}");
+        Command command = command("TURN", "我想修改为新的范围", profile.revision());
         assertThrows(AiGatewayException.class, () -> service(gateway).submit(profile.id(), command));
         assertEquals(profile.revision(), profiles.findById(profile.id()).orElseThrow().revision());
         assertTrue(conversations.history(profile.id(), null).messages().isEmpty());
@@ -282,7 +286,7 @@ class DiscoveryConversationIntegrationTest {
         assertFalse(new AssessProfileSufficiencyUseCase(profiles, new ProfileSufficiencyEvaluator(gateway, json))
                 .assess(profile.id(), 1).sufficient());
         assertEquals(callsBeforeReview, calls.size());
-        responses.add("{\"hasNewFacts\":true,\"projectGoals\":[\"给阅读笔记做全文检索\"],\"evidenceClaims\":[\"用户明确阅读检索目标\"]}");
+        responses.add("{\"hasNewFacts\":true,\"projectGoals\":[\"给阅读笔记做全文检索\"],\"replacements\":{\"projectGoals\":{\"六周做个人阅读笔记接口展示后端能力\":\"给阅读笔记做全文检索\"}},\"evidenceClaims\":[\"用户明确阅读检索目标\"]}");
         responses.add(reply(true, null, null, "NONE", List.of()));
         var result = service(gateway).submit(profile.id(), command("TURN", "具体想给阅读笔记做全文检索", 1));
         assertTrue(result.result().sufficient());
@@ -595,7 +599,7 @@ class DiscoveryConversationIntegrationTest {
         responses.add(reply(false, "你打算先做什么？", "projectGoals", "NONE", List.of()));
         service(gateway).submit(profile.id(), command("QUESTION", null, 1));
         var history = conversations.history(profile.id(), null);
-        responses.add("{\"hasNewFacts\":true,\"constraints\":[\"一小时\"],\"evidenceClaims\":[\"可用一小时\"]}");
+        responses.add("{\"hasNewFacts\":true,\"constraints\":[\"一小时\"],\"replacements\":{\"constraints\":{\"每周五小时\":\"一小时\"}},\"evidenceClaims\":[\"可用一小时\"]}");
         responses.add(reply(false, "你打算先做什么？", "projectGoals", "ANSWERED", List.of()));
         responses.add(reply(false, "另一个问题？", "behaviors", "ASKED", List.of()));
         Command invalid = command("TURN", "我只有一小时，想先试做阅读笔记", 1);
@@ -625,7 +629,7 @@ class DiscoveryConversationIntegrationTest {
         var restarted = new SqliteDiscoveryConversationRepository(source, manager, profiles, json);
         assertNull(restarted.history(profile.id(), null).invitationRequestId());
         assertTrue(restarted.memory(profile.id()).invitationPresented());
-        responses.add("{\"hasNewFacts\":true,\"projectGoals\":[\"给笔记做索引\"],\"evidenceClaims\":[\"用户需要索引\"]}");
+        responses.add("{\"hasNewFacts\":true,\"projectGoals\":[\"给笔记做索引\"],\"replacements\":{\"projectGoals\":{\"六周做个人阅读笔记接口展示后端能力\":\"给笔记做索引\"}},\"evidenceClaims\":[\"用户需要索引\"]}");
         responses.add(reply(true, "搜索时最常记得什么线索？", "behaviors", "ANSWERED", List.of()));
         var later = service(gateway).submit(profile.id(), command("TURN", "需要给笔记做索引", 1));
         assertTrue(later.revision() > 1);
@@ -642,7 +646,7 @@ class DiscoveryConversationIntegrationTest {
         service(gateway).submit(profile.id(), initial);
         assertEquals(initial.requestId(), conversations.history(profile.id(), null).invitationRequestId());
         responses.add("""
-                {"hasNewFacts":true,"projectGoals":["重新考虑方向"],"evidenceClaims":["用户改变目标"]}
+                {"hasNewFacts":true,"projectGoals":["想换方向"],"replacements":{"projectGoals":{"六周做个人阅读笔记接口展示后端能力":"想换方向"}},"evidenceClaims":["用户改变目标"]}
                 """);
         responses.add(reply(false, "新方向中你最想尝试什么？", "projectGoals", "NONE", List.of()));
         var changed = service(gateway).submit(profile.id(), command("TURN", "我想换方向，具体目标还没有想好", 1));
@@ -710,6 +714,104 @@ class DiscoveryConversationIntegrationTest {
         assertEquals("PAUSE", history.messages().getLast().nextAction().name());
         assertNull(history.messages().getLast().question());
         assertTrue(conversations.memory(profile.id()).deferredAreas().isEmpty());
+    }
+
+    @Test
+    void reviewCorrectionsSurviveReopeningAndStaleProposalsButCanBeExplicitlyChanged() throws Exception {
+        var id = seed().id();
+        var service = service(gateway);
+        responses.add("""
+                {"hasNewFacts":true,"constraints":["一个晚上完成"],"replacements":{"constraints":{"每周五小时":"一个晚上完成"}},"evidenceClaims":["用户希望一个晚上完成"]}
+                """);
+        responses.add(reply(true, null, null, "NONE", List.of()));
+        var original = service.submit(id, command("TURN", "我想一个晚上完成", 1));
+        new AssessProfileSufficiencyUseCase(profiles, new ProfileSufficiencyEvaluator(gateway, json))
+                .assess(id, original.revision());
+        var corrected = new UpdateUserProfileUseCase(profiles).update(new UpdateUserProfileRequest(id,
+                List.of("摄影"), null, null, null, null, List.of("约两小时完成"), null, original.revision()));
+        new ConfirmUserProfileUseCase(profiles).confirm(id, corrected.revision());
+        new ReopenDiscoveryUseCase(profiles).reopenDiscovery(id);
+        var revision = profiles.findById(id).orElseThrow().revision();
+        var accepted = conversations.history(id, null);
+        assertTrue(corrected.evidence().stream().anyMatch(e -> e.sourceRef().contains("一个晚上")));
+        String input = "在 README 加一段使用示例，其他边界保持不变";
+        for (var stale : List.of(Map.of("constraints", List.of("一个晚上完成")),
+                Map.of("interests", List.of("阅读")), Map.of("constraints", List.of("约两小时完成", "一个晚上完成")),
+                Map.of("constraints", List.of("使用示例")))) {
+            var proposal = json.valueToTree(stale);
+            var object = (ObjectNode) proposal;
+            object.put("hasNewFacts", true);
+            object.putArray("behaviors").add("补充示例");
+            object.putArray("evidenceClaims").add("需要 README 示例");
+            object.putArray("retractedEvidenceIndices").add(0);
+            if (stale.getOrDefault("constraints", List.of()).contains("一个晚上完成")) {
+                object.putObject("replacements").putObject("constraints").put("约两小时完成", "一个晚上完成");
+            }
+            responses.add(json.writeValueAsString(object));
+            int before = calls.size();
+            var command = command("TURN", input, revision);
+            assertThrows(AiGatewayException.class, () -> service.submit(id, command));
+            assertEquals(before + 1, calls.size());
+            assertEquals("FAILED", service.status(id, command.requestId(), null).state());
+            assertEquals(accepted, conversations.history(id, null));
+            var reloaded = profiles.findById(id).orElseThrow();
+            assertEquals(revision, reloaded.revision());
+            assertEquals(corrected.constraints(), reloaded.constraints());
+            assertEquals(corrected.interests(), reloaded.interests());
+            assertEquals(corrected.evidence(), reloaded.evidence());
+        }
+        responses.add("""
+                {"hasNewFacts":true,"behaviors":["补充 README 使用示例"],"evidenceClaims":["需要 README 示例"]}
+                """);
+        responses.add(reply(true, null, null, "NONE", List.of()));
+        var continued = service.submit(id, command("TURN", input, revision));
+        assertEquals(List.of("约两小时完成"), profiles.findById(id).orElseThrow().constraints());
+        responses.add("""
+                {"hasNewFacts":true,"constraints":["三小时完成"],
+                 "replacements":{"constraints":{"约两小时完成":"三小时完成"}},
+                 "evidenceClaims":["用户明确修改可用时间"]}
+                """);
+        responses.add(reply(true, null, null, "NONE", List.of()));
+        service.submit(id, command("TURN", "现在改成三小时完成", continued.revision()));
+        assertEquals(List.of("三小时完成"), profiles.findById(id).orElseThrow().constraints());
+        assertEquals(List.of("约两小时完成"), profiles.findSections(id, revision).orElseThrow().constraints());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void repeatedReplacementQuestionGetsOnePlanningCorrection(boolean validCorrection) throws Exception {
+        var profile = seed();
+        var service = service(gateway);
+        responses.add(reply(false, "想尝试哪种后端项目？", "projectGoals", "NONE", List.of()));
+        service.submit(profile.id(), command("QUESTION", null, 1));
+        var history = conversations.history(profile.id(), null);
+        String replacement = "上面几类里，哪个最接近你愿意动手做的？如果没有，也可以说说你平时想用程序解决的一个小场景。";
+        var duplicated = (ObjectNode) json.readTree(reply(false, replacement, "behaviors", "REPLACED", List.of()));
+        duplicated.put("assistantReply", "你更愿意做哪一类？或者你生活/学习中有没有想用程序解决的小场景？");
+        String invalid = json.writeValueAsString(duplicated);
+        responses.add("{\"hasNewFacts\":false}");
+        responses.add(invalid);
+        duplicated.put("assistantReply", "为什么从想用程序解决的小场景说起？熟悉的事情更容易举例，例如整理课堂笔记。");
+        responses.add(validCorrection ? json.writeValueAsString(duplicated) : invalid);
+        var turn = command("TURN", "我不知道怎么回答这个问题。", 1);
+        if (validCorrection) {
+            var result = service.submit(profile.id(), turn).result();
+            assertEquals(replacement, result.nextQuestion());
+            assertEquals(duplicated.get("assistantReply").textValue(), result.assistantReply());
+            var saved = conversations.history(profile.id(), null);
+            assertEquals("REPLACED", saved.messages().getFirst().questionState());
+            assertEquals("ASKED", saved.messages().getLast().questionState());
+            assertEquals(result.assistantReply(), saved.messages().getLast().text());
+            assertEquals(replacement, saved.messages().getLast().question());
+            assertTrue(conversations.memory(profile.id()).deferredAreas().isEmpty());
+        } else {
+            assertThrows(AiGatewayException.class, () -> service.submit(profile.id(), turn));
+            assertEquals(history, conversations.history(profile.id(), null));
+            assertEquals("FAILED", service.status(profile.id(), turn.requestId(), null).state());
+            assertEquals(1, profiles.findById(profile.id()).orElseThrow().revision());
+        }
+        assertEquals(4, calls.size());
+        assertTrue(calls.getLast().messages().getLast().content().contains("正文与 nextQuestion 重复提问"));
     }
 
     private UserProfile seed() {

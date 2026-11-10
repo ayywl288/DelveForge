@@ -68,7 +68,13 @@ public final class ProfileExtraction {
 
             规则：
             - 六个内容区表示「建议替换成的新内容」，必须给出该区的完整列表，不是增量。
-              本次不建议修改的区请直接省略，不要输出空数组来清空它。
+              本次不建议修改的区请直接省略。当前画像中的条目是已经接受的内容；历史消息和过去的
+              Evidence 即使与当前条目冲突也不能用于恢复旧值。无关的补充原样保留其他条目。
+            - 变更既有条目时，新值直接摘自 currentUserInput。用 replacements 指明对应关系，
+              例如 {"replacements":{"constraints":{"每周两小时":"每周三小时"}}}。
+              明确要求删除时，旧条目须出现在本轮原文中，对应新值为 null。
+              对于 groundedSections 中的分区，任何新条目都必须直接摘自本轮原文。
+              其他分区的新增事实仍可按原意整理。不要把历史判断写成本轮新依据。
             - 只依据本轮用户输入，以及当前 User Profile 中已经存在的事实。
               不要臆测用户没有表达过的信息，也不要为了填充而编造内容。
             - evidenceClaims 只写本轮用户输入直接支撑的判断，每条一句话。
@@ -133,6 +139,10 @@ public final class ProfileExtraction {
      * @throws AiGatewayException       AI 调用失败，或返回内容无法解析
      */
     public void applyTo(UserProfile candidate, String userInput) {
+        applyTo(candidate, userInput, List.of());
+    }
+
+    public void applyTo(UserProfile candidate, String userInput, List<String> groundedSections) {
         if (candidate == null) {
             throw new IllegalArgumentException("ProfileExtraction 必须指定 candidate");
         }
@@ -145,19 +155,20 @@ public final class ProfileExtraction {
             return;
         }
 
-        UserProfileProposal proposal = proposalParser.parse(
-                aiGateway.generate(buildRequest(candidate, userInput)));
+        String raw = aiGateway.generate(buildRequest(candidate, userInput, groundedSections));
+        UserProfileProposal proposal = proposalParser.parse(raw);
+        proposalParser.validateSectionChanges(raw, ProfilePromptContext.currentContent(candidate), userInput, groundedSections);
 
         applyProposal(candidate, userInput, proposal);
     }
 
     /** 完整对话轮的严格提取；撤回仅作用在候选副本，历史快照不改写。 */
     public void applyTurnTo(UserProfile candidate, String userInput, List<DiscoveryContext.Message> context) {
-        applyTurnTo(candidate, userInput, context, null, List.of());
+        applyTurnTo(candidate, userInput, context, null, List.of(), List.of());
     }
 
     public void applyTurnTo(UserProfile candidate, String userInput, List<DiscoveryContext.Message> context,
-            String pendingQuestion, List<String> deferredAreas) {
+            String pendingQuestion, List<String> deferredAreas, List<String> groundedSections) {
         requireUserInput(userInput);
         String control = userInput.strip().replaceAll("[\\s，。！？,.!?]", "");
         if (Set.of("嗯", "嗯嗯", "呢", "下一个问题是什么", "下一个问题是啥", "下一个问题",
@@ -168,6 +179,7 @@ public final class ProfileExtraction {
         payload.put("currentUserProfile", ProfilePromptContext.currentContent(candidate));
         payload.put("currentEvidence", candidate.evidence());
         payload.put("currentUserInput", userInput);
+        payload.put("groundedSections", groundedSections);
         payload.put("pendingQuestion", pendingQuestion);
         payload.put("deferredAreas", deferredAreas);
         String content;
@@ -176,9 +188,10 @@ public final class ProfileExtraction {
         } catch (JsonProcessingException exception) {
             throw new AiGatewayException("无法构造提取请求", exception);
         }
-        UserProfileProposalParser.TurnProposal turn = proposalParser.parseTurn(aiGateway.generate(
-                DiscoveryContext.request(SYSTEM_INSTRUCTION + TURN_INSTRUCTION, context, content, AiRequest.Thinking.DISABLED)),
-                candidate.evidence().size());
+        String raw = aiGateway.generate(
+                DiscoveryContext.request(SYSTEM_INSTRUCTION + TURN_INSTRUCTION, context, content, AiRequest.Thinking.DISABLED));
+        UserProfileProposalParser.TurnProposal turn = proposalParser.parseTurn(raw, candidate.evidence().size());
+        proposalParser.validateSectionChanges(raw, ProfilePromptContext.currentContent(candidate), userInput, groundedSections);
         List<Evidence> originalEvidence = candidate.evidence();
         for (int index : turn.retractedEvidenceIndices()) {
             candidate.retractEvidence(originalEvidence.get(index));
@@ -201,8 +214,8 @@ public final class ProfileExtraction {
         }
     }
 
-    private AiRequest buildRequest(UserProfile profile, String userInput) {
-        return DiscoveryContext.request(SYSTEM_INSTRUCTION, List.of(), describeContext(profile, userInput),
+    private AiRequest buildRequest(UserProfile profile, String userInput, List<String> groundedSections) {
+        return DiscoveryContext.request(SYSTEM_INSTRUCTION, List.of(), describeContext(profile, userInput, groundedSections),
                 AiRequest.Thinking.DISABLED);
     }
 
@@ -212,10 +225,11 @@ public final class ProfileExtraction {
      * <p>Profile 以结构化数据给出，而不是把领域对象直接序列化：模型看到的是内容本身，
      * 不依赖领域类的字段形状。
      */
-    private String describeContext(UserProfile profile, String userInput) {
+    private String describeContext(UserProfile profile, String userInput, List<String> groundedSections) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("currentUserProfile", ProfilePromptContext.currentContent(profile));
         payload.put("currentUserInput", userInput);
+        payload.put("groundedSections", groundedSections);
 
         try {
             return objectMapper.writeValueAsString(payload);

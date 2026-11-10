@@ -66,6 +66,34 @@ class CodingAgentApiTest {
     }
 
     @Test
+    void deliveryReadDistinguishesAbsentRecordFromUnknownCandidateAndRestoresTransitions() {
+        String id = UUID.randomUUID().toString();
+        var jdbc = new JdbcTemplate(source);
+        String url = "/api/agent-candidates/" + id + "/delivery";
+        assertEquals(HttpStatus.NOT_FOUND, http.getForEntity(url, String.class).getStatusCode());
+        String baseline = "a".repeat(40);
+        String tree = "b".repeat(40);
+        jdbc.update("""
+                INSERT INTO agent_candidate(id,run_id,baseline,expected_tree,diff,sha256,changed_paths,test_evidence,created_at)
+                VALUES(?,?,?,?,?,?,'["README.md"]','{}',?)
+                """, id, id, baseline, tree, "diff".getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                com.ayywl.delveforge.domain.agent.Candidate.digest("diff"), Instant.now().toString());
+        var empty = http.getForEntity(url, String.class);
+        assertEquals(HttpStatus.OK, empty.getStatusCode());
+        assertEquals("application/json", empty.getHeaders().getContentType().toString());
+        assertEquals("null", empty.getBody());
+        jdbc.update("""
+                INSERT INTO candidate_delivery(candidate_id,run_id,plan_id,step_id,working_copy_id,baseline,
+                    expected_tree,location,original_location,state,created_at) VALUES(?,?,'p','s',?,?,?,'w','o','INTENT',?)
+                """, id, id, id, baseline, tree, Instant.now().toString());
+        assertEquals("INTENT", http.getForObject(url, com.fasterxml.jackson.databind.JsonNode.class).path("state").asText());
+        jdbc.update("UPDATE candidate_delivery SET state='COMPLETED',revision=?,occupied=0 WHERE candidate_id=?", tree, id);
+        var completed = http.getForObject(url, com.fasterxml.jackson.databind.JsonNode.class);
+        assertEquals("COMPLETED", completed.path("state").asText());
+        assertEquals(id, completed.path("candidateId").asText());
+    }
+
+    @Test
     void retainedLogsArePagedAsJsonWithoutRequiringALiveSandbox() throws Exception {
         String run = UUID.randomUUID().toString();
         String invocation = UUID.randomUUID().toString();

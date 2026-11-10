@@ -73,6 +73,51 @@ function savedCandidate(id = "candidate-1", runId = "run-1"): AgentCandidate {
     createdAt: running().startedAt };
 }
 
+it.each(["malformed", "network"])("reads a frozen Candidate independently of Delivery (%s)", async failure => {
+  const frozen: AgentRun = { ...running(), state: "SUCCEEDED", candidateId: "candidate-1" };
+  vi.spyOn(api, "candidate").mockResolvedValue(savedCandidate());
+  let body = "null";
+  let offline = false;
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (!url.endsWith("/delivery")) return new Response("diff --git a/example b/example");
+    if (offline) throw new TypeError("offline");
+    return new Response(body, { headers: { "Content-Type": "application/json" } });
+  }));
+  const { root, s } = mount([frozen]);
+  await settle();
+  expect(root.textContent).toContain("等待自动交付");
+  expect(root.querySelector(".final-file-list")?.textContent).toContain("candidate-1.java");
+  expect(root.textContent).not.toContain("连接中断或响应无法读取");
+  body = failure === "malformed" ? "{" : "null";
+  offline = failure === "network";
+  button(root, "刷新记录").click(); await settle();
+  expect(root.textContent).toContain("连接中断或响应无法读取");
+  expect(root.querySelector(".final-file-list")?.textContent).toContain("candidate-1.java");
+  offline = false;
+  body = JSON.stringify({ candidateId: "candidate-1", state: "INTENT", revision: null });
+  button(root, "刷新记录").click(); await settle();
+  expect(root.textContent).toContain("交付意图已保存");
+  expect(root.textContent).not.toContain("连接中断或响应无法读取");
+  body = JSON.stringify({ candidateId: "candidate-1", state: "COMPLETED", revision: "c".repeat(40) });
+  s.plan!.steps[0]!.status = "SUCCEEDED";
+  s.plan!.steps[0]!.deliveryRevision = "c".repeat(40);
+  button(root, "刷新记录").click(); await settle();
+  expect(root.textContent).toContain("正式交付已完成");
+  expect(root.querySelector(".run-choice-heading")?.textContent).toContain("步骤已完成");
+});
+
+it("refreshes an unselected history row whose automatic Delivery was previously absent", async () => {
+  const historical = { ...running(), id: "old-run", state: "SUCCEEDED" as const, candidateId: "old-candidate" };
+  const read = vi.spyOn(api, "delivery").mockResolvedValue(null);
+  const { root } = mount([running(), historical]); await settle();
+  const row = () => root.querySelectorAll(".run-choice-heading")[1]?.textContent;
+  expect(row()).toContain("候选已冻结，等待交付");
+  read.mockResolvedValue({ candidateId: "old-candidate", state: "COMPLETED", revision: "c".repeat(40), reason: null });
+  button(root, "刷新记录").click(); await settle();
+  expect(row()).toContain("步骤已完成");
+  expect(read).toHaveBeenCalledTimes(2);
+});
+
 it("submits explicitly selected check directories only after the existing paid confirmation", async () => {
   const start = vi.spyOn(api, "startAgent").mockResolvedValue(running());
   const { root, s } = mount();
@@ -570,7 +615,7 @@ it.each([
     expect(badge.closest("details")).toBeNull();
     expect(root.querySelector(".developer-details")?.textContent).not.toContain("运行状态");
     const summary = root.querySelector(".run-summary");
-    if (state === "SUCCEEDED") expect(summary?.textContent).toContain("等待正式交付确认");
+    if (state === "SUCCEEDED") expect(summary?.textContent).toContain("系统正在处理自动交付");
     if (["FAILED", "CANCELLED", "INTERRUPTED"].includes(state)) expect(summary?.textContent).toContain("本次编码未交付");
     expect(start).not.toHaveBeenCalled();
   });

@@ -86,6 +86,11 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
     }
 
     @Override
+    public List<String> sectionsWithSupersededItems(UserProfileId id, int revision) {
+        return sectionItemMapper.sectionsWithSupersededItems(id.value(), revision);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Optional<Sections> findSections(UserProfileId id, int revision) {
         if (revisionMapper.count(id.value(), revision) == 0) {

@@ -37,7 +37,7 @@ export function presentRun(run: AgentRun, delivery?: Delivery | null): RunPresen
         if (accepted && ["DELIVERY_BLOCKED", "RECOVERY_REQUIRED"].includes(accepted.state)) {
             return { label: "交付受阻", detail: "编码结果已保留，正式副本需要核对后才能继续。", tone: "blocked" };
         }
-        return { label: "候选已冻结，等待交付", detail: "编码已完成，正在等待正式交付确认。", tone: "recorded" };
+        return { label: "候选已冻结，等待交付", detail: "编码已完成，系统正在处理自动交付。", tone: "recorded" };
     }
     return { label: ({ CREATED: "已预约", PREPARING: "准备沙箱", RUNNING: "编码中", FINALIZING: "正在保存编码结果" })[run.state],
         detail: "", tone: "recorded" };

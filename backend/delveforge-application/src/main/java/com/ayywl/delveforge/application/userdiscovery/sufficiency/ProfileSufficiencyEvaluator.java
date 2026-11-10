@@ -140,7 +140,7 @@ public final class ProfileSufficiencyEvaluator {
             ANSWERED（实质回答）、DEFERRED（明确跳过）、REPLACED（有意换题或目标已变）或 ASKED（仍待回答）。
             用户问为何时先解释并保留原问。不知道不是拒绝，可以给例子、缩小原问或用更容易的问题替换。
             nextAction 通常选 ASK，只在 nextQuestion 放一个自然且未问过的具体问题（最多512字符），
-            不在回复中重复它。questionArea 从 interests/behaviors/painPoints/technicalCapabilities/
+            assistantReply 只承接、解释或举例；即使换一种措辞，也不要让用户在正文中先回答同一个问题。questionArea 从 interests/behaviors/painPoints/technicalCapabilities/
             projectGoals/constraints/evidence/exploration 中选择。ASK 不得留下另一个 ASKED。
             KEEP_PENDING 表示只回应原问，PAUSE 用于用户主动暂停或展示审阅选择，二者的问题和维度都填 null。
             用户明确要求暂停时尊重意愿，不编造答案。questionRequired=true 时用户主动索取新问题，必须 ASK。
@@ -150,6 +150,7 @@ public final class ProfileSufficiencyEvaluator {
             若 invitationPresented=false 且首次充分、没有未解决的问题、questionRequired=false，
             请自然回应，使用 PAUSE，界面会同时提供审阅和继续探索两个选择。
             若上一个问题仍未解决，先保留它，推迟邀请。在已邀请后继续正常提问。
+            当前画像中的修订优先于过往 Evidence 和历史对话。旧依据只描述当时的输入。
             """;
 
     private final AiGateway aiGateway;
@@ -255,6 +256,7 @@ public final class ProfileSufficiencyEvaluator {
                 .forEach(deferred::add);
         if (action == DialogueAction.ASK) {
             DiscoveryQuestions.requireNewQuestion(proposal.nextQuestion(), memory.questions());
+            DiscoveryQuestions.requireDistinctFollowUp(proposal.assistantReply(), proposal.nextQuestion());
             if (deferred.contains(proposal.questionArea())) {
                 throw new AiGatewayException("该维度已跳过，请选择其他相关问题");
             }

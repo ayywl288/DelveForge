@@ -146,7 +146,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         String id = createProfile();
         given(aiGateway.generate(any())).willReturn(
                 EXTRACTION_RESPONSE, INSUFFICIENT_RESPONSE,
-                "{\"hasNewFacts\":true,\"technicalCapabilities\":[\"Java\"],\"evidenceClaims\":[\"用户主要使用Java\"]}", SUFFICIENT_RESPONSE.replace("NONE", "ANSWERED"));
+                "{\"hasNewFacts\":true,\"technicalCapabilities\":[\"Java\"],\"replacements\":{\"technicalCapabilities\":{\"Java图像处理\":\"Java\"}},\"evidenceClaims\":[\"用户主要使用Java\"]}", SUFFICIENT_RESPONSE.replace("NONE", "ANSWERED"));
 
         String nextQuestion = objectMapper.readTree(
                         mockMvc.perform(turn(id, USER_INPUT))

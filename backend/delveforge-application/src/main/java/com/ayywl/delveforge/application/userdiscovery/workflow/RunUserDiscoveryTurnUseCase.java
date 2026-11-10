@@ -120,7 +120,8 @@ public class RunUserDiscoveryTurnUseCase {
         // 这道约束只属于「整轮」入口 —— ExploreUserProfileUseCase 保持原有行为不变。
         candidate.requireExplorationAllowed();
 
-        profileExtraction.applyTurnTo(candidate, userInput, context);
+        profileExtraction.applyTurnTo(candidate, userInput, context, null, List.of(),
+                userProfileRepository.sectionsWithSupersededItems(userProfileId, expected.revision()));
         SufficiencyAssessment sufficiency =
                 profileSufficiencyEvaluator.evaluateTurn(candidate, userInput, questions, context);
 
@@ -136,7 +137,8 @@ public class RunUserDiscoveryTurnUseCase {
         ProfileExtraction.requireUserInput(input);
         UserProfile candidate = UserProfileCandidates.copyOf(expected);
         candidate.requireExplorationAllowed();
-        profileExtraction.applyTurnTo(candidate, input, memory.history(), memory.unansweredQuestion(), memory.deferredAreas());
+        profileExtraction.applyTurnTo(candidate, input, memory.history(), memory.unansweredQuestion(), memory.deferredAreas(),
+                userProfileRepository.sectionsWithSupersededItems(expected.id(), expected.revision()));
         var established = candidate.revision() == expected.revision() ? readiness : null;
         SufficiencyAssessment result = profileSufficiencyEvaluator.evaluateRemembered(
                 candidate, input, memory, established, false);

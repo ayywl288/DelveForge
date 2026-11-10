@@ -3,9 +3,13 @@ package com.ayywl.delveforge.application.userdiscovery.shared;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
+
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeSet;
+import java.util.function.Function;
 
 /**
  * {@link UserProfileRepository} 的测试替身。
@@ -28,6 +32,27 @@ public final class InMemoryUserProfileRepository implements UserProfileRepositor
     @Override
     public Optional<Sections> findSections(UserProfileId id, int revision) {
         return Optional.ofNullable(revisions.getOrDefault(id, Map.of()).get(revision));
+    }
+
+    @Override
+    public List<String> sectionsWithSupersededItems(UserProfileId id, int revision) {
+        var snapshots = revisions.getOrDefault(id, Map.of());
+        Sections current = snapshots.get(revision);
+        if (current == null) {
+            return List.of();
+        }
+        Map<String, Function<Sections, List<String>>> fields = Map.of(
+                "interests", Sections::interests, "behaviors", Sections::behaviors,
+                "painPoints", Sections::painPoints, "technicalCapabilities", Sections::technicalCapabilities,
+                "projectGoals", Sections::projectGoals, "constraints", Sections::constraints);
+        var changed = new TreeSet<String>();
+        fields.forEach((field, values) -> {
+            if (snapshots.entrySet().stream().anyMatch(entry -> entry.getKey() < revision
+                    && !values.apply(current).containsAll(values.apply(entry.getValue())))) {
+                changed.add(field);
+            }
+        });
+        return List.copyOf(changed);
     }
 
     private int saveCount;

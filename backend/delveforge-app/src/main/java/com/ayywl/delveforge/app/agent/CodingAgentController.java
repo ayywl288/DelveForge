@@ -24,6 +24,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** 本机开发调用面；提供受控 Agent、冻结结果与确定性交付入口。 */
 @RestController
@@ -74,9 +75,10 @@ public class CodingAgentController {
         return service.readLog(id, invocationId, stream, offset, limit);
     }
 
-    @GetMapping("/api/agent-candidates/{id}/delivery")
-    public Delivery delivery(@PathVariable String id) {
-        return delivery.get(id);
+    @GetMapping(value = "/api/agent-candidates/{id}/delivery", produces = "application/json")
+    public Optional<Delivery> delivery(@PathVariable String id) {
+        // 空 Optional 仍经 JSON 转换器写出 null，避免 Spring 把 Java null 作为空响应体。
+        return Optional.ofNullable(delivery.get(id));
     }
 
     @PostMapping("/api/agent-candidates/{id}/delivery")
