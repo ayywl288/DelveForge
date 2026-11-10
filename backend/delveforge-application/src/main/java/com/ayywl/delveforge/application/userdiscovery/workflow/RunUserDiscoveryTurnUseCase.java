@@ -5,6 +5,7 @@ import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRe
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
 import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileExtraction;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdateProposal;
 import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoundException;
 import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.ayywl.delveforge.application.userdiscovery.shared.UserProfileCandidates;
@@ -120,29 +121,38 @@ public class RunUserDiscoveryTurnUseCase {
         // 这道约束只属于「整轮」入口 —— ExploreUserProfileUseCase 保持原有行为不变。
         candidate.requireExplorationAllowed();
 
-        profileExtraction.applyTurnTo(candidate, userInput, context, null, List.of(),
-                userProfileRepository.sectionsWithSupersededItems(userProfileId, expected.revision()));
+        var update = profileExtraction.applyTurnTo(candidate, userInput, context, null, List.of(),
+                userProfileRepository.protectedSections(userProfileId));
+        ProfileUpdateProposal proposal = update.approvalRequired()
+                ? ProfileUpdateProposal.pending(expected, java.util.UUID.randomUUID().toString(), null, userInput, update) : null;
         SufficiencyAssessment sufficiency =
-                profileSufficiencyEvaluator.evaluateTurn(candidate, userInput, questions, context);
+                profileSufficiencyEvaluator.evaluateTurn(candidate, userInput, questions, context, proposal != null);
 
         // 一轮只保存一次：整轮成功后写入，因此任何一步失败都不会留下半轮结果。
-        userProfileRepository.saveWithSufficiency(candidate, expected, sufficiency.sufficient());
-        return new UserDiscoveryTurn(candidate, sufficiency);
+        userProfileRepository.saveExtractionWithSufficiency(candidate, expected, proposal, sufficiency.sufficient());
+        return new UserDiscoveryTurn(candidate, sufficiency, proposal);
     }
 
-    /** 只形成候选，由对话提交端口原子保存 Profile、消息和请求结果。 */
+    /** 只形成候选，模型请求不持有数据库事务；最终提交由持久对话端口完成。 */
     public UserDiscoveryTurn prepare(UserProfile expected, String input,
-            DiscoveryConversationRepository.Memory memory,
-            DiscoveryReadiness readiness) {
+            DiscoveryConversationRepository.Memory memory, DiscoveryReadiness readiness) {
+        return prepare(expected, input, memory, readiness, java.util.UUID.randomUUID().toString(), null);
+    }
+
+    public UserDiscoveryTurn prepare(UserProfile expected, String input,
+            DiscoveryConversationRepository.Memory memory, DiscoveryReadiness readiness,
+            String requestId, String projectId) {
         ProfileExtraction.requireUserInput(input);
         UserProfile candidate = UserProfileCandidates.copyOf(expected);
         candidate.requireExplorationAllowed();
-        profileExtraction.applyTurnTo(candidate, input, memory.history(), memory.unansweredQuestion(), memory.deferredAreas(),
-                userProfileRepository.sectionsWithSupersededItems(expected.id(), expected.revision()));
+        var update = profileExtraction.applyTurnTo(candidate, input, memory.history(), memory.unansweredQuestion(),
+                memory.deferredAreas(), userProfileRepository.protectedSections(expected.id()));
+        ProfileUpdateProposal proposal = update.approvalRequired()
+                ? ProfileUpdateProposal.pending(expected, requestId, projectId, input, update) : null;
         var established = candidate.revision() == expected.revision() ? readiness : null;
         SufficiencyAssessment result = profileSufficiencyEvaluator.evaluateRemembered(
-                candidate, input, memory, established, false);
-        return new UserDiscoveryTurn(candidate, result);
+                candidate, input, memory, established, false, proposal != null);
+        return new UserDiscoveryTurn(candidate, result, proposal);
     }
 
 }

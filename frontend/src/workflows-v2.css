@@ -198,3 +198,35 @@
     .dossier-overview .repository-capabilities { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--line); }
     .dossier-masthead .explorer-heading > .tag { margin-left: 0; }
 }
+
+
+.profile-update-card {
+  flex: 0 0 auto;
+  align-self: stretch;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.profile-update-card h3 { margin: 0 0 8px; }
+.profile-update-card > p { margin: 0 0 20px; }
+.profile-update-section { margin: 0 0 20px; }
+.profile-update-section h4 { margin: 0 0 8px; }
+.profile-update-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.profile-update-comparison > div { min-width: 0; }
+.profile-update-comparison strong { font-size: 0.875rem; }
+.profile-update-comparison ul { margin: 8px 0 0; padding-left: 20px; }
+.profile-update-comparison li + li { margin-top: 4px; }
+.profile-update-comparison p { margin: 8px 0 0; }
+.profile-update-card .action-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .profile-update-card { padding: 16px; }
+  .profile-update-card > p, .profile-update-section { margin-bottom: 16px; }
+  .profile-update-comparison { gap: 12px; }
+  .profile-update-card .action-row > button { min-height: 44px; }
+}

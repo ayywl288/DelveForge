@@ -9,6 +9,8 @@ import com.ayywl.delveforge.application.port.persistence.ProjectContextRepositor
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.project.ProjectFlowContext;
 import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileExtraction;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdatePolicy;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdateProposal;
 import com.ayywl.delveforge.application.userdiscovery.shared.UserProfileCandidates;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.AskDiscoveryQuestionUseCase;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
@@ -80,15 +82,17 @@ public final class DiscoveryConversationService {
             }
             UserProfile candidate;
             SufficiencyAssessment result;
+            ProfileUpdateProposal proposal = null;
             if ("TURN".equals(command.kind())) {
-                UserDiscoveryTurn turn = turns.prepare(expected, command.input(), memory, readiness);
+                UserDiscoveryTurn turn = turns.prepare(expected, command.input(), memory, readiness, requestId, command.projectId());
                 candidate = turn.profile();
                 result = turn.sufficiency();
+                proposal = turn.proposal();
             } else {
                 candidate = UserProfileCandidates.copyOf(expected);
                 result = questions.prepare(candidate, memory, readiness);
             }
-            return conversations.complete(expected, candidate, command, result);
+            return conversations.complete(expected, candidate, command, result, proposal);
         } catch (RuntimeException failure) {
             try {
                 conversations.fail(id, requestId);
@@ -115,6 +119,27 @@ public final class DiscoveryConversationService {
         requireProject(id, projectId);
         return conversations.operation(id, requestId).orElse(
                 new Operation(requestId, null, projectId, null, "NOT_FOUND", null, null));
+    }
+
+    /** 显式用户动作，只读取服务器快照；不会重新调用提取或规划。 */
+    public ProfileUpdateProposal resolveProfileUpdate(UserProfileId id, String proposalId, boolean accept, String projectId) {
+        requireProject(id, projectId);
+        ProjectFlowContext.requireId(proposalId);
+        UserProfile expected = UserProfileCandidates.loadCopy(profiles, id);
+        ProfileUpdateProposal proposal = profiles.profileUpdate(id, proposalId)
+                .orElseThrow(() -> new UserProfileStateException("画像更新提案不存在，请重新读取"));
+        if (!"PENDING".equals(proposal.state())) {
+            return proposal;
+        }
+        boolean stale = expected.revision() != proposal.baseRevision()
+                || !expected.status().name().equals(proposal.baseStatus());
+        UserProfile candidate = UserProfileCandidates.copyOf(expected);
+        if (accept && !stale) {
+            ProfileUpdatePolicy.apply(candidate, new ProfileUpdatePolicy.Update(
+                    proposal.proposedSections(), proposal.evidenceClaims(), true), proposal.userInput());
+        }
+        return profiles.resolveProfileUpdate(candidate, expected, proposalId,
+                stale ? "SUPERSEDED" : accept ? "ACCEPTED" : "DISMISSED");
     }
 
     private void requireProject(UserProfileId id, String projectId) {

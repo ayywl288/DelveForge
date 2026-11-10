@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.application.port.persistence;
 
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdateProposal;
 import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.DialogueAction;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
@@ -18,14 +19,18 @@ public interface DiscoveryConversationRepository {
     }
 
     record Operation(String requestId, String kind, String projectId, String fingerprint, String state,
-            Integer revision, SufficiencyAssessment result) {
+            Integer revision, SufficiencyAssessment result, ProfileUpdateProposal proposal) {
+        public Operation(String requestId, String kind, String projectId, String fingerprint, String state,
+                Integer revision, SufficiencyAssessment result) {
+            this(requestId, kind, projectId, fingerprint, state, revision, result, null);
+        }
     }
 
     record Message(long sequence, String requestId, String role, String text, String question,
             String area, String questionState, Instant createdAt, String projectId, DialogueAction nextAction) {
     }
 
-    record History(List<Message> messages, Long before, String pendingRequestId, String unansweredQuestion, String invitationRequestId) {
+    record History(List<Message> messages, Long before, String pendingRequestId, String unansweredQuestion, String invitationRequestId, ProfileUpdateProposal pendingProposal) {
     }
 
     record Topic(String area, String question, String state) {
@@ -40,8 +45,12 @@ public interface DiscoveryConversationRepository {
     Operation begin(UserProfile expected, Command command, String fingerprint);
 
     /** 返回已记录结果；与画像、问答和当前版本充分性处于同一提交事务。 */
+    default Operation complete(UserProfile expected, UserProfile candidate, Command command, SufficiencyAssessment result) {
+        return complete(expected, candidate, command, result, null);
+    }
+
     Operation complete(UserProfile expected, UserProfile candidate, Command command,
-            SufficiencyAssessment result);
+            SufficiencyAssessment result, ProfileUpdateProposal proposal);
 
     void fail(UserProfileId id, String requestId);
 

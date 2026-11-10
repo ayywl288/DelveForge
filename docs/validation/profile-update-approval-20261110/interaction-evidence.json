@@ -1,0 +1,1177 @@
+{
+  "provider": "local deterministic HTTP fixture",
+  "widths": [
+    1440,
+    390
+  ],
+  "checks": [
+    "pending 1440 keeps accepted revision",
+    "pending 1440 stores a server proposal",
+    "pending 1440 says unapplied",
+    "pending 1440 disables sending",
+    "pending-1440 has no horizontal overflow",
+    "pending-1440 has no browser script errors",
+    "refresh 1440 makes no model calls",
+    "refresh 1440 restores the exact proposal",
+    "restored-1440 has no horizontal overflow",
+    "restored-1440 has no browser script errors",
+    "keyboard 1440 reaches dismiss",
+    "Pointer reaches 接受更新 at 1440",
+    "accept 1440 applies the shown whole update",
+    "accept 1440 preserves unresolved question",
+    "accept 1440 makes no model calls",
+    "Pointer reaches 画像审阅 at 1440",
+    "review 1440 navigation keeps EXPLORING",
+    "review 1440 navigation makes no model calls",
+    "accepted-review-1440 has no horizontal overflow",
+    "accepted-review-1440 has no browser script errors",
+    "Pointer reaches 本次对话 at 1440",
+    "Pointer reaches 忽略并继续 at 1440",
+    "dismiss 1440 keeps revision and accepted values",
+    "dismiss 1440 makes no model calls",
+    "Pointer reaches 去画像审阅中编辑 at 1440",
+    "Pointer reaches 保存纠正 at 1440",
+    "manual 1440 edits while exploring",
+    "manual 1440 supersedes pending approval",
+    "manual 1440 makes no model calls",
+    "manual-review-1440 has no horizontal overflow",
+    "manual-review-1440 has no browser script errors",
+    "Pointer reaches 本次对话 at 1440",
+    "manual 1440 removes stale proposal from chat",
+    "pending 390 keeps accepted revision",
+    "pending 390 stores a server proposal",
+    "pending 390 says unapplied",
+    "pending 390 disables sending",
+    "pending-390 has no horizontal overflow",
+    "pending-390 has no browser script errors",
+    "refresh 390 makes no model calls",
+    "refresh 390 restores the exact proposal",
+    "restored-390 has no horizontal overflow",
+    "restored-390 has no browser script errors",
+    "keyboard 390 reaches dismiss",
+    "Pointer reaches 接受更新 at 390",
+    "accept 390 applies the shown whole update",
+    "accept 390 preserves unresolved question",
+    "accept 390 makes no model calls",
+    "Pointer reaches 画像审阅 at 390",
+    "review 390 navigation keeps EXPLORING",
+    "review 390 navigation makes no model calls",
+    "accepted-review-390 has no horizontal overflow",
+    "accepted-review-390 has no browser script errors",
+    "Pointer reaches 本次对话 at 390",
+    "Pointer reaches 忽略并继续 at 390",
+    "dismiss 390 keeps revision and accepted values",
+    "dismiss 390 makes no model calls",
+    "Pointer reaches 去画像审阅中编辑 at 390",
+    "Pointer reaches 保存纠正 at 390",
+    "manual 390 edits while exploring",
+    "manual 390 supersedes pending approval",
+    "manual 390 makes no model calls",
+    "manual-review-390 has no horizontal overflow",
+    "manual-review-390 has no browser script errors",
+    "Pointer reaches 本次对话 at 390",
+    "manual 390 removes stale proposal from chat"
+  ],
+  "modelCallsDuringCompletedRun": 14,
+  "stats": {
+    "modelCalls": 38,
+    "apiCalls": [
+      {
+        "method": "GET",
+        "path": "/api/system/connectivity"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75"
+      },
+      {
+        "method": "POST",
+        "path": "/api/projects"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/projects/c2338177-014c-4e91-85f1-bfd3139af418/context"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75/discovery-question"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3Ac2338177-014c-4e91-85f1-bfd3139af418"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/c2338177-014c-4e91-85f1-bfd3139af418/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3Ac2338177-014c-4e91-85f1-bfd3139af418"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/c2338177-014c-4e91-85f1-bfd3139af418/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75/conversation"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75/profile-updates/63275bdf-d599-49c6-9692-c96c46d6225f/accept"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/c9a493eb-3361-4229-937e-0e5117433a75/review-readiness"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31"
+      },
+      {
+        "method": "POST",
+        "path": "/api/projects"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/projects/2ed8695a-01d7-4b6d-a478-0128311092a6/context"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/discovery-question"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A2ed8695a-01d7-4b6d-a478-0128311092a6"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/2ed8695a-01d7-4b6d-a478-0128311092a6/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A2ed8695a-01d7-4b6d-a478-0128311092a6"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/2ed8695a-01d7-4b6d-a478-0128311092a6/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/conversation"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/profile-updates/5fb95581-f0fb-4c82-82aa-8992c8213231/accept"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A2ed8695a-01d7-4b6d-a478-0128311092a6"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/2ed8695a-01d7-4b6d-a478-0128311092a6/rounds"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/profile-updates/55d94698-d77c-4c97-8113-f5644ecfac81/dismiss"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A2ed8695a-01d7-4b6d-a478-0128311092a6"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/1fb7a28e-69bc-4e01-8750-239ae2f65b31/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/2ed8695a-01d7-4b6d-a478-0128311092a6/rounds"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7"
+      },
+      {
+        "method": "POST",
+        "path": "/api/projects"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/projects/2fc54dc9-65fd-4699-b21e-cc37dcbcbb41/context"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/discovery-question"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A2fc54dc9-65fd-4699-b21e-cc37dcbcbb41"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/2fc54dc9-65fd-4699-b21e-cc37dcbcbb41/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A2fc54dc9-65fd-4699-b21e-cc37dcbcbb41"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/2fc54dc9-65fd-4699-b21e-cc37dcbcbb41/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/conversation"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/profile-updates/548d8b73-99ca-415c-aacd-97a72ad07550/accept"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A2fc54dc9-65fd-4699-b21e-cc37dcbcbb41"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/2fc54dc9-65fd-4699-b21e-cc37dcbcbb41/rounds"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/profile-updates/8529b366-5c7c-4301-ad2d-39525973565e/dismiss"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A2fc54dc9-65fd-4699-b21e-cc37dcbcbb41"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/2fc54dc9-65fd-4699-b21e-cc37dcbcbb41/rounds"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/conversation"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/projects/2fc54dc9-65fd-4699-b21e-cc37dcbcbb41/context"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/015c35b8-24ba-4be3-a13b-4f8c648668d7/profile-updates/2c813852-3056-45bb-94d4-ff601542176c/accept"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540"
+      },
+      {
+        "method": "POST",
+        "path": "/api/projects"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/projects/469c65a7-f0f0-4942-b208-595a9c16d75c/context"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/discovery-question"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A469c65a7-f0f0-4942-b208-595a9c16d75c"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/469c65a7-f0f0-4942-b208-595a9c16d75c/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A469c65a7-f0f0-4942-b208-595a9c16d75c"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/469c65a7-f0f0-4942-b208-595a9c16d75c/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/conversation"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/profile-updates/a998b375-a49b-4159-96f6-68ef531962cf/accept"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A469c65a7-f0f0-4942-b208-595a9c16d75c"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/469c65a7-f0f0-4942-b208-595a9c16d75c/rounds"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/profile-updates/7d13b266-0e52-4941-a45e-ddefc3e74473/dismiss"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A469c65a7-f0f0-4942-b208-595a9c16d75c"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/469c65a7-f0f0-4942-b208-595a9c16d75c/rounds"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/conversation"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/projects/469c65a7-f0f0-4942-b208-595a9c16d75c/context"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/4bc4f84a-48b7-4ca3-9eed-d3ef801f0540/profile-updates/f2020d3e-018c-46ff-bff8-dc4a32490891/accept"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb"
+      },
+      {
+        "method": "POST",
+        "path": "/api/projects"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/projects/1c7a07c5-db7a-4191-84c7-3fb370850255/context"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/discovery-question"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A1c7a07c5-db7a-4191-84c7-3fb370850255"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/1c7a07c5-db7a-4191-84c7-3fb370850255/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A1c7a07c5-db7a-4191-84c7-3fb370850255"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/1c7a07c5-db7a-4191-84c7-3fb370850255/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/conversation"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/profile-updates/39657c50-db23-4d3a-a7ac-41db665db7cf/accept"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A1c7a07c5-db7a-4191-84c7-3fb370850255"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/1c7a07c5-db7a-4191-84c7-3fb370850255/rounds"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/profile-updates/fa7bf1d2-6604-4acd-9445-db00fc077a59/dismiss"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A1c7a07c5-db7a-4191-84c7-3fb370850255"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/1c7a07c5-db7a-4191-84c7-3fb370850255/rounds"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/conversation"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/projects/1c7a07c5-db7a-4191-84c7-3fb370850255/context"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/5b8cf03f-264b-46ca-9bb5-818a967e90eb/profile-updates/f09992dd-4eba-4a54-8535-4988a9ab383d/accept"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9"
+      },
+      {
+        "method": "POST",
+        "path": "/api/projects"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/projects/0d8ef02c-81cc-4869-af38-9acef234ae77/context"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/discovery-question"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A0d8ef02c-81cc-4869-af38-9acef234ae77"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/0d8ef02c-81cc-4869-af38-9acef234ae77/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A0d8ef02c-81cc-4869-af38-9acef234ae77"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/0d8ef02c-81cc-4869-af38-9acef234ae77/rounds"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/conversation"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/profile-updates/964094c6-4f02-43b3-b1e8-82123eb7353a/accept"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A0d8ef02c-81cc-4869-af38-9acef234ae77"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/0d8ef02c-81cc-4869-af38-9acef234ae77/rounds"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/profile-updates/23e8a779-5006-411b-9908-04393796202b/dismiss"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/discovery-turn"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/resources"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/project%3A0d8ef02c-81cc-4869-af38-9acef234ae77"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/conversation"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/review-readiness"
+      },
+      {
+        "method": "GET",
+        "path": "/api/projects/0d8ef02c-81cc-4869-af38-9acef234ae77/rounds"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/conversation"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/projects/0d8ef02c-81cc-4869-af38-9acef234ae77/context"
+      },
+      {
+        "method": "GET",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9"
+      },
+      {
+        "method": "POST",
+        "path": "/api/user-profiles/97c8f383-11b3-4d7a-a49d-7b7b819038f9/profile-updates/4d967e1c-71d3-45f8-a6c3-5c86382216f8/accept"
+      }
+    ]
+  }
+}

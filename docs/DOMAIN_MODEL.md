@@ -1337,6 +1337,15 @@ stateDiagram-v2
   六区都有条目并不证明需求已具体。语义质量结合 AI 建议与原始 Evidence 判断，最终仍由用户审阅。
 - 当前 Application 拒绝将缺失 projectGoals、technicalCapabilities、constraints 或 USER_INPUT
   Evidence 的画像判为充分；未确认的 Evidence 不自动变成已确认事实。没有重要约束可显式记录。
+- 人工可以在 EXPLORING 或 REVIEWING 直接编辑完整分区；界面浏览不改变领域状态。
+  人工编辑明确提供的分区、用户接受提案的变化分区及最终确认的全部六区均受到持久保护，重开探索不解除。
+  保护是 Application 的真实人工操作元数据，不从历史差异或模型 Evidence 推定，不新建 Aggregate。
+- 模型完整分区建议仅在未保护且原条目为原样有序前缀、追加不引入重复并通过领域校验时可自动接受。
+  改写/删除/重排或受保护区变化要求人类批准；任何一区待批时整轮内容与依据均不生效。
+  批准绑定服务器保存的完整快照、基准 revision 和可编辑状态，不能覆盖更新后的画像；重复批准不重复写入。
+  人工编辑或不相容状态转换使旧待批提案失效。忽略提案不改变已有内容、Evidence 或 revision。
+- 待批提案独立于 ASKED / ANSWERED / DEFERRED / REPLACED。待批轮暂停新提问，未解决的上一问仍为 ASKED；
+  接受或忽略不自动生成下一问。既有对话和版本快照不因批准或忽略被删除。
 - 用户在 REVIEWING 阶段纠正 Profile 后，仍然可以保持 REVIEWING，但产生新的 revision。
 - CONFIRMED 并不意味着 User Profile 永久冻结。
 - 用户重新开始探索后，可以从 CONFIRMED 回到 EXPLORING。
@@ -1359,9 +1368,11 @@ Evidence 集合   Aggregate 内支撑当前判断的依据
 - 记录一条与集合中已有 Evidence 完整值不同的 Evidence 时，`revision` 必须增加。
 - 记录一条与集合中已有 Evidence 完整值相同的 Evidence 时，集合与 `revision` 都不变。
 - Evidence 的完整值不同即视为不同依据；不按 `sourceRef` 合并、替换或覆盖已有条目。
-- 用户明确纠正时，可通过 `retractEvidence` 撤回当前集合中精确指定的错误依据；撤回推进 revision，
-  纠正后的内容和本轮来源的新依据一起在候选上提交。历史 revision 快照与既有方向引用仍保留。
-  不能仅因换话题或指代含糊就撤回依据；拒答也不是否定既有事实。
+- 领域 `retractEvidence` 仍为精确移除低层操作，变化推进 revision；对话提取不拥有按下标撤回历史依据的权限。
+  当前分区在批准后成为权威事实，旧 Evidence 仅保留当时的输入背景，不能作为恢复旧值的授权。
+- 对话自动追加只提交对应整轮被接受变化的依据；待批整轮批准时才提交其依据，confirmed 保持 false，
+  不把接受分区等同于用户确认模型生成的每条判断。模型未提出实际分区变化时不单独制造新依据或 revision；
+  人工记录 Evidence 仍遵循完整值去重及版本规则。历史快照、原始输入及既有方向引用保留。
 
 因此：
 
@@ -1389,8 +1400,8 @@ EXPLORING / REVIEWING   允许
 CONFIRMED               不允许直接修改
 ```
 
-当前不定义 Evidence 的纠正、撤销与确认流程，也不定义历史 Profile 状态的持久化
-实现方式；§10.3 只规定其必须满足的可追溯语义。
+当前不引入独立的 Evidence 审批或事件溯源系统。对话提案只按上述整轮规则接受新依据，
+不撤回历史依据；版本快照的追溯语义仍遵循 §10.3。
 
 ### 6.2 Product Direction State
 

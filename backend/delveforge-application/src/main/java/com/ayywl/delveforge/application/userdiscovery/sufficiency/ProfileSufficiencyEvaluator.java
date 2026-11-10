@@ -128,6 +128,7 @@ public final class ProfileSufficiencyEvaluator {
             已回答或已讨论的问题，即使答案没有写入结构化画像。用户明确重开话题时才讨论被跳过的维度。
             establishedReadiness 非空时是当前画像版本已保存的判断，不因普通对话或没有新事实而改判。
             事实仅来自 currentUserProfile 与 currentEvidence；不把本轮未接受的提案说成已保存。
+            pendingProfileUpdate=true 时只回应建议尚待批准，不生成下一问，不改变上一问的真实处理状态。
             """;
 
     private static final String GUIDED_INSTRUCTION = """
@@ -151,6 +152,9 @@ public final class ProfileSufficiencyEvaluator {
             请自然回应，使用 PAUSE，界面会同时提供审阅和继续探索两个选择。
             若上一个问题仍未解决，先保留它，推迟邀请。在已邀请后继续正常提问。
             当前画像中的修订优先于过往 Evidence 和历史对话。旧依据只描述当时的输入。
+            pendingProfileUpdate=true 表示提取建议尚未批准，不是当前事实。使用 PAUSE，
+            不邀请审阅、不提新问题、不声称已经保存。上一问状态仍按本轮真实输入判断，
+            不能因为有待批提案就将未解决的问题标为 ANSWERED、DEFERRED 或 REPLACED。
             """;
 
     private final AiGateway aiGateway;
@@ -189,6 +193,11 @@ public final class ProfileSufficiencyEvaluator {
         return evaluate(candidate, previousQuestions, true, userInput, context, false);
     }
 
+    public SufficiencyAssessment evaluateTurn(UserProfile candidate, String userInput,
+            List<String> previousQuestions, List<DiscoveryContext.Message> context, boolean pendingProfileUpdate) {
+        return evaluate(candidate, previousQuestions, true, userInput, context, false, pendingProfileUpdate);
+    }
+
     /** 专用入口必须取得可用问题；不能把普通轮的仅回复契约当作完成主动提问。 */
     public SufficiencyAssessment evaluateQuestion(UserProfile candidate, List<String> previousQuestions,
             List<DiscoveryContext.Message> context) {
@@ -200,16 +209,22 @@ public final class ProfileSufficiencyEvaluator {
             DiscoveryConversationRepository.Memory memory,
             DiscoveryReadiness readiness,
             boolean questionRequired) {
+        return evaluateRemembered(candidate, input, memory, readiness, questionRequired, false);
+    }
+
+    public SufficiencyAssessment evaluateRemembered(UserProfile candidate, String input,
+            DiscoveryConversationRepository.Memory memory, DiscoveryReadiness readiness,
+            boolean questionRequired, boolean pendingProfileUpdate) {
         List<Gap> gaps = minimumGaps(candidate);
         String correction = null;
         for (int attempt = 0; attempt < 2; attempt++) {
             AiRequest request = buildRequest(candidate, List.of(), true, input, memory.history(), gaps,
-                    questionRequired, memory, readiness, correction);
+                    questionRequired, memory, readiness, correction, pendingProfileUpdate);
             // 网络请求在校验重试之外，未知 Provider 结果不重发。
             String raw = aiGateway.generate(request);
             try {
                 return guidedAssessment(candidate, proposalParser.parseGuided(raw), gaps, memory, readiness,
-                        questionRequired);
+                        questionRequired, pendingProfileUpdate);
             } catch (AiGatewayException invalid) {
                 if (attempt == 1) {
                     throw invalid;
@@ -222,7 +237,7 @@ public final class ProfileSufficiencyEvaluator {
 
     private SufficiencyAssessment guidedAssessment(UserProfile candidate, ProfileSufficiencyProposal proposal,
             List<Gap> gaps, DiscoveryConversationRepository.Memory memory, DiscoveryReadiness readiness,
-            boolean questionRequired) {
+            boolean questionRequired, boolean pendingProfileUpdate) {
         boolean sufficient = proposal.sufficient();
         if (sufficient && !gaps.isEmpty() || readiness != null && sufficient != readiness.sufficient()) {
             throw new AiGatewayException("请按已保存的判断和确定性缺口修正充分性及回复");
@@ -238,7 +253,10 @@ public final class ProfileSufficiencyEvaluator {
                 || questionRequired && action != DialogueAction.ASK) {
             throw new AiGatewayException("请协调上一问状态和 nextAction");
         }
-        boolean invite = sufficient && !questionRequired && !memory.invitationPresented() && !unresolved;
+        if (pendingProfileUpdate && action != DialogueAction.PAUSE) {
+            throw new AiGatewayException("待批画像更新需要 PAUSE，不能同时提出新问题");
+        }
+        boolean invite = !pendingProfileUpdate && sufficient && !questionRequired && !memory.invitationPresented() && !unresolved;
         if (invite && action != DialogueAction.PAUSE) {
             throw new AiGatewayException("本轮应提供首次审阅选择，请自然回应并使用 PAUSE");
         }
@@ -256,7 +274,6 @@ public final class ProfileSufficiencyEvaluator {
                 .forEach(deferred::add);
         if (action == DialogueAction.ASK) {
             DiscoveryQuestions.requireNewQuestion(proposal.nextQuestion(), memory.questions());
-            DiscoveryQuestions.requireDistinctFollowUp(proposal.assistantReply(), proposal.nextQuestion());
             if (deferred.contains(proposal.questionArea())) {
                 throw new AiGatewayException("该维度已跳过，请选择其他相关问题");
             }
@@ -264,18 +281,26 @@ public final class ProfileSufficiencyEvaluator {
         List<String> missing = new ArrayList<>(readiness == null ? proposal.missingAreas() : readiness.missingAreas());
         gaps.stream().map(Gap::explanation).filter(gap -> !missing.contains(gap)).forEach(missing::add);
         return new SufficiencyAssessment(sufficient, missing, proposal.nextQuestion(), candidate.status(),
-                proposal.assistantReply(), proposal.questionArea(), deferred, previous, resumed, action, invite);
+                pendingProfileUpdate ? "这次画像更新尚未应用。请核对下方当前内容与建议内容，再选择接受或忽略。"
+                        : proposal.assistantReply(),
+                proposal.questionArea(), deferred, previous, resumed, action, invite);
     }
 
     private SufficiencyAssessment evaluate(UserProfile candidate, List<String> previousQuestions,
             boolean continueExploration, String userInput, List<DiscoveryContext.Message> context, boolean questionRequired) {
+        return evaluate(candidate, previousQuestions, continueExploration, userInput, context, questionRequired, false);
+    }
+
+    private SufficiencyAssessment evaluate(UserProfile candidate, List<String> previousQuestions,
+            boolean continueExploration, String userInput, List<DiscoveryContext.Message> context,
+            boolean questionRequired, boolean pendingProfileUpdate) {
         if (candidate == null) {
             throw new IllegalArgumentException("ProfileSufficiencyEvaluator 必须指定 candidate");
         }
         List<Gap> gaps = minimumGaps(candidate);
         boolean conversation = userInput != null;
         String raw = aiGateway.generate(buildRequest(candidate, previousQuestions, continueExploration,
-                userInput, context, gaps, questionRequired, null, null, null));
+                userInput, context, gaps, questionRequired, null, null, null, pendingProfileUpdate));
         ProfileSufficiencyProposal proposal = conversation
                 ? proposalParser.parseConversation(raw) : proposalParser.parse(raw);
 
@@ -330,6 +355,11 @@ public final class ProfileSufficiencyEvaluator {
                 area = gap.area();
             }
         }
+        if (pendingProfileUpdate) {
+            question = null;
+            area = null;
+            reply = "这次画像更新尚未应用。请核对下方当前内容与建议内容，再选择接受或忽略。";
+        }
         return new SufficiencyAssessment(sufficient, missing, question, candidate.status(), reply, area,
                 deferred, proposal.previousQuestionState(), resumed);
     }
@@ -362,7 +392,7 @@ public final class ProfileSufficiencyEvaluator {
             boolean continueExploration, String userInput, List<DiscoveryContext.Message> context,
             List<Gap> gaps, boolean questionRequired,
             DiscoveryConversationRepository.Memory memory,
-            DiscoveryReadiness readiness, String correction) {
+            DiscoveryReadiness readiness, String correction, boolean pendingProfileUpdate) {
         Map<String, Object> payload = new LinkedHashMap<>();
         if (memory != null) {
             payload.put("conversationMemory", Map.of("deferredAreas", memory.deferredAreas(),
@@ -374,6 +404,7 @@ public final class ProfileSufficiencyEvaluator {
                 payload.put("planningCorrection", correction);
             }
         }
+        payload.put("pendingProfileUpdate", pendingProfileUpdate);
         payload.put("currentUserProfile", ProfilePromptContext.currentContent(profile));
         payload.put("currentEvidence", profile.evidence());
         payload.put("continueExploration", continueExploration);

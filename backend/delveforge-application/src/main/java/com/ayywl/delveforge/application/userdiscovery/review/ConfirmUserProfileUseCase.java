@@ -1,11 +1,14 @@
 package com.ayywl.delveforge.application.userdiscovery.review;
 
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.userdiscovery.shared.ProfilePromptContext;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 import com.ayywl.delveforge.application.userdiscovery.profile.UserProfileNotFoundException;
 import com.ayywl.delveforge.application.userdiscovery.shared.UserProfileCandidates;
+
+import java.util.List;
 
 /**
  * 用户确认当前 User Profile（DOMAIN_MODEL.md §6.1 的 REVIEWING → CONFIRMED）。
@@ -64,7 +67,8 @@ public class ConfirmUserProfileUseCase {
         UserProfile expected = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
         UserProfile candidate = UserProfileCandidates.copyOf(expected);
         candidate.confirm(expectedRevision);
-        userProfileRepository.saveIfUnchanged(candidate, expected);
+        userProfileRepository.saveHumanUpdate(candidate, expected,
+                List.copyOf(ProfilePromptContext.currentContent(expected).keySet()));
         return candidate;
     }
 }

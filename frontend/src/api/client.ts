@@ -1,4 +1,4 @@
-import type { ConversationHistory, DiscoveryOperation, DiscoveryRequestIdentity } from "./types";
+import type { ConversationHistory, DiscoveryOperation, DiscoveryRequestIdentity, ProfileUpdateProposal } from "./types";
 import type {
   Assessment,
   AssetInput,
@@ -186,6 +186,8 @@ export const api = {
     request<DiscoveryOperation>(`${profile(value)}/discovery-requests/${id(requestId)}${projectId ? `?projectId=${id(projectId)}` : ""}`),
   cancelDiscoveryRequest: (value: string, requestId: string) =>
     request<DiscoveryOperation>(`${profile(value)}/discovery-requests/${id(requestId)}/cancel`, "POST"),
+  resolveProfileUpdate: (value: string, proposalId: string, accept: boolean, projectId?: string) =>
+    request<ProfileUpdateProposal>(`${profile(value)}/profile-updates/${id(proposalId)}/${accept ? "accept" : "dismiss"}${projectId ? `?projectId=${id(projectId)}` : ""}`, "POST"),
   patchProfile: (value: string, patch: ProfilePatch, revision?: number) =>
     request<UserProfile>(profile(value), "PATCH", { ...patch, revision }),
   assess: (value: string, revision?: number) =>

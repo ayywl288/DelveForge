@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.app.api.userprofile;
 
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.DialogueAction;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdateProposal;
 
 import java.util.List;
 
@@ -31,10 +32,10 @@ public record DiscoveryTurnResponse(
         String assistantReply,
         String previousQuestionState,
         DialogueAction nextAction,
-        boolean reviewInvitation) {
+        boolean reviewInvitation, ProfileUpdateProposal pendingProposal) {
 
     public DiscoveryTurnResponse(UserProfileResponse profile, boolean sufficient, List<String> missingAreas,
             String nextQuestion, String assistantReply) {
-        this(profile, sufficient, missingAreas, nextQuestion, assistantReply, "OPEN", null, false);
+        this(profile, sufficient, missingAreas, nextQuestion, assistantReply, "OPEN", null, false, null);
     }
 }

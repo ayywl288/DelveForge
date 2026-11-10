@@ -1,7 +1,7 @@
 import { createApp, nextTick, reactive } from "vue";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { api, ApiError } from "../src/api/client";
-import type { ConversationHistory, DiscoveryTurn, ProjectContext } from "../src/api/types";
+import type { ConversationHistory, DiscoveryTurn, ProjectContext, ProfileUpdateProposal } from "../src/api/types";
 import { createSession, sessionKey } from "../src/state/session";
 import DiscoveryView from "../src/views/DiscoveryView.vue";
 import { profile } from "./fixtures";
@@ -396,5 +396,121 @@ expect(turn.mock.calls[1]?.[3]).toEqual([]);
     expect(s.messages[0]?.state).toBe("uncertain");
     expect(s.messages.some(message => message.role === "agent")).toBe(false);
     expect(s.notice).toContain("迟到");
+  });
+});
+
+
+const pendingUpdate = (): ProfileUpdateProposal => ({ id: "proposal-1", profileId: "profile-1",
+  sourceRequestId: "source-1", projectId: null, baseRevision: 1, baseStatus: "EXPLORING",
+  currentSections: { constraints: ["约两小时完成"], technicalCapabilities: ["Java", "Spring Boot"] },
+  proposedSections: { constraints: ["约三小时完成"], technicalCapabilities: ["Java", "Spring Boot", "Redis"] },
+  userInput: "改为三小时，我还学了Redis", evidenceClaims: ["用户纠正时间并补充Redis经验"],
+  state: "PENDING", resultingRevision: null });
+function proposalHistory(proposal: ProfileUpdateProposal | null): ConversationHistory {
+  return { messages: [{ sequence: 1, requestId: "question-1", role: "agent", text: "先想想实际场景。",
+    question: "哪次整理笔记最费时间？", questionState: "ASKED", createdAt: "2026-11-10T00:00:00Z", projectId: null }],
+    before: null, pendingRequestId: null, unansweredQuestion: "哪次整理笔记最费时间？", pendingProposal: proposal };
+}
+describe("画像整轮更新的人工批准", () => {
+  beforeEach(() => {
+    vi.spyOn(api, "reviewReadiness").mockResolvedValue({ profileId: "profile-1", revision: 1, sufficient: false, missingAreas: ["场景"] });
+  });
+  it("即时显示尚未应用的整区对比并暂停新一轮，草稿仍可编辑", async () => {
+    const { s, root, composer } = setup();
+    s.profile = { ...profile(), constraints: ["约两小时完成"], technicalCapabilities: ["Java", "Spring Boot"] };
+    vi.spyOn(api, "discoveryTurn").mockResolvedValue({ profile: s.profile, sufficient: false,
+      missingAreas: ["场景"], nextQuestion: null, nextAction: "PAUSE", previousQuestionState: "ASKED",
+      assistantReply: "这次建议还需要确认。", pendingProposal: pendingUpdate() });
+    await s.turn("改为三小时，我还学了Redis"); await nextTick();
+    const card = root.querySelector(".profile-update-card")!;
+    expect(card.textContent).toContain("尚未应用");
+    expect(card.textContent).toContain("约两小时完成");
+    expect(card.textContent).toContain("约三小时完成");
+    expect(card.querySelectorAll(".profile-update-section")).toHaveLength(2);
+    expect(s.profile.constraints).toEqual(["约两小时完成"]);
+    expect(s.profile.evidence).toEqual([]);
+    await write(composer, "还没发送的新草稿"); submit(root); await s.turn("直接调用也不能绕过批准");
+    expect(api.discoveryTurn).toHaveBeenCalledOnce();
+    expect([...root.querySelectorAll("button")].find(button => button.textContent?.trim() === "发送")?.disabled).toBe(true);
+    expect(composer.value).toBe("还没发送的新草稿");
+  });
+
+  it.each([true, false])("刷新从服务器恢复建议，处理结果 accept=%s 不生成问题且保留未答问题", async accept => {
+    const { s, root } = setup();
+    const current = { ...profile(), constraints: ["约两小时完成"], technicalCapabilities: ["Java", "Spring Boot"] };
+    s.profile = current;
+    const history = vi.spyOn(api, "conversation").mockResolvedValue(proposalHistory(pendingUpdate()));
+    vi.spyOn(api, "profile").mockResolvedValue(accept ? { ...current, revision: 4,
+      constraints: ["约三小时完成"], technicalCapabilities: ["Java", "Spring Boot", "Redis"] } : current);
+    const resolve = vi.spyOn(api, "resolveProfileUpdate").mockResolvedValue({ ...pendingUpdate(),
+      state: accept ? "ACCEPTED" : "DISMISSED", resultingRevision: accept ? 4 : null });
+    const turns = vi.spyOn(api, "discoveryTurn"); const questions = vi.spyOn(api, "discoveryQuestion");
+    await s.loadConversation(); await nextTick();
+    expect(root.querySelector(".profile-update-card")).not.toBeNull();
+    expect(localStorage.getItem("delveforge.session.v1") ?? "").not.toContain("proposal-1");
+    history.mockResolvedValue(proposalHistory(null));
+    [...root.querySelectorAll<HTMLButtonElement>(".profile-update-card button")]
+      .find(button => button.textContent === (accept ? "接受更新" : "忽略并继续"))!.click();
+    await settle();
+    expect(resolve).toHaveBeenCalledWith("profile-1", "proposal-1", accept, undefined);
+    expect(s.profileUpdateProposal).toBeNull();
+    expect(root.querySelector(".profile-update-card")).toBeNull();
+    expect(s.profile?.constraints).toEqual([accept ? "约三小时完成" : "约两小时完成"]);
+    expect(s.nextQuestion).toBe("哪次整理笔记最费时间？");
+    expect(turns).not.toHaveBeenCalled(); expect(questions).not.toHaveBeenCalled();
+  });
+
+  it("可在探索中直接去审阅编辑，导航不触发正式审阅或模型调用", async () => {
+    const { s, root } = setup();
+    s.profile = { ...profile(), constraints: ["约两小时完成"] };
+    vi.spyOn(api, "conversation").mockResolvedValue(proposalHistory(pendingUpdate()));
+    const assess = vi.spyOn(api, "assess");
+    const patch = vi.spyOn(api, "patchProfile").mockResolvedValue({ ...s.profile, revision: 2, constraints: ["约四小时完成"] });
+    await s.loadConversation(); await nextTick();
+    [...root.querySelectorAll<HTMLButtonElement>(".profile-update-card button")].find(button => button.textContent === "去画像审阅中编辑")!.click();
+    await nextTick();
+    expect(root.querySelector(".profile-review")).not.toBeNull();
+    expect(s.profile.status).toBe("EXPLORING"); expect(assess).not.toHaveBeenCalled();
+    root.querySelector<HTMLButtonElement>('[aria-label="审阅时纠正约束"]')!.click(); await nextTick();
+    await write(root.querySelector<HTMLTextAreaElement>("#profile-edit")!, "约四小时完成");
+    vi.mocked(api.conversation).mockResolvedValue(proposalHistory(null));
+    [...root.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "保存纠正")!.click();
+    await settle();
+    expect(patch).toHaveBeenCalledWith("profile-1", { constraints: ["约四小时完成"] }, 1);
+    expect(s.profileUpdateProposal).toBeNull();
+    expect(s.profile.status).toBe("EXPLORING");
+    expect(s.profile.constraints).toEqual(["约四小时完成"]);
+  });
+
+  it("探索响应丢失后按原请求查询并恢复服务器待批提案，不重发模型请求", async () => {
+    localStorage.setItem("delveforge.discovery.pending.v1", JSON.stringify({ "profile-1": "lost-request" }));
+    const { s, root } = setup();
+    vi.spyOn(api, "profile").mockResolvedValue(profile());
+    vi.spyOn(api, "discoveryRequest").mockResolvedValue({ requestId: "lost-request", state: "COMPLETED", revision: 1,
+      result: { sufficient: false, missingAreas: ["场景"], nextQuestion: null }, proposal: pendingUpdate() });
+    vi.spyOn(api, "conversation").mockResolvedValue(proposalHistory(pendingUpdate()));
+    const turns = vi.spyOn(api, "discoveryTurn"); const questions = vi.spyOn(api, "discoveryQuestion");
+    await s.checkDiscoveryStatus(); await nextTick();
+    expect(s.profileUpdateProposal).toEqual(pendingUpdate());
+    expect(root.querySelector(".profile-update-card")).not.toBeNull();
+    expect(s.discoveryUncertain).toBe(false);
+    expect(localStorage.getItem("delveforge.discovery.pending.v1")).toBe("{}");
+    expect(turns).not.toHaveBeenCalled(); expect(questions).not.toHaveBeenCalled();
+  });
+
+  it("接受响应丢失时只读恢复服务器提案状态，不自动重试批准", async () => {
+    const { s } = setup();
+    vi.spyOn(api, "conversation").mockResolvedValue(proposalHistory(pendingUpdate()));
+    vi.spyOn(api, "profile").mockResolvedValue({ ...profile(), constraints: ["约两小时完成"] });
+    const resolve = vi.spyOn(api, "resolveProfileUpdate").mockRejectedValue(new TypeError("连接中断"));
+    await s.loadConversation();
+    await s.resolveProfileUpdate(true);
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(s.profileUpdateProposal).toEqual(pendingUpdate());
+    expect(s.error).not.toBe("");
+    vi.mocked(api.conversation).mockResolvedValue(proposalHistory(null));
+    await s.loadConversation();
+    expect(s.profileUpdateProposal).toBeNull();
+    expect(resolve).toHaveBeenCalledOnce();
   });
 });

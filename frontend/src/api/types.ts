@@ -44,7 +44,22 @@ export interface DiscoveryContextMessage {
   role: "user" | "agent";
   text: string;
 }
+export interface ProfileUpdateProposal {
+  id: string;
+  profileId: string;
+  sourceRequestId: string;
+  projectId: string | null;
+  baseRevision: number;
+  baseStatus: "EXPLORING" | "REVIEWING";
+  currentSections: ProfilePatch;
+  proposedSections: ProfilePatch;
+  userInput: string;
+  evidenceClaims: string[];
+  state: "PENDING" | "ACCEPTED" | "DISMISSED" | "SUPERSEDED";
+  resultingRevision: number | null;
+}
 export interface DiscoveryTurn extends Sufficiency {
+  pendingProposal?: ProfileUpdateProposal | null;
   previousQuestionState?: "NONE" | "ASKED" | "ANSWERED" | "DEFERRED" | "REPLACED" | "OPEN";
   nextAction?: DialogueAction;
   reviewInvitation?: boolean;
@@ -270,6 +285,7 @@ export interface ConversationMessage {
   projectId: string | null;
 }
 export interface ConversationHistory {
+  pendingProposal?: ProfileUpdateProposal | null;
   messages: ConversationMessage[];
   before: number | null;
   pendingRequestId: string | null;
@@ -282,6 +298,7 @@ export interface DiscoveryRequestIdentity {
   projectId?: string;
 }
 export interface DiscoveryOperation {
+  proposal?: ProfileUpdateProposal | null;
   requestId: string;
   state: "PENDING" | "COMPLETED" | "FAILED" | "INTERRUPTED" | "CANCELLED" | "NOT_FOUND";
   revision: number | null;

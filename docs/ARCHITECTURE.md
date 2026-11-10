@@ -729,16 +729,46 @@ GET 每页最多 100 条，按原顺序返回，并单独返回最后未回答�
 
 **引导式探索与上下文预算**
 
-探索提取以当前版本为准。替换既有条目必须指明旧值和来自本轮输入的新值；明确删除时须引用旧值。
-从既有版本快照查出存在已被取代条目的分区，其新增条目也必须直接来自本轮。校验先于 Evidence 撤回及内容修改。
-手工纠正沿用原领域版本规则，过往输入与 Evidence 保留其来源，不能单凭旧依据恢复已取代的值。
+画像提取只提出六个有序完整分区（省略表示不变）。Application 的 `ProfileUpdatePolicy` 逐区分类：
+相同为 UNCHANGED；未人工保护且当前内容为原样精确前缀、追加项不引入重复、通过领域校验时为
+AUTO_APPEND；其余变化为 REQUIRES_APPROVAL。精确相等只判断结构，不证明语义真实性。
+任一区需要批准时整轮不更新画像或 Evidence，而是保存一个整轮 `ProfileUpdateProposal`。
+模型不再提供 replacements / groundedSections 授权或按下标撤回 Evidence。
+
+V30 新增六区人工保护表及提案快照表。人工 PATCH 保护明确提供的区（包括清空和无内容变化），
+最终确认保护全部六区，接受提案保护其全部变化区；重新探索保留保护。旧库无法识别历史修改人，
+迁移时保守保护每份已有画像的六区（包括空区），不从 revision 差异或 Evidence 推断。
+代价是旧画像后续新增信息也可能需要一次批准；迁移后的新画像仍可正常自动追加。
+
+提案记录服务器身份、画像/来源请求/项目身份、基准版本和状态、变更区的当前及建议快照、原始输入、
+待接受的依据判断、PENDING / ACCEPTED / DISMISSED / SUPERSEDED 与接受结果版本。
+唯一部分索引保证每份画像最多一个 PENDING 提案。主入口在完成请求的短事务内原子保存提案、
+聊天轮、版本判断和结果；模型调用仍在事务外。提取值每区最多64条、单条最多2048字符，先完成
+全部结构和领域校验再形成候选或提案。没有实际内容变化的模型输出不新增 Evidence 或 revision。
+
+```text
+POST /api/user-profiles/{id}/profile-updates/{proposalId}/accept?projectId=...
+POST /api/user-profiles/{id}/profile-updates/{proposalId}/dismiss?projectId=...
+```
+
+两个动作只接受服务器保存的提案身份，不接收客户端替换内容，也不调用模型。Application 从保存
+快照形成候选；Persistence 在写锁内核对提案状态、基准版本/状态与项目关联，原子提交画像、
+Evidence、保护及结果版本。并发和重复批准读取已保存终态，不重复推进版本。忽略不改变画像和依据。
+人工编辑（包括无内容变化）使待批提案失效；内容/生命周期变化的数据库触发器同时阻止过期提案遗留。
+自动提交在事务内重新检查人工保护，防止在途模型覆盖并发的无内容变化人工编辑。
+
+`conversation.pendingProposal` 恢复当前待批快照；完成轮的 `pendingProposal` 和请求查询的 `proposal`
+返回对应提案状态。待批时新的 TURN / QUESTION 在模型调用前被拒绝，旧请求仍可幂等查询。
+聊天展示整区对比及接受/忽略，编辑集中在画像审阅界面；打开该界面仅切换视图，EXPLORING 也可编辑，
+正式进入 REVIEWING 仍通过显式充分性操作。旧 explore 入口沿用同一分类和提案存储，可经 conversation
+读取待批快照，不再拥有自动覆盖路径。
 
 普通轮先关闭思考提取有依据的事实到候选画像，再用 Thinking Low 规划回复、上一问结果和下一步。
 附和、显式索取下一问等控制输入沿用已有的无事实快捷路径。规划结构不合法、问题重复、
 已跳过维度或充分性冲突时，允许一次仅规划阶段的修正。网络异常直接结束请求。两次校验均失败
 则明确失败，画像、Evidence、问题状态、邀请与消息均不提交。
 
-ASK 展示一个新问题，KEEP_PENDING 回应并保留当前问题，PAUSE 在暂停或提供审阅选择时只回应。
+ASK 展示一个新问题，KEEP_PENDING 回应并保留当前问题，PAUSE 在暂停、等待画像更新批准或提供审阅选择时只回应。
 有上一问时给出 ASKED / ANSWERED / DEFERRED / REPLACED，无上一问用 NONE。
 只有明确跳过才阻止再次追问该维度；改换目标可以替换旧问题。服务端校验实际待答身份、
 有界问题文本和历史问题的规范化近似重复。主动索取 guidance 时前端优先聚焦现有问题，
@@ -755,7 +785,11 @@ ASK 展示一个新问题，KEEP_PENDING 回应并保留当前问题，PAUSE 在
 按画像、按探索周期保存首次邀请的请求 ID 与用户选择。达到当前审阅条件且没有待答问题时，
 在助手回复下展示两个操作。接受后续输入或显式索取问题都记为继续；进入审阅仍走原显式用例。
 审阅后返回探索沿用同一周期，已确认画像显式重开开始新周期。侧栏以当前版本充分性为准。
-ASK 的追问只在独立问题字段呈现。正文中的直接追问与下一问若明显重合，走同一次有界规划修正。
+ASK 的追问只在独立问题字段呈现；提示模型避免正文重复，但不再以正文/nextQuestion 的语义重合
+拒绝有效轮次。历史问题检查与唯一 ASKED 约束保留，轻微语义重复是接受的非阻塞体验限制。
+待批提案不是问题或拒答话题；规划只收到已接受画像及非事实的 pendingProfileUpdate 标记，必须 PAUSE，
+不创建竞争问题或首次审阅邀请。服务器使用明确的待批准提示，避免宣称已经保存画像。
+上一问仍按真实输入处理，未解决时保留 ASKED；接受/忽略后不自动规划。
 完整规范见 ADR-0019 的本次修订。
 
 review-readiness 返回 `{profileId, revision, sufficient: true|false|null, missingAreas}`：
@@ -774,7 +808,7 @@ Review 阶段复用已有的 `GET`：它已经返回完整的内容、`status` �
 不为「Review」另建一套读取模型。用户在这个界面上可以做三件事：
 
 ```text
-PATCH  {id}                修正内容      状态保持 REVIEWING；实际变化才推进 revision
+PATCH  {id}                修正内容      EXPLORING / REVIEWING 可编辑；实际变化才推进 revision
 POST   {id}/continue-discovery  继续探索  REVIEWING → EXPLORING
 POST   {id}/reopen-discovery    重新探索  CONFIRMED → EXPLORING
 POST   {id}/confirm             确认      REVIEWING → CONFIRMED

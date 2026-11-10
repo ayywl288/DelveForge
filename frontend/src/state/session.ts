@@ -1,4 +1,4 @@
-import type { DialogueAction } from "../api/types";
+import { profileSections, type ProfileUpdateProposal, type DialogueAction } from "../api/types";
 import type { DiscoveryRequestIdentity, DiscoveryOperation } from "../api/types";
 import { computed, reactive, ref, type UnwrapNestedRefs } from "vue";
 import { api, ApiError } from "../api/client";
@@ -98,6 +98,22 @@ export function createSession() {
       ? activeQuestion.value.text : null,
   );
   const messages = ref<DiscoveryMessage[]>([]);
+  const profileUpdateProposal = ref<ProfileUpdateProposal | null>(null);
+  function acceptedProposal(value: ProfileUpdateProposal | null | undefined, profileId: string) {
+    if (value == null) return null;
+    const keys = Object.keys(value.proposedSections ?? {});
+    if (!validId(value.id) || value.profileId !== profileId || !validId(value.sourceRequestId) ||
+      !Number.isInteger(value.baseRevision) || !["EXPLORING", "REVIEWING"].includes(value.baseStatus) ||
+      !["PENDING", "ACCEPTED", "DISMISSED", "SUPERSEDED"].includes(value.state) || !keys.length ||
+      keys.some(key => !profileSections.some(section => section.key === key)) ||
+      keys.some(key => !Array.isArray(value.currentSections?.[key as keyof typeof value.currentSections]) ||
+        !Array.isArray(value.proposedSections[key as keyof typeof value.proposedSections]) ||
+        [...value.currentSections[key as keyof typeof value.currentSections]!,
+          ...value.proposedSections[key as keyof typeof value.proposedSections]!].some(item => typeof item !== "string"))) {
+      throw new ApiError(0, "RESPONSE_UNREADABLE");
+    }
+    return value.state === "PENDING" ? value : null;
+  }
   const conversationLoading = ref(false);
   const conversationError = ref("");
   const conversationBefore = ref<number | null>(null);
@@ -230,6 +246,7 @@ export function createSession() {
         ...(message.role === "agent" && history.invitationRequestId === message.requestId ? { reviewInvitation: true } : {}),
         profileId: current.id,
         state: message.role === "user" ? "accepted" : undefined, createdAt: message.createdAt }));
+      profileUpdateProposal.value = acceptedProposal(history.pendingProposal, current.id);
       messages.value = more ? [...restored, ...messages.value] : restored;
       conversationBefore.value = history.before;
       activeQuestion.value = history.unansweredQuestion
@@ -311,7 +328,7 @@ export function createSession() {
     const current = profile.value;
     const epoch = contextEpoch.value;
     const belongs = () => !disposed && contextEpoch.value === epoch && profile.value?.id === current?.id;
-    if (!current || current.status !== "EXPLORING") return;
+    if (!current || current.status !== "EXPLORING" || profileUpdateProposal.value) return;
     try {
       const identity = requestIdentity(current);
       const result = await api.discoveryQuestion(current.id, current.revision, [], [], identity);
@@ -509,6 +526,7 @@ export function createSession() {
     });
     if (switching) {
       messages.value = [];
+      profileUpdateProposal.value = null;
       conversationBefore.value = null;
       conversationRead++;
       conversationLoading.value = false;
@@ -612,6 +630,7 @@ export function createSession() {
     activeQuestion.value = null;
     planningAuthorizationIssue.value = null;
     messages.value = [];
+      profileUpdateProposal.value = null;
     remember();
     try { localStorage.removeItem(projectKey); } catch {
       notice.value = "浏览器无法清除导航 ID；刷新后仍须核对已删除状态，未决执行标记保留。";
@@ -657,6 +676,40 @@ export function createSession() {
     conversationLoading,
     conversationError,
     conversationBefore,
+    profileUpdateProposal,
+    async resolveProfileUpdate(accept: boolean) {
+      const current = profile.value;
+      const proposal = profileUpdateProposal.value;
+      if (!current || !proposal) return;
+      const epoch = contextEpoch.value;
+      const belongs = () => !disposed && epoch === contextEpoch.value && profile.value?.id === current.id;
+      await run(accept ? "接受画像更新" : "忽略画像更新", async () => {
+        try {
+          const outcome = await api.resolveProfileUpdate(current.id, proposal.id, accept,
+            projectContext.value?.userProfileId === current.id ? projectContext.value.id : undefined);
+          if (!belongs()) return;
+          acceptedProposal(outcome, current.id);
+          if (outcome.id !== proposal.id || outcome.state === "PENDING") throw new ApiError(0, "RESPONSE_UNREADABLE");
+          profileUpdateProposal.value = null;
+          notice.value = outcome.state === "ACCEPTED" ? "已接受这次更新。可以继续回答原问题或补充想法。"
+            : outcome.state === "DISMISSED" ? "已忽略这次建议，原画像保持不变。可以继续对话。"
+              : "这次建议已失效，已重新读取当前画像。";
+        } finally {
+          if (belongs()) {
+            const latest = await api.profile(current.id);
+            if (belongs()) {
+              profile.value = latest;
+              sufficiency.value = null;
+              await loadConversation();
+              const readiness = await api.reviewReadiness(current.id);
+              if (belongs() && readiness.profileId === current.id && readiness.revision === latest.revision && readiness.sufficient != null) {
+                sufficiency.value = { sufficient: readiness.sufficient, missingAreas: readiness.missingAreas ?? [], nextQuestion: null };
+              }
+            }
+          }
+        }
+      }, false);
+    },
     loadConversation,
     nextQuestion,
     messages,
@@ -764,6 +817,7 @@ export function createSession() {
       sufficiency.value = null;
       activeQuestion.value = null;
       messages.value = [];
+      profileUpdateProposal.value = null;
       remember();
       await restore();
     },
@@ -774,11 +828,12 @@ export function createSession() {
         sufficiency.value = null;
         activeQuestion.value = null;
         messages.value = [];
+      profileUpdateProposal.value = null;
         remember();
       });
     },
     async turn(input: string) {
-      if (conversationLoading.value || !profile.value || profile.value.status !== "EXPLORING" || !input.trim()) return;
+      if (conversationLoading.value || profileUpdateProposal.value || !profile.value || profile.value.status !== "EXPLORING" || !input.trim()) return;
       if (discoveryUncertain.value) {
         error.value = "上一轮结果仍不确定，请先查询画像并核对；不会重复发送或并发提交。";
         return;
@@ -805,6 +860,7 @@ export function createSession() {
           finishDiscoveryRequest(current.id, identity.requestId);
           // 本轮成功响应与随后 run 保存的项目关联是两个结果。
           message.state = "accepted";
+          profileUpdateProposal.value = acceptedProposal(result.pendingProposal, current.id);
           profile.value = result.profile;
           acceptSufficiency(result);
           if (result.previousQuestionState && !["OPEN", "ASKED"].includes(result.previousQuestionState)) {
@@ -885,8 +941,22 @@ export function createSession() {
     async patch(patch: ProfilePatch) {
       if (profile.value)
         await run("保存画像纠正", async () => {
-          profile.value = await api.patchProfile(profile.value!.id, patch, profile.value!.revision);
-          sufficiency.value = null;
+          const current = profile.value!;
+          const epoch = contextEpoch.value;
+          try {
+            const latest = await api.patchProfile(current.id, patch, current.revision);
+            if (disposed || epoch !== contextEpoch.value || profile.value?.id !== current.id) return;
+            profile.value = latest;
+            profileUpdateProposal.value = null;
+            sufficiency.value = null;
+            await loadConversation();
+          } catch (failure) {
+            if (epoch === contextEpoch.value && profile.value?.id === current.id) {
+              await refreshProfileAfterFailure();
+              await loadConversation();
+            }
+            throw failure;
+          }
         });
     },
     async assess() {
@@ -902,6 +972,7 @@ export function createSession() {
               return;
             }
             sufficiency.value = result;
+            if (profile.value.status !== "EXPLORING") profileUpdateProposal.value = null;
             if (!result.sufficient) {
               notice.value = "本版没有可复用的充分结果，本次评估仍需补充；未向聊天插入新问题。";
             }
@@ -919,6 +990,7 @@ export function createSession() {
               profile.value!.id,
               revision,
             );
+            profileUpdateProposal.value = null;
           } catch (failure) {
             sufficiency.value = null;
             profile.value = await api.profile(ids.profileId);

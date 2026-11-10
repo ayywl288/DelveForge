@@ -2,6 +2,9 @@ package com.ayywl.delveforge.infrastructure.persistence.userprofile;
 
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdatePolicy;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdateProposal;
+import com.ayywl.delveforge.application.userdiscovery.shared.ProfilePromptContext;
 import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
 import com.ayywl.delveforge.domain.user.UserProfile;
@@ -74,20 +77,142 @@ public class SqliteUserProfileRepository implements UserProfileRepository {
     private final UserProfileRevisionMapper revisionMapper;
     private final UserProfileSectionItemMapper sectionItemMapper;
     private final UserProfileEvidenceMapper evidenceMapper;
+    private final ProfileUpdateMapper updates;
 
     public SqliteUserProfileRepository(UserProfileMapper userProfileMapper,
                                        UserProfileRevisionMapper revisionMapper,
                                        UserProfileSectionItemMapper sectionItemMapper,
-                                       UserProfileEvidenceMapper evidenceMapper) {
+                                       UserProfileEvidenceMapper evidenceMapper, ProfileUpdateMapper updates) {
         this.userProfileMapper = userProfileMapper;
         this.revisionMapper = revisionMapper;
         this.sectionItemMapper = sectionItemMapper;
         this.evidenceMapper = evidenceMapper;
+        this.updates = updates;
     }
 
     @Override
-    public List<String> sectionsWithSupersededItems(UserProfileId id, int revision) {
-        return sectionItemMapper.sectionsWithSupersededItems(id.value(), revision);
+    public List<String> protectedSections(UserProfileId id) {
+        return updates.protectedSections(id.value());
+    }
+
+    @Override
+    @Transactional
+    public void saveHumanUpdate(UserProfile profile, UserProfile expected, List<String> sections) {
+        saveIfUnchanged(profile, expected);
+        for (String section : sections) {
+            updates.protect(profile.id().value(), section);
+        }
+        updates.supersede(profile.id().value());
+    }
+
+    @Override
+    @Transactional
+    public void saveExtraction(UserProfile profile, UserProfile expected, ProfileUpdateProposal proposal) {
+        requireUnchanged(expected);
+        if (updates.pending(expected.id().value()) != null) {
+            throw new UserProfileStateException("请先接受或忽略待确认的画像更新");
+        }
+        if (proposal == null) {
+            // 人工无内容变化的 PATCH 也可能新增保护；模型提交时必须在写锁内重新核对。
+            Map<String, List<String>> before = ProfilePromptContext.currentContent(expected);
+            Map<String, List<String>> after = ProfilePromptContext.currentContent(profile);
+            List<String> protectedSections = protectedSections(expected.id());
+            for (String section : before.keySet()) {
+                if (ProfileUpdatePolicy.classify(before.get(section), after.get(section),
+                        protectedSections.contains(section)) == ProfileUpdatePolicy.Classification.REQUIRES_APPROVAL) {
+                    throw new UserProfileStateException("画像分区的人工保护已变化，请重新读取");
+                }
+            }
+            save(profile);
+        } else {
+            if (profile.revision() != expected.revision() || !profile.id().equals(expected.id())
+                    || proposal.baseRevision() != expected.revision()
+                    || !proposal.profileId().equals(expected.id().value())
+                    || !proposal.baseStatus().equals(expected.status().name())) {
+                throw new UserProfileStateException("待确认整轮不能混入部分画像更新");
+            }
+            if (proposal.projectId() != null && updates.projectMatches(expected.id().value(), proposal.projectId()) != 1) {
+                throw new UserProfileStateException("提案项目关联已变化");
+            }
+            updates.insert(proposal.id(), proposal.profileId(), proposal.sourceRequestId(), proposal.projectId(),
+                    proposal.baseRevision(), proposal.baseStatus(), encodeProposal(proposal));
+        }
+    }
+
+    @Override
+    @Transactional
+    public void saveExtractionWithSufficiency(UserProfile profile, UserProfile expected,
+            ProfileUpdateProposal proposal, boolean sufficient) {
+        saveExtraction(profile, expected, proposal);
+        writeSufficiency(profile, sufficient);
+    }
+
+    @Override
+    public Optional<ProfileUpdateProposal> pendingProfileUpdate(UserProfileId id) {
+        return decodeProposal(updates.pending(id.value()));
+    }
+
+    @Override
+    public Optional<ProfileUpdateProposal> profileUpdate(UserProfileId id, String proposalId) {
+        return decodeProposal(updates.find(id.value(), proposalId));
+    }
+
+    @Override
+    @Transactional
+    public ProfileUpdateProposal resolveProfileUpdate(UserProfile profile, UserProfile expected,
+            String proposalId, String state) {
+        // 先取得写锁并读取终态；并发重复批准返回已记录结果，不因旧 expected 再次写入。
+        if (updates.lockProfile(expected.id().value()) != 1) {
+            throw new UserProfileStateException("画像已不存在，请重新读取");
+        }
+        ProfileUpdateProposal stored = profileUpdate(expected.id(), proposalId)
+                .orElseThrow(() -> new UserProfileStateException("画像更新提案不存在，请重新读取"));
+        if (!"PENDING".equals(stored.state())) {
+            return stored;
+        }
+        requireUnchanged(expected);
+        if (!profile.id().equals(expected.id())) {
+            throw new IllegalArgumentException("候选与原始画像必须属于同一个 ID");
+        }
+        if (!List.of("ACCEPTED", "DISMISSED", "SUPERSEDED").contains(state)) {
+            throw new IllegalArgumentException("无效的提案处理状态");
+        }
+        if (stored.baseRevision() != expected.revision() || !stored.baseStatus().equals(expected.status().name())
+                || stored.projectId() != null && updates.projectMatches(expected.id().value(), stored.projectId()) != 1) {
+            state = "SUPERSEDED";
+        }
+        Integer revision = "ACCEPTED".equals(state) ? profile.revision() : null;
+        if (updates.resolve(expected.id().value(), proposalId, state, revision) != 1) {
+            throw new UserProfileStateException("提案处理状态已变化，请重新读取");
+        }
+        if ("ACCEPTED".equals(state)) {
+            save(profile);
+            for (String section : stored.proposedSections().keySet()) {
+                updates.protect(expected.id().value(), section);
+            }
+        }
+        return stored.resolved(state, revision);
+    }
+
+    private static String encodeProposal(ProfileUpdateProposal proposal) {
+        try {
+            return JSON.writeValueAsString(proposal);
+        } catch (JsonProcessingException failure) {
+            throw new IllegalStateException("无法保存画像更新提案", failure);
+        }
+    }
+
+    private static Optional<ProfileUpdateProposal> decodeProposal(Map<String, Object> row) {
+        if (row == null) {
+            return Optional.empty();
+        }
+        try {
+            ProfileUpdateProposal proposal = JSON.readValue((String) row.get("snapshot_json"), ProfileUpdateProposal.class);
+            Number revision = (Number) row.get("resulting_revision");
+            return Optional.of(proposal.resolved((String) row.get("state"), revision == null ? null : revision.intValue()));
+        } catch (JsonProcessingException failure) {
+            throw new IllegalStateException("画像更新提案不可读", failure);
+        }
     }
 
     @Override

@@ -6,6 +6,7 @@ import com.ayywl.delveforge.domain.evidence.Evidence;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -75,7 +76,26 @@ public class UpdateUserProfileUseCase {
             }
         }
 
-        userProfileRepository.saveIfUnchanged(candidate, expected);
+        List<String> edited = new ArrayList<>();
+        if (request.interests() != null) {
+            edited.add("interests");
+        }
+        if (request.behaviors() != null) {
+            edited.add("behaviors");
+        }
+        if (request.painPoints() != null) {
+            edited.add("painPoints");
+        }
+        if (request.technicalCapabilities() != null) {
+            edited.add("technicalCapabilities");
+        }
+        if (request.projectGoals() != null) {
+            edited.add("projectGoals");
+        }
+        if (request.constraints() != null) {
+            edited.add("constraints");
+        }
+        userProfileRepository.saveHumanUpdate(candidate, expected, edited);
         return candidate;
     }
 

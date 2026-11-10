@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.application.port.persistence;
 
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdateProposal;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 
@@ -68,8 +69,25 @@ public interface UserProfileRepository {
         }
     }
 
-    /** 历史快照里存在当前版本已无条目的分区。只供提取校验，不推定当时的修改人。 */
-    List<String> sectionsWithSupersededItems(UserProfileId id, int revision);
+    /** 人工保护只由真实编辑、批准和确认建立，不从历史差异推断。 */
+    List<String> protectedSections(UserProfileId id);
+
+    /** 人工写入与保护、待批提案失效必须同事务完成。 */
+    void saveHumanUpdate(UserProfile profile, UserProfile expected, List<String> sections);
+
+    /** 模型结果提交时重查保护；待批整轮只能保存提案，不能保存部分画像。 */
+    void saveExtraction(UserProfile profile, UserProfile expected, ProfileUpdateProposal proposal);
+
+    void saveExtractionWithSufficiency(UserProfile profile, UserProfile expected,
+            ProfileUpdateProposal proposal, boolean sufficient);
+
+    Optional<ProfileUpdateProposal> pendingProfileUpdate(UserProfileId id);
+
+    Optional<ProfileUpdateProposal> profileUpdate(UserProfileId id, String proposalId);
+
+    /** 服务端读取存储快照后原子批准或忽略；重复批准返回记录结果。 */
+    ProfileUpdateProposal resolveProfileUpdate(UserProfile profile, UserProfile expected,
+            String proposalId, String state);
 
     Optional<Sections> findSections(UserProfileId id, int revision);
 

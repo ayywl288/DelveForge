@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.application.userdiscovery.shared;
 
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdateProposal;
 import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 
@@ -8,8 +9,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeSet;
-import java.util.function.Function;
 
 /**
  * {@link UserProfileRepository} 的测试替身。
@@ -34,25 +33,66 @@ public final class InMemoryUserProfileRepository implements UserProfileRepositor
         return Optional.ofNullable(revisions.getOrDefault(id, Map.of()).get(revision));
     }
 
+    private final Map<UserProfileId, java.util.Set<String>> protections = new HashMap<>();
+    private final Map<String, ProfileUpdateProposal> proposals = new HashMap<>();
+
     @Override
-    public List<String> sectionsWithSupersededItems(UserProfileId id, int revision) {
-        var snapshots = revisions.getOrDefault(id, Map.of());
-        Sections current = snapshots.get(revision);
-        if (current == null) {
-            return List.of();
+    public List<String> protectedSections(UserProfileId id) {
+        return List.copyOf(protections.getOrDefault(id, java.util.Set.of()));
+    }
+
+    @Override
+    public synchronized void saveHumanUpdate(UserProfile profile, UserProfile expected, List<String> sections) {
+        saveIfUnchanged(profile, expected);
+        protections.computeIfAbsent(profile.id(), ignored -> new java.util.HashSet<>()).addAll(sections);
+        pendingProfileUpdate(profile.id()).ifPresent(proposal -> proposals.put(proposal.id(), proposal.resolved("SUPERSEDED", null)));
+    }
+
+    @Override
+    public synchronized void saveExtraction(UserProfile profile, UserProfile expected, ProfileUpdateProposal proposal) {
+        requireUnchanged(expected);
+        if (pendingProfileUpdate(expected.id()).isPresent()) {
+            throw new com.ayywl.delveforge.domain.user.UserProfileStateException("请先处理待批提案");
         }
-        Map<String, Function<Sections, List<String>>> fields = Map.of(
-                "interests", Sections::interests, "behaviors", Sections::behaviors,
-                "painPoints", Sections::painPoints, "technicalCapabilities", Sections::technicalCapabilities,
-                "projectGoals", Sections::projectGoals, "constraints", Sections::constraints);
-        var changed = new TreeSet<String>();
-        fields.forEach((field, values) -> {
-            if (snapshots.entrySet().stream().anyMatch(entry -> entry.getKey() < revision
-                    && !values.apply(current).containsAll(values.apply(entry.getValue())))) {
-                changed.add(field);
-            }
-        });
-        return List.copyOf(changed);
+        if (proposal == null) {
+            save(profile);
+        } else {
+            proposals.put(proposal.id(), proposal);
+        }
+    }
+
+    @Override
+    public synchronized void saveExtractionWithSufficiency(UserProfile profile, UserProfile expected,
+            ProfileUpdateProposal proposal, boolean sufficient) {
+        saveExtraction(profile, expected, proposal);
+        recordSufficiencyAssessment(profile, sufficient);
+    }
+
+    @Override
+    public Optional<ProfileUpdateProposal> pendingProfileUpdate(UserProfileId id) {
+        return proposals.values().stream().filter(proposal -> proposal.profileId().equals(id.value())
+                && proposal.state().equals("PENDING")).findFirst();
+    }
+
+    @Override
+    public Optional<ProfileUpdateProposal> profileUpdate(UserProfileId id, String proposalId) {
+        return Optional.ofNullable(proposals.get(proposalId)).filter(proposal -> proposal.profileId().equals(id.value()));
+    }
+
+    @Override
+    public synchronized ProfileUpdateProposal resolveProfileUpdate(UserProfile profile, UserProfile expected,
+            String proposalId, String state) {
+        requireUnchanged(expected);
+        ProfileUpdateProposal proposal = profileUpdate(expected.id(), proposalId).orElseThrow();
+        if (!proposal.state().equals("PENDING")) {
+            return proposal;
+        }
+        ProfileUpdateProposal resolved = proposal.resolved(state, state.equals("ACCEPTED") ? profile.revision() : null);
+        proposals.put(proposalId, resolved);
+        if (state.equals("ACCEPTED")) {
+            saveHumanUpdate(profile, expected, List.copyOf(proposal.proposedSections().keySet()));
+        }
+        return resolved;
     }
 
     private int saveCount;

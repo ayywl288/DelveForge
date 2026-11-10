@@ -75,11 +75,14 @@ public class ExploreUserProfileUseCase {
 
         UserProfile expected = UserProfileCandidates.loadCopy(userProfileRepository, userProfileId);
         UserProfile candidate = UserProfileCandidates.copyOf(expected);
+        if (userProfileRepository.pendingProfileUpdate(userProfileId).isPresent()) {
+            throw new UserProfileStateException("请先接受或忽略待确认的画像更新");
+        }
 
-        profileExtraction.applyTo(candidate, userInput,
-                userProfileRepository.sectionsWithSupersededItems(userProfileId, expected.revision()));
-
-        userProfileRepository.saveIfUnchanged(candidate, expected);
+        var update = profileExtraction.applyTo(candidate, userInput, userProfileRepository.protectedSections(userProfileId));
+        ProfileUpdateProposal proposal = update.approvalRequired()
+                ? ProfileUpdateProposal.pending(expected, java.util.UUID.randomUUID().toString(), null, userInput, update) : null;
+        userProfileRepository.saveExtraction(candidate, expected, proposal);
         return candidate;
     }
 }

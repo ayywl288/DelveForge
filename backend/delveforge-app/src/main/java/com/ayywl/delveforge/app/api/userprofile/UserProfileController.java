@@ -4,6 +4,7 @@ import com.ayywl.delveforge.app.api.evidence.EvidencePayload;
 import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository;
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryConversationService;
 import com.ayywl.delveforge.application.userdiscovery.exploration.ExploreUserProfileUseCase;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdateProposal;
 import com.ayywl.delveforge.application.userdiscovery.profile.CreateUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.profile.GetUserProfileUseCase;
 import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileRequest;
@@ -161,7 +162,7 @@ public class UserProfileController {
         if (current.revision() != operation.revision()) {
             throw new UserProfileStateException("该请求已完成，但画像版本已变化，请查询已保存的请求结果");
         }
-        return toResponse(new UserDiscoveryTurn(current, operation.result()));
+        return toResponse(new UserDiscoveryTurn(current, operation.result(), operation.proposal()));
     }
 
     /** 用户主动索取下一问：保存问答和版本判断，不改变画像内容或探索状态。 */
@@ -182,7 +183,8 @@ public class UserProfileController {
                 request.revision(), result.sufficient(), result.missingAreas(), result.nextQuestion(), result.assistantReply(), result.nextAction());
     }
 
-    public record OperationResponse(String requestId, String state, Integer revision, SufficiencyAssessment result) {
+    public record OperationResponse(String requestId, String state, Integer revision, SufficiencyAssessment result,
+            ProfileUpdateProposal proposal) {
     }
 
     @GetMapping("/{id}/conversation")
@@ -197,7 +199,19 @@ public class UserProfileController {
     public OperationResponse requestStatus(@PathVariable String id, @PathVariable String requestId,
             @RequestParam(required = false) String projectId) {
         var operation = conversations.status(new UserProfileId(id), requestId, projectId);
-        return new OperationResponse(operation.requestId(), operation.state(), operation.revision(), operation.result());
+        return new OperationResponse(operation.requestId(), operation.state(), operation.revision(), operation.result(), operation.proposal());
+    }
+
+    @PostMapping("/{id}/profile-updates/{proposalId}/accept")
+    public ProfileUpdateProposal acceptUpdate(@PathVariable String id, @PathVariable String proposalId,
+            @RequestParam(required = false) String projectId) {
+        return conversations.resolveProfileUpdate(new UserProfileId(id), proposalId, true, projectId);
+    }
+
+    @PostMapping("/{id}/profile-updates/{proposalId}/dismiss")
+    public ProfileUpdateProposal dismissUpdate(@PathVariable String id, @PathVariable String proposalId,
+            @RequestParam(required = false) String projectId) {
+        return conversations.resolveProfileUpdate(new UserProfileId(id), proposalId, false, projectId);
     }
 
     private static void requireCompleted(
@@ -211,7 +225,7 @@ public class UserProfileController {
     public OperationResponse cancelRequest(@PathVariable String id, @PathVariable String requestId,
             @RequestParam(required = false) String projectId) {
         var operation = conversations.cancel(new UserProfileId(id), requestId, projectId);
-        return new OperationResponse(operation.requestId(), operation.state(), operation.revision(), operation.result());
+        return new OperationResponse(operation.requestId(), operation.state(), operation.revision(), operation.result(), operation.proposal());
     }
 
     /**
@@ -256,7 +270,7 @@ public class UserProfileController {
                 assessment.sufficient(),
                 assessment.missingAreas(),
                 assessment.nextQuestion(),
-                assessment.assistantReply(), assessment.previousQuestionState(), assessment.nextAction(), assessment.reviewInvitation());
+                assessment.assistantReply(), assessment.previousQuestionState(), assessment.nextAction(), assessment.reviewInvitation(), turn.proposal());
     }
 
     private static SufficiencyAssessmentResponse toResponse(SufficiencyAssessment assessment) {

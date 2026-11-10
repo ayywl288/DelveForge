@@ -2,6 +2,7 @@ package com.ayywl.delveforge.application.userdiscovery.workflow;
 
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
 import com.ayywl.delveforge.domain.user.UserProfile;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdateProposal;
 
 /**
  * 一轮 User Discovery 的结果。
@@ -22,7 +23,11 @@ import com.ayywl.delveforge.domain.user.UserProfile;
  * @param profile     本轮结束时的 User Profile
  * @param sufficiency 同一轮的充分性结论
  */
-public record UserDiscoveryTurn(UserProfile profile, SufficiencyAssessment sufficiency) {
+public record UserDiscoveryTurn(UserProfile profile, SufficiencyAssessment sufficiency, ProfileUpdateProposal proposal) {
+
+    public UserDiscoveryTurn(UserProfile profile, SufficiencyAssessment sufficiency) {
+        this(profile, sufficiency, null);
+    }
 
     public UserDiscoveryTurn {
         if (profile == null) {

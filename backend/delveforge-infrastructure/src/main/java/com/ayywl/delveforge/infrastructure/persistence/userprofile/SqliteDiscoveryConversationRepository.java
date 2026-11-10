@@ -3,6 +3,7 @@ package com.ayywl.delveforge.infrastructure.persistence.userprofile;
 import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository;
 import com.ayywl.delveforge.application.port.persistence.UserProfileRepository;
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
+import com.ayywl.delveforge.application.userdiscovery.exploration.ProfileUpdateProposal;
 import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.DialogueAction;
 import com.ayywl.delveforge.application.userdiscovery.sufficiency.SufficiencyAssessment;
@@ -78,6 +79,9 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
                     Integer.class, expected.id().value()) != 0) {
                 throw new UserProfileStateException("上一轮仍在处理，请查询其结果");
             }
+            if (profiles.pendingProfileUpdate(expected.id()).isPresent()) {
+                throw new UserProfileStateException("请先接受或忽略待确认的画像更新");
+            }
             jdbc.update("""
                     INSERT INTO discovery_request(profile_id,request_id,kind,project_id,fingerprint,state,
                         owner_pid,owner_start,owner_token,expected_revision,created_at)
@@ -91,7 +95,7 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
 
     @Override
     public Operation complete(UserProfile expected, UserProfile candidate, Command command,
-            SufficiencyAssessment result) {
+            SufficiencyAssessment result, ProfileUpdateProposal proposal) {
         return transaction.execute(status -> {
             // 完成状态先 CAS 取得写锁；后续任一步失败，状态、画像、元数据及消息一起回滚。
             if (jdbc.update("""
@@ -106,7 +110,8 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
                     Integer.class, command.projectId(), expected.id().value()) != 1) {
                 throw new UserProfileStateException("请求期间项目关联已经变化");
             }
-            profiles.saveWithReadiness(candidate, expected,
+            profiles.saveExtraction(candidate, expected, proposal);
+            profiles.saveWithReadiness(candidate, candidate,
                     new DiscoveryReadiness(result.sufficient(), result.missingAreas()));
             if ("TURN".equals(command.kind())) {
                 if ("DEFERRED".equals(result.previousQuestionState())) {
@@ -207,7 +212,7 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
                         SELECT i.request_id FROM discovery_invitation i JOIN user_profile p ON p.id=i.profile_id
                         JOIN discovery_readiness r ON r.profile_id=p.id AND r.revision=p.revision
                         WHERE i.profile_id=? AND i.choice IS NULL AND p.status='EXPLORING' AND r.sufficient=1
-                        """, String.class, id.value()).stream().findFirst().orElse(null));
+                        """, String.class, id.value()).stream().findFirst().orElse(null), profiles.pendingProfileUpdate(id).orElse(null));
     }
 
     @Override
@@ -269,7 +274,15 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
         return (row, index) -> new Operation(row.getString("request_id"), row.getString("kind"),
                 row.getString("project_id"), row.getString("fingerprint"), row.getString("state"),
                 row.getObject("result_revision") == null ? null : row.getInt("result_revision"),
-                row.getString("result_json") == null ? null : decode(row.getString("result_json")));
+                row.getString("result_json") == null ? null : decode(row.getString("result_json")),
+                proposalForRequest(new UserProfileId(row.getString("profile_id")), row.getString("request_id")));
+    }
+
+    private ProfileUpdateProposal proposalForRequest(UserProfileId id, String requestId) {
+        List<String> proposalIds = jdbc.queryForList(
+                "SELECT id FROM user_profile_update_proposal WHERE profile_id=? AND source_request_id=?",
+                String.class, id.value(), requestId);
+        return proposalIds.isEmpty() ? null : profiles.profileUpdate(id, proposalIds.getFirst()).orElseThrow();
     }
 
     private RowMapper<Message> messageMapper() {

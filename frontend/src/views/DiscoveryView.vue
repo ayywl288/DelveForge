@@ -7,11 +7,12 @@ import OriginalDescriptions from "../components/OriginalDescriptions.vue";
 import ConfirmDialog from "../components/ConfirmDialog.vue";
 import NavigationIcon, { type NavigationIconName } from "../components/NavigationIcon.vue";
 import ProfileReview from "../components/ProfileReview.vue";
+import ProfileUpdateCard from "../components/ProfileUpdateCard.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
 const emit = defineEmits<{ next: [] }>();
 const input = ref("");
 const canSend = computed(() => props.s.profile?.status === "EXPLORING" && !!input.value.trim() &&
-  !props.s.busy && !props.s.discoveryUncertain && !props.s.conversationLoading);
+  !props.s.busy && !props.s.discoveryUncertain && !props.s.conversationLoading && !props.s.profileUpdateProposal);
 const reviewed = ref(false);
 const editing = ref<ProfileSection | null>(null);
 const editValue = ref("");
@@ -50,7 +51,7 @@ watch(
 );
 watch(() => props.s.profile?.id, () => { input.value = ""; });
 watch(
-  () => [props.s.messages.length, props.s.discoveryPending],
+  () => [props.s.messages.length, props.s.discoveryPending, props.s.profileUpdateProposal?.id],
   async () => {
     await nextTick();
     if (chat.value) chat.value.scrollTop = chat.value.scrollHeight;
@@ -176,7 +177,7 @@ async function save() {
           <p>
             这份需求还没有保存的对话。可以直接描述想法，或主动请 Agent 提问。
           </p>
-          <button v-if="s.profile.status === 'EXPLORING'" class="secondary" :disabled="!!s.busy" @click="continueExploring">请 Agent 提出下一问</button>
+          <button v-if="s.profile.status === 'EXPLORING'" class="secondary" :disabled="!!s.busy || !!s.profileUpdateProposal" @click="continueExploring">请 Agent 提出下一问</button>
           <p class="meta">
             已接受的对话会保存在本地服务中，重新打开项目后可以继续。
           </p>
@@ -200,7 +201,7 @@ async function save() {
             <p class="dialogue-question">{{ message.question }}</p>
           </template>
           <p v-else class="dialogue-text">{{ message.text }}</p>
-          <div v-if="message.reviewInvitation && s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient"
+          <div v-if="!s.profileUpdateProposal && message.reviewInvitation && s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient"
             class="dialogue-choice" role="group" aria-label="画像已可审阅">
             <button :disabled="!!s.busy || s.discoveryUncertain || s.conversationLoading" @click="enterReview">进入画像审阅</button>
             <button class="secondary" :disabled="!!s.busy || s.discoveryUncertain || s.conversationLoading" @click="continueExploring">继续探索</button>
@@ -219,6 +220,10 @@ async function save() {
             <button type="button" class="text-button" :disabled="!!s.busy" @click="s.checkDiscoveryStatus">查询画像状态</button>
           </div>
         </article>
+        <ProfileUpdateCard v-if="s.profileUpdateProposal" :proposal="s.profileUpdateProposal"
+          :busy="!!s.busy || s.conversationLoading || s.discoveryUncertain"
+          @accept="s.resolveProfileUpdate(true)" @dismiss="s.resolveProfileUpdate(false)"
+          @edit="activeTab = 'review'" />
         <div v-if="s.discoveryPending" class="message agent assistant-waiting">
           <span class="sr-only">DelveForge 正在整理你的想法…</span>
           <span class="waiting-label" aria-hidden="true">正在整理你的想法</span>
@@ -241,7 +246,7 @@ async function save() {
           @keydown.ctrl.enter.prevent="send"
         />
         <div class="composer-footer">
-          <span class="meta">{{ s.discoveryPending ? '可继续写草稿，当前轮结束后再发送' : s.discoveryUncertain ? '上一轮结果待核对，暂不发送新一轮' : 'Ctrl + Enter 发送 · 对话保存在本地服务中' }}</span>
+          <span class="meta">{{ s.profileUpdateProposal ? '请先接受或忽略上方建议，再继续对话' : s.discoveryPending ? '可继续写草稿，当前轮结束后再发送' : s.discoveryUncertain ? '上一轮结果待核对，暂不发送新一轮' : 'Ctrl + Enter 发送 · 对话保存在本地服务中' }}</span>
           <button
             :disabled="!canSend"
           >
@@ -267,14 +272,14 @@ async function save() {
         <button class="text-button" :aria-expanded="inspectorOpen" aria-controls="profile-inspector"
           @click="inspectorOpen = !inspectorOpen">{{ inspectorOpen ? '收起画像' : '展开画像' }}</button>
       </div>
-      <p class="meta">画像版本 {{ s.profile.revision }} · {{ s.profile.status === 'CONFIRMED' ? '逐项展开查看已确认内容' : '逐项展开查看与纠正' }}</p>
+      <p class="meta">画像版本 {{ s.profile.revision }} · {{ s.profile.status === 'CONFIRMED' ? '逐项展开查看已确认内容' : '逐项展开查看已接受内容' }}</p>
       <div class="review-box notebook-review">
         <div v-if="s.profile.status === 'EXPLORING' && s.sufficiency?.sufficient" class="readiness-banner" role="status">
           你可以继续补充想法，也可以现在审阅。
         </div>
         <p v-if="s.sufficiency && !s.sufficiency.sufficient" class="muted">{{ s.sufficiency.missingAreas.join('；') }}</p>
         <button v-if="s.profile.status === 'EXPLORING'" class="secondary" :disabled="!!s.busy || s.discoveryUncertain || s.conversationLoading" @click="enterReview">进入画像审阅</button>
-        <button v-if="s.profile.status === 'EXPLORING'" class="text-button" :disabled="!!s.busy || s.discoveryUncertain || s.conversationLoading" @click="continueExploring">
+        <button v-if="s.profile.status === 'EXPLORING'" class="text-button" :disabled="!!s.busy || s.discoveryUncertain || s.conversationLoading || !!s.profileUpdateProposal" @click="continueExploring">
           {{ s.nextQuestion ? '继续回答已有问题' : '请 Agent 提出下一问' }}</button>
       </div>
       </div>
@@ -294,9 +299,9 @@ async function save() {
             class="text-button"
             :aria-label="`纠正${section.label}`"
             :disabled="!!s.busy || s.profile.status === 'CONFIRMED'"
-            @click="edit(section.key)"
+            @click="activeTab = 'review'; edit(section.key)"
           >
-            纠正
+            去审阅编辑
           </button>
         </div>
         <ul v-if="s.profile[section.key].length">

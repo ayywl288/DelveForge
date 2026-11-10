@@ -146,7 +146,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
         String id = createProfile();
         given(aiGateway.generate(any())).willReturn(
                 EXTRACTION_RESPONSE, INSUFFICIENT_RESPONSE,
-                "{\"hasNewFacts\":true,\"technicalCapabilities\":[\"Java\"],\"replacements\":{\"technicalCapabilities\":{\"Java图像处理\":\"Java\"}},\"evidenceClaims\":[\"用户主要使用Java\"]}", SUFFICIENT_RESPONSE.replace("NONE", "ANSWERED"));
+                "{\"hasNewFacts\":true,\"technicalCapabilities\":[\"Java\"],\"replacements\":{\"technicalCapabilities\":{\"Java图像处理\":\"Java\"}},\"evidenceClaims\":[\"用户主要使用Java\"]}", SUFFICIENT_RESPONSE.replace("NONE", "ANSWERED").replace("\"sufficient\":true", "\"sufficient\":false").replace("\"missingAreas\":[]", "\"missingAreas\":[\"缺少技术能力\"]"));
 
         String nextQuestion = objectMapper.readTree(
                         mockMvc.perform(turn(id, USER_INPUT))
@@ -158,10 +158,12 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
 
         mockMvc.perform(turn(id, nextQuestion + " —— 主要用 Java"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.sufficient").value(true))
+                .andExpect(jsonPath("$.sufficient").value(false))
                 .andExpect(jsonPath("$.profile.status").value("EXPLORING"))
                 .andExpect(jsonPath("$.profile.interests[0]").value("图片处理"))
-                .andExpect(jsonPath("$.profile.technicalCapabilities[0]").value("Java"));
+                .andExpect(jsonPath("$.profile.technicalCapabilities[0]").value("Java图像处理"))
+                .andExpect(jsonPath("$.pendingProposal.state").value("PENDING"))
+                .andExpect(jsonPath("$.pendingProposal.proposedSections.technicalCapabilities[0]").value("Java"));
     }
 
     /**

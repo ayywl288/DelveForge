@@ -86,7 +86,7 @@ class ConversationalDiscoveryTest {
     }
 
     @Test
-    void correctionReplacesInvalidCurrentFactAndRetractsOnlyItsEvidence() throws Exception {
+    void correctionStagesWholeSectionAndCannotRetractHistoricalEvidence() throws Exception {
         UserProfile original = seed();
         responses.add("""
                 {"hasNewFacts":true,"technicalCapabilities":["Python接口经验"],"replacements":{"technicalCapabilities":{"Java接口经验":"Python接口经验"}},
@@ -94,13 +94,12 @@ class ConversationalDiscoveryTest {
                 """);
         responses.add(reply(true, "已按你本轮说明纠正为 Python 经验。", null, null, List.of()));
         UserDiscoveryTurn turn = useCase.run(ID, "刚才的Java经验不对，我只有Python接口经验");
-        assertEquals(List.of("Python接口经验"), turn.profile().technicalCapabilities());
-        assertEquals(1, turn.profile().evidence().size());
-        assertTrue(turn.profile().evidence().getFirst().sourceRef().contains("只有Python"));
-        assertFalse(turn.profile().evidence().getFirst().confirmed());
-        assertEquals(List.of("Java接口经验"), original.technicalCapabilities());
-        assertEquals("我会Java接口开发", original.evidence().getFirst().sourceRef());
-        assertEquals(4, turn.profile().revision());
+        assertEquals(original.technicalCapabilities(), turn.profile().technicalCapabilities());
+        assertEquals(original.evidence(), turn.profile().evidence());
+        assertEquals(original.revision(), turn.profile().revision());
+        assertEquals(List.of("Python接口经验"), turn.proposal().proposedSections().get("technicalCapabilities"));
+        assertEquals("PENDING", repository.pendingProfileUpdate(ID).orElseThrow().state());
+        assertFalse(turn.proposal().evidenceClaims().isEmpty());
     }
 
     @Test
@@ -114,8 +113,10 @@ class ConversationalDiscoveryTest {
         UserDiscoveryTurn turn = useCase.run(ID, "其实想做AI阅读辅助项目，没有重要约束");
         assertEquals(original.technicalCapabilities(), turn.profile().technicalCapabilities());
         assertEquals(original.interests(), turn.profile().interests());
-        assertEquals(List.of("做AI阅读辅助项目"), turn.profile().projectGoals());
-        assertEquals(List.of("没有重要约束"), turn.profile().constraints());
+        assertEquals(original.projectGoals(), turn.profile().projectGoals());
+        assertEquals(original.constraints(), turn.profile().constraints());
+        assertEquals(List.of("做AI阅读辅助项目"), turn.proposal().proposedSections().get("projectGoals"));
+        assertEquals(List.of("没有重要约束"), turn.proposal().proposedSections().get("constraints"));
         assertTrue(turn.sufficiency().sufficient());
     }
 
@@ -150,7 +151,7 @@ class ConversationalDiscoveryTest {
         UserProfile original = seed();
         for (String extraction : List.of("{}", "{\"hasNewFacts\":false,\"projectGoals\":[\"编造目标\"]}",
                 "{\"hasNewFacts\":true,\"projectGoals\":[\"无依据目标\"]}",
-                "{\"hasNewFacts\":true,\"retractedEvidenceIndices\":[99],\"evidenceClaims\":[\"纠正\"]}")) {
+                "{\"hasNewFacts\":true,\"interests\":[99],\"evidenceClaims\":[\"纠正\"]}")) {
             responses.clear();
             responses.add(extraction);
             int saves = repository.saveCount();

@@ -1,5 +1,7 @@
 # ROADMAP.md
 
+**2026-11-10 当前授权：Guided Discovery 画像更新批准边界。** 保留现有两阶段探索、历史与预算，替换字符串匹配授权为确定性追加分类及整轮人类批准，补齐六区人工保护、V30 保守迁移、可恢复提案与探索中手工编辑。保留 Coding Agent、Candidate、Delivery 及当前里程碑边界；不启动 M5、不调用付费模型、不合并或推送。实现和实际验证见 [本轮记录](validation/profile-update-approval-20261110.md)，独立验收另行执行。
+
 **2026-11-08 本次授权：选定仓库内容与离线执行。** 选定快照内普通源码和配置统一可供 Agent 读写；保留控制目录例外、宿主隔离和资源预算。依赖网络准备失败可降为明确离线执行，实际下载失败保留为命令事实。RUNNING 前持久化材料保留意图，捕获/停止/存储失败不清掉唯一现场。v8、逐 Step 授权、冻结与独立 Delivery 不变；容器协议 v10。见 [ADR-0027](decisions/0027-selected-repository-input-and-offline-execution.md)。下方旧内容隐藏与行保护规则仅为历史。
 
 **2026-11-08 当前授权任务：Agent Run UX Refinement and Quick Start Quality Improvement。** 仅安全启动材料收集、指南展示、Run 普通/开发者信息层级及高级配置命名；保持单 Agent、v8、安全、Candidate/Delivery 与 Plan 前置条件。实现和验证见 [交接报告](validation/agent-run-quickstart-refinement-20261108.md)。本地分支交付，不合并、不推送；付费模型与真实 AgentRun 为 NOT RUN。
