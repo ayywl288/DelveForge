@@ -87,4 +87,14 @@ class AiGatewayTest {
         assertThrows(UnsupportedOperationException.class,
                 () -> request.messages().add(new AiMessage(AiRole.USER, "x")));
     }
+
+    @Test
+    void discoveryBudgetIdentityRequiresItsTurnBoundaries() {
+        List<AiMessage> messages = List.of(new AiMessage(AiRole.SYSTEM, "输出 json"),
+                new AiMessage(AiRole.USER, "本轮输入"));
+        assertThrows(IllegalArgumentException.class, () -> new AiRequest(messages, AiResponseFormat.JSON,
+                AiRequest.Thinking.DISABLED, List.of(), null));
+        assertThrows(IllegalArgumentException.class, () -> new AiRequest(messages, AiResponseFormat.JSON,
+                AiRequest.Thinking.DISABLED, null, AiRequest.DiscoveryStage.DIALOGUE));
+    }
 }

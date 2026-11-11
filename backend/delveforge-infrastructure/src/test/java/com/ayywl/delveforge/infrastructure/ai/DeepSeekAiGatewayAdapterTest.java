@@ -98,8 +98,8 @@ class DeepSeekAiGatewayAdapterTest {
                 .andExpect(jsonPath("$.max_tokens").value(8192))
                 .andRespond(withSuccess(chatCompletion("{\"hasNewFacts\":false}"), MediaType.APPLICATION_JSON));
         server.expect(requestTo(BASE_URL + "/chat/completions"))
-                .andExpect(jsonPath("$.thinking.type").value("enabled"))
-                .andExpect(jsonPath("$.reasoning_effort").value("low"))
+                .andExpect(jsonPath("$.thinking.type").value("disabled"))
+                .andExpect(jsonPath("$.reasoning_effort").doesNotExist())
                 .andExpect(jsonPath("$.max_tokens").value(16384))
                 .andRespond(withSuccess(chatCompletion("""
                         {"sufficient":false,"missingAreas":["goal"],"assistantReply":"Continue",
@@ -116,8 +116,27 @@ class DeepSeekAiGatewayAdapterTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
-    void trimsOnlyOldestCompleteDiscoveryTurnsBeforeOneHttpRequest(boolean tokenLimit) throws Exception {
+    @org.junit.jupiter.params.provider.EnumSource(AiRequest.DiscoveryStage.class)
+    void discoveryStageSelectsOutputBudgetIndependentlyOfThinking(AiRequest.DiscoveryStage stage) throws Exception {
+        int output = stage == AiRequest.DiscoveryStage.EXTRACTION ? 8192 : 16384;
+        for (int index = 0; index < 2; index++) {
+            server.expect(requestTo(BASE_URL + "/chat/completions"))
+                    .andExpect(jsonPath("$.max_tokens").value(output))
+                    .andRespond(withSuccess(chatCompletion("{\"ok\":true}"), MediaType.APPLICATION_JSON));
+        }
+        List<AiMessage> messages = List.of(new AiMessage(AiRole.SYSTEM, "输出 json"),
+                new AiMessage(AiRole.USER, "本轮输入"));
+        for (AiRequest.Thinking thinking : List.of(AiRequest.Thinking.DISABLED, AiRequest.Thinking.LOW)) {
+            assertEquals("{\"ok\":true}", adapter.generate(new AiRequest(messages, AiResponseFormat.JSON,
+                    thinking, List.of(), stage)));
+        }
+        server.verify();
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.CsvSource({"true, DISABLED", "false, DISABLED", "true, LOW", "false, LOW"})
+    void trimsOnlyOldestCompleteDiscoveryTurnsBeforeOneHttpRequest(boolean tokenLimit, AiRequest.Thinking thinking)
+            throws Exception {
         List<AiMessage> history = new java.util.ArrayList<>();
         List<Integer> starts = new java.util.ArrayList<>();
         history.add(new AiMessage(AiRole.SYSTEM, "stable"));
@@ -148,15 +167,16 @@ class DeepSeekAiGatewayAdapterTest {
                 assertEquals(kept.get(index).content(), messages.get(index).get("content").textValue());
             }
             if (tokenLimit) {
-                assertTrue(COUNTER.countDialogue(kept, AiRequest.Thinking.LOW) <= (180 - reserve) * 75 / 100);
+                assertTrue(COUNTER.countDialogue(kept, thinking) <= (180 - reserve) * 75 / 100);
             }
         }).andRespond(withSuccess(chatCompletion("ok"), MediaType.APPLICATION_JSON));
-        assertEquals("ok", gateway.generate(new AiRequest(history, AiResponseFormat.JSON, AiRequest.Thinking.LOW, starts)));
+        assertEquals("ok", gateway.generate(new AiRequest(history, AiResponseFormat.JSON, thinking,
+                starts, AiRequest.DiscoveryStage.DIALOGUE)));
         server.verify();
         // 只有当前必要材料时，超限不能再削减，也不发起 HTTP 请求。
         assertThrows(AiGatewayException.class, () -> gateway.generate(new AiRequest(
                 List.of(history.getFirst(), new AiMessage(AiRole.USER, "太长".repeat(2000))),
-                AiResponseFormat.JSON, AiRequest.Thinking.LOW, List.of())));
+                AiResponseFormat.JSON, thinking, List.of(), AiRequest.DiscoveryStage.DIALOGUE)));
     }
 
     @Test

@@ -915,7 +915,7 @@ class DiscoveryConversationIntegrationTest {
     void noOpHumanProtectionDuringModelRequestRejectsLateAutomaticAppend() throws Exception {
         UserProfile profile = skillsProfile();
         AiGateway delayed = request -> {
-            if (request.thinking() == AiRequest.Thinking.DISABLED) {
+            if (request.discoveryStage() == AiRequest.DiscoveryStage.EXTRACTION) {
                 new UpdateUserProfileUseCase(profiles).update(new UpdateUserProfileRequest(profile.id(), null, null,
                         null, profile.technicalCapabilities(), null, null, null, 1));
                 return "{\"hasNewFacts\":true,\"technicalCapabilities\":[\"Java\",\"Spring Boot\",\"Redis\"],\"evidenceClaims\":[\"会Redis\"]}";

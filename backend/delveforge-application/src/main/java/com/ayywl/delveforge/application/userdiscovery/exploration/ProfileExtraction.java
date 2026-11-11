@@ -113,7 +113,8 @@ public final class ProfileExtraction {
         String instruction = SYSTEM_INSTRUCTION + (turn ? "\n还必须输出布尔值 hasNewFacts；无新事实只返回 {\"hasNewFacts\":false}。" : "");
         String raw;
         try {
-            raw = aiGateway.generate(DiscoveryContext.request(instruction, context, content, AiRequest.Thinking.DISABLED));
+            raw = aiGateway.generate(DiscoveryContext.request(instruction, context, content, AiRequest.Thinking.DISABLED,
+                    AiRequest.DiscoveryStage.EXTRACTION));
         } catch (AiGatewayException failure) {
             throw new DiscoveryAiException(DiscoveryAiException.Stage.PROFILE_EXTRACTION, failure);
         }

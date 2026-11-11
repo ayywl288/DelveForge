@@ -464,8 +464,9 @@ public final class ProfileSufficiencyEvaluator {
             if (userInput != null) {
                 String instructions = memory == null ? CONVERSATION_INSTRUCTION : GUIDED_INSTRUCTION;
                 String examples = memory == null ? "" : GUIDED_JSON_EXAMPLES;
+                // 普通对话直接生成可校验的 JSON；不把只有思考而无正文的返回当成回答。
                 return DiscoveryContext.request(SYSTEM_INSTRUCTION + instructions + RESPONSE_STYLE_INSTRUCTION + examples,
-                        context, current, AiRequest.Thinking.LOW);
+                        context, current, AiRequest.Thinking.DISABLED, AiRequest.DiscoveryStage.DIALOGUE);
             }
             return new AiRequest(List.of(new AiMessage(AiRole.SYSTEM, SYSTEM_INSTRUCTION),
                     new AiMessage(AiRole.USER, current)), AiResponseFormat.JSON);

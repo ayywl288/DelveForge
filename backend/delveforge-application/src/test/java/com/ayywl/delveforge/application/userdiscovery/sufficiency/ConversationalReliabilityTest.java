@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.application.userdiscovery.sufficiency;
 
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.ai.AiRequest;
 import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository.Memory;
 import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository.Topic;
 import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
@@ -32,6 +33,8 @@ class ConversationalReliabilityTest {
         AtomicInteger calls = new AtomicInteger();
         var evaluator = new ProfileSufficiencyEvaluator(request -> {
             calls.incrementAndGet();
+            assertEquals(AiRequest.Thinking.DISABLED, request.thinking());
+            assertEquals(AiRequest.DiscoveryStage.DIALOGUE, request.discoveryStage());
             try {
                 var payload = json.readTree(request.messages().getLast().content());
                 assertEquals("QUESTION", payload.path("operation").asText());
@@ -67,6 +70,8 @@ class ConversationalReliabilityTest {
     @Test
     void dialoguePromptExamplesAreCompleteJsonAcceptedByTheActualPlannerParser() {
         var evaluator = new ProfileSufficiencyEvaluator(request -> {
+            assertEquals(AiRequest.Thinking.DISABLED, request.thinking());
+            assertEquals(AiRequest.DiscoveryStage.DIALOGUE, request.discoveryStage());
             String system = request.messages().getFirst().content();
             var matcher = java.util.regex.Pattern.compile("(?m)^\\s*(\\{[^\\n]+\\})\\s*$").matcher(system);
             List<String> examples = new ArrayList<>();

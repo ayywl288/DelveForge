@@ -11,16 +11,21 @@ import java.util.List;
  * @param thinking        当前工作负载的思考选项；DEFAULT 保持提供者的既有行为
  * @param messages       按时间顺序排列的消息，不得为空
  * @param responseFormat 期望的响应格式
+ * @param discoveryStage 现有 Discovery 阶段的输出预算身份；与是否启用思考相互独立
  */
 public record AiRequest(List<AiMessage> messages, AiResponseFormat responseFormat, Thinking thinking,
-        List<Integer> discoveryTurnStarts) {
+        List<Integer> discoveryTurnStarts, DiscoveryStage discoveryStage) {
 
     public AiRequest(List<AiMessage> messages, AiResponseFormat responseFormat, Thinking thinking) {
-        this(messages, responseFormat, thinking, null);
+        this(messages, responseFormat, thinking, null, null);
     }
 
     public enum Thinking {
         DEFAULT, DISABLED, LOW, HIGH, MAX
+    }
+
+    public enum DiscoveryStage {
+        EXTRACTION, DIALOGUE
     }
 
     public AiRequest(List<AiMessage> messages, AiResponseFormat responseFormat) {
@@ -36,6 +41,9 @@ public record AiRequest(List<AiMessage> messages, AiResponseFormat responseForma
             throw new IllegalArgumentException("AiRequest 必须指定 responseFormat");
         }
         messages = List.copyOf(messages);
+        if ((discoveryTurnStarts == null) != (discoveryStage == null)) {
+            throw new IllegalArgumentException("Discovery 轮次边界与阶段必须同时指定");
+        }
         if (discoveryTurnStarts != null) {
             discoveryTurnStarts = List.copyOf(discoveryTurnStarts);
             int last = 0;

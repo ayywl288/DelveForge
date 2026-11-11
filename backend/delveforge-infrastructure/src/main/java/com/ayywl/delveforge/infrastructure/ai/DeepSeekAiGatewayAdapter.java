@@ -286,7 +286,7 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
             progress.maxTokens = properties.maxTokens();
             return objectMapper.writeValueAsBytes(toRequestBody(request, request.messages(), progress.maxTokens));
         }
-        int output = request.thinking() == AiRequest.Thinking.DISABLED
+        int output = request.discoveryStage() == AiRequest.DiscoveryStage.EXTRACTION
                 ? properties.extractionOutputTokens() : properties.dialogueOutputTokens();
         progress.maxTokens = output;
         long usable = properties.discoveryContextTokens() - output;

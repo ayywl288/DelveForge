@@ -1,0 +1,42 @@
+{
+  "baseCommit": "8edce00554f87b34c178e3f80c8112dc20bbd81d",
+  "sourceFiles": {
+    "backend/delveforge-application/src/main/java/com/ayywl/delveforge/application/port/ai/AiRequest.java": {
+      "sha256": "339bdcaccddab6b9abbae49413b1a4604c3f4a0bf87f81f97864451028fd1f77",
+      "validationCopyMatches": true
+    },
+    "backend/delveforge-application/src/main/java/com/ayywl/delveforge/application/userdiscovery/exploration/ProfileExtraction.java": {
+      "sha256": "dea552868780c1fd726ce8c219e139cf2f0c51a5ba06e7ca93ac02d8be161327",
+      "validationCopyMatches": true
+    },
+    "backend/delveforge-application/src/main/java/com/ayywl/delveforge/application/userdiscovery/shared/DiscoveryContext.java": {
+      "sha256": "67496fcbbc0b464f01b2fc662590e16d66d88e0b472ca9b4760a8093698b094c",
+      "validationCopyMatches": true
+    },
+    "backend/delveforge-application/src/main/java/com/ayywl/delveforge/application/userdiscovery/sufficiency/ProfileSufficiencyEvaluator.java": {
+      "sha256": "504b32b91191b200f612687107e9b269630c3597420f4e98c7e4475996dbb35c",
+      "validationCopyMatches": true
+    },
+    "backend/delveforge-application/src/test/java/com/ayywl/delveforge/application/port/ai/AiGatewayTest.java": {
+      "sha256": "714924548fb93d008c69579a6cde62752d67a4e9768fd6b3dd9d03730221ab76",
+      "validationCopyMatches": true
+    },
+    "backend/delveforge-application/src/test/java/com/ayywl/delveforge/application/userdiscovery/sufficiency/ConversationalReliabilityTest.java": {
+      "sha256": "9301c8d9342f139393fa112afe445d77b7439253fb25c9fd49cc68f05b60a024",
+      "validationCopyMatches": true
+    },
+    "backend/delveforge-infrastructure/src/main/java/com/ayywl/delveforge/infrastructure/ai/DeepSeekAiGatewayAdapter.java": {
+      "sha256": "d1d00a6b4871fbce2260d17c7d75c8473cda0d55a7260acb7b85b614a7a0599b",
+      "validationCopyMatches": true
+    },
+    "backend/delveforge-infrastructure/src/test/java/com/ayywl/delveforge/infrastructure/ai/DeepSeekAiGatewayAdapterTest.java": {
+      "sha256": "7fb668231bbd9f93b7bb2e0e378ca4d34c1750b5565c190aa751e3bdcc976354",
+      "validationCopyMatches": true
+    },
+    "backend/delveforge-infrastructure/src/test/java/com/ayywl/delveforge/infrastructure/persistence/userprofile/DiscoveryConversationIntegrationTest.java": {
+      "sha256": "3e05e73b19a07573a4a7277a3922467b7b538060c641880530d39414194a4672",
+      "validationCopyMatches": true
+    }
+  },
+  "allSourcesMatch": true
+}

@@ -21,7 +21,8 @@ public final class DiscoveryContext {
     }
 
     /** 稳定前缀只包含已接受的原文；可变事实、最新输入与修正要求位于最后一条消息。 */
-    public static AiRequest request(String system, List<Message> history, String current, AiRequest.Thinking thinking) {
+    public static AiRequest request(String system, List<Message> history, String current, AiRequest.Thinking thinking,
+            AiRequest.DiscoveryStage stage) {
         List<AiMessage> messages = new ArrayList<>();
         List<Integer> turns = new ArrayList<>();
         messages.add(new AiMessage(AiRole.SYSTEM, system));
@@ -34,7 +35,7 @@ public final class DiscoveryContext {
             messages.add(new AiMessage("user".equals(message.role()) ? AiRole.USER : AiRole.ASSISTANT, message.text()));
         }
         messages.add(new AiMessage(AiRole.USER, current));
-        return new AiRequest(messages, AiResponseFormat.JSON, thinking, turns);
+        return new AiRequest(messages, AiResponseFormat.JSON, thinking, turns, stage);
     }
 
     public static List<Message> validate(List<Message> messages) {
