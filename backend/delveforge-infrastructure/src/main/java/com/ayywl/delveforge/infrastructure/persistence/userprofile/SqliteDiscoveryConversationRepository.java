@@ -113,7 +113,7 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
             profiles.saveExtraction(candidate, expected, proposal);
             profiles.saveWithReadiness(candidate, candidate,
                     new DiscoveryReadiness(result.sufficient(), result.missingAreas()));
-            if ("TURN".equals(command.kind())) {
+            if ("TURN".equals(command.kind()) || command.replacePendingQuestion()) {
                 if ("DEFERRED".equals(result.previousQuestionState())) {
                     jdbc.update("""
                             INSERT OR IGNORE INTO discovery_deferred_topic(profile_id,area)
@@ -127,7 +127,9 @@ public class SqliteDiscoveryConversationRepository implements DiscoveryConversat
                         WHERE profile_id=? AND question_state='ASKED'
                         """, result.previousQuestionState(), expected.id().value());
                 }
-                insertMessage(expected.id(), command, "user", command.input(), null, null);
+                if ("TURN".equals(command.kind())) {
+                    insertMessage(expected.id(), command, "user", command.input(), null, null);
+                }
             }
             for (String area : result.resumedAreas()) {
                 jdbc.update("DELETE FROM discovery_deferred_topic WHERE profile_id=? AND area=?",

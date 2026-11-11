@@ -56,7 +56,7 @@ class AskDiscoveryQuestionUseCaseTest {
         repository.save(empty);
         SufficiencyAssessment result = useCase(request -> RESPONSE).ask(ID, 1, null);
         assertFalse(result.sufficient());
-        assertEquals(4, result.missingAreas().size());
+        assertEquals(3, result.missingAreas().size());
         assertEquals("你希望这个项目帮助你完成什么成果，或展示什么能力？", result.nextQuestion());
         assertEquals(1, empty.revision());
         assertEquals(List.of(), empty.evidence());
@@ -169,7 +169,7 @@ class AskDiscoveryQuestionUseCaseTest {
         repository.save(UserProfile.create(ID));
         SufficiencyAssessment result = useCase(request -> questionless(List.of("projectGoals")))
                 .ask(ID, 1, List.of("你目前用哪些技术完成过什么样的开发？"));
-        assertEquals("你能投入的时间或项目范围有什么限制？没有重要限制也可以说明。", result.nextQuestion());
+        assertEquals("请用一个具体场景或想达成的成果，说明你为什么想做这个项目。", result.nextQuestion());
         assertEquals(1, calls.get());
     }
 

@@ -218,7 +218,8 @@ class DeepSeekAiGatewayAdapterTest {
     void failsOnProviderErrorStatus(CapturedOutput output) {
         server.expect(requestTo(BASE_URL + "/chat/completions")).andRespond(withServerError());
 
-        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        assertEquals(AiGatewayException.Category.HTTP,
+                assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest())).category());
         assertTrue(output.getAll().contains("phase=HTTP_STATUS code=PROVIDER_HTTP_ERROR"));
         assertTrue(output.getAll().contains("httpStatus=500"));
         server.verify();
@@ -229,7 +230,8 @@ class DeepSeekAiGatewayAdapterTest {
         server.expect(requestTo(BASE_URL + "/chat/completions"))
                 .andRespond(withSuccess("not-json", MediaType.APPLICATION_JSON));
 
-        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        assertEquals(AiGatewayException.Category.INVALID_OUTPUT,
+                assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest())).category());
     }
 
     @Test
@@ -237,7 +239,8 @@ class DeepSeekAiGatewayAdapterTest {
         server.expect(requestTo(BASE_URL + "/chat/completions"))
                 .andRespond(withSuccess("{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{}}]}", MediaType.APPLICATION_JSON));
 
-        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        assertEquals(AiGatewayException.Category.EMPTY_OUTPUT,
+                assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest())).category());
     }
 
     @Test
@@ -245,7 +248,8 @@ class DeepSeekAiGatewayAdapterTest {
         server.expect(requestTo(BASE_URL + "/chat/completions"))
                 .andRespond(withSuccess(chatCompletion("   "), MediaType.APPLICATION_JSON));
 
-        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        assertEquals(AiGatewayException.Category.EMPTY_OUTPUT,
+                assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest())).category());
     }
 
     @Test
@@ -282,7 +286,8 @@ class DeepSeekAiGatewayAdapterTest {
             throw new IOException(sentinel);
         });
 
-        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        assertEquals(AiGatewayException.Category.TRANSPORT,
+                assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest())).category());
         String logs = output.getAll();
         assertTrue(logs.contains("phase=REQUEST code=PROVIDER_EXCHANGE_FAILED"));
         assertTrue(logs.contains("httpStatus=UNKNOWN"));
@@ -406,7 +411,8 @@ class DeepSeekAiGatewayAdapterTest {
         String body = chatCompletion("{}").replace("\"finish_reason\":\"stop\"", "\"finish_reason\":\"length\"");
         server.expect(requestTo(BASE_URL + "/chat/completions"))
                 .andRespond(withSuccess(body, MediaType.APPLICATION_JSON));
-        assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest()));
+        assertEquals(AiGatewayException.Category.INCOMPLETE_OUTPUT,
+                assertThrows(AiGatewayException.class, () -> adapter.generate(jsonRequest())).category());
         assertTrue(output.getAll().contains("code=PROVIDER_RESPONSE_INCOMPLETE"));
         server.verify();
     }

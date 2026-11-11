@@ -182,7 +182,11 @@ final class DeepSeekStreamingResponse {
         }
 
         Rejected(Failure failure, Throwable cause) {
-            super("Provider response rejected", cause);
+            super("Provider response rejected", cause, switch (failure) {
+                case INCOMPLETE -> Category.INCOMPLETE_OUTPUT;
+                case INVALID -> Category.INVALID_OUTPUT;
+                case BODY_LIMIT, EVENT_LIMIT -> Category.OUTPUT_LIMIT;
+            });
             this.failure = failure;
         }
 

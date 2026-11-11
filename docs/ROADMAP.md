@@ -1,5 +1,10 @@
 # ROADMAP.md
 
+**2026-11-11 当前授权：Guided Discovery 对话可靠性与体验稳定。** 在原两阶段、V30 批准与恢复合同内，
+归一化可恢复规划冲突，允许未知时间继续探索/审阅，衔接批准与显式续聊，保留失败草稿并按原请求恢复。
+不新建架构或迁移，不改 Coding Agent / Candidate / Delivery。一次性数据库与本地替身验收，
+真实 DeepSeek 须另获费用授权；不合并、不推送。工程记录见 [本轮报告](validation/discovery-stability-20261111.md)。
+
 **2026-11-10 当前授权：Guided Discovery 画像更新批准边界。** 保留现有两阶段探索、历史与预算，替换字符串匹配授权为确定性追加分类及整轮人类批准，补齐六区人工保护、V30 保守迁移、可恢复提案与探索中手工编辑。保留 Coding Agent、Candidate、Delivery 及当前里程碑边界；不启动 M5、不调用付费模型、不合并或推送。实现和实际验证见 [本轮记录](validation/profile-update-approval-20261110.md)，独立验收另行执行。
 
 **2026-11-08 本次授权：选定仓库内容与离线执行。** 选定快照内普通源码和配置统一可供 Agent 读写；保留控制目录例外、宿主隔离和资源预算。依赖网络准备失败可降为明确离线执行，实际下载失败保留为命令事实。RUNNING 前持久化材料保留意图，捕获/停止/存储失败不清掉唯一现场。v8、逐 Step 授权、冻结与独立 Delivery 不变；容器协议 v10。见 [ADR-0027](decisions/0027-selected-repository-input-and-offline-execution.md)。下方旧内容隐藏与行保护规则仅为历史。

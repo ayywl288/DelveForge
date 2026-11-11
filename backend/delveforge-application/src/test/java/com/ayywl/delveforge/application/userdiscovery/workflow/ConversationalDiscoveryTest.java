@@ -48,16 +48,15 @@ class ConversationalDiscoveryTest {
     @Test
     void unknownAnswerOffersAnAlternativeWithoutFactsOrRevisionChange() throws Exception {
         UserProfile original = seed();
-        responses.add("{\"hasNewFacts\":false}");
         responses.add(reply(true, "没关系，可以从你最近用过的软件想起。", "你最近常用哪个工具？", "behaviors", List.of()));
         UserDiscoveryTurn turn = useCase.run(ID, "我不知道", List.of("你想解决什么问题？"), context());
         assertEquals(original.revision(), turn.profile().revision());
         assertEquals(original.evidence(), turn.profile().evidence());
         assertTrue(turn.sufficiency().assistantReply().contains("没关系"));
         assertEquals("你最近常用哪个工具？", turn.sufficiency().nextQuestion());
-        assertEquals(2, requests.size());
+        assertEquals(1, requests.size());
         assertEquals("你想解决什么问题？", requests.get(0).messages().get(1).content());
-        assertTrue(requests.get(1).messages().getLast().content().contains("我不知道"));
+        assertTrue(requests.get(0).messages().getLast().content().contains("我不知道"));
     }
 
     @Test
@@ -127,7 +126,7 @@ class ConversationalDiscoveryTest {
         responses.add(reply(true, "信息已经完全够了。", "喜欢什么配色？", "interests", List.of()));
         UserDiscoveryTurn turn = useCase.run(ID, "现在够了吗");
         assertFalse(turn.sufficiency().sufficient());
-        assertEquals(4, turn.sufficiency().missingAreas().size());
+        assertEquals(3, turn.sufficiency().missingAreas().size());
         assertTrue(turn.sufficiency().nextQuestion().contains("成果"));
         assertFalse(turn.sufficiency().assistantReply().contains("完全够了"));
         assertTrue(requests.get(1).messages().get(1).content().contains("deterministicMissing"));
@@ -149,7 +148,7 @@ class ConversationalDiscoveryTest {
     @Test
     void malformedOrContradictoryProposalsLeaveStoredAndLoadedObjectsUnchanged() throws Exception {
         UserProfile original = seed();
-        for (String extraction : List.of("{}", "{\"hasNewFacts\":false,\"projectGoals\":[\"编造目标\"]}",
+        for (String extraction : List.of("{", "{\"hasNewFacts\":false,\"projectGoals\":[\"无依据目标\"]}",
                 "{\"hasNewFacts\":true,\"projectGoals\":[\"无依据目标\"]}",
                 "{\"hasNewFacts\":true,\"interests\":[99],\"evidenceClaims\":[\"纠正\"]}")) {
             responses.clear();

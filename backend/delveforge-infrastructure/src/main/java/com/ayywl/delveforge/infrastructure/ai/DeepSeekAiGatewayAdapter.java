@@ -95,7 +95,9 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
         } catch (IOException | RuntimeException exception) {
             logFailure(exception, progress);
             // 网络与 HTTP 失败只携带固定说明；日志不输出第三方异常文本或正文。
-            throw new AiGatewayException("调用 DeepSeek 失败", exception);
+            throw new AiGatewayException("调用 DeepSeek 失败", exception,
+                    exception instanceof RestClientResponseException ? AiGatewayException.Category.HTTP
+                            : AiGatewayException.Category.TRANSPORT);
         }
     }
 
@@ -378,7 +380,7 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
 
     private String extractContent(String responseBody, ReadProgress progress) {
         if (responseBody == null || responseBody.isBlank()) {
-            throw new AiGatewayException("DeepSeek 返回了空响应体");
+            throw new AiGatewayException("DeepSeek 返回了空响应体", null, AiGatewayException.Category.EMPTY_OUTPUT);
         }
 
         JsonNode root = DeepSeekStreamingResponse.parse(objectMapper, responseBody);
@@ -397,7 +399,8 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
         }
 
         if (!content.isTextual() || content.asText().isBlank()) {
-            throw new AiGatewayException("DeepSeek 响应中没有可用的 choices[0].message.content");
+            throw new AiGatewayException("DeepSeek 响应中没有可用的 choices[0].message.content", null,
+                    AiGatewayException.Category.EMPTY_OUTPUT);
         }
         return content.asText();
     }

@@ -3,7 +3,7 @@ import { computed } from "vue";
 import { profileSections, type ProfileUpdateProposal } from "../api/types";
 
 const props = defineProps<{ proposal: ProfileUpdateProposal; busy: boolean }>();
-defineEmits<{ accept: []; dismiss: []; edit: [] }>();
+defineEmits<{ accept: [continueAfter: boolean]; dismiss: []; edit: [] }>();
 const sections = computed(() => profileSections.filter(section => props.proposal.proposedSections[section.key]));
 </script>
 
@@ -30,9 +30,11 @@ const sections = computed(() => profileSections.filter(section => props.proposal
       </div>
     </section>
     <div class="action-row" role="group" aria-label="处理画像更新建议">
-      <button :disabled="busy" @click="$emit('accept')">接受更新</button>
-      <button class="secondary" :disabled="busy" @click="$emit('dismiss')">忽略并继续</button>
+      <button :disabled="busy" @click="$emit('accept', true)">接受更新并继续</button>
+      <button class="secondary" :disabled="busy" @click="$emit('accept', false)">仅接受更新</button>
+      <button class="text-button" :disabled="busy" @click="$emit('dismiss')">忽略建议</button>
       <button class="text-button" :disabled="busy" @click="$emit('edit')">去画像审阅中编辑</button>
     </div>
+    <p class="meta">继续时会先恢复待答问题；没有待答问题才请 AI 提问，可能计费。仅接受更新不调用 AI。</p>
   </section>
 </template>

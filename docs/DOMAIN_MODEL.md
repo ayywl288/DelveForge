@@ -1335,8 +1335,9 @@ stateDiagram-v2
 - 最低审阅条件是能据用户依据区分个人相关的项目方向：有具体动机或使用场景、期望成果、
   技术基础及影响范围的约束。兴趣、学习、求职均可构成动机，不强制要求 painPoints 非空；
   六区都有条目并不证明需求已具体。语义质量结合 AI 建议与原始 Evidence 判断，最终仍由用户审阅。
-- 当前 Application 拒绝将缺失 projectGoals、technicalCapabilities、constraints 或 USER_INPUT
-  Evidence 的画像判为充分；未确认的 Evidence 不自动变成已确认事实。没有重要约束可显式记录。
+- 当前 Application 拒绝将缺失 projectGoals、technicalCapabilities 或 USER_INPUT Evidence 的画像判为充分；
+  已知的重要约束仍须参与判断，但时间投入未知或 constraints 为空本身不阻止审阅。未知不等于没有约束，
+  不制造具体预算；未确认的 Evidence 不自动变成已确认事实。没有重要约束可显式记录。
 - 人工可以在 EXPLORING 或 REVIEWING 直接编辑完整分区；界面浏览不改变领域状态。
   人工编辑明确提供的分区、用户接受提案的变化分区及最终确认的全部六区均受到持久保护，重开探索不解除。
   保护是 Application 的真实人工操作元数据，不从历史差异或模型 Evidence 推定，不新建 Aggregate。
@@ -1345,7 +1346,12 @@ stateDiagram-v2
   批准绑定服务器保存的完整快照、基准 revision 和可编辑状态，不能覆盖更新后的画像；重复批准不重复写入。
   人工编辑或不相容状态转换使旧待批提案失效。忽略提案不改变已有内容、Evidence 或 revision。
 - 待批提案独立于 ASKED / ANSWERED / DEFERRED / REPLACED。待批轮暂停新提问，未解决的上一问仍为 ASKED；
-  接受或忽略不自动生成下一问。既有对话和版本快照不因批准或忽略被删除。
+  接受或忽略本身不生成下一问。用户可同时明确选择批准后继续，批准先独立提交；恢复已有问题，
+  或以另一个请求身份索取问题，后续失败不能撤销批准。既有对话和版本快照不因批准或忽略被删除。
+- 问题的语义处置由模型提出，Application 根据实际待答记录、明确换题动作及本轮输入协调。
+  缺失/非法的可选处置不推定回答或拒答，保留 ASKED；独立“不知道”等不确定答复可用 REPLACED 搁置，
+  不进入拒答维度，不产生画像事实。显式跳过当前问题不等于拒答整个维度。
+  无效/重复的可选问题可以丢弃而保留有效回应，始终至多一个 ASKED；同版既有充分性及审阅邀请由应用控制。
 - 用户在 REVIEWING 阶段纠正 Profile 后，仍然可以保持 REVIEWING，但产生新的 revision。
 - CONFIRMED 并不意味着 User Profile 永久冻结。
 - 用户重新开始探索后，可以从 CONFIRMED 回到 EXPLORING。

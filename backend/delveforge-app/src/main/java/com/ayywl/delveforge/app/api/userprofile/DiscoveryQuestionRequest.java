@@ -10,7 +10,13 @@ import java.util.List;
 public record DiscoveryQuestionRequest(
         @JsonDeserialize(using = UserProfileRevisionDeserializer.class) Integer revision,
         List<String> previousQuestions,
-        List<DiscoveryContext.Message> recentConversation, String requestId, String projectId) {
+        List<DiscoveryContext.Message> recentConversation, String requestId, String projectId,
+        boolean replacePendingQuestion) {
+
+    public DiscoveryQuestionRequest(Integer revision, List<String> previousQuestions,
+            List<DiscoveryContext.Message> recentConversation, String requestId, String projectId) {
+        this(revision, previousQuestions, recentConversation, requestId, projectId, false);
+    }
 
     public DiscoveryQuestionRequest(Integer revision, List<String> previousQuestions,
             List<DiscoveryContext.Message> recentConversation) {

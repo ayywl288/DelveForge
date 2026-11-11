@@ -56,25 +56,14 @@ public final class UserProfileProposalParser {
                 section(root, FIELD_EVIDENCE_CLAIMS));
     }
 
-    /** 整轮提取只声明是否有新事实；旧 replacements / Evidence 下标不授予写权限。 */
+    /** hasNewFacts 仅为可选提示；完整分区的实际差异及依据决定提案，旧授权字段无效。 */
     public TurnProposal parseTurn(String rawAiOutput, int ignoredEvidenceCount) {
         JsonNode root = reader.read(rawAiOutput);
         JsonNode facts = root.get("hasNewFacts");
-        if (facts == null || !facts.isBoolean()) {
-            throw new AiGatewayException("提取建议缺少布尔值 hasNewFacts");
+        if (facts != null && !facts.isNull() && !facts.isBoolean()) {
+            throw new AiGatewayException("hasNewFacts 必须是布尔值");
         }
-        UserProfileProposal proposal = parse(rawAiOutput);
-        boolean changes = proposal.interests() != null || proposal.behaviors() != null
-                || proposal.painPoints() != null || proposal.technicalCapabilities() != null
-                || proposal.projectGoals() != null || proposal.constraints() != null
-                || proposal.evidenceClaims() != null && !proposal.evidenceClaims().isEmpty();
-        if (!facts.booleanValue() && changes) {
-            throw new AiGatewayException("无新事实的提取不能修改画像或依据");
-        }
-        if (facts.booleanValue() && (proposal.evidenceClaims() == null || proposal.evidenceClaims().isEmpty())) {
-            throw new AiGatewayException("新事实或纠正必须提供本轮输入支持的依据");
-        }
-        return new TurnProposal(proposal);
+        return new TurnProposal(parse(rawAiOutput));
     }
 
     public record TurnProposal(UserProfileProposal profile) {

@@ -3,6 +3,7 @@ import type { DiscoveryRequestIdentity, DiscoveryOperation } from "../api/types"
 import { computed, reactive, ref, type UnwrapNestedRefs } from "vue";
 import { api, ApiError } from "../api/client";
 import { repositoryLocationKey } from "./repositoryLocation";
+import { draftTextLimit, readDiscoveryDrafts, writeDiscoveryDrafts, type DraftAttempt } from "./discoveryDrafts";
 import type {
   AssetInput,
   AssetAuthorizationInput,
@@ -30,6 +31,8 @@ export interface SessionIds {
   planId: string;
 }
 interface DiscoveryMessage {
+  requestId?: string;
+  sequence?: number;
   nextAction?: DialogueAction;
   role: "user" | "agent";
   text: string;
@@ -99,6 +102,44 @@ export function createSession() {
   );
   const messages = ref<DiscoveryMessage[]>([]);
   const profileUpdateProposal = ref<ProfileUpdateProposal | null>(null);
+  const approvalNotice = ref("");
+  const approvalProfileId = ref("");
+  const draftRecords = ref(readDiscoveryDrafts());
+  const discoveryDraft = computed(() => draftRecords.value[profile.value?.id ?? ""]?.composer ?? "");
+  function updateDraft(profileId: string, update: (draft: { composer: string; attempts: DraftAttempt[]; updatedAt: number }) => void) {
+    const stored = draftRecords.value[profileId];
+    const record = stored && stored.updatedAt > Date.now() - 86_400_000
+      ? stored : { composer: "", attempts: [], updatedAt: Date.now() };
+    const previousContent = JSON.stringify([record.composer, record.attempts]);
+    update(record);
+    record.attempts = record.attempts.filter(attempt => attempt.createdAt > Date.now() - 86_400_000).slice(-4);
+    if (previousContent !== JSON.stringify([record.composer, record.attempts])) record.updatedAt = Date.now();
+    draftRecords.value = Object.fromEntries(Object.entries({ ...draftRecords.value, [profileId]: record })
+      .filter(([, value]) => value.updatedAt > Date.now() - 86_400_000)
+      .sort((a, b) => a[1].updatedAt - b[1].updatedAt).slice(-5));
+    if (!writeDiscoveryDrafts(draftRecords.value)) {
+      notice.value = "浏览器未能保留草稿，关闭或刷新前请复制未发送的原文。";
+    }
+  }
+  function setDiscoveryDraft(text: string) {
+    if (profile.value) updateDraft(profile.value.id, draft => { draft.composer = text.slice(0, draftTextLimit); });
+  }
+  function settleAttempt(profileId: string, requestId: string, state: "failed" | "accepted") {
+    updateDraft(profileId, draft => {
+      if (state === "accepted") draft.attempts = draft.attempts.filter(attempt => attempt.requestId !== requestId);
+      else for (const attempt of draft.attempts) if (attempt.requestId === requestId) attempt.state = "failed";
+    });
+    for (const message of messages.value) {
+      if (message.profileId === profileId && message.requestId === requestId) {
+        message.state = state;
+        message.failed = state === "failed";
+      }
+    }
+  }
+  function localAttempts(profileId: string): DiscoveryMessage[] {
+    return (draftRecords.value[profileId]?.attempts ?? []).map(attempt => ({ ...attempt,
+      createdAt: new Date(attempt.createdAt).toISOString(), role: "user", profileId, failed: true }));
+  }
   function acceptedProposal(value: ProfileUpdateProposal | null | undefined, profileId: string) {
     if (value == null) return null;
     const keys = Object.keys(value.proposedSections ?? {});
@@ -118,12 +159,16 @@ export function createSession() {
   const conversationError = ref("");
   const conversationBefore = ref<number | null>(null);
   const pendingDiscovery = ref<Record<string, string>>((() => {
+    const fromDrafts = Object.fromEntries(Object.entries(draftRecords.value).flatMap(([id, draft]) => {
+      const attempt = [...draft.attempts].reverse().find(item => item.state === "uncertain");
+      return attempt ? [[id, attempt.requestId]] : [];
+    }));
     try {
       const stored: unknown = JSON.parse(localStorage.getItem("delveforge.discovery.pending.v1") ?? "{}");
-      if (!stored || typeof stored !== "object" || Array.isArray(stored)) return {};
-      return Object.fromEntries(Object.entries(stored).filter(([key, value]) => validId(key) && validId(value)));
+      if (!stored || typeof stored !== "object" || Array.isArray(stored)) return fromDrafts;
+      return { ...fromDrafts, ...Object.fromEntries(Object.entries(stored).filter(([key, value]) => validId(key) && validId(value))) };
     }
-    catch { return {}; }
+    catch { return fromDrafts; }
   })());
   let conversationRead = 0;
   const activeAiActivity = ref<(AiActivity & { epoch: number }) | null>(null);
@@ -240,6 +285,7 @@ export function createSession() {
         throw new ApiError(0, "RESPONSE_UNREADABLE");
       }
       const restored: DiscoveryMessage[] = history.messages.map(message => ({ role: message.role,
+        requestId: message.requestId, sequence: message.sequence,
         text: message.question && !message.text.includes(message.question) ? [message.text, message.question].filter(Boolean).join("\n\n") : message.text,
         ...(message.question ? { question: message.question } : {}),
         ...(message.nextAction ? { nextAction: message.nextAction } : {}),
@@ -247,11 +293,25 @@ export function createSession() {
         profileId: current.id,
         state: message.role === "user" ? "accepted" : undefined, createdAt: message.createdAt }));
       profileUpdateProposal.value = acceptedProposal(history.pendingProposal, current.id);
-      messages.value = more ? [...restored, ...messages.value] : restored;
+      const acceptedIds = new Set(history.messages.map(message => message.requestId));
+      updateDraft(current.id, draft => { draft.attempts = draft.attempts.filter(attempt => !acceptedIds.has(attempt.requestId)); });
+      const saved = more
+        ? [...restored.filter(message => !messages.value.some(existing => existing.sequence === message.sequence)), ...messages.value]
+        : restored;
+      messages.value = saved.filter(message => !["failed", "uncertain", "pending"].includes(message.state ?? ""));
+      // 本地未接受原文放在其发送时间附近，不把旧失败永远追加成“最新一轮”。服务器消息原顺序不变。
+      for (const draft of localAttempts(current.id)) {
+        const index = messages.value.findIndex(message => message.createdAt &&
+          Date.parse(message.createdAt) > Date.parse(draft.createdAt!));
+        messages.value.splice(index < 0 ? messages.value.length : index, 0, draft);
+      }
       conversationBefore.value = history.before;
       activeQuestion.value = history.unansweredQuestion
         ? { profileId: current.id, revision: profile.value!.revision, text: history.unansweredQuestion } : null;
-      if (history.pendingRequestId) pendingDiscovery.value = { ...pendingDiscovery.value, [current.id]: history.pendingRequestId };
+      if (history.pendingRequestId) {
+        pendingDiscovery.value = { ...pendingDiscovery.value, [current.id]: history.pendingRequestId };
+        try { localStorage.setItem("delveforge.discovery.pending.v1", JSON.stringify(pendingDiscovery.value)); } catch { /* 服务端仍保留身份。 */ }
+      }
       const requestId = pendingDiscovery.value[current.id];
       if (requestId) {
         const result = requireOperation(await api.discoveryRequest(current.id, requestId), requestId);
@@ -264,6 +324,8 @@ export function createSession() {
             sufficiency.value = result.revision === latest.revision ? result.result : null;
           }
           finishDiscoveryRequest(current.id, requestId);
+          settleAttempt(current.id, requestId, result.state === "COMPLETED" ? "accepted" : "failed");
+          error.value = "";
           if (result.state === "COMPLETED" && !history.messages.some(message => message.requestId === requestId)) {
             await loadConversation();
             return;
@@ -297,18 +359,18 @@ export function createSession() {
     if (latest.revision !== current.revision) sufficiency.value = null;
     profile.value = latest;
     finishDiscoveryRequest(current.id, requestId);
+    settleAttempt(current.id, requestId, result.state === "COMPLETED" ? "accepted" : "failed");
+    error.value = "";
+    if (approvalProfileId.value === current.id && approvalNotice.value.includes("后续提问")) {
+      approvalNotice.value = result.state === "COMPLETED" ? "画像更新已接受并保存。后续提问结果已恢复。"
+        : "画像更新已接受并保存。后续提问未完成，可以明确再提问。";
+    }
     if (result.state === "COMPLETED") {
       await loadConversation();
       if (disposed || contextEpoch.value !== epoch || profile.value?.id !== current.id) return false;
       if (result.revision === latest.revision && result.result) acceptSufficiency(result.result);
       notice.value = "已恢复服务端保存的本轮结果，没有重新调用 AI。";
       return true;
-    }
-    for (const message of messages.value) {
-      if (message.profileId === current.id && ["uncertain", "pending"].includes(message.state ?? "")) {
-        message.state = "failed";
-        message.failed = true;
-      }
     }
     notice.value = result.state === "INTERRUPTED" ? "上一轮已中断，未保存对话。可以核对后重新发送。" : "上一轮未被接受，可以核对后重新发送。";
     return false;
@@ -324,14 +386,15 @@ export function createSession() {
       /* 查询也失败时保留已知画像，并显示原请求失败。 */
     }
   }
-  async function askQuestion() {
+  async function askQuestion(replacePendingQuestion = false) {
     const current = profile.value;
     const epoch = contextEpoch.value;
     const belongs = () => !disposed && contextEpoch.value === epoch && profile.value?.id === current?.id;
     if (!current || current.status !== "EXPLORING" || profileUpdateProposal.value) return;
     try {
       const identity = requestIdentity(current);
-      const result = await api.discoveryQuestion(current.id, current.revision, [], [], identity);
+      const result = await api.discoveryQuestion(current.id, current.revision, [], [],
+        replacePendingQuestion ? { ...identity, replacePendingQuestion: true } : identity);
       if (!belongs()) { finishDiscoveryRequest(current.id, identity.requestId); return; }
       if (profile.value?.id !== current.id || profile.value?.revision !== result.revision ||
         profile.value?.status !== "EXPLORING") {
@@ -339,16 +402,14 @@ export function createSession() {
         return;
       }
       finishDiscoveryRequest(current.id, identity.requestId);
+      if (replacePendingQuestion) activeQuestion.value = null;
+      if (approvalProfileId.value === current.id) approvalNotice.value = "画像更新已接受并保存。";
       acceptSufficiency(result);
       appendReply(result.assistantReply, result.nextQuestion, result.nextAction);
     } catch (failure) {
       if (!belongs()) return;
       try { if (await reconcileDiscovery()) return; } catch { /* 保留编号，只读查询失败不授权重发。 */ }
       if (!belongs()) return;
-      if (failure instanceof ApiError && [400, 404, 502].includes(failure.status)) {
-        const requestId = pendingDiscovery.value[current.id];
-        if (requestId) finishDiscoveryRequest(current.id, requestId);
-      }
       await refreshProfileAfterFailure();
       throw failure;
     }
@@ -677,38 +738,74 @@ export function createSession() {
     conversationError,
     conversationBefore,
     profileUpdateProposal,
-    async resolveProfileUpdate(accept: boolean) {
+    approvalNotice: computed(() => approvalProfileId.value === profile.value?.id ? approvalNotice.value : ""),
+    discoveryDraft,
+    setDiscoveryDraft,
+    editFailedMessage(index: number) {
+      const message = messages.value[index];
+      if (!message || message.state !== "failed" || message.profileId !== profile.value?.id) return false;
+      if (discoveryDraft.value.trim() && discoveryDraft.value !== message.text) {
+        notice.value = "输入框中已有草稿，请先发送或清除它，再取回这条未保存的消息。";
+        return false;
+      }
+      setDiscoveryDraft(message.text);
+      error.value = "";
+      notice.value = "原文已放回输入框；请编辑后点击发送，将作为新一轮提交。";
+      return true;
+    },
+    async resolveProfileUpdate(accept: boolean, continueAfter = false) {
       const current = profile.value;
       const proposal = profileUpdateProposal.value;
       if (!current || !proposal) return;
       const epoch = contextEpoch.value;
       const belongs = () => !disposed && epoch === contextEpoch.value && profile.value?.id === current.id;
+      let accepted = false;
+      let restored = false;
       await run(accept ? "接受画像更新" : "忽略画像更新", async () => {
+        const projectId = projectContext.value?.userProfileId === current.id ? projectContext.value.id : undefined;
+        let outcome: ProfileUpdateProposal;
         try {
-          const outcome = await api.resolveProfileUpdate(current.id, proposal.id, accept,
-            projectContext.value?.userProfileId === current.id ? projectContext.value.id : undefined);
+          outcome = await api.resolveProfileUpdate(current.id, proposal.id, accept, projectId);
+        } catch (failure) {
+          // 只读核对同一批准；不能从“没有待批卡片”推断已接受，也不重发 POST。
+          try { outcome = await api.profileUpdate(current.id, proposal.id, projectId); }
+          catch { throw failure; }
+        }
+        if (!belongs()) return;
+        acceptedProposal(outcome, current.id);
+        if (outcome.id !== proposal.id || outcome.state === "PENDING") throw new ApiError(0, "RESPONSE_UNREADABLE");
+        profileUpdateProposal.value = null;
+        accepted = outcome.state === "ACCEPTED";
+        approvalProfileId.value = current.id;
+        approvalNotice.value = accepted ? "画像更新已接受并保存。"
+          : outcome.state === "DISMISSED" ? "已忽略建议，当前画像保持不变。" : "建议已失效，当前画像没有被旧建议覆盖。";
+        try {
+          const latest = await api.profile(current.id);
           if (!belongs()) return;
-          acceptedProposal(outcome, current.id);
-          if (outcome.id !== proposal.id || outcome.state === "PENDING") throw new ApiError(0, "RESPONSE_UNREADABLE");
-          profileUpdateProposal.value = null;
-          notice.value = outcome.state === "ACCEPTED" ? "已接受这次更新。可以继续回答原问题或补充想法。"
-            : outcome.state === "DISMISSED" ? "已忽略这次建议，原画像保持不变。可以继续对话。"
-              : "这次建议已失效，已重新读取当前画像。";
-        } finally {
-          if (belongs()) {
-            const latest = await api.profile(current.id);
-            if (belongs()) {
-              profile.value = latest;
-              sufficiency.value = null;
-              await loadConversation();
-              const readiness = await api.reviewReadiness(current.id);
-              if (belongs() && readiness.profileId === current.id && readiness.revision === latest.revision && readiness.sufficient != null) {
-                sufficiency.value = { sufficient: readiness.sufficient, missingAreas: readiness.missingAreas ?? [], nextQuestion: null };
-              }
-            }
+          profile.value = latest;
+          sufficiency.value = null;
+          await loadConversation();
+          const readiness = await api.reviewReadiness(current.id);
+          if (!belongs()) return;
+          if (readiness.profileId === current.id && readiness.revision === latest.revision && readiness.sufficient != null) {
+            sufficiency.value = { sufficient: readiness.sufficient, missingAreas: readiness.missingAreas ?? [], nextQuestion: null };
           }
+          restored = !conversationError.value;
+          notice.value = nextQuestion.value ? "可以直接回答下方待答问题，也可以跳过换题。" : "可以直接补充想法，或请 Agent 提出下一问。";
+        } catch {
+          if (belongs()) notice.value = "更新结果已确认；会话暂未读全，请重新读取后再继续。";
         }
       }, false);
+      if (!belongs() || !accepted || !continueAfter || !restored || nextQuestion.value || discoveryUncertain.value) return;
+      // 这是按钮明确授权的另一项生成操作，有独立请求身份；失败不改变批准结果。
+      await run("继续探索：生成下一问", askQuestion, false, { kind: "discovery", profileId: current.id });
+      if (belongs() && error.value) {
+        notice.value = "画像更新已保存。后续提问未完成，可以查询其结果或稍后明确再提问。";
+        approvalNotice.value = discoveryUncertain.value
+          ? "画像更新已接受并保存。后续提问的结果待核对，请先查询原请求。"
+          : "画像更新已接受并保存。后续提问未完成，可以明确再提问。";
+        error.value = "";
+      }
     },
     loadConversation,
     nextQuestion,
@@ -834,6 +931,10 @@ export function createSession() {
     },
     async turn(input: string) {
       if (conversationLoading.value || profileUpdateProposal.value || !profile.value || profile.value.status !== "EXPLORING" || !input.trim()) return;
+      if (input.length > draftTextLimit) {
+        error.value = "这条输入较长，请分成每条不超过 12000 字符后发送。";
+        return;
+      }
       if (discoveryUncertain.value) {
         error.value = "上一轮结果仍不确定，请先查询画像并核对；不会重复发送或并发提交。";
         return;
@@ -843,11 +944,14 @@ export function createSession() {
         const epoch = contextEpoch.value;
         const isCurrent = () => !disposed && contextEpoch.value === epoch && profile.value?.id === current.id;
         const message = reactive<DiscoveryMessage>({ role: "user", text: input,
-          profileId: current.id, state: "pending" });
+          profileId: current.id, state: "pending", createdAt: new Date().toISOString() });
         messages.value.push(message);
         try {
           conversationRead++;
           const identity = requestIdentity(current);
+          message.requestId = identity.requestId;
+          updateDraft(current.id, draft => { draft.attempts.push({ requestId: identity.requestId, text: input,
+            state: "uncertain", createdAt: Date.parse(message.createdAt!) }); });
           const result = await api.discoveryTurn(current.id, input, [], [], identity);
           if (!isCurrent()) { finishDiscoveryRequest(current.id, identity.requestId); return; }
           if (profile.value?.revision !== current.revision || profile.value?.status !== current.status ||
@@ -860,6 +964,7 @@ export function createSession() {
           finishDiscoveryRequest(current.id, identity.requestId);
           // 本轮成功响应与随后 run 保存的项目关联是两个结果。
           message.state = "accepted";
+          settleAttempt(current.id, identity.requestId, "accepted");
           profileUpdateProposal.value = acceptedProposal(result.pendingProposal, current.id);
           profile.value = result.profile;
           acceptSufficiency(result);
@@ -869,13 +974,8 @@ export function createSession() {
           appendReply(result.assistantReply, result.nextQuestion, result.nextAction, result.reviewInvitation);
         } catch (failure) {
           if (!isCurrent()) return;
-          // 仅已知在保存前拒绝的契约可判为失败；断线、未知 5xx 均可能已提交。
-          const rejected = failure instanceof ApiError && (
-            failure.status === 400 && failure.code === "INVALID_REQUEST" ||
-            failure.status === 404 && failure.code === "NOT_FOUND" ||
-            failure.status === 409 && failure.code === "CONFLICT" ||
-            failure.status === 502 && failure.code === "EXTERNAL_CAPABILITY_UNAVAILABLE");
-          message.state = rejected ? "failed" : "uncertain";
+          // HTTP 失败本身不证明原操作未提交；只有原请求的服务端终态可以解除身份。
+          message.state = message.requestId ? "uncertain" : "failed";
           message.failed = true;
           let reconciled = false;
           try {
@@ -883,12 +983,11 @@ export function createSession() {
             reconciled = !pendingDiscovery.value[current.id];
           } catch { /* 查询失败时保留原请求编号与未决状态，稍后只读重查。 */ }
           if (!isCurrent()) return;
-          if (rejected && failure instanceof ApiError && failure.status !== 409) {
-            const requestId = pendingDiscovery.value[current.id];
-            if (requestId) finishDiscoveryRequest(current.id, requestId);
-          }
           if (!reconciled) await refreshProfileAfterFailure();
-          throw failure;
+          error.value = "";
+          notice.value = message.state === "failed"
+            ? "服务器未保存这条输入。可以取回原文，编辑后重新发送。"
+            : "这条输入是否保存仍待核对。请查询原请求；不会自动重发。";
         }
       }, true, { kind: "discovery", profileId: profile.value.id });
     },
@@ -908,6 +1007,7 @@ export function createSession() {
           throw new ApiError(0, "RESPONSE_UNREADABLE");
         }
         finishDiscoveryRequest(current.id, requestId);
+        settleAttempt(current.id, requestId, "failed");
         for (const message of messages.value) {
           if (message.profileId === current.id && ["pending", "uncertain"].includes(message.state ?? "")) {
             message.state = "failed"; message.failed = true;
@@ -936,6 +1036,7 @@ export function createSession() {
         notice.value = discoveryUncertain.value
           ? "画像已查询；当前接口无法确认这条消息是否提交，也无法确认服务端请求是否结束。未重新发送，请核对画像。"
           : "画像已查询，未重新发送消息。";
+        error.value = "";
       }, false);
     },
     async patch(patch: ProfilePatch) {
@@ -1031,6 +1132,12 @@ export function createSession() {
         return;
       }
       await run("生成下一轮探索问题", askQuestion, true, { kind: "discovery", profileId: profile.value.id });
+    },
+    async changeDiscoveryTopic() {
+      if (busy.value || discoveryUncertain.value || conversationLoading.value || profileUpdateProposal.value ||
+        !profile.value || profile.value.status !== "EXPLORING") return;
+      await run("跳过当前问题并换个话题", () => askQuestion(true), true,
+        { kind: "discovery", profileId: profile.value.id });
     },
     async register(input: AssetInput) {
       await run("注册仓库授权", async () => {

@@ -7,10 +7,10 @@ package com.ayywl.delveforge.application.port.ai;
 public final class AiOutputContractViolationException extends AiGatewayException {
 
     public AiOutputContractViolationException(String message) {
-        super(message);
+        super(message, null, Category.INVALID_OUTPUT);
     }
 
     public AiOutputContractViolationException(String message, Throwable cause) {
-        super(message, cause);
+        super(message, cause, Category.INVALID_OUTPUT);
     }
 }

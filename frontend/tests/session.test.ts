@@ -146,6 +146,9 @@ describe("M1 问题显示与连续探索", () => {
     const s = make(); s.profile.value = { ...profile(), status: "REVIEWING" }; s.ids.profileId = "profile-1";
     vi.spyOn(api, "resumeDiscovery").mockResolvedValue(profile());
     vi.spyOn(api, "discoveryQuestion").mockRejectedValue(new ApiError(502, "EXTERNAL_CAPABILITY_UNAVAILABLE"));
+    vi.spyOn(api, "discoveryRequest").mockImplementation(async (_id, requestId) => ({
+      requestId, state: "FAILED", revision: null, result: null,
+    }));
     vi.spyOn(api, "profile").mockResolvedValue(profile());
     await s.resumeDiscovery();
     const turns = vi.spyOn(api, "discoveryTurn").mockResolvedValue({ profile: profile(), sufficient: true, missingAreas: [], nextQuestion: null });

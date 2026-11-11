@@ -190,7 +190,7 @@ class ExploreUserProfileUseCaseTest {
         int savesBefore = repository.saveCount();
         aiGateway.respond("{\"interests\":[\"这个区会先被应用\"],\"behaviors\":[\"  \"]}");
 
-        assertThrows(IllegalArgumentException.class, () -> useCase.explore(PROFILE_ID, USER_INPUT));
+        assertThrows(AiGatewayException.class, () -> useCase.explore(PROFILE_ID, USER_INPUT));
 
         assertNothingChanged(profile, revisionBefore, savesBefore);
     }
@@ -202,7 +202,7 @@ class ExploreUserProfileUseCaseTest {
         int savesBefore = repository.saveCount();
         aiGateway.respond("{\"interests\":[\"兴趣\"],\"evidenceClaims\":[\"  \"]}");
 
-        assertThrows(IllegalArgumentException.class, () -> useCase.explore(PROFILE_ID, USER_INPUT));
+        assertThrows(AiGatewayException.class, () -> useCase.explore(PROFILE_ID, USER_INPUT));
 
         assertNothingChanged(profile, revisionBefore, savesBefore);
     }

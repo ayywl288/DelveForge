@@ -3,8 +3,10 @@ package com.ayywl.delveforge.application.userdiscovery.exploration;
 import com.ayywl.delveforge.application.port.ai.AiGateway;
 import com.ayywl.delveforge.application.port.ai.AiGatewayException;
 import com.ayywl.delveforge.application.port.ai.AiRequest;
+import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryAiException;
 import com.ayywl.delveforge.application.userdiscovery.shared.DiscoveryContext;
 import com.ayywl.delveforge.application.userdiscovery.shared.ProfilePromptContext;
+import com.ayywl.delveforge.application.userdiscovery.sufficiency.DiscoveryQuestions;
 import com.ayywl.delveforge.domain.user.UserProfile;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -31,6 +33,9 @@ public final class ProfileExtraction {
             不撤回历史依据。
             附和、请求下一问、不知道、拒答、询问原因或含糊纠正不产生画像事实，不推断为没有能力或约束。
             没有新事实时不输出内容区和 evidenceClaims。明确没有重要约束可记录为 constraints。
+            用户明确放弃原项目或改变目标是真实意图变化：可建议替换或清空 projectGoals 中已过时的目标，
+            由用户批准；不要保留互相矛盾的新旧目标，也不要删除无关能力、历史或依据。
+            投入时间未知不等于没有约束，更不能编造时长；不要求每轮都补全六区。
             """;
 
     private final AiGateway aiGateway;
@@ -75,7 +80,7 @@ public final class ProfileExtraction {
             List<String> protectedSections, boolean turn) {
         requireUserInput(input);
         String control = input.strip().replaceAll("[\\s，。！？,.!?]", "");
-        if (Set.of("嗯", "嗯嗯", "呢", "下一个问题是什么", "下一个问题是啥", "下一个问题",
+        if (DiscoveryQuestions.isUncertainAnswer(input) || Set.of("嗯", "嗯嗯", "呢", "下一个问题是什么", "下一个问题是啥", "下一个问题",
                 "下一问", "继续提问", "请继续提问", "继续探索", "继续").contains(control)) {
             return new ProfileUpdatePolicy.Update(Map.of(), List.of(), false);
         }
@@ -92,12 +97,26 @@ public final class ProfileExtraction {
             throw new AiGatewayException("无法构造提取请求", failure);
         }
         String instruction = SYSTEM_INSTRUCTION + (turn ? "\n还必须输出布尔值 hasNewFacts；无新事实只返回 {\"hasNewFacts\":false}。" : "");
-        String raw = aiGateway.generate(DiscoveryContext.request(instruction, context, content, AiRequest.Thinking.DISABLED));
-        UserProfileProposal proposal = turn ? parser.parseTurn(raw, 0).profile() : parser.parse(raw);
-        ProfileUpdatePolicy.Update update = ProfileUpdatePolicy.evaluate(candidate, proposal, protectedSections);
-        if (!update.approvalRequired()) {
-            ProfileUpdatePolicy.apply(candidate, update, input);
+        String raw;
+        try {
+            raw = aiGateway.generate(DiscoveryContext.request(instruction, context, content, AiRequest.Thinking.DISABLED));
+        } catch (AiGatewayException failure) {
+            throw new DiscoveryAiException(DiscoveryAiException.Stage.PROFILE_EXTRACTION, failure);
         }
-        return update;
+        try {
+            UserProfileProposal proposal = turn ? parser.parseTurn(raw, 0).profile() : parser.parse(raw);
+            ProfileUpdatePolicy.Update update = ProfileUpdatePolicy.evaluate(candidate, proposal, protectedSections);
+            if (turn && !update.sections().isEmpty() && update.evidenceClaims().isEmpty()) {
+                throw new AiGatewayException("实际画像变化必须提供本轮输入支持的依据");
+            }
+            if (!update.approvalRequired()) {
+                ProfileUpdatePolicy.apply(candidate, update, input);
+            }
+            return update;
+        } catch (AiGatewayException | IllegalArgumentException failure) {
+            throw new DiscoveryAiException(DiscoveryAiException.Stage.PROFILE_EXTRACTION,
+                    raw == null || raw.isBlank() ? AiGatewayException.Category.EMPTY_OUTPUT
+                            : AiGatewayException.Category.INVALID_OUTPUT, failure);
+        }
     }
 }

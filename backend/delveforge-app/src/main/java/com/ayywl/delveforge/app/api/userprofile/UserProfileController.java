@@ -176,7 +176,8 @@ public class UserProfileController {
         DiscoveryQuestions.validate(request.previousQuestions());
         var operation = conversations.submit(new UserProfileId(id),
                 new DiscoveryConversationRepository.Command(
-                        request.requestId(), "QUESTION", null, request.revision(), request.projectId()));
+                        request.requestId(), "QUESTION", null, request.revision(), request.projectId(),
+                        request.replacePendingQuestion()));
         requireCompleted(operation);
         SufficiencyAssessment result = operation.result();
         return new DiscoveryQuestionResponse(
@@ -206,6 +207,12 @@ public class UserProfileController {
     public ProfileUpdateProposal acceptUpdate(@PathVariable String id, @PathVariable String proposalId,
             @RequestParam(required = false) String projectId) {
         return conversations.resolveProfileUpdate(new UserProfileId(id), proposalId, true, projectId);
+    }
+
+    @GetMapping("/{id}/profile-updates/{proposalId}")
+    public ProfileUpdateProposal profileUpdate(@PathVariable String id, @PathVariable String proposalId,
+            @RequestParam(required = false) String projectId) {
+        return conversations.profileUpdate(new UserProfileId(id), proposalId, projectId);
     }
 
     @PostMapping("/{id}/profile-updates/{proposalId}/dismiss")

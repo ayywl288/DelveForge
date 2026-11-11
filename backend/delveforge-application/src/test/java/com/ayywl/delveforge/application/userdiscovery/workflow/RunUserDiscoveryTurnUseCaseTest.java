@@ -168,7 +168,7 @@ class RunUserDiscoveryTurnUseCaseTest {
         aiGateway.respondWith("{\"hasNewFacts\":true,\"evidenceClaims\":[\"本轮事实\"],\"interests\":[\"这个区会先被应用\"],\"behaviors\":[\"  \"]}",
                 SUFFICIENT_RESPONSE);
 
-        assertThrows(IllegalArgumentException.class, () -> useCase.run(PROFILE_ID, USER_INPUT));
+        assertThrows(AiGatewayException.class, () -> useCase.run(PROFILE_ID, USER_INPUT));
 
         assertNothingChanged(profile, savesBefore);
     }

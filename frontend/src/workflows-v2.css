@@ -224,9 +224,20 @@
 .profile-update-comparison li + li { margin-top: 4px; }
 .profile-update-comparison p { margin: 8px 0 0; }
 .profile-update-card .action-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.profile-update-card > .meta:last-child { margin: 12px 0 0; }
+.pending-question-actions { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; margin-bottom: 8px; }
+.pending-question-actions .dialogue-pending { flex: 1 1 240px; }
+.pending-question-actions .text-button { flex: 0 1 auto; }
+.transcript-surface .approval-result { margin: 12px 24px; padding: 12px; background: var(--canvas); border: 1px solid var(--line); border-radius: 8px; }
+.approval-result p { margin: 0; }
+.approval-result button { margin-top: 4px; }
+.draft-controls { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 10px; }
+.draft-controls span { flex: 1 1 260px; }
 @media (max-width: 640px) {
   .profile-update-card { padding: 16px; }
   .profile-update-card > p, .profile-update-section { margin-bottom: 16px; }
   .profile-update-comparison { gap: 12px; }
   .profile-update-card .action-row > button { min-height: 44px; }
+  .pending-question-actions button, .draft-controls button, .approval-result button { min-height: 44px; }
+  .transcript-surface .approval-result { margin-inline: 16px; }
 }

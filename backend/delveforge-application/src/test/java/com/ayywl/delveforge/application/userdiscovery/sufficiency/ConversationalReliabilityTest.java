@@ -1,0 +1,127 @@
+package com.ayywl.delveforge.application.userdiscovery.sufficiency;
+
+import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository.Memory;
+import com.ayywl.delveforge.application.port.persistence.DiscoveryConversationRepository.Topic;
+import com.ayywl.delveforge.application.userdiscovery.conversation.DiscoveryReadiness;
+import com.ayywl.delveforge.domain.evidence.Evidence;
+import com.ayywl.delveforge.domain.evidence.EvidenceSourceType;
+import com.ayywl.delveforge.domain.user.UserProfile;
+import com.ayywl.delveforge.domain.user.UserProfileId;
+import com.ayywl.delveforge.domain.user.UserProfileStatus;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ConversationalReliabilityTest {
+
+    private final ObjectMapper json = new ObjectMapper();
+
+    @Test
+    void conflictingControlsDoNotDiscardUsefulReplyOrSpendAnotherCall() {
+        var result = evaluate("""
+                {"sufficient":true,"missingAreas":["旧缺口"],"assistantReply":"可以从阅读场景继续。",
+                 "previousQuestionState":"NONE","nextAction":"PAUSE","nextQuestion":"你最近想整理什么资料？"}
+                """, memory(null), new DiscoveryReadiness(true, List.of()), false);
+        assertTrue(result.sufficient());
+        assertEquals(List.of(), result.missingAreas());
+        assertEquals("可以从阅读场景继续。", result.assistantReply());
+        assertEquals(DialogueAction.ASK, result.nextAction());
+        assertEquals("exploration", result.questionArea());
+    }
+
+    @Test
+    void unreliablePreviousStatePreservesPendingAndDropsCompetingQuestion() {
+        var result = evaluate("""
+                {"sufficient":true,"missingAreas":[],"assistantReply":"这个问题用于了解使用场景。",
+                 "previousQuestionState":"NONE","nextAction":"ASK","nextQuestion":"能投入多久？",
+                 "questionArea":"constraints","deferredAreas":["behaviors"]}
+                """, memory("最近怎样整理资料？"), null, false);
+        assertEquals("ASKED", result.previousQuestionState());
+        assertEquals(DialogueAction.KEEP_PENDING, result.nextAction());
+        assertNull(result.nextQuestion());
+        assertFalse(result.deferredAreas().contains("behaviors"));
+    }
+
+    @Test
+    void pendingProposalNormalizesActionButKeepsNaturalAcknowledgementAndPivot() {
+        var result = evaluate("""
+                {"sufficient":true,"missingAreas":[],"assistantReply":"可以，我们先放下 Coding Agent，探索别的方向。",
+                 "previousQuestionState":"REPLACED","nextAction":"ASK","nextQuestion":"想做哪类工具？",
+                 "questionArea":"projectGoals","deferredAreas":[]}
+                """, memory("Coding Agent 准备多久完成？"), null, true);
+        assertEquals(DialogueAction.PAUSE, result.nextAction());
+        assertEquals("REPLACED", result.previousQuestionState());
+        assertTrue(result.assistantReply().contains("放下 Coding Agent"));
+        assertNull(result.nextQuestion());
+        assertFalse(result.reviewInvitation());
+    }
+
+    @Test
+    void repeatedOptionalQuestionAndInventedInvitationAreOmittedWithoutFailingReply() {
+        var result = evaluate("""
+                {"sufficient":false,"missingAreas":["还想了解场景"],"assistantReply":"可以先想想日常用的软件。",
+                 "previousQuestionState":"NONE","nextAction":"ASK","nextQuestion":"你最近用什么工具？",
+                 "questionArea":"behaviors","deferredAreas":[],"reviewInvitation":true}
+                """, new Memory(List.of(), List.of("你最近用什么工具？"), List.of(), List.of(), null, true),
+                new DiscoveryReadiness(false, List.of("还想了解场景")), false);
+        assertNull(result.nextQuestion());
+        assertEquals(DialogueAction.PAUSE, result.nextAction());
+        assertFalse(result.reviewInvitation());
+        assertEquals("可以先想想日常用的软件。", result.assistantReply());
+    }
+
+    @Test
+    void unknownTimeDoesNotRequireInventingAConstraintForReview() {
+        var result = evaluate("""
+                {"sufficient":true,"missingAreas":[],"assistantReply":"投入时间可以稍后再定。",
+                 "previousQuestionState":"REPLACED","nextAction":"PAUSE","nextQuestion":null,
+                 "questionArea":null,"deferredAreas":[]}
+                """, new Memory(List.of(), List.of(), List.of(), List.of(), null, false), null, false);
+        assertTrue(result.sufficient());
+        assertTrue(result.reviewInvitation());
+        assertEquals(List.of(), profile().constraints());
+    }
+
+    @Test
+    void completeMalformedOutputFailsOnceWithoutHiddenRepairCall() {
+        AtomicInteger calls = new AtomicInteger();
+        var evaluator = new ProfileSufficiencyEvaluator(request -> {
+            calls.incrementAndGet();
+            return "{\"assistantReply\":\"截断";
+        }, json);
+        assertThrows(AiGatewayException.class, () -> evaluator.evaluateRemembered(profile(), "新想法", memory(null), null, false));
+        assertEquals(1, calls.get());
+    }
+
+    private SufficiencyAssessment evaluate(String output, Memory memory, DiscoveryReadiness readiness, boolean pending) {
+        AtomicInteger calls = new AtomicInteger();
+        var evaluator = new ProfileSufficiencyEvaluator(request -> {
+            assertEquals(1, calls.incrementAndGet(), "确定性归一化不应再调用模型");
+            return output;
+        }, json);
+        return evaluator.evaluateRemembered(profile(), "本轮输入", memory, readiness, false, pending);
+    }
+
+    private Memory memory(String question) {
+        return new Memory(List.of(), List.of(), List.of(), question == null ? List.of()
+                : List.of(new Topic("behaviors", question, "ASKED")), question, true);
+    }
+
+    private UserProfile profile() {
+        return UserProfile.reconstitute(new UserProfileId("reliability"), UserProfileStatus.EXPLORING, 1,
+                List.of("阅读"), List.of("整理课程资料"), List.of(), List.of("完成过 Java REST 接口"),
+                List.of("为自己的课程资料做检索与笔记工具"), List.of(),
+                List.of(new Evidence(EvidenceSourceType.USER_INPUT, "做课程资料工具，使用 Java，投入时间不确定",
+                        "用户希望整理和检索课程资料", null, false)));
+    }
+}

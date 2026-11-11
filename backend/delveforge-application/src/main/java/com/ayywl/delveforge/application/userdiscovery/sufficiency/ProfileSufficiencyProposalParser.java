@@ -52,6 +52,10 @@ public final class ProfileSufficiencyProposalParser {
     private ProfileSufficiencyProposal parse(String rawAiOutput, boolean conversation, boolean guided) {
         JsonNode root = reader.read(rawAiOutput);
 
+        if (guided) {
+            return guided(root);
+        }
+
         JsonNode sufficientNode = root.get(FIELD_SUFFICIENT);
         if (sufficientNode == null || sufficientNode.isNull()) {
             throw new AiGatewayException("AI 返回内容缺少 " + FIELD_SUFFICIENT);
@@ -122,6 +126,48 @@ public final class ProfileSufficiencyProposalParser {
             throw new AiGatewayException("结果矛盾：声明信息不足，却没有给出下一个问题");
         }
         return new ProfileSufficiencyProposal(false, missingAreas, nextQuestion);
+    }
+
+    /** 结构仍须合法；可选控制字段之间的冲突由 Application 根据真实会话归一化。 */
+    private static ProfileSufficiencyProposal guided(JsonNode root) {
+        JsonNode sufficient = root.get(FIELD_SUFFICIENT);
+        String reply = blankToNull(text(root, "assistantReply"));
+        if (sufficient == null || !sufficient.isBoolean() || reply == null || reply.length() > 2048) {
+            throw new AiGatewayException("对话必须包含布尔值 sufficient 和有界非空 assistantReply");
+        }
+        List<String> missing = textArray(root, FIELD_MISSING_AREAS);
+        if (missing != null && (missing.size() > 16 || missing.stream().anyMatch(value -> value.length() > 512))) {
+            throw new AiGatewayException("缺失信息超出有界长度");
+        }
+        String question = blankToNull(text(root, FIELD_NEXT_QUESTION));
+        if (question != null && question.length() > 512) {
+            question = null;
+        }
+        String area = blankToNull(text(root, "questionArea"));
+        if (question != null && !AREAS.contains(area == null ? "" : area)) {
+            area = "exploration";
+        }
+        String previous = blankToNull(text(root, "previousQuestionState"));
+        String action = blankToNull(text(root, "nextAction"));
+        DialogueAction next = List.of("ASK", "KEEP_PENDING", "PAUSE").contains(action == null ? "" : action)
+                ? DialogueAction.valueOf(action) : null;
+        return new ProfileSufficiencyProposal(sufficient.booleanValue(), missing == null ? List.of() : missing,
+                question, reply, question == null ? null : area, areas(root, "deferredAreas"), previous,
+                areas(root, "resumedAreas"), next);
+    }
+
+    private static final List<String> AREAS = List.of("interests", "behaviors", "painPoints",
+            "technicalCapabilities", "projectGoals", "constraints", "evidence", "exploration");
+
+    private static List<String> areas(JsonNode root, String field) {
+        List<String> values = textArray(root, field);
+        if (values == null) {
+            return List.of();
+        }
+        if (values.size() > 16) {
+            throw new AiGatewayException("对话维度超出条数上限");
+        }
+        return values.stream().filter(AREAS::contains).filter(value -> !value.equals("exploration")).distinct().toList();
     }
 
     /**

@@ -678,7 +678,8 @@ AI 调用失败或返回内容无法解析时返回 502，与其它外部能力�
 
 服务端 `discovery_readiness` 保存当前 ID + revision 的正面或负面结论及缺口。
 普通无新事实的回复不反转同版结论；六区或 Evidence 变化使旧缓存失效，下轮重新评估。
-AI 语义建议不能覆盖 Application 对目标、技术基础、约束和 USER_INPUT Evidence 的最低检查。
+AI 语义建议不能覆盖 Application 对目标、技术基础和 USER_INPUT Evidence 的最低检查。
+已知约束参与语义判断；不要求精确时间预算或约束区必填，不从“不知道”制造无约束或具体时长。
 六区填满不证明具体，兴趣、学习和求职动机均可成立，painPoints 仍可为空，没有固定轮数。
 `user_profile_sufficiency` 继续保留当前正面资格以兼容显式审阅的原子校验。
 复用审阅通过 `saveReviewIfSufficient` 在同一事务核对快照及仍有效的通过记录；
@@ -697,14 +698,16 @@ Application 的 `DiscoveryConversationService` 是产品对话入口，复用现
 POST /api/user-profiles/{id}/discovery-turn
      {input, requestId, revision, projectId?}
 POST /api/user-profiles/{id}/discovery-question
-     {requestId, revision, projectId?}
+     {requestId, revision, projectId?, replacePendingQuestion?: false}
 GET  /api/user-profiles/{id}/conversation?before=...&projectId=...
 GET  /api/user-profiles/{id}/discovery-requests/{requestId}?projectId=...
 POST /api/user-profiles/{id}/discovery-requests/{requestId}/cancel?projectId=...
 GET  /api/user-profiles/{id}/review-readiness
 ```
 
-浏览器在发送前保存随机 requestId，只保存身份，不存正文。同 ID、同输入指纹复用原请求，
+浏览器在发送前将随机 requestId 保存在 localStorage；原文仅在当前标签页的 sessionStorage 作有界草稿保存，
+不作为已接受消息或模型上下文。最多五份画像，每份四条未接受原文、一份最多12000字符的输入草稿，
+尝试超过一天清除、未改变草稿闲置一天过期，支持清除输入草稿；存储不可用时提示自行保留原文。同 ID、同输入指纹复用原请求，
 不同内容复用 ID 返回 409；每份画像同时最多一个 PENDING。兼容无 requestId 的旧调用会由
 服务端分配 ID，但可靠断线恢复的调用方必须自己保留 ID。projectId 可省略；提供时必须匹配
 当前未删除项目的画像关联，提交事务再次核对该关联。对话归属于 User Profile，消息另存
@@ -749,11 +752,13 @@ V30 新增六区人工保护表及提案快照表。人工 PATCH 保护明确提
 ```text
 POST /api/user-profiles/{id}/profile-updates/{proposalId}/accept?projectId=...
 POST /api/user-profiles/{id}/profile-updates/{proposalId}/dismiss?projectId=...
+GET  /api/user-profiles/{id}/profile-updates/{proposalId}?projectId=...
 ```
 
 两个动作只接受服务器保存的提案身份，不接收客户端替换内容，也不调用模型。Application 从保存
 快照形成候选；Persistence 在写锁内核对提案状态、基准版本/状态与项目关联，原子提交画像、
 Evidence、保护及结果版本。并发和重复批准读取已保存终态，不重复推进版本。忽略不改变画像和依据。
+批准响应丢失时 GET 精确提案终态，不从卡片消失推断批准成功，不自动重发批准。
 人工编辑（包括无内容变化）使待批提案失效；内容/生命周期变化的数据库触发器同时阻止过期提案遗留。
 自动提交在事务内重新检查人工保护，防止在途模型覆盖并发的无内容变化人工编辑。
 
@@ -764,15 +769,22 @@ Evidence、保护及结果版本。并发和重复批准读取已保存终态，
 读取待批快照，不再拥有自动覆盖路径。
 
 普通轮先关闭思考提取有依据的事实到候选画像，再用 Thinking Low 规划回复、上一问结果和下一步。
-附和、显式索取下一问等控制输入沿用已有的无事实快捷路径。规划结构不合法、问题重复、
-已跳过维度或充分性冲突时，允许一次仅规划阶段的修正。网络异常直接结束请求。两次校验均失败
-则明确失败，画像、Evidence、问题状态、邀请与消息均不提交。
+附和、显式索取下一问和独立不确定答复沿用无事实快捷路径。hasNewFacts 为可选提示，
+实际完整分区差异与依据决定提案；实际变化必须有依据，无实际变化不因该提示制造版本。
+规划保留严格 JSON 对象、字段类型和长度边界，但可选控制字段之间的矛盾由应用归一化：
+同版充分性优先使用持久结果，缺口受最低条件约束，首次邀请按服务器状态决定；
+未解决问题保留 ASKED 并丢弃竞争问题，待批提案固定 PAUSE，重复或已跳过维度的可选问题丢弃。
+有用回复无需为非必要控制字段额外请求模型；完整但空白/损坏输出与网络失败均不隐式重试。
+无安全结果时明确失败，画像、Evidence、问题状态、邀请与消息均不提交。
 
 ASK 展示一个新问题，KEEP_PENDING 回应并保留当前问题，PAUSE 在暂停、等待画像更新批准或提供审阅选择时只回应。
 有上一问时给出 ASKED / ANSWERED / DEFERRED / REPLACED，无上一问用 NONE。
 只有明确跳过才阻止再次追问该维度；改换目标可以替换旧问题。服务端校验实际待答身份、
 有界问题文本和历史问题的规范化近似重复。主动索取 guidance 时前端优先聚焦现有问题，
 服务端对陈旧的并发索取拒绝再次生成。
+用户显式选择换题时，QUESTION 请求携带 replacePendingQuestion=true，该选择纳入原请求指纹；
+模型请求仍在事务外，成功提交时将旧问题标为 REPLACED 并原子保存回应/可选新问题，失败保留旧问题。
+单纯未知或换题不写入拒答维度。原 QUESTION 请求省略该字段保持兼容。
 
 完整已提交历史按顺序使用 USER / ASSISTANT 消息，保留当时实际呈现的问题原文。
 两阶段各自的固定 System 指令之后是历史，最后一条 USER 承载当前输入、画像及必要的动态材料。
@@ -788,8 +800,12 @@ ASK 展示一个新问题，KEEP_PENDING 回应并保留当前问题，PAUSE 在
 ASK 的追问只在独立问题字段呈现；提示模型避免正文重复，但不再以正文/nextQuestion 的语义重合
 拒绝有效轮次。历史问题检查与唯一 ASKED 约束保留，轻微语义重复是接受的非阻塞体验限制。
 待批提案不是问题或拒答话题；规划只收到已接受画像及非事实的 pendingProfileUpdate 标记，必须 PAUSE，
-不创建竞争问题或首次审阅邀请。服务器使用明确的待批准提示，避免宣称已经保存画像。
-上一问仍按真实输入处理，未解决时保留 ASKED；接受/忽略后不自动规划。
+不创建竞争问题或首次审阅邀请。保留模型对本轮输入的自然回应，界面明确显示建议尚未应用。
+上一问仍按真实输入处理，未解决时保留 ASKED；批准事务不调用模型。
+“接受更新并继续”先批准并恢复真实会话，有待答问题直接呈现，否则发起独立 QUESTION 请求；
+“仅接受更新”不生成。后续问题失败不更改已批准结果，界面分别显示两项结果。
+失败分类按提取/规划阶段及 Provider TRANSPORT / HTTP / EMPTY_OUTPUT / INCOMPLETE_OUTPUT /
+INVALID_OUTPUT 等固定类别记录，持久化冲突另记；日志仅含校验过的请求身份与固定诊断字段。
 完整规范见 ADR-0019 的本次修订。
 
 review-readiness 返回 `{profileId, revision, sufficient: true|false|null, missingAreas}`：

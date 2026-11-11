@@ -8,11 +8,24 @@ package com.ayywl.delveforge.application.port.ai;
  */
 public class AiGatewayException extends RuntimeException {
 
+    public enum Category { UNAVAILABLE, TRANSPORT, HTTP, EMPTY_OUTPUT, INCOMPLETE_OUTPUT, INVALID_OUTPUT, OUTPUT_LIMIT }
+
+    private final Category category;
+
     public AiGatewayException(String message) {
-        super(message);
+        this(message, null, Category.UNAVAILABLE);
     }
 
     public AiGatewayException(String message, Throwable cause) {
+        this(message, cause, Category.UNAVAILABLE);
+    }
+
+    public AiGatewayException(String message, Throwable cause, Category category) {
         super(message, cause);
+        this.category = category;
+    }
+
+    public Category category() {
+        return category;
     }
 }

@@ -10,7 +10,7 @@ import ProfileReview from "../components/ProfileReview.vue";
 import ProfileUpdateCard from "../components/ProfileUpdateCard.vue";
 const props = defineProps<{ s: WorkspaceSession }>();
 const emit = defineEmits<{ next: [] }>();
-const input = ref("");
+const input = computed({ get: () => props.s.discoveryDraft, set: value => props.s.setDiscoveryDraft(value) });
 const canSend = computed(() => props.s.profile?.status === "EXPLORING" && !!input.value.trim() &&
   !props.s.busy && !props.s.discoveryUncertain && !props.s.conversationLoading && !props.s.profileUpdateProposal);
 const reviewed = ref(false);
@@ -19,9 +19,7 @@ const editValue = ref("");
 const reopen = ref(false);
 const chat = ref<HTMLElement>();
 const inspectorOpen = ref(true);
-const lastReply = computed(() => [...props.s.messages].reverse().find(message => message.role === "agent"));
-const pendingReminder = computed(() => props.s.nextQuestion && lastReply.value?.question !== props.s.nextQuestion
-  ? props.s.nextQuestion : null);
+const pendingReminder = computed(() => props.s.nextQuestion);
 const dimensionIcons: Record<ProfileSection, NavigationIconName> = {
   interests: "heart", behaviors: "activity", painPoints: "warning", technicalCapabilities: "code",
   projectGoals: "target", constraints: "lock",
@@ -49,7 +47,6 @@ watch(
     editing.value = null;
   },
 );
-watch(() => props.s.profile?.id, () => { input.value = ""; });
 watch(
   () => [props.s.messages.length, props.s.discoveryPending, props.s.profileUpdateProposal?.id],
   async () => {
@@ -88,6 +85,17 @@ async function continueExploring() {
     chat.value.scrollTop = chat.value.scrollHeight;
     document.getElementById("discovery-input")?.focus();
   }
+}
+async function acceptUpdate(continueAfter: boolean) {
+  await props.s.resolveProfileUpdate(true, continueAfter);
+  await nextTick();
+  if (chat.value) chat.value.scrollTop = chat.value.scrollHeight;
+  document.getElementById("discovery-input")?.focus();
+}
+async function editFailed(index: number) {
+  if (!props.s.editFailedMessage(index)) return;
+  await nextTick();
+  document.getElementById("discovery-input")?.focus();
 }
 function edit(key: ProfileSection) {
   editing.value = key;
@@ -217,12 +225,14 @@ async function save() {
             <p>{{ message.state === 'failed'
               ? '本轮未被接受。可以核对画像后编辑并重新发送。'
               : '未收到成功响应，结果尚不确定。请核对画像；不会自动重发。' }}</p>
-            <button type="button" class="text-button" :disabled="!!s.busy" @click="s.checkDiscoveryStatus">查询画像状态</button>
+            <button v-if="message.state === 'failed'" type="button" class="text-button"
+              :disabled="!!s.busy || s.discoveryUncertain" @click="editFailed(index)">编辑并重新发送</button>
+            <button v-else type="button" class="text-button" :disabled="!!s.busy" @click="s.checkDiscoveryStatus">查询本轮结果</button>
           </div>
         </article>
         <ProfileUpdateCard v-if="s.profileUpdateProposal" :proposal="s.profileUpdateProposal"
           :busy="!!s.busy || s.conversationLoading || s.discoveryUncertain"
-          @accept="s.resolveProfileUpdate(true)" @dismiss="s.resolveProfileUpdate(false)"
+          @accept="acceptUpdate" @dismiss="s.resolveProfileUpdate(false)"
           @edit="activeTab = 'review'" />
         <div v-if="s.discoveryPending" class="message agent assistant-waiting">
           <span class="sr-only">DelveForge 正在整理你的想法…</span>
@@ -233,14 +243,26 @@ async function save() {
           {{ s.busy }}… 正在等待实际响应。
         </p>
       </div>
+      <div v-if="s.approvalNotice && activeTab === 'chat'" class="approval-result" role="status">
+        <p>{{ s.approvalNotice }}</p>
+        <button v-if="s.discoveryUncertain" type="button" class="text-button" :disabled="!!s.busy"
+          @click="s.checkDiscoveryStatus">查询后续提问结果</button>
+        <button v-else-if="!s.nextQuestion && !s.profileUpdateProposal" type="button" class="text-button"
+          :disabled="!!s.busy || s.conversationLoading" title="调用 AI 提问，可能计费" @click="continueExploring">请 Agent 提出下一问</button>
+      </div>
       <form v-show="activeTab === 'chat' && s.profile.status === 'EXPLORING'" class="composer" @submit.prevent="send">
-        <p v-if="pendingReminder" id="pending-question" class="dialogue-pending"><strong>待回答</strong> {{ pendingReminder }}</p>
+        <div v-if="pendingReminder && !s.profileUpdateProposal" class="pending-question-actions">
+          <p id="pending-question" class="dialogue-pending"><strong>待回答</strong> {{ pendingReminder }}</p>
+          <button type="button" class="text-button" :disabled="!!s.busy || s.discoveryUncertain || s.conversationLoading"
+            title="会调用 AI 换个话题，可能计费" @click="s.changeDiscoveryTopic">跳过这问，换个话题</button>
+        </div>
         <label for="discovery-input">你的想法</label>
         <textarea
           id="discovery-input" name="discovery-input" autocomplete="off"
           v-model="input"
           :aria-describedby="pendingReminder ? 'pending-question' : undefined"
           rows="3"
+          maxlength="12000"
           placeholder="最近有什么事情，你希望软件能帮你做得更好？"
           :disabled="s.profile.status !== 'EXPLORING'"
           @keydown.ctrl.enter.prevent="send"
@@ -252,6 +274,10 @@ async function save() {
           >
             发送
           </button>
+        </div>
+        <div class="draft-controls meta">
+          <span>草稿仅在本标签页会话保留，闲置一天清除。请勿输入凭据。</span>
+          <button v-if="input" type="button" class="text-button" @click="input = ''">清除输入草稿</button>
         </div>
       </form>
       <div v-if="activeTab === 'chat' && s.profile.status !== 'EXPLORING'" class="discovery-resume">

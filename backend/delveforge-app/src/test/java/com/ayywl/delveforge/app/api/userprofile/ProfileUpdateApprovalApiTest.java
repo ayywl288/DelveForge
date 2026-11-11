@@ -72,6 +72,8 @@ class ProfileUpdateApprovalApiTest {
         var accepted = http.postForEntity(acceptPath, null, JsonNode.class);
         assertEquals(HttpStatus.OK, accepted.getStatusCode());
         assertEquals("ACCEPTED", accepted.getBody().path("state").asText());
+        assertEquals(accepted.getBody(), http.getForObject(
+                path + "/profile-updates/" + proposal.path("id").asText(), JsonNode.class));
         int revision = accepted.getBody().path("resultingRevision").asInt();
         assertEquals(5, revision);
         assertEquals(accepted.getBody(), http.postForObject(acceptPath, null, JsonNode.class));
@@ -112,6 +114,69 @@ class ProfileUpdateApprovalApiTest {
             assertTrue(http.getForObject(path, JsonNode.class).path("evidence").isEmpty());
         }
         verify(ai, times(4)).generate(any());
+    }
+
+    @Test
+    void realHttpJourneyChangesDirectionApprovesOnceAndKeepsApprovalWhenFollowUpFails() {
+        JsonNode empty = http.postForObject("/api/user-profiles", null, JsonNode.class);
+        String path = "/api/user-profiles/" + empty.path("id").asText();
+        String ready = """
+                {"sufficient":true,"missingAreas":[],"assistantReply":"可以聊聊你的项目。",
+                 "nextAction":"PAUSE","nextQuestion":null,"previousQuestionState":"NONE"}
+                """;
+        given(ai.generate(any())).willReturn("""
+                {"technicalCapabilities":["Java REST 开发"],"projectGoals":["改进 Coding Agent"],
+                 "evidenceClaims":["用户已有 Java 经验，想改善 Coding Agent"]}
+                """, ready);
+        JsonNode first = http.postForObject(path + "/discovery-turn", Map.of("input", "会 Java，想改进 Coding Agent",
+                "revision", 1, "requestId", UUID.randomUUID().toString()), JsonNode.class);
+        int revision = first.path("profile").path("revision").asInt();
+        assertTrue(first.path("sufficient").asBoolean());
+        assertTrue(first.path("profile").path("constraints").isEmpty());
+        given(ai.generate(any())).willReturn("""
+                {"sufficient":true,"missingAreas":[],"assistantReply":"也可以换个话题。",
+                 "nextAction":"ASK","nextQuestion":"准备投入多少时间？","questionArea":"constraints"}
+                """);
+        http.postForObject(path + "/discovery-question", Map.of("revision", revision,
+                "requestId", UUID.randomUUID().toString()), JsonNode.class);
+        given(ai.generate(any())).willReturn("""
+                {"sufficient":true,"missingAreas":[],"assistantReply":"时间未知也没关系，可以稍后再定。",
+                 "nextAction":"ASK","nextQuestion":"每周几小时？","questionArea":"constraints",
+                 "previousQuestionState":"DEFERRED","deferredAreas":["constraints"]}
+                """);
+        JsonNode unknown = http.postForObject(path + "/discovery-turn", Map.of("input", "不知道。", "revision", revision,
+                "requestId", UUID.randomUUID().toString()), JsonNode.class);
+        assertTrue(unknown.path("nextQuestion").isNull());
+        assertEquals("REPLACED", unknown.path("previousQuestionState").asText());
+        assertEquals(revision, unknown.path("profile").path("revision").asInt());
+        given(ai.generate(any())).willReturn("""
+                {"hasNewFacts":false,"projectGoals":["探索课程检索工具"],"evidenceClaims":["用户明确放下原项目"]}
+                """, """
+                {"sufficient":true,"missingAreas":["模型旧缺口"],"assistantReply":"可以，我们放下 Coding Agent，先探索课程资料检索。",
+                 "nextAction":"ASK","nextQuestion":"想检索什么资料？","previousQuestionState":"NONE"}
+                """);
+        String pivotId = UUID.randomUUID().toString();
+        JsonNode pivot = http.postForObject(path + "/discovery-turn", Map.of("input", "不想再搞那个 coding agent 了，换成课程检索",
+                "revision", revision, "requestId", pivotId), JsonNode.class);
+        assertEquals("PAUSE", pivot.path("nextAction").asText());
+        assertTrue(pivot.path("assistantReply").asText().contains("放下 Coding Agent"));
+        String proposalId = pivot.path("pendingProposal").path("id").asText();
+        String approvalPath = path + "/profile-updates/" + proposalId;
+        JsonNode approved = http.postForObject(approvalPath + "/accept", null, JsonNode.class);
+        assertEquals("ACCEPTED", approved.path("state").asText());
+        assertEquals(approved, http.postForObject(approvalPath + "/accept", null, JsonNode.class));
+        given(ai.generate(any())).willThrow(new com.ayywl.delveforge.application.port.ai.AiGatewayException("fixture"));
+        String followId = UUID.randomUUID().toString();
+        assertEquals(HttpStatus.BAD_GATEWAY, http.postForEntity(path + "/discovery-question", Map.of(
+                "revision", approved.path("resultingRevision").asInt(), "requestId", followId), JsonNode.class).getStatusCode());
+        assertEquals("FAILED", http.getForObject(path + "/discovery-requests/" + followId, JsonNode.class).path("state").asText());
+        assertEquals("ACCEPTED", http.getForObject(approvalPath, JsonNode.class).path("state").asText());
+        JsonNode current = http.getForObject(path, JsonNode.class);
+        assertEquals("探索课程检索工具", current.path("projectGoals").get(0).asText());
+        assertEquals("Java REST 开发", current.path("technicalCapabilities").get(0).asText());
+        JsonNode saved = http.getForObject(path + "/conversation", JsonNode.class);
+        assertTrue(saved.path("messages").toString().contains(pivotId));
+        verify(ai, times(7)).generate(any());
     }
 
     private String seed() {

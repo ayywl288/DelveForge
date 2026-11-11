@@ -169,7 +169,7 @@ export const api = {
       ...identity,
     }),
   discoveryQuestion: (value: string, revision: number, previousQuestions: string[],
-    recentConversation: DiscoveryContextMessage[] = [], identity?: DiscoveryRequestIdentity) =>
+    recentConversation: DiscoveryContextMessage[] = [], identity?: DiscoveryRequestIdentity & { replacePendingQuestion?: boolean }) =>
     request<DiscoveryQuestion>(`${profile(value)}/discovery-question`, "POST", {
       revision,
       previousQuestions,
@@ -188,6 +188,8 @@ export const api = {
     request<DiscoveryOperation>(`${profile(value)}/discovery-requests/${id(requestId)}/cancel`, "POST"),
   resolveProfileUpdate: (value: string, proposalId: string, accept: boolean, projectId?: string) =>
     request<ProfileUpdateProposal>(`${profile(value)}/profile-updates/${id(proposalId)}/${accept ? "accept" : "dismiss"}${projectId ? `?projectId=${id(projectId)}` : ""}`, "POST"),
+  profileUpdate: (value: string, proposalId: string, projectId?: string) =>
+    request<ProfileUpdateProposal>(`${profile(value)}/profile-updates/${id(proposalId)}${projectId ? `?projectId=${id(projectId)}` : ""}`),
   patchProfile: (value: string, patch: ProfilePatch, revision?: number) =>
     request<UserProfile>(profile(value), "PATCH", { ...patch, revision }),
   assess: (value: string, revision?: number) =>

@@ -20,6 +20,9 @@ import com.ayywl.delveforge.domain.user.UserProfile;
 import com.ayywl.delveforge.domain.user.UserProfileId;
 import com.ayywl.delveforge.domain.user.UserProfileStateException;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -28,6 +31,8 @@ import java.util.UUID;
 
 /** 持久问答的产品入口；AI 在短事务之外运行，未知结果按请求身份查询，不盲目重发。 */
 public final class DiscoveryConversationService {
+
+    private static final Logger log = LoggerFactory.getLogger(DiscoveryConversationService.class);
 
     private final UserProfileRepository profiles;
     private final DiscoveryConversationRepository conversations;
@@ -52,10 +57,13 @@ public final class DiscoveryConversationService {
         }
         if ("TURN".equals(supplied.kind())) {
             ProfileExtraction.requireUserInput(supplied.input());
+            if (supplied.replacePendingQuestion()) {
+                throw new IllegalArgumentException("只有主动换题操作可以显式替换待答问题");
+            }
         }
         requireProject(id, supplied.projectId());
         Command command = new Command(requestId, supplied.kind(), supplied.input(), supplied.revision(),
-                supplied.projectId());
+                supplied.projectId(), supplied.replacePendingQuestion());
         String fingerprint = fingerprint(command);
         Operation previous = conversations.operation(id, requestId).orElse(null);
         if (previous != null) {
@@ -74,10 +82,12 @@ public final class DiscoveryConversationService {
         if (!"STARTED".equals(claimed.state())) {
             return claimed;
         }
+        String stage = "PREPARE";
         try {
             Memory memory = conversations.memory(id);
             DiscoveryReadiness readiness = conversations.readiness(id, expected.revision()).orElse(null);
-            if ("QUESTION".equals(command.kind()) && memory.unansweredQuestion() != null) {
+            if ("QUESTION".equals(command.kind()) && memory.unansweredQuestion() != null
+                    && !command.replacePendingQuestion()) {
                 throw new UserProfileStateException("还有未回答的问题，请先回答或明确跳过");
             }
             UserProfile candidate;
@@ -90,8 +100,9 @@ public final class DiscoveryConversationService {
                 proposal = turn.proposal();
             } else {
                 candidate = UserProfileCandidates.copyOf(expected);
-                result = questions.prepare(candidate, memory, readiness);
+                result = questions.prepare(candidate, memory, readiness, command.replacePendingQuestion());
             }
+            stage = "PERSISTENCE";
             return conversations.complete(expected, candidate, command, result, proposal);
         } catch (RuntimeException failure) {
             try {
@@ -100,6 +111,11 @@ public final class DiscoveryConversationService {
                 // 无法记录失败时仍保留 PENDING，不能假称请求已失败或安全重发。
                 failure.addSuppressed(persistenceFailure);
             }
+            String diagnosticStage = failure instanceof DiscoveryAiException ai ? ai.stage().name() : stage;
+            String category = failure instanceof DiscoveryAiException ai ? ai.category().name()
+                    : failure instanceof UserProfileStateException ? "OPTIMISTIC_CONFLICT" : "PERSISTENCE_OR_INTERNAL";
+            log.warn("operation=discovery.request requestId={} stage={} category={} result=ERROR",
+                    requestId, diagnosticStage, category);
             throw failure;
         }
     }
@@ -121,7 +137,16 @@ public final class DiscoveryConversationService {
                 new Operation(requestId, null, projectId, null, "NOT_FOUND", null, null));
     }
 
-    /** 显式用户动作，只读取服务器快照；不会重新调用提取或规划。 */
+    /** 查询原提案的权威结果；批准响应丢失时不需重发批准。 */
+    public ProfileUpdateProposal profileUpdate(UserProfileId id, String proposalId, String projectId) {
+        requireProject(id, projectId);
+        ProjectFlowContext.requireId(proposalId);
+        UserProfileCandidates.loadCopy(profiles, id);
+        return profiles.profileUpdate(id, proposalId)
+                .orElseThrow(() -> new UserProfileStateException("画像更新提案不存在，请重新读取"));
+    }
+
+    /** 批准与后续可选生成是两个操作，批准只读取已保存的提案快照。 */
     public ProfileUpdateProposal resolveProfileUpdate(UserProfileId id, String proposalId, boolean accept, String projectId) {
         requireProject(id, projectId);
         ProjectFlowContext.requireId(proposalId);
@@ -165,6 +190,9 @@ public final class DiscoveryConversationService {
         try {
             String input = command.kind() + "\n" + command.revision() + "\n" + command.projectId()
                     + "\n" + command.input();
+            if (command.replacePendingQuestion()) {
+                input += "\nreplacePendingQuestion=true";
+            }
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
                     .digest(input.getBytes(StandardCharsets.UTF_8)));
         } catch (NoSuchAlgorithmException impossible) {

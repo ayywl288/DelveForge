@@ -15,7 +15,11 @@ import java.util.Optional;
 /** 对话与请求结果的持久化边界；完成操作必须与 Profile 和充分性一起原子提交。 */
 public interface DiscoveryConversationRepository {
 
-    record Command(String requestId, String kind, String input, Integer revision, String projectId) {
+    record Command(String requestId, String kind, String input, Integer revision, String projectId,
+            boolean replacePendingQuestion) {
+        public Command(String requestId, String kind, String input, Integer revision, String projectId) {
+            this(requestId, kind, input, revision, projectId, false);
+        }
     }
 
     record Operation(String requestId, String kind, String projectId, String fingerprint, String state,

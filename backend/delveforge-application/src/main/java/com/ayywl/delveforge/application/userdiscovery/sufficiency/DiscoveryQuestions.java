@@ -33,6 +33,13 @@ public final class DiscoveryQuestions {
         }
     }
 
+    /** 仅识别独立的不确定答复；复杂语境仍交给模型理解，不据此制造个人事实或拒答。 */
+    public static boolean isUncertainAnswer(String input) {
+        String value = input == null ? "" : input.strip().replaceAll("[\\s，。！？,.!?]", "");
+        return Set.of("不知道", "我不知道", "不清楚", "我不清楚", "不确定", "暂时不确定", "暂时不知道",
+                "还不知道", "还不确定", "还没想好", "没想好").contains(value);
+    }
+
     /** 有限的近似重复检查；语义重复仍由模型结合已讨论话题判断。 */
     public static boolean equivalent(String first, String second) {
         String left = normalize(first);

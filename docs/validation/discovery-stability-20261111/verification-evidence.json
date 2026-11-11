@@ -1,0 +1,79 @@
+{
+  "baseline": "61034efb6886d97adbdd8e2c78b77c71252cbcfc",
+  "backendTests": {
+    "domain": {
+      "total": 209,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 209
+    },
+    "application": {
+      "total": 939,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "passed": 939
+    },
+    "infrastructure": {
+      "total": 654,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 52,
+      "passed": 602
+    },
+    "app": {
+      "total": 233,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 3,
+      "passed": 230
+    }
+  },
+  "backendRootCommand": "mvnw.cmd -o verify",
+  "rootCommandExit": 1,
+  "rootPackaging": "BLOCKED_BY_EXISTING_JAR_SHARING_VIOLATION_0x80070020",
+  "isolatedBuildCommand": "mvnw.cmd -o -DskipTests verify",
+  "isolatedBuildExit": 0,
+  "isolatedBuildTestsExecuted": 0,
+  "identicalMainClasses": 587,
+  "fullTestLogSha256": "bfc5a70fbbbdedaff0de63d05000acfa9a2738e619c99aa1b802a9e890448f61",
+  "isolatedBuildLogSha256": "9661f49a585359779878064e6fae1d919d8c87ad30da5c77427c90ac9ceea596",
+  "skipReasons": {
+    "Environment variable [DELVEFORGE_TASK2_E2E] does not exist": 1,
+    "Environment variable [DELVEFORGE_REAL_STEP] does not exist": 1,
+    "org.opentest4j.TestAbortedException: Assumption failed: Fresh public clone acceptance is separately enabled": 1,
+    "Environment variable [DELVEFORGE_AGENT_E2E] does not exist": 1,
+    "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist": 39,
+    "Environment variable [DELVEFORGE_AGENT_COMPATIBILITY] does not exist": 2,
+    "Environment variable [DELVEFORGE_SANDBOX_PROTOCOL_IMAGE] does not exist": 1,
+    "Environment variable [DELVEFORGE_SANDBOX_LEGACY_IMAGE] does not exist": 1,
+    "Environment variable [DELVEFORGE_REAL_BASELINE] does not exist": 1,
+    "Environment variable [DELVEFORGE_PUBLIC_PREFLIGHT] does not exist": 1,
+    "Environment variable [DELVEFORGE_REPOSITORY_COMPATIBILITY_DOCKER] does not exist": 2,
+    "Environment variable [DELVEFORGE_SELECTED_SECURITY_PREFLIGHT] does not exist": 1,
+    "Environment variable [DELVEFORGE_AGENT_LIVE] does not exist": 1,
+    "org.opentest4j.TestAbortedException: Assumption failed: Fresh public clone acceptance is separate": 1,
+    "org.opentest4j.TestAbortedException: Assumption failed: Additional public clone matrix is separate": 1
+  },
+  "frontend": {
+    "files": 24,
+    "passed": 388,
+    "skipped": 0,
+    "typecheck": "PASS",
+    "productionBuild": "PASS"
+  },
+  "browser": {
+    "widths": [
+      1440,
+      390
+    ],
+    "passedChecks": 128,
+    "localFixtureCalls": 132,
+    "paidDeepSeekCalls": 0
+  },
+  "productionAssets": [
+    "index-C0g3K4Iq.js",
+    "index-D_dyE1gu.css"
+  ]
+}

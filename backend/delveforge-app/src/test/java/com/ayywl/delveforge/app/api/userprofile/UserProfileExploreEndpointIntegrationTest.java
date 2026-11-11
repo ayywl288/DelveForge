@@ -175,8 +175,8 @@ class UserProfileExploreEndpointIntegrationTest {
                 """);
 
         mockMvc.perform(explore(id))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.code").value("EXTERNAL_CAPABILITY_UNAVAILABLE"));
 
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.revision").value(1))

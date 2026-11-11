@@ -395,7 +395,7 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
     }
 
     @Test
-    void explicitQuestionWithActionableGapsReplansAQuestionlessModelResponse() throws Exception {
+    void usefulReplyWithoutQuestionIsAcceptedWithoutHiddenPlanningRepair() throws Exception {
         String id = createProfile();
         given(aiGateway.generate(any())).willReturn("""
                 {"sufficient":false,"missingAreas":["需要明确目标"],"assistantReply":"我们可以开始探索。",
@@ -405,17 +405,18 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":1}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sufficient").value(false))
-                .andExpect(jsonPath("$.nextQuestion").value("你平时主要用什么语言写代码？"));
+                .andExpect(jsonPath("$.nextQuestion").isEmpty())
+                .andExpect(jsonPath("$.assistantReply").value("我们可以开始探索。"));
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.revision").value(1)).andExpect(jsonPath("$.evidence").isEmpty())
                 .andExpect(jsonPath("$.status").value("EXPLORING"));
         mockMvc.perform(get("/api/user-profiles/{id}/review-readiness", id))
                 .andExpect(jsonPath("$.sufficient").value(false));
-        Mockito.verify(aiGateway, Mockito.times(2)).generate(any());
+        Mockito.verify(aiGateway, Mockito.times(1)).generate(any());
     }
 
     @Test
-    void explicitQuestionWithoutAnyUsableTopicFailsRatherThanReturningEmptySuccess() throws Exception {
+    void explicitQuestionWithoutUsableTopicKeepsUsefulReplyAndDoesNotFabricateAQuestion() throws Exception {
         String id = createProfile();
         given(aiGateway.generate(any())).willReturn("""
                 {"sufficient":false,"missingAreas":["目标待补充"],"assistantReply":"可以先不讨论这些。",
@@ -424,11 +425,13 @@ class UserProfileDiscoveryTurnEndpointIntegrationTest {
                 """);
         mockMvc.perform(post("/api/user-profiles/{id}/discovery-question", id)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"revision\":1}"))
-                .andExpect(status().isBadGateway())
-                .andExpect(jsonPath("$.code").value("EXTERNAL_CAPABILITY_UNAVAILABLE"));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.nextQuestion").isEmpty())
+                .andExpect(jsonPath("$.nextAction").value("PAUSE"))
+                .andExpect(jsonPath("$.assistantReply").value("可以先不讨论这些。"));
         mockMvc.perform(get("/api/user-profiles/{id}", id))
                 .andExpect(jsonPath("$.revision").value(1)).andExpect(jsonPath("$.evidence").isEmpty());
-        Mockito.verify(aiGateway, Mockito.times(2)).generate(any());
+        Mockito.verify(aiGateway, Mockito.times(1)).generate(any());
     }
 
     @Test

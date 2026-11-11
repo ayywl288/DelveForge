@@ -46,9 +46,15 @@ public final class AskDiscoveryQuestionUseCase {
     public SufficiencyAssessment prepare(UserProfile snapshot,
             DiscoveryConversationRepository.Memory memory,
             DiscoveryReadiness readiness) {
+        return prepare(snapshot, memory, readiness, false);
+    }
+
+    public SufficiencyAssessment prepare(UserProfile snapshot,
+            DiscoveryConversationRepository.Memory memory, DiscoveryReadiness readiness, boolean replacePendingQuestion) {
         snapshot.requireExplorationAllowed();
-        return evaluator.evaluateRemembered(snapshot, "请提出下一个有价值的问题，尊重已跳过的维度。",
-                memory, readiness, true);
+        return evaluator.evaluateRemembered(snapshot, replacePendingQuestion ? "请跳过当前问题，换个有价值的话题。"
+                : "请提出下一个有价值的问题，尊重已跳过的维度。",
+                memory, readiness, true, false, replacePendingQuestion);
     }
 
     private static void requireCurrentExploration(UserProfile profile, int revision) {

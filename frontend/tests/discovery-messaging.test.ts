@@ -208,7 +208,8 @@ describe("Discovery 消息反馈与请求边界", () => {
     expect(s.messages.filter(message => message.role === "agent")).toHaveLength(0);
     (root.querySelector(".message-error button") as HTMLButtonElement).click();
     await settle();
-    expect(read).toHaveBeenCalledTimes(2);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(composer.value).toBe("未接受的内容");
     expect(turn).toHaveBeenCalledTimes(1);
     await write(composer, "编辑后的内容");
     expect([...root.querySelectorAll("button")].find(button => button.textContent?.trim() === "发送")?.disabled).toBe(false);
@@ -450,7 +451,7 @@ describe("画像整轮更新的人工批准", () => {
     expect(localStorage.getItem("delveforge.session.v1") ?? "").not.toContain("proposal-1");
     history.mockResolvedValue(proposalHistory(null));
     [...root.querySelectorAll<HTMLButtonElement>(".profile-update-card button")]
-      .find(button => button.textContent === (accept ? "接受更新" : "忽略并继续"))!.click();
+      .find(button => button.textContent === (accept ? "仅接受更新" : "忽略建议"))!.click();
     await settle();
     expect(resolve).toHaveBeenCalledWith("profile-1", "proposal-1", accept, undefined);
     expect(s.profileUpdateProposal).toBeNull();

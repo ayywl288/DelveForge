@@ -68,13 +68,13 @@ class ProfileSufficiencyEvaluatorTest {
     }
 
     @Test
-    void missingGoalCapabilityOrConstraintsCannotBeFilledByAiVerdict() {
+    void missingGoalOrCapabilityCannotBeFilledByAiVerdict() {
         UserProfile profile = UserProfile.create(new UserProfileId("empty"));
         profile.recordEvidence(evidence("喜欢编程").getFirst());
         SufficiencyAssessment result = evaluator(request -> SUFFICIENT).evaluate(profile);
 
         assertFalse(result.sufficient());
-        assertEquals(3, result.missingAreas().size());
+        assertEquals(2, result.missingAreas().size());
         assertEquals("你希望这个项目帮助你完成什么成果，或展示什么能力？", result.nextQuestion());
     }
 
