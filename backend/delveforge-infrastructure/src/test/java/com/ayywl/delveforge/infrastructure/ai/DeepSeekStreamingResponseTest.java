@@ -1,5 +1,7 @@
 package com.ayywl.delveforge.infrastructure.ai;
 
+import com.ayywl.delveforge.application.port.ai.AiGatewayException;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -13,6 +15,26 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class DeepSeekStreamingResponseTest {
 
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @Test
+    void normallyTerminatedWhitespaceIsEmptyRatherThanIncomplete() {
+        // 合成 JSON 模式空白响应；历史原始 SSE 未留存，不声称重建原始故障正文。
+        String body = chunk(" ".repeat(158), "stop") + "data: [DONE]\n\n";
+        var stats = new DeepSeekStreamingResponse.Stats();
+        var failure = assertThrows(DeepSeekStreamingResponse.Rejected.class,
+                () -> DeepSeekStreamingResponse.read(new StringReader(body), mapper, 65536, stats, () -> 10));
+        assertEquals(AiGatewayException.Category.EMPTY_OUTPUT, failure.category());
+        assertEquals("PROVIDER_RESPONSE_EMPTY", failure.code());
+        assertEquals(true, stats.stopSeen);
+        assertEquals(true, stats.doneSeen);
+        assertEquals(false, stats.hasContent);
+    }
+
+    @Test
+    void initialWhitespaceDoesNotHideSubsequentCompleteContent() throws Exception {
+        String body = chunk("  ", null) + chunk("{}", "stop") + "data: [DONE]\n\n";
+        assertEquals("  {}", read(body, 65536));
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"EOF", "STOP_ONLY", "DONE_ONLY", "LENGTH", "ABORTED"})

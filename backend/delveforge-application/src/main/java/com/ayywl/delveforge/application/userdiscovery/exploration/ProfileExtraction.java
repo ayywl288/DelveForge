@@ -35,6 +35,7 @@ public final class ProfileExtraction {
             模型只提出建议，应用会要求用户批准覆盖、删除、重排或受人工保护分区的任何变化。
             不撤回历史依据。
             附和、请求下一问、不知道、拒答、询问原因或含糊纠正不产生画像事实，不推断为没有能力或约束。
+            请求改聊生活、换个话题或询问能否聊某类问题，是对话操作，不据此新增 behaviors 或 constraints。
             没有新事实时不输出内容区和 evidenceClaims。明确没有重要约束可记录为 constraints。
             用户明确放弃原项目或改变目标是真实意图变化：可建议替换或清空 projectGoals 中已过时的目标，
             由用户批准；不要保留互相矛盾的新旧目标，也不要删除无关能力、历史或依据。
@@ -42,6 +43,7 @@ public final class ProfileExtraction {
 
             json 示例（每个内容区都是建议的完整分区，不是仅列新增项）：
             没有新事实：{"hasNewFacts":false}
+            只请求换话题（如询问能否聊生活）：{"hasNewFacts":false}
             当前 technicalCapabilities=["Java"]，本轮说也在用 Spring Boot：
             {"hasNewFacts":true,"technicalCapabilities":["Java","Spring Boot"]}
             当前 projectGoals=["开发 Coding Agent"]，本轮明确改做课程笔记工具：

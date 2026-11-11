@@ -235,13 +235,15 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
                         + "requestBytes={} bodyBytes={} nonWhitespaceBytes={} headersMs={} firstByteMs={} "
                         + "lastByteMs={} contentType={} contentLength={} stream={} maxTokens={} events={} "
                         + "contentBytes={} reasoningBytes={} firstContentMs={} firstReasoningMs={} "
+                        + "stopSeen={} doneSeen={} blankContent={} "
                         + "promptTokens={} completionTokens={} reasoningTokens={} closeFailureType={} estimatedTokens={} retainedTurns={} omittedTurns={} cacheHit={} cacheMiss={}",
                         phase, code, progress.elapsedMs(), progress.status == 0 ? "UNKNOWN" : progress.status, types,
                         progress.requestBytes, progress.bodyBytes, progress.nonWhitespaceBytes, progress.headersMs,
                         progress.firstByteMs, progress.lastByteMs, progress.contentType, progress.contentLength,
                         properties.streaming(), progress.maxTokens, progress.stream.events,
                         progress.stream.contentBytes, progress.stream.reasoningBytes, progress.stream.firstContentMs,
-                        progress.stream.firstReasoningMs, progress.stream.promptTokens, progress.stream.completionTokens,
+                        progress.stream.firstReasoningMs, progress.stream.stopSeen, progress.stream.doneSeen,
+                        !progress.stream.hasContent, progress.stream.promptTokens, progress.stream.completionTokens,
                         progress.stream.reasoningTokens, progress.closeFailureType, progress.estimatedTokens,
                         progress.retainedTurns, progress.omittedTurns, progress.stream.cacheHit, progress.stream.cacheMiss);
     }
@@ -388,6 +390,7 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
         if (!choice.path("finish_reason").asText().equals("stop")) {
             throw new DeepSeekStreamingResponse.Rejected(DeepSeekStreamingResponse.Failure.INCOMPLETE);
         }
+        progress.stream.stopSeen = true;
         DeepSeekStreamingResponse.usage(root, progress.stream);
         JsonNode content = choice.path("message").path("content");
         JsonNode reasoning = choice.path("message").path("reasoning_content");
@@ -396,6 +399,7 @@ public class DeepSeekAiGatewayAdapter implements AiGateway {
         }
         if (content.isTextual()) {
             progress.stream.contentBytes = content.asText().getBytes(StandardCharsets.UTF_8).length;
+            progress.stream.hasContent = !content.asText().isBlank();
         }
 
         if (!content.isTextual() || content.asText().isBlank()) {

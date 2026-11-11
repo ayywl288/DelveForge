@@ -236,6 +236,36 @@ class ProfileUpdateApprovalApiTest {
     }
 
     @Test
+    void approvedContinuationPersistsOnlyTheNewQuestionAndRecoversItWithoutRepeatingAcknowledgement() {
+        String path = seed();
+        given(ai.generate(any())).willReturn("""
+                {"constraints":["约三小时完成"],"evidenceClaims":["用户修改可用时间"]}
+                """, PLAN.replace("可以核对这次建议。", "当然可以，聊生活完全可以。"));
+        JsonNode turn = http.postForObject(path + "/discovery-turn", Map.of("input", "时间改成三小时，能聊生活吗？",
+                "revision", 2, "requestId", UUID.randomUUID().toString()), JsonNode.class);
+        String acceptPath = path + "/profile-updates/" + turn.path("pendingProposal").path("id").asText() + "/accept";
+        JsonNode accepted = http.postForObject(acceptPath, null, JsonNode.class);
+        given(ai.generate(any())).willReturn("""
+                {"sufficient":false,"missingAreas":["生活场景"],"assistantReply":"当然可以，聊生活完全可以。",
+                 "nextQuestion":"你平时空闲时会做什么？","questionArea":"behaviors",
+                 "previousQuestionState":"NONE","nextAction":"ASK"}
+                """);
+        String requestId = UUID.randomUUID().toString();
+        var command = Map.of("revision", accepted.path("resultingRevision").asInt(), "requestId", requestId);
+        JsonNode result = http.postForObject(path + "/discovery-question", command, JsonNode.class);
+        assertEquals("", result.path("assistantReply").asText());
+        assertEquals("你平时空闲时会做什么？", result.path("nextQuestion").asText());
+        assertEquals(result, http.postForObject(path + "/discovery-question", command, JsonNode.class));
+        JsonNode history = http.getForObject(path + "/conversation", JsonNode.class);
+        assertEquals(3, history.path("messages").size());
+        assertEquals("当然可以，聊生活完全可以。", history.path("messages").get(1).path("text").asText());
+        assertEquals("", history.path("messages").get(2).path("text").asText());
+        assertEquals("你平时空闲时会做什么？", history.path("messages").get(2).path("question").asText());
+        assertEquals(requestId, history.path("messages").get(2).path("requestId").asText());
+        verify(ai, times(3)).generate(any());
+    }
+
+    @Test
     void realHttpJourneyChangesDirectionApprovesOnceAndKeepsApprovalWhenFollowUpFails() {
         JsonNode empty = http.postForObject("/api/user-profiles", null, JsonNode.class);
         String path = "/api/user-profiles/" + empty.path("id").asText();

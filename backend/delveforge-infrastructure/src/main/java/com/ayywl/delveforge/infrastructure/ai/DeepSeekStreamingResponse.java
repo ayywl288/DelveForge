@@ -50,8 +50,12 @@ final class DeepSeekStreamingResponse {
             event.setLength(0);
             eventBytes = 0;
             if (data.equals("[DONE]")) {
-                if (!stopped || content.toString().isBlank()) {
+                stats.doneSeen = true;
+                if (!stopped) {
                     throw new Rejected(Failure.INCOMPLETE);
+                }
+                if (!stats.hasContent) {
+                    throw new Rejected(Failure.EMPTY);
                 }
                 return content.toString();
             }
@@ -87,6 +91,7 @@ final class DeepSeekStreamingResponse {
             }
             if (!text.isEmpty()) {
                 content.append(text);
+                stats.hasContent |= !text.isBlank();
                 stats.contentBytes += text.getBytes(StandardCharsets.UTF_8).length;
                 if (stats.firstContentMs < 0) {
                     stats.firstContentMs = elapsed.getAsLong();
@@ -106,6 +111,7 @@ final class DeepSeekStreamingResponse {
                     throw new Rejected(Failure.INCOMPLETE);
                 }
                 stopped = true;
+                stats.stopSeen = true;
             }
         }
         // EOF、有效 JSON 片段或单独 stop 都不等于一次完整 completion。
@@ -162,6 +168,7 @@ final class DeepSeekStreamingResponse {
     }
 
     enum Failure {
+        EMPTY("PROVIDER_RESPONSE_EMPTY"),
         INVALID("PROVIDER_RESPONSE_INVALID"),
         INCOMPLETE("PROVIDER_RESPONSE_INCOMPLETE"),
         BODY_LIMIT("PROVIDER_RESPONSE_LIMIT_EXCEEDED"),
@@ -183,6 +190,7 @@ final class DeepSeekStreamingResponse {
 
         Rejected(Failure failure, Throwable cause) {
             super("Provider response rejected", cause, switch (failure) {
+                case EMPTY -> Category.EMPTY_OUTPUT;
                 case INCOMPLETE -> Category.INCOMPLETE_OUTPUT;
                 case INVALID -> Category.INVALID_OUTPUT;
                 case BODY_LIMIT, EVENT_LIMIT -> Category.OUTPUT_LIMIT;
@@ -200,6 +208,9 @@ final class DeepSeekStreamingResponse {
     }
 
     static final class Stats {
+        boolean stopSeen;
+        boolean doneSeen;
+        boolean hasContent;
         long events;
         long contentBytes;
         long reasoningBytes;

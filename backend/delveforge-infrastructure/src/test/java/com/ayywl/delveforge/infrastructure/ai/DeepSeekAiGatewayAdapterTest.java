@@ -17,6 +17,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpHeaders;
@@ -35,6 +37,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -464,6 +467,39 @@ class DeepSeekAiGatewayAdapterTest {
             assertEquals("{\"ok\":true}", actual.generate(jsonRequest()));
             assertTrue(output.getAll().contains("contentType=EVENT_STREAM"));
             assertFalse(output.getAll().contains(API_KEY));
+        } finally {
+            provider.stop(0);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EMPTY", "MISSING_STOP"})
+    void actualClientSeparatesBlankContentFromMissingTerminationWithoutRetry(String scenario, CapturedOutput output)
+            throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        boolean empty = scenario.equals("EMPTY");
+        String body = streamChunk(null, "private-reasoning-marker", null)
+                + streamChunk(empty ? " ".repeat(158) : "{}", null, empty ? "stop" : null)
+                + "data: [DONE]\n\n";
+        HttpServer provider = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        provider.createContext("/chat/completions", exchange -> {
+            calls.incrementAndGet();
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.sendResponseHeaders(200, 0);
+            exchange.getResponseBody().write(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            exchange.close();
+        });
+        provider.start();
+        try {
+            var failure = assertThrows(AiGatewayException.class,
+                    () -> actualStream(provider, Duration.ofMillis(400), Duration.ofSeconds(3)).generate(jsonRequest()));
+            assertEquals(empty ? AiGatewayException.Category.EMPTY_OUTPUT : AiGatewayException.Category.INCOMPLETE_OUTPUT,
+                    failure.category());
+            assertTrue(output.getAll().contains("stopSeen=" + empty + " doneSeen=true blankContent=" + empty));
+            assertFalse(output.getAll().contains("private-reasoning-marker"));
+            assertFalse(output.getAll().contains(API_KEY));
+            assertEquals(1, calls.get());
         } finally {
             provider.stop(0);
         }

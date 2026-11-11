@@ -401,8 +401,9 @@ class DiscoveryConversationIntegrationTest {
         String first = "你目前做过什么类型的开发？";
         var response = json.readTree(reply(false, first, "exploration", "NONE", List.of()));
         ((ObjectNode) response).put("assistantReply", "说明".repeat(1024));
+        responses.add("{\"hasNewFacts\":false}");
         responses.add(json.writeValueAsString(response));
-        service(gateway).submit(profile.id(), command("QUESTION", null, 1));
+        service(gateway).submit(profile.id(), command("TURN", "请详细解释为什么需要了解这些内容", 1));
         var memory = conversations.memory(profile.id());
         assertTrue(memory.history().getLast().text().endsWith(first));
         assertEquals("说明".repeat(1024) + "\n\n" + first, memory.history().getLast().text());
@@ -411,7 +412,7 @@ class DiscoveryConversationIntegrationTest {
             service(gateway).submit(profile.id(), command("TURN", "嗯", 1));
         }
         memory = conversations.memory(profile.id());
-        assertEquals(21, memory.history().size());
+        assertEquals(22, memory.history().size());
         assertEquals(11, memory.questions().size());
         assertTrue(memory.questions().contains(first));
         responses.add(reply(false, first, "exploration", "ANSWERED", List.of()));

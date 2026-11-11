@@ -13,6 +13,7 @@ import com.ayywl.delveforge.domain.user.UserProfileStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -25,6 +26,60 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ConversationalReliabilityTest {
 
     private final ObjectMapper json = new ObjectMapper();
+
+    @Test
+    void explicitQuestionOnlyPresentsTheQuestionAndDoesNotReanswerPreviousInput() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        var evaluator = new ProfileSufficiencyEvaluator(request -> {
+            calls.incrementAndGet();
+            try {
+                var payload = json.readTree(request.messages().getLast().content());
+                assertEquals("QUESTION", payload.path("operation").asText());
+                assertFalse(payload.has("currentUserInput"), "操作指令不能伪装成本轮用户原话");
+            } catch (java.io.IOException failure) {
+                throw new AssertionError(failure);
+            }
+            return """
+                    {"sufficient":true,"missingAreas":[],"assistantReply":"当然可以，聊生活完全可以。",
+                     "nextQuestion":"你平时空闲时会做什么？","questionArea":"behaviors",
+                     "previousQuestionState":"NONE","nextAction":"ASK"}
+                    """;
+        }, json);
+        var result = evaluator.evaluateRemembered(profile(), "请提出下一个有价值的问题。", memory(null),
+                null, true);
+        assertEquals("", result.assistantReply());
+        assertEquals("你平时空闲时会做什么？", result.nextQuestion());
+        assertEquals(1, calls.get());
+    }
+
+    @Test
+    void questionWithoutAUsableNextQuestionKeepsItsUsefulExplanation() {
+        var evaluator = new ProfileSufficiencyEvaluator(request -> """
+                {"sufficient":true,"missingAreas":[],"assistantReply":"可以先想一想，之后再接着聊。",
+                 "nextQuestion":null,"previousQuestionState":"NONE","nextAction":"PAUSE"}
+                """, json);
+        var result = evaluator.evaluateRemembered(profile(), "请提出下一个有价值的问题。", memory(null),
+                null, true);
+        assertEquals("可以先想一想，之后再接着聊。", result.assistantReply());
+        assertNull(result.nextQuestion());
+    }
+
+    @Test
+    void dialoguePromptExamplesAreCompleteJsonAcceptedByTheActualPlannerParser() {
+        var evaluator = new ProfileSufficiencyEvaluator(request -> {
+            String system = request.messages().getFirst().content();
+            var matcher = java.util.regex.Pattern.compile("(?m)^\\s*(\\{[^\\n]+\\})\\s*$").matcher(system);
+            List<String> examples = new ArrayList<>();
+            while (matcher.find()) {
+                String example = matcher.group(1);
+                new ProfileSufficiencyProposalParser(json).parseGuided(example);
+                examples.add(example);
+            }
+            assertTrue(examples.size() >= 3, "普通回复、待批和独立提问都需要完整 json 示例");
+            return examples.getFirst();
+        }, json);
+        evaluator.evaluateRemembered(profile(), "不能问生活中的问题吗", memory(null), null, false);
+    }
 
     @Test
     void conflictingControlsDoNotDiscardUsefulReplyOrSpendAnotherCall() {

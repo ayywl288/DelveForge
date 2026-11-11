@@ -143,6 +143,8 @@ public final class ProfileSufficiencyEvaluator {
             用户问为何时先解释并保留原问。不知道不是拒绝，用 REPLACED 搁置原问，给例子或换一个更容易的角度，
             不把不确定维度加入 deferredAreas，不反复索取数值。明确改变项目目标时 REPLACED 旧目标的过时问题，
             即使画像建议待批准也承认用户已表达换方向的意愿；不要求先回答旧项目问题。
+            用户希望改聊生活等其他话题时，承接新话题，用 REPLACED 搁置不再相关的旧问题；
+            选择话题本身不是个人能力、日常行为或项目约束，不声称已据此更新画像。
             nextAction 通常选 ASK，只在 nextQuestion 放一个自然且未问过的具体问题（最多512字符），
             assistantReply 只承接、解释或举例；即使换一种措辞，也不要让用户在正文中先回答同一个问题。questionArea 从 interests/behaviors/painPoints/technicalCapabilities/
             projectGoals/constraints/evidence/exploration 中选择。ASK 不得留下另一个 ASKED。
@@ -160,6 +162,21 @@ public final class ProfileSufficiencyEvaluator {
             请用户看看下方建议即可，界面卡片负责说明差异和批准操作，不在正文解释内部流程。
             不邀请审阅、不提新问题、不声称已经保存。上一问状态仍按本轮真实输入判断，
             不能因为有待批提案就将未解决的问题标为 ANSWERED、DEFERRED 或 REPLACED。
+            operation=QUESTION 是用户已选择继续或换题，不是一条需要重新回答的用户话语。
+            之前的用户输入已经得到回应；直接规划一个新的有用问题，不再次回答或复述上一条用户消息。
+            若能提问，assistantReply 仅作简短过渡；应用只呈现 nextQuestion。没有可用问题时才用正文说明。
+            """;
+
+    private static final String GUIDED_JSON_EXAMPLES = """
+
+            以下是完整 json 输出示例。只输出一个这样的对象，不先写普通聊天正文或 Markdown。
+            字段值必须符合实际语境和当前操作，不照抄示例中的充分性、问题状态或内容。
+            普通对话承接并换到日常话题：
+            {"sufficient":false,"missingAreas":["还需了解日常场景"],"assistantReply":"当然可以，我们从日常生活聊起。","previousQuestionState":"REPLACED","nextAction":"ASK","nextQuestion":"你最近在生活中遇到过什么小麻烦？","questionArea":"behaviors","deferredAreas":[],"resumedAreas":[]}
+            等待核对变更建议，不重新提问：
+            {"sufficient":false,"missingAreas":["还需了解具体场景"],"assistantReply":"明白，可以看看下方整理的内容是否准确。","previousQuestionState":"NONE","nextAction":"PAUSE","nextQuestion":null,"questionArea":null,"deferredAreas":[],"resumedAreas":[]}
+            专门索取下一问：
+            {"sufficient":false,"missingAreas":["还需了解日常场景"],"assistantReply":"接着聊一个日常场景。","previousQuestionState":"NONE","nextAction":"ASK","nextQuestion":"不投简历、不写代码的时候，你通常做些什么？","questionArea":"behaviors","deferredAreas":[],"resumedAreas":[]}
             """;
 
     private static final String RESPONSE_STYLE_INSTRUCTION = """
@@ -168,7 +185,8 @@ public final class ProfileSufficiencyEvaluator {
             最多问一个有用的后续问题，只放在独立的 nextQuestion，不混入 assistantReply。
             普通回复不解释内部机制，不使用“画像尚未生效”“待批准更新处理”“暂时不邀请你审阅”
             “当前状态机”“Evidence”“Profile Extraction”等实现术语，也不要逐项报告字段和流程状态。
-            需要用户核对建议时，例如：“明白，那我们先不做 Coding Agent 了。我整理了新的项目方向，你可以看看是否符合你的想法。”
+            需要核对时只请用户看看下方内容，不把画像整理或审阅说成已生成产品方向建议。
+            若下一问提供了选项，正文不再提前逐项重复这些选项。
             用户明确问原因或要求详细解释时，按问题提供必要的说明；简短是表达偏好，不省略有用解释。
             """;
 
@@ -306,7 +324,9 @@ public final class ProfileSufficiencyEvaluator {
         DialogueAction action = pendingProfileUpdate ? DialogueAction.PAUSE
                 : unresolved && proposal.nextAction() != DialogueAction.PAUSE ? DialogueAction.KEEP_PENDING
                         : question != null ? DialogueAction.ASK : DialogueAction.PAUSE;
-        return new SufficiencyAssessment(sufficient, missing, question, candidate.status(), proposal.assistantReply(),
+        // 独立索取问题不重新回应上一句话；只有没有可用问题时才保留模型的解释。
+        String reply = questionRequired && question != null ? "" : proposal.assistantReply();
+        return new SufficiencyAssessment(sufficient, missing, question, candidate.status(), reply,
                 area, deferred, previous, resumed, action, invite);
     }
 
@@ -384,6 +404,9 @@ public final class ProfileSufficiencyEvaluator {
             area = null;
             reply = "明白，我整理了你的新想法，可以看看下方内容是否准确。";
         }
+        if (questionRequired && question != null) {
+            reply = "";
+        }
         return new SufficiencyAssessment(sufficient, missing, question, candidate.status(), reply, area,
                 deferred, proposal.previousQuestionState(), resumed);
     }
@@ -426,18 +449,22 @@ public final class ProfileSufficiencyEvaluator {
         payload.put("currentEvidence", profile.evidence());
         payload.put("continueExploration", continueExploration);
         payload.put("questionRequired", questionRequired);
+        if (userInput != null) {
+            payload.put("operation", questionRequired ? "QUESTION" : "TURN");
+        }
         if (memory == null) {
             payload.put("previousQuestions", previousQuestions);
         }
         payload.put("deterministicMissing", gaps);
-        if (userInput != null) {
+        if (userInput != null && !questionRequired) {
             payload.put("currentUserInput", userInput);
         }
         try {
             String current = objectMapper.writeValueAsString(payload);
             if (userInput != null) {
                 String instructions = memory == null ? CONVERSATION_INSTRUCTION : GUIDED_INSTRUCTION;
-                return DiscoveryContext.request(SYSTEM_INSTRUCTION + instructions + RESPONSE_STYLE_INSTRUCTION,
+                String examples = memory == null ? "" : GUIDED_JSON_EXAMPLES;
+                return DiscoveryContext.request(SYSTEM_INSTRUCTION + instructions + RESPONSE_STYLE_INSTRUCTION + examples,
                         context, current, AiRequest.Thinking.LOW);
             }
             return new AiRequest(List.of(new AiMessage(AiRole.SYSTEM, SYSTEM_INSTRUCTION),
