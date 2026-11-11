@@ -16,7 +16,8 @@ import java.util.List;
  * （RULE-DOM-003），本类承担其中的解析部分。
  *
  * <p>只校验结构：整体必须是恰好一个 json 对象（见 {@link AiJsonObjectReader}）、
- * 字段缺失或为 {@code null} 表示本次不建议修改该区、出现的字段必须是字符串数组。
+ * 六区字段缺失或为 {@code null} 表示本次不建议修改该区、出现的字段必须是字符串数组。
+ * 可选的依据说明仅保留有界非空文本，不影响六区建议的有效性。
  * 内容本身是否合法（空值、超出领域规则等）仍由 Aggregate 判定，这里不重复领域规则。
  *
  * <p>结构不合法意味着模型没有按要求作答，属于外部 AI 能力的失败，
@@ -53,20 +54,36 @@ public final class UserProfileProposalParser {
                 section(root, SECTION_TECHNICAL_CAPABILITIES),
                 section(root, SECTION_PROJECT_GOALS),
                 section(root, SECTION_CONSTRAINTS),
-                section(root, FIELD_EVIDENCE_CLAIMS));
+                auxiliaryClaims(root));
     }
 
-    /** hasNewFacts 仅为可选提示；完整分区的实际差异及依据决定提案，旧授权字段无效。 */
+    /** hasNewFacts 仅为未使用的可选提示；完整分区的实际差异决定提案，旧授权字段无效。 */
     public TurnProposal parseTurn(String rawAiOutput, int ignoredEvidenceCount) {
-        JsonNode root = reader.read(rawAiOutput);
-        JsonNode facts = root.get("hasNewFacts");
-        if (facts != null && !facts.isNull() && !facts.isBoolean()) {
-            throw new AiGatewayException("hasNewFacts 必须是布尔值");
-        }
         return new TurnProposal(parse(rawAiOutput));
     }
 
     public record TurnProposal(UserProfileProposal profile) {
+    }
+
+    /** 辅助元数据不授予写入权限；不把任意 JSON 转成看似有效的依据文本。 */
+    private static List<String> auxiliaryClaims(JsonNode root) {
+        JsonNode node = root.get(FIELD_EVIDENCE_CLAIMS);
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (!node.isArray()) {
+            return List.of();
+        }
+        List<String> claims = new ArrayList<>();
+        for (JsonNode element : node) {
+            if (element.isTextual() && !element.textValue().isBlank() && element.textValue().length() <= 2048) {
+                claims.add(element.textValue());
+                if (claims.size() == 64) {
+                    break;
+                }
+            }
+        }
+        return List.copyOf(claims);
     }
 
     /**

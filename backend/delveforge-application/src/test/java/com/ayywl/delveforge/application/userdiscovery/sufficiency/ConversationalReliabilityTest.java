@@ -103,6 +103,24 @@ class ConversationalReliabilityTest {
         assertEquals(1, calls.get());
     }
 
+    @Test
+    void requestedExplanationCanStayDetailedWithoutANewShortReplyFailureOrExtraCall() throws Exception {
+        String explanation = "先把使用场景讲清楚，是为了找到对你有用、也能按现有技术做出来的范围。".repeat(8);
+        String output = json.writeValueAsString(java.util.Map.of("sufficient", true, "missingAreas", List.of(),
+                "assistantReply", explanation, "previousQuestionState", "ASKED", "nextAction", "KEEP_PENDING"));
+        AtomicInteger calls = new AtomicInteger();
+        var evaluator = new ProfileSufficiencyEvaluator(request -> {
+            calls.incrementAndGet();
+            return output;
+        }, json);
+        var result = evaluator.evaluateRemembered(profile(), "能详细解释为什么要问这个吗？",
+                memory("最近怎样整理资料？"), null, false);
+        assertEquals(explanation, result.assistantReply());
+        assertNull(result.nextQuestion());
+        assertEquals(DialogueAction.KEEP_PENDING, result.nextAction());
+        assertEquals(1, calls.get());
+    }
+
     private SufficiencyAssessment evaluate(String output, Memory memory, DiscoveryReadiness readiness, boolean pending) {
         AtomicInteger calls = new AtomicInteger();
         var evaluator = new ProfileSufficiencyEvaluator(request -> {

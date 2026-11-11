@@ -25,10 +25,13 @@ public final class ProfileExtraction {
             只输出一个 json 对象，不附解释或 Markdown。可用字段：
             interests、behaviors、painPoints、technicalCapabilities、projectGoals、constraints、evidenceClaims。
             六个内容区的值是建议的完整字符串数组；省略或 null 表示不变，不是增量。
+            每区最多64条，每条为不超过2048字符的非空字符串，不能用对象、数字或嵌套数组表示条目。
             保留已有条目的原文和顺序，将新增事实放在末尾。用户明确纠正时可以建议新的完整分区。
             当前画像是已接受的事实；历史对话和 Evidence 只是当时的输入，不能恢复已被取代的值。
             仅从本轮真实输入提取新信息，可忠实整理和转述，不要求逐字摘录，不臆测、不填空。
-            evidenceClaims 是本轮输入直接支持的判断数组，不把历史判断写成本轮新依据。
+            evidenceClaims 是可省略的辅助说明，只接受本轮输入直接支持的简短字符串数组，最多64条、每条最多2048字符。
+            不在其中输出对象、数组、数字、布尔值、来源或确认状态；不把历史判断写成本轮新依据。
+            应用始终保留真实本轮输入作为来源，缺少辅助说明不妨碍有效的内容建议。
             模型只提出建议，应用会要求用户批准覆盖、删除、重排或受人工保护分区的任何变化。
             不撤回历史依据。
             附和、请求下一问、不知道、拒答、询问原因或含糊纠正不产生画像事实，不推断为没有能力或约束。
@@ -36,6 +39,15 @@ public final class ProfileExtraction {
             用户明确放弃原项目或改变目标是真实意图变化：可建议替换或清空 projectGoals 中已过时的目标，
             由用户批准；不要保留互相矛盾的新旧目标，也不要删除无关能力、历史或依据。
             投入时间未知不等于没有约束，更不能编造时长；不要求每轮都补全六区。
+
+            json 示例（每个内容区都是建议的完整分区，不是仅列新增项）：
+            没有新事实：{"hasNewFacts":false}
+            当前 technicalCapabilities=["Java"]，本轮说也在用 Spring Boot：
+            {"hasNewFacts":true,"technicalCapabilities":["Java","Spring Boot"]}
+            当前 projectGoals=["开发 Coding Agent"]，本轮明确改做课程笔记工具：
+            {"hasNewFacts":true,"projectGoals":["整理课程笔记的小工具"]}
+            如需附带可选说明：
+            {"hasNewFacts":true,"projectGoals":["整理课程笔记的小工具"],"evidenceClaims":["用户希望改做课程笔记工具"]}
             """;
 
     private final AiGateway aiGateway;
@@ -106,8 +118,16 @@ public final class ProfileExtraction {
         try {
             UserProfileProposal proposal = turn ? parser.parseTurn(raw, 0).profile() : parser.parse(raw);
             ProfileUpdatePolicy.Update update = ProfileUpdatePolicy.evaluate(candidate, proposal, protectedSections);
-            if (turn && !update.sections().isEmpty() && update.evidenceClaims().isEmpty()) {
-                throw new AiGatewayException("实际画像变化必须提供本轮输入支持的依据");
+            if (!update.sections().isEmpty() && update.evidenceClaims().isEmpty()) {
+                // 缺少可用说明时记录本轮原文片段；来源仍是完整真实输入，不借用历史或制造解释。
+                String quotation = input.strip();
+                int quotationEnd = Math.min(quotation.length(), 2048);
+                if (quotationEnd < quotation.length() && Character.isHighSurrogate(quotation.charAt(quotationEnd - 1))) {
+                    quotationEnd--;
+                }
+                quotation = quotation.substring(0, quotationEnd);
+                update = new ProfileUpdatePolicy.Update(update.sections(), List.of(quotation),
+                        update.approvalRequired());
             }
             if (!update.approvalRequired()) {
                 ProfileUpdatePolicy.apply(candidate, update, input);

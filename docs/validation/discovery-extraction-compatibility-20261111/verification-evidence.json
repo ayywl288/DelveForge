@@ -1,0 +1,235 @@
+{
+  "baseline": "ffb38636a0f52c14574c5cd5d758eb5ee7169022",
+  "branch": "codex/discovery-conversation-stability",
+  "backend": {
+    "command": "mvnw.cmd -o verify",
+    "exitCode": 0,
+    "modules": [
+      {
+        "module": "domain",
+        "tests": 209,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 209
+      },
+      {
+        "module": "application",
+        "tests": 949,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "passed": 949
+      },
+      {
+        "module": "infrastructure",
+        "tests": 654,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 52,
+        "passed": 602
+      },
+      {
+        "module": "app",
+        "tests": 247,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 3,
+        "passed": 244
+      }
+    ],
+    "total": {
+      "tests": 2059,
+      "passed": 2004,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 55
+    },
+    "reportSelection": "Suites in this verify log, checked against all four Maven module summaries",
+    "excludedHistoricalReportFiles": [
+      "com.ayywl.delveforge.application.agent.AgentPatchCorrectionsTest",
+      "com.ayywl.delveforge.infrastructure.agent.AuditRepositoryPreflightTest",
+      "com.ayywl.delveforge.infrastructure.agent.DockerDependencyPreparationTest",
+      "com.ayywl.delveforge.infrastructure.agent.EnvironmentPreflightDockerTest",
+      "com.ayywl.delveforge.infrastructure.agent.EnvironmentReadinessTest",
+      "com.ayywl.delveforge.infrastructure.workspace.MavenFullSuiteInputsTest"
+    ],
+    "skips": [
+      {
+        "class": "com.ayywl.delveforge.app.agent.AutonomousEvolutionLiveTest",
+        "reason": "Environment variable [DELVEFORGE_TASK2_E2E] with value [false] does not match regular expression [true]",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.app.agent.RealRepositoryEvolutionLiveTest",
+        "reason": "Environment variable [DELVEFORGE_REAL_STEP] with value [false] does not match regular expression [true]",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.app.api.evolutionplan.WorkingCopyActivationApiIntegrationTest",
+        "reason": "org.opentest4j.TestAbortedException: Assumption failed: Fresh public clone acceptance is separately enabled\n\tat org.junit.jupiter.api.Assumptions.throwAssumptionFailed(Assumptions.java:321)\n\tat org.junit.jupiter.api.Assumptions.assumeTrue(Assumptions.java:120)\n\tat com.ayywl.delveforge.app.api.evolutionplan.WorkingCopyActivationApiIntegrationTest.untouchedFinTrackPersistsActualProvenanceThroughNormalPreparationApi(WorkingCopyActivationApiIntegrationTest.java:172)\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n\tat java.base/java.util.ArrayList.forEach(ArrayList.java:1596)\n\tat java.base/java.util.ArrayList.forEach(ArrayList.java:1596)\n",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.CodingAgentLiveTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_E2E] with value [false] does not match regular expression [true]",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.CommandUsabilityDockerTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 3
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.DockerAgentSandboxTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 21
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.DockerMavenCompatibilityTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_COMPATIBILITY] does not exist",
+        "count": 2
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.DockerProxyIsolationTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.DockerRetentionRecoveryTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 5
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.DockerSandboxProtocolTest",
+        "reason": "Environment variable [DELVEFORGE_SANDBOX_LEGACY_IMAGE] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.DockerSandboxProtocolTest",
+        "reason": "Environment variable [DELVEFORGE_SANDBOX_PROTOCOL_IMAGE] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.FullStackAgentSmokeTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.GenericCommandDeliveryTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 2
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.NativeFrontendDeliverySmokeTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.NativeWorkspaceCommandTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.PatchConflictOrchestrationDockerTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.PublicRepositoryBaselineLiveTest",
+        "reason": "Environment variable [DELVEFORGE_REAL_BASELINE] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.PublicRepositoryPreflightLiveTest",
+        "reason": "Environment variable [DELVEFORGE_PUBLIC_PREFLIGHT] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.ReadToolRecoveryDockerTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.RepositoryInputExecutionTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_DOCKER] does not exist",
+        "count": 2
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.RepositoryPreparationDockerTest",
+        "reason": "Environment variable [DELVEFORGE_REPOSITORY_COMPATIBILITY_DOCKER] does not exist",
+        "count": 2
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.SelectedRepositorySecurityPreflightLiveTest",
+        "reason": "Environment variable [DELVEFORGE_SELECTED_SECURITY_PREFLIGHT] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.agent.SpringAiAgentModelLiveTest",
+        "reason": "Environment variable [DELVEFORGE_AGENT_LIVE] does not exist",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.workspace.RepositoryCompatibilityIntegrationTest",
+        "reason": "org.opentest4j.TestAbortedException: Assumption failed: Additional public clone matrix is separate\n\tat org.junit.jupiter.api.Assumptions.throwAssumptionFailed(Assumptions.java:321)\n\tat org.junit.jupiter.api.Assumptions.assumeTrue(Assumptions.java:120)\n\tat com.ayywl.delveforge.infrastructure.workspace.RepositoryCompatibilityIntegrationTest.genuinePublicRepositoriesReceivePinnedDiagnosticsWithoutHostBuilds(RepositoryCompatibilityIntegrationTest.java:341)\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n\tat java.base/java.util.ArrayList.forEach(ArrayList.java:1596)\n\tat java.base/java.util.ArrayList.forEach(ArrayList.java:1596)\n",
+        "count": 1
+      },
+      {
+        "class": "com.ayywl.delveforge.infrastructure.workspace.RepositoryCompatibilityIntegrationTest",
+        "reason": "org.opentest4j.TestAbortedException: Assumption failed: Fresh public clone acceptance is separate\n\tat org.junit.jupiter.api.Assumptions.throwAssumptionFailed(Assumptions.java:321)\n\tat org.junit.jupiter.api.Assumptions.assumeTrue(Assumptions.java:120)\n\tat com.ayywl.delveforge.infrastructure.workspace.RepositoryCompatibilityIntegrationTest.untouchedFinTrackIsAutomaticallyPreparedWithoutManualSourceChanges(RepositoryCompatibilityIntegrationTest.java:421)\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:580)\n\tat java.base/java.util.ArrayList.forEach(ArrayList.java:1596)\n\tat java.base/java.util.ArrayList.forEach(ArrayList.java:1596)\n",
+        "count": 1
+      }
+    ]
+  },
+  "focused": {
+    "tests": 88,
+    "passed": 88,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "baselineSyntheticReproduction": {
+    "extractionAndDialogue": {
+      "tests": 15,
+      "errors": 2
+    },
+    "httpSqliteApi": {
+      "tests": 17,
+      "failures": 14
+    },
+    "originalProviderPayloadReconstructed": false
+  },
+  "frontend": {
+    "test": {
+      "files": 24,
+      "passed": 388,
+      "skipped": 0,
+      "exitCode": 0
+    },
+    "typecheckExitCode": 0,
+    "productionBuildExitCode": 0
+  },
+  "browser": {
+    "checksPassed": 57,
+    "widths": [
+      1440,
+      390
+    ],
+    "deterministicFixtureRequests": 26,
+    "provider": "localhost deterministic fixture",
+    "scriptExceptions": 0
+  },
+  "paidCallsThisPatch": 0,
+  "earlierRestrictedRun": {
+    "backend": "Git child-process permission failures; not a passing run",
+    "frontend": "spawn EPERM; passed after ordinary host execution"
+  },
+  "databaseMigrationChanges": false,
+  "publicApiChanges": false,
+  "independentSolAcceptance": "NOT RUN",
+  "liveDeepSeekRetest": {
+    "status": "NOT RUN; requires new explicit authorization",
+    "maximumCalls": 10
+  }
+}

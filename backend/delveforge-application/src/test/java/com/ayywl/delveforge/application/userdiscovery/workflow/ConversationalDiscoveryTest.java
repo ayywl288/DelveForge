@@ -148,8 +148,8 @@ class ConversationalDiscoveryTest {
     @Test
     void malformedOrContradictoryProposalsLeaveStoredAndLoadedObjectsUnchanged() throws Exception {
         UserProfile original = seed();
-        for (String extraction : List.of("{", "{\"hasNewFacts\":false,\"projectGoals\":[\"无依据目标\"]}",
-                "{\"hasNewFacts\":true,\"projectGoals\":[\"无依据目标\"]}",
+        for (String extraction : List.of("{", "{\"hasNewFacts\":false,\"projectGoals\":\"不是完整分区数组\"}",
+                "{\"hasNewFacts\":true,\"projectGoals\":[null]}",
                 "{\"hasNewFacts\":true,\"interests\":[99],\"evidenceClaims\":[\"纠正\"]}")) {
             responses.clear();
             responses.add(extraction);

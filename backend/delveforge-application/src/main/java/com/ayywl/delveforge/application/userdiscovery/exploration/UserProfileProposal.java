@@ -1,7 +1,8 @@
 package com.ayywl.delveforge.application.userdiscovery.exploration;
 
-import java.util.List;
 import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileUseCase;
+
+import java.util.List;
 
 /**
  * AI 提出的 User Profile 更新建议。
@@ -16,9 +17,9 @@ import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileU
  * 非 null  该区建议替换成的完整内容
  * </pre>
  *
- * <p>{@code evidenceClaims} 只承载「本轮可以支撑什么判断」这层信息。Evidence 的来源、
+ * <p>{@code evidenceClaims} 是可选辅助说明，只承载「本轮可以支撑什么判断」这层信息。Evidence 的来源、
  * 可信程度与确认状态刻意不由模型给出——那部分可追溯信息由 Application 补齐，
- * 使模型无法虚构无法追溯的依据（见 {@code ExploreUserProfileUseCase}）。
+ * 缺少可用说明时由 Application 摘录本轮原文，不依赖模型提供依据或授予覆盖权限。
  *
  * @param interests             兴趣与关注领域的建议内容
  * @param behaviors             行为与使用场景的建议内容
@@ -26,7 +27,7 @@ import com.ayywl.delveforge.application.userdiscovery.profile.UpdateUserProfileU
  * @param technicalCapabilities 技术能力的建议内容
  * @param projectGoals          项目目标的建议内容
  * @param constraints           重要约束的建议内容
- * @param evidenceClaims        本轮用户输入所支撑的判断，逐条一句话
+ * @param evidenceClaims        可选的本轮输入判断说明，逐条一句话；不携带授权
  */
 public record UserProfileProposal(
         List<String> interests,

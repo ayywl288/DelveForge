@@ -196,15 +196,23 @@ class ExploreUserProfileUseCaseTest {
     }
 
     @Test
-    void failsWithoutHalfUpdatingProfileWhenEvidenceClaimIsBlank() {
+    void blankAuxiliaryClaimUsesCurrentInputWhileLoadedOriginalRemainsUnchanged() {
         UserProfile profile = seedProfile();
         int revisionBefore = profile.revision();
         int savesBefore = repository.saveCount();
         aiGateway.respond("{\"interests\":[\"兴趣\"],\"evidenceClaims\":[\"  \"]}");
 
-        assertThrows(AiGatewayException.class, () -> useCase.explore(PROFILE_ID, USER_INPUT));
+        UserProfile updated = useCase.explore(PROFILE_ID, USER_INPUT);
 
-        assertNothingChanged(profile, revisionBefore, savesBefore);
+        assertEquals(List.of(), profile.interests());
+        assertEquals(revisionBefore, profile.revision());
+        assertEquals(savesBefore + 1, repository.saveCount());
+        assertEquals(List.of("兴趣"), updated.interests());
+        assertEquals(revisionBefore + 2, updated.revision());
+        assertEquals(1, updated.evidence().size());
+        assertEquals(USER_INPUT, updated.evidence().getFirst().sourceRef());
+        assertEquals(USER_INPUT, updated.evidence().getFirst().claim());
+        assertFalse(updated.evidence().getFirst().confirmed());
     }
 
     @Test

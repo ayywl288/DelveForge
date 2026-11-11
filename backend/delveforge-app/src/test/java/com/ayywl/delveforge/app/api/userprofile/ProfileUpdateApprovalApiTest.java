@@ -4,6 +4,8 @@ import com.ayywl.delveforge.application.port.ai.AiGateway;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -52,7 +54,8 @@ class ProfileUpdateApprovalApiTest {
     @Test
     void pendingRefreshAndIdempotentApprovalReturnStoredWholeSectionOutcome() {
         String path = seed();
-        given(ai.generate(any())).willReturn(EXTRACTION, PLAN);
+        given(ai.generate(any())).willReturn(EXTRACTION.replace(
+                "[\"用户希望调整时间并补充示例\"]", "[{\"description\":\"辅助说明\"}]"), PLAN);
         String requestId = UUID.randomUUID().toString();
         var staged = http.postForEntity(path + "/discovery-turn",
                 Map.of("input", "时间改成三小时，另补README示例", "revision", 2, "requestId", requestId), JsonNode.class);
@@ -82,12 +85,128 @@ class ProfileUpdateApprovalApiTest {
         assertEquals("约三小时完成", current.path("constraints").get(0).asText());
         assertEquals("整理README使用示例", current.path("behaviors").get(0).asText());
         assertEquals(1, current.path("evidence").size());
+        assertEquals("时间改成三小时，另补README示例", current.path("evidence").get(0).path("claim").asText());
+        assertEquals("时间改成三小时，另补README示例", current.path("evidence").get(0).path("sourceRef").asText());
         assertEquals(false, current.path("evidence").get(0).path("confirmed").asBoolean());
         assertTrue(http.getForObject(path + "/conversation", JsonNode.class).path("pendingProposal").isNull());
         assertEquals(2, http.getForObject(path + "/conversation", JsonNode.class).path("messages").size());
         assertEquals(HttpStatus.CONFLICT, http.postForEntity(seed() + "/profile-updates/"
                 + proposal.path("id").asText() + "/accept", null, JsonNode.class).getStatusCode());
         verify(ai, times(2)).generate(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "\"evidenceClaims\":[{}]", "\"evidenceClaims\":[null,1,true,[],{},\" \" ]",
+            "\"evidenceClaims\":null", "\"evidenceClaims\":{}", "\"evidenceClaims\":\"说明\"",
+            "\"evidenceClaims\":42", "\"evidenceClaims\":false", "\"evidenceClaims\":[]",
+            "\"hasNewFacts\":{\"unused\":true}"
+    })
+    void courseNotesAnswerUsesCurrentInputWhenAuxiliaryEvidenceIsUnusable(String auxiliary) {
+        String path = createProfile();
+        String input = "主要是课件 PDF，再加我随手记在几个文档里的东西。复习时找一段内容，经常得翻好几个地方，挺烦的。";
+        given(ai.generate(any())).willReturn("""
+                {"behaviors":["课件 PDF 和几个文档里的笔记"],"painPoints":["复习查找内容要翻好几个地方"],%s}
+                """.formatted(auxiliary), PLAN);
+        String requestId = UUID.randomUUID().toString();
+        Map<String, Object> request = Map.of("input", input, "revision", 1, "requestId", requestId);
+        var response = http.postForEntity(path + "/discovery-turn", request, JsonNode.class);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        JsonNode profile = response.getBody().path("profile");
+        assertEquals(4, profile.path("revision").asInt());
+        assertEquals("复习查找内容要翻好几个地方", profile.path("painPoints").get(0).asText());
+        assertEquals(1, profile.path("evidence").size());
+        JsonNode evidence = profile.path("evidence").get(0);
+        assertEquals("USER_INPUT", evidence.path("sourceType").asText());
+        assertEquals(input, evidence.path("sourceRef").asText());
+        assertEquals(input, evidence.path("claim").asText());
+        assertEquals(false, evidence.path("confirmed").asBoolean());
+        assertEquals(profile, http.getForObject(path, JsonNode.class));
+        assertEquals(response.getBody(), http.postForObject(path + "/discovery-turn", request, JsonNode.class));
+        assertEquals("COMPLETED", http.getForObject(path + "/discovery-requests/" + requestId,
+                JsonNode.class).path("state").asText());
+        assertEquals(2, http.getForObject(path + "/conversation", JsonNode.class).path("messages").size());
+        verify(ai, times(2)).generate(any());
+    }
+
+    @Test
+    void mixedAuxiliaryClaimsKeepOnlyBoundedTextWithUnconfirmedCurrentInputProvenance() {
+        String path = createProfile();
+        String input = "我会 Java，最近在用 Spring Boot。";
+        given(ai.generate(any())).willReturn("""
+                {"technicalCapabilities":["Java","Spring Boot"],
+                 "evidenceClaims":[{},"会 Java",null,42,false,[]," ","%s","在用 Spring Boot"]}
+                """.formatted("x".repeat(2049)), PLAN);
+        JsonNode profile = http.postForObject(path + "/discovery-turn", Map.of("input", input,
+                "revision", 1, "requestId", UUID.randomUUID().toString()), JsonNode.class).path("profile");
+        assertEquals(2, profile.path("evidence").size());
+        assertEquals("会 Java", profile.path("evidence").get(0).path("claim").asText());
+        assertEquals("在用 Spring Boot", profile.path("evidence").get(1).path("claim").asText());
+        for (JsonNode evidence : profile.path("evidence")) {
+            assertEquals("USER_INPUT", evidence.path("sourceType").asText());
+            assertEquals(input, evidence.path("sourceRef").asText());
+            assertEquals(false, evidence.path("confirmed").asBoolean());
+        }
+        verify(ai, times(2)).generate(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"hasNewFacts\":true,\"constraints\":[\"约两小时完成\"],\"evidenceClaims\":[{}]}",
+            "{\"hasNewFacts\":{},\"evidenceClaims\":[\"额外解释\"]}",
+            "{\"hasNewFacts\":false,\"evidenceClaims\":null}"
+    })
+    void unchangedSectionsNeverCreateEvidenceOrAdvanceRevision(String extraction) {
+        String path = seed();
+        given(ai.generate(any())).willReturn(extraction, PLAN);
+        JsonNode result = http.postForObject(path + "/discovery-turn", Map.of("input", "只是再核对一下",
+                "revision", 2, "requestId", UUID.randomUUID().toString()), JsonNode.class);
+        assertEquals(2, result.path("profile").path("revision").asInt());
+        assertTrue(result.path("profile").path("evidence").isEmpty());
+        assertTrue(result.path("pendingProposal").isNull());
+        assertEquals(result.path("profile"), http.getForObject(path, JsonNode.class));
+        verify(ai, times(2)).generate(any());
+    }
+
+    @Test
+    void droppingOldProjectWithMalformedAuxiliaryDataDefersEvidenceUntilApproval() {
+        String path = createProfile();
+        given(ai.generate(any())).willReturn("""
+                {"technicalCapabilities":["Java"],"projectGoals":["Coding Agent"],
+                 "evidenceClaims":["会 Java，正在做 Coding Agent"]}
+                """, PLAN);
+        JsonNode original = http.postForObject(path + "/discovery-turn", Map.of("input", "会 Java，正在做 Coding Agent",
+                "revision", 1, "requestId", UUID.randomUUID().toString()), JsonNode.class).path("profile");
+        String input = "不想再搞那个 coding agent 了。";
+        given(ai.generate(any())).willReturn("""
+                {"projectGoals":[],"evidenceClaims":[{"description":"放弃旧目标"}]}
+                """, PLAN);
+        JsonNode turn = http.postForObject(path + "/discovery-turn", Map.of("input", input,
+                "revision", original.path("revision").asInt(), "requestId", UUID.randomUUID().toString()), JsonNode.class);
+        assertEquals(original, turn.path("profile"));
+        assertEquals("PAUSE", turn.path("nextAction").asText());
+        JsonNode proposal = turn.path("pendingProposal");
+        assertEquals("PENDING", proposal.path("state").asText());
+        assertEquals(input, proposal.path("userInput").asText());
+        assertEquals(input, proposal.path("evidenceClaims").get(0).asText());
+        String acceptPath = path + "/profile-updates/" + proposal.path("id").asText() + "/accept";
+        JsonNode accepted = http.postForObject(acceptPath, null, JsonNode.class);
+        JsonNode current = http.getForObject(path, JsonNode.class);
+        assertTrue(current.path("projectGoals").isEmpty());
+        assertEquals(original.path("technicalCapabilities"), current.path("technicalCapabilities"));
+        assertEquals(original.path("revision").asInt() + 2, current.path("revision").asInt());
+        assertEquals(2, current.path("evidence").size());
+        assertEquals(original.path("evidence").get(0), current.path("evidence").get(0));
+        assertEquals(input, current.path("evidence").get(1).path("sourceRef").asText());
+        assertEquals(false, current.path("evidence").get(1).path("confirmed").asBoolean());
+        assertEquals(accepted, http.postForObject(acceptPath, null, JsonNode.class));
+        assertEquals(current, http.getForObject(path, JsonNode.class));
+        verify(ai, times(4)).generate(any());
+    }
+
+    private String createProfile() {
+        JsonNode profile = http.postForObject("/api/user-profiles", null, JsonNode.class);
+        return "/api/user-profiles/" + profile.path("id").asText();
     }
 
     @Test

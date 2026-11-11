@@ -50,8 +50,7 @@ public final class ProfileSufficiencyEvaluator {
      * 系统指令。
      *
      * <p>要求模型只输出 json（DeepSeek 的 JSON 模式要求提示词里出现 "json"），
-     * 并把「足够 / 不足」两种情况下各字段必须满足的自洽条件写清楚——解析器会据此
-     * 拒绝自相矛盾的输出。
+     * 并说明基础评估与对话规划的字段约定；对话中的可恢复控制冲突由应用归一化。
      */
     private static final String SYSTEM_INSTRUCTION = """
             你是 DelveForge 的用户信息充分性评估组件。你的任务是判断「当前 User Profile」
@@ -130,7 +129,7 @@ public final class ProfileSufficiencyEvaluator {
             已回答或已讨论的问题，即使答案没有写入结构化画像。用户明确重开话题时才讨论被跳过的维度。
             establishedReadiness 非空时是当前画像版本已保存的判断，不因普通对话或没有新事实而改判。
             事实仅来自 currentUserProfile 与 currentEvidence；不把本轮未接受的提案说成已保存。
-            pendingProfileUpdate=true 时只回应建议尚待批准，不生成下一问，不改变上一问的真实处理状态。
+            pendingProfileUpdate=true 时简短承接用户意愿，请用户看看下方建议即可；不生成下一问，不改变上一问的真实处理状态。
             """;
 
     private static final String GUIDED_INSTRUCTION = """
@@ -157,9 +156,20 @@ public final class ProfileSufficiencyEvaluator {
             请自然回应，使用 PAUSE，界面会同时提供审阅和继续探索两个选择。
             若上一个问题仍未解决，先保留它，推迟邀请。在已邀请后继续正常提问。
             当前画像中的修订优先于过往 Evidence 和历史对话。旧依据只描述当时的输入。
-            pendingProfileUpdate=true 表示提取建议尚未批准，不是当前事实。先自然回应用户的纠正或转向，再说明待批准，使用 PAUSE，
+            pendingProfileUpdate=true 表示提取建议尚未批准，不是当前事实。简短承接用户的纠正或转向，使用 PAUSE；
+            请用户看看下方建议即可，界面卡片负责说明差异和批准操作，不在正文解释内部流程。
             不邀请审阅、不提新问题、不声称已经保存。上一问状态仍按本轮真实输入判断，
             不能因为有待批提案就将未解决的问题标为 ANSWERED、DEFERRED 或 REPLACED。
+            """;
+
+    private static final String RESPONSE_STYLE_INSTRUCTION = """
+
+            用户可见的 assistantReply 直接回应本轮输入，通常用一两句简短、自然的中文，不复述整段对话。
+            最多问一个有用的后续问题，只放在独立的 nextQuestion，不混入 assistantReply。
+            普通回复不解释内部机制，不使用“画像尚未生效”“待批准更新处理”“暂时不邀请你审阅”
+            “当前状态机”“Evidence”“Profile Extraction”等实现术语，也不要逐项报告字段和流程状态。
+            需要用户核对建议时，例如：“明白，那我们先不做 Coding Agent 了。我整理了新的项目方向，你可以看看是否符合你的想法。”
+            用户明确问原因或要求详细解释时，按问题提供必要的说明；简短是表达偏好，不省略有用解释。
             """;
 
     private final AiGateway aiGateway;
@@ -372,7 +382,7 @@ public final class ProfileSufficiencyEvaluator {
         if (pendingProfileUpdate) {
             question = null;
             area = null;
-            reply = "这次画像更新尚未应用。请核对下方当前内容与建议内容，再选择接受或忽略。";
+            reply = "明白，我整理了你的新想法，可以看看下方内容是否准确。";
         }
         return new SufficiencyAssessment(sufficient, missing, question, candidate.status(), reply, area,
                 deferred, proposal.previousQuestionState(), resumed);
@@ -427,7 +437,8 @@ public final class ProfileSufficiencyEvaluator {
             String current = objectMapper.writeValueAsString(payload);
             if (userInput != null) {
                 String instructions = memory == null ? CONVERSATION_INSTRUCTION : GUIDED_INSTRUCTION;
-                return DiscoveryContext.request(SYSTEM_INSTRUCTION + instructions, context, current, AiRequest.Thinking.LOW);
+                return DiscoveryContext.request(SYSTEM_INSTRUCTION + instructions + RESPONSE_STYLE_INSTRUCTION,
+                        context, current, AiRequest.Thinking.LOW);
             }
             return new AiRequest(List.of(new AiMessage(AiRole.SYSTEM, SYSTEM_INSTRUCTION),
                     new AiMessage(AiRole.USER, current)), AiResponseFormat.JSON);
