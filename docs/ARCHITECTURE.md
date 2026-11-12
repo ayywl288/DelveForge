@@ -1827,7 +1827,7 @@ V17 在 ProjectFlowContext 添加 deleted_at，删除和恢复共用现有 versi
 穿越、受保护材料、链接和完整性拒绝继续按既有边界失败。工具调用身份、事件及压缩摘要保留反馈，
 同一活跃 Run 可纠正参数；重复原样请求复用既有 `AgentProgress` 的 `NO_PROGRESS`，不新增累计用量限制。
 这是工具协议的错误分类修正，不新增持久状态、跨 Run 恢复或授权。验证见
-[只读工具错误修正](validation/read-tool-error-recovery-20261104.md)。
+只读工具错误修正（Git 历史）。
 
 [ADR-0015](decisions/0015-executable-agent-steps-and-incomplete-response-recovery.md) 定义思考模式下的工具历史重放、活跃 Run 内有限丢弃/重生成截断响应和真实用量语义。
 Application 的内部消息保留模型返回的思考字段；Infrastructure 使用 Spring AI 1.1.8 的 `DeepSeekApi` 消息 DTO 收发，返回 Reply 前拒绝全部截断参数。恢复不扩大 Domain、Workspace 或 Delivery 权限，不恢复跨 Run 对话。

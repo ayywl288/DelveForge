@@ -64,7 +64,7 @@ cd DelveForge
 
 Agent 的单次输入预算可用 `delveforge.agent.context-window-tokens`（默认 1,000,000）、`response-tokens`（默认 65,536，包括思考和可见输出）与 `compaction-threshold`（默认 0.90）调整。默认在估计输入达到 841,018 tokens 时压缩，目标为 700,848 tokens。分词器和 CPU 原生库随应用打包；如环境已配置 DJL 的 `RUST_FLAVOR`，请设为 `cpu` 或移除此变量。当前模板适配 `deepseek-flash` 当前的 V4.1-Flash-1017 文本合同。`delveforge.ai.deepseek.max-request-bytes` 独立限制 HTTP 请求大小，默认 8 MiB。
 
-`delveforge.agent.thinking` 接受 `disabled`、`low`、`high`（默认）、`max`，同时控制 HTTP 请求和输入计数。画像提取固定关闭思考，Discovery 对话规划固定使用 `low`，其他文本请求保留提供者选项。付费验证步骤见 [Agent 思考模式与启动上下文](validation/agent-thinking-context-20261109.md)。
+`delveforge.agent.thinking` 接受 `disabled`、`low`、`high`（默认）、`max`，同时控制 HTTP 请求和输入计数。画像提取与 Discovery 对话规划均关闭思考，其他文本请求保留提供者选项。
 
 ## 5. 常见问题
 

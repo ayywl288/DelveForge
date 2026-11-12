@@ -35,7 +35,7 @@ Infrastructure 的一个确定性内容能力策略产生三种内部处置：
 `condition ? "generated-password" : "provided-password"`。仅在 Java 的确定代码位置排除这类
 紧邻问号的完整操作数形态；注释、字符串、含 Unicode 转义或文本块的文件及其他语言不取得该豁免，已知密钥格式仍独立生效。
 这不放行直接凭据赋值或硬编码测试口令；实际安全阻塞与验证见
-[原随机试验续跑](../validation/random-fullstack-resumption-20261104.md)。
+原随机试验续跑（Git 历史）。
 
 正式仓库和可信主机 Git 对象完整保留 R。发送到容器的树 E 从 R 的独立 index 精确删除 PRESERVED_ONLY 条目，
 不创建准备提交、不改正式源码。E 是执行投影，不能称为字节相同的完整 checkout。

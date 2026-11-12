@@ -8,7 +8,7 @@ Status: Accepted for 2026-10-25 autonomous FinTrack stabilization.
 
 携带工具时，所有保留的 Assistant 消息均重放模型原有的思考内容，包括仅回复文字后收到平台纠正的轮次。截断响应整轮丢弃，平台说明使用 User 消息。压缩按完整交互组移除思考和结果，仅投影有界事实。思考内容只驻留活跃 Run 内存。
 
-执行前从所选方向引用的画像版本、已接受 Plan 和历史仓库快照读取解释性上下文。`authorizedStep` 和可信基线继续决定唯一修改范围。验证和配置见 [Agent 思考模式与启动上下文](../validation/agent-thinking-context-20261109.md)。
+执行前从所选方向引用的画像版本、已接受 Plan 和历史仓库快照读取解释性上下文。`authorizedStep` 和可信基线继续决定唯一修改范围。验证和配置见 Agent 思考模式与启动上下文（Git 历史）。
 
 ## 2026-11-06：纠正次数只限制连续响应失败
 

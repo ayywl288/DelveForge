@@ -2,7 +2,7 @@
 
 2026-10-31 · 最终实现的视觉与交互约定。产品、架构及领域语义仍由
 [PRODUCT](../PRODUCT.md)、[ARCHITECTURE](../ARCHITECTURE.md) 和 [DOMAIN_MODEL](../DOMAIN_MODEL.md) 定义。
-本文件不引入授权或执行规则。检查范围见 [验证记录](FRONTEND_VISUAL_VALIDATION.md)。
+本文件不引入授权或执行规则。
 
 ## 框架与身份
 

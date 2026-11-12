@@ -44,7 +44,7 @@ CandidateDeliveryService 在交付接受后通知指南服务；正常交付路�
 
 ## 验证边界
 
-本次不调用付费 Provider 或真实目标项目 AgentRun；它们明确为 NOT RUN。确定性测试只能证明上述编排、事实和安全边界，不证明任意仓库或业务任务必然成功。实际执行记录见 [验证报告](../validation/final-agent-workflow-20261108.md)。
+本次不调用付费 Provider 或真实目标项目 AgentRun；它们明确为 NOT RUN。确定性测试只能证明上述编排、事实和安全边界，不证明任意仓库或业务任务必然成功。实际执行记录见 验证报告（Git 历史）。
 
 ## 2026-11-08：启动材料与呈现的有限细化
 

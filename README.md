@@ -56,6 +56,8 @@ cd DelveForge
 
 [本地安装与配置](docs/LOCAL_SETUP.md) · [系统架构](docs/ARCHITECTURE.md) · [产品设计](docs/PRODUCT.md) · [领域模型](docs/DOMAIN_MODEL.md)
 
+开发日志、截图和一次性验收报告写入已忽略的 `target/`。历史验收材料可通过 `git log -- docs/validation` 查看。
+
 ---
 
 **🔨 DelveForge — Evolution Before Rewrite.**

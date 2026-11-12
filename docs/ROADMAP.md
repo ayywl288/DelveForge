@@ -2,68 +2,68 @@
 
 **2026-11-11 当前修复：对话输出与续问衔接。** 针对重复发送截图，核对既有 FAILED/COMPLETED 请求及
 独立 QUESTION；统一完整 JSON 示例，区分空白与缺少终止，续问有问题时不重复开场。仍严格拒收真正中断，
-不自动重试、不改 V30 或批准边界。本地模拟与独立数据库验证见 [修复记录](validation/discovery-dialogue-20261111.md)。
+不自动重试、不改 V30 或批准边界。本地模拟与独立数据库验证见 修复记录（Git 历史）。
 用户随后明确授权更新与不限次数的真实对话复测。再次观察到只有思考用量、无正文的返回后，
 普通规划改为直接生成 JSON，既有两阶段输出预算独立于思考开关。最终版本14次真实调用及35项交互核对通过，
-完整后端2072项中2017通过、55跳过，构建通过。见[追加验证](validation/discovery-dialogue-direct-20261111.md)。
+完整后端2072项中2017通过、55跳过，构建通过。见追加验证（Git 历史）。
 不合并或推送，不扩大到 Coding Agent 或演化功能。
 
 **2026-11-11 追加授权：Discovery 提取兼容性与回复质量定点修复。** 保留六区严格校验与既有批准、恢复合同，
 将模型依据说明作为可选辅助元数据；缺少可用说明时仅用本轮真实原文提供可追溯依据。回复提示强调简短自然，
-不增加模型阶段、迁移或短字数失败门槛。实现与验证见 [补丁记录](validation/discovery-extraction-compatibility-20261111.md)。
+不增加模型阶段、迁移或短字数失败门槛。实现与验证见 补丁记录（Git 历史）。
 独立 Sol 验收和另行授权的真实 DeepSeek 复测仍是合并前置条件；本轮不付费调用、不合并、不推送。
 
 **2026-11-11 当前授权：Guided Discovery 对话可靠性与体验稳定。** 在原两阶段、V30 批准与恢复合同内，
 归一化可恢复规划冲突，允许未知时间继续探索/审阅，衔接批准与显式续聊，保留失败草稿并按原请求恢复。
 不新建架构或迁移，不改 Coding Agent / Candidate / Delivery。一次性数据库与本地替身验收，
-真实 DeepSeek 须另获费用授权；不合并、不推送。工程记录见 [本轮报告](validation/discovery-stability-20261111.md)。
+真实 DeepSeek 须另获费用授权；不合并、不推送。工程记录见 本轮报告（Git 历史）。
 
-**2026-11-10 当前授权：Guided Discovery 画像更新批准边界。** 保留现有两阶段探索、历史与预算，替换字符串匹配授权为确定性追加分类及整轮人类批准，补齐六区人工保护、V30 保守迁移、可恢复提案与探索中手工编辑。保留 Coding Agent、Candidate、Delivery 及当前里程碑边界；不启动 M5、不调用付费模型、不合并或推送。实现和实际验证见 [本轮记录](validation/profile-update-approval-20261110.md)，独立验收另行执行。
+**2026-11-10 当前授权：Guided Discovery 画像更新批准边界。** 保留现有两阶段探索、历史与预算，替换字符串匹配授权为确定性追加分类及整轮人类批准，补齐六区人工保护、V30 保守迁移、可恢复提案与探索中手工编辑。保留 Coding Agent、Candidate、Delivery 及当前里程碑边界；不启动 M5、不调用付费模型、不合并或推送。实现和实际验证见 本轮记录（Git 历史），独立验收另行执行。
 
 **2026-11-08 本次授权：选定仓库内容与离线执行。** 选定快照内普通源码和配置统一可供 Agent 读写；保留控制目录例外、宿主隔离和资源预算。依赖网络准备失败可降为明确离线执行，实际下载失败保留为命令事实。RUNNING 前持久化材料保留意图，捕获/停止/存储失败不清掉唯一现场。v8、逐 Step 授权、冻结与独立 Delivery 不变；容器协议 v10。见 [ADR-0027](decisions/0027-selected-repository-input-and-offline-execution.md)。下方旧内容隐藏与行保护规则仅为历史。
 
-**2026-11-08 当前授权任务：Agent Run UX Refinement and Quick Start Quality Improvement。** 仅安全启动材料收集、指南展示、Run 普通/开发者信息层级及高级配置命名；保持单 Agent、v8、安全、Candidate/Delivery 与 Plan 前置条件。实现和验证见 [交接报告](validation/agent-run-quickstart-refinement-20261108.md)。本地分支交付，不合并、不推送；付费模型与真实 AgentRun 为 NOT RUN。
+**2026-11-08 当前授权任务：Agent Run UX Refinement and Quick Start Quality Improvement。** 仅安全启动材料收集、指南展示、Run 普通/开发者信息层级及高级配置命名；保持单 Agent、v8、安全、Candidate/Delivery 与 Plan 前置条件。实现和验证见 交接报告（Git 历史）。本地分支交付，不合并、不推送；付费模型与真实 AgentRun 为 NOT RUN。
 
-**2026-11-08 当前授权任务：Final Agent Workflow and Product Convergence。** 本轮包含结构化可选清单、提示与上下文、原生命令/日志、v8 完成与事实分离、Run/Delivery 展示及 Plan-level Quick Start；不扩展其他里程碑或建立新编排/验收体系。独立本地分支实施，不合并/推送，不使用付费模型或真实项目 AgentRun。契约见 [ADR-0026](decisions/0026-factual-completion-and-plan-quick-start.md)，实际验证见 [验证报告](validation/final-agent-workflow-20261108.md)。
+**2026-11-08 当前授权任务：Final Agent Workflow and Product Convergence。** 本轮包含结构化可选清单、提示与上下文、原生命令/日志、v8 完成与事实分离、Run/Delivery 展示及 Plan-level Quick Start；不扩展其他里程碑或建立新编排/验收体系。独立本地分支实施，不合并/推送，不使用付费模型或真实项目 AgentRun。契约见 [ADR-0026](decisions/0026-factual-completion-and-plan-quick-start.md)，实际验证见 验证报告（Git 历史）。
 
-**2026-11-07 历史授权任务：Agent Loop Convergence。** 仅四条工作线：可选内部笔记、提示/上下文收敛、执行与日志可用性、移除机械门槛并保留事实核验/隔离/自动 Delivery。保持当前 MVP 及上游流程，无新审批/监督 Agent/适配框架。实施与回归见 [验证报告](validation/agent-loop-convergence-20261107.md)；本任务不发起付费模型或真实用户项目，不合并、不推送。
+**2026-11-07 历史授权任务：Agent Loop Convergence。** 仅四条工作线：可选内部笔记、提示/上下文收敛、执行与日志可用性、移除机械门槛并保留事实核验/隔离/自动 Delivery。保持当前 MVP 及上游流程，无新审批/监督 Agent/适配框架。实施与回归见 验证报告（Git 历史）；本任务不发起付费模型或真实用户项目，不合并、不推送。
 
-**2026-11-07 历史任务：通用 Agent 命令路径。** 在当前 MVP 内移除活动语言专用工具/预检/完成路由，实施现有循环的原生命令、受控网络、真实证据与部分成果保留，并修正当前结果/历史 UI。验收包括无 Maven/Node 的 C++ 确定性修复→冻结→自动 Delivery、多步骤 Plan 状态、Maven/npm/pnpm 兼容性、真实边界与模拟提供者恢复。不得触发付费模型、真实用户项目、合并或推送。本段不自动声明验收完成；实际结果见 [验证记录](validation/generic-agent-command-path-20261107.md)。先前任务的付费/合并授权不适用于本次任务。
+**2026-11-07 历史任务：通用 Agent 命令路径。** 在当前 MVP 内移除活动语言专用工具/预检/完成路由，实施现有循环的原生命令、受控网络、真实证据与部分成果保留，并修正当前结果/历史 UI。验收包括无 Maven/Node 的 C++ 确定性修复→冻结→自动 Delivery、多步骤 Plan 状态、Maven/npm/pnpm 兼容性、真实边界与模拟提供者恢复。不得触发付费模型、真实用户项目、合并或推送。本段不自动声明验收完成；实际结果见 验证记录（Git 历史）。先前任务的付费/合并授权不适用于本次任务。
 
 **2026-11-04 真实后端 MVP 验收：** 正常本地合并只读工具修正后，独立选定 Petclinic REST；
 基线 248 项、真实单步 Agent 最终 254 项及独立 HTTP 10/10 通过，正常交付接受修订
 `37ead350afef9b84d8d9d3ad7a8d29a10d1a6115`。但产品自动 Delivery 早于独立业务验收，
 所以本轮严格验收流程 FAIL，不宣称满足指定时序。仅一次正式 Run，旧随机试验保持；无新基础设施修正或推送。
-详见[真实验收报告](validation/real-mvp-product-acceptance-20261104.md)。
+详见真实验收报告（Git 历史）。
 
 **2026-11-04 当前任务：普通只读工具错误恢复。** 仅修正同一活跃 Run 的参数反馈与可靠性，保留安全拒绝、
 补丁冲突和 Candidate/Delivery 边界；不调用付费模型，不改第三方源码，不增加 checkpoint/resume。
 工程验证后只在独立本地分支提交，不合并、不推送；较早的付费续跑授权保留历史含义。见
-[修正与验证记录](validation/read-tool-error-recovery-20261104.md)。
+修正与验证记录（Git 历史）。
 
-**2026-11-04 补丁冲突修正续跑结果：** 原工程修正、本次验收说明和同批冲突后的 PATCH_NOT_EXECUTED 已分别正常合并到本地 main；补充两项真实沙箱编排覆盖也已合并。原 86 项重跑加两项集成共 88 项、42 项 Linux/Git 边界测试通过，打包模块与当前 reactor 一致。沿用的真实 Run `1cab61f7-e8b9-469b-8544-87add6004c1b` 预检 READY_BASELINE_FAILURE，执行 160 次模型调用/207 次工具尝试，记录 10,357,386 Token；最后在 read_file 的 PATH_FORMAT 校验失败，前端最后仍有 7 项失败，无 Candidate/Delivery。没有累计用量停止或代为债务确认，原仓库/正式副本及历史失败保持，未推送或删分支。详见[补丁冲突修正与原试验续跑](validation/patch-conflict-resumption-20261104.md)。
+**2026-11-04 补丁冲突修正续跑结果：** 原工程修正、本次验收说明和同批冲突后的 PATCH_NOT_EXECUTED 已分别正常合并到本地 main；补充两项真实沙箱编排覆盖也已合并。原 86 项重跑加两项集成共 88 项、42 项 Linux/Git 边界测试通过，打包模块与当前 reactor 一致。沿用的真实 Run `1cab61f7-e8b9-469b-8544-87add6004c1b` 预检 READY_BASELINE_FAILURE，执行 160 次模型调用/207 次工具尝试，记录 10,357,386 Token；最后在 read_file 的 PATH_FORMAT 校验失败，前端最后仍有 7 项失败，无 Candidate/Delivery。没有累计用量停止或代为债务确认，原仓库/正式副本及历史失败保持，未推送或删分支。详见补丁冲突修正与原试验续跑（Git 历史）。
 
 **2026-11-04 当前授权：合并工程修正并完成原随机全栈演化。** 审查并本地合并已验证工程分支，不删分支、不推送；从 main 重建并核对实际运行包，沿用原固定仓库、Plan、Step 和正式 WorkingCopy 启动新的正常付费 Agent Run。三项已确认反例通过可选、有界的本次验收说明传入，仅作解释，不变更持久授权。真实 Agent 实现目标功能，独立验收共享规则、迟到响应和创建失败后的重检；若冻结 Candidate 为 BASELINE_DEBT，展示固定差异和证据摘要后等待用户单独确认，禁止代为确认。
 
 **2026-11-04 当前授权：失败真实演化诊断与基线感知完成修正。** 不再启动付费 Run；只读检查原随机仓库和保留的 19 文件实现，逐测试比较基线/最终失败。修正预检、完成检查、冻结证据与带历史债务的显式交付确认，使用真实 Docker/Maven/Vue 和合成回归；不改第三方源码、正式副本或旧 Run 状态，不合并或推送。设计见 ADR-0023，阶段结果单独记录，不以选测或模型自报作为产品成功。
 
-**本轮实测：** 旧投影 Maven 逐例核对为 34 个相同旧失败、3 个已解决失败、10 个新增通过测试，无缺失；Vue 基线 387/最终 398 项均通过。保留功能仍有共享规则、迟到响应和失败重检三项缺口，不能直接交付。DelveForge 后端完整 verify 1,894 项（56 跳过、1,838 实际执行）通过，91 项定向回归、8 个真实 Docker 基线场景通过；原目标经单独严格断言复测为 READY_BASELINE_FAILURE（先前内存不足及 Docker EOF 记录保留）。前端 310 项、类型检查及构建通过。新应用包模块与资源一致；本轮新增付费调用 0，原 Run 保持失败，无 Candidate/Delivery。详见[逐例诊断与基线感知修正](validation/baseline-aware-evolution-diagnosis-20261104.md)。
+**本轮实测：** 旧投影 Maven 逐例核对为 34 个相同旧失败、3 个已解决失败、10 个新增通过测试，无缺失；Vue 基线 387/最终 398 项均通过。保留功能仍有共享规则、迟到响应和失败重检三项缺口，不能直接交付。DelveForge 后端完整 verify 1,894 项（56 跳过、1,838 实际执行）通过，91 项定向回归、8 个真实 Docker 基线场景通过；原目标经单独严格断言复测为 READY_BASELINE_FAILURE（先前内存不足及 Docker EOF 记录保留）。前端 310 项、类型检查及构建通过。新应用包模块与资源一致；本轮新增付费调用 0，原 Run 保持失败，无 Candidate/Delivery。详见逐例诊断与基线感知修正（Git 历史）。
 
 **2026-11-04 最新授权：简化普通源码保护并恢复原随机演化。** 分开源码执行与模型可见性，修正 password/token 字段导致整文件排除的问题，增强检查输出净化；保留高风险材料、受保护编辑、隔离、源身份和交付边界。仅改 DelveForge 和合成夹具，不改目标库/正式副本。确定性及真实 Docker 安全验证通过后，沿用已确认的原 Plan/Step，通过真实 Agent 继续至交付和产品验收，或记录独立的真实阻塞。原失败与用量保留，不合并或推送；先前安全阻塞结论保留历史含义。
 
-**本任务实测：** 原 10 个检查输入屏蔽解除；正常产品预检进入 READY_BASELINE_FAILURE，原仓库前端 387 项基线通过，后端 270 项的既有失败保留。真实 Agent 进行了 100 次模型请求/响应、127 次工具调用，新增 6,299,421 Token；最终前端 398 项通过，但完整后端 280 项仍有 3 failure、31 error。模型声明完成后，冻结以 UNRESOLVED_CHECK_FAILURE 拒绝，无 Candidate/Delivery，正式副本及原库保持原 revision。源码保护修正已验证，产品演化未交付；见[执行与真实续跑记录](validation/source-protection-execution-20261104.md)。
+**本任务实测：** 原 10 个检查输入屏蔽解除；正常产品预检进入 READY_BASELINE_FAILURE，原仓库前端 387 项基线通过，后端 270 项的既有失败保留。真实 Agent 进行了 100 次模型请求/响应、127 次工具调用，新增 6,299,421 Token；最终前端 398 项通过，但完整后端 280 项仍有 3 failure、31 error。模型声明完成后，冻结以 UNRESOLVED_CHECK_FAILURE 拒绝，无 Candidate/Delivery，正式副本及原库保持原 revision。源码保护修正已验证，产品演化未交付；见执行与真实续跑记录（Git 历史）。
 
 **2026-11-04 最新授权任务：恢复同一随机全栈演化。** 沿用原仓库、固定 commit、画像、方向、Plan 与 Step；修复真实 DelveForge 缺陷及运行配置错误，继续至完整产品成功或证实的外部/安全阻塞。不得手工修改目标源或正式 WorkingCopy，不重抽、不直接写领域数据库、不合并或推送。用户已撤销人为累计调用、Token、编码次数上限；既有逐 Step、费用确认、工具与资源安全控制保持。下方首次阻塞即停的授权仅保留历史含义。
 
-**本次续跑结果：** 官方 WorkingCopy 准备及 Step 确认成功；Docker owner/cache 不一致已通过默认运行配置修正，没有改所有权规则或缓存标签。修复 Java 三元运算字符串的凭据误判后，真实 Docker 仍证明 10 个检查输入因现行保护规则不可执行，预检 ENVIRONMENT_BLOCKED。新增模型请求 0，无 Candidate/Delivery，产品功能未验收；结论为 BLOCKED BY A CONFIRMED EXTERNAL/SECURITY REQUIREMENT。见[原随机试验续跑](validation/random-fullstack-resumption-20261104.md)。
+**本次续跑结果：** 官方 WorkingCopy 准备及 Step 确认成功；Docker owner/cache 不一致已通过默认运行配置修正，没有改所有权规则或缓存标签。修复 Java 三元运算字符串的凭据误判后，真实 Docker 仍证明 10 个检查输入因现行保护规则不可执行，预检 ENVIRONMENT_BLOCKED。新增模型请求 0，无 Candidate/Delivery，产品功能未验收；结论为 BLOCKED BY A CONFIRMED EXTERNAL/SECURITY REQUIREMENT。见原随机试验续跑（Git 历史）。
 
 **2026-11-04 当前授权任务：** 本地合并已验证原生预检实现、安全清理与文档归并；固定客观候选池后随机抽取一个真实 Java/Maven + Vue3/Vite 仓库，通过正常产品流程至成功或首个真实阻塞。授权正常付费确认与受限真实模型试验，不推送、不代修目标、不为通过而换库或修系统。下方较早任务授权与结果保留历史含义。
 
-**本轮结果：** 已本地合并、归并文档并清理旧 Docker 资源。32 个候选中一次随机选中校园设备预约系统；补齐凭据及 Docker 后完成真实分析、画像、四个方向生成和单步规划，官方 WorkingCopy 准备因受控 Git clone 失败而停止，根因待定位。无新 Agent Run、Candidate 或 Delivery，不声明产品验收通过。见 [收尾与随机试验记录](validation/final-random-fullstack-20261104.md)。
+**本轮结果：** 已本地合并、归并文档并清理旧 Docker 资源。32 个候选中一次随机选中校园设备预约系统；补齐凭据及 Docker 后完成真实分析、画像、四个方向生成和单步规划，官方 WorkingCopy 准备因受控 Git clone 失败而停止，根因待定位。无新 Agent Run、Candidate 或 Delivery，不声明产品验收通过。见 收尾与随机试验记录（Git 历史）。
 
 **2026-11-03 当前授权任务：Native Build Compatibility & Preflight Readiness。** 安全准入与原生环境就绪分离，首次 Coding Agent 模型调用前完成实际探针；明确源码失败可修复。仅确定性与非 LLM Docker 验证，不启动新付费演化试验，不改变 Candidate/Delivery 生命周期或未来里程碑。实际验收另记，未以此段标记完成。
 
-实现与实际验收证据见 [Native Build Preflight 验证记录](validation/native-build-preflight-20261103.md)。
+实现与实际验收证据见 Native Build Preflight 验证记录（Git 历史）。
 
 **2026-11-03 当前用户任务：Restore Reliable Autonomous Product Evolution。**
 修复前端语法白名单与证据归类根因：复用既有隔离执行，支持 npm/pnpm 项目脚本、Node/Vitest 结构化报告及配置能力反馈。
@@ -75,7 +75,7 @@
 最终修订 `72003f5edb0f993301ab432f3467a71f9d758941`，Plan COMPLETED、WorkingCopy CLOSED。
 独立浏览器确认本机事项、完成/提醒、JSON/YAML 导入及持久化，但默认导航地址被误作数据源，
 读取失败后家人汇总仍可能提示无需操作；下载文件内容也未取得独立证明。因此 PRODUCT_READY=NO，
-不宣称完整产品验收成功，不再发起付费重试。见 [继续执行与独立验收](validation/autonomous-homeops-continuation-20261103.md)。
+不宣称完整产品验收成功，不再发起付费重试。见 继续执行与独立验收（Git 历史）。
 
 **2026-11-03 本任务阶段结果：** 项目脚本/Node/Vitest 工程回归通过；首次真实重试因只读查询 node_modules 被终止，0/4、无 Candidate/Delivery。
 已补充环境可见性与可恢复只读拒绝，完整后端及真实 Node 交付重新通过。旧失败历史不改写。
@@ -92,7 +92,7 @@
 独立真实 Homer 产品试验生成四个方向及四步 Plan；首个实际编码 Run 因 Node 原生测试脚本不受支持，
 在冻结时以 UNRESOLVED_CHECK_FAILURE 失败，无 Candidate/Delivery，Plan 未完成，ASTRA_READY=NO。
 原库与正式副本保持原 revision；环境恢复前的零模型调用 Docker 失败另行保留，没有追加付费重试挽救编码失败。
-完整结果见 [产品试验报告](validation/authentic-homeops-product-20261103.md)。本轮不扩展测试工具或继续兼容性开发。
+完整结果见 产品试验报告（Git 历史）。本轮不扩展测试工具或继续兼容性开发。
 
 **2026-11-02 最新用户授权：Safe Repository Admission Boundary & Real-Repository Validation。**
 从本地 353920a 在当前分支完成一个贯通准入、模型材料、执行投影、不可变资源与正式交付的内容能力边界。

@@ -42,4 +42,4 @@ sourceView 记录 FULL/PROJECTED、保留/只读/withheld 数量，executionBase
 
 ## 验证
 
-本任务工程结果、明确未运行项、使用步骤和运行后权限评价见 [收敛验证报告](../validation/agent-loop-convergence-20261107.md)。确定性夹具不证明模型产品能力。付费模型与真实用户项目 E2E 均 NOT RUN。
+本任务工程结果、明确未运行项、使用步骤和运行后权限评价见 收敛验证报告（Git 历史）。确定性夹具不证明模型产品能力。付费模型与真实用户项目 E2E 均 NOT RUN。

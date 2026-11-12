@@ -8,6 +8,10 @@ release.properties
 dependency-reduced-pom.xml
 buildNumber.properties
 
+### Temporary validation artifacts ###
+# 一次性验收报告、截图和诊断输出使用已忽略的 target/，不进入文档树。
+/docs/validation/
+
 ### IDE ###
 .idea/
 *.iml
