@@ -178,6 +178,9 @@ summary::-webkit-details-marker { display: none; }
 .file-change summary code { overflow-wrap: anywhere; }
 .file-change summary span { margin-left: auto; color: var(--muted); }
 .file-change p { color: var(--muted); font-size: 12px; }
+.preview-entry { display: flex; align-items: flex-start; gap: 9px; padding: 7px 2px; }
+.preview-entry .navigation-icon { margin-top: 2px; }
+.preview-entry code { display: block; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .file-change pre.before-edit { border-left: 3px solid #bf7779; background: #faf2f2; }
 .file-change pre.after-edit { border-left: 3px solid #69917e; background: #eff6f1; }
 .navigation-dialog .project-tree h2 { font-size: 12px; }

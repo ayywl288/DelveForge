@@ -1,6 +1,7 @@
 import { createApp, h, nextTick } from 'vue'
 import { afterEach, expect, it, vi } from 'vitest'
-import { recordedChanges, timeline, toolStatus, type ToolActivity } from '../src/workbench/activity'
+import { previewLinks, recordedChanges, timeline, toolStatus, type ToolActivity } from '../src/workbench/activity'
+import WorkbenchDetails from '../src/workbench/WorkbenchDetails.vue'
 import { type Feed, type Message } from '../src/workbench/api'
 import { useWorkbench } from '../src/workbench/useWorkbench'
 
@@ -23,6 +24,23 @@ it('相同提供方标识跨轮、跨 Run 仍配到正确的参数、回执和�
     expect(toolStatus({ ...rows[2]!, result: { notStarted: true } }).label).toBe('未开始')
     expect(toolStatus({ ...rows[2]!, result: { exit: null } }).label).toBe('退出状态未知')
     expect(recordedChanges(rows).map(r => r.key)).toEqual([rows[0]!.key])
+})
+
+it('同一网关端口的预览按最近出现排序，保留各自的主机和链接', () => {
+    const url = (letter: string) => 'http://p-' + letter.repeat(24) + '.localhost:51300'
+    const messages = [url('a'), url('b'), url('a')].map((text, i) => ({ ...message(i, 'a', 'assistant'), text }))
+    const links = previewLinks(messages)
+    expect(links).toEqual([url('a'),url('b')])
+    const root = document.createElement('div')
+    const app = createApp(WorkbenchDetails, { mode: 'workspace', pending: false, changes: [], previews: links,
+        project: { id: 'p', name: '项目', workcopy: 'p', state: 'READY', detail: null } })
+    app.mount(root)
+    try {
+        const anchors = Array.from(root.querySelectorAll('a'))
+        expect(anchors.map(a => a.href)).toEqual(links.map(u => u + '/'))
+        expect(anchors[0]?.textContent).toContain('打开本机预览' + new URL(links[0]!).host)
+        expect(anchors[1]?.textContent).toContain('打开较早的预览' + new URL(links[1]!).host)
+    } finally { app.unmount() }
 })
 
 it('文件面板只列出有成功回执和原始路径的写入', () => {

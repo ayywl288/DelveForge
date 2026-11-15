@@ -80,5 +80,6 @@ export function recordedChanges(entries: Entry[]) {
 }
 
 export function previewLinks(messages: Message[]) {
-    return [...new Set(messages.flatMap(m => m.role === 'tool' || m.role === 'assistant' ? previews(m.text) : []))]
+    const mentioned = messages.flatMap(m => m.role === 'tool' || m.role === 'assistant' ? previews(m.text) : [])
+    return [...new Set(mentioned.reverse())]
 }

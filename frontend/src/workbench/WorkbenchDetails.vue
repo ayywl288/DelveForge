@@ -32,7 +32,10 @@ async function copy() {
             </details>
         </section>
         <section class="detail-section"><h3>本机预览</h3>
-            <a v-for="url in previews" :key="url" class="preview-link" :href="url" target="_blank" rel="noopener noreferrer"><Icon name="external" />打开本机预览 <code>{{ url.split(':').at(-1) }}</code></a>
+            <a v-for="(url, index) in previews" :key="url" class="preview-entry" :href="url" target="_blank" rel="noopener noreferrer">
+                <Icon name="external" /><span>{{ index === 0 ? '打开本机预览' : '打开较早的预览' }}<code>{{ url.slice('http://'.length) }}</code></span>
+            </a>
+            <p v-if="previews.length > 1" class="helper">最近出现的地址排在最前。旧服务停止后，对应的链接会失效。</p>
             <p v-if="!previews.length" class="helper">对话中出现的本机预览链接会显示在这里。</p>
         </section>
     </template>
