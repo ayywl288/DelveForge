@@ -88,15 +88,17 @@ public final class WorkbenchController {
                 "id", store.conversation(project, ConversationAgent.required(title.title(), 160)));
     }
 
+    public record Foreground(String projectId, String conversationId) {}
+
+    public record ConversationView(List<Map<String, Object>> messages, List<Map<String, Object>> runs,
+            List<Map<String, Object>> activeTools, Foreground foreground) {}
+
     @GetMapping("/conversations/{id}")
-    public Map<String, Object> conversation(@PathVariable String id) {
-        return Map.of(
-                "messages",
-                store.timeline(id),
-                "runs",
-                store.runs(id),
-                "activeTools",
-                store.activeTools(id));
+    public ConversationView conversation(@PathVariable String id) {
+        var foreground = store.owners().stream()
+                .map(run -> new Foreground(run.projectId(), run.conversationId()))
+                .findFirst().orElse(null);
+        return new ConversationView(store.timeline(id), store.runs(id), store.activeTools(id), foreground);
     }
 
     @PostMapping("/conversations/{id}/messages")

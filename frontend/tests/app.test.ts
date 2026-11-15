@@ -11,7 +11,10 @@ const dispose: (() => void)[] = []
 afterEach(() => dispose.splice(0).forEach(f => f()))
 
 async function settle() { for (let i = 0; i < 18; i++) { await Promise.resolve(); await nextTick() } }
-function mount(post?: (url: string, body: Record<string, string>) => unknown) {
+function mount(post?: (url: string, body: Record<string, string>) => unknown, narrow = false) {
+    vi.stubGlobal('matchMedia', () => ({ matches: narrow, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    HTMLDialogElement.prototype.showModal = function () { this.open = true }
+    HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event('close')) }
     const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
         if (options?.method === 'POST') return new Response(JSON.stringify(post?.(url, JSON.parse(String(options.body))) || {}))
         return new Response(JSON.stringify(url.endsWith('/settings') ? settings : url.endsWith('/projects') ? projects : url.endsWith('/conversations') ? conversations : feed))
@@ -26,11 +29,24 @@ it('刷新只恢复选中的项目和对话，不触发 Run', async () => {
     localStorage.setItem('delveforge.workbench.selection', JSON.stringify(['p', 'c2']))
     const {root, fetcher} = mount(); await settle()
     expect(root.querySelector('h1')?.textContent).toBe('后续调整')
-    expect(root.querySelector('.workcopy')?.textContent).toContain('D:\\projects\\p')
-    expect(root.textContent).toContain('同一时间运行一个前台 Run')
-    expect(root.querySelector('.model-info')?.textContent).toContain('fixture-model')
-    expect(root.querySelector('.usage')?.textContent).toContain('已报告 12 tokens')
+    root.querySelector<HTMLButtonElement>('.workspace-btn')!.click(); await settle()
+    expect(root.querySelector('.file-path')?.textContent).toContain('D:\\projects\\p')
+    root.querySelector<HTMLButtonElement>('dialog [aria-label="关闭"]')!.click(); await settle()
+    root.querySelector<HTMLButtonElement>('.state-chip')!.click(); await settle()
+    const details = root.querySelector('dialog')!.textContent
+    expect(details).toContain('同一时间运行一个前台 Run')
+    expect(details).toContain('fixture-model')
+    expect(details).toContain('已报告用量12 tokens')
     expect(fetcher.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true)
+})
+
+it('工作副本面板向所选项目请求打开目录，并呈现操作错误', async () => {
+    const { root, fetcher } = mount(() => { throw Error('无法打开文件夹') })
+    await settle()
+    root.querySelector<HTMLButtonElement>('.workspace-btn')!.click(); await settle()
+    root.querySelector<HTMLButtonElement>('dialog .button-row .primary')!.click(); await settle()
+    expect(fetcher).toHaveBeenCalledWith('/api/workbench/projects/p/open', expect.objectContaining({ method: 'POST' }))
+    expect(root.querySelector('dialog [role=alert]')?.textContent).toContain('无法打开文件夹')
 })
 
 it('活动 Run 中仍可发送纠正，网络应答丢失后用相同消息 ID 重试', async () => {
@@ -53,15 +69,16 @@ it('活动 Run 中仍可发送纠正，网络应答丢失后用相同消息 ID �
 })
 
 it('项目内切换对话保留各自草稿，并关闭移动导航', async () => {
-    const {root} = mount(); await settle()
+    const {root} = mount(undefined, true); await settle()
     const field = root.querySelector('textarea')!
     field.value = '只在调查里'; field.dispatchEvent(new Event('input')); await nextTick()
-    ;(root.querySelector('.mobile-toggle') as HTMLButtonElement).click(); await nextTick()
-    expect(root.querySelector('.mobile-toggle')?.getAttribute('aria-expanded')).toBe('true')
-    const tabs = root.querySelectorAll<HTMLButtonElement>('.chat-item')
-    tabs[1]!.click(); await settle()
+    const toggle = root.querySelector<HTMLButtonElement>('.nav-toggle')!
+    toggle.click(); await nextTick()
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    root.querySelectorAll<HTMLButtonElement>('dialog .conversation-node')[1]!.click(); await settle()
     expect(root.querySelector('textarea')?.value).toBe('')
-    expect(root.querySelector('.mobile-toggle')?.getAttribute('aria-expanded')).toBe('false')
-    tabs[0]!.click(); await settle()
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    toggle.click(); await nextTick()
+    root.querySelectorAll<HTMLButtonElement>('dialog .conversation-node')[0]!.click(); await settle()
     expect(root.querySelector('textarea')?.value).toBe('只在调查里')
 })

@@ -213,6 +213,10 @@ class WorkbenchIntegrationTest {
         store.prepare(call, guest.prepare(snap.run(), call, "scope"), "hash");
         store.admit(call);
         store.capture(call.id(), "stderr", "abcdefgh".getBytes(StandardCharsets.UTF_8));
+        var active = store.activeTools(conversation).getFirst();
+        assertEquals(call.providerId(), active.get("provider_id"));
+        assertEquals(ack.runId(), active.get("run_id"));
+        assertEquals(store.timeline(conversation).getLast().get("seq"), active.get("assistant_seq"));
         assertEquals("abc", store.excerpt(call.id(), 3).stderr());
         assertTrue(store.excerpt(call.id(), 3).truncated());
         assertThrows(

@@ -2,6 +2,7 @@ import { createApp, nextTick } from 'vue'
 import { expect, it, vi } from 'vitest'
 import Transcript from '../src/workbench/Transcript.vue'
 import { previews, type Message } from '../src/workbench/api'
+import { timeline } from '../src/workbench/activity'
 
 it('显示模型原始调用，并在按字节翻页后还原跨页中文输出', async () => {
     const call = { id: 'original', name: 'Bash', arguments: '{"command": "pwd"}' }
@@ -18,7 +19,7 @@ it('显示模型原始调用，并在按字节翻页后还原跨页中文输出'
             bytes: 3, next: pages.length ? 1 : 3, gap: false }))
     }))
     const root = document.createElement('div')
-    const app = createApp(Transcript, { conversation: 'example', messages })
+    const app = createApp(Transcript, { conversation: 'example', entries: timeline({ messages, runs: [] }), runs: [] })
     app.mount(root)
     try {
         expect(root.textContent).toContain(call.arguments)
@@ -38,7 +39,8 @@ it('只将网关生成的本机域名显示为预览，并分别标记显示截�
     const fetcher = vi.fn(async () => new Response(JSON.stringify({chunks: [{channel:'stderr',base64:btoa('hello')}],bytes:5,next:5,gap:true})))
     vi.stubGlobal('fetch',fetcher)
     const root = document.createElement('div')
-    const app = createApp(Transcript,{conversation:'conv',messages:[message]});app.mount(root)
+    const app = createApp(Transcript, { conversation: 'conv', entries: timeline({ messages: [message], runs: [] }), runs: [] })
+    app.mount(root)
     try {
         expect(root.querySelector('a')?.href).toBe(url + '/')
         expect(root.textContent).toContain('退出状态未知')

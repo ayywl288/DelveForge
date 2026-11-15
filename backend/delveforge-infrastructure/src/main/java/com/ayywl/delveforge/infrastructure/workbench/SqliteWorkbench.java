@@ -671,7 +671,8 @@ public final class SqliteWorkbench implements Workbench {
     public List<Map<String, Object>> activeTools(String conversation) {
         var rows =
                 jdbc.queryForList(
-                        "SELECT i.id,i.name,i.state FROM invocation i JOIN run r ON i.run_id=r.id "
+                        "SELECT i.id,i.run_id,i.assistant_seq,i.provider_id,i.name,i.state "
+                                + "FROM invocation i JOIN run r ON i.run_id=r.id "
                                 + "WHERE r.conversation_id=? AND i.state='ADMITTED'",
                         conversation);
         for (var row : rows) {

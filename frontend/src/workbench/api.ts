@@ -1,8 +1,13 @@
 export interface Project { id: string; name: string; workcopy: string | null; state: string; detail: string | null }
 export interface Conversation { id: string; title: string; project_id: string }
 export interface Run { id: string; state: string; detail: string | null; requests: number; allowance: number; tokens: number }
-export interface Message { seq: number; role: string; text: string | null; calls: string; tool_name: string | null; provider_id: string | null; recorded_at: string }
-export interface Feed { messages: Message[]; runs: Run[]; activeTools?: { id: string; name: string; frames: { channel: string; text: string }[] }[] }
+export interface Message { seq: number; run_id?: string | null; role: string; text: string | null; calls: string; tool_name: string | null; provider_id: string | null; recorded_at: string }
+export interface ActiveTool {
+    id: string; run_id: string; assistant_seq: number; provider_id: string; name: string
+    frames: { channel: string; text: string }[]
+}
+export interface Foreground { projectId: string; conversationId: string }
+export interface Feed { messages: Message[]; runs: Run[]; activeTools?: ActiveTool[]; foreground?: Foreground | null }
 export interface Ack { sequence: number; runId: string | null; newlyStarted: boolean }
 export interface RuntimeSettings {
     model: { adapter: string; endpoint: string; requestedModel: string; thinking: string }
@@ -32,7 +37,11 @@ export function receipt(message: Message): Receipt {
 }
 
 export function proposedTools(message: Message): { id: string; name: string; arguments: string }[] {
-    return message.calls ? JSON.parse(message.calls) : []
+    try {
+        const calls: unknown = JSON.parse(message.calls || '[]')
+        return Array.isArray(calls) ? calls.filter(call => call && typeof call.id === 'string'
+            && typeof call.name === 'string' && typeof call.arguments === 'string') : []
+    } catch { return [] }
 }
 
 export function previews(text: string | null): string[] {
