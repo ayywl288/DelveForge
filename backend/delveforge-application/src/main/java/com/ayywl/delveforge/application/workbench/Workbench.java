@@ -95,6 +95,8 @@ public interface Workbench {
 
     List<String> latestInputs(String conversation, long observed);
 
+    List<String> coveredUserMessages(String conversation, String run, long through);
+
     List<Map<String, Object>> timeline(String conversation);
 
     List<Map<String, Object>> activeTools(String conversation);

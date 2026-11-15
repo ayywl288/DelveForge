@@ -82,12 +82,18 @@ public final class ConversationContext {
     }
 
     private List<AgentProtocol.Message> assemble(
-            Workbench.Run run, String summary, List<Workbench.Entry> records) {
+            Workbench.Run run, String summary, long through, List<Workbench.Entry> records) {
         var messages = new ArrayList<AgentProtocol.Message>();
         messages.add(
                 AgentProtocol.Message.text(
                         "system",
                         instructions(run) + (summary.isBlank() ? "" : "\n此前摘要\n" + summary)));
+        // 摘要可遗漏验收条件。只重放已被前缀覆盖的用户原文，保留用户角色和修正顺序。
+        if (through > 0) {
+            for (String input : store.coveredUserMessages(run.conversationId(), run.id(), through)) {
+                messages.add(AgentProtocol.Message.text("user", input));
+            }
+        }
         records.forEach(r -> messages.add(r.message()));
         return List.copyOf(messages);
     }
@@ -129,7 +135,7 @@ public final class ConversationContext {
         var run = snapshot.run();
         var ctx = snapshot.context();
         var records = ctx.records();
-        var current = assemble(run, ctx.summary(), records);
+        var current = assemble(run, ctx.summary(), ctx.through(), records);
         long count = counter.countPromptTokens(current, TOOLS);
         if (count < budget.triggerTokens()) {
             return current;
@@ -160,6 +166,7 @@ public final class ConversationContext {
                                             assemble(
                                                     run,
                                                     summary,
+                                                    records.get(cut - 1).seq(),
                                                     records.subList(cut, records.size())),
                                             TOOLS)
                                     < count) {
@@ -202,7 +209,8 @@ public final class ConversationContext {
                 if (cut > 0
                         && counter.countPromptTokens(
                                         assemble(
-                                                run, reduced, records.subList(cut, records.size())),
+                                                run, reduced, records.get(cut - 1).seq(),
+                                                records.subList(cut, records.size())),
                                         TOOLS)
                                 <= budget.usableInputTokens()) {
                     store.summarize(
@@ -214,7 +222,7 @@ public final class ConversationContext {
                 }
             }
         }
-        var withoutOldSummary = assemble(run, minimum, records);
+        var withoutOldSummary = assemble(run, minimum, ctx.through(), records);
         if (counter.countPromptTokens(withoutOldSummary, TOOLS) <= budget.usableInputTokens()) {
             return withoutOldSummary;
         }

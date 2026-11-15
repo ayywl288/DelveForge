@@ -339,6 +339,29 @@ class WorkbenchIntegrationTest {
     }
 
     @Test
+    void lossySemanticSummaryCannotRemoveUserAcceptanceConditionsOrPromoteTheirRole() {
+        String id = store.receive(conversation, "first", "完成 overdue、summary、return 和测试", 30).runId();
+        for (int i = 0; i < 4; i++) {
+            store.next(id);
+            store.receive(conversation, "update-" + i, "修正 " + i, 30);
+        }
+        store.next(id);
+        store.receive(conversation, "json", "summary --format json 的字段为 reader、open、overdue", 30);
+        var frozen = store.next(id);
+        long through = frozen.context().records().getLast().seq();
+        store.summarize(conversation, frozen.context().version(), through, "只做 overdue");
+        store.receive(conversation, "tail", "完成所有步骤后报告", 30);
+        var snapshot = store.next(id);
+        AgentModelPort unused = (m, t) -> { throw new AssertionError("无需调用摘要服务"); };
+        var context = new ConversationContext(store, unused, (m, t) -> 10, new AgentContextBudget(10000, 500, .9));
+        var messages = context.build(snapshot);
+        assertEquals(List.of("完成 overdue、summary、return 和测试", "修正 0", "修正 1", "修正 2", "修正 3",
+                        "summary --format json 的字段为 reader、open、overdue", "完成所有步骤后报告"),
+                messages.stream().filter(m -> m.role().equals("user")).map(AgentProtocol.Message::text).toList());
+        assertFalse(messages.getFirst().text().contains("--format json"));
+    }
+
+    @Test
     void compactionPublishesOnlyFrozenPrefixAndRetainsMessagesArrivingDuringSummary() {
         var ack = store.receive(conversation, "begin", "原目标", 50);
         for (int i = 0; i < 13; i++) {

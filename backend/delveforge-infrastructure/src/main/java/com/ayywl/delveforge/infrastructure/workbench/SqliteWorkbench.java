@@ -636,6 +636,18 @@ public final class SqliteWorkbench implements Workbench {
     }
 
     @Override
+    public List<String> coveredUserMessages(String conversation, String run, long through) {
+        return jdbc.queryForList("""
+                WITH covered AS (
+                    SELECT seq,run_id,text FROM record WHERE conversation_id=? AND role='user' AND seq<=?
+                )
+                SELECT text FROM covered
+                WHERE run_id=? OR seq IN (SELECT seq FROM covered ORDER BY seq DESC LIMIT 3)
+                ORDER BY seq
+                """, String.class, conversation, through, run);
+    }
+
+    @Override
     public List<Map<String, Object>> timeline(String conversation) {
         return jdbc.queryForList(
                 "SELECT seq,run_id,role,text,calls,provider_id,tool_name,recorded_at FROM record"
