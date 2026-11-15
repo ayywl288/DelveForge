@@ -1,0 +1,29 @@
+#!/usr/bin/python3
+"""调用当前前台 invocation 授权的预览或只读查询。"""
+import argparse
+import os
+import urllib.error
+import urllib.parse
+import urllib.request
+
+parser = argparse.ArgumentParser(prog="df-workbench")
+parser.add_argument("action", choices=("preview", "history", "output"))
+parser.add_argument("reference", nargs="?", default="")
+parser.add_argument("--offset", type=int, default=0)
+parser.add_argument("--limit", type=int, default=4096)
+args = parser.parse_args()
+token = os.environ.get("DF_INVOCATION")
+if not token:
+    parser.exit(1, "需要当前工具调用的授权\n")
+path = "/preview" if args.action == "preview" else "/lookup/" + args.action
+params = urllib.parse.urlencode(dict(ref=args.reference, offset=args.offset, limit=args.limit))
+req = urllib.request.Request("http://127.0.0.1:8402" + path + "?" + params,
+                             method="POST" if args.action == "preview" else "GET",
+                             headers={"Authorization": "Bearer " + token})
+try:
+    with urllib.request.build_opener(urllib.request.ProxyHandler({})).open(req, timeout=12) as response:
+        print(response.read(65536).decode())
+except urllib.error.HTTPError as error:
+    parser.exit(1, str(error.code) + " " + error.read(500).decode(errors="replace") + "\n")
+except urllib.error.URLError:
+    parser.exit(1, "本机查询或预览网关暂不可用\n")

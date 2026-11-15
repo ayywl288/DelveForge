@@ -1,7 +1,8 @@
 <script setup lang="ts">
 export type NavigationIconName = "projects" | "discovery" | "repository" | "direction" | "planning" | "evolution"
   | "plus" | "file" | "code" | "layers" | "reuse" | "warning" | "evidence" | "git" | "lock"
-  | "check" | "copy" | "clock" | "play" | "arrow" | "refresh" | "user" | "activity" | "target" | "heart" | "close" | "stop";
+  | "check" | "copy" | "clock" | "play" | "arrow" | "refresh" | "user" | "activity" | "target" | "heart" | "close" | "stop"
+  | "sidebar" | "chevron" | "send" | "terminal" | "folder" | "external" | "sliders" | "edit" | "down";
 defineProps<{ name: NavigationIconName }>();
 
 const paths: Record<NavigationIconName, string> = {
@@ -32,6 +33,15 @@ const paths: Record<NavigationIconName, string> = {
   heart: "M12 21L3 12a5 5 0 0 1 9-7 5 5 0 0 1 9 7z",
   close: "M6 6l12 12 M6 18L18 6",
   stop: "M6 6h12v12H6z",
+  sidebar: "M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z M9 4v16",
+  chevron: "m9 5 7 7-7 7",
+  down: "M12 4v16m-6-6 6 6 6-6",
+  send: "M12 20V4m-7 7 7-7 7 7",
+  terminal: "M3 4h18v16H3z M6 9l3 3-3 3m5 0h5",
+  folder: "M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z",
+  external: "M14 4h6v6m0-6-9 9m0-8H5v14h14v-6",
+  sliders: "M3 7h5m4 0h9M3 17h9m4 0h5 M8 4v6m8 4v6",
+  edit: "m4 16 11-11 4 4-11 11H4z M13 7l4 4",
 };
 </script>
 <template>

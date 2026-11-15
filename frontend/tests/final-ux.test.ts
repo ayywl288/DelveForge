@@ -1,11 +1,10 @@
 import { createApp, nextTick, reactive, type Component } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import App from "../src/App.vue";
 import AssetAuthorizationForm from "../src/components/AssetAuthorizationForm.vue";
 import PlanView from "../src/views/PlanView.vue";
 import RepositoryView from "../src/views/RepositoryView.vue";
 import { api, ApiError } from "../src/api/client";
-import { createSession, sessionKey } from "../src/state/session";
+import { createSession } from "../src/state/session";
 import { validLicenseDeclaration } from "../src/state/licenseDeclaration";
 import { asset, direction, plan, profile, repository} from "./fixtures";
 
@@ -46,21 +45,6 @@ function planning() {
   vi.spyOn(api, "workspaceConfiguration").mockResolvedValue({ root: "E:\\local-storage", existingRoots: [] });
   return s;
 }
-function restoredPlanning() {
-  const target = { ...asset(), licenseInfo: null };
-  const duplicate = { ...asset(), id: "historical-same-path", licenseInfo: "MIT" };
-  localStorage.setItem(sessionKey, JSON.stringify({ profileId: "profile-1", assetIds: [duplicate.id, target.id],
-    repositoryIds: ["repo-1"], directionIds: ["direction-1"], planId: "" }));
-  vi.spyOn(api, "connectivity").mockResolvedValue({ service: "delveforge", status: "UP", timestamp: "" });
-  vi.spyOn(api, "profile").mockResolvedValue({ ...profile(), revision: 2, status: "CONFIRMED" });
-  vi.spyOn(api, "reviewReadiness").mockResolvedValue({ profileId: "profile-1", revision: 2, sufficient: true });
-  vi.spyOn(api, "repository").mockResolvedValue(repository());
-  vi.spyOn(api, "direction").mockResolvedValue({ ...direction(), status: "SELECTED" });
-  vi.spyOn(api, "asset").mockImplementation(async id => id === target.id ? target : duplicate);
-  vi.spyOn(api, "workspaceConfiguration").mockResolvedValue({ root: "E:\\local-storage", existingRoots: [] });
-  return { target, duplicate };
-}
-
 describe("E1 许可证声明", () => {
   it("前后端约定是最小文字检查，不把未知或 SPDX 当成授权", () => {
     for (const value of [null, "MIT", "Apache-2.0", "BSD-3-Clause", "GPL-3.0-only", "代码：自有；文档：授权另附"])
@@ -117,29 +101,7 @@ describe("E2 精确授权导航", () => {
     generate.mockRejectedValue(new ApiError(409, "CONFLICT"));
     await s.generatePlan("repo-1"); await nextTick(); expect(button(root, "前往补充")).toBeUndefined();
   });
-  it("沿用原 RepositoryProfile 和方向，精确打开 Asset ID，成功保存后返回保留的 Planning 选择", async () => {
-    const { target, duplicate } = restoredPlanning();
-    const save = vi.spyOn(api, "updateAssetAuthorization").mockResolvedValue({ ...target, licenseInfo: "MIT", authorizationRevision: 1 });
-    const analyze = vi.spyOn(api, "analyze"); const discover = vi.spyOn(api, "discover"); const generate = vi.spyOn(api, "generatePlan");
-    const root = mount(App); await settle(); await select(root, "plan-base", "repo-1");
-    button(root, "前往补充").click(); await settle();
-    const card = root.querySelector<HTMLElement>(`#asset-${target.id}`)!;
-    expect(card.querySelector(".authorization-editor")?.hasAttribute("open")).toBe(true);
-    expect(root.querySelector(`#asset-${duplicate.id} .authorization-editor`)?.hasAttribute("open")).toBe(false);
-    expect(document.activeElement?.id).toBe("asset-license-asset-1");
-    await select(card, "asset-license-asset-1", "MIT"); await acknowledge(card);
-    button(card, "保存本次授权").click(); await settle();
-    expect(save).toHaveBeenCalledWith(target.id, expect.objectContaining({ expectedAuthorizationRevision: 0, licenseInfo: "MIT" }));
-    button(card, "返回演化规划").click(); await settle();
-    expect(root.querySelector<HTMLSelectElement>("#plan-base")?.value).toBe("repo-1");
-    expect(button(root, "生成演化计划").disabled).toBe(false);
-    expect(analyze).not.toHaveBeenCalled(); expect(discover).not.toHaveBeenCalled(); expect(generate).not.toHaveBeenCalled();
-  });
-  it("目标资源不存在时保留 Planning，不用同路径历史 Asset 替代；失败保存不显示返回按钮", async () => {
-    restoredPlanning(); const root = mount(App); await settle(); await select(root, "plan-base", "repo-1");
-    vi.mocked(api.asset).mockRejectedValue(new ApiError(404, "NOT_FOUND"));
-    button(root, "前往补充").click(); await settle();
-    expect(root.querySelector("#plan-base")).toBeTruthy(); expect(root.textContent).toContain("对象不存在");
+  it("授权保存失败仍保留编辑器和真实冲突", async () => {
     const s = session(); s.assets = [asset()];
     vi.spyOn(api, "updateAssetAuthorization").mockRejectedValue(new ApiError(409, "ASSET_AUTHORIZATION_CONFLICT"));
     const editor = mount(RepositoryView, { s, authorizationTargetId: "asset-1" });

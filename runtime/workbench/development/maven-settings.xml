@@ -1,0 +1,4 @@
+<settings><localRepository>/state/cache/maven</localRepository><proxies><proxy>
+  <id>development-egress</id><active>true</active><protocol>http</protocol>
+  <host>egress</host><port>3128</port><nonProxyHosts>localhost|127.0.0.1</nonProxyHosts>
+</proxy></proxies></settings>

@@ -15,9 +15,11 @@ import org.springframework.ai.deepseek.api.DeepSeekApi;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /** 只交换模型消息，不执行工具；直接使用 Spring AI 的消息 API，Application 独占工具派发。 */
 public final class SpringAiAgentModel implements AgentModelPort {
@@ -26,6 +28,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
     private final DeepSeekProperties properties;
     private final int responseTokens;
     private final Thinking thinking;
+    private final ThreadLocal<BooleanSupplier> requestAdmission = new ThreadLocal<>();
     private final ThreadLocal<List<java.util.Map<String, Object>>> diagnostics = ThreadLocal.withInitial(ArrayList::new);
 
     public SpringAiAgentModel(DeepSeekProperties properties, int responseTokens) {
@@ -59,6 +62,9 @@ public final class SpringAiAgentModel implements AgentModelPort {
                         if (Thread.currentThread().isInterrupted()) {
                             throw new AgentException("CANCELLED", "Model request cancelled");
                         }
+                        if (requestAdmission.get() != null && !requestAdmission.get().getAsBoolean()) {
+                            throw new AgentException("REQUEST_NOT_ADMITTED", "模型请求未获准入");
+                        }
                         long started = System.nanoTime();
                         try {
                             var response = execution.execute(request, assembled);
@@ -91,6 +97,26 @@ public final class SpringAiAgentModel implements AgentModelPort {
     }
 
     @Override
+    public Identity identity() {
+        // 仅公开服务端点的来源，反向代理路径、用户信息及查询参数可能含凭据。
+        URI base = URI.create(properties.baseUrl());
+        String origin = base.getScheme() + "://" + base.getHost()
+                + (base.getPort() < 0 ? "" : ":" + base.getPort());
+        return new Identity("DeepSeek", origin, properties.model(), thinking.name());
+    }
+
+    @Override
+    public AgentProtocol.Reply call(List<AgentProtocol.Message> history, List<AgentProtocol.ToolSpec> tools,
+            BooleanSupplier admitRequest) {
+        requestAdmission.set(admitRequest);
+        try {
+            return call(history, tools);
+        } finally {
+            requestAdmission.remove();
+        }
+    }
+
+    @Override
     public AgentProtocol.Reply call(List<AgentProtocol.Message> history, List<AgentProtocol.ToolSpec> tools) {
         diagnostics.get().clear();
         if (properties.apiKey() == null || properties.apiKey().isBlank()) {
@@ -112,7 +138,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
                     throw protocol;
                 }
                 if (cause instanceof AgentException rejected
-                        && java.util.Set.of("REQUEST_BYTES_LIMIT", "CANCELLED").contains(rejected.code())) {
+                        && java.util.Set.of("REQUEST_BYTES_LIMIT", "REQUEST_NOT_ADMITTED", "CANCELLED").contains(rejected.code())) {
                     throw rejected;
                 }
             }
@@ -128,6 +154,11 @@ public final class SpringAiAgentModel implements AgentModelPort {
                 ? new AgentProtocol.Reply(reply.text(), reply.calls(), null, reply.usage(), reply.reasoningContent()) : reply;
     }
 
+    @Override
+    public boolean canReplayWithTools(AgentProtocol.Message message) {
+        return thinking == Thinking.DISABLED || !"assistant".equals(message.role()) || message.reasoningContent() != null;
+    }
+
     private ChatCompletionMessage providerMessage(AgentProtocol.Message message, boolean replay) {
         var role = switch (message.role()) {
             case "assistant" -> ChatCompletionMessage.Role.ASSISTANT;
@@ -137,7 +168,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
             default -> throw new AgentModelFailure(AgentModelFailure.Reason.CONVERSATION_ROLE_UNSUPPORTED);
         };
         String reasoning = role == ChatCompletionMessage.Role.ASSISTANT && replay ? message.reasoningContent() : null;
-        if (role == ChatCompletionMessage.Role.ASSISTANT && replay && reasoning == null) {
+        if (replay && !canReplayWithTools(message)) {
             throw new AgentModelFailure(AgentModelFailure.Reason.REASONING_MISSING);
         }
         var calls = message.calls().stream().map(call -> new ChatCompletionMessage.ToolCall(call.id(), "function",

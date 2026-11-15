@@ -1,0 +1,8 @@
+listen_addresses = ['127.0.0.1:53']
+server_names = ['public-doh']
+netprobe_timeout = 0
+ignore_system_dns = true
+bootstrap_resolvers = []
+log_level = 3
+[static.'public-doh']
+stamp = 'sdns://AgcAAAAAAAAABzEuMS4xLjEAEmNsb3VkZmxhcmUtZG5zLmNvbQovZG5zLXF1ZXJ5'

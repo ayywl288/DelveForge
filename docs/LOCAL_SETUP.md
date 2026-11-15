@@ -1,90 +1,58 @@
-# 本地安装与启动
+# Windows 本地安装与启动
 
-DelveForge 推荐在 **Windows + PowerShell** 下运行，面向本地使用，不建议直接部署到公网。
+## 准备
 
-## 1. 环境要求
+使用 Windows PowerShell 5.1 或 PowerShell 7。安装 Git、JDK 21、Node.js（`^20.19.0 || >=22.12.0`）、pnpm 12.9.1，以及启用 Linux 容器的 Docker Desktop。仓库自带 Maven Wrapper，数据库为 SQLite。环境使用 Docker Desktop 的本机命名管道、隔离桥接网络和回环端口发布。本次验证使用 Docker Engine 29.4.0、API 1.54。
 
-- **JDK 21**、**Git**
-- **Node.js**：`^20.19.0 || >=22.12.0`
-- **pnpm 12.9.1**
-- **DeepSeek API Key**
-- **Docker Desktop（Linux 容器，Engine API 1.48+）**：仅使用 AI 自动修改代码时需要
+在仓库根目录运行以下命令，然后打开 [本机工作台](http://127.0.0.1:5173)。
 
-项目自带 Maven Wrapper，使用 SQLite，无需另外安装 Maven 或数据库服务。
-
-## 2. 一键启动
-
-打开 PowerShell，执行：
-
-```
-git clone https://github.com/ayywl288/DelveForge.git
-cd DelveForge
+```powershell
 .\setup-delveforge.ps1
 ```
 
-按提示输入 DeepSeek API Key。启动脚本会检查依赖、构建后端、安装前端依赖，并打开前后端服务终端。首次启动可能需要下载依赖和 Docker 镜像。
+脚本检查端口、运行环境和依赖，建立共享 Linux 环境，启动后端与前端，并等到实际服务可访问。模型密钥可在脚本的隐藏输入提示中提供，也可通过当前进程的 `DEEPSEEK_API_KEY` 提供。只有后端服务需要该值。前端使用 5173，后端默认使用 8080。
 
-启动成功后访问 **http://127.0.0.1:5173**（后端默认端口为 `8080`）。停止服务时，在对应终端按 `Ctrl+C`。更新代码后，先停止旧服务，再重新运行启动脚本。
+## 数据位置
 
-**暂时不使用代码自动修改功能？** 可以跳过 Docker，使用：
+默认使用 `data\workbench\`。其中 `control.db` 保存项目、对话、消息、Run、调用与已采集输出，`projects\<项目 ID>\` 是用户可直接打开的 Windows 工作副本。控制证书仅挂载到受信组件。旧版本数据库和既有工作副本不参与新工作台的启动或迁移。
 
+可以从第一次使用起固定数据目录和后端端口。对同一数据目录只启动一个控制端。
+
+```powershell
+.\setup-delveforge.ps1 -DataDirectory 'D:\DelveForgeData' -BackendPort 8088
 ```
-.\setup-delveforge.ps1 -DisableAgent
+
+## 停止、恢复和更新环境
+
+在前后端各自终端按 Ctrl+C 可关闭工作台。重新执行同一条启动命令，保留原开发容器、Windows 工作副本和对话。控制端启动后会核对中断的前台调用。已登记的预览依赖网关和实际服务继续运行。
+
+普通启动会先核对现有容器使用的镜像，再询问模型密钥。遇到镜像更新时，交互终端会列出需要更新的组件。输入 `y` 会重建并继续启动，直接回车会保留原环境并退出。在 Docker Desktop 里停止容器后，它仍绑定原镜像。
+
+关闭工作台后，也可以直接选择以下操作。自定义数据目录时须传入原来的 `-DataDirectory`。
+
+```powershell
+.\setup-delveforge.ps1 -EnvironmentAction Restart
+.\setup-delveforge.ps1 -EnvironmentAction Rebuild
 ```
 
-该选项只关闭 Coding Agent。需求对话、仓库分析等 AI 功能仍需要 DeepSeek API Key，启动脚本也仍会要求输入 Key。
+`Restart` 会结束共享环境中的后台进程，保留容器内安装的软件。版本不匹配时，`Restart` 会先退出。`Rebuild` 会替换容器，需要重新安装额外装在系统层的软件。两种操作都保留 Windows 工作副本、对话数据库和项目数据卷。
 
-## 3. 默认存储位置
+<a id="4-自定义配置"></a>
 
-以下路径均相对于 **DelveForge 项目根目录**：
+开发镜像预装 Git、curl、ripgrep（`rg`）和 unzip。可直接搜索工作副本、解压归档。其他项目工具仍可按需安装。
 
-| 内容           | 默认路径              |
-| -------------- | --------------------- |
-| SQLite 数据库  | `data/delveforge.db`  |
-| 代码工作副本   | `data/workspaces/`    |
-| Agent 运行材料 | `data/agent-runs/`    |
-| 应用日志       | `logs/delveforge.log` |
+## 模型和执行设置
 
-**注意**：启动已有数据库时可能自动执行数据库迁移。升级前先停止前后端服务，再备份数据库、代码工作副本和 Agent 留存材料；正在使用的 SQLite 数据库不能只复制主 `.db` 文件充当完整备份。
+启动器参数控制 Windows 数据目录、后端端口和环境的停启方式。`delveforge.workbench.requests-per-run` 指定整项任务的默认请求总上限，默认 96。若只设置旧键 `requests-per-continuation`，其值作为总上限。每个前台命令的超时由 `delveforge.workbench.command-seconds` 配置，默认 300 秒。可在侧栏的「模型与用量」查看已解析的模型配置。
 
-## 4. 自定义配置
+开发环境中的 shell 和 JVM 都使用各项目的持久化 HOME。Maven 从这里读取 `.m2/settings.xml`，通过已有出口代理下载，默认下载仓库为共享卷上的 `/state/cache/maven`。Maven Wrapper 的发行包按项目保存在 `$MAVEN_USER_HOME/wrapper`。普通重启和镜像重建都保留这些文件。
 
-启动时在 `Customize configuration? [y/N]` 处输入 `y`，可修改：
+## 开发验证
 
-- 后端端口（默认 `8080`）
-- DeepSeek 模型（默认 `deepseek-flash`）和 API 地址（默认 `https://api.deepseek.com`）
-- SQLite 数据库文件位置（默认 `data/delveforge.db`）
-- 代码工作副本目录（默认 `data/workspaces/`；自定义时需填写绝对路径）
-- 日志目录（默认 `logs/`）
-- 历史代码工作副本目录（默认空；多个绝对路径用逗号分隔）
+后端执行 `./mvnw.cmd verify`。前端在 `frontend` 目录执行 `pnpm test`、`pnpm typecheck`、`pnpm build`。产品 Docker 集成测试须另外准备独立的测试数据目录，使用初始化脚本建立其环境，再将 `DF_WORKBENCH_TEST_FIXTURE` 指向该目录。测试会在此文件夹中创建临时项目。
 
-留空即使用默认值。修改后端端口时，脚本会自动调整前端代理；前端端口固定为 `5173`。
+[项目、工具和恢复说明](WORKBENCH.md) · [共享环境的架构决定](decisions/0028-project-conversations-and-shared-environment.md)
 
 <a id="agent-build-preflight"></a>
 
-Agent 的单次输入预算可用 `delveforge.agent.context-window-tokens`（默认 1,000,000）、`response-tokens`（默认 65,536，包括思考和可见输出）与 `compaction-threshold`（默认 0.90）调整。默认在估计输入达到 841,018 tokens 时压缩，目标为 700,848 tokens。分词器和 CPU 原生库随应用打包；如环境已配置 DJL 的 `RUST_FLAVOR`，请设为 `cpu` 或移除此变量。当前模板适配 `deepseek-flash` 当前的 V4.1-Flash-1017 文本合同。`delveforge.ai.deepseek.max-request-bytes` 独立限制 HTTP 请求大小，默认 8 MiB。
-
-`delveforge.agent.thinking` 接受 `disabled`、`low`、`high`（默认）、`max`，同时控制 HTTP 请求和输入计数。画像提取与 Discovery 对话规划均关闭思考，其他文本请求保留提供者选项。
-
-## 5. 常见问题
-
-- **启动时提示版本不匹配**：检查 `JAVA_HOME`、`java -version`、`node --version` 和 `pnpm --version`。
-- **Docker 不可用**：先启动 Docker Desktop 并切换到 Linux 容器；只体验需求探索时可使用 `-DisableAgent`。
-- **沙箱工具协议不兼容**：先停止服务并重新运行启动脚本，让它按当前源码检查并准备默认镜像。自定义镜像须从当前 [Agent Dockerfile](../backend/delveforge-infrastructure/src/main/resources/agent/Dockerfile) 构建为新标签，用 `-AgentImage21` / `-AgentImage17` 显式指定后重新启动；脚本仍会核验镜像内容与协议。
-- **页面打不开或 API 连接失败**：检查前后端终端是否正常启动，以及端口 `5173`、`8080`（或自定义端口）是否被占用。
-- **模型无法调用**：确认 API Key、模型名称和 DeepSeek 账户额度。
-
-需要自行验证源码时，可从仓库根目录执行 `.\mvnw.cmd verify`（后端测试）及 `pnpm --dir frontend test`（前端测试）。
-
-> 当前 HTTP 接口主要用于本地开发，没有面向公网的用户认证和多租户隔离。
-
-## 6. 仓库输入、离线执行与失败材料
-
-选中仓库的源码、配置和环境示例会提供给模型及隔离命令，也可能进入日志。请勿包含不愿暴露的有效凭据；尽力脱敏不能保证任意命令的保密性。
-`.git/.hg/.svn/.ssh/.aws/.gnupg/.m2` 控制目录仍不支持，路径、链接、大小和二进制编辑限制不变；不会把宿主凭据或正式副本挂载到 Agent。
-
-当前工具镜像协议为 **v10**，旧镜像必须通过上述启动脚本重建。网络报告为 OFFLINE 时没有下载能力，但可继续离线工作；
-CONTROLLED 仅表示固定工件代理已启动，不保证依赖下载成功。实际错误见命令结果。
-
-捕获失败的命令保留真实退出码和失败原因，不应直接重放。失败 Run 的源卷和 Run 目录可能保留用于人工诊断；它们不是可交付 Candidate。
-不要在写入者停止和持久状态确认前手工删除这些材料。重启协调只停止/核对，不恢复 Agent 对话。
+已发布版本使用的 Agent Build Preflight 及镜像配置保存在对应版本的这份文档中。可在本地执行 `git show 2de40c0:docs/LOCAL_SETUP.md` 查看重构前的说明。
