@@ -18,6 +18,7 @@ final class ModelRequests {
             String run,
             List<AgentProtocol.Message> messages,
             List<AgentProtocol.ToolSpec> tools) {
+        String failureDetail = null;
         try {
             var reply = model.call(messages, tools, () -> store.requestModel(run));
             Long reported = reply.usage() == null ? reply.tokens() : reply.usage().totalTokens();
@@ -26,6 +27,7 @@ final class ModelRequests {
             }
             return Optional.of(reply);
         } catch (AgentModelFailure failure) {
+            failureDetail = describe(failure);
             if (failure.response() != null && failure.response().reportedTokens() != null) {
                 store.usage(run, failure.response().reportedTokens());
             }
@@ -36,7 +38,20 @@ final class ModelRequests {
             }
             throw failure;
         } finally {
-            store.modelAttempts(run, tools.isEmpty(), model.drainDiagnostics());
+            store.modelAttempts(run, tools.isEmpty(), model.drainDiagnostics(), failureDetail);
         }
+    }
+
+    /** 回复、工具参数及推理文本不得进入故障说明。只使用适配器归类后的枚举和数值。 */
+    static String describe(AgentModelFailure failure) {
+        String label = switch (failure.reason()) {
+            case RESPONSE_TRUNCATED -> "模型输出被截断";
+            case PROVIDER_CALL_FAILED -> "模型请求失败";
+            default -> "模型回复未通过协议校验";
+        };
+        var response = failure.response();
+        String facts = response == null ? "" : "，结束原因 " + response.finishReason()
+                + "，单次输出上限 " + response.responseTokenLimit() + " tokens";
+        return label + "（" + failure.reason() + facts + "）";
     }
 }

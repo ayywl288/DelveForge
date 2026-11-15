@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.application.workbench;
 
+import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.domain.workbench.RunState;
@@ -186,6 +187,9 @@ public final class ConversationAgent implements AutoCloseable {
 
     private static String safe(RuntimeException e) {
         // 外部异常不转发 HTTP 请求体、响应或原始命令。
+        if (e instanceof AgentModelFailure failure) {
+            return ModelRequests.describe(failure);
+        }
         if (e instanceof com.ayywl.delveforge.application.agent.AgentException a) {
             return a.code();
         }

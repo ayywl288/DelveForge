@@ -593,14 +593,16 @@ public final class SqliteWorkbench implements Workbench {
     }
 
     @Override
-    public void modelAttempts(String run, boolean compaction, List<Map<String, Object>> attempts) {
+    public void modelAttempts(String run, boolean compaction, List<Map<String, Object>> attempts, String failureDetail) {
         if (!attempts.isEmpty()) {
             tx(() -> {
-                for (var attempt : attempts) {
-                    jdbc.update("INSERT INTO model_attempt(run_id,purpose,attempt,category,http_status,duration_ms)"
-                                    + " VALUES(?,?,?,?,?,?)",
+                for (int i = 0; i < attempts.size(); i++) {
+                    var attempt = attempts.get(i);
+                    jdbc.update("INSERT INTO model_attempt(run_id,purpose,attempt,category,http_status,duration_ms,failure_detail)"
+                                    + " VALUES(?,?,?,?,?,?,?)",
                             run, compaction ? "SUMMARY" : "TURN", attempt.get("attempt"), attempt.get("category"),
-                            attempt.get("httpStatus"), attempt.get("durationMs"));
+                            attempt.get("httpStatus"), attempt.get("durationMs"),
+                            i == attempts.size() - 1 ? failureDetail : null);
                 }
                 return null;
             });

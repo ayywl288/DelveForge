@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.infrastructure.workbench;
 
 import com.ayywl.delveforge.application.agent.AgentContextBudget;
+import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentTokenCounter;
@@ -22,6 +23,7 @@ import org.sqlite.SQLiteDataSource;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -260,6 +262,39 @@ class WorkbenchIntegrationTest {
         store.stop(next.runId());
         agent.recover(next.runId());
         await(() -> store.run(next.runId()).state() == RunState.STOPPED);
+    }
+
+    @Test
+    void protocolFailurePreservesItsClassifiedCauseAndReportedUsageAfterContinuation() throws Exception {
+        var turns = new AtomicInteger();
+        var model = new AgentModelPort() {
+            public AgentProtocol.Reply call(List<AgentProtocol.Message> history, List<AgentProtocol.ToolSpec> tools) {
+                if (turns.getAndIncrement() == 0) {
+                    throw new AgentModelFailure(AgentModelFailure.Reason.RESPONSE_TRUNCATED,
+                            new AgentModelFailure.Response(true, true, true, AgentModelFailure.FinishReason.LENGTH,
+                                    0, 4096, 4500L));
+                }
+                return finalText("完成");
+            }
+            public List<Map<String, Object>> drainDiagnostics() {
+                return List.of(Map.of("attempt", 1, "category", "SUCCESS", "httpStatus", 200, "durationMs", 5L));
+            }
+        };
+        agent(model, new Guest(), 3);
+        String id = agent.receive(conversation, "request", "测试输出预算").runId();
+        await(() -> store.run(id).state() == RunState.PAUSED);
+        var paused = store.runs(conversation).getFirst();
+        String detail = paused.get("detail").toString();
+        assertTrue(detail.contains("RESPONSE_TRUNCATED") && detail.contains("LENGTH") && detail.contains("4096"));
+        assertEquals(4500, paused.get("tokens"));
+        assertEquals(id, agent.start(conversation));
+        await(() -> store.run(id).state() == RunState.COMPLETED);
+        var source = new SQLiteDataSource();
+        source.setUrl("jdbc:sqlite:" + temp.resolve("control.db"));
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(source);
+        assertEquals(detail, jdbc.queryForObject(
+                "SELECT failure_detail FROM model_attempt WHERE run_id=? AND failure_detail IS NOT NULL", String.class, id));
+        assertEquals(4501, store.runs(conversation).getFirst().get("tokens"));
     }
 
     @Test

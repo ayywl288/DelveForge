@@ -89,7 +89,7 @@ public interface Workbench {
 
     void usage(String run, long tokens);
 
-    void modelAttempts(String run, boolean compaction, List<Map<String, Object>> attempts);
+    void modelAttempts(String run, boolean compaction, List<Map<String, Object>> attempts, String failureDetail);
 
     boolean summarize(String conversation, long expectedVersion, long through, String summary);
 
