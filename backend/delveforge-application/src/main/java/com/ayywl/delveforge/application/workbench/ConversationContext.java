@@ -196,9 +196,8 @@ public final class ConversationContext {
             return current;
         }
 
-        // 旧摘要可能已覆盖最新纠正。按本次快照已消费的输入序号读取原文，不吸收并发新输入。
-        String latest = String.join("\n", store.latestInputs(run.conversationId(), run.observed()));
-        String minimum = "有损上下文。此前执行细节请用 df-workbench history 查询，避免重跑。\n最近用户输入与修正\n" + latest;
+        // assemble 已按用户角色加入冻结前缀的原文。回退提示只说明丢失的执行细节。
+        String minimum = "有损上下文。此前执行细节请用 df-workbench history 查询，避免重跑。";
         var candidates =
                 ctx.summary().isEmpty()
                         ? List.of(minimum)
@@ -226,7 +225,7 @@ public final class ConversationContext {
         if (counter.countPromptTokens(withoutOldSummary, TOOLS) <= budget.usableInputTokens()) {
             return withoutOldSummary;
         }
-        store.state(run.id(), RunState.PAUSED, "完整指令、最近输入与成对工具记录超过上下文容量。请补充较短的任务说明。");
+        store.state(run.id(), RunState.PAUSED, "完整指令、用户原文与成对工具记录超过上下文容量。可在新对话中缩短任务说明，或调大上下文后继续。");
         return List.of();
     }
 }

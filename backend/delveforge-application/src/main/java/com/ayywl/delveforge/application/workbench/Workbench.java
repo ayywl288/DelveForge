@@ -93,7 +93,6 @@ public interface Workbench {
 
     boolean summarize(String conversation, long expectedVersion, long through, String summary);
 
-    List<String> latestInputs(String conversation, long observed);
 
     List<String> coveredUserMessages(String conversation, String run, long through);
 

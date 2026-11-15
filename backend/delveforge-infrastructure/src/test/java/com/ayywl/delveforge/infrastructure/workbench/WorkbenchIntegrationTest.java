@@ -18,10 +18,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -444,7 +447,9 @@ class WorkbenchIntegrationTest {
         assertTrue(ctx.build(frozen).isEmpty());
         assertEquals(2, attempts.get());
         var next = store.next(ack.runId());
-        assertTrue(next.context().summary().contains("保留刚才的修正"));
+        assertFalse(next.context().summary().contains("保留刚才的修正"));
+        assertEquals(List.of("原用户任务", "保留刚才的修正"), ctx.build(next).stream()
+                .filter(message -> message.role().equals("user")).map(AgentProtocol.Message::text).toList());
         assertTrue(next.context().through() > 0);
         assertEquals(size, store.timeline(conversation).size());
         assertEquals(
@@ -453,6 +458,120 @@ class WorkbenchIntegrationTest {
                         .filter(row -> "tool".equals(row.get("role")))
                         .count());
         assertFalse(ctx.build(next).isEmpty());
+    }
+
+    @Test
+    void repeatedSummariesAcrossRunsKeepCurrentCorrectionsAndRecentPreviousInputs() {
+        String prior = store.receive(conversation, "old-0", "此前要求 0", 40).runId();
+        for (int i = 1; i <= 4; i++) {
+            store.receive(conversation, "old-" + i, "此前要求 " + i, 40);
+        }
+        store.next(prior);
+        store.assistant(prior, finalText("上次完成"));
+        String current = store.receive(conversation, "current", "新任务", 40).runId();
+        var expected = new ArrayList<>(List.of("此前要求 2", "此前要求 3", "此前要求 4", "新任务"));
+        var summaries = new AtomicInteger();
+        AgentModelPort model = (messages, tools) -> {
+            assertTrue(tools.isEmpty());
+            summaries.incrementAndGet();
+            return finalText("执行摘要");
+        };
+        AgentTokenCounter counter = (messages, tools) -> messages.stream()
+                .mapToLong(message -> 10L + (message.text() == null ? 0 : message.text().length())).sum();
+        var budget = new AgentContextBudget(7200, 200, .40);
+        var context = new ConversationContext(store, model, counter, budget);
+        for (int round = 0; round < 3; round++) {
+            for (int step = 0; step < 8; step++) {
+                String key = round + "-" + step;
+                store.receive(conversation, key, "本轮要求 " + key, 40);
+                expected.add("本轮要求 " + key);
+                store.next(current);
+                store.assistant(current, new AgentProtocol.Reply("", List.of(tool(key)), 1L, null, ""));
+                store.result(store.pending(current).getFirst(), "结果".repeat(230), 0, false);
+            }
+            var before = store.next(current);
+            assertTrue(context.build(before).isEmpty());
+            assertTrue(store.next(current).context().through() > before.context().through());
+        }
+        var messages = context.build(store.next(current));
+        assertEquals(3, summaries.get());
+        assertEquals(expected, messages.stream().filter(m -> m.role().equals("user")).map(AgentProtocol.Message::text).toList());
+        assertTrue(counter.countPromptTokens(messages, ConversationContext.TOOLS) < budget.triggerTokens());
+        assertEquals(24, store.timeline(conversation).stream().filter(row -> "tool".equals(row.get("role"))).count());
+        assertEquals(30, store.timeline(conversation).stream().filter(row -> "user".equals(row.get("role"))).count());
+    }
+
+    @Test
+    void fallbackFitsLongRequirementsOnceAcrossManyCorrections() {
+        String run = store.receive(conversation, "initial", "保留原始内容".repeat(70), 40).runId();
+        for (int i = 0; i < 5; i++) {
+            store.receive(conversation, "request-" + i, "补充条件 " + i + "较长原文".repeat(70), 40);
+            store.next(run);
+            store.assistant(run, new AgentProtocol.Reply("", List.of(tool("call-" + i)), 1L, null, ""));
+            store.result(store.pending(run).getFirst(), "命令输出".repeat(260), 0, false);
+        }
+        var snapshot = store.next(run);
+        var original = store.timeline(conversation);
+        AgentTokenCounter counter = (messages, tools) -> messages.stream()
+                .mapToLong(message -> 10L + (message.text() == null ? 0 : message.text().length()))
+                .sum();
+        AgentModelPort unavailable = (messages, tools) -> { throw new IllegalStateException("摘要不可用"); };
+        var budget = new AgentContextBudget(4100, 120, .95);
+        var context = new ConversationContext(store, unavailable, counter, budget);
+        assertTrue(context.build(snapshot).isEmpty());
+        assertEquals(RunState.RUNNING, store.run(run).state());
+        var view = context.build(store.next(run));
+        assertFalse(view.isEmpty());
+        assertTrue(counter.countPromptTokens(view, ConversationContext.TOOLS) <= budget.usableInputTokens());
+        var expected = original.stream().filter(r -> "user".equals(r.get("role"))).map(r -> r.get("text")).toList();
+        assertEquals(expected, view.stream().filter(m -> m.role().equals("user")).map(AgentProtocol.Message::text).toList());
+        assertFalse(view.getFirst().text().contains("补充条件"));
+        assertEquals(original, store.timeline(conversation));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PROPOSED", "PREPARED", "ADMITTED", "CAPTURED", "RESULT"})
+    void recoveryAtEachPersistedBoundaryKeepsOneReceiptAndAnotherProjectsQueue(String point) throws Exception {
+        String run = store.receive(conversation, "start", "检查项目 A", 6).runId();
+        var snapshot = store.next(run);
+        store.assistant(run, new AgentProtocol.Reply("", List.of(tool("original")), 1L, null, ""));
+        var call = store.pending(run).getFirst();
+        var guest = new Guest();
+        guest.exit = null;
+        if (!point.equals("PROPOSED")) {
+            assertTrue(store.prepare(call, guest.prepare(snapshot.run(), call, "scope"), "hash"));
+        }
+        if (List.of("ADMITTED", "CAPTURED", "RESULT").contains(point)) {
+            assertTrue(store.admit(call));
+        }
+        if (point.equals("CAPTURED") || point.equals("RESULT")) {
+            store.capture(call.id(), "stdout", "一次效果".getBytes(StandardCharsets.UTF_8));
+        }
+        if (point.equals("RESULT")) {
+            store.result(call, "{\"exit\":0}", 0, false);
+        }
+        String second = store.beginProject("第二个项目", null);
+        store.projectResult(second, files.prepare(second, null), null);
+        String other = store.conversation(second, "B");
+        assertNull(store.receive(other, "waiting", "只属于 B 的任务", 6).runId());
+        assertThrows(WorkbenchRejection.class, () -> store.start(other, 6));
+        agent((messages, tools) -> { throw new AssertionError("恢复不应重新调用模型"); }, guest, 6);
+        agent.startup();
+        await(() -> store.run(run).state() == RunState.PAUSED);
+        var receipts = store.timeline(conversation).stream().filter(r -> "tool".equals(r.get("role"))).toList();
+        assertEquals(1, receipts.size());
+        var receipt = json.readTree(receipts.getFirst().get("text").toString());
+        if (point.equals("PROPOSED") || point.equals("PREPARED")) {
+            assertTrue(receipt.path("notStarted").asBoolean());
+        } else if (point.equals("RESULT")) {
+            assertEquals(0, receipt.get("exit").intValue());
+        } else {
+            assertTrue(receipt.get("exit").isNull());
+            assertTrue(receipt.get("outputGap").asBoolean());
+            assertEquals(point.equals("CAPTURED") ? "一次效果" : "", receipt.get("stdout").textValue());
+        }
+        assertEquals(0, guest.executions.get());
+        assertEquals("只属于 B 的任务", store.next(store.start(other, 6)).context().records().getFirst().message().text());
     }
 
     @Test

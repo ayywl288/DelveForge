@@ -625,15 +625,7 @@ public final class SqliteWorkbench implements Workbench {
                                 == 1);
     }
 
-    @Override
-    public List<String> latestInputs(String conversation, long observed) {
-        return jdbc.queryForList(
-                "SELECT text FROM (SELECT seq,text FROM input WHERE conversation_id=? AND seq<=? "
-                        + "ORDER BY seq DESC LIMIT 3) ORDER BY seq",
-                String.class,
-                conversation,
-                observed);
-    }
+
 
     @Override
     public List<String> coveredUserMessages(String conversation, String run, long through) {
@@ -642,9 +634,9 @@ public final class SqliteWorkbench implements Workbench {
                     SELECT seq,run_id,text FROM record WHERE conversation_id=? AND role='user' AND seq<=?
                 )
                 SELECT text FROM covered
-                WHERE run_id=? OR seq IN (SELECT seq FROM covered ORDER BY seq DESC LIMIT 3)
+                WHERE run_id=? OR seq IN (SELECT seq FROM covered WHERE run_id<>? ORDER BY seq DESC LIMIT 3)
                 ORDER BY seq
-                """, String.class, conversation, through, run);
+                """, String.class, conversation, through, run, run);
     }
 
     @Override

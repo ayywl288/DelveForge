@@ -33,7 +33,7 @@ def read(path, args):
         while line < start:
             part = stream.readline(65536)
             if not part:
-                return {"version": key, "text": "", "next": None, "eof": True}
+                break
             if part.endswith(b"\n"):
                 line += 1
         while True:

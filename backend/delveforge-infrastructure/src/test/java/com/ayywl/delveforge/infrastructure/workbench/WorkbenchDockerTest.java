@@ -182,6 +182,34 @@ class WorkbenchDockerTest {
     }
 
     @Test
+    void windowsEditorSaveBetweenReadAndMutationPreservesUserChanges() throws Exception {
+        String project = id();
+        Path copy = Path.of(new ProjectWorkcopies(root().resolve("projects")).prepare(project, null));
+        Path file = copy.resolve("notes.txt");
+        Files.writeString(file, "title=old\r\nvalue=one\r\n");
+        var run = new Workbench.Run(id(), id(), project, RunState.RUNNING, 1, false);
+        try (var env = new DockerDevelopmentEnvironment(root(), JSON, 20)) {
+            var read = execute(env, run, "Read", Map.of("path", "notes.txt"));
+            String observed = JSON.readTree(read.out()).get("version").textValue();
+            Files.writeString(file, "title=edited in Windows\r\nvalue=one\r\n");
+            var stale = execute(env, run, "Write", Map.of(
+                    "path", "notes.txt", "content", "old snapshot", "expectedVersion", observed));
+            assertEquals(2, stale.exit());
+            assertTrue(stale.out().contains("VERSION_CONFLICT"), stale.out());
+            var conflict = execute(env, run, "Edit", Map.of("path", "notes.txt", "old", "title=old", "new", "x"));
+            assertEquals(2, conflict.exit());
+            assertTrue(conflict.out().contains("EDIT_CONFLICT"), conflict.out());
+            var disjoint = execute(env, run, "Edit", Map.of("path", "notes.txt", "old", "value=one", "new", "value=two"));
+            assertEquals(0, disjoint.exit());
+            assertEquals("title=edited in Windows\r\nvalue=two\r\n", Files.readString(file));
+            var tools = execute(env, run, "Bash", Map.of("command",
+                    "set -eu; rg -F 'value=two' notes.txt; unzip -v | head -1; command -v git curl"));
+            assertEquals(0, tools.exit(), tools.out() + tools.err());
+            assertTrue(tools.out().contains("UnZip"));
+        }
+    }
+
+    @Test
     void mavenAndColdWrapperReadPersistentProjectHomeThroughTheProxy() throws Exception {
         String project = id();
         Path copy = Path.of(new ProjectWorkcopies(root().resolve("projects")).prepare(project, null));

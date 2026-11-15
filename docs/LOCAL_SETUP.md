@@ -39,6 +39,8 @@
 
 <a id="4-自定义配置"></a>
 
+开发镜像预装 Git、curl、ripgrep（`rg`）和 unzip。可直接搜索工作副本、解压归档。其他项目工具仍可按需安装。
+
 ## 模型和执行设置
 
 启动器参数控制 Windows 数据目录、后端端口和环境的停启方式。`delveforge.workbench.requests-per-run` 指定整项任务的默认请求总上限，默认 96。若只设置旧键 `requests-per-continuation`，其值作为总上限。每个前台命令的超时由 `delveforge.workbench.command-seconds` 配置，默认 300 秒。可在工作台页首查看已解析的模型配置。
