@@ -18,6 +18,7 @@ import org.springframework.web.client.RestClient;
 import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 /** 只交换模型消息，不执行工具；直接使用 Spring AI 的消息 API，Application 独占工具派发。 */
 public final class SpringAiAgentModel implements AgentModelPort {
@@ -26,6 +27,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
     private final DeepSeekProperties properties;
     private final int responseTokens;
     private final Thinking thinking;
+    private final ThreadLocal<BooleanSupplier> retryAdmission = new ThreadLocal<>();
     private final ThreadLocal<List<java.util.Map<String, Object>>> diagnostics = ThreadLocal.withInitial(ArrayList::new);
 
     public SpringAiAgentModel(DeepSeekProperties properties, int responseTokens) {
@@ -59,6 +61,9 @@ public final class SpringAiAgentModel implements AgentModelPort {
                         if (Thread.currentThread().isInterrupted()) {
                             throw new AgentException("CANCELLED", "Model request cancelled");
                         }
+                        if (attempt > 1 && retryAdmission.get() != null && !retryAdmission.get().getAsBoolean()) {
+                            throw new AgentException("REQUEST_NOT_ADMITTED", "模型重试未获准入");
+                        }
                         long started = System.nanoTime();
                         try {
                             var response = execution.execute(request, assembled);
@@ -91,6 +96,17 @@ public final class SpringAiAgentModel implements AgentModelPort {
     }
 
     @Override
+    public AgentProtocol.Reply call(List<AgentProtocol.Message> history, List<AgentProtocol.ToolSpec> tools,
+            BooleanSupplier admitRetry) {
+        retryAdmission.set(admitRetry);
+        try {
+            return call(history, tools);
+        } finally {
+            retryAdmission.remove();
+        }
+    }
+
+    @Override
     public AgentProtocol.Reply call(List<AgentProtocol.Message> history, List<AgentProtocol.ToolSpec> tools) {
         diagnostics.get().clear();
         if (properties.apiKey() == null || properties.apiKey().isBlank()) {
@@ -112,7 +128,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
                     throw protocol;
                 }
                 if (cause instanceof AgentException rejected
-                        && java.util.Set.of("REQUEST_BYTES_LIMIT", "CANCELLED").contains(rejected.code())) {
+                        && java.util.Set.of("REQUEST_BYTES_LIMIT", "REQUEST_NOT_ADMITTED", "CANCELLED").contains(rejected.code())) {
                     throw rejected;
                 }
             }

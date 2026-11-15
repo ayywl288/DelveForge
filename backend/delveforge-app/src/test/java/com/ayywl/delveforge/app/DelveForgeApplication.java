@@ -9,7 +9,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * <p>显式扫描 {@code com.ayywl.delveforge}：Application 与 Infrastructure 位于启动类
  * 所在包之外，默认扫描范围不会覆盖它们。
  */
-@SpringBootApplication(scanBasePackages = "com.ayywl.delveforge")
+@SpringBootApplication(scanBasePackages = {"com.ayywl.delveforge.app", "com.ayywl.delveforge.infrastructure",
+        "com.ayywl.delveforge.application"})
 public class DelveForgeApplication {
 
     public static void main(String[] args) {

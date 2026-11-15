@@ -274,6 +274,16 @@ class SpringAiAgentModelTest {
     }
 
     @Test
+    void budgetAdmissionPreventsASecondHttpRequest() {
+        status = 503;
+        retryAfter = "0";
+        var failure = assertThrows(com.ayywl.delveforge.application.agent.AgentException.class,
+                () -> model.call(history(), AgentTools.definitions(), () -> false));
+        assertEquals("REQUEST_NOT_ADMITTED", failure.code());
+        assertEquals(1, requests.size());
+    }
+
+    @Test
     void transientRequestRetryPreservesExactHistoryAndUnknownUsage() throws Exception {
         transientFailures = 1;
         retryAfter = "999999999999999999";

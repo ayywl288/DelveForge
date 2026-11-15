@@ -1,63 +1,24 @@
 # DelveForge
 
-**Personalized Project Discovery & Evolution Agent**
+DelveForge 是在 Windows 上使用的本地项目开发工作台。导入已有项目或创建空项目后，可以请 Agent 解释代码、讨论方向、修改文件、执行测试，或为正在运行的服务打开本机预览。一个项目有一份长期工作副本，多段对话各自保存历史，共享这份副本的实际文件。
 
-> 🔨 **Evolution Before Rewrite.**
->
-> 从真实需求出发，发现值得做的项目，让已有代码成为新想法的起点。
+## 在本机启动
 
-![Java 21](https://img.shields.io/badge/Java-21-007396)
-![Spring Boot 3.5](https://img.shields.io/badge/Spring_Boot-3.5-6DB33F)
-![Vue 3](https://img.shields.io/badge/Vue-3-4FC08D)
+准备 Docker Desktop（Linux 容器）、JDK 21、Git、项目支持的 Node.js 和 pnpm 12.9.1。在仓库根目录打开 PowerShell。
 
-## 🎯 About DelveForge
-
-做完课程项目或教程项目后，不知道下一步做什么？
-
-**DelveForge 是一个本地 Coding Agent 平台，帮助开发者结合需求和已有代码，找到适合继续开发的项目方向。** 它通过 AI 对话了解需求，分析指定的本地 Git 仓库并推荐改造方向。你逐步授权后，Agent 在隔离工作区浏览和编辑代码、执行仓库原生开发与测试命令，完成后供你查看变更和验证事实。
-
-
-## 🚀 Quick Start
-
-推荐使用 **Windows + PowerShell**。需要 JDK 21、Git、Node.js（`^20.19.0 || >=22.12.0`）、pnpm 12.9.1 和 DeepSeek API Key；使用自动代码修改功能还需要 Docker 环境（Linux 容器）。
-
-在 PowerShell 中获取仓库，并从仓库根目录启动：
-
-```
-git clone https://github.com/ayywl288/DelveForge.git
-cd DelveForge
+```powershell
 .\setup-delveforge.ps1
 ```
 
-根据提示配置 **DeepSeek API Key** 和所需选项即可。
+脚本使用当前进程的 `DEEPSEEK_API_KEY`，也可在提示时输入。首次启动会构建本地镜像、后端和前端依赖。浏览器打开 [本机工作台](http://127.0.0.1:5173)。[安装与配置](docs/LOCAL_SETUP.md)
 
-启动后访问 `http://127.0.0.1:5173`，后端默认端口为 `8080`。项目自带 Maven Wrapper，使用 SQLite，无需另装 Maven 或数据库服务。
+1. 选择「新建或导入项目」，填写名称。填写本地源目录的绝对路径即可导入，留空创建空项目。
+2. 在项目对话中发送任务。可以继续发送纠正，或在需要时停止 Run。共享 Linux 环境同一时间执行一个前台 Run，其他对话仍可保存消息。
+3. 选择「打开文件夹」用 Windows 编辑器查看、编辑同一份文件。默认路径为 `data\workbench\projects\<项目 ID>`。原始目录保留在导入位置。
+4. 要预览网页，可请 Agent 启动项目的实际服务并登记预览，随后点击对话中的「打开本机预览」。服务退出或被替换后需要重新登记。[工作台使用说明](docs/WORKBENCH.md)
 
-默认数据统一存放在项目根目录的 `data/` 文件夹下。
+## 项目文档
 
-启动时选择 `Customize configuration? [y/N]` 中的 `y`，可以修改端口、模型、API 地址及上述存储路径等配置。留空使用默认值；详细配置参见 [Local Setup](docs/LOCAL_SETUP.md)。
+[产品](docs/PRODUCT.md) · [架构](docs/ARCHITECTURE.md) · [领域模型](docs/DOMAIN_MODEL.md) · [路线图](docs/ROADMAP.md) · [架构决定与 Phase 0 记录](docs/decisions/0028-project-conversations-and-shared-environment.md)
 
-### 💡 How to Use
-
-1. 与 AI 对话，描述你的兴趣、技术基础和目标，确认整理出的需求。
-2. 选择一个**已克隆到本地的 Git 仓库**，输入绝对路径，让 DelveForge 分析代码并推荐开发方向。
-3. 选择方向、查看计划，逐步授权 AI 修改代码和运行测试，检查交付结果；全部步骤交付后可查看独立生成的 Quick Start。
-
-**建议首次使用体量较小、工具链与执行环境匹配的仓库，并提供其本地绝对路径。** Agent 通过通用仓库探索、文件编辑和 Shell 执行工作，不以 Java/Maven 专用适配器作为入口。
-
-## ⚠️ Current Limitations
-
-- **工具链取决于执行环境**：默认受控镜像提供 JDK 17/21、Maven、Node.js/npm/pnpm 和 Python 3 基础环境。其他语言或构建系统需要兼容镜像中已有所需工具；不承诺任意工具链均可运行，也不允许 Agent 随意安装系统工具。
-- **依赖与网络受限**：依赖下载只能使用允许的公共工件来源，私有依赖和外部服务可能不可用。命令成功或测试通过不等于业务验收通过。
-- **不保证每次演化成功**：失败后可按状态重新执行或重试，但不支持从中断处继续；结果不确定时需先核对状态。
-- **不支持自动搜索或克隆 GitHub 仓库**：需要自行克隆到本地，并提供仓库绝对路径。
-
-## 📚 Documentation
-
-[本地安装与配置](docs/LOCAL_SETUP.md) · [系统架构](docs/ARCHITECTURE.md) · [产品设计](docs/PRODUCT.md) · [领域模型](docs/DOMAIN_MODEL.md)
-
-开发日志、截图和一次性验收报告写入已忽略的 `target/`。历史验收材料可通过 `git log -- docs/validation` 查看。
-
----
-
-**🔨 DelveForge — Evolution Before Rewrite.**
+当前开发分支使用独立的数据目录。既有发布的文档、数据库合同与历史操作可从对应 Git 版本查阅。一次性验收记录、截图和诊断输出保存在已忽略的本地 `target/` 目录。

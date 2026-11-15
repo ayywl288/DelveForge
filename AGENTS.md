@@ -1,5 +1,11 @@
 # AGENTS.md
 
+The active Project → Conversation → Run path follows ADR-0028. The user authorizes work
+in a Project workcopy by sending a Run request. Only its controlled Workspace ports may
+mutate that copy. The original repository remains read-only. Plan/Step authorization,
+Candidate, and Delivery rules below govern the historical workflows that own those objects.
+Keep the module, permission, isolation, testing, and traceability rules for the active path.
+
 > This file defines the working rules for Coding Agents operating in the DelveForge repository.
 >
 > It is not a product introduction or architecture specification.

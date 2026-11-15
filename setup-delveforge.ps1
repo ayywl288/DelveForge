@@ -1,8 +1,10 @@
 ﻿#requires -Version 5.1
 
-param([switch] $DisableAgent, [string] $AgentImage21, [string] $AgentImage17)
-
-. (Join-Path $PSScriptRoot 'setup-agent-images.ps1')
+param(
+    [string] $DataDirectory = (Join-Path $PSScriptRoot 'data/workbench'),
+    [ValidateRange(1,65535)][int] $BackendPort = 8080,
+    [ValidateSet('Ensure','Restart','Rebuild')][string] $EnvironmentAction = 'Ensure'
+)
 
 function Stop-DfSetup {
     param([string] $Message)
@@ -113,62 +115,6 @@ function Read-DfKey {
     return $secret
 }
 
-function Read-DfConfiguration {
-    $configuration = @{}
-    $choice = (Read-Host 'Customize configuration? [y/N]').Trim()
-    if ($choice -notmatch '^(?i:y|yes)$') {
-        if ($choice -and $choice -notmatch '^(?i:n|no)$') {
-            Stop-DfSetup 'Enter y or N for configuration selection.'
-        }
-        return $configuration
-    }
-    Write-Host 'Leave each value blank to use application defaults. Paths may contain spaces; do not add quotes.'
-    $fields = [ordered]@{
-        SERVER_PORT = 'Backend port (default: 8080)'
-        DELVEFORGE_AI_DEEPSEEK_MODEL = 'DeepSeek model'
-        DELVEFORGE_AI_DEEPSEEK_BASEURL = 'DeepSeek base URL'
-        DELVEFORGE_PERSISTENCE_DATABASE_FILE = 'SQLite database file'
-        DELVEFORGE_WORKSPACE_ROOT = 'WorkingCopy root (absolute path; default: project-root/data/workspaces)'
-        DELVEFORGE_LOG_DIR = 'Log directory'
-        DELVEFORGE_WORKSPACE_EXISTING_ROOTS = 'Historical WorkingCopy roots (comma-separated absolute paths)'
-    }
-    foreach ($name in $fields.Keys) {
-        $value = (Read-Host $fields[$name]).Trim()
-        if ($value) {
-            $configuration[$name] = $value
-        }
-    }
-    if ($configuration.ContainsKey('SERVER_PORT')) {
-        $port = 0
-        if (-not [int]::TryParse($configuration.SERVER_PORT, [ref] $port) -or $port -lt 1 -or $port -gt 65535) {
-            Stop-DfSetup 'Backend port must be a number from 1 to 65535.'
-        }
-        $configuration.SERVER_PORT = $port.ToString()
-    }
-    if ($configuration.ContainsKey('DELVEFORGE_AI_DEEPSEEK_BASEURL')) {
-        $address = $null
-        if (-not [uri]::TryCreate($configuration.DELVEFORGE_AI_DEEPSEEK_BASEURL, [UriKind]::Absolute,
-                [ref] $address) -or $address.Scheme -notin @('http', 'https') -or $address.UserInfo -or
-                $address.Query -or $address.Fragment) {
-            Stop-DfSetup 'DeepSeek base URL must be an HTTP(S) URL without credentials, query or fragment.'
-        }
-    }
-    foreach ($name in @('DELVEFORGE_WORKSPACE_ROOT', 'DELVEFORGE_WORKSPACE_EXISTING_ROOTS')) {
-        if ($configuration.ContainsKey($name)) {
-            $paths = @($configuration[$name])
-            if ($name -eq 'DELVEFORGE_WORKSPACE_EXISTING_ROOTS') {
-                $paths = $configuration[$name].Split(',')
-            }
-            foreach ($path in $paths) {
-                if ($path.Trim() -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/][^\\/]+)') {
-                    Stop-DfSetup 'WorkingCopy roots must be absolute paths; separate historical roots with commas.'
-                }
-            }
-        }
-    }
-    return $configuration
-}
-
 function Assert-DfPortsFree {
     param([int] $BackendPort, [int] $FrontendPort = 5173)
 
@@ -180,28 +126,6 @@ function Assert-DfPortsFree {
         if (@($listeners | Where-Object { $_.Port -eq $port }).Count -gt 0) {
             Stop-DfSetup "Port $port is occupied. Free this port before retrying; backend ports can also be customized. No process was stopped."
         }
-    }
-}
-
-function Assert-DfDatabaseAvailable {
-    param([string] $Root, [hashtable] $Configuration)
-
-    $path = './data/delveforge.db'
-    if ($Configuration.ContainsKey('DELVEFORGE_PERSISTENCE_DATABASE_FILE')) {
-        $path = $Configuration.DELVEFORGE_PERSISTENCE_DATABASE_FILE
-    }
-    if (-not [IO.Path]::IsPathRooted($path)) {
-        $path = Join-Path $Root $path
-    }
-    if (Test-Path -LiteralPath $path) {
-        try {
-            # 只检查已有文件是否被占用，不创建、复制、删除或写入数据库。
-            $probe = [IO.File]::Open($path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
-            $probe.Dispose()
-        } catch {
-            Stop-DfSetup 'The selected database is unavailable or in use. Close its existing application first.'
-        }
-        Write-Host 'Existing database retained. Normal application schema migrations may run at startup.'
     }
 }
 
@@ -309,7 +233,7 @@ function Wait-DfConnectivity {
         }
         if ($owners.Count -gt 0) {
             try {
-                $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/system/connectivity" `
+                $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/workbench/health" `
                     -TimeoutSec 3 -ErrorAction Stop
                 if ($response.service -eq 'delveforge' -and $response.status -eq 'UP') {
                     return
@@ -324,106 +248,46 @@ function Wait-DfConnectivity {
 }
 
 function Invoke-DfSetup {
-    param([string] $Root, [switch] $DisableAgent, [string] $AgentImage21, [string] $AgentImage17)
-
+    param([string] $Root, [string] $DataDirectory, [int] $BackendPort, [string] $EnvironmentAction)
     $ErrorActionPreference = 'Stop'
-    $saved = @{}
+    $dataPath = [IO.Path]::GetFullPath($DataDirectory)
+    $previousKey = [Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY','Process')
+    $previousJava = [Environment]::GetEnvironmentVariable('JAVA_HOME','Process')
     $secret = $null
-    # 不让继承的覆盖项把“应用默认值”变成另一个数据环境；仅临时改变本进程。
-    $names = @([Environment]::GetEnvironmentVariables('Process').Keys | Where-Object {
-        $_ -match '^(DELVEFORGE_|DEEPSEEK_|SPRING_|SERVER_|LOGGING_)' -or
-        $_ -in @('BACKEND_DEV_URL', 'JAVA_TOOL_OPTIONS', '_JAVA_OPTIONS', 'JDK_JAVA_OPTIONS', 'MAVEN_OPTS', 'MAVEN_ARGS')
-    })
-    $names += 'JAVA_HOME'
+    Push-Location -LiteralPath $Root
     try {
-        foreach ($name in ($names | Select-Object -Unique)) {
-            $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-            if ($name -ne 'JAVA_HOME') {
-                Set-DfEnvironment $name $null
-            }
-        }
-        Push-Location -LiteralPath $Root
-        try {
-            $dependencies = Get-DfDependencies $Root
-            Set-DfEnvironment 'JAVA_HOME' $dependencies.JavaHome
-            Write-Host 'Using application defaults: high token budgets may incur substantial API costs. Startup makes no AI requests.'
-            Write-Host 'Inherited application overrides are ignored for this run; this terminal will be restored afterward.'
-            $secret = Read-DfKey
-            $configuration = Read-DfConfiguration
-            if (-not $configuration.ContainsKey('DELVEFORGE_WORKSPACE_ROOT')) {
-                $configuration.DELVEFORGE_WORKSPACE_ROOT = [IO.Path]::GetFullPath((Join-Path $Root 'data/workspaces'))
-            }
-            $backendPort = 8080
-            if ($configuration.ContainsKey('SERVER_PORT')) {
-                $backendPort = [int] $configuration.SERVER_PORT
-            }
-            Assert-DfPortsFree $backendPort
-            Assert-DfDatabaseAvailable $Root $configuration
-            Initialize-DfAgentImages $Root $configuration -DisableAgent:$DisableAgent -Image21 $AgentImage21 -Image17 $AgentImage17
-            Invoke-DfBuild $Root $dependencies.Pnpm
-            $pom = [xml] (Get-Content -Raw -LiteralPath (Join-Path $Root 'pom.xml'))
-            $jar = Join-Path $Root "backend/delveforge-app/target/delveforge-app-$($pom.project.version).jar"
-            if (-not (Test-Path -LiteralPath $jar -PathType Leaf)) {
-                Stop-DfSetup 'The backend build did not produce its expected JAR. No services were started.'
-            }
-            Assert-DfPortsFree $backendPort
-            Assert-DfDatabaseAvailable $Root $configuration
-            $backendCommand = @'
-$Host.UI.RawUI.WindowTitle = 'DelveForge Backend'
-Set-Location -LiteralPath {0}
-& {1} '-jar' {2} '--spring.config.location=classpath:/application.yml'
-Write-Host ('Backend exited (code ' + $LASTEXITCODE + '). Inspect the output above.')
-Remove-Item Env:DEEPSEEK_API_KEY -ErrorAction SilentlyContinue
-'@
-            $backendCommand = $backendCommand -f (ConvertTo-DfLiteral $Root),
-                (ConvertTo-DfLiteral $dependencies.Java), (ConvertTo-DfLiteral $jar)
-            $configuration.DEEPSEEK_API_KEY = ConvertFrom-DfSecret $secret
-            try {
-                $backend = Start-DfTerminal $Root $backendCommand $configuration
-            } finally {
-                $configuration.Remove('DEEPSEEK_API_KEY')
-                $secret.Dispose()
-                $secret = $null
-            }
-            Wait-DfConnectivity $backendPort $backend
-            $frontendCommand = @'
-$Host.UI.RawUI.WindowTitle = 'DelveForge Frontend'
-Set-Location -LiteralPath {0}
-& {1} 'dev' '--host' '127.0.0.1' '--port' '5173' '--strictPort'
-Write-Host ('Frontend exited (code ' + $LASTEXITCODE + '). Inspect the output above.')
-'@
-            $frontendCommand = $frontendCommand -f (ConvertTo-DfLiteral (Join-Path $Root 'frontend')),
-                (ConvertTo-DfLiteral $dependencies.Pnpm)
-            $frontend = Start-DfTerminal $Root $frontendCommand @{ BACKEND_DEV_URL = "http://127.0.0.1:$backendPort" }
-            Wait-DfConnectivity 5173 $frontend
-            Write-Host "Backend connectivity OK: http://127.0.0.1:$backendPort"
-            Write-Host 'DelveForge is ready: http://127.0.0.1:5173'
-            Write-Host 'Keep the two service terminals open. Stop each service with Ctrl+C, then close its terminal.'
-        } finally {
-            Pop-Location
-        }
+        $dependencies = Get-DfDependencies $Root
+        Assert-DfPortsFree $BackendPort
+        if ([string]::IsNullOrWhiteSpace($previousKey)) { $secret = Read-DfKey }
+        else { $secret = ConvertTo-SecureString $previousKey -AsPlainText -Force }
+        Set-DfEnvironment 'DEEPSEEK_API_KEY' $null
+        Set-DfEnvironment 'JAVA_HOME' $dependencies.JavaHome
+        & (Join-Path $Root 'runtime/workbench/Initialize-Environment.ps1') -DataDirectory $dataPath -Action $EnvironmentAction
+        Invoke-DfBuild $Root $dependencies.Pnpm
+        Assert-DfPortsFree $BackendPort
+        $pom = [xml](Get-Content -Raw -LiteralPath (Join-Path $Root 'pom.xml'))
+        $jar = Join-Path $Root "backend/delveforge-app/target/delveforge-app-$($pom.project.version).jar"
+        $backendCommand = 'Set-Location -LiteralPath {0}; & {1} -jar {2}' -f (ConvertTo-DfLiteral $Root),
+            (ConvertTo-DfLiteral $dependencies.Java), (ConvertTo-DfLiteral $jar)
+        $configuration = @{ SERVER_PORT = $BackendPort.ToString(); DELVEFORGE_WORKBENCH_DIRECTORY = $dataPath;
+            DEEPSEEK_API_KEY = ConvertFrom-DfSecret $secret }
+        try { $backend = Start-DfTerminal $Root $backendCommand $configuration }
+        finally { $configuration.Remove('DEEPSEEK_API_KEY') }
+        Wait-DfConnectivity $BackendPort $backend
+        $frontendCommand = "Set-Location -LiteralPath {0}; & {1} dev --host 127.0.0.1 --port 5173 --strictPort" -f (
+            ConvertTo-DfLiteral (Join-Path $Root 'frontend')), (ConvertTo-DfLiteral $dependencies.Pnpm)
+        $frontend = Start-DfTerminal $Root $frontendCommand @{ BACKEND_DEV_URL = "http://127.0.0.1:$BackendPort" }
+        Wait-DfConnectivity 5173 $frontend
+        Write-Host 'DelveForge: http://127.0.0.1:5173'
+        Write-Host "Windows workcopies: $(Join-Path $dataPath 'projects')"
     } finally {
-        if ($secret) {
-            $secret.Dispose()
-        }
-        foreach ($name in $saved.Keys) {
-            Set-DfEnvironment $name $saved[$name]
-        }
+        if ($secret) { $secret.Dispose() }
+        Set-DfEnvironment 'DEEPSEEK_API_KEY' $previousKey
+        Set-DfEnvironment 'JAVA_HOME' $previousJava
+        Pop-Location
     }
 }
 
-# 点加载仅用于确定性测试；正常用户直接执行脚本。
 if ($MyInvocation.InvocationName -ne '.') {
-    try {
-        Invoke-DfSetup $PSScriptRoot -DisableAgent:$DisableAgent -AgentImage21 $AgentImage21 -AgentImage17 $AgentImage17
-        exit 0
-    } catch {
-        if ($_.Exception.Data['DelveForgeSetup']) {
-            Write-Host ('Startup failed: ' + $_.Exception.Message) -ForegroundColor Red
-        } else {
-            Write-Host 'Startup failed unexpectedly. Check dependency/build output and any new service terminals.' -ForegroundColor Red
-        }
-        Write-Host 'No existing service was stopped or user data reset. Close any terminals opened by this run before retrying.'
-        exit 1
-    }
+    Invoke-DfSetup -Root $PSScriptRoot -DataDirectory $DataDirectory -BackendPort $BackendPort -EnvironmentAction $EnvironmentAction
 }
