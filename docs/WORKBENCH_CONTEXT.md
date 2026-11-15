@@ -1,6 +1,6 @@
 # 工作台上下文压缩验证记录
 
-2026-11-15，分支 `codex/project-conversation-agent`。起点为 `2ba0bfe`，实现和回归测试位于 `3ec3ee2`。验证对象是 Project → Conversation → Run 工作台。
+2026-11-15 在 `codex/project-conversation-agent` 上验证了 Project → Conversation → Run 工作台。起点为 `2ba0bfe`，实现和回归测试位于 `3ec3ee2`。[可重复执行的压缩回归用例](../backend/delveforge-infrastructure/src/test/java/com/ayywl/delveforge/infrastructure/workbench/ConversationCompactionTest.java)
 
 ## 模型每次收到哪些内容
 

@@ -1,6 +1,10 @@
 # ARCHITECTURE.md
 
-**2026-11-14 项目工作台。** 新入口使用独立控制数据库、Windows 项目工作副本、共享 Linux 开发环境和本机回环预览网关。Java 控制端持有模型凭据和运行记录。四个 Maven 模块沿用原依赖方向。下文的 Plan、Candidate 与 Delivery 合同适用于既有发布。[ADR-0028](decisions/0028-project-conversations-and-shared-environment.md)
+**当前项目工作台。** Vue 展示项目、对话和运行状态。Java 控制端持有模型凭据，在独立 SQLite 数据库记录消息和工具执行。工具在共享 Linux 环境内操作 Windows 项目工作副本，预览由本机回环网关提供。四个 Maven 模块沿用原依赖方向。[工作台架构决定（ADR-0028）](decisions/0028-project-conversations-and-shared-environment.md) · [运行与恢复](WORKBENCH.md)
+
+## 既有发布的架构记录
+
+以下按日期保留 Plan、Step、Candidate 与 Delivery 工作流的设计及当时的配置。
 
 **2026-11-09 Agent 上下文预算。** Application 通过 `AgentTokenCounter` 估算单次完整输入，包括当轮笔记及工具定义。Infrastructure 使用固定版本 DeepSeek V4.1 Flash 分词器，按请求的思考模式和强度渲染完整文本模板。压缩保留已确认 Step、执行环境及最近完整交互，旧工具结果按调用 ID 提取元数据。思考文本只随当前 Run 内保留的 Assistant 消息重放。发送前独立检查 HTTP 字节上限，超限可压缩后重试一次。`MODEL_USAGE` 记录估计、提供者输入用量及差值。参数见[本地配置](LOCAL_SETUP.md#4-自定义配置)。
 
