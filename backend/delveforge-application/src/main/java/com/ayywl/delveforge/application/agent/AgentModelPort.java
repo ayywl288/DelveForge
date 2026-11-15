@@ -11,6 +11,11 @@ public interface AgentModelPort {
         return new Identity("未提供", "未提供", "未提供", "未提供");
     }
 
+    /** 当前工具决策协议能否原样重放这条消息，例如切换思考模式前保存的助手回复。 */
+    default boolean canReplayWithTools(AgentProtocol.Message message) {
+        return true;
+    }
+
     AgentProtocol.Reply call(List<AgentProtocol.Message> history, List<AgentProtocol.ToolSpec> tools);
 
     /** 在每次实际发送前取得额度，包括首次发送和重试。 */

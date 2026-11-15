@@ -94,7 +94,10 @@ public interface Workbench {
     boolean summarize(String conversation, long expectedVersion, long through, String summary);
 
 
-    List<String> coveredUserMessages(String conversation, String run, long through);
+    /** 按 record.seq 降序分页，只读取属于当前对话、已被冻结前缀覆盖的用户原文。 */
+    List<Entry> coveredUsers(String conversation, long through, int limit);
+
+    boolean hasRecord(String conversation, long seq);
 
     List<Map<String, Object>> timeline(String conversation);
 

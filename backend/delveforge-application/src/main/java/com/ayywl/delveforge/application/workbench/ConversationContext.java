@@ -5,7 +5,12 @@ import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
+import com.ayywl.delveforge.application.agent.AgentProtocol.Message;
 import com.ayywl.delveforge.application.agent.AgentTokenCounter;
+import com.ayywl.delveforge.application.workbench.ConversationRetention.Originals;
+import com.ayywl.delveforge.application.workbench.Workbench.Context;
+import com.ayywl.delveforge.application.workbench.Workbench.Entry;
+import com.ayywl.delveforge.application.workbench.Workbench.Run;
 import com.ayywl.delveforge.domain.workbench.RunState;
 
 import java.util.ArrayList;
@@ -43,6 +48,12 @@ public final class ConversationContext {
     private final AgentModelPort model;
     private final AgentTokenCounter counter;
     private final AgentContextBudget budget;
+    private final ConversationRetention retention;
+
+    // 工作台只有一个前台 Run。只记录暂缓重试的位置，进程重启后可再试，检查点仍仅由 SQLite 持有。
+    private volatile Deferred deferred;
+
+    private record Deferred(String run, long version, long through, long tokens) {}
 
     public ConversationContext(
             Workbench store,
@@ -53,6 +64,7 @@ public final class ConversationContext {
         this.model = model;
         this.counter = counter;
         this.budget = budget;
+        this.retention = new ConversationRetention(store, counter, budget);
     }
 
     private static String schema(String properties, String required) {
@@ -73,159 +85,218 @@ public final class ConversationContext {
         这份副本就是用户看到的结果。可直接解释或只读调查；结尾用自然语言陈述结果和真实验证。
         根据当前任务自行选择工具。继续任务前检查相关文件和服务的当前状态，以已记录的退出码及输出缺口为依据，避免重复副作用。
         需要本机 HTTP 预览时先启动实际服务，再在 Bash 运行 df-workbench preview PORT 并向用户给出返回的 URL。
-        需要保持服务时用 setsid -f 并重定向 stdin/stdout/stderr。可用 df-workbench history --offset SEQ
-        与 df-workbench output INVOCATION --offset BYTE 查询本对话留存的事实；输出缺口表示未捕获。
+        需要保持服务时用 setsid -f 并重定向 stdin/stdout/stderr。用 df-workbench history N 读取 [#N] 对应的本对话原始记录，
+        用 df-workbench history --offset SEQ 浏览索引，用 df-workbench output INVOCATION --offset BYTE 查询输出。输出缺口表示未捕获。
         不向外发布项目。模型选择行动，平台负责授权、预算与执行事实。
         """
                 .formatted(identity.adapter(), identity.endpoint(), identity.requestedModel(),
                         identity.thinking(), run.projectId());
     }
 
-    private List<AgentProtocol.Message> assemble(
-            Workbench.Run run, String summary, long through, List<Workbench.Entry> records) {
-        var messages = new ArrayList<AgentProtocol.Message>();
-        messages.add(
-                AgentProtocol.Message.text(
-                        "system",
-                        instructions(run) + (summary.isBlank() ? "" : "\n此前摘要\n" + summary)));
-        // 摘要可遗漏验收条件。只重放已被前缀覆盖的用户原文，保留用户角色和修正顺序。
+    private Message system(Run run, String summary, long through, Originals originals) {
+        var text = new StringBuilder(instructions(run));
         if (through > 0) {
-            for (String input : store.coveredUserMessages(run.conversationId(), run.id(), through)) {
-                messages.add(AgentProtocol.Message.text("user", input));
-            }
+            text.append("\n此前任务检查点（覆盖至 [#").append(through).append("]）\n").append(summary);
         }
-        records.forEach(r -> messages.add(r.message()));
-        return List.copyOf(messages);
+        if (originals.newestOmitted() > 0) {
+            text.append("\n最近未逐字重放的历史用户消息 [#").append(originals.newestOmitted()).append("]。");
+        }
+        return Message.text("system", text.toString());
     }
 
-    private int boundary(List<Workbench.Entry> records, int wanted) {
-        int cut = Math.min(wanted, records.size() - 1);
-        while (cut > 0 && records.get(cut).message().role().equals("tool")) {
-            cut--;
+    public List<Message> build(Workbench.Snapshot snapshot) {
+        Run run = snapshot.run();
+        Context ctx = snapshot.context();
+        List<Entry> records = ctx.records();
+        var cuts = ConversationRetention.boundaries(records);
+        if (cuts.isEmpty()) {
+            return pause(run, "历史工具调用与回执未完整配对，无法安全重放。请检查本对话的原始记录。");
         }
-        return Math.max(0, cut);
+        Originals originals = retention.originals(run.conversationId(), ctx.through());
+        Message system = system(run, ctx.summary(), ctx.through(), originals);
+        var current = ConversationRetention.view(system, originals.messages(), records);
+        long before = retention.count(current);
+        int minimum = firstReplayableSuffix(records, cuts);
+        if (before < budget.triggerTokens() && minimum == 0) {
+            return current;
+        }
+
+        int unanswered = ConversationRetention.firstUnanswered(records);
+        var mandatory = records.subList(unanswered, records.size());
+        if (before > budget.usableInputTokens() && !mandatory.isEmpty()
+                && retention.count(ConversationRetention.view(
+                        Message.text("system", instructions(run)), List.of(), mandatory)) > budget.usableInputTokens()) {
+            return pause(run, "最新尚未回应的用户输入连同系统指令和工具超过上下文容量。请缩短输入另开对话，或调大窗口后继续。");
+        }
+
+        int lastCut = cuts.indexOf(unanswered);
+        long fixed = retention.count(current.subList(0, 1 + originals.messages().size()));
+        long tailBudget = Math.min(retention.suffixBudget,
+                Math.max(0, retention.target - fixed - retention.originalBudget));
+        Outcome outcome = before < budget.triggerTokens() ? Outcome.REPLAY
+                : compact(run, ctx, cuts, minimum, lastCut, before, tailBudget);
+        if (outcome.reload || !store.currentDecision(run.id())) {
+            return List.of();
+        }
+        if (before <= budget.usableInputTokens() && minimum == 0) {
+            return current;
+        }
+        var fallback = fallback(system, originals, records, cuts, minimum, lastCut);
+        if (!fallback.isEmpty()) {
+            return fallback;
+        }
+        return pause(run, outcome.detail + "；完整用户要求、已有任务检查点与历史依据无法同时放入上下文。可调大窗口后继续。");
     }
 
-    private String material(String previous, List<Workbench.Entry> prefix) {
-        var text = new StringBuilder("原摘要\n").append(previous).append("\n已冻结记录\n");
-        for (var e : prefix) {
-            var m = e.message();
-            text.append(e.seq())
-                    .append(' ')
-                    .append(m.role())
-                    .append(' ')
-                    .append(m.text())
-                    .append('\n');
-            for (var c : m.calls()) {
-                text.append(c.id())
-                        .append(' ')
-                        .append(c.name())
-                        .append(' ')
-                        .append(c.arguments())
-                        .append('\n');
-            }
-            if (m.callId() != null) {
-                text.append("工具结果 ").append(m.callId()).append('\n');
+    private int firstReplayableSuffix(List<Entry> records, List<Integer> cuts) {
+        for (int i = records.size() - 1; i >= 0; i--) {
+            if (!model.canReplayWithTools(records.get(i).message())) {
+                int incompatible = i;
+                return ConversationRetention.first(1, cuts.size() - 1, n -> cuts.get(n) > incompatible);
             }
         }
-        return text.toString();
+        return 0;
     }
 
-    public List<AgentProtocol.Message> build(Workbench.Snapshot snapshot) {
-        var run = snapshot.run();
-        var ctx = snapshot.context();
+    private enum Outcome {
+        PUBLISHED(true, ""), STALE(true, ""), NOT_ADMITTED(true, ""),
+        NO_PREFIX(false, "没有可压缩的完整历史前缀"), SUMMARY_LIMIT(false, "摘要请求超过容量"),
+        NO_HEADROOM(false, "摘要未腾出足够空间"), DEFERRED(false, "此前压缩未成功，尚无足够的新材料"),
+        INVALID(false, "摘要的结构或来源引用无效"), TRUNCATED(false, "摘要响应被截断"),
+        FAILED(false, "摘要服务请求失败"), REPLAY(false, "原始消息与当前模型的重放协议不兼容");
+
+        final boolean reload;
+        final String detail;
+
+        Outcome(boolean reload, String detail) {
+            this.reload = reload;
+            this.detail = detail;
+        }
+    }
+
+    private Outcome compact(Run run, Context ctx, List<Integer> cuts, int minimum, int lastCut,
+            long before, long tailBudget) {
+        if (lastCut == 0 || minimum > lastCut) {
+            return Outcome.NO_PREFIX;
+        }
         var records = ctx.records();
-        var current = assemble(run, ctx.summary(), ctx.through(), records);
-        long count = counter.countPromptTokens(current, TOOLS);
-        if (count < budget.triggerTokens()) {
-            return current;
-        }
-
-        int cut = boundary(records, records.size() - 6);
-        for (int attempt = 0; attempt < 2 && cut > 0; attempt++) {
-            var compression =
-                    List.of(
-                            AgentProtocol.Message.text(
-                                    "system",
-                                    "按原语言压缩对话记录。保留目标、约束、用户修正、执行结果和缺口、未完成事项、文件与调用 ID。仅输出非空文本摘要。"),
-                            AgentProtocol.Message.text(
-                                    "user", material(ctx.summary(), records.subList(0, cut))));
-            if (counter.countPromptTokens(compression, List.of()) <= budget.usableInputTokens()) {
-                try {
-                    var admitted =
-                            ModelRequests.call(store, model, run.id(), compression, List.of());
-                    if (admitted.isEmpty()) {
-                        return List.of();
-                    }
-                    var reply = admitted.get();
-                    String summary = reply.text();
-                    if (summary != null
-                            && !summary.isBlank()
-                            && reply.calls().isEmpty()
-                            && counter.countPromptTokens(
-                                            assemble(
-                                                    run,
-                                                    summary,
-                                                    records.get(cut - 1).seq(),
-                                                    records.subList(cut, records.size())),
-                                            TOOLS)
-                                    < count) {
-                        store.summarize(
-                                run.conversationId(),
-                                ctx.version(),
-                                records.get(cut - 1).seq(),
-                                summary);
-                        return List.of();
-                    }
-                } catch (AgentModelFailure failure) {
-                    if (failure.reason() == AgentModelFailure.Reason.PROVIDER_CALL_FAILED) {
-                        break;
-                    }
-                    // 截断或无效摘要可用较小的完整前缀再试一次。
-                } catch (AgentException failure) {
-                    if (!failure.code().equals("REQUEST_BYTES_LIMIT")) {
-                        break;
-                    }
-                } catch (RuntimeException failure) {
-                    break;
-                }
+        int chosen = ConversationRetention.first(Math.max(1, minimum), lastCut, i ->
+                retention.suffixCost(records.subList(cuts.get(i), records.size())) <= tailBudget);
+        // 缩短摘要输入只会加长决策尾部。分别预检无工具摘要请求与含工具的决策请求。
+        var request = ConversationCheckpoint.request(ctx, records.subList(0, cuts.get(chosen)));
+        if (counter.countPromptTokens(request, List.of()) > budget.usableInputTokens()) {
+            chosen = ConversationRetention.first(1, chosen, i -> counter.countPromptTokens(
+                    ConversationCheckpoint.request(ctx, records.subList(0, cuts.get(i))), List.of())
+                    > budget.usableInputTokens()) - 1;
+            if (chosen == 0 || chosen < minimum) {
+                return Outcome.SUMMARY_LIMIT;
             }
-            cut = boundary(records, cut / 2);
-        }
-        if (count <= budget.usableInputTokens()) {
-            return current;
-        }
-
-        // assemble 已按用户角色加入冻结前缀的原文。回退提示只说明丢失的执行细节。
-        String minimum = "有损上下文。此前执行细节请用 df-workbench history 查询，避免重跑。";
-        var candidates =
-                ctx.summary().isEmpty()
-                        ? List.of(minimum)
-                        : List.of(minimum + "\n原有效摘要\n" + ctx.summary(), minimum);
-        for (String reduced : candidates) {
-            for (int recent = 4; recent >= 1; recent--) {
-                cut = boundary(records, records.size() - recent);
-                if (cut > 0
-                        && counter.countPromptTokens(
-                                        assemble(
-                                                run, reduced, records.get(cut - 1).seq(),
-                                                records.subList(cut, records.size())),
-                                        TOOLS)
-                                <= budget.usableInputTokens()) {
-                    store.summarize(
-                            run.conversationId(),
-                            ctx.version(),
-                            records.get(cut - 1).seq(),
-                            reduced);
-                    return List.of();
-                }
+            request = ConversationCheckpoint.request(ctx, records.subList(0, cuts.get(chosen)));
+            if (counter.countPromptTokens(request, List.of()) > budget.usableInputTokens()) {
+                return Outcome.SUMMARY_LIMIT;
             }
         }
-        var withoutOldSummary = assemble(run, minimum, ctx.through(), records);
-        if (counter.countPromptTokens(withoutOldSummary, TOOLS) <= budget.usableInputTokens()) {
-            return withoutOldSummary;
+        int cut = cuts.get(chosen);
+        long through = records.get(cut - 1).seq();
+        if (defer(run, ctx.version(), through, before)) {
+            return Outcome.DEFERRED;
         }
-        store.state(run.id(), RunState.PAUSED, "完整指令、用户原文与成对工具记录超过上下文容量。可在新对话中缩短任务说明，或调大上下文后继续。");
+        var originals = retention.originals(run.conversationId(), through);
+        var suffix = records.subList(cut, records.size());
+        long floor = retention.count(ConversationRetention.view(system(run, "", through, originals),
+                originals.messages(), suffix));
+        if (!enough(before, floor)) {
+            return Outcome.NO_HEADROOM;
+        }
+
+        AgentProtocol.Reply reply;
+        try {
+            var admitted = ModelRequests.call(store, model, run.id(), request, List.of());
+            if (admitted.isEmpty()) {
+                return Outcome.NOT_ADMITTED;
+            }
+            reply = admitted.get();
+        } catch (AgentModelFailure failure) {
+            deferred = new Deferred(run.id(), ctx.version(), through, before);
+            return failure.reason() == AgentModelFailure.Reason.RESPONSE_TRUNCATED ? Outcome.TRUNCATED : Outcome.FAILED;
+        } catch (AgentException failure) {
+            if (!"REQUEST_BYTES_LIMIT".equals(failure.code())) {
+                throw failure;
+            }
+            deferred = new Deferred(run.id(), ctx.version(), through, before);
+            return Outcome.SUMMARY_LIMIT;
+        }
+
+        if (!ConversationCheckpoint.usable(reply, store, run.conversationId(), ctx, records.subList(0, cut))) {
+            deferred = new Deferred(run.id(), ctx.version(), through, before);
+            return Outcome.INVALID;
+        }
+        String summary = reply.text().strip();
+        long after = retention.count(ConversationRetention.view(system(run, summary, through, originals),
+                originals.messages(), suffix));
+        if (!enough(before, after)) {
+            deferred = new Deferred(run.id(), ctx.version(), through, before);
+            return Outcome.NO_HEADROOM;
+        }
+        if (!store.summarize(run.conversationId(), ctx.version(), through, summary)) {
+            return Outcome.STALE;
+        }
+        deferred = after > retention.target ? new Deferred(run.id(), ctx.version() + 1, through, after) : null;
+        return Outcome.PUBLISHED;
+    }
+
+    private boolean enough(long before, long after) {
+        return after <= retention.target || (before > budget.usableInputTokens() && after <= budget.usableInputTokens()
+                && before - after >= budget.triggerTokens() - retention.target);
+    }
+
+    private boolean defer(Run run, long version, long through, long before) {
+        var last = deferred;
+        if (last == null || !last.run().equals(run.id()) || last.version() != version) {
+            return false;
+        }
+        boolean crossedHard = before > budget.usableInputTokens() && last.tokens() <= budget.usableInputTokens();
+        long growth = before - last.tokens();
+        return through <= last.through() || (!crossedHard && growth < budget.triggerTokens() - retention.target);
+    }
+
+    /** 临时视图不推进覆盖位置。没有成功摘要的用户原文全部保留，只有完整执行组可暂由原记录引用代替。 */
+    private List<Message> fallback(Message system, Originals originals, List<Entry> records, List<Integer> cuts,
+            int minimum, int lastCut) {
+        if (lastCut == 0 || minimum > lastCut) {
+            return List.of();
+        }
+        int index = ConversationRetention.first(Math.max(1, minimum), lastCut, i ->
+                retention.count(fallbackView(system, originals, records, cuts.get(i))) <= budget.usableInputTokens());
+        var view = fallbackView(system, originals, records, cuts.get(index));
+        return retention.count(view) <= budget.usableInputTokens() ? view : List.of();
+    }
+
+    private List<Message> fallbackView(Message system, Originals originals, List<Entry> records, int cut) {
+        var users = new ArrayList<>(originals.messages());
+        var prefix = records.subList(0, cut);
+        long first = 0;
+        long last = 0;
+        for (Entry entry : prefix) {
+            if ("user".equals(entry.message().role())) {
+                users.add(entry.message());
+            } else {
+                if (first == 0) {
+                    first = entry.seq();
+                }
+                last = entry.seq();
+            }
+        }
+        Message source = first == 0 ? system : Message.text("system", system.text()
+                + "\n执行记录暂以历史引用代替（首条 [#" + first + "]，末条 [#" + last
+                + "]）。先查看对应回执核实结果、缺口及当前状态，避免重复执行。");
+        return ConversationRetention.view(source, users, records.subList(cut, records.size()));
+    }
+
+    private List<Message> pause(Run run, String detail) {
+        if (store.currentDecision(run.id())) {
+            store.state(run.id(), RunState.PAUSED, detail);
+        }
         return List.of();
     }
 }

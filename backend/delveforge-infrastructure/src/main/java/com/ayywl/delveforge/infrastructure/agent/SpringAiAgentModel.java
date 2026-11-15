@@ -154,6 +154,11 @@ public final class SpringAiAgentModel implements AgentModelPort {
                 ? new AgentProtocol.Reply(reply.text(), reply.calls(), null, reply.usage(), reply.reasoningContent()) : reply;
     }
 
+    @Override
+    public boolean canReplayWithTools(AgentProtocol.Message message) {
+        return thinking == Thinking.DISABLED || !"assistant".equals(message.role()) || message.reasoningContent() != null;
+    }
+
     private ChatCompletionMessage providerMessage(AgentProtocol.Message message, boolean replay) {
         var role = switch (message.role()) {
             case "assistant" -> ChatCompletionMessage.Role.ASSISTANT;
@@ -163,7 +168,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
             default -> throw new AgentModelFailure(AgentModelFailure.Reason.CONVERSATION_ROLE_UNSUPPORTED);
         };
         String reasoning = role == ChatCompletionMessage.Role.ASSISTANT && replay ? message.reasoningContent() : null;
-        if (role == ChatCompletionMessage.Role.ASSISTANT && replay && reasoning == null) {
+        if (replay && !canReplayWithTools(message)) {
             throw new AgentModelFailure(AgentModelFailure.Reason.REASONING_MISSING);
         }
         var calls = message.calls().stream().map(call -> new ChatCompletionMessage.ToolCall(call.id(), "function",

@@ -105,6 +105,13 @@ class WorkbenchIntegrationTest {
         return new AgentProtocol.Reply(text, List.of(), 1L, null, "thinking");
     }
 
+    static AgentProtocol.Reply checkpoint(List<AgentProtocol.Message> request, String requirements) {
+        String material = request.getLast().text().split("本次冻结记录\n", 2)[1];
+        String source = material.substring(0, material.indexOf(']') + 1);
+        return finalText("## 用户要求\n" + requirements + " " + source
+                + "\n## 执行证据\n参考已记录的回执。\n## 待办与未知\n核对剩余交付。");
+    }
+
     static AgentProtocol.ToolCall tool(String id) {
         return new AgentProtocol.ToolCall(id, "Bash", "{\"command\": \"echo value\"}");
     }
@@ -384,7 +391,7 @@ class WorkbenchIntegrationTest {
         AgentModelPort summarize =
                 (messages, tools) -> {
                     store.receive(conversation, "during", "压缩时收到的修正", 50);
-                    return finalText("目标、原调用结果与剩余工作");
+                    return checkpoint(messages, "目标、原调用结果与剩余工作");
                 };
         AgentTokenCounter counter =
                 (messages, tools) ->
@@ -431,7 +438,7 @@ class WorkbenchIntegrationTest {
             store.assistant(
                     ack.runId(),
                     new AgentProtocol.Reply("", List.of(tool("original-" + i)), 1L, null, "r"));
-            store.result(store.pending(ack.runId()).getFirst(), "留存的完整输出", 0, false);
+            store.result(store.pending(ack.runId()).getFirst(), "留存的完整输出".repeat(28), 0, false);
         }
         store.receive(conversation, "next", "保留刚才的修正", 12);
         var frozen = store.next(ack.runId());
@@ -444,17 +451,20 @@ class WorkbenchIntegrationTest {
                             com.ayywl.delveforge.application.agent.AgentModelFailure.Reason
                                     .RESPONSE_TRUNCATED);
                 };
-        AgentTokenCounter counter =
-                (m, t) -> t.isEmpty() || m.getFirst().text().contains("有损上下文") ? 40 : 600;
-        var ctx =
-                new ConversationContext(store, model, counter, new AgentContextBudget(300, 50, .8));
-        assertTrue(ctx.build(frozen).isEmpty());
-        assertEquals(2, attempts.get());
+        AgentTokenCounter counter = (messages, tools) -> tools.isEmpty() ? 80 : messages.stream()
+                .mapToLong(m -> m.text().length() + 10L).sum();
+        var ctx = new ConversationContext(store, model, counter, new AgentContextBudget(1650, 100, .8));
+        var view = ctx.build(frozen);
+        assertFalse(view.isEmpty());
+        assertTrue(view.getFirst().text().contains("历史引用"));
+        assertEquals(1, attempts.get());
         var next = store.next(ack.runId());
-        assertFalse(next.context().summary().contains("保留刚才的修正"));
-        assertEquals(List.of("原用户任务", "保留刚才的修正"), ctx.build(next).stream()
+        assertEquals(0, next.context().through());
+        assertEquals("", next.context().summary());
+        assertEquals(List.of("原用户任务", "保留刚才的修正"), view.stream()
                 .filter(message -> message.role().equals("user")).map(AgentProtocol.Message::text).toList());
-        assertTrue(next.context().through() > 0);
+        assertEquals(view, ctx.build(next));
+        assertEquals(1, attempts.get());
         assertEquals(size, store.timeline(conversation).size());
         assertEquals(
                 12,
@@ -473,12 +483,12 @@ class WorkbenchIntegrationTest {
         store.next(prior);
         store.assistant(prior, finalText("上次完成"));
         String current = store.receive(conversation, "current", "新任务", 40).runId();
-        var expected = new ArrayList<>(List.of("此前要求 2", "此前要求 3", "此前要求 4", "新任务"));
+        var expected = new ArrayList<>(List.of("此前要求 0", "此前要求 1", "此前要求 2", "此前要求 3", "此前要求 4", "新任务"));
         var summaries = new AtomicInteger();
         AgentModelPort model = (messages, tools) -> {
             assertTrue(tools.isEmpty());
             summaries.incrementAndGet();
-            return finalText("执行摘要");
+            return checkpoint(messages, "执行摘要 " + summaries.get());
         };
         AgentTokenCounter counter = (messages, tools) -> messages.stream()
                 .mapToLong(message -> 10L + (message.text() == null ? 0 : message.text().length())).sum();
@@ -519,12 +529,14 @@ class WorkbenchIntegrationTest {
         AgentTokenCounter counter = (messages, tools) -> messages.stream()
                 .mapToLong(message -> 10L + (message.text() == null ? 0 : message.text().length()))
                 .sum();
-        AgentModelPort unavailable = (messages, tools) -> { throw new IllegalStateException("摘要不可用"); };
+        AgentModelPort unavailable = (messages, tools) -> {
+            throw new AgentModelFailure(AgentModelFailure.Reason.PROVIDER_CALL_FAILED);
+        };
         var budget = new AgentContextBudget(4100, 120, .95);
         var context = new ConversationContext(store, unavailable, counter, budget);
-        assertTrue(context.build(snapshot).isEmpty());
+        var view = context.build(snapshot);
         assertEquals(RunState.RUNNING, store.run(run).state());
-        var view = context.build(store.next(run));
+        assertEquals(0, store.next(run).context().through());
         assertFalse(view.isEmpty());
         assertTrue(counter.countPromptTokens(view, ConversationContext.TOOLS) <= budget.usableInputTokens());
         var expected = original.stream().filter(r -> "user".equals(r.get("role"))).map(r -> r.get("text")).toList();

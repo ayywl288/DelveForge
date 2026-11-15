@@ -628,15 +628,17 @@ public final class SqliteWorkbench implements Workbench {
 
 
     @Override
-    public List<String> coveredUserMessages(String conversation, String run, long through) {
-        return jdbc.queryForList("""
-                WITH covered AS (
-                    SELECT seq,run_id,text FROM record WHERE conversation_id=? AND role='user' AND seq<=?
-                )
-                SELECT text FROM covered
-                WHERE run_id=? OR seq IN (SELECT seq FROM covered WHERE run_id<>? ORDER BY seq DESC LIMIT 3)
-                ORDER BY seq
-                """, String.class, conversation, through, run, run);
+    public List<Entry> coveredUsers(String conversation, long through, int limit) {
+        return jdbc.query("""
+                SELECT seq,text FROM record
+                WHERE conversation_id=? AND role='user' AND seq<=? ORDER BY seq DESC LIMIT ?
+                """, (rs, row) -> new Entry(rs.getLong("seq"), AgentProtocol.Message.text("user", rs.getString("text"))),
+                conversation, through, limit);
+    }
+
+    @Override
+    public boolean hasRecord(String conversation, long seq) {
+        return count("SELECT count(*) FROM record WHERE conversation_id=? AND seq=?", conversation, seq) == 1;
     }
 
     @Override
