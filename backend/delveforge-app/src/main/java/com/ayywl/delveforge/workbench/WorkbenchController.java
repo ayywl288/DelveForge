@@ -3,6 +3,7 @@ package com.ayywl.delveforge.workbench;
 import com.ayywl.delveforge.application.agent.AgentContextBudget;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.workbench.ConversationAgent;
+import com.ayywl.delveforge.application.workbench.ProjectFiles.FolderPickerUnavailable;
 import com.ayywl.delveforge.application.workbench.Workbench;
 import com.ayywl.delveforge.application.workbench.WorkbenchRejection;
 
@@ -69,6 +70,18 @@ public final class WorkbenchController {
     @PostMapping("/projects")
     public Map<String, String> project(@RequestBody ProjectRequest input) {
         return Map.of("id", agent.project(input.name(), input.source()));
+    }
+
+    public record FolderSelection(String path) {}
+
+    @PostMapping("/projects/choose-folder")
+    public FolderSelection chooseFolder() {
+        return new FolderSelection(agent.chooseSourceFolder().orElse(null));
+    }
+
+    @ExceptionHandler(FolderPickerUnavailable.class)
+    public ResponseEntity<Map<String, String>> pickerUnavailable(FolderPickerUnavailable failure) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("message", failure.getMessage()));
     }
 
     @PostMapping("/projects/{id}/open")

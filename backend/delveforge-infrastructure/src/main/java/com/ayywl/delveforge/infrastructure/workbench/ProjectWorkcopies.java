@@ -17,6 +17,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -86,6 +87,11 @@ public final class ProjectWorkcopies implements ProjectFiles {
 
     private static boolean related(Path a, Path b) {
         return a.startsWith(b) || b.startsWith(a);
+    }
+
+    @Override
+    public Optional<String> chooseSourceFolder() {
+        return WindowsFolderPicker.choose();
     }
 
     @Override

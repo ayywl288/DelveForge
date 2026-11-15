@@ -14,6 +14,7 @@ import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -140,6 +141,10 @@ public final class ConversationAgent implements AutoCloseable {
     public void startup() {
         store.interruptImports();
         store.owners().forEach(r -> recover(r.id()));
+    }
+
+    public Optional<String> chooseSourceFolder() {
+        return files.chooseSourceFolder();
     }
 
     public void open(String project) {
