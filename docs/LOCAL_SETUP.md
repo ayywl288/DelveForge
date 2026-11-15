@@ -43,7 +43,7 @@
 
 ## 模型和执行设置
 
-启动器参数控制 Windows 数据目录、后端端口和环境的停启方式。`delveforge.workbench.requests-per-run` 指定整项任务的默认请求总上限，默认 96。若只设置旧键 `requests-per-continuation`，其值作为总上限。每个前台命令的超时由 `delveforge.workbench.command-seconds` 配置，默认 300 秒。可在工作台页首查看已解析的模型配置。
+启动器参数控制 Windows 数据目录、后端端口和环境的停启方式。`delveforge.workbench.requests-per-run` 指定整项任务的默认请求总上限，默认 96。若只设置旧键 `requests-per-continuation`，其值作为总上限。每个前台命令的超时由 `delveforge.workbench.command-seconds` 配置，默认 300 秒。可在侧栏的「模型与用量」查看已解析的模型配置。
 
 开发环境中的 shell 和 JVM 都使用各项目的持久化 HOME。Maven 从这里读取 `.m2/settings.xml`，通过已有出口代理下载，默认下载仓库为共享卷上的 `/state/cache/maven`。Maven Wrapper 的发行包按项目保存在 `$MAVEN_USER_HOME/wrapper`。普通重启和镜像重建都保留这些文件。
 

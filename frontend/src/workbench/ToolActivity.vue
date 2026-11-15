@@ -4,7 +4,9 @@ import Icon from '../components/NavigationIcon.vue'
 import { toolStatus, toolTarget, type ToolActivity } from './activity'
 import { previews, request, type OutputPage } from './api'
 
-const props = defineProps<{ row: ToolActivity; conversation: string; runState?: string }>()
+const props = defineProps<{ row: ToolActivity; conversation: string; projectId: string; runState?: string }>()
+const target = computed(() => toolTarget(props.row, props.projectId))
+const separator = computed(() => props.row.name === 'Bash' ? -1 : target.value.lastIndexOf('/'))
 const status = computed(() => toolStatus(props.row, props.runState))
 const labels: Record<string, string> = { Read: '读取', Edit: '编辑', Write: '写入', Bash: '运行命令' }
 const icons = { Read: 'file', Edit: 'edit', Write: 'file', Bash: 'terminal' } as const
@@ -39,11 +41,14 @@ async function more() {
     <li class="tool-event" :data-tone="status.tone">
         <details><summary>
             <Icon :name="icons[row.name as keyof typeof icons] ?? 'activity'" />
-            <strong>{{ labels[row.name] ?? row.name }}</strong><code :title="toolTarget(row)">{{ toolTarget(row).split('\n')[0] }}</code>
+            <strong>{{ labels[row.name] ?? row.name }}</strong>
+            <code v-if="separator >= 0 && separator < target.length - 1" class="file-target" :title="target"><span
+                class="path-dir">{{ target.slice(0, separator) }}</span><span class="path-leaf">{{ target.slice(separator) }}</span></code>
+            <code v-else :title="target">{{ target.split('\n')[0] }}</code>
             <span class="tool-state">{{ status.label }}</span><Icon class="disclosure" name="chevron" />
         </summary>
         <div class="tool-body">
-            <p v-if="row.arguments" class="log-label">{{ row.name }} · 调用参数</p><pre v-if="row.arguments">{{ row.arguments }}</pre>
+            <p v-if="row.arguments" class="log-label">{{ row.name }} · 原始调用参数</p><pre v-if="row.arguments">{{ row.arguments }}</pre>
             <template v-if="row.result">
                 <p v-if="row.result.detail">{{ row.result.detail }}</p>
                 <p v-if="row.result.exit != null" class="log-label">退出码 {{ row.result.exit }}</p>

@@ -9,7 +9,7 @@ it('显示模型原始调用，并在按字节翻页后还原跨页中文输出'
     const base = { recorded_at: '', tool_name: null, provider_id: null }
     const messages: Message[] = [
         { ...base, seq: 1, role: 'assistant', text: '', calls: JSON.stringify([call]) },
-        { ...base, seq: 2, role: 'tool', tool_name: 'Bash', calls: '[]',
+        { ...base, seq: 2, role: 'tool', provider_id: call.id, tool_name: 'Bash', calls: '[]',
             text: JSON.stringify({ invocation: 'inv', capturedBytes: 3, exit: 0 }) },
     ]
     const pages = [[0xe6], [0x9d, 0xbe]]
@@ -19,7 +19,7 @@ it('显示模型原始调用，并在按字节翻页后还原跨页中文输出'
             bytes: 3, next: pages.length ? 1 : 3, gap: false }))
     }))
     const root = document.createElement('div')
-    const app = createApp(Transcript, { conversation: 'example', entries: timeline({ messages, runs: [] }), runs: [] })
+    const app = createApp(Transcript, { projectId: 'p', conversation: 'example', entries: timeline({ messages, runs: [] }), runs: [] })
     app.mount(root)
     try {
         expect(root.textContent).toContain(call.arguments)
@@ -39,7 +39,7 @@ it('只将网关生成的本机域名显示为预览，并分别标记显示截�
     const fetcher = vi.fn(async () => new Response(JSON.stringify({chunks: [{channel:'stderr',base64:btoa('hello')}],bytes:5,next:5,gap:true})))
     vi.stubGlobal('fetch',fetcher)
     const root = document.createElement('div')
-    const app = createApp(Transcript, { conversation: 'conv', entries: timeline({ messages: [message], runs: [] }), runs: [] })
+    const app = createApp(Transcript, { projectId: 'p', conversation: 'conv', entries: timeline({ messages: [message], runs: [] }), runs: [] })
     app.mount(root)
     try {
         expect(root.querySelector('a')?.href).toBe(url + '/')

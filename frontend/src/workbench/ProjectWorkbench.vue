@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import BrandSymbol from '../components/BrandSymbol.vue'
 import Icon from '../components/NavigationIcon.vue'
 import ConversationComposer from './ConversationComposer.vue'
+import ProjectForm from './ProjectForm.vue'
 import Transcript from './Transcript.vue'
 import WorkbenchDetails from './WorkbenchDetails.vue'
 import WorkbenchDialog from './WorkbenchDialog.vue'
@@ -25,7 +26,7 @@ const setWidth = () => { narrow.value = media.matches; mobileNav.value = false }
 onMounted(() => media.addEventListener('change', setWidth))
 onUnmounted(() => media.removeEventListener('change', setWidth))
 const panel = ref<'' | 'project' | 'conversation' | 'workspace' | 'model'>('')
-const formName = ref(''), source = ref(''), importing = ref(false)
+const formName = ref(''), importing = ref(false)
 const navToggle = ref<HTMLButtonElement>(), scroll = ref<HTMLElement>()
 const composer = ref<InstanceType<typeof ConversationComposer>>()
 const following = ref(true)
@@ -56,14 +57,11 @@ function navigate(id: string, isProject: boolean) {
     if (narrow.value) nextTick(() => navToggle.value?.focus())
 }
 function form(mode: 'project' | 'conversation', fromFolder = false) {
-    formName.value = ''; source.value = ''; error.value = ''; importing.value = fromFolder
+    formName.value = ''; error.value = ''; importing.value = fromFolder
     mobileNav.value = false; panel.value = mode
 }
-async function submitForm() {
-    if (!formName.value.trim() || (panel.value === 'project' && importing.value && !source.value.trim())) return
-    const ok = panel.value === 'project' ? await createProject(formName.value, importing.value ? source.value : '')
-        : await createConversation(formName.value)
-    if (ok) { panel.value = ''; await nextTick(); composer.value?.focus() }
+async function finishForm(result: Promise<boolean>) {
+    if (await result) { panel.value = ''; await nextTick(); composer.value?.focus() }
 }
 async function deliver() {
     const id = conversationId.value
@@ -91,7 +89,7 @@ const navEvents = { project: (id: string) => navigate(id, true), conversation: (
                 <template v-if="conversation"><span class="separator">/</span><h1 :title="conversation.title">{{ conversation.title }}</h1></template>
             </div>
             <div class="top-actions">
-                <button v-if="run" class="state-chip" :data-state="run.state" :aria-label="(stateText[run.state] || run.state) + '，查看任务用量'" @click="panel = 'model'"><i />{{ stateText[run.state] || run.state }}</button>
+                <span v-if="run" class="state-chip" :data-state="run.state" role="status"><i aria-hidden="true" />{{ stateText[run.state] || run.state }}</span>
                 <button v-if="project?.workcopy" class="workspace-btn" aria-label="查看工作副本" title="查看工作副本" @click="panel = 'workspace'"><Icon name="layers" /><span>工作副本</span></button>
             </div></header>
             <div v-if="error && !panel" class="error-banner" role="alert">{{ error }}<button class="icon-btn" aria-label="关闭提示" @click="error = ''"><Icon name="close" /></button></div>
@@ -109,7 +107,8 @@ const navEvents = { project: (id: string) => navigate(id, true), conversation: (
                 <div class="conversation-body" :class="{ starting }">
                     <section v-if="!starting" ref="scroll" class="conversation-scroll" aria-label="对话记录" tabindex="0" @scroll.passive="trackScroll">
                         <div class="reading-column"><p v-if="loading" role="status" class="muted">正在载入对话…</p>
-                            <Transcript :key="conversationId" :conversation="conversationId" :entries="entries" :runs="feed.runs" />
+                            <Transcript :key="conversationId" :project-id="projectId" :conversation="conversationId"
+                                :entries="entries" :runs="feed.runs" />
                         </div>
                     </section>
                     <div class="compose-region">
@@ -132,13 +131,12 @@ const navEvents = { project: (id: string) => navigate(id, true), conversation: (
         <WorkbenchDialog v-if="panel" :key="panel" :drawer="panel === 'workspace' || panel === 'model'"
             :title="panel === 'project' ? '新建或导入项目' : panel === 'conversation' ? '新建对话' : panel === 'workspace' ? '工作副本' : '模型与用量'" @close="panel = ''">
             <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
-            <form v-if="panel === 'project' || panel === 'conversation'" class="editor-form" @submit.prevent="submitForm">
-                <fieldset v-if="panel === 'project'" class="project-mode"><legend class="sr-only">项目来源</legend>
-                    <label><input v-model="importing" type="radio" :value="false">空项目</label><label><input v-model="importing" type="radio" :value="true">从本机导入</label></fieldset>
-                <label>{{ panel === 'project' ? '项目名称' : '对话名称' }}<input v-model="formName" required maxlength="160" autofocus></label>
-                <label v-if="panel === 'project' && importing">本机源目录<input v-model="source" required placeholder="D:\我的项目"><small>DelveForge 将在独立的工作副本中开发。</small></label>
+            <ProjectForm v-if="panel === 'project'" :from-folder="importing" :pending="pending" @cancel="panel = ''"
+                @submit="(name, path) => finishForm(createProject(name, path))" />
+            <form v-else-if="panel === 'conversation'" class="editor-form" @submit.prevent="formName.trim() && finishForm(createConversation(formName))">
+                <label>对话名称<input v-model="formName" required maxlength="160" autofocus></label>
                 <div class="form-actions"><button type="button" @click="panel = ''">取消</button>
-                    <button class="primary" :disabled="pending || !formName.trim() || (panel === 'project' && importing && !source.trim())">{{ pending ? '正在创建…' : panel === 'project' ? '创建工作副本' : '创建对话' }}</button></div>
+                    <button class="primary" :disabled="pending || !formName.trim()">{{ pending ? '正在创建…' : '创建对话' }}</button></div>
             </form>
             <WorkbenchDetails v-else :mode="panel" :project="project" :changes="changes" :previews="links" :settings="settings" :run="run" :pending="pending" @open="action(() => request<void>('/projects/' + projectId + '/open', {}))" />
         </WorkbenchDialog>

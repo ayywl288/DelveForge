@@ -29,6 +29,6 @@ const emit = defineEmits<{ project: [id: string]; conversation: [id: string]; ne
             </div>
         </nav>
         <div class="nav-bottom"><Icon name="terminal" /><div><strong>本机工作台</strong><small>共享 Linux 开发环境</small></div></div>
-        <button v-if="settings" class="model-button" title="查看模型配置" @click="emit('model')"><Icon name="sliders" /><span>模型配置</span><Icon name="chevron" /></button>
+        <button v-if="settings" class="model-button" @click="emit('model')"><Icon name="sliders" /><span>模型与用量</span><Icon name="chevron" /></button>
     </div>
 </template>

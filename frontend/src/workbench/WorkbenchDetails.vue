@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import Icon from '../components/NavigationIcon.vue'
 import type { Project, RuntimeSettings, Run } from './api'
-import type { ToolActivity } from './activity'
+import { projectRelativePath, type ToolActivity } from './activity'
 const props = defineProps<{ mode: 'workspace' | 'model'; project?: Project; changes: ToolActivity[];
     previews: string[]; settings?: RuntimeSettings; run?: Run; pending: boolean }>()
 const emit = defineEmits<{ open: [] }>()
@@ -26,7 +26,7 @@ async function copy() {
             <p class="helper">来自成功的 Edit 和 Write 调用。工作副本中可查看文件当前内容。</p>
             <p v-if="!changes.length">尚无已确认的文件写入。</p>
             <details v-for="row in changes" :key="row.key" class="file-change">
-                <summary><Icon name="file" /><code>{{ row.values.path }}</code><span>{{ row.name }}</span><Icon class="disclosure" name="chevron" /></summary>
+                <summary><Icon name="file" /><code>{{ projectRelativePath(String(row.values.path), project.id) }}</code><span>{{ row.name }}</span><Icon class="disclosure" name="chevron" /></summary>
                 <template v-if="row.name === 'Edit'"><p>替换前</p><pre class="before-edit">{{ row.values.old }}</pre><p>替换后</p><pre class="after-edit">{{ row.values.new }}</pre></template>
                 <template v-else><p>此次写入的内容</p><pre>{{ row.values.content }}</pre></template>
             </details>

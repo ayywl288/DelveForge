@@ -32,7 +32,13 @@ it('刷新只恢复选中的项目和对话，不触发 Run', async () => {
     root.querySelector<HTMLButtonElement>('.workspace-btn')!.click(); await settle()
     expect(root.querySelector('.file-path')?.textContent).toContain('D:\\projects\\p')
     root.querySelector<HTMLButtonElement>('dialog [aria-label="关闭"]')!.click(); await settle()
-    root.querySelector<HTMLButtonElement>('.state-chip')!.click(); await settle()
+    const status = root.querySelector<HTMLElement>('.state-chip')!
+    expect(status.textContent).toContain('执行中')
+    expect(status.tagName).toBe('SPAN')
+    expect(status.tabIndex).toBe(-1)
+    status.click(); await settle()
+    expect(root.querySelector('dialog')).toBeNull()
+    root.querySelector<HTMLButtonElement>('.model-button')!.click(); await settle()
     const details = root.querySelector('dialog')!.textContent
     expect(details).toContain('同一时间运行一个前台 Run')
     expect(details).toContain('fixture-model')
@@ -47,6 +53,80 @@ it('工作副本面板向所选项目请求打开目录，并呈现操作错误'
     root.querySelector<HTMLButtonElement>('dialog .button-row .primary')!.click(); await settle()
     expect(fetcher).toHaveBeenCalledWith('/api/workbench/projects/p/open', expect.objectContaining({ method: 'POST' }))
     expect(root.querySelector('dialog [role=alert]')?.textContent).toContain('无法打开文件夹')
+})
+
+async function openImport(root: HTMLElement) {
+    root.querySelector<HTMLButtonElement>('.new-project')!.click()
+    await nextTick()
+    root.querySelectorAll<HTMLInputElement>('.project-mode input')[1]!.click()
+    await nextTick()
+    return root.querySelector<HTMLFormElement>('.editor-form')!
+}
+
+it('选文件夹仅填入完整路径与项目名，显式提交才创建工作副本', async () => {
+    const source = 'D:\\开发\\课设 项目'
+    const operations: { url: string; body: Record<string, string> }[] = []
+    const { root } = mount((url, body) => {
+        operations.push({ url, body })
+        return url.endsWith('/choose-folder') ? { path: source } : { id: 'new-id' }
+    })
+    await settle()
+    const form = await openImport(root)
+    form.querySelector<HTMLButtonElement>('.folder-selection button')!.click()
+    await settle()
+    expect(form.querySelector('.selected-source')?.textContent).toBe(source)
+    expect(form.querySelector<HTMLInputElement>('input[maxlength]')?.value).toBe('课设 项目')
+    expect(operations.map(op => op.url)).toEqual(['/api/workbench/projects/choose-folder'])
+    form.dispatchEvent(new Event('submit'))
+    await settle()
+    expect(operations.filter(op => op.url === '/api/workbench/projects'))
+        .toEqual([{ url: '/api/workbench/projects', body: { name: '课设 项目', source } }])
+})
+
+it('取消文件夹选择保留先前的路径和自定义项目名，换选也不覆盖自定义项目名', async () => {
+    const paths = [null, 'D:\\甲', null, 'D:\\乙']
+    const { root, fetcher } = mount(() => ({ path: paths.shift() }))
+    await settle()
+    const form = await openImport(root)
+    const pick = form.querySelector<HTMLButtonElement>('.folder-selection button')!
+    pick.click(); await settle()
+    expect(form.querySelector('.selected-source')).toBeNull()
+    expect(form.querySelector<HTMLButtonElement>('.primary')?.disabled).toBe(true)
+    pick.click(); await settle()
+    const name = form.querySelector<HTMLInputElement>('input[maxlength]')!
+    name.value = '我的名字'; name.dispatchEvent(new Event('input'))
+    pick.click(); await settle()
+    expect(form.querySelector('.selected-source')?.textContent).toBe('D:\\甲')
+    pick.click(); await settle()
+    expect(name.value).toBe('我的名字')
+    expect(form.querySelector('.selected-source')?.textContent).toBe('D:\\乙')
+    expect(fetcher.mock.calls.filter(([url, opt]) => opt?.method === 'POST' && !url.endsWith('/choose-folder'))).toHaveLength(0)
+})
+
+it('本机选择器不可用时可以用路径导入，空项目仍可独立创建', async () => {
+    const operations: Record<string, string>[] = []
+    const { root } = mount((url, body) => {
+        if (url.endsWith('/choose-folder')) throw Error('桌面不可用')
+        if (url.endsWith('/projects')) operations.push(body)
+        return { id: 'new-id' }
+    })
+    await settle()
+    const form = await openImport(root)
+    form.querySelector<HTMLButtonElement>('.folder-selection button')!.click()
+    await settle()
+    expect(form.querySelector('[role=alert]')?.textContent).toContain('手动输入')
+    const source = form.querySelector<HTMLInputElement>('.manual-path input')!
+    source.value = 'D:\\备选'; source.dispatchEvent(new Event('input'))
+    const name = form.querySelector<HTMLInputElement>('input[maxlength]')!
+    name.value = '新项目'; name.dispatchEvent(new Event('input'))
+    form.dispatchEvent(new Event('submit'))
+    await vi.waitFor(() => expect(root.querySelector('dialog')).toBeNull())
+    root.querySelector<HTMLButtonElement>('.new-project')!.click(); await nextTick()
+    const empty = root.querySelector<HTMLFormElement>('.editor-form')!
+    const emptyName = empty.querySelector<HTMLInputElement>('input[maxlength]')!
+    emptyName.value = '空项目'; emptyName.dispatchEvent(new Event('input')); await nextTick()
+    empty.dispatchEvent(new Event('submit')); await settle()
+    expect(operations).toEqual([{ name: '新项目', source: 'D:\\备选' }, { name: '空项目', source: null }])
 })
 
 it('活动 Run 中仍可发送纠正，网络应答丢失后用相同消息 ID 重试', async () => {

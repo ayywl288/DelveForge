@@ -10,7 +10,13 @@ export interface ToolActivity {
     live?: ActiveTool
     runId?: string | null
 }
-export type Entry = ToolActivity | { kind: 'message'; key: string; message: Message }
+export interface MessageEntry {
+    kind: 'message'
+    key: string
+    message: Message
+    accompaniesTools: boolean
+}
+export type Entry = ToolActivity | MessageEntry
 
 function argumentsOf(raw: string): Record<string, unknown> {
     try {
@@ -37,8 +43,12 @@ export function timeline(feed: Feed): Entry[] {
             }
             continue
         }
-        if (m.text) entries.push({ kind: 'message', key: m.role + '-' + m.seq, message: m })
-        for (const call of proposedTools(m)) {
+        const calls = proposedTools(m)
+        if (m.text) {
+            entries.push({ kind: 'message', key: m.role + '-' + m.seq, message: m,
+                accompaniesTools: m.role === 'assistant' && calls.length > 0 })
+        }
+        for (const call of calls) {
             const key = JSON.stringify([m.run_id, m.seq, call.id])
             const row: ToolActivity = { kind: 'tool', key, name: call.name, arguments: call.arguments,
                 values: argumentsOf(call.arguments), live: live.get(key), runId: m.run_id }
@@ -69,9 +79,33 @@ export function toolStatus(row: ToolActivity, state?: string) {
     return { label: '已提议', tone: 'muted' }
 }
 
-export function toolTarget(row: ToolActivity) {
-    const value = row.values[row.name === 'Bash' ? 'command' : 'path']
-    return typeof value === 'string' ? value : ''
+export function projectRelativePath(path: string, projectId: string) {
+    const root = '/projects/' + projectId
+    if (!projectId || (path !== root && !path.startsWith(root + '/'))) return path
+    const relative = path.slice(root.length).replace(/^\/+/, '')
+    if (relative.split('/').includes('..')) return path
+    return relative || '.'
+}
+
+export function toolTarget(row: ToolActivity, projectId: string) {
+    if (row.name !== 'Bash') {
+        return typeof row.values.path === 'string' ? projectRelativePath(row.values.path, projectId) : ''
+    }
+    const command = row.values.command
+    if (typeof command !== 'string') return ''
+    // Bash 本就在项目根目录启动。只简写开头可明确识别的 cd，原命令完整保存在回执详情。
+    const cd = /^[ \t]*cd[ \t]+(?:--[ \t]+)?("[^"$`\\\r\n]*"|'[^'\r\n]*'|[\p{L}\p{N}._/@+-]+)[ \t]*(?:(&&)[ \t]*|$)/u.exec(command)
+    if (!cd) return command
+    const operand = cd[1]!
+    const quoted = operand.startsWith('"') || operand.startsWith("'")
+    const path = quoted ? operand.slice(1, -1) : operand
+    const local = projectRelativePath(path, projectId)
+    if (local === path) return command
+    const rest = command.slice(cd[0].length)
+    if (local === '.' && cd[2] && rest.trim()) return rest.trimStart()
+    const relative = local.startsWith('-') ? './' + local : local
+    const display = quoted ? operand[0] + relative + operand[0] : relative
+    return 'cd ' + display + (cd[2] ? ' && ' + rest : '')
 }
 
 export function recordedChanges(entries: Entry[]) {
