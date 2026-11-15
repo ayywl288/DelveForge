@@ -181,6 +181,41 @@ class WorkbenchDockerTest {
         }
     }
 
+    @Test
+    void mavenAndColdWrapperReadPersistentProjectHomeThroughTheProxy() throws Exception {
+        String project = id();
+        Path copy = Path.of(new ProjectWorkcopies(root().resolve("projects")).prepare(project, null));
+        Path repository = Path.of("").toAbsolutePath();
+        while (!Files.exists(repository.resolve(".mvn/wrapper/maven-wrapper.properties"))) {
+            repository = java.util.Objects.requireNonNull(repository.getParent(), "找不到仓库 Maven Wrapper");
+        }
+        Files.createDirectories(copy.resolve(".mvn/wrapper"));
+        Files.copy(repository.resolve(".mvn/wrapper/maven-wrapper.properties"),
+                copy.resolve(".mvn/wrapper/maven-wrapper.properties"));
+        Files.writeString(copy.resolve("mvnw"), Files.readString(repository.resolve("mvnw")).replace("\r\n", "\n"));
+        Files.writeString(copy.resolve("pom.xml"), """
+                <project><modelVersion>4.0.0</modelVersion><groupId>local</groupId>
+                <artifactId>home-check</artifactId><version>1</version></project>
+                """);
+        var run = new Workbench.Run(id(), id(), project, RunState.RUNNING, 1, false);
+        try (var env = new DockerDevelopmentEnvironment(root(), JSON, 180)) {
+            var result = execute(env, run, "Bash", Map.of("command", """
+                    set -euo pipefail
+                    java -XshowSettings:properties -version 2>&1 | grep -F "user.home = $HOME"
+                    mvn -B -X validate > effective.log 2>&1
+                    grep -F "Reading user settings from $HOME/.m2/settings.xml" effective.log
+                    grep -F "Using local repository at /state/cache/maven" effective.log
+                    test ! -d "$MAVEN_USER_HOME/wrapper/dists"
+                    MVNW_VERBOSE=true sh mvnw -v > wrapper.log 2>&1
+                    grep -F 'Apache Maven' wrapper.log
+                    test -d "$MAVEN_USER_HOME/wrapper/dists"
+                    mvn -B -Dmaven.repo.local="$HOME/cold" org.apache.maven.plugins:maven-clean-plugin:3.4.1:help > cold.log 2>&1
+                    grep 'Downloaded from central:.*maven-clean-plugin.*jar' cold.log
+                    """));
+            assertEquals(0, result.exit(), result.out() + result.err() + " " + copy);
+        }
+    }
+
     static Workbench store(Path db) {
         var ds = new SQLiteDataSource();
         ds.setUrl("jdbc:sqlite:" + db);

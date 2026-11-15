@@ -91,6 +91,10 @@ def run(ticket, tool, args):
             pass
     if tool != "Bash":
         return file_result(tool, args)
+    # JVM 在 Linux 上默认从 passwd 读取 /root；与 shell 共用项目 HOME 才能读取持久化的工具配置。
+    options = os.environ.get("JAVA_TOOL_OPTIONS", "")
+    os.environ["JAVA_TOOL_OPTIONS"] = (options + " -Duser.home=" + str(home)).strip()
+    os.environ.pop("MAVEN_CONFIG", None)
     command = ["/bin/bash", "-c", args["command"]]
     if len(args["command"].encode()) > 65536:
         script = os.memfd_create("delveforge-bash", flags=0)

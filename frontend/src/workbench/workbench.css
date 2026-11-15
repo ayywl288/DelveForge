@@ -1,3 +1,5 @@
+@import 'highlight.js/styles/github.css';
+
 * { box-sizing: border-box; }
 :root { font: 15px/1.55 "Segoe UI","Microsoft YaHei",sans-serif; color: #242a35; background: #f7f8fa; }
 body { margin: 0; }
@@ -8,7 +10,7 @@ button:disabled { opacity: .5; cursor: default; }
 button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid #8185ef; outline-offset: 2px; }
 button.primary { background: #5057ad; border-color: #5057ad; color: white; padding: .45rem 1.2rem; }
 button.primary:hover:enabled { background: #404690; }
-.workbench { display: grid; grid-template-columns: minmax(200px, 245px) minmax(0,1fr); min-height: 100dvh; }
+.workbench { display: grid; grid-template-columns: minmax(200px, 245px) minmax(0,1fr); height: 100dvh; }
 .rail { background: #20232d; color: #ecedf4; padding: 26px 18px; display: flex; flex-direction: column; align-self: start; min-height: 100dvh; position: sticky; top: 0; max-height: 100dvh; overflow: auto; }
 .wordmark { display: flex; align-items: center; gap: 10px; font-size: 21px; letter-spacing: -.6px; }
 .brand-symbol { width: 31px; height: 31px; stroke: #bfc0ff; stroke-width: 2; }
@@ -22,7 +24,7 @@ button.primary:hover:enabled { background: #404690; }
 .chat-item { font-size: 14px; }
 .environment-note { margin: auto 0 0; padding-top: 36px; color: #bfc2cf; font-size: 12px; }
 .mobile-toggle { display: none; }
-.desk { width: min(100%,970px); padding: 37px clamp(18px,5vw,82px); margin: 0 auto; display: flex; flex-direction: column; min-width: 0; }
+.desk { width: min(100%,1120px); padding: 24px clamp(18px,4vw,64px) 16px; margin: 0 auto; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .desk header { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
 .project-label { color: #5f6680; font-size: 13px; margin: 0 0 3px; }
 h1 { margin: 0; font-size: clamp(25px,3vw,37px); line-height: 1.2; overflow-wrap: anywhere; }
@@ -33,7 +35,14 @@ h1 { margin: 0; font-size: clamp(25px,3vw,37px); line-height: 1.2; overflow-wrap
 .workcopy button, .run-controls button, .tool-event button { font-size: 12px; padding: 3px 8px; }
 .notice { color: #3d6178; margin: 6px 0; font-size: 13px; }
 .error { color: #973e3e; }
-.run-state { flex-shrink: 0; color: #404969; font-size: 13px; }
+.run-overview { position: relative; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 12px; max-width: 55%; }
+.run-state { flex-shrink: 0; color: #404969; font-size: 13px; font-weight: 650; }
+.run-state[data-state=RUNNING], .run-state[data-state=COMPLETED] { color: #256750; }
+.run-state[data-state=PAUSED], .run-state[data-state=RECONCILING], .run-state[data-state=STOPPING] { color: #815a29; }
+.usage, .model-info { font-size: 12px; color: #50596c; font-variant-numeric: tabular-nums; }
+.model-info summary { cursor: pointer; }
+.model-info dl { position: absolute; top: 100%; right: 0; width: min(310px, 85vw); z-index: 3; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 5px 0; padding: 14px; border: 1px solid #cdd3df; border-radius: 7px; background: white; box-shadow: 0 5px 18px #20232d17; }
+.model-info dd { margin: 0; overflow-wrap: anywhere; color: #222939; }
 .run-state[data-state=BLOCKED], .run-state[data-state=FAILED] { color: #993d38; }
 .editor-form, .empty { margin-top: 30px; padding: 24px; background: #fff; border: 1px solid #dde0e8; border-radius: 9px; }
 .editor-form label { display: block; margin: 12px 0; }
@@ -41,27 +50,57 @@ h1 { margin: 0; font-size: clamp(25px,3vw,37px); line-height: 1.2; overflow-wrap
 .editor-form input, .composer textarea { display: block; width: 100%; margin-top: 5px; padding: 8px; border-radius: 4px; border: 1px solid #c8ccda; }
 .editor-form button { margin-right: 8px; }
 .transcript { list-style: none; margin: 0; padding: 0; }
+.conversation-scroll { flex: 1 1 0; min-height: 0; padding: 0 8px 14px 0; overflow: auto; scrollbar-gutter: stable; overscroll-behavior: contain; }
+.conversation-scroll:focus-visible { outline: 2px solid #8185ef; }
 .message, .tool-event { margin-top: 18px; overflow-wrap: anywhere; }
 .message strong, .tool-event summary, .composer label { font-size: 13px; }
-.message.user, .message.pending { border-left: 3px solid #a2a4d2; padding: 2px 0 2px 13px; }
+.message.user, .message.pending { background: #eceef6; width: fit-content; max-width: 90%; margin-left: auto; border-radius: 8px; padding: 7px 13px; }
 .message p { margin: 4px 0; white-space: pre-wrap; }
 .message details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 20rem; overflow: auto; }
 .tool-event details { padding: 8px 12px; border: 1px solid #dde1e9; border-radius: 5px; background: #f0f2f7; }
 .tool-event summary { cursor: pointer; }
 .tool-event summary span { margin-left: 10px; color: #566176; }
 .tool-event pre { white-space: pre-wrap; max-height: 20rem; overflow: auto; }
+.tool-event .stderr { border-left: 2px solid #a86b43; padding-left: 8px; }
+.live-tool { background: #f0f2f7; border: 1px solid #dde1e9; border-radius: 5px; padding: 8px 12px; }
 .transcript a { color: #434a9e; display: inline-block; margin-top: 6px; }
 .continue { align-self: flex-start; }
-.composer { margin-top: 20px; padding: 14px; background: white; border: 1px solid #b9bfd2; border-radius: 8px; }
-.composer textarea { border: 0; resize: vertical; min-height: 72px; background: #fff; padding: 6px 0; }
+.composer { flex: none; padding: 10px 14px; background: white; border: 1px solid #b9bfd2; border-radius: 8px; }
+.composer textarea { border: 0; resize: vertical; min-height: 40px; max-height: 22dvh; background: #fff; padding: 6px 0; }
 .composer div { display: flex; align-items: center; justify-content: space-between; }
+.composer .limit { margin-left: auto; margin-right: 12px; font-size: 12px; color: #515a6b; }
+.limit input, .run-controls input { width: 5.2em; padding: 2px 4px; border: 1px solid #c8ccda; border-radius: 4px; }
+.run-controls { padding: 5px 0; }
+.run-controls:empty { display: none; }
+.jump { margin-left: auto; }
+.markdown { line-height: 1.65; }
+.markdown p { white-space: normal; margin: .45em 0; }
+.markdown :is(h1,h2,h3,h4,h5,h6) { margin: .85em 0 .25em; line-height: 1.35; }
+.markdown h1 { font-size: 1.45rem; }
+.markdown h2 { font-size: 1.22rem; }
+.markdown strong { font-size: inherit; }
+.markdown :is(ol,ul) { padding-left: 1.65em; }
+.markdown a { display: inline; margin: 0; }
+.markdown code { font-family: Consolas, monospace; font-size: .92em; }
+.markdown :not(pre) > code { background: #e8ebf2; padding: .08em .28em; border-radius: 3px; }
+.markdown table { display: block; overflow-x: auto; border-collapse: collapse; margin: .75em 0; }
+.markdown :is(th,td) { border: 1px solid #d6dce6; padding: .25em .65em; text-align: left; }
+.markdown th, .code-heading { background: #edf0f6; }
+.code-block { border: 1px solid #d6dce6; border-radius: 6px; overflow: hidden; margin: .8em 0; background: #fff; }
+.code-heading { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; font-size: 12px; color: #50596c; }
+.code-heading button { font-size: 12px; padding: 2px 7px; }
+.markdown pre { margin: 0; padding: 12px; overflow: auto; max-height: 24rem; line-height: 1.5; tab-size: 4; }
 @media (max-width: 720px) {
-    .workbench { display: block; }
+    .workbench { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); }
     .rail { display: grid; grid-template-columns: 1fr auto; align-items: center; min-height: 0; padding: 10px 16px; position: static; max-height: none; }
     .rail nav { display: none; grid-column: 1/-1; }
-    .rail[data-mobile-open=true] nav { display: block; }
+    .rail[data-mobile-open=true] nav { display: block; max-height: 40dvh; overflow: auto; }
     .rail .environment-note { grid-column: 1/-1; padding-top: 3px; }
     .rail .environment-note br { display: none; }
     .mobile-toggle { display: inline-block; font-size: 13px; padding: 4px 8px; }
-    .desk { padding: 20px 16px; }
+    .desk { padding: 10px 12px; }
+    .desk header { align-items: flex-start; }
+    .workcopy { padding: 5px 0; }
+    .composer { padding: 6px 10px; }
+    .composer textarea { height: 48px; }
 }

@@ -47,9 +47,17 @@ public interface Workbench {
 
     List<Map<String, Object>> conversations(String project);
 
-    Ack receive(String conversation, String requestId, String text, int allowance);
+    default Ack receive(String conversation, String requestId, String text, int defaultLimit) {
+        return receive(conversation, requestId, text, defaultLimit, null);
+    }
 
-    String start(String conversation, int allowance);
+    Ack receive(String conversation, String requestId, String text, int defaultLimit, Integer requestLimit);
+
+    default String start(String conversation, int allowance) {
+        return start(conversation, allowance, null);
+    }
+
+    String start(String conversation, int defaultLimit, Integer newLimit);
 
     Run run(String id);
 
@@ -80,6 +88,8 @@ public interface Workbench {
     void state(String run, RunState state, String detail);
 
     void usage(String run, long tokens);
+
+    void modelAttempts(String run, boolean compaction, List<Map<String, Object>> attempts);
 
     boolean summarize(String conversation, long expectedVersion, long through, String summary);
 

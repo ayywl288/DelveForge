@@ -45,7 +45,7 @@ public final class ConversationAgent implements AutoCloseable {
         this.model = model;
         this.context = context;
         this.json = json;
-        this.allowance = allowance;
+        this.allowance = requestLimit(allowance);
     }
 
     public String project(String name, String source) {
@@ -67,9 +67,25 @@ public final class ConversationAgent implements AutoCloseable {
     }
 
     public Workbench.Ack receive(String conversation, String request, String text) {
+        return receive(conversation, request, text, null);
+    }
+
+    public int defaultRequestLimit() {
+        return allowance;
+    }
+
+    private static int requestLimit(int limit) {
+        if (limit < 1 || limit > 10000) {
+            throw new WorkbenchRejection(WorkbenchRejection.Kind.INVALID, "任务请求总上限须在 1 到 10000 之间");
+        }
+        return limit;
+    }
+
+    public Workbench.Ack receive(String conversation, String request, String text, Integer limit) {
         var ack =
                 store.receive(
-                        conversation, required(request, 120), required(text, 64000), allowance);
+                        conversation, required(request, 120), required(text, 64000),
+                        allowance, limit == null ? null : requestLimit(limit));
         if (ack.newlyStarted()) {
             schedule(ack.runId(), false);
         }
@@ -77,7 +93,11 @@ public final class ConversationAgent implements AutoCloseable {
     }
 
     public String start(String conversation) {
-        String id = store.start(conversation, allowance);
+        return start(conversation, null);
+    }
+
+    public String start(String conversation, Integer limit) {
+        String id = store.start(conversation, allowance, limit == null ? null : requestLimit(limit));
         schedule(id, false);
         return id;
     }

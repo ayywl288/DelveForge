@@ -4,7 +4,9 @@ import App from '../src/App.vue'
 
 const projects = [{ id: 'p', name: '本机项目', workcopy: 'D:\\projects\\p', state: 'READY', detail: null }]
 const conversations = [{ id: 'c1', title: '第一次调查', project_id: 'p' }, { id: 'c2', title: '后续调整', project_id: 'p' }]
-const feed = { messages: [], runs: [{ id: 'r1', state: 'RUNNING', requests: 1, allowance: 5 }] }
+const feed = { messages: [], runs: [{ id: 'r1', state: 'RUNNING', requests: 1, allowance: 5, tokens: 12 }] }
+const settings = { model: { adapter: '测试适配器', endpoint: 'https://example.org', requestedModel: 'fixture-model', thinking: 'HIGH' },
+    contextWindowTokens: 10000, responseTokens: 500, commandSeconds: 30, defaultRequestLimit: 96 }
 const dispose: (() => void)[] = []
 afterEach(() => dispose.splice(0).forEach(f => f()))
 
@@ -12,7 +14,7 @@ async function settle() { for (let i = 0; i < 18; i++) { await Promise.resolve()
 function mount(post?: (url: string, body: Record<string, string>) => unknown) {
     const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
         if (options?.method === 'POST') return new Response(JSON.stringify(post?.(url, JSON.parse(String(options.body))) || {}))
-        return new Response(JSON.stringify(url.endsWith('/projects') ? projects : url.endsWith('/conversations') ? conversations : feed))
+        return new Response(JSON.stringify(url.endsWith('/settings') ? settings : url.endsWith('/projects') ? projects : url.endsWith('/conversations') ? conversations : feed))
     })
     vi.stubGlobal('fetch', fetcher)
     const root = document.createElement('div'); document.body.append(root)
@@ -26,6 +28,8 @@ it('刷新只恢复选中的项目和对话，不触发 Run', async () => {
     expect(root.querySelector('h1')?.textContent).toBe('后续调整')
     expect(root.querySelector('.workcopy')?.textContent).toContain('D:\\projects\\p')
     expect(root.textContent).toContain('同一时间运行一个前台 Run')
+    expect(root.querySelector('.model-info')?.textContent).toContain('fixture-model')
+    expect(root.querySelector('.usage')?.textContent).toContain('已报告 12 tokens')
     expect(fetcher.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true)
 })
 

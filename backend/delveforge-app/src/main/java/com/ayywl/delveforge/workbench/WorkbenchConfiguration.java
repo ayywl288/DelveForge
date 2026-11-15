@@ -111,10 +111,8 @@ public class WorkbenchConfiguration {
             AgentTokenCounter counter,
             AgentContextBudget budget,
             ObjectMapper json,
-            @Value("${delveforge.workbench.requests-per-continuation:24}") int allowance) {
-        if (allowance < 1) {
-            throw new IllegalArgumentException("每段模型请求预算必须为正");
-        }
+            @Value("${delveforge.workbench.requests-per-run:${delveforge.workbench.requests-per-continuation:96}}")
+            int allowance) {
         return new ConversationAgent(
                 store,
                 files,

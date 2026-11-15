@@ -251,7 +251,8 @@ class WorkbenchIntegrationTest {
                 1);
         var ack = agent.receive(conversation, "key", "task");
         await(() -> store.run(ack.runId()).state() == RunState.PAUSED);
-        assertEquals(ack.runId(), agent.start(conversation));
+        assertThrows(WorkbenchRejection.class, () -> agent.start(conversation));
+        assertEquals(ack.runId(), agent.start(conversation, 2));
         await(() -> store.run(ack.runId()).state() == RunState.COMPLETED);
         assertEquals(1, guest.executions.get());
         assertTrue(store.owners().isEmpty());
@@ -259,6 +260,47 @@ class WorkbenchIntegrationTest {
         store.stop(next.runId());
         agent.recover(next.runId());
         await(() -> store.run(next.runId()).state() == RunState.STOPPED);
+    }
+
+    @Test
+    void wholeTaskLimitSurvivesQueuingAndPassesTwentyFourWithoutContinuation() throws Exception {
+        var turns = new AtomicInteger();
+        var guest = new Guest();
+        agent((messages, tools) -> {
+            int turn = turns.incrementAndGet();
+            return turn == 27 ? finalText("完成")
+                    : new AgentProtocol.Reply("", List.of(tool("call-" + turn)), 1L, null, "r");
+        }, guest, 2);
+        String occupied = store.receive(conversation, "active", "先占用", 2).runId();
+        String queued = store.conversation(project, "排队的任务");
+        assertNull(agent.receive(queued, "key", "处理整个任务", 27).runId());
+        assertThrows(WorkbenchRejection.class, () -> agent.receive(queued, "key", "处理整个任务", 28));
+        store.state(occupied, RunState.COMPLETED, "完成");
+        String run = agent.start(queued);
+        await(() -> store.run(run).state() == RunState.COMPLETED);
+        var usage = store.runs(queued).getFirst();
+        assertEquals(27, usage.get("requests"));
+        assertEquals(27, usage.get("tokens"));
+        assertEquals(27, usage.get("allowance"));
+        assertEquals(26, guest.executions.get());
+    }
+
+    @Test
+    void systemMessageUsesCurrentAdapterMetadataEvenWithPreviousIdentityClaims() {
+        var model = new AgentModelPort() {
+            public Identity identity() {
+                return new Identity("fixture-adapter", "https://model.example", "changeable-id", "MAX");
+            }
+            public AgentProtocol.Reply call(List<AgentProtocol.Message> messages, List<AgentProtocol.ToolSpec> tools) {
+                throw new AssertionError("构造系统消息无需发出请求");
+            }
+        };
+        var run = store.receive(conversation, "id", "此前答复称自己来自其他提供方", 2);
+        var context = new ConversationContext(store, model, (m, t) -> 10, new AgentContextBudget(10000, 200, .9));
+        String system = context.build(store.next(run.runId())).getFirst().text();
+        for (String fact : List.of("fixture-adapter", "https://model.example", "changeable-id", "MAX", "无法在本地独立核实")) {
+            assertTrue(system.contains(fact));
+        }
     }
 
     @Test

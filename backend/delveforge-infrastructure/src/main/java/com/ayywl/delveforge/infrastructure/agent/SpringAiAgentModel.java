@@ -15,6 +15,7 @@ import org.springframework.ai.deepseek.api.DeepSeekApi;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,7 +28,7 @@ public final class SpringAiAgentModel implements AgentModelPort {
     private final DeepSeekProperties properties;
     private final int responseTokens;
     private final Thinking thinking;
-    private final ThreadLocal<BooleanSupplier> retryAdmission = new ThreadLocal<>();
+    private final ThreadLocal<BooleanSupplier> requestAdmission = new ThreadLocal<>();
     private final ThreadLocal<List<java.util.Map<String, Object>>> diagnostics = ThreadLocal.withInitial(ArrayList::new);
 
     public SpringAiAgentModel(DeepSeekProperties properties, int responseTokens) {
@@ -61,8 +62,8 @@ public final class SpringAiAgentModel implements AgentModelPort {
                         if (Thread.currentThread().isInterrupted()) {
                             throw new AgentException("CANCELLED", "Model request cancelled");
                         }
-                        if (attempt > 1 && retryAdmission.get() != null && !retryAdmission.get().getAsBoolean()) {
-                            throw new AgentException("REQUEST_NOT_ADMITTED", "模型重试未获准入");
+                        if (requestAdmission.get() != null && !requestAdmission.get().getAsBoolean()) {
+                            throw new AgentException("REQUEST_NOT_ADMITTED", "模型请求未获准入");
                         }
                         long started = System.nanoTime();
                         try {
@@ -96,13 +97,22 @@ public final class SpringAiAgentModel implements AgentModelPort {
     }
 
     @Override
+    public Identity identity() {
+        // 仅公开服务端点的来源，反向代理路径、用户信息及查询参数可能含凭据。
+        URI base = URI.create(properties.baseUrl());
+        String origin = base.getScheme() + "://" + base.getHost()
+                + (base.getPort() < 0 ? "" : ":" + base.getPort());
+        return new Identity("DeepSeek", origin, properties.model(), thinking.name());
+    }
+
+    @Override
     public AgentProtocol.Reply call(List<AgentProtocol.Message> history, List<AgentProtocol.ToolSpec> tools,
-            BooleanSupplier admitRetry) {
-        retryAdmission.set(admitRetry);
+            BooleanSupplier admitRequest) {
+        requestAdmission.set(admitRequest);
         try {
             return call(history, tools);
         } finally {
-            retryAdmission.remove();
+            requestAdmission.remove();
         }
     }
 

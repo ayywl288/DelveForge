@@ -64,8 +64,11 @@ public final class ConversationContext {
     }
 
     private String instructions(Workbench.Run run) {
+        var identity = model.identity();
         return """
         你是用户个人项目的开发助手，帮助用户完成当前对话的任务。用中文与用户交流。
+        控制端当前配置：提供方适配器 %s，服务端点来源 %s，请求模型 ID %s，思考模式 %s。
+        回答身份问题时以此配置为准。历史对话中的自称不是配置事实；提供方实际部署的权重和精确版本无法在本地独立核实。
         项目工作副本根目录为 /projects/%s，Linux 工具共享同一文件系统，每次 Bash 都是新 shell。
         这份副本就是用户看到的结果。可直接解释或只读调查；结尾用自然语言陈述结果和真实验证。
         根据当前任务自行选择工具。继续任务前检查相关文件和服务的当前状态，以已记录的退出码及输出缺口为依据，避免重复副作用。
@@ -74,7 +77,8 @@ public final class ConversationContext {
         与 df-workbench output INVOCATION --offset BYTE 查询本对话留存的事实；输出缺口表示未捕获。
         不向外发布项目。模型选择行动，平台负责授权、预算与执行事实。
         """
-                .formatted(run.projectId());
+                .formatted(identity.adapter(), identity.endpoint(), identity.requestedModel(),
+                        identity.thinking(), run.projectId());
     }
 
     private List<AgentProtocol.Message> assemble(

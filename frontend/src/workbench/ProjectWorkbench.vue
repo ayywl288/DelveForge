@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import BrandSymbol from '../components/BrandSymbol.vue'
 import Transcript from './Transcript.vue'
-import { request, stateText, type Ack, type Conversation, type Feed, type Project } from './api'
+import { request, stateText, type Ack, type Conversation, type Feed, type Project, type RuntimeSettings } from './api'
 
 const projects = ref<Project[]>([]), conversations = ref<Conversation[]>([])
 const projectId = ref(''), conversationId = ref('')
@@ -13,10 +13,24 @@ const pending = ref(false), error = ref(''), notice = ref(''), composer = ref<HT
 const project = computed(() => projects.value.find(p => p.id === projectId.value))
 const conversation = computed(() => conversations.value.find(c => c.id === conversationId.value))
 const run = computed(() => feed.value.runs[0])
+const settings = ref<RuntimeSettings>()
+const limit = ref<number | ''>('')
+const exhausted = computed(() => run.value?.state === 'PAUSED' && run.value.requests >= run.value.allowance)
+const scrollArea = ref<HTMLElement>()
+const following = ref(true)
+function trackScroll() {
+    const area = scrollArea.value
+    if (area) following.value = area.scrollHeight - area.clientHeight - area.scrollTop < 48
+}
+function latest() {
+    const area = scrollArea.value
+    if (area) area.scrollTop = area.scrollHeight
+    following.value = true
+}
 const active = computed(() => !!run.value && ['RUNNING','STOPPING','RECONCILING','BLOCKED'].includes(run.value.state))
 const selectionKey = 'delveforge.workbench.selection'
 const drafts = new Map<string, string>()
-const outgoing = new Map<string, { text: string; id: string }>()
+const outgoing = new Map<string, { text: string; id: string; requestLimit?: number }>()
 let timer: ReturnType<typeof setTimeout> | undefined
 let epoch = 0, feedVersion = 0, disposed = false
 
@@ -26,11 +40,17 @@ async function refresh() {
     const id = conversationId.value, turn = ++feedVersion
     if (!id) return
     const result = await request<Feed>('/conversations/' + id)
-    if (!disposed && id === conversationId.value && turn === feedVersion) feed.value = result
+    if (!disposed && id === conversationId.value && turn === feedVersion) {
+        feed.value = result
+        await nextTick()
+        if (id === conversationId.value && following.value) latest()
+    }
 }
 async function selectConversation(id: string) {
     if (conversationId.value) drafts.set(conversationId.value, draft.value)
     conversationId.value = id; draft.value = drafts.get(id) || ''; feed.value = { messages: [], runs: [] }
+    following.value = true
+    limit.value = ''
     notice.value = ''; error.value = ''; mobileNav.value = false; panel.value = ''; remember()
     try { await refresh() } catch (e) { tell(e) }
 }
@@ -57,7 +77,12 @@ async function poll() {
     try { await refresh() } catch (e) { if (!disposed) tell(e) }
     if (!disposed) timer = setTimeout(poll, active.value ? 800 : 2500)
 }
-onMounted(async () => { try { await load() } catch (e) { tell(e) } if (!disposed) timer = setTimeout(poll, 800) })
+onMounted(async () => {
+    const meta = request<RuntimeSettings>('/settings').then(value => { settings.value = value }).catch(tell)
+    try { await load() } catch (e) { tell(e) }
+    await meta
+    if (!disposed) timer = setTimeout(poll, 800)
+})
 onUnmounted(() => { disposed = true; clearTimeout(timer) })
 async function action(f: () => Promise<void>) {
     if (pending.value) return
@@ -84,12 +109,16 @@ function send() {
     if (!id || !text) return
     return action(async () => {
         const old = outgoing.get(id)
-        const delivery = old?.text === text ? old : { text, id: crypto.randomUUID() }
+        const requestLimit = !active.value && run.value?.state !== 'PAUSED' && typeof limit.value === 'number'
+            ? limit.value : undefined
+        const delivery = old?.text === text ? old : { text, id: crypto.randomUUID(), requestLimit }
         outgoing.set(id, delivery)
-        const ack = await request<Ack>('/conversations/' + id + '/messages', { requestId: delivery.id, text })
+        const ack = await request<Ack>('/conversations/' + id + '/messages',
+            { requestId: delivery.id, text, requestLimit: delivery.requestLimit })
         outgoing.delete(id)
         if (conversationId.value !== id) { if (drafts.get(id)?.trim() === text) drafts.delete(id); return }
         if (draft.value.trim() === text) draft.value = ''
+        if (delivery.requestLimit !== undefined) limit.value = ''
         notice.value = ack.runId ? '消息已保存' : '消息已保存，等待此对话继续'
         await refresh(); await nextTick(); composer.value?.focus()
     })
@@ -97,7 +126,10 @@ function send() {
 function control(op: 'stop' | 'reconcile' | 'continue') {
     return action(async () => {
         const path = op === 'continue' ? '/conversations/' + conversationId.value + '/continue' : '/runs/' + run.value!.id + '/' + op
-        await request(path, {}); await refresh()
+        const body = op === 'continue' && typeof limit.value === 'number' ? { requestLimit: limit.value } : {}
+        await request(path, body)
+        if (op === 'continue') limit.value = ''
+        await refresh()
     })
 }
 async function copyPath() {
@@ -122,7 +154,19 @@ async function copyPath() {
         </aside>
         <main class="desk">
             <header><div><p class="project-label">{{ project?.name || '项目工作台' }}</p><h1>{{ conversation?.title || (project ? '项目对话' : '打开你的项目') }}</h1></div>
-                <span v-if="run" class="run-state" :data-state="run.state">{{ stateText[run.state] || run.state }}</span></header>
+                <div class="run-overview">
+                    <span v-if="run" class="run-state" :data-state="run.state">{{ stateText[run.state] || run.state }}</span>
+                    <span v-if="run" class="usage">模型请求 {{ run.requests }} / {{ run.allowance }} · 已报告 {{ run.tokens.toLocaleString() }} tokens</span>
+                    <details v-if="settings?.model" class="model-info">
+                        <summary>{{ settings.model.requestedModel }} · 模型配置</summary>
+                        <dl><dt>适配器</dt><dd>{{ settings.model.adapter }}</dd><dt>端点来源</dt><dd>{{ settings.model.endpoint }}</dd>
+                            <dt>请求模型 ID</dt><dd>{{ settings.model.requestedModel }}</dd><dt>思考模式</dt><dd>{{ settings.model.thinking }}</dd>
+                            <dt>单次上下文</dt><dd>{{ settings.contextWindowTokens.toLocaleString() }} tokens</dd>
+                            <dt>单次输出预留</dt><dd>{{ settings.responseTokens.toLocaleString() }} tokens</dd>
+                            <dt>命令超时</dt><dd>{{ settings.commandSeconds }} 秒</dd><dt>默认任务上限</dt><dd>{{ settings.defaultRequestLimit }} 次请求</dd>
+                            <dt>实际费用</dt><dd>以提供方账单为准</dd></dl>
+                    </details>
+                </div></header>
             <div v-if="project?.workcopy" class="workcopy"><code tabindex="0">{{ project.workcopy }}</code><button @click="copyPath">复制路径</button><button @click="action(() => request<void>('/projects/' + projectId + '/open', {}))">打开文件夹</button></div>
             <p v-if="error" class="notice error" role="alert">{{ error }}</p><p v-if="notice" class="notice" role="status">{{ notice }}</p>
             <form v-if="panel === 'project'" class="editor-form" @submit.prevent="createProject">
@@ -140,19 +184,35 @@ async function copyPath() {
                 <button class="primary" @click="panel = project ? 'conversation' : 'project'">{{ project ? '新建对话' : '新建或导入项目' }}</button>
             </section>
             <template v-else>
-                <Transcript :conversation="conversationId" :messages="feed.messages" />
-                <section v-for="tool in feed.activeTools" :key="tool.id" class="tool-event"><strong>{{ tool.name }} · 执行中</strong>
-                    <pre v-if="tool.frames.length">{{ tool.frames.map(f => '[' + f.channel + '] ' + f.text).join('') }}</pre>
+                <section ref="scrollArea" class="conversation-scroll" aria-label="对话记录" tabindex="0" @scroll.passive="trackScroll">
+                    <Transcript :conversation="conversationId" :messages="feed.messages" />
+                    <details v-for="tool in feed.activeTools" :key="tool.id" class="tool-event live-tool">
+                        <summary>{{ tool.name }} · 执行中</summary>
+                        <pre v-if="tool.frames.length">{{ tool.frames.map(f => '[' + f.channel + '] ' + f.text).join('') }}</pre>
+                        <p v-else>等待命令输出</p>
+                    </details>
                 </section>
-                <div v-if="run" class="run-controls"><span>模型请求 {{ run.requests }} / {{ run.allowance }} · 已报告 {{ run.tokens }} tokens</span>
+                <div class="run-controls">
+                    <button v-if="!following" class="jump" @click="latest">回到最新 ↓</button>
+                    <template v-if="run">
                     <span v-if="run.detail">{{ run.detail }}</span>
                     <button v-if="active && run.state !== 'STOPPING'" :disabled="pending" @click="control('stop')">停止 Run</button>
                     <button v-if="run.state === 'BLOCKED'" :disabled="pending" @click="control('reconcile')">重新核对执行</button>
+                    </template>
+                    <template v-if="!active && (run?.state === 'PAUSED' || feed.messages.some(m => m.role === 'pending'))">
+                        <label v-if="run?.state === 'PAUSED'">任务请求总上限
+                            <input v-model.number="limit" type="number" :min="exhausted ? run.requests + 1 : run.allowance" max="10000" :placeholder="String(run.allowance)">
+                        </label>
+                        <button class="continue" :disabled="pending || (exhausted && (!limit || limit <= (run?.requests || 0)))" @click="control('continue')">继续此对话</button>
+                    </template>
                 </div>
-                <button v-if="!active && (run?.state === 'PAUSED' || feed.messages.some(m => m.role === 'pending'))" class="continue" :disabled="pending" @click="control('continue')">继续此对话</button>
                 <form class="composer" @submit.prevent="send"><label for="task">{{ active ? '补充或纠正当前任务' : '给 DelveForge 的消息' }}</label>
                     <textarea id="task" ref="composer" v-model="draft" rows="3" maxlength="64000" placeholder="描述任务，或询问项目中的代码…" @keydown.ctrl.enter.prevent="send" />
-                    <div><small>Ctrl + Enter</small><button class="primary" :disabled="pending || !draft.trim()">发送</button></div>
+                    <div><small>Ctrl + Enter</small>
+                        <label v-if="!active && run?.state !== 'PAUSED'" class="limit">任务请求上限
+                            <input v-model.number="limit" type="number" min="1" max="10000" :placeholder="String(settings?.defaultRequestLimit ?? '')">
+                        </label>
+                        <button class="primary" :disabled="pending || !draft.trim()">发送</button></div>
                 </form>
             </template>
         </main>

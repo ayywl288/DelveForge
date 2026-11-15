@@ -1,9 +1,12 @@
 package com.ayywl.delveforge.workbench;
 
+import com.ayywl.delveforge.application.agent.AgentContextBudget;
+import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.workbench.ConversationAgent;
 import com.ayywl.delveforge.application.workbench.Workbench;
 import com.ayywl.delveforge.application.workbench.WorkbenchRejection;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -26,14 +29,31 @@ public final class WorkbenchController {
 
     public record Title(String title) {}
 
-    public record Message(String requestId, String text) {}
+    public record Message(String requestId, String text, Integer requestLimit) {}
+
+    public record Continue(Integer requestLimit) {}
 
     private final Workbench store;
     private final ConversationAgent agent;
 
-    public WorkbenchController(Workbench store, ConversationAgent agent) {
+    private final AgentModelPort model;
+    private final AgentContextBudget context;
+    private final int commandSeconds;
+
+    public WorkbenchController(Workbench store, ConversationAgent agent, AgentModelPort model,
+            AgentContextBudget context, @Value("${delveforge.workbench.command-seconds:300}") int commandSeconds) {
         this.store = store;
         this.agent = agent;
+        this.model = model;
+        this.context = context;
+        this.commandSeconds = commandSeconds;
+    }
+
+    @GetMapping("/settings")
+    public Map<String, Object> settings() {
+        return Map.of("model", model.identity(), "defaultRequestLimit", agent.defaultRequestLimit(),
+                "contextWindowTokens", context.contextWindowTokens(), "responseTokens", context.responseTokens(),
+                "commandSeconds", commandSeconds);
     }
 
     @GetMapping("/health")
@@ -82,12 +102,12 @@ public final class WorkbenchController {
     @PostMapping("/conversations/{id}/messages")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Workbench.Ack receive(@PathVariable String id, @RequestBody Message input) {
-        return agent.receive(id, input.requestId(), input.text());
+        return agent.receive(id, input.requestId(), input.text(), input.requestLimit());
     }
 
     @PostMapping("/conversations/{id}/continue")
-    public Map<String, String> resume(@PathVariable String id) {
-        return Map.of("id", agent.start(id));
+    public Map<String, String> resume(@PathVariable String id, @RequestBody(required = false) Continue options) {
+        return Map.of("id", agent.start(id, options == null ? null : options.requestLimit()));
     }
 
     @PostMapping("/runs/{id}/stop")

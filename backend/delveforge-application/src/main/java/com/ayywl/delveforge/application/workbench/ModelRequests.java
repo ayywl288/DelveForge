@@ -1,5 +1,6 @@
 package com.ayywl.delveforge.application.workbench;
 
+import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
@@ -17,9 +18,6 @@ final class ModelRequests {
             String run,
             List<AgentProtocol.Message> messages,
             List<AgentProtocol.ToolSpec> tools) {
-        if (!store.requestModel(run)) {
-            return Optional.empty();
-        }
         try {
             var reply = model.call(messages, tools, () -> store.requestModel(run));
             Long reported = reply.usage() == null ? reply.tokens() : reply.usage().totalTokens();
@@ -32,6 +30,13 @@ final class ModelRequests {
                 store.usage(run, failure.response().reportedTokens());
             }
             throw failure;
+        } catch (AgentException failure) {
+            if ("REQUEST_NOT_ADMITTED".equals(failure.code())) {
+                return Optional.empty();
+            }
+            throw failure;
+        } finally {
+            store.modelAttempts(run, tools.isEmpty(), model.drainDiagnostics());
         }
     }
 }

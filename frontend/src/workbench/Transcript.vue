@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import AssistantMarkdown from './AssistantMarkdown.vue'
 import { previews, proposedTools, receipt, request, type Message, type OutputPage } from './api'
 
 const props = defineProps<{ conversation: string; messages: Message[] }>()
@@ -44,7 +45,9 @@ async function readOutput(id?: string) {
                 <details><summary><strong>{{ m.tool_name }}</strong>
                     <span>{{ receipt(m).notStarted ? '未开始' : receipt(m).exit == null ? '退出状态未知' : '退出码 ' + receipt(m).exit }}</span>
                     <span v-if="receipt(m).outputGap">部分输出未捕获</span></summary>
-                    <p>{{ receipt(m).detail }}</p><pre v-if="receipt(m).stdout || receipt(m).stderr">{{ receipt(m).stdout }}{{ receipt(m).stderr }}</pre>
+                    <p>{{ receipt(m).detail }}</p>
+                    <pre v-if="receipt(m).stdout" aria-label="标准输出">{{ receipt(m).stdout }}</pre>
+                    <pre v-if="receipt(m).stderr" aria-label="标准错误" class="stderr">{{ receipt(m).stderr }}</pre>
                     <p v-if="receipt(m).displayTruncated">这里只显示了部分已捕获输出。</p>
                     <button v-if="receipt(m).capturedBytes" type="button" @click="readOutput(receipt(m).invocation)">查看已捕获输出</button>
                     <template v-for="(log, id) in outputs" :key="id"><template v-if="id === receipt(m).invocation">
@@ -55,7 +58,8 @@ async function readOutput(id?: string) {
             </li>
             <li v-else-if="m.text || proposedTools(m).length" :class="['message', m.role]">
                 <strong>{{ m.role === 'assistant' ? 'DelveForge' : m.role === 'pending' ? '你 · 已接收，待处理' : '你' }}</strong>
-                <p v-if="m.text">{{ m.text }}</p>
+                <AssistantMarkdown v-if="m.role === 'assistant' && m.text" :text="m.text" />
+                <p v-else-if="m.text">{{ m.text }}</p>
                 <details v-for="call in proposedTools(m)" :key="call.id"><summary>{{ call.name }} · 调用参数</summary>
                     <pre>{{ call.arguments }}</pre>
                 </details>

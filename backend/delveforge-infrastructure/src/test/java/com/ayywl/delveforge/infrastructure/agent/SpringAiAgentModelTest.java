@@ -94,6 +94,11 @@ class SpringAiAgentModelTest {
         assertEquals("enabled", request.path("thinking").path("type").asText());
         assertEquals("high", request.path("reasoning_effort").asText());
         assertEquals("fixture-model", request.path("model").asText());
+        var identity = model.identity();
+        assertEquals("DeepSeek", identity.adapter());
+        assertEquals("http://127.0.0.1:" + server.getAddress().getPort(), identity.endpoint());
+        assertEquals(request.path("model").asText(), identity.requestedModel());
+        assertEquals("HIGH", identity.thinking());
         assertEquals(65536, request.path("max_tokens").asInt());
     }
 
@@ -278,7 +283,7 @@ class SpringAiAgentModelTest {
         status = 503;
         retryAfter = "0";
         var failure = assertThrows(com.ayywl.delveforge.application.agent.AgentException.class,
-                () -> model.call(history(), AgentTools.definitions(), () -> false));
+                () -> model.call(history(), AgentTools.definitions(), requests::isEmpty));
         assertEquals("REQUEST_NOT_ADMITTED", failure.code());
         assertEquals(1, requests.size());
     }

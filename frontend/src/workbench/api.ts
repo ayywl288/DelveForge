@@ -4,6 +4,13 @@ export interface Run { id: string; state: string; detail: string | null; request
 export interface Message { seq: number; role: string; text: string | null; calls: string; tool_name: string | null; provider_id: string | null; recorded_at: string }
 export interface Feed { messages: Message[]; runs: Run[]; activeTools?: { id: string; name: string; frames: { channel: string; text: string }[] }[] }
 export interface Ack { sequence: number; runId: string | null; newlyStarted: boolean }
+export interface RuntimeSettings {
+    model: { adapter: string; endpoint: string; requestedModel: string; thinking: string }
+    defaultRequestLimit: number
+    contextWindowTokens: number
+    responseTokens: number
+    commandSeconds: number
+}
 export interface OutputPage { chunks: { channel: string; base64: string }[]; bytes: number; next: number; gap: boolean }
 export interface Receipt { invocation?: string; stdout?: string; stderr?: string; exit?: number | null; capturedBytes?: number; displayTruncated?: boolean; outputGap?: boolean; detail?: string; notStarted?: boolean }
 

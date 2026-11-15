@@ -185,26 +185,28 @@ public final class SqliteWorkbench implements Workbench {
     }
 
     @Override
-    public Ack receive(String conversation, String requestId, String text, int allowance) {
+    public Ack receive(String conversation, String requestId, String text, int defaultLimit, Integer requestLimit) {
         return tx(
                 () -> {
                     String project = projectOf(conversation);
                     int added =
                             jdbc.update(
-                                    "INSERT INTO input(conversation_id,request_id,text,accepted_at)"
-                                        + " VALUES(?,?,?,?) ON CONFLICT(conversation_id,request_id)"
+                                    "INSERT INTO input(conversation_id,request_id,text,accepted_at,request_limit)"
+                                        + " VALUES(?,?,?,?,?) ON CONFLICT(conversation_id,request_id)"
                                         + " DO NOTHING",
                                     conversation,
                                     requestId,
                                     text,
-                                    now());
+                                    now(),
+                                    requestLimit);
                     var accepted =
                             jdbc.queryForMap(
-                                    "SELECT seq,text,acknowledged_run FROM input WHERE"
+                                    "SELECT seq,text,acknowledged_run,request_limit FROM input WHERE"
                                             + " conversation_id=? AND request_id=?",
                                     conversation,
                                     requestId);
-                    if (!text.equals(accepted.get("text"))) {
+                    if (!text.equals(accepted.get("text"))
+                            || !java.util.Objects.equals(requestLimit, accepted.get("request_limit"))) {
                         throw new WorkbenchRejection(Kind.BUSY, "同一消息 ID 已用于不同内容");
                     }
                     long seq = ((Number) accepted.get("seq")).longValue();
@@ -226,14 +228,14 @@ public final class SqliteWorkbench implements Workbench {
                             > 0) {
                         return new Ack(seq, null, false);
                     }
-                    String run = newRun(conversation, project, allowance);
+                    String run = newRun(conversation, project, pendingLimit(conversation, defaultLimit));
                     jdbc.update("UPDATE input SET acknowledged_run=? WHERE seq=?", run, seq);
                     return new Ack(seq, run, true);
                 });
     }
 
     @Override
-    public String start(String conversation, int allowance) {
+    public String start(String conversation, int defaultLimit, Integer newLimit) {
         return tx(
                 () -> {
                     String project = projectOf(conversation);
@@ -242,15 +244,21 @@ public final class SqliteWorkbench implements Workbench {
                     }
                     var paused =
                             jdbc.queryForList(
-                                    "SELECT id FROM run WHERE conversation_id=? AND state='PAUSED'",
-                                    String.class,
+                                    "SELECT id,requests,allowance FROM run WHERE conversation_id=? AND state='PAUSED'",
                                     conversation);
                     if (!paused.isEmpty()) {
-                        String id = paused.getFirst();
+                        var row = paused.getFirst();
+                        String id = (String) row.get("id");
+                        int used = ((Number) row.get("requests")).intValue();
+                        int previous = ((Number) row.get("allowance")).intValue();
+                        int limit = newLimit == null ? previous : newLimit;
+                        if (limit < previous || limit <= used) {
+                            throw new WorkbenchRejection(Kind.BUSY, "请提高本任务的请求总上限后继续。已使用 " + used + " 次");
+                        }
                         jdbc.update(
-                                "UPDATE run SET state='RUNNING',detail=NULL,allowance=requests+?"
+                                "UPDATE run SET state='RUNNING',detail=NULL,allowance=?"
                                         + " WHERE id=?",
-                                allowance,
+                                limit,
                                 id);
                         return id;
                     }
@@ -261,8 +269,14 @@ public final class SqliteWorkbench implements Workbench {
                             == 0) {
                         throw new WorkbenchRejection(Kind.BUSY, "当前对话没有待处理消息");
                     }
-                    return newRun(conversation, project, allowance);
+                    return newRun(conversation, project, newLimit == null ? pendingLimit(conversation, defaultLimit) : newLimit);
                 });
+    }
+
+    private int pendingLimit(String conversation, int defaultLimit) {
+        return jdbc.queryForObject(
+                "SELECT COALESCE(request_limit,?) FROM input WHERE conversation_id=? AND consumed=0 ORDER BY seq LIMIT 1",
+                Integer.class, defaultLimit, conversation);
     }
 
     private long record(
@@ -371,7 +385,7 @@ public final class SqliteWorkbench implements Workbench {
                         return true;
                     }
                     jdbc.update(
-                            "UPDATE run SET state='PAUSED', detail='本轮模型请求预算已用完' WHERE id=? AND"
+                            "UPDATE run SET state='PAUSED', detail='已达到本任务的模型请求总上限' WHERE id=? AND"
                                     + " state='RUNNING' AND stop=0",
                             id);
                     return false;
@@ -576,6 +590,21 @@ public final class SqliteWorkbench implements Workbench {
     @Override
     public void usage(String run, long tokens) {
         tx(() -> jdbc.update("UPDATE run SET tokens=tokens+? WHERE id=?", tokens, run));
+    }
+
+    @Override
+    public void modelAttempts(String run, boolean compaction, List<Map<String, Object>> attempts) {
+        if (!attempts.isEmpty()) {
+            tx(() -> {
+                for (var attempt : attempts) {
+                    jdbc.update("INSERT INTO model_attempt(run_id,purpose,attempt,category,http_status,duration_ms)"
+                                    + " VALUES(?,?,?,?,?,?)",
+                            run, compaction ? "SUMMARY" : "TURN", attempt.get("attempt"), attempt.get("category"),
+                            attempt.get("httpStatus"), attempt.get("durationMs"));
+                }
+                return null;
+            });
+        }
     }
 
     @Override
