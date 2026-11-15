@@ -26,14 +26,16 @@
 
 在前后端各自终端按 Ctrl+C 可关闭工作台。重新执行同一条启动命令，保留原开发容器、Windows 工作副本和对话。控制端启动后会核对中断的前台调用。已登记的预览依赖网关和实际服务继续运行。
 
-后台服务需要重启或系统层镜像需要更新时，可在关闭工作台后显式选择以下其中一种操作。自定义数据目录时也要传入原来的 `-DataDirectory`。
+普通启动会先核对现有容器使用的镜像，再询问模型密钥。遇到镜像更新时，交互终端会列出需要更新的组件。输入 `y` 会重建并继续启动，直接回车会保留原环境并退出。在 Docker Desktop 里停止容器后，它仍绑定原镜像。
+
+关闭工作台后，也可以直接选择以下操作。自定义数据目录时须传入原来的 `-DataDirectory`。
 
 ```powershell
 .\setup-delveforge.ps1 -EnvironmentAction Restart
 .\setup-delveforge.ps1 -EnvironmentAction Rebuild
 ```
 
-`Restart` 会结束共享环境中的后台进程，保留该容器已经安装的系统软件。`Rebuild` 还会丢弃容器可写系统层，需重新安装其中的软件。两项操作都保留 Windows 副本和项目状态卷。常规启动使用 `Ensure`，遇到镜像版本不一致时会提示显式重建。
+`Restart` 会结束共享环境中的后台进程，保留容器内安装的软件。版本不匹配时，`Restart` 会先退出。`Rebuild` 会替换容器，需要重新安装额外装在系统层的软件。两种操作都保留 Windows 工作副本、对话数据库和项目数据卷。
 
 <a id="4-自定义配置"></a>
 
@@ -41,7 +43,7 @@
 
 启动器参数控制 Windows 数据目录、后端端口和环境的停启方式。`delveforge.workbench.requests-per-run` 指定整项任务的默认请求总上限，默认 96。若只设置旧键 `requests-per-continuation`，其值作为总上限。每个前台命令的超时由 `delveforge.workbench.command-seconds` 配置，默认 300 秒。可在工作台页首查看已解析的模型配置。
 
-开发环境中的 shell 和 JVM 都使用各项目的持久化 HOME。Maven 从这里读取 `.m2/settings.xml`，通过已有出口代理下载，默认下载仓库为共享卷上的 `/state/cache/maven`。Maven Wrapper 的发行包按项目保存在 `$MAVEN_USER_HOME/wrapper`。普通重启保留上述文件。若启动器提示开发镜像已经更换，请在结束前台工作后执行 `.\setup-delveforge.ps1 -EnvironmentAction Rebuild`；工作副本和数据卷保留，环境中的后台进程及容器系统层安装会重建。
+开发环境中的 shell 和 JVM 都使用各项目的持久化 HOME。Maven 从这里读取 `.m2/settings.xml`，通过已有出口代理下载，默认下载仓库为共享卷上的 `/state/cache/maven`。Maven Wrapper 的发行包按项目保存在 `$MAVEN_USER_HOME/wrapper`。普通重启和镜像重建都保留这些文件。
 
 ## 开发验证
 

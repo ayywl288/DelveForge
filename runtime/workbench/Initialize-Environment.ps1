@@ -17,9 +17,6 @@ function Get-Digest([string]$value) {
 $dataPath = [IO.Path]::GetFullPath($DataDirectory)
 $projectPath = Join-Path $dataPath 'projects'
 $certPath = Join-Path $dataPath 'tls'
-foreach ($path in @($dataPath,$projectPath,$certPath)) {
-    [IO.Directory]::CreateDirectory($path) | Out-Null
-}
 $owner = 'df-wb-' + (Get-Digest $dataPath.ToLowerInvariant()).Substring(0,12)
 $label = "dev.delveforge.workbench=$owner"
 $inside = "$owner-inside"
@@ -54,6 +51,33 @@ function Assert-Owned([string]$type,[string]$name) {
     if ($resourceLabels.'dev.delveforge.workbench' -ne $owner) {
         throw "名称已被其他资源占用：$name"
     }
+}
+# 在停启任何组件前核对整组，避免最后一个镜像过期时留下半启动的环境。
+$names = @(Invoke-Engine @('ps','-a','--format','{{.Names}}'))
+$roles = [ordered]@{development=$dev; egress=$proxy; gateway=$gate; edge=$edge}
+$existing = @{}
+$outdated = @(foreach ($role in $roles.Keys) {
+    $name = $roles[$role]
+    if ($names -notcontains $name) { continue }
+    $identity = (Invoke-Engine @('container','inspect','--format','{{.Id}} {{.Image}}',$name)).Trim().Split(' ')
+    Assert-Owned 'container' $identity[0]
+    $existing[$name] = $identity[0]
+    if ($Action -ne 'Rebuild') {
+        $expected = (Invoke-Engine @('image','inspect','--format','{{.Id}}',$images[$role])).Trim()
+        if ($identity[1] -ne $expected) { $role }
+    }
+})
+if ($outdated.Count -gt 0) {
+    $command = '.\setup-delveforge.ps1 -EnvironmentAction Rebuild'
+    $defaultPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\data\workbench'))
+    if ($dataPath -ne $defaultPath) { $command += " -DataDirectory '" + $dataPath.Replace("'","''") + "'" }
+    $failure = [InvalidOperationException]::new(
+            "工作台组件需要更新镜像：$($outdated -join ', ')。重建会终止后台服务，容器系统层里另装的软件需重新安装。工作副本、对话和数据卷会保留。也可在仓库根目录运行 $command")
+    $failure.Data['DelveForgeImageMismatch'] = $true
+    throw $failure
+}
+foreach ($path in @($dataPath,$projectPath,$certPath)) {
+    [IO.Directory]::CreateDirectory($path) | Out-Null
 }
 $networks = @(Invoke-Engine @('network','ls','--format','{{.Name}}'))
 foreach ($name in @($inside,$outside)) {
@@ -95,38 +119,32 @@ if ([IO.File]::Exists($ruleFile)) {
 Invoke-Engine @('run','--rm','--network','none','--cap-drop','ALL','--cap-add','CHOWN','--cap-add','DAC_OVERRIDE',
     '--user','0:0','--mount',"type=bind,src=$gatewayCert,target=/cert",'--entrypoint','chown',$images.edge,
     '65534:65534','/cert','/cert/server.key','/cert/server.crt','/cert/ca.crt') | Out-Null
-$names = @(Invoke-Engine @('ps','-a','--format','{{.Names}}'))
-foreach ($name in @($dev,$proxy,$gate,$edge)) {
-    if ($names -contains $name) { Assert-Owned 'container' $name }
-}
 if ($Action -eq 'Rebuild') {
     Write-Host '重建会终止该环境后台服务、丢弃系统层安装，保留工作副本和数据卷。'
     foreach ($name in @($gate,$edge,$proxy,$dev)) {
-        if ($names -contains $name) { Invoke-Engine @('rm','-f',$name) | Out-Null }
+        if ($existing.ContainsKey($name)) { Invoke-Engine @('rm','-f',$existing[$name]) | Out-Null }
     }
-    $names = @()
+    $existing.Clear()
 } elseif ($Action -eq 'Restart') {
     Write-Host '重启会终止该环境后台服务，保留已安装的软件。'
     foreach ($name in @($gate,$edge,$proxy,$dev)) {
-        if ($names -contains $name) { Invoke-Engine @('stop',$name) | Out-Null }
+        if ($existing.ContainsKey($name)) { Invoke-Engine @('stop',$existing[$name]) | Out-Null }
     }
 }
 function Start-Owned([string]$name,[string]$image,[string[]]$argsForCreate,[bool]$external) {
-    if ($names -notcontains $name) {
+    $id = $existing[$name]
+    if (-not $id) {
         $create = @('create','--name',$name,'--label',$label,'--security-opt','no-new-privileges') + $argsForCreate + $image
-        Invoke-Engine $create | Out-Null
-    } else {
-        $actual = (Invoke-Engine @('inspect','--format','{{.Config.Image}}',$name)).Trim()
-        if ($actual -ne $image) { throw '运行资源使用了另一镜像版本；需要显式选择 -Action Rebuild。' }
+        $id = (Invoke-Engine $create).Trim()
     }
     if ($external) {
-        $attached = (Invoke-Engine @('inspect','--format','{{json .NetworkSettings.Networks}}',$name)) | ConvertFrom-Json
+        $attached = (Invoke-Engine @('inspect','--format','{{json .NetworkSettings.Networks}}',$id)) | ConvertFrom-Json
         if ($null -eq $attached.PSObject.Properties[$outside]) {
-            Invoke-Engine @('network','connect','--gw-priority','1',$outside,$name) | Out-Null
+            Invoke-Engine @('network','connect','--gw-priority','1',$outside,$id) | Out-Null
         }
     }
-    if ((Invoke-Engine @('inspect','--format','{{.State.Running}}',$name)).Trim() -ne 'true') {
-        Invoke-Engine @('start',$name) | Out-Null
+    if ((Invoke-Engine @('inspect','--format','{{.State.Running}}',$id)).Trim() -ne 'true') {
+        Invoke-Engine @('start',$id) | Out-Null
     }
 }
 $devArgs = @('--network',$inside,'--network-alias','dev','--user','0:0','--cap-drop','ALL',
