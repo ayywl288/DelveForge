@@ -18,7 +18,7 @@ const { projects, conversations, projectId, conversationId, project, conversatio
 const entries = computed(() => timeline(feed.value))
 const changes = computed(() => recordedChanges(entries.value))
 const links = computed(() => previewLinks(feed.value.messages))
-const queued = computed(() => feed.value.messages.some(m => m.role === 'pending'))
+const queued = computed(() => run.value?.state === 'QUEUED')
 const starting = computed(() => !!conversation.value && !loading.value && !entries.value.length && !run.value)
 const media = window.matchMedia('(max-width: 860px)')
 const narrow = ref(media.matches), expanded = ref(true), mobileNav = ref(false)
@@ -72,7 +72,7 @@ function backToRun() {
     if (elsewhere.value) void selectProject(elsewhere.value.projectId, elsewhere.value.conversationId)
 }
 const navProps = computed(() => ({ projects: projects.value, conversations: conversations.value, projectId: projectId.value,
-    conversationId: conversationId.value, settings: settings.value }))
+    conversationId: conversationId.value, foregrounds: feed.value.foregrounds ?? [], settings: settings.value }))
 const navEvents = { project: (id: string) => navigate(id, true), conversation: (id: string) => navigate(id, false),
     newProject: () => form('project'), newConversation: () => form('conversation'),
     model: () => { mobileNav.value = false; panel.value = 'model' }, collapse: () => { expanded.value = false; nextTick(() => navToggle.value?.focus()) } }

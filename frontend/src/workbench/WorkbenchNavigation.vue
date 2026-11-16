@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import Icon from '../components/NavigationIcon.vue'
 import BrandSymbol from '../components/BrandSymbol.vue'
-import type { Conversation, Project, RuntimeSettings } from './api'
+import type { Conversation, Foreground, Project, RuntimeSettings } from './api'
 defineProps<{ projects: Project[]; conversations: Conversation[]; projectId: string; conversationId: string;
-    settings?: RuntimeSettings; mobile?: boolean }>()
+    foregrounds?: Foreground[]; settings?: RuntimeSettings; mobile?: boolean }>()
 const emit = defineEmits<{ project: [id: string]; conversation: [id: string]; newProject: []; newConversation: []; model: []; collapse: [] }>()
 </script>
 <template>
@@ -17,7 +17,8 @@ const emit = defineEmits<{ project: [id: string]; conversation: [id: string]; ne
             <div v-for="p in projects" :key="p.id" class="tree-group">
                 <button class="project-node" :class="{ selected: p.id === projectId }" :title="p.name"
                     :aria-expanded="p.id === projectId" @click="emit('project', p.id)">
-                    <Icon name="folder" /><span>{{ p.name }}</span><Icon class="disclosure" name="chevron" />
+                    <Icon name="folder" /><span>{{ p.name }}</span>
+                    <small v-if="foregrounds?.some(owner => owner.projectId === p.id)">{{ foregrounds.find(owner => owner.projectId === p.id)?.state === 'BLOCKED' ? '待核对' : '活动中' }}</small><Icon class="disclosure" name="chevron" />
                 </button>
                 <div v-if="p.id === projectId" class="branches">
                     <button v-for="c in conversations" :key="c.id" class="conversation-node"
@@ -28,7 +29,7 @@ const emit = defineEmits<{ project: [id: string]; conversation: [id: string]; ne
                 </div>
             </div>
         </nav>
-        <div class="nav-bottom"><Icon name="terminal" /><div><strong>本机工作台</strong><small>共享 Linux 开发环境</small></div></div>
+        <div class="nav-bottom"><Icon name="terminal" /><div><strong>本机工作台</strong><small>各项目独立的 Linux 环境</small></div></div>
         <button v-if="settings" class="model-button" @click="emit('model')"><Icon name="sliders" /><span>模型与用量</span><Icon name="chevron" /></button>
     </div>
 </template>

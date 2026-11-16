@@ -1,18 +1,15 @@
 [CmdletBinding()]
-param([Parameter(Mandatory)][string]$DataDirectory)
+param([Parameter(Mandatory)][string]$DataDirectory, [Parameter(Mandatory)][guid]$ProjectId,
+    [Parameter(Mandatory)][int]$TestBackendPort)
 $ErrorActionPreference = 'Stop'
-$root = (Resolve-Path -LiteralPath $DataDirectory).Path
-$manifest = Get-Content -LiteralPath (Join-Path $root 'environment.json') -Raw | ConvertFrom-Json
-if ([IO.Path]::GetFullPath($manifest.parent) -ne (Join-Path $root 'projects')) {
-    throw '清单与指定的测试环境不一致。'
-}
-$devId = & docker inspect --format '{{.Id}}' $manifest.container
-if ($LASTEXITCODE -ne 0) { throw '测试开发环境不存在。' }
-
-# 走启动器的普通重启路径，保留同一开发容器。随后通过受控出口请求一个很小的公开 Maven 文件。
-& (Join-Path $PSScriptRoot '../Initialize-Environment.ps1') -DataDirectory $root -Action Restart
-$afterId = & docker inspect --format '{{.Id}}' $manifest.container
-if ($LASTEXITCODE -ne 0 -or $devId -ne $afterId) { throw '普通重启更换了开发容器。' }
-$probe = & docker exec $manifest.container curl --fail --silent --show-error --max-time 25 --output /dev/null --write-out '%{http_code} %{remote_port}' https://repo.maven.apache.org/maven2/org/apache/maven/maven-core/3.9.9/maven-core-3.9.9.pom
-if ($LASTEXITCODE -ne 0 -or $probe -ne '200 3128') { throw "普通重启后未能通过出口代理下载制品：$probe" }
-Write-Host "同一开发容器，Maven 制品 HTTP 200，代理端口 3128。"
+$folder = Join-Path (Resolve-Path -LiteralPath $DataDirectory).Path "environments/$ProjectId"
+$manifest = Get-Content -LiteralPath (Join-Path $folder 'environment.json') -Raw | ConvertFrom-Json
+if ($manifest.project -ne $ProjectId.ToString()) { throw '测试项目登记不匹配' }
+$origin = "http://127.0.0.1:$TestBackendPort"
+Invoke-RestMethod -Method Post -Uri "$origin/api/workbench/projects/$ProjectId/environment" -Headers @{Origin=$origin} `
+    -ContentType 'application/json' -Body '{"action":"Restart"}'
+$id = (& docker inspect --format '{{.Id}}' $manifest.container).Trim()
+if ($LASTEXITCODE -ne 0 -or $id -ne $manifest.containerId) { throw '普通重启更换了测试项目的开发容器' }
+$probe = & docker exec $id curl --fail --silent --show-error --max-time 25 --output /dev/null --write-out '%{http_code} %{remote_port}' https://repo.maven.apache.org/maven2/org/apache/maven/maven-core/3.9.9/maven-core-3.9.9.pom
+if ($LASTEXITCODE -ne 0 -or $probe -ne '200 3128') { throw "重启后无法从出口代理下载制品：$probe" }
+Write-Host '同一项目容器已通过出口代理取得 HTTP 200。'

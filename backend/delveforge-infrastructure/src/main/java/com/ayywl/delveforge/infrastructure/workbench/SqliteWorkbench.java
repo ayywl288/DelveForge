@@ -23,6 +23,8 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -36,9 +38,22 @@ public final class SqliteWorkbench implements Workbench {
     private final Object writes = new Object();
 
     public SqliteWorkbench(DataSource source, ObjectMapper json) {
+        this(source, json, 2);
+    }
+
+    public SqliteWorkbench(DataSource source, ObjectMapper json, int capacity) {
+        if (capacity < 1 || capacity > 64) {
+            throw new IllegalArgumentException("并发 Run 上限须在 1 到 64 之间");
+        }
         jdbc = new JdbcTemplate(source);
         transactions = new TransactionTemplate(new DataSourceTransactionManager(source));
         this.json = json;
+        jdbc.update("UPDATE workbench_capacity SET slots=? WHERE id=1", capacity);
+    }
+
+    @Override
+    public int capacity() {
+        return jdbc.queryForObject("SELECT slots FROM workbench_capacity WHERE id=1", Integer.class);
     }
 
     // 一个控制实例拥有环境；所有输入、执行准入与结束提交在短 SQLite 事务内排序。
@@ -160,6 +175,38 @@ public final class SqliteWorkbench implements Workbench {
         return jdbc.query("SELECT * FROM run WHERE " + OWNS, SqliteWorkbench::readRun);
     }
 
+    @Override
+    public void lockEnvironment(String project, String operation) {
+        tx(() -> {
+            jdbc.update("UPDATE workbench_capacity SET slots=slots WHERE id=1");
+            if (count("SELECT count(*) FROM project WHERE id=? AND state='READY'", project) != 1) {
+                throw new WorkbenchRejection(Kind.MISSING, "项目未就绪");
+            }
+            boolean restart = operation.equals("Restart");
+            if (count("SELECT count(*) FROM run WHERE project_id=? AND " + OWNS
+                            + (restart ? " AND state!='BLOCKED'" : ""), project) != 0) {
+                throw new WorkbenchRejection(Kind.BUSY, "请先停止或核对这个项目正在执行的任务");
+            }
+            int added = jdbc.update("INSERT INTO project_maintenance(project_id,operation,started_at)"
+                    + " VALUES(?,?,?) ON CONFLICT(project_id) DO NOTHING", project, operation, now());
+            if (added == 0) {
+                throw new WorkbenchRejection(Kind.BUSY, "该项目已有环境操作，请先核对上一次维护");
+            }
+            return null;
+        });
+    }
+
+    @Override
+    public void unlockEnvironment(String project) {
+        tx(() -> jdbc.update("DELETE FROM project_maintenance WHERE project_id=?", project));
+    }
+
+    @Override
+    public String maintenance(String project) {
+        return jdbc.queryForList("SELECT operation FROM project_maintenance WHERE project_id=?",
+                String.class, project).stream().findFirst().orElse("");
+    }
+
     private String projectOf(String conversation) {
         return jdbc
                 .query(
@@ -171,16 +218,21 @@ public final class SqliteWorkbench implements Workbench {
                 .orElseThrow(() -> new WorkbenchRejection(Kind.MISSING, "对话不存在"));
     }
 
-    private String newRun(String conversation, String project, int allowance) {
+    private long nextOrder() {
+        return count("SELECT coalesce(max(queue_order),0)+1 FROM run");
+    }
+
+    private String enqueue(String conversation, String project, int allowance) {
         String run = id();
         jdbc.update(
-                "INSERT INTO run(id,conversation_id,project_id,state,started_at,allowance)"
-                        + " VALUES(?,?,?,'RUNNING',?,?)",
+                "INSERT INTO run(id,conversation_id,project_id,state,started_at,allowance,queue_order)"
+                        + " VALUES(?,?,?,'QUEUED',?,?,?)",
                 run,
                 conversation,
                 project,
                 now(),
-                allowance);
+                allowance,
+                nextOrder());
         return run;
     }
 
@@ -188,6 +240,7 @@ public final class SqliteWorkbench implements Workbench {
     public Ack receive(String conversation, String requestId, String text, int defaultLimit, Integer requestLimit) {
         return tx(
                 () -> {
+                    jdbc.update("UPDATE workbench_capacity SET slots=slots WHERE id=1");
                     String project = projectOf(conversation);
                     int added =
                             jdbc.update(
@@ -213,64 +266,121 @@ public final class SqliteWorkbench implements Workbench {
                     if (added == 0) {
                         return new Ack(seq, (String) accepted.get("acknowledged_run"), false);
                     }
-                    var current = owners();
-                    if (!current.isEmpty()) {
-                        Run owner = current.getFirst();
-                        String joined =
-                                owner.conversationId().equals(conversation) ? owner.id() : null;
-                        jdbc.update("UPDATE input SET acknowledged_run=? WHERE seq=?", joined, seq);
-                        return new Ack(seq, joined, false);
+                    var existing = jdbc.query("SELECT * FROM run WHERE conversation_id=? AND ("
+                                    + OWNS + " OR state IN ('QUEUED','PAUSED')) ORDER BY rowid DESC LIMIT 1",
+                            SqliteWorkbench::readRun, conversation);
+                    if (!existing.isEmpty()) {
+                        Run run = existing.getFirst();
+                        jdbc.update("UPDATE input SET acknowledged_run=? WHERE seq=?", run.id(), seq);
+                        return new Ack(seq, run.id(), false);
                     }
-                    if (count(
-                                    "SELECT count(*) FROM run WHERE conversation_id=? AND"
-                                            + " state='PAUSED'",
-                                    conversation)
-                            > 0) {
-                        return new Ack(seq, null, false);
-                    }
-                    String run = newRun(conversation, project, pendingLimit(conversation, defaultLimit));
+                    String run = enqueue(conversation, project, pendingLimit(conversation, defaultLimit));
                     jdbc.update("UPDATE input SET acknowledged_run=? WHERE seq=?", run, seq);
-                    return new Ack(seq, run, true);
+                    return new Ack(seq, run, claim(run).isPresent());
                 });
+    }
+
+    // 先取得 SQLite 写锁，再按可运行的项目挑选队首。数据库索引与触发器也约束其他连接。
+    private Optional<String> claim(String requested) {
+        jdbc.update("UPDATE workbench_capacity SET slots=slots WHERE id=1");
+        if (count("SELECT count(*) FROM run WHERE " + OWNS) >= capacity()
+                || count("SELECT count(*) FROM run WHERE environment_kind='LEGACY' AND " + OWNS) > 0) {
+            return Optional.empty();
+        }
+        var candidates = jdbc.queryForList("SELECT q.id FROM run q WHERE q.state='QUEUED' AND NOT EXISTS "
+                        + "(SELECT 1 FROM run WHERE project_id=q.project_id AND " + OWNS + ") "
+                        + "AND NOT EXISTS (SELECT 1 FROM project_maintenance m WHERE m.project_id=q.project_id) "
+                        + "ORDER BY q.queue_order,q.rowid LIMIT 1", String.class);
+        if (candidates.isEmpty() || requested != null && !requested.equals(candidates.getFirst())) {
+            return Optional.empty();
+        }
+        String id = candidates.getFirst();
+        jdbc.update("UPDATE run SET state='RUNNING',detail=NULL WHERE id=? AND state='QUEUED'", id);
+        return Optional.of(id);
+    }
+
+    @Override
+    public Optional<String> claimNext() {
+        return tx(() -> claim(null));
+    }
+
+    @Override
+    public void restoreQueuedInputs(int defaultLimit) {
+        tx(() -> {
+            var waiting = jdbc.queryForList("""
+                    SELECT i.conversation_id FROM input i WHERE i.consumed=0 AND i.acknowledged_run IS NULL
+                    AND NOT EXISTS (SELECT 1 FROM run r WHERE r.conversation_id=i.conversation_id
+                        AND r.state IN ('RUNNING','STOPPING','RECONCILING','BLOCKED','PAUSED','QUEUED'))
+                    GROUP BY i.conversation_id ORDER BY min(i.seq)
+                    """, String.class);
+            for (String conversation : waiting) {
+                String id = enqueue(conversation, projectOf(conversation), pendingLimit(conversation, defaultLimit));
+                jdbc.update("UPDATE input SET acknowledged_run=? WHERE conversation_id=? AND consumed=0",
+                        id, conversation);
+            }
+            return null;
+        });
+    }
+
+    @Override
+    public boolean unstarted(String id) {
+        return count("SELECT count(*) FROM run WHERE id=? AND state='RUNNING' AND stop=0 "
+                        + "AND environment_kind='PROJECT' AND requests=0 "
+                        + "AND NOT EXISTS(SELECT 1 FROM invocation WHERE run_id=?)", id, id) == 1;
     }
 
     @Override
     public String start(String conversation, int defaultLimit, Integer newLimit) {
-        return tx(
-                () -> {
-                    String project = projectOf(conversation);
-                    if (!owners().isEmpty()) {
-                        throw new WorkbenchRejection(Kind.BUSY, "共享环境已有前台 Run");
-                    }
-                    var paused =
-                            jdbc.queryForList(
-                                    "SELECT id,requests,allowance FROM run WHERE conversation_id=? AND state='PAUSED'",
-                                    conversation);
-                    if (!paused.isEmpty()) {
-                        var row = paused.getFirst();
-                        String id = (String) row.get("id");
-                        int used = ((Number) row.get("requests")).intValue();
-                        int previous = ((Number) row.get("allowance")).intValue();
-                        int limit = newLimit == null ? previous : newLimit;
-                        if (limit < previous || limit <= used) {
-                            throw new WorkbenchRejection(Kind.BUSY, "请提高本任务的请求总上限后继续。已使用 " + used + " 次");
-                        }
-                        jdbc.update(
-                                "UPDATE run SET state='RUNNING',detail=NULL,allowance=?"
-                                        + " WHERE id=?",
-                                limit,
-                                id);
-                        return id;
-                    }
-                    if (count(
-                                    "SELECT count(*) FROM input WHERE conversation_id=? AND"
-                                            + " consumed=0",
-                                    conversation)
-                            == 0) {
-                        throw new WorkbenchRejection(Kind.BUSY, "当前对话没有待处理消息");
-                    }
-                    return newRun(conversation, project, newLimit == null ? pendingLimit(conversation, defaultLimit) : newLimit);
-                });
+        return tx(() -> {
+            String project = projectOf(conversation);
+            var waiting = jdbc.queryForList("SELECT id FROM run WHERE conversation_id=? AND state='QUEUED'",
+                    String.class, conversation);
+            if (!waiting.isEmpty()) {
+                return waiting.getFirst();
+            }
+            var paused = jdbc.queryForList(
+                    "SELECT id,requests,allowance FROM run WHERE conversation_id=? AND state='PAUSED'", conversation);
+            if (!paused.isEmpty()) {
+                var row = paused.getFirst();
+                String id = (String) row.get("id");
+                int used = ((Number) row.get("requests")).intValue();
+                int previous = ((Number) row.get("allowance")).intValue();
+                int limit = newLimit == null ? previous : newLimit;
+                if (limit < previous || limit <= used) {
+                    throw new WorkbenchRejection(Kind.BUSY, "请提高本任务的请求总上限后继续。已使用 " + used + " 次");
+                }
+                jdbc.update("UPDATE run SET state='QUEUED',environment_kind='PROJECT',detail=NULL,"
+                        + "allowance=?,queue_order=? WHERE id=?", limit, nextOrder(), id);
+                claim(id);
+                return id;
+            }
+            if (count("SELECT count(*) FROM run WHERE conversation_id=? AND " + OWNS, conversation) > 0
+                    || count("SELECT count(*) FROM input WHERE conversation_id=? AND consumed=0", conversation) == 0) {
+                throw new WorkbenchRejection(Kind.BUSY, "当前对话没有可继续的待处理任务");
+            }
+            String id = enqueue(conversation, project, newLimit == null ? pendingLimit(conversation, defaultLimit) : newLimit);
+            jdbc.update("UPDATE input SET acknowledged_run=? WHERE conversation_id=? AND consumed=0", id, conversation);
+            claim(id);
+            return id;
+        });
+    }
+
+    @Override
+    public void cancelQueued(String id) {
+        tx(() -> {
+            if (jdbc.update("UPDATE run SET state='STOPPED',stop=1,ended_at=?,detail='已取消排队' "
+                    + "WHERE id=? AND state='QUEUED'", now(), id) != 1) {
+                throw new WorkbenchRejection(Kind.BUSY, "任务已离开队列，请刷新状态");
+            }
+            Run run = run(id);
+            for (var input : jdbc.queryForList("SELECT seq,text FROM input WHERE conversation_id=? AND consumed=0 ORDER BY seq",
+                    run.conversationId())) {
+                record(run, "user", (String) input.get("text"), "[]", null, null, null);
+                jdbc.update("UPDATE input SET consumed=1 WHERE seq=?", input.get("seq"));
+            }
+            record(run, "assistant", "用户已取消排队，本轮任务未执行。", "[]", null, null, null);
+            return null;
+        });
     }
 
     private int pendingLimit(String conversation, int defaultLimit) {
@@ -446,7 +556,7 @@ public final class SqliteWorkbench implements Workbench {
     @Override
     public List<Call> pending(String run) {
         return jdbc.query(
-                "SELECT * FROM invocation WHERE run_id=? AND state!='FINISHED' ORDER BY"
+                "SELECT i.*,r.project_id FROM invocation i JOIN run r ON r.id=i.run_id WHERE i.run_id=? AND i.state!='FINISHED' ORDER BY"
                         + " assistant_seq,position",
                 (rs, n) ->
                         new Call(
@@ -458,7 +568,7 @@ public final class SqliteWorkbench implements Workbench {
                                 rs.getString("state"),
                                 rs.getString("container"),
                                 rs.getString("generation"),
-                                rs.getString("exec_id")),
+                                rs.getString("exec_id"), rs.getString("project_id")),
                 run);
     }
 
@@ -691,16 +801,22 @@ public final class SqliteWorkbench implements Workbench {
 
     @Override
     public Map<String, Object> lookup(String hash, String kind, String ref, int offset, int limit) {
-        var scopes =
-                jdbc.queryForList(
-                        "SELECT r.conversation_id FROM invocation i JOIN run r ON i.run_id=r.id"
-                            + " WHERE i.token_hash=? AND i.state='ADMITTED' AND r.state='RUNNING'",
-                        String.class,
-                        hash);
+        return lookup(null, hash, kind, ref, offset, limit);
+    }
+
+    @Override
+    public Map<String, Object> lookup(String project, String hash, String kind, String ref, int offset, int limit) {
+        var scopes = jdbc.queryForList(
+                "SELECT r.conversation_id,r.project_id FROM invocation i JOIN run r ON i.run_id=r.id "
+                        + "WHERE i.token_hash=? AND i.state='ADMITTED' AND r.state='RUNNING'", hash);
         if (scopes.isEmpty()) {
             throw new WorkbenchRejection(Kind.FORBIDDEN, "调用凭据已失效");
         }
-        String conversation = scopes.getFirst();
+        var scope = scopes.getFirst();
+        if (project != null && !Objects.equals(project, scope.get("project_id"))) {
+            throw new WorkbenchRejection(Kind.FORBIDDEN, "该调用不属于此项目环境");
+        }
+        String conversation = (String) scope.get("conversation_id");
         if ("preview".equals(kind)) {
             return Map.of("project", projectOf(conversation));
         }

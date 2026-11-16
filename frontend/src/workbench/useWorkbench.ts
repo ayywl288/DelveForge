@@ -13,11 +13,11 @@ export function useWorkbench() {
     const project = computed(() => projects.value.find(p => p.id === projectId.value))
     const conversation = computed(() => conversations.value.find(c => c.id === conversationId.value))
     const settings = ref<RuntimeSettings>()
-    const feed = ref<Feed>(blankFeed()), foreground = ref<Foreground | null>(null)
+    const feed = ref<Feed>(blankFeed()), foregrounds = computed<Foreground[]>(() => feed.value.foregrounds ?? [])
     const run = computed(() => feed.value.runs[0])
     const active = computed(() => ['RUNNING', 'RECONCILING', 'BLOCKED', 'STOPPING'].includes(run.value?.state ?? ''))
-    const elsewhere = computed(() => foreground.value && foreground.value.conversationId !== conversationId.value
-        ? foreground.value : null)
+    const elsewhere = computed(() => foregrounds.value.find(owner => owner.projectId === projectId.value
+        && owner.conversationId !== conversationId.value))
     const loading = ref(true), pending = ref(false), error = ref(''), notice = ref('')
     const input = ref('')
     const draft = computed({
@@ -49,7 +49,6 @@ export function useWorkbench() {
             const next = await request<Feed>('/conversations/' + id)
             if (disposed || sequence !== revision || id !== conversationId.value) return
             feed.value = next
-            foreground.value = next.foreground ?? null
             loading.value = false
         } catch (e) {
             if (!disposed && sequence === revision && id === conversationId.value) {
@@ -92,7 +91,7 @@ export function useWorkbench() {
     }
     async function poll() {
         await refresh()
-        if (!disposed) timer = setTimeout(poll, active.value || elsewhere.value ? 800 : 2500)
+        if (!disposed) timer = setTimeout(poll, active.value || run.value?.state === 'QUEUED' || elsewhere.value ? 800 : 2500)
     }
     onMounted(async () => {
         await Promise.all([load(), request<RuntimeSettings>('/settings').then(s => { settings.value = s }).catch(tell)])
@@ -154,7 +153,7 @@ export function useWorkbench() {
             await refresh()
         }, id)
     }
-    function control(op: 'continue' | 'stop' | 'reconcile') {
+    function control(op: 'continue' | 'stop' | 'reconcile' | 'cancel-queue') {
         const id = conversationId.value, current = run.value
         if (!id || (op !== 'continue' && !current) || (op === 'continue' && !validLimit.value)) return
         return action(async () => {

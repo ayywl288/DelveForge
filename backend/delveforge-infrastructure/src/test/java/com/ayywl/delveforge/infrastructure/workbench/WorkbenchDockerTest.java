@@ -40,13 +40,21 @@ class WorkbenchDockerTest {
         return Path.of(System.getenv("DF_WORKBENCH_TEST_FIXTURE"));
     }
 
+    static void awaitRuntime(java.util.function.BooleanSupplier condition) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(150);
+        while (!condition.getAsBoolean() && System.nanoTime() < deadline) {
+            Thread.sleep(100);
+        }
+        assertTrue(condition.getAsBoolean(), "等待独立开发环境或工具执行超时");
+    }
+
     private static String id() {
         return UUID.randomUUID().toString();
     }
 
-    private record ToolResult(String out, String err, Integer exit) {}
+    record ToolResult(String out, String err, Integer exit) {}
 
-    private static Workbench.Call prepare(
+    static Workbench.Call prepare(
             DockerDevelopmentEnvironment env, Workbench.Run run, String tool, String arguments) {
         var proposed =
                 new Workbench.Call(
@@ -64,7 +72,7 @@ class WorkbenchDockerTest {
                 p.execId());
     }
 
-    private static ToolResult execute(
+    static ToolResult execute(
             DockerDevelopmentEnvironment env, Workbench.Run run, String tool, Map<String, ?> args)
             throws Exception {
         var call = prepare(env, run, tool, JSON.writeValueAsString(args));
@@ -268,6 +276,7 @@ class WorkbenchDockerTest {
         public static void main(String[] args) throws Exception {
             Workbench store = store(Path.of(args[0]));
             var actual = new DockerDevelopmentEnvironment(root(), JSON, 30);
+            var captured = java.util.concurrent.ConcurrentHashMap.<String>newKeySet();
             var breaking =
                     new ExecutionEnvironment() {
                         @Override
@@ -283,7 +292,7 @@ class WorkbenchDockerTest {
                                     (s, b) -> {
                                         capture.accept(s, b);
                                         channels.add(s);
-                                        if (channels.size() == 2) {
+                                        if (channels.size() == 2 && captured.add(c.id()) && captured.size() == 2) {
                                             Runtime.getRuntime().halt(75);
                                         }
                                     });
@@ -300,12 +309,11 @@ class WorkbenchDockerTest {
                             "Bash",
                             "{\"command\":\"echo once >> effects; echo captured; echo diagnostic"
                                     + " >&2; sleep 25; echo later\"}");
-            agent(
-                            store,
-                            breaking,
-                            (m, t) -> new AgentProtocol.Reply("", List.of(command), 1L, null, "r"))
-                    .receive(args[1], "key", "一次命令");
-            Thread.sleep(35000);
+            var agent = agent(store, breaking,
+                    (m, t) -> new AgentProtocol.Reply("", List.of(command), 1L, null, "r"));
+            agent.receive(args[1], "key", "一次命令 A");
+            agent.receive(args[2], "key", "一次命令 B");
+            Thread.sleep(90000);
             throw new AssertionError("控制进程未在捕获后中断");
         }
     }
@@ -318,6 +326,10 @@ class WorkbenchDockerTest {
         var path = new ProjectWorkcopies(root().resolve("projects")).prepare(project, null);
         store.projectResult(project, path, null);
         String conversation = store.conversation(project, "一次");
+        String parallel = store.beginProject("同时故障的 B", null);
+        String pathB = new ProjectWorkcopies(root().resolve("projects")).prepare(parallel, null);
+        store.projectResult(parallel, pathB, null);
+        String conversationB = store.conversation(parallel, "B 的一次命令");
         var child =
                 new ProcessBuilder(
                                 Path.of(System.getProperty("java.home"), "bin", "java").toString(),
@@ -327,16 +339,19 @@ class WorkbenchDockerTest {
                                         System.getProperty("java.class.path")),
                                 LosingController.class.getName(),
                                 db.toString(),
-                                conversation)
+                                conversation, conversationB)
                         .redirectErrorStream(true)
                         .redirectOutput(temp.resolve("child.log").toFile())
                         .start();
         try {
-            assertTrue(child.waitFor(30, TimeUnit.SECONDS));
+            assertTrue(child.waitFor(80, TimeUnit.SECONDS));
             assertEquals(75, child.exitValue(), () -> read(temp.resolve("child.log")));
-            var owner = store.owners().getFirst();
+            var owners = store.owners();
+            assertEquals(2, owners.size());
+            assertEquals(2, owners.stream().map(run -> store.pending(run.id()).getFirst().container()).distinct().count());
             String other = store.conversation(project, "二");
-            assertFalse(store.receive(other, "new", "等待", 3).newlyStarted());
+            var queued = store.receive(other, "new", "等待", 3);
+            assertFalse(queued.newlyStarted());
             var paid = new AtomicInteger();
             try (var env = new DockerDevelopmentEnvironment(root(), JSON, 10);
                     var restored =
@@ -344,22 +359,26 @@ class WorkbenchDockerTest {
                                     store,
                                     env,
                                     (m, t) -> {
+                                        assertEquals("等待", m.getLast().text());
                                         paid.incrementAndGet();
                                         return new AgentProtocol.Reply(
                                                 "ok", List.of(), 1L, null, "r");
                                     })) {
                 restored.startup();
-                WorkbenchIntegrationTest.await(
-                        () -> store.run(owner.id()).state() == RunState.PAUSED);
+                awaitRuntime(() -> owners.stream().allMatch(run -> store.run(run.id()).state() == RunState.PAUSED)
+                        && store.run(queued.runId()).state() == RunState.COMPLETED);
                 assertTrue(store.owners().isEmpty());
-                var last =
-                        JSON.readTree(
-                                store.timeline(conversation).getLast().get("text").toString());
-                assertTrue(last.path("outputGap").asBoolean());
-                assertTrue(last.path("stdout").asText().contains("captured"));
-                assertTrue(last.path("stderr").asText().contains("diagnostic"));
-                assertEquals(0, paid.get());
+                for (String history : List.of(conversation, conversationB)) {
+                    var results = store.timeline(history).stream().filter(row -> "tool".equals(row.get("role"))).toList();
+                    assertEquals(1, results.size());
+                    var receipt = JSON.readTree(results.getFirst().get("text").toString());
+                    assertTrue(receipt.path("outputGap").asBoolean());
+                    assertTrue(receipt.path("stdout").asText().contains("captured"));
+                    assertTrue(receipt.path("stderr").asText().contains("diagnostic"));
+                }
+                assertEquals(1, paid.get());
                 assertEquals(List.of("once"), Files.readAllLines(Path.of(path, "effects")));
+                assertEquals(List.of("once"), Files.readAllLines(Path.of(pathB, "effects")));
             }
         } finally {
             if (child.isAlive()) {
@@ -461,7 +480,7 @@ class WorkbenchDockerTest {
                 var agent = agent(store, env, model)) {
             relay.start();
             var first = agent.receive(conversation, id(), "登记预览");
-            WorkbenchIntegrationTest.await(
+            awaitRuntime(
                     () -> store.run(first.runId()).state() == RunState.COMPLETED);
             var result = lastTool(store, conversation);
             assertEquals(0, result.path("exit").asInt(-1), result.toString());
@@ -472,19 +491,19 @@ class WorkbenchDockerTest {
             String port = Files.readString(path.resolve("port"));
             command.set("df-workbench preview " + port);
             var denied = agent.receive(foreign, id(), "登记其他项目的端口");
-            WorkbenchIntegrationTest.await(
+            awaitRuntime(
                     () -> store.run(denied.runId()).state() == RunState.COMPLETED);
             var refused = lastTool(store, foreign);
             assertEquals(1, refused.path("exit").asInt(-1), refused.toString());
             assertTrue(refused.path("stderr").asText().contains("409"));
             Files.writeString(path.resolve("end-service"), "stop");
-            WorkbenchIntegrationTest.await(
+            awaitRuntime(
                     () -> env.previewListener(project, Integer.parseInt(port)).isEmpty());
             Files.delete(path.resolve("end-service"));
             Files.delete(path.resolve("port"));
             command.set(service.replace("fixture.py 0", "fixture.py " + port));
             var replacement = agent.receive(conversation, id(), "用新服务登记");
-            WorkbenchIntegrationTest.await(
+            awaitRuntime(
                     () -> store.run(replacement.runId()).state() == RunState.COMPLETED);
             var replacementReceipt = lastTool(store, conversation);
             assertEquals(

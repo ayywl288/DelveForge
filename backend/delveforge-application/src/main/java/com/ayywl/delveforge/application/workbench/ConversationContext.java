@@ -15,6 +15,7 @@ import com.ayywl.delveforge.domain.workbench.RunState;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** 只替换模型请求视图；已配对的原始协议记录及输出始终保留在控制端。 */
 public final class ConversationContext {
@@ -50,10 +51,14 @@ public final class ConversationContext {
     private final AgentContextBudget budget;
     private final ConversationRetention retention;
 
-    // 工作台只有一个前台 Run。只记录暂缓重试的位置，进程重启后可再试，检查点仍仅由 SQLite 持有。
-    private volatile Deferred deferred;
+    // 只在各 Run 内暂缓无效摘要。持久检查点由 SQLite 持有，关闭任务后可释放重试位置。
+    private final ConcurrentHashMap<String, Deferred> deferred = new ConcurrentHashMap<>();
 
-    private record Deferred(String run, long version, long through, long tokens) {}
+    private record Deferred(long version, long through, long tokens) {}
+
+    void forget(String run) {
+        deferred.remove(run);
+    }
 
     public ConversationContext(
             Workbench store,
@@ -217,31 +222,35 @@ public final class ConversationContext {
             }
             reply = admitted.get();
         } catch (AgentModelFailure failure) {
-            deferred = new Deferred(run.id(), ctx.version(), through, before);
+            deferred.put(run.id(), new Deferred(ctx.version(), through, before));
             return failure.reason() == AgentModelFailure.Reason.RESPONSE_TRUNCATED ? Outcome.TRUNCATED : Outcome.FAILED;
         } catch (AgentException failure) {
             if (!"REQUEST_BYTES_LIMIT".equals(failure.code())) {
                 throw failure;
             }
-            deferred = new Deferred(run.id(), ctx.version(), through, before);
+            deferred.put(run.id(), new Deferred(ctx.version(), through, before));
             return Outcome.SUMMARY_LIMIT;
         }
 
         if (!ConversationCheckpoint.usable(reply, store, run.conversationId(), ctx, records.subList(0, cut))) {
-            deferred = new Deferred(run.id(), ctx.version(), through, before);
+            deferred.put(run.id(), new Deferred(ctx.version(), through, before));
             return Outcome.INVALID;
         }
         String summary = reply.text().strip();
         long after = retention.count(ConversationRetention.view(system(run, summary, through, originals),
                 originals.messages(), suffix));
         if (!enough(before, after)) {
-            deferred = new Deferred(run.id(), ctx.version(), through, before);
+            deferred.put(run.id(), new Deferred(ctx.version(), through, before));
             return Outcome.NO_HEADROOM;
         }
         if (!store.summarize(run.conversationId(), ctx.version(), through, summary)) {
             return Outcome.STALE;
         }
-        deferred = after > retention.target ? new Deferred(run.id(), ctx.version() + 1, through, after) : null;
+        if (after > retention.target) {
+            deferred.put(run.id(), new Deferred(ctx.version() + 1, through, after));
+        } else {
+            forget(run.id());
+        }
         return Outcome.PUBLISHED;
     }
 
@@ -251,8 +260,8 @@ public final class ConversationContext {
     }
 
     private boolean defer(Run run, long version, long through, long before) {
-        var last = deferred;
-        if (last == null || !last.run().equals(run.id()) || last.version() != version) {
+        var last = deferred.get(run.id());
+        if (last == null || last.version() != version) {
             return false;
         }
         boolean crossedHard = before > budget.usableInputTokens() && last.tokens() <= budget.usableInputTokens();

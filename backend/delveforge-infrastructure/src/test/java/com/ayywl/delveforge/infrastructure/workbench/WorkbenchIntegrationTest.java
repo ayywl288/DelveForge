@@ -36,7 +36,6 @@ import java.util.function.BooleanSupplier;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -142,6 +141,10 @@ class WorkbenchIntegrationTest {
                         }
                         return finalText("旧答复");
                     }
+                    if ("别的对话".equals(messages.getLast().text())) {
+                        assertFalse(messages.stream().anyMatch(m -> "纠正".equals(m.text())));
+                        return finalText("B 的答复");
+                    }
                     assertEquals("纠正", messages.getLast().text());
                     assertFalse(messages.stream().anyMatch(m -> "别的对话".equals(m.text())));
                     return finalText("新答复");
@@ -153,14 +156,16 @@ class WorkbenchIntegrationTest {
         var correction = agent.receive(conversation, "fix", "纠正");
         var waiting = agent.receive(other, "other", "别的对话");
         assertEquals(first.runId(), correction.runId());
-        assertNull(waiting.runId());
+        assertEquals(RunState.QUEUED, store.run(waiting.runId()).state());
         assertFalse(waiting.newlyStarted());
-        assertThrows(WorkbenchRejection.class, () -> agent.start(other));
+        assertEquals(waiting.runId(), agent.start(other));
         gate.countDown();
         await(() -> store.run(first.runId()).state() == RunState.COMPLETED);
         assertEquals(
                 List.of("任务", "纠正", "新答复"),
                 store.timeline(conversation).stream().map(m -> m.get("text")).toList());
+        await(() -> store.run(waiting.runId()).state() == RunState.COMPLETED);
+        assertEquals(List.of("别的对话", "B 的答复"), store.timeline(other).stream().map(row -> row.get("text")).toList());
         var repeated = agent.receive(conversation, "first", "任务");
         assertEquals(first.sequence(), repeated.sequence());
         assertEquals(first.runId(), repeated.runId());
@@ -322,10 +327,11 @@ class WorkbenchIntegrationTest {
         }, guest, 2);
         String occupied = store.receive(conversation, "active", "先占用", 2).runId();
         String queued = store.conversation(project, "排队的任务");
-        assertNull(agent.receive(queued, "key", "处理整个任务", 27).runId());
+        String run = agent.receive(queued, "key", "处理整个任务", 27).runId();
+        assertEquals(RunState.QUEUED, store.run(run).state());
         assertThrows(WorkbenchRejection.class, () -> agent.receive(queued, "key", "处理整个任务", 28));
         store.state(occupied, RunState.COMPLETED, "完成");
-        String run = agent.start(queued);
+        assertEquals(run, agent.start(queued));
         await(() -> store.run(run).state() == RunState.COMPLETED);
         var usage = store.runs(queued).getFirst();
         assertEquals(27, usage.get("requests"));
@@ -569,9 +575,12 @@ class WorkbenchIntegrationTest {
         String second = store.beginProject("第二个项目", null);
         store.projectResult(second, files.prepare(second, null), null);
         String other = store.conversation(second, "B");
-        assertNull(store.receive(other, "waiting", "只属于 B 的任务", 6).runId());
-        assertThrows(WorkbenchRejection.class, () -> store.start(other, 6));
-        agent((messages, tools) -> { throw new AssertionError("恢复不应重新调用模型"); }, guest, 6);
+        String otherRun = store.receive(other, "waiting", "只属于 B 的任务", 6).runId();
+        assertEquals(RunState.RUNNING, store.run(otherRun).state());
+        agent((messages, tools) -> {
+            assertEquals("只属于 B 的任务", messages.getLast().text());
+            return finalText("B 独立完成");
+        }, guest, 6);
         agent.startup();
         await(() -> store.run(run).state() == RunState.PAUSED);
         var receipts = store.timeline(conversation).stream().filter(r -> "tool".equals(r.get("role"))).toList();
@@ -587,7 +596,8 @@ class WorkbenchIntegrationTest {
             assertEquals(point.equals("CAPTURED") ? "一次效果" : "", receipt.get("stdout").textValue());
         }
         assertEquals(0, guest.executions.get());
-        assertEquals("只属于 B 的任务", store.next(store.start(other, 6)).context().records().getFirst().message().text());
+        await(() -> store.run(otherRun).state() == RunState.COMPLETED);
+        assertEquals("只属于 B 的任务", store.timeline(other).getFirst().get("text"));
     }
 
     @Test

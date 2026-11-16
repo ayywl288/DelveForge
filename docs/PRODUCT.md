@@ -1,6 +1,6 @@
 # PRODUCT.md
 
-**2026-11-14 项目工作台。** Project → Conversation → Run 是当前默认流程。用户创建或导入项目，直接在 Windows 工作副本中查看、编辑和接管结果。每段对话独立保存历史，同一项目的对话共享文件。下文的 Plan、Candidate 与 Delivery 合同适用于既有发布。[工作台使用说明](WORKBENCH.md)
+**2026-11-14 项目工作台。** Project → Conversation → Run 是当前默认流程。用户创建或导入项目，直接在 Windows 工作副本中查看、编辑和接管结果。每段对话独立保存历史，同一项目的对话共享文件并依次执行，不同项目可同时开发。下文的 Plan、Candidate 与 Delivery 合同适用于既有发布。[工作台使用说明](WORKBENCH.md)
 
 **2026-11-08 本次授权：选定仓库内容与离线执行。** 选定快照内普通源码和配置统一可供 Agent 读写；保留控制目录例外、宿主隔离和资源预算。依赖网络准备失败可降为明确离线执行，实际下载失败保留为命令事实。RUNNING 前持久化材料保留意图，捕获/停止/存储失败不清掉唯一现场。v8、逐 Step 授权、冻结与独立 Delivery 不变；容器协议 v10。见 [ADR-0027](decisions/0027-selected-repository-input-and-offline-execution.md)。下方旧内容隐藏与行保护规则仅为历史。
 

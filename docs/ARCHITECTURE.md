@@ -1,6 +1,6 @@
 # ARCHITECTURE.md
 
-**当前项目工作台。** Vue 展示项目、对话和运行状态。Java 控制端持有模型凭据，在独立 SQLite 数据库记录消息和工具执行。工具在共享 Linux 环境内操作 Windows 项目工作副本，预览由本机回环网关提供。四个 Maven 模块沿用原依赖方向。[工作台架构决定（ADR-0028）](decisions/0028-project-conversations-and-shared-environment.md) · [运行与恢复](WORKBENCH.md)
+**当前项目工作台。** Vue 展示项目、对话和运行状态。Java 控制端持有模型凭据，在独立 SQLite 数据库记录消息和工具执行。工具在各项目自己的 Linux 容器中操作本项目的 Windows 工作副本，部署拓扑见 [ADR-0029](decisions/0029-project-isolated-runtime.md)，预览由本机回环网关提供。四个 Maven 模块沿用原依赖方向。[工作台架构决定（ADR-0028）](decisions/0028-project-conversations-and-shared-environment.md) · [运行与恢复](WORKBENCH.md)
 
 ## 既有发布的架构记录
 

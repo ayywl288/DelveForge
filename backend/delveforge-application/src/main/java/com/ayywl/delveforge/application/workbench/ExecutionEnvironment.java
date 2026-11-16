@@ -14,6 +14,15 @@ public interface ExecutionEnvironment {
         }
     }
 
+    default void maintain(String project, boolean replace) {
+        throw new UnsupportedOperationException("此环境不支持维护");
+    }
+
+    /** 已退出的维护进程及登记状态都能核实后，才可解除崩溃留下的维护占用。 */
+    default boolean maintenanceEnded(String project) {
+        return false;
+    }
+
     Prepared prepare(Workbench.Run run, Workbench.Call call, String capability);
 
     void execute(Workbench.Call prepared, BiConsumer<String, byte[]> capture);

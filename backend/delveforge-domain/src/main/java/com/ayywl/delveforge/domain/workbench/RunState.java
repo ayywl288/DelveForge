@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.domain.workbench;
 
 public enum RunState {
+    QUEUED,
     RUNNING,
     STOPPING,
     RECONCILING,

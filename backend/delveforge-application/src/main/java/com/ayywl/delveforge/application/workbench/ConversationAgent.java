@@ -91,6 +91,7 @@ public final class ConversationAgent implements AutoCloseable {
         if (ack.newlyStarted()) {
             schedule(ack.runId(), false);
         }
+        dispatch();
         return ack;
     }
 
@@ -100,7 +101,10 @@ public final class ConversationAgent implements AutoCloseable {
 
     public String start(String conversation, Integer limit) {
         String id = store.start(conversation, allowance, limit == null ? null : requestLimit(limit));
-        schedule(id, false);
+        if (store.run(id).state() == RunState.RUNNING) {
+            schedule(id, false);
+        }
+        dispatch();
         return id;
     }
 
@@ -140,7 +144,51 @@ public final class ConversationAgent implements AutoCloseable {
 
     public void startup() {
         store.interruptImports();
-        store.owners().forEach(r -> recover(r.id()));
+        store.restoreQueuedInputs(allowance);
+        for (var run : store.owners()) {
+            if (store.unstarted(run.id())) {
+                schedule(run.id(), false);
+            } else {
+                recover(run.id());
+            }
+        }
+        dispatch();
+    }
+
+    private void dispatch() {
+        while (!workers.isShutdown()) {
+            Optional<String> next = store.claimNext();
+            if (next.isEmpty()) {
+                return;
+            }
+            schedule(next.get(), false);
+        }
+    }
+
+    public synchronized void maintain(String project, String action) {
+        if (action.equals("Check")) {
+            if (store.maintenance(project).isEmpty() || !environment.maintenanceEnded(project)) {
+                throw new WorkbenchRejection(WorkbenchRejection.Kind.BUSY, "尚不能确认项目维护已经结束");
+            }
+        } else {
+            if (!action.equals("Restart") && !action.equals("Rebuild")) {
+                throw new WorkbenchRejection(WorkbenchRejection.Kind.INVALID, "请选择重启或重建项目环境");
+            }
+            store.lockEnvironment(project, action);
+            try {
+                environment.maintain(project, action.equals("Rebuild"));
+            } catch (RuntimeException failure) {
+                if (environment.maintenanceEnded(project)) {
+                    store.unlockEnvironment(project);
+                    dispatch();
+                }
+                throw failure;
+            }
+        }
+        store.unlockEnvironment(project);
+        store.owners().stream().filter(run -> run.projectId().equals(project) && run.state() == RunState.BLOCKED)
+                .forEach(run -> recover(run.id()));
+        dispatch();
     }
 
     public Optional<String> chooseSourceFolder() {
@@ -183,7 +231,10 @@ public final class ConversationAgent implements AutoCloseable {
                                 var state = store.run(id).state();
                                 if (state == RunState.RUNNING || state == RunState.RECONCILING) {
                                     schedule(id, state == RunState.RECONCILING);
+                                } else if (state != RunState.PAUSED && state != RunState.BLOCKED) {
+                                    context.forget(id);
                                 }
+                                dispatch();
                             }
                         }
                     });
@@ -328,7 +379,7 @@ public final class ConversationAgent implements AutoCloseable {
                 break;
             }
         }
-        store.state(call.runId(), RunState.BLOCKED, "无法证明前台进程已结束。恢复 Docker 后重新核对，必要时显式重启共享环境。");
+        store.state(call.runId(), RunState.BLOCKED, "无法证明前台进程已结束。恢复 Docker 后重新核对，必要时显式重启该项目环境。");
         return false;
     }
 

@@ -27,7 +27,13 @@ public interface Workbench {
             String state,
             String container,
             String generation,
-            String execId) {}
+            String execId,
+            String projectId) {
+        public Call(String id, String runId, String providerId, String name, String arguments, String state,
+                String container, String generation, String execId) {
+            this(id, runId, providerId, name, arguments, state, container, generation, execId, null);
+        }
+    }
 
     record Entry(long seq, AgentProtocol.Message message) {}
 
@@ -63,6 +69,21 @@ public interface Workbench {
 
     List<Run> owners();
 
+    /** 原子领取当前最早且项目空闲的任务，队满时返回空。 */
+    java.util.Optional<String> claimNext();
+
+    void restoreQueuedInputs(int defaultLimit);
+
+    boolean unstarted(String run);
+
+    int capacity();
+
+    void lockEnvironment(String project, String operation);
+
+    void unlockEnvironment(String project);
+
+    String maintenance(String project);
+
     Snapshot next(String run);
 
     boolean requestModel(String run);
@@ -84,6 +105,8 @@ public interface Workbench {
     void result(Call call, String text, Integer exit, boolean gap);
 
     void stop(String run);
+
+    void cancelQueued(String run);
 
     void state(String run, RunState state, String detail);
 
@@ -108,6 +131,8 @@ public interface Workbench {
     List<Map<String, Object>> runs(String conversation);
 
     Map<String, Object> lookup(String tokenHash, String kind, String id, int offset, int limit);
+
+    Map<String, Object> lookup(String project, String tokenHash, String kind, String id, int offset, int limit);
 
     Map<String, Object> output(String conversation, String id, int offset, int limit);
 }

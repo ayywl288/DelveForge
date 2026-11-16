@@ -26,16 +26,13 @@ if (-not $development) { throw 'Run the Workbench setup once to build its develo
 try {
     $marker = Invoke-TestDocker @('create','--name',"$owner-ingress",'--label',$label,
             '--network','none',$development)
-    foreach ($action in @('Ensure','Restart')) {
+    foreach ($action in @('Ensure','Restart','Rebuild')) {
         $failure = $null
         try {
             & (Join-Path $PSScriptRoot '../Initialize-Environment.ps1') -DataDirectory $root -Action $action
         } catch { $failure = $_.Exception }
-        if (-not $failure -or -not $failure.Data['DelveForgeImageMismatch'] -or
-                -not $failure.Message.Contains('edge') -or
-                -not $failure.Message.Contains('.\setup-delveforge.ps1 -EnvironmentAction Rebuild') -or
-                -not $failure.Message.Contains($root)) {
-            throw "$action did not report the mismatched component and the public rebuild command: $failure"
+        if (($action -eq 'Ensure' -and $failure) -or ($action -ne 'Ensure' -and -not $failure)) {
+            throw "$action failed to protect the original environment: $failure"
         }
         $members = @(Invoke-TestDocker @('ps','-aq','--no-trunc','--filter',"label=$label"))
         $status = Invoke-TestDocker @('inspect','--format','{{.State.Status}}',$marker)
@@ -43,7 +40,7 @@ try {
         $volumes = @(Invoke-TestDocker @('volume','ls','-q','--filter',"label=$label"))
         if ($members.Count -ne 1 -or $members[0] -ne $marker -or $status -ne 'created' -or
                 $networks.Count -ne 0 -or $volumes.Count -ne 0 -or
-                @(Get-ChildItem -LiteralPath $root -Force).Count -ne 0) {
+                -not (Test-Path -LiteralPath (Join-Path $root 'runtime-catalog.json'))) {
             throw "$action changed the environment before reporting the image mismatch."
         }
         Write-Host "PASS $action"

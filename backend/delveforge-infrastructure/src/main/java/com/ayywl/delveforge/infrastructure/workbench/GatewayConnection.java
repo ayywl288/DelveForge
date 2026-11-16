@@ -25,6 +25,7 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.time.Duration;
 import java.util.Base64;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Windows 主动经 mTLS 拉取窄查询；开发网络无需直连后端 API。 */
 public final class GatewayConnection implements AutoCloseable {
@@ -33,7 +34,7 @@ public final class GatewayConnection implements AutoCloseable {
     private final Workbench store;
     private final ObjectMapper json;
     private volatile boolean closed;
-    private Thread thread;
+    private final Map<String, Thread> relays = new ConcurrentHashMap<>();
 
     public GatewayConnection(
             Path root,
@@ -47,11 +48,23 @@ public final class GatewayConnection implements AutoCloseable {
     }
 
     public void start() {
-        thread = Thread.ofVirtual().name("workbench-preview-relay").start(this::poll);
+        environment.onReady(this::startRelay);
+        for (var run : store.owners()) {
+            if (Files.isRegularFile(root.resolve("environments").resolve(run.projectId()).resolve("environment.json"))) {
+                startRelay(run.projectId());
+            }
+        }
     }
 
-    private HttpClient connect() throws Exception {
-        Path certs = root.resolve("tls/client");
+    private void startRelay(String project) {
+        if (!closed) {
+            relays.computeIfAbsent(project, id -> Thread.ofVirtual().name("project-preview-" + id)
+                    .start(() -> poll(id)));
+        }
+    }
+
+    private HttpClient connect(DockerDevelopmentEnvironment.Settings settings) throws Exception {
+        Path certs = environment.certificateDirectory(settings);
         var factory = CertificateFactory.getInstance("X.509");
         Certificate ca;
         Certificate client;
@@ -88,14 +101,19 @@ public final class GatewayConnection implements AutoCloseable {
                 .build();
     }
 
-    private void poll() {
+    private void poll(String project) {
         HttpClient client = null;
+        String owner = null;
         try {
             while (!closed) {
                 try {
-                    var settings = environment.settings();
-                    if (client == null) {
-                        client = connect();
+                    var settings = environment.registered(project);
+                    if (client == null || !settings.owner().equals(owner)) {
+                        if (client != null) {
+                            client.shutdownNow();
+                        }
+                        client = connect(settings);
+                        owner = settings.owner();
                     }
                     URI base = URI.create("https://127.0.0.1:" + settings.controlPort());
                     var res =
@@ -160,7 +178,7 @@ public final class GatewayConnection implements AutoCloseable {
             String ref = query.path("Ref").asText();
             var scope =
                     store.lookup(
-                            ConversationAgent.hash(query.path("Token").asText()),
+                            settings.project(), ConversationAgent.hash(query.path("Token").asText()),
                             kind,
                             ref,
                             query.path("Offset").asInt(),
@@ -216,8 +234,6 @@ public final class GatewayConnection implements AutoCloseable {
     @Override
     public void close() {
         closed = true;
-        if (thread != null) {
-            thread.interrupt();
-        }
+        relays.values().forEach(Thread::interrupt);
     }
 }

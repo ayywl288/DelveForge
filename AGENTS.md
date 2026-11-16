@@ -1,6 +1,6 @@
 # AGENTS.md
 
-The active Project → Conversation → Run path follows ADR-0028. The user authorizes work
+The active Project → Conversation → Run path follows ADR-0028 and its runtime revision ADR-0029. The user authorizes work
 in a Project workcopy by sending a Run request. Only its controlled Workspace ports may
 mutate that copy. The original repository remains read-only. Plan/Step authorization,
 Candidate, and Delivery rules below govern the historical workflows that own those objects.

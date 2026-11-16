@@ -62,8 +62,9 @@ public class WorkbenchConfiguration {
     }
 
     @Bean
-    Workbench workbench(DataSource database, ObjectMapper json) {
-        return new SqliteWorkbench(database, json);
+    Workbench workbench(DataSource database, ObjectMapper json,
+            @Value("${delveforge.workbench.max-concurrent-runs:2}") int capacity) {
+        return new SqliteWorkbench(database, json, capacity);
     }
 
     @Bean
@@ -75,8 +76,11 @@ public class WorkbenchConfiguration {
     DockerDevelopmentEnvironment developmentEnvironment(
             Path root,
             ObjectMapper json,
-            @Value("${delveforge.workbench.command-seconds:300}") int timeout) {
-        return new DockerDevelopmentEnvironment(root, json, timeout);
+            @Value("${delveforge.workbench.command-seconds:300}") int timeout,
+            @Value("${delveforge.workbench.project-cpus:2}") int cpu,
+            @Value("${delveforge.workbench.project-memory-mib:3072}") int memory,
+            @Value("${delveforge.workbench.project-pids:768}") int pids) {
+        return new DockerDevelopmentEnvironment(root, json, timeout, cpu, memory, pids);
     }
 
     @Bean

@@ -6,14 +6,15 @@ export interface ActiveTool {
     id: string; run_id: string; assistant_seq: number; provider_id: string; name: string
     frames: { channel: string; text: string }[]
 }
-export interface Foreground { projectId: string; conversationId: string }
-export interface Feed { messages: Message[]; runs: Run[]; activeTools?: ActiveTool[]; foreground?: Foreground | null }
+export interface Foreground { projectId: string; conversationId: string; state: string }
+export interface Feed { messages: Message[]; runs: Run[]; activeTools?: ActiveTool[]; foregrounds?: Foreground[] }
 export interface Ack { sequence: number; runId: string | null; newlyStarted: boolean }
 export interface RuntimeSettings {
     model: { adapter: string; endpoint: string; requestedModel: string; thinking: string }
     defaultRequestLimit: number
     contextWindowTokens: number
     responseTokens: number
+    maxConcurrentRuns?: number
     commandSeconds: number
 }
 export interface OutputPage { chunks: { channel: string; base64: string }[]; bytes: number; next: number; gap: boolean }
@@ -49,6 +50,6 @@ export function previews(text: string | null): string[] {
 }
 
 export const stateText: Record<string, string> = {
-    RUNNING: '执行中', STOPPING: '正在停止', RECONCILING: '核对前台执行中', BLOCKED: '需要核对',
+    QUEUED: '排队中', RUNNING: '执行中', STOPPING: '正在停止', RECONCILING: '核对前台执行中', BLOCKED: '需要核对',
     PAUSED: '已暂停', COMPLETED: '已完成', STOPPED: '已停止', FAILED: '失败',
 }

@@ -22,6 +22,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -34,41 +37,90 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
             String container,
             String parent,
             int previewPort,
-            int controlPort) {}
+            int controlPort, String installation, String project, String containerId, String image,
+            String startedAt, String stateVolume, Map<String, String> images) {}
 
-    private final Path root;
     private final ObjectMapper json;
+    private final ProjectRuntime runtime;
+    private final Map<String, Object> projectLocks = new ConcurrentHashMap<>();
+    private volatile Consumer<String> onReady = project -> {};
     private final int timeout;
     private DockerClient docker;
     private String endpoint;
 
     public DockerDevelopmentEnvironment(Path root, ObjectMapper json, int timeout) {
-        this.root = root;
-        this.json = json;
-        this.timeout = timeout;
+        this(root, json, timeout, 2, 3072, 768);
     }
 
-    public Settings settings() {
-        try {
-            Settings s =
-                    json.readValue(
-                            Files.readAllBytes(root.resolve("environment.json")), Settings.class);
-            if (!s.endpoint().startsWith("npipe:////./pipe/")
-                    || !root.resolve("projects")
-                            .toRealPath()
-                            .equals(Path.of(s.parent()).toRealPath())
-                    || !s.owner().matches("df-wb-[0-9a-f]{12}")
-                    || !s.container().equals(s.owner() + "-dev")) {
-                throw new IllegalStateException("开发环境登记与当前数据目录不匹配");
+    public DockerDevelopmentEnvironment(Path root, ObjectMapper json, int timeout, int cpu, int memory, int pids) {
+        this.json = json;
+        this.timeout = timeout;
+        runtime = new ProjectRuntime(root, json, cpu, memory, pids);
+    }
+
+    void onReady(Consumer<String> listener) {
+        onReady = listener;
+    }
+
+    Path certificateDirectory(Settings settings) {
+        return runtime.directory(settings.project()).resolve("tls-" + settings.owner()).resolve("client");
+    }
+
+    Settings registered(String project) {
+        return runtime.registered(project);
+    }
+
+    private Settings ensure(String project) {
+        synchronized (projectLocks.computeIfAbsent(project, ignored -> new Object())) {
+            Settings settings = registered(project);
+            if (settings == null || client().listContainersCmd()
+                    .withLabelFilter(Map.of("dev.delveforge.workbench", settings.owner())).exec().size() != 4) {
+                runtime.provision(project, "Ensure");
+                settings = registered(project);
             }
-            return s;
-        } catch (IOException e) {
-            throw new IllegalStateException("开发环境尚未安装或登记不可读，请运行工作台启动脚本", e);
+            onReady.accept(project);
+            return settings;
         }
     }
 
-    private synchronized DockerClient client(Settings s) {
-        if (docker != null && s.endpoint().equals(endpoint)) {
+    @Override
+    public boolean maintenanceEnded(String project) {
+        Path directory = runtime.directory(project);
+        if (Files.notExists(directory.resolve("environment.json")) || Files.exists(directory.resolve("provisioning.json"))
+                || Files.exists(directory.resolve("handover.json"))) {
+            try {
+                runtime.provision(project, Files.exists(directory.resolve("environment.json")) ? "Recover" : "Ensure");
+            } catch (RuntimeException unresolved) {
+                return false;
+            }
+        }
+        try (var channel = java.nio.channels.FileChannel.open(directory.resolve("provision.lock"),
+                java.nio.file.StandardOpenOption.WRITE); var lock = channel.tryLock()) {
+            if (lock == null || registered(project) == null) {
+                return false;
+            }
+            development(registered(project));
+            return true;
+        } catch (RuntimeException | IOException unavailable) {
+            return false;
+        }
+    }
+
+    @Override
+    public void maintain(String project, boolean replace) {
+        synchronized (projectLocks.computeIfAbsent(project, ignored -> new Object())) {
+            runtime.provision(project, replace ? "Rebuild" : "Restart");
+            development(registered(project));
+            onReady.accept(project);
+        }
+    }
+
+    private synchronized DockerClient client() {
+        String registeredEndpoint = runtime.catalog().path("endpoint").asText();
+        if (!registeredEndpoint.startsWith("npipe:////./pipe/")) {
+            throw new IllegalStateException("需要本机 Docker Desktop Linux 引擎");
+        }
+        if (docker != null && registeredEndpoint.equals(endpoint)) {
             return docker;
         }
         if (docker != null) {
@@ -76,7 +128,7 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
         }
         var config =
                 DefaultDockerClientConfig.createDefaultConfigBuilder()
-                        .withDockerHost(s.endpoint())
+                        .withDockerHost(registeredEndpoint)
                         .withDockerTlsVerify(false)
                         .withApiVersion("1.44")
                         .build();
@@ -88,16 +140,19 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
                         .responseTimeout(Duration.ofSeconds(timeout + 20L))
                         .build();
         docker = DockerClientImpl.getInstance(config, transport);
-        endpoint = s.endpoint();
+        endpoint = registeredEndpoint;
         return docker;
     }
 
     private InspectContainerResponse development(Settings s) {
-        var c = client(s);
+        var c = client();
         var dev = c.inspectContainerCmd(s.container()).exec();
         var hc = dev.getHostConfig();
         var net = c.inspectNetworkCmd().withNetworkId(s.owner() + "-inside").exec();
         if (!Boolean.TRUE.equals(dev.getState().getRunning())
+                || !dev.getId().equals(s.containerId()) || !dev.getImageId().equals(s.image())
+                || !s.project().equals(dev.getConfig().getLabels().get("dev.delveforge.project"))
+                || !s.installation().equals(dev.getConfig().getLabels().get("dev.delveforge.installation"))
                 || !s.owner().equals(dev.getConfig().getLabels().get("dev.delveforge.workbench"))
                 || !Boolean.TRUE.equals(net.getInternal())
                 || !"isolated"
@@ -125,11 +180,11 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
         boolean state = false;
         for (var m : dev.getMounts()) {
             String dest = m.getDestination().getPath();
-            if (dest.equals("/projects")
+            if (dest.equals("/projects/" + s.project())
                     && Boolean.TRUE.equals(m.getRW())
                     && mountPath(m.getSource()).equalsIgnoreCase(mountPath(s.parent()))) {
                 project = true;
-            } else if (dest.equals("/state") && (s.owner() + "-state").equals(m.getName())) {
+            } else if (dest.equals("/state") && s.stateVolume().equals(m.getName()) && Boolean.TRUE.equals(m.getRW())) {
                 state = true;
             } else {
                 throw new IllegalStateException("开发容器包含未登记的挂载");
@@ -153,11 +208,11 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
 
     @Override
     public Prepared prepare(Workbench.Run run, Workbench.Call call, String capability) {
-        Settings s = settings();
+        Settings s = ensure(run.projectId());
         var dev = development(s);
         String home = "/state/projects/" + run.projectId() + "/home";
         String exec =
-                client(s)
+                client()
                         .execCreateCmd(dev.getId())
                         .withWorkingDir("/projects/" + run.projectId())
                         .withTty(false)
@@ -199,7 +254,7 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
 
     @Override
     public void execute(Workbench.Call prepared, BiConsumer<String, byte[]> capture) {
-        attach(client(settings()), prepared.execId(), timeout, capture);
+        attach(client(), prepared.execId(), timeout, capture);
     }
 
     /** 仅登记预览时查询监听者的项目归属；网关随后按 socket 身份路由。 */
@@ -207,9 +262,9 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
         if (port < 1 || port > 65535) {
             return "";
         }
-        Settings s = settings();
+        Settings s = registered(project);
         var dev = development(s);
-        var c = client(s);
+        var c = client();
         String exec =
                 c.execCreateCmd(dev.getId())
                         .withTty(false)
@@ -273,13 +328,20 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
 
     @Override
     public End reconcile(Workbench.Call call, boolean stop) {
-        Settings s = settings();
-        var client = client(s);
+        var client = client();
         InspectContainerResponse dev;
         try {
             dev = client.inspectContainerCmd(call.container()).exec();
         } catch (NotFoundException e) {
             return new End(true, null, "原容器已不存在，历史结果未知");
+        }
+        var labels = dev.getConfig().getLabels();
+        String installation = runtime.catalog().path("owner").asText();
+        boolean legacy = installation.equals(labels.get("dev.delveforge.workbench"))
+                && dev.getName().equals("/" + installation + "-dev");
+        if (!legacy && (!installation.equals(labels.get("dev.delveforge.installation"))
+                || call.projectId() != null && !call.projectId().equals(labels.get("dev.delveforge.project")))) {
+            return new End(false, null, "容器归属与已记录的执行不符");
         }
         if (!Boolean.TRUE.equals(dev.getState().getRunning())
                 || !call.generation().equals(dev.getState().getStartedAt())) {

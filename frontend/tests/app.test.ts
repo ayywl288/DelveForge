@@ -11,13 +11,13 @@ const dispose: (() => void)[] = []
 afterEach(() => dispose.splice(0).forEach(f => f()))
 
 async function settle() { for (let i = 0; i < 18; i++) { await Promise.resolve(); await nextTick() } }
-function mount(post?: (url: string, body: Record<string, string>) => unknown, narrow = false) {
+function mount(post?: (url: string, body: Record<string, string>) => unknown, narrow = false, currentFeed: object = feed) {
     vi.stubGlobal('matchMedia', () => ({ matches: narrow, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
     HTMLDialogElement.prototype.showModal = function () { this.open = true }
     HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event('close')) }
     const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
         if (options?.method === 'POST') return new Response(JSON.stringify(post?.(url, JSON.parse(String(options.body))) || {}))
-        return new Response(JSON.stringify(url.endsWith('/settings') ? settings : url.endsWith('/projects') ? projects : url.endsWith('/conversations') ? conversations : feed))
+        return new Response(JSON.stringify(url.endsWith('/settings') ? settings : url.endsWith('/projects') ? projects : url.endsWith('/conversations') ? conversations : currentFeed))
     })
     vi.stubGlobal('fetch', fetcher)
     const root = document.createElement('div'); document.body.append(root)
@@ -40,7 +40,7 @@ it('刷新只恢复选中的项目和对话，不触发 Run', async () => {
     expect(root.querySelector('dialog')).toBeNull()
     root.querySelector<HTMLButtonElement>('.model-button')!.click(); await settle()
     const details = root.querySelector('dialog')!.textContent
-    expect(details).toContain('同一时间运行一个前台 Run')
+    expect(details).toContain('每个项目 1 个，工作台最多 2 个')
     expect(details).toContain('fixture-model')
     expect(details).toContain('已报告用量12 tokens')
     expect(fetcher.mock.calls.every(([, options]) => options?.method === 'GET')).toBe(true)
@@ -161,4 +161,24 @@ it('项目内切换对话保留各自草稿，并关闭移动导航', async () =
     toggle.click(); await nextTick()
     root.querySelectorAll<HTMLButtonElement>('dialog .conversation-node')[0]!.click(); await settle()
     expect(root.querySelector('textarea')?.value).toBe('只在调查里')
+})
+
+it.each([
+    ['p', '等待本项目的前一项任务', true],
+    ['other', '等待空闲执行名额', false],
+])('排队原因和跳转限定在本项目 %s', async (projectId, reason, canJump) => {
+    localStorage.setItem('delveforge.workbench.selection', JSON.stringify(['p', 'c2']))
+    const { root, fetcher } = mount(undefined, false, {
+        messages: [], runs: [{ ...feed.runs[0], state: 'QUEUED' }],
+        foregrounds: [{ projectId, conversationId: 'c1', runId: 'other-run', state: 'RUNNING' }],
+    })
+    await settle()
+    expect(root.textContent).toContain(reason)
+    const actions = [...root.querySelectorAll<HTMLButtonElement>('.run-action button')]
+    expect(actions.some(button => button.textContent === '回到该对话')).toBe(canJump)
+    const cancel = actions.find(button => button.textContent === '取消排队')
+    expect(cancel?.disabled).toBe(false)
+    cancel!.click()
+    await settle()
+    expect(fetcher.mock.calls.some(([url, options]) => url.endsWith('/runs/r1/cancel-queue') && options?.method === 'POST')).toBe(true)
 })

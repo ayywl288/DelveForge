@@ -54,7 +54,7 @@ public final class WorkbenchController {
     public Map<String, Object> settings() {
         return Map.of("model", model.identity(), "defaultRequestLimit", agent.defaultRequestLimit(),
                 "contextWindowTokens", context.contextWindowTokens(), "responseTokens", context.responseTokens(),
-                "commandSeconds", commandSeconds);
+                "commandSeconds", commandSeconds, "maxConcurrentRuns", store.capacity());
     }
 
     @GetMapping("/health")
@@ -84,6 +84,18 @@ public final class WorkbenchController {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("message", failure.getMessage()));
     }
 
+    public record EnvironmentAction(String action) {}
+
+    @PostMapping("/projects/{id}/environment")
+    public void maintain(@PathVariable String id, @RequestBody EnvironmentAction input) {
+        agent.maintain(id, ConversationAgent.required(input.action(), 20));
+    }
+
+    @GetMapping("/projects/{id}/maintenance")
+    public Map<String, String> maintenance(@PathVariable String id) {
+        return Map.of("operation", store.maintenance(id));
+    }
+
     @PostMapping("/projects/{id}/open")
     public void open(@PathVariable String id) {
         agent.open(id);
@@ -101,16 +113,16 @@ public final class WorkbenchController {
                 "id", store.conversation(project, ConversationAgent.required(title.title(), 160)));
     }
 
-    public record Foreground(String projectId, String conversationId) {}
+    public record Foreground(String projectId, String conversationId, String state) {}
 
     public record ConversationView(List<Map<String, Object>> messages, List<Map<String, Object>> runs,
-            List<Map<String, Object>> activeTools, Foreground foreground) {}
+            List<Map<String, Object>> activeTools, List<Foreground> foregrounds) {}
 
     @GetMapping("/conversations/{id}")
     public ConversationView conversation(@PathVariable String id) {
         var foreground = store.owners().stream()
-                .map(run -> new Foreground(run.projectId(), run.conversationId()))
-                .findFirst().orElse(null);
+                .map(run -> new Foreground(run.projectId(), run.conversationId(), run.state().name()))
+                .toList();
         return new ConversationView(store.timeline(id), store.runs(id), store.activeTools(id), foreground);
     }
 
@@ -128,6 +140,11 @@ public final class WorkbenchController {
     @PostMapping("/runs/{id}/stop")
     public void stop(@PathVariable String id) {
         agent.stop(id);
+    }
+
+    @PostMapping("/runs/{id}/cancel-queue")
+    public void cancelQueue(@PathVariable String id) {
+        store.cancelQueued(id);
     }
 
     @PostMapping("/runs/{id}/reconcile")

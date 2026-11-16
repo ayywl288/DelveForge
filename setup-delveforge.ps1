@@ -261,23 +261,7 @@ function Invoke-DfSetup {
         Set-DfEnvironment 'DEEPSEEK_API_KEY' $null
         Set-DfEnvironment 'JAVA_HOME' $dependencies.JavaHome
         $initializer = Join-Path $Root 'runtime/workbench/Initialize-Environment.ps1'
-        try {
-            & $initializer -DataDirectory $dataPath -Action $EnvironmentAction
-        } catch {
-            $mismatch = $_
-            if (-not $mismatch.Exception.Data['DelveForgeImageMismatch'] -or $EnvironmentAction -ne 'Ensure' -or
-                    -not [Environment]::UserInteractive -or [Console]::IsInputRedirected) {
-                throw
-            }
-            Write-Host $mismatch.Exception.Message
-            try { $answer = Read-Host '现在重建并继续启动工作台？[y/N]' }
-            catch { throw $mismatch }
-            if ($answer -notin @('y','yes','是')) {
-                Write-Host '已保留现有环境，本次启动已取消。'
-                return
-            }
-            & $initializer -DataDirectory $dataPath -Action Rebuild
-        }
+        & $initializer -DataDirectory $dataPath -Action $EnvironmentAction
         if ([string]::IsNullOrWhiteSpace($previousKey)) { $secret = Read-DfKey }
         else { $secret = ConvertTo-SecureString $previousKey -AsPlainText -Force }
         Invoke-DfBuild $Root $dependencies.Pnpm

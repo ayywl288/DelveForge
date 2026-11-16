@@ -1,6 +1,6 @@
 # DOMAIN_MODEL.md
 
-**2026-11-14 项目工作台。** 每个 Project 拥有一份工作副本。Conversation 属于 Project，Run 属于 Conversation。整个环境同时容纳一个前台 Run。确认原命令已结束后释放占用，历史退出码可以未知，已捕获输出和采集缺口分别记录。下文的 Step 授权、Candidate 与 Delivery 合同适用于既有发布。[ADR-0028](decisions/0028-project-conversations-and-shared-environment.md)
+**2026-11-14 项目工作台。** 每个 Project 拥有一份工作副本。Conversation 属于 Project，Run 属于 Conversation。每个项目同时只有一个前台 Run。工作台默认同时执行两个不同项目的 Run，等待名额的 Run 保留对话、输入和额度。[项目级准入与恢复](decisions/0029-project-isolated-runtime.md) 确认原命令已结束后释放占用，历史退出码可以未知，已捕获输出和采集缺口分别记录。下文的 Step 授权、Candidate 与 Delivery 合同适用于既有发布。[ADR-0028](decisions/0028-project-conversations-and-shared-environment.md)
 
 **2026-11-08 本次授权：选定仓库内容与离线执行。** 选定快照内普通源码和配置统一可供 Agent 读写；保留控制目录例外、宿主隔离和资源预算。依赖网络准备失败可降为明确离线执行，实际下载失败保留为命令事实。RUNNING 前持久化材料保留意图，捕获/停止/存储失败不清掉唯一现场。v8、逐 Step 授权、冻结与独立 Delivery 不变；容器协议 v10。见 [ADR-0027](decisions/0027-selected-repository-input-and-offline-execution.md)。下方旧内容隐藏与行保护规则仅为历史。
 

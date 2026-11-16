@@ -120,6 +120,27 @@ class ConversationCompactionTest {
         return store.next(id);
     }
 
+    @Test
+    void failedSummaryInEachProjectKeepsItsOwnRetryBoundary() {
+        var first = softPressure();
+        String other = store.beginProject("另一项目", null);
+        store.projectResult(other, temp.toString(), null);
+        conversation = store.conversation(other, "独立对话");
+        var second = softPressure();
+        var attempts = new AtomicInteger();
+        var context = new ConversationContext(store, (messages, tools) -> {
+            attempts.incrementAndGet();
+            return finalText("无效摘要");
+        }, CHARACTERS, new AgentContextBudget(4150, 250, .67));
+        var originalView = context.build(first);
+        context.build(second);
+        assertEquals(originalView, context.build(first));
+        context.build(second);
+        assertEquals(2, attempts.get());
+        assertEquals(0, store.next(first.run().id()).context().version());
+        assertEquals(0, store.next(second.run().id()).context().version());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"truncated", "provider", "blank", "not-structured", "wrong-reference", "bad-id", "tool-call", "one-token"})
     void failedSoftCompressionDoesNotReplaceStateOrPayAgainForTheSamePrefix(String reason) {
