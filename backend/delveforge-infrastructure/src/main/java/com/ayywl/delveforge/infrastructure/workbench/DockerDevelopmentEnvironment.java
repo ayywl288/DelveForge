@@ -38,7 +38,7 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
             String parent,
             int previewPort,
             int controlPort, String installation, String project, String containerId, String image,
-            String startedAt, String stateVolume, Map<String, String> images, String previousOwner) {}
+            String startedAt, String stateVolume, Map<String, String> images, String previousOwner, String cacheContainer) {}
 
     private final ObjectMapper json;
     private final ProjectRuntime runtime;
@@ -73,13 +73,28 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
     private Settings ensure(String project) {
         synchronized (projectLocks.computeIfAbsent(project, ignored -> new Object())) {
             Settings settings = registered(project);
-            if (settings == null || client().listContainersCmd()
+            if (settings == null || !downloadCacheReady(settings)
+                    || client().listContainersCmd()
                     .withLabelFilter(Map.of("dev.delveforge.workbench", settings.owner())).exec().size() != 4) {
                 runtime.provision(project, "Ensure");
                 settings = registered(project);
             }
             onReady.accept(project);
             return settings;
+        }
+    }
+
+    private boolean downloadCacheReady(Settings settings) {
+        if (settings.cacheContainer() == null) {
+            return !runtime.catalog().path("images").hasNonNull("cache");
+        }
+        try {
+            var cache = client().inspectContainerCmd(settings.cacheContainer()).exec();
+            return Boolean.TRUE.equals(cache.getState().getRunning())
+                    && settings.installation().equals(cache.getConfig().getLabels().get("dev.delveforge.cache"))
+                    && cache.getNetworkSettings().getNetworks().containsKey(settings.owner() + "-inside");
+        } catch (NotFoundException missing) {
+            return false;
         }
     }
 

@@ -133,17 +133,21 @@ class ParallelProjectDockerTest {
     private static void fixture(Project p, String name) throws Exception {
         Files.writeString(p.copy.resolve("server.py"), SERVER);
         Files.writeString(p.copy.resolve("acceptance.sh"), BASH);
+        mavenFiles(p.copy, name);
+    }
+
+    static void mavenFiles(Path copy, String name) throws Exception {
         String base = "<project><modelVersion>4.0.0</modelVersion><groupId>fixture</groupId><version>1</version>"
                 + "<properties><maven.compiler.release>21</maven.compiler.release></properties>";
-        Files.createDirectories(p.copy.resolve("library/src/main/java"));
-        Files.writeString(p.copy.resolve("library/pom.xml"),base+"<artifactId>shared</artifactId></project>");
-        Files.writeString(p.copy.resolve("library/src/main/java/Shared.java"),
+        Files.createDirectories(copy.resolve("library/src/main/java"));
+        Files.writeString(copy.resolve("library/pom.xml"),base+"<artifactId>shared</artifactId></project>");
+        Files.writeString(copy.resolve("library/src/main/java/Shared.java"),
                 "public class Shared { public static String owner(){return \""+name+"\";} }");
-        Files.createDirectories(p.copy.resolve("consumer/src/main/java"));
-        Files.writeString(p.copy.resolve("consumer/pom.xml"),base+"<artifactId>consumer</artifactId><dependencies>"
+        Files.createDirectories(copy.resolve("consumer/src/main/java"));
+        Files.writeString(copy.resolve("consumer/pom.xml"),base+"<artifactId>consumer</artifactId><dependencies>"
                 +"<dependency><groupId>fixture</groupId><artifactId>shared</artifactId><version>1</version>"
                 +"</dependency></dependencies></project>");
-        Files.writeString(p.copy.resolve("consumer/src/main/java/Use.java"),
+        Files.writeString(copy.resolve("consumer/src/main/java/Use.java"),
                 "public class Use { public static void main(String[] a){System.out.print(Shared.owner());} }");
     }
 

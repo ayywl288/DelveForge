@@ -29,6 +29,23 @@ function Save-Registration([string]$file,$value) {
         [IO.File]::Delete($backup)
     } else { [IO.File]::Move($tmp,$file) }
 }
+function New-SizedNetwork([string]$name,[string[]]$netArgs) {
+    # Docker Desktop 默认自动分配的大子网很快耗尽。每组只有少数端点，使用小型独立子网。
+    $seed = [Convert]::ToUInt32((Get-Digest $name).Substring(0,4),16)
+    $allocated = $false
+    for ($attempt = 0; $attempt -lt 64; $attempt++) {
+        $slot = ($seed + $attempt) % 65536
+        $subnet = '10.{0}.{1}.{2}/28' -f (240 + ($slot -shr 12)),(($slot -shr 4) -band 255),(($slot -band 15) * 16)
+        $createArgs = $netArgs + @('--subnet',$subnet,$name)
+        $beforeError = $ErrorActionPreference
+        try { $ErrorActionPreference = 'Continue'; $answer = & docker @createArgs 2>&1 }
+        finally { $ErrorActionPreference = $beforeError }
+        if ($LASTEXITCODE -eq 0) { $allocated = $true; break }
+        if (($answer | Out-String) -notmatch 'overlap') { throw "创建项目网络失败：$answer" }
+    }
+    if (-not $allocated) { throw '没有可用的项目子网，请检查 Docker 网络配置。' }
+}
+. (Join-Path $PSScriptRoot 'DownloadCache.ps1')
 $rootOwner = 'df-wb-' + (Get-Digest $dataPath.ToLowerInvariant()).Substring(0,12)
 $catalogFile = Join-Path $dataPath 'runtime-catalog.json'
 $endpoints = (Invoke-Engine @('context','inspect','--format','{{json .Endpoints}}')) | ConvertFrom-Json
@@ -53,6 +70,15 @@ if (-not $ProjectId) {
         }
         $images[$role] = (Invoke-Engine @('image','inspect','--format','{{.Id}}',$tag)).Trim()
     }
+    $cacheContext = Join-Path $PSScriptRoot 'cache'
+    $cacheFiles = @(Get-ChildItem -LiteralPath $cacheContext -File | Sort-Object Name | ForEach-Object { $_.Name + (Get-FileHash -LiteralPath $_.FullName).Hash })
+    $cacheTag = 'df-workbench/central-cache:' + (Get-Digest (($cacheFiles + $images.egress) -join ',')).Substring(0,16)
+    if (@(Invoke-Engine @('image','ls','--format','{{.Repository}}:{{.Tag}}',$cacheTag)) -notcontains $cacheTag) {
+        $baseTag = 'df-workbench/cache-egress:' + $images.egress.Substring(7,16)
+        Invoke-Engine @('tag',$images.egress,$baseTag) | Out-Null
+        Invoke-Engine @('build','--build-arg',"EGRESS_BASE=$baseTag",'--label','dev.delveforge.workbench.image=true','-t',$cacheTag,$cacheContext) | Out-Host
+    }
+    $images.cache = (Invoke-Engine @('image','inspect','--format','{{.Id}}',$cacheTag)).Trim()
     Save-Registration $catalogFile ([ordered]@{owner=$rootOwner;endpoint=$endpoint;images=$images})
     return
 }
@@ -211,20 +237,7 @@ foreach ($name in @($inside,$outside)) {
     else {
         $netArgs = @('network','create','--label',$label) + $extraLabels
         if ($name -eq $inside) { $netArgs += @('--internal','--opt','com.docker.network.bridge.gateway_mode_ipv4=isolated') }
-        # Docker Desktop 默认自动分配的大子网很快耗尽。每组只有少数端点，使用小型独立子网。
-        $seed = [Convert]::ToUInt32((Get-Digest $name).Substring(0,4),16)
-        $allocated = $false
-        for ($attempt = 0; $attempt -lt 64; $attempt++) {
-            $slot = ($seed + $attempt) % 65536
-            $subnet = '10.{0}.{1}.{2}/28' -f (240 + ($slot -shr 12)),(($slot -shr 4) -band 255),(($slot -band 15) * 16)
-            $createArgs = $netArgs + @('--subnet',$subnet,$name)
-            $beforeError = $ErrorActionPreference
-            try { $ErrorActionPreference = 'Continue'; $answer = & docker @createArgs 2>&1 }
-            finally { $ErrorActionPreference = $beforeError }
-            if ($LASTEXITCODE -eq 0) { $allocated = $true; break }
-            if (($answer | Out-String) -notmatch 'overlap') { throw "创建项目网络失败：$answer" }
-        }
-        if (-not $allocated) { throw '没有可用的项目子网，请检查 Docker 网络配置。' }
+        New-SizedNetwork $name $netArgs
     }
 }
 if (@(Invoke-Engine @('volume','ls','--format','{{.Name}}')) -contains $stateVolume) { Assert-Owned 'volume' $stateVolume }
@@ -318,6 +331,10 @@ $devArgs = @('--network',$inside,'--network-alias','dev','--user','0:0','--cap-d
     '--mount',"type=volume,src=$stateVolume,target=/state",'--pids-limit',"$PidLimit",'--cpus',"$CpuLimit",'--memory',"${MemoryMiB}m")
 foreach ($key in @('http_proxy','https_proxy','HTTP_PROXY','HTTPS_PROXY')) { $devArgs += @('-e',"$key=http://egress:3128") }
 $devArgs += @('-e','NO_PROXY=localhost,127.0.0.1','-e','no_proxy=localhost,127.0.0.1','-e','npm_config_cache=/state/cache/npm','-e','PNPM_CONFIG_STORE_DIR=/state/cache/pnpm')
+$cacheId = Connect-DownloadCache $inside (($rules -join "`n") + "`n")
+Invoke-Engine @('run','--rm','--network','none','--read-only','--cap-drop','ALL','--cap-add','DAC_OVERRIDE',
+    '--mount',"type=volume,src=$stateVolume,target=/state",'-e',"PROJECT_ID=$ProjectId",'--entrypoint','/bin/sh',
+    $catalog.images.cache,'/cache-config/prepare-settings.sh') | Out-Null
 Start-Owned $dev $images.development $devArgs $false
 Start-Owned $proxy $images.egress @('--network',$inside,'--network-alias','egress','--cap-add','NET_ADMIN',
     '--sysctl','net.ipv4.ip_forward=0','--mount',"type=bind,src=$hostRules,target=/host,readonly") $true
@@ -333,7 +350,7 @@ function Get-Port([int]$port) {
 $identity = (Invoke-Engine @('inspect','--format','{{.Id}} {{.Image}} {{.State.StartedAt}}',$dev)).Trim().Split(' ')
 $info = [ordered]@{owner=$owner; installation=$rootOwner; project=$ProjectId; endpoint=$endpoint;
     container=$dev; parent=$projectPath; containerId=$identity[0]; image=$identity[1]; startedAt=$identity[2];
-    stateVolume=$stateVolume; images=$images; previewPort=(Get-Port 8140); controlPort=(Get-Port 8141)}
+    stateVolume=$stateVolume; cacheContainer=$cacheId; images=$images; previewPort=(Get-Port 8140); controlPort=(Get-Port 8141)}
 if ($previous -and $previous.owner -ne $owner) { $info.previousOwner = $previous.owner }
 elseif ($previous.previousOwner) { $info.previousOwner = $previous.previousOwner }
 $ready = $false

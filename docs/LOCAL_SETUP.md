@@ -48,7 +48,24 @@
 
 启动器参数控制 Windows 数据目录、后端端口和环境的停启方式。`delveforge.workbench.requests-per-run` 指定整项任务的默认请求总上限，默认 96。若只设置旧键 `requests-per-continuation`，其值作为总上限。每个前台命令的超时由 `delveforge.workbench.command-seconds` 配置，默认 300 秒。可在侧栏的「模型与用量」查看已解析的模型配置。
 
-开发环境中的 shell 和 JVM 都使用各项目的持久化 HOME。Maven 从这里读取 `.m2/settings.xml`，通过已有出口代理下载，默认本地仓库位于本项目的私有卷 `/state/cache/maven`。Maven Wrapper 的发行包按项目保存在 `$MAVEN_USER_HOME/wrapper`。普通重启和镜像重建都保留这些文件。
+开发环境中的 shell 和 JVM 都使用各项目的持久化 HOME。Maven 从这里读取 `.m2/settings.xml`。默认本地仓库位于本项目的私有卷 `/state/cache/maven`，公共和自定义仓库的下载方式见下节。Maven Wrapper 的发行包按项目保存在 `$MAVEN_USER_HOME/wrapper`。普通重启和镜像重建都保留这些文件。
+
+## 依赖下载与缓存维护
+
+新项目的 Maven 默认配置把仓库 ID `central` 指向本机固定来源代理，上游始终是经 TLS 校验的 `https://repo.maven.apache.org/maven2`。其他仓库 ID 仍按项目或用户配置解析。需要自行定义 `central`、使用公司镜像或发送仓库凭据时，使用自己的 `settings.xml`。已有配置会保留。对已有项目，可用 `mvn -s "$HOME/.m2/delveforge-central.xml" …` 显式选择新配置。项目第一次初始化或在新版工作台运行工具时提供这份模板。
+
+共享卷保存公共发布制品的下载响应。元数据与 SNAPSHOT 每次向上游查询，错误响应不会作为制品缓存。包体与校验值在 Maven 侧按强制校验策略验证。项目的 `mvn install`、私有仓库、本机凭据以及上线前已有的混合 Maven 目录都不会写入共享卷。离线模式读取本项目已经解析的文件，冷项目需要先联网取得构建所需插件和依赖。
+
+npm 缓存、pnpm 内容存储和 Maven Wrapper 发行包均保存在项目自己的 Linux 数据中。npm/pnpm 只在本项目内复用其安装缓存，不混用 Windows 原生二进制。APT 的安装数据库位于容器系统层。项目间公用工具采用已核验的全局镜像。APT 下载归档仅用于对应的显式推广预览。
+
+在 Windows 中可以查看或清空这个工作台的 Central 下载缓存：
+
+```powershell
+.\runtime\workbench\Reset-DownloadCache.ps1 -DataDirectory .\data\workbench -Action Status
+.\runtime\workbench\Reset-DownloadCache.ps1 -DataDirectory .\data\workbench -Action Clear
+```
+
+清空会短暂中断共享下载服务，宜在没有在线构建时执行。脚本核对容器 ID、标签和卷后，只在专用下载卷内清除缓存文件。默认磁盘上限约 2 GiB，30 天未访问的对象自动淘汰。项目的 HOME、本地仓库、工作副本和工具镜像不参与此操作。
 
 ## 开发验证
 

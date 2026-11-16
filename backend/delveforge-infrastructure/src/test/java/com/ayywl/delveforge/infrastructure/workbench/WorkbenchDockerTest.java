@@ -246,7 +246,7 @@ class WorkbenchDockerTest {
                     grep -F 'Apache Maven' wrapper.log
                     test -d "$MAVEN_USER_HOME/wrapper/dists"
                     mvn -B -Dmaven.repo.local="$HOME/cold" org.apache.maven.plugins:maven-clean-plugin:3.4.1:help > cold.log 2>&1
-                    grep 'Downloaded from central:.*maven-clean-plugin.*jar' cold.log
+                    grep 'Downloaded from delveforge-public-central: http://maven-cache:8082/maven2/.*maven-clean-plugin.*jar' cold.log
                     """));
             assertEquals(0, result.exit(), result.out() + result.err() + " " + copy);
         }

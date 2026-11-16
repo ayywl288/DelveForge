@@ -1,0 +1,28 @@
+<settings>
+    <localRepository>/state/cache/maven</localRepository>
+    <mirrors>
+        <mirror>
+            <id>delveforge-public-central</id>
+            <mirrorOf>central</mirrorOf>
+            <url>http://maven-cache:8082/maven2</url>
+        </mirror>
+    </mirrors>
+    <profiles>
+        <profile>
+            <id>central-checksums</id>
+            <repositories><repository>
+                <id>central</id><url>https://repo.maven.apache.org/maven2</url>
+                <releases><checksumPolicy>fail</checksumPolicy></releases><snapshots><enabled>false</enabled></snapshots>
+            </repository></repositories>
+            <pluginRepositories><pluginRepository>
+                <id>central</id><url>https://repo.maven.apache.org/maven2</url>
+                <releases><checksumPolicy>fail</checksumPolicy></releases><snapshots><enabled>false</enabled></snapshots>
+            </pluginRepository></pluginRepositories>
+        </profile>
+    </profiles>
+    <activeProfiles><activeProfile>central-checksums</activeProfile></activeProfiles>
+    <proxies><proxy>
+        <id>development-egress</id><active>true</active><protocol>http</protocol><host>egress</host><port>3128</port>
+        <nonProxyHosts>localhost|127.0.0.1|maven-cache</nonProxyHosts>
+    </proxy></proxies>
+</settings>
