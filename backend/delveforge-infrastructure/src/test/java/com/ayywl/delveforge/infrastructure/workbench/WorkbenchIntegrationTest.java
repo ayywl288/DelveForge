@@ -27,8 +27,11 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 import java.util.function.BooleanSupplier;
@@ -338,6 +341,39 @@ class WorkbenchIntegrationTest {
         assertEquals(27, usage.get("tokens"));
         assertEquals(27, usage.get("allowance"));
         assertEquals(26, guest.executions.get());
+    }
+
+    @Test
+    void closeWaitsForAnInterruptedWorkerToFinishItsDatabaseWrites() throws Exception {
+        var started = new CompletableFuture<Thread>();
+        var interrupted = new CountDownLatch(1);
+        var finish = new Semaphore(0);
+        agent((messages, tools) -> {
+            started.complete(Thread.currentThread());
+            try {
+                finish.acquire();
+            } catch (InterruptedException shutdown) {
+                interrupted.countDown();
+                finish.acquireUninterruptibly();
+            }
+            return finalText("结束");
+        }, new Guest(), 2);
+
+        String run = agent.receive(conversation, "shutdown", "结束后保存结果", 2).runId();
+        Thread worker = started.get(5, TimeUnit.SECONDS);
+        var closing = CompletableFuture.supplyAsync(() -> {
+            agent.close();
+            return store.run(run).state();
+        });
+        try {
+            assertTrue(interrupted.await(5, TimeUnit.SECONDS));
+            assertThrows(TimeoutException.class, () -> closing.get(200, TimeUnit.MILLISECONDS));
+        } finally {
+            finish.release();
+            worker.join(TimeUnit.SECONDS.toMillis(5));
+        }
+        assertEquals(RunState.COMPLETED, closing.get(5, TimeUnit.SECONDS));
+        assertFalse(worker.isAlive());
     }
 
     @Test

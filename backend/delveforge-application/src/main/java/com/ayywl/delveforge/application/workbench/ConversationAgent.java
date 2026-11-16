@@ -433,5 +433,7 @@ public final class ConversationAgent implements AutoCloseable {
     @Override
     public void close() {
         workers.shutdownNow();
+        // Run 进入终态后线程还会核对队列；等它退出再交还数据库。
+        workers.close();
     }
 }
