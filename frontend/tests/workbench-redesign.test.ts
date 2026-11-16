@@ -1,8 +1,9 @@
-import { createApp, h, nextTick } from 'vue'
+import { createApp, h, nextTick, ref } from 'vue'
 import { afterEach, expect, it, vi } from 'vitest'
 import { previewLinks, recordedChanges, timeline, toolStatus, type ToolActivity } from '../src/workbench/activity'
+import WorkbenchNavigation from '../src/workbench/WorkbenchNavigation.vue'
 import WorkbenchDetails from '../src/workbench/WorkbenchDetails.vue'
-import { type Feed, type Message } from '../src/workbench/api'
+import { type Feed, type Foreground, type Message } from '../src/workbench/api'
 import { useWorkbench } from '../src/workbench/useWorkbench'
 
 function message(seq: number, run_id: string, role: string, name = 'Edit', exit = 0): Message {
@@ -53,10 +54,41 @@ it('文件面板只列出有成功回执和原始路径的写入', () => {
 const response = (v: unknown) => new Response(JSON.stringify(v))
 const project = (id: string) => ({ id, name: id, workcopy: id, state: 'READY', detail: null })
 const conv = (id: string) => ({ id, title: id, project_id: id[0] })
+it('侧栏圆环跟随正在运行的对话和折叠项目，轮询停止后移除', async () => {
+    const selected = ref('A')
+    const owners = ref<Foreground[]>([
+        { projectId: 'A', conversationId: 'A1', state: 'RUNNING' },
+        { projectId: 'B', conversationId: 'B1', state: 'RUNNING' },
+    ])
+    const root = document.createElement('div')
+    const app = createApp({ setup: () => () => h(WorkbenchNavigation, {
+        projects: [project('A'), project('B')], projectId: selected.value,
+        conversations: [conv(selected.value + '1'), conv(selected.value + '2')],
+        conversationId: selected.value + '2', foregrounds: owners.value,
+    }) })
+    app.mount(root)
+    const markedRows = () => Array.from(root.querySelectorAll('.project-tree [aria-label="任务正在执行"]'),
+        indicator => indicator.closest('button')?.title)
+    try {
+        expect(markedRows()).toEqual(['A1', 'B'])
+        selected.value = 'B'
+        await nextTick()
+        expect(markedRows()).toEqual(['A', 'B1'])
+        owners.value = [owners.value[0]!, { projectId: 'B', conversationId: 'B1', state: 'STOPPING' }]
+        await nextTick()
+        expect(markedRows()).toEqual(['A'])
+        expect(root.textContent).toContain('正在停止')
+        owners.value = []
+        await nextTick()
+        expect(markedRows()).toEqual([])
+    } finally { app.unmount() }
+})
+
 let cleanup: (() => void) | undefined
 afterEach(() => { cleanup?.(); cleanup = undefined; vi.unstubAllGlobals(); localStorage.clear(); sessionStorage.clear() })
 
-async function mount(receive: (body: { requestId: string; text: string }) => Promise<Response>) {
+async function mount(receive: (body: { requestId: string; text: string }) => Promise<Response>,
+    readFeed: (path: string) => Response | Promise<Response> = () => response({ runs: [], messages: [] })) {
     vi.stubGlobal('fetch', vi.fn(async (address: string, init: RequestInit) => {
         const path = address.replace('/api/workbench', '')
         if (path === '/projects') return response([project('A'), project('B')])
@@ -64,7 +96,7 @@ async function mount(receive: (body: { requestId: string; text: string }) => Pro
         if (path === '/projects/A/conversations') return response([conv('A1'),conv('A2')])
         if (path === '/projects/B/conversations') return response([conv('B1')])
         if (path.endsWith('/messages')) return receive(JSON.parse(String(init.body)))
-        return response({ runs: [], messages: [] })
+        return readFeed(path)
     }))
     let wb!: ReturnType<typeof useWorkbench>
     const app = createApp({ setup() { wb = useWorkbench(); return () => h('div') } })
@@ -73,6 +105,19 @@ async function mount(receive: (body: { requestId: string; text: string }) => Pro
     await vi.waitFor(() => expect(wb.loading.value).toBe(false))
     return wb
 }
+
+it('切换对话等候新数据时保留前台标记，新快照到达后立即更新', async () => {
+    const owners = [{ projectId: 'A', conversationId: 'A1', state: 'RUNNING' }]
+    let complete!: (value: Response) => void
+    const wb = await mount(async () => response({}), path => path === '/conversations/A2'
+        ? new Promise(resolve => { complete = resolve })
+        : response({ runs: [], messages: [], foregrounds: owners }))
+    const switching = wb.selectConversation('A2')
+    expect(wb.feed.value.foregrounds).toEqual(owners)
+    complete(response({ runs: [], messages: [], foregrounds: [] }))
+    await switching
+    expect(wb.feed.value.foregrounds).toEqual([])
+})
 
 it('切换项目后找回所选对话和草稿，刷新同一标签页仍可继续输入', async () => {
     let wb = await mount(async () => response({}))

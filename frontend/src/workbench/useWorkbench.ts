@@ -3,7 +3,7 @@ import { request, type Ack, type Conversation, type Feed, type Foreground, type 
 
 const selectionKey = 'delveforge.workbench.selection'
 const key = (kind: string, id: string) => 'delveforge.workbench.' + kind + '.' + id
-const blankFeed = (): Feed => ({ messages: [], runs: [] })
+const blankFeed = (foregrounds: Foreground[] = []): Feed => ({ messages: [], runs: [], foregrounds })
 interface Delivery { id: string; text: string; requestLimit?: number }
 
 export function useWorkbench() {
@@ -60,7 +60,7 @@ export function useWorkbench() {
     async function selectConversation(id: string) {
         conversationId.value = id
         input.value = id ? sessionStorage.getItem(key('draft', id)) ?? '' : ''
-        feed.value = blankFeed()
+        feed.value = blankFeed(id ? foregrounds.value : [])
         notice.value = ''; error.value = ''; limit.value = ''; loading.value = !!id
         if (id) sessionStorage.setItem(key('last', projectId.value), id)
         remember()
@@ -69,7 +69,7 @@ export function useWorkbench() {
     async function selectProject(id: string, preferred = '') {
         const turn = ++navigation
         projectId.value = id; conversationId.value = ''; conversations.value = []
-        input.value = ''; feed.value = blankFeed(); loading.value = !!id
+        input.value = ''; feed.value = blankFeed(id ? foregrounds.value : []); loading.value = !!id
         notice.value = ''; error.value = ''; limit.value = ''
         if (!id) { remember(); return }
         try {

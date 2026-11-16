@@ -51,6 +51,13 @@ code, pre, kbd { font-family: var(--mono); }
 .project-node { font-weight: 550; padding: 6px 8px; font-size: 14px; }
 .project-node > span, .conversation-node > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-node .disclosure { margin-left: auto; }
+.project-tree .run-indicator {
+    flex: 0 0 14px; height: 14px; margin-inline-start: auto;
+    border: 2px solid var(--strong-line); border-top-color: var(--accent); border-right-color: var(--accent);
+    border-radius: 50%; animation: run-rotate 1s linear infinite;
+}
+.project-node .run-indicator + .disclosure { margin-left: 0; }
+@keyframes run-rotate { to { transform: rotate(1turn); } }
 .disclosure { width: 12px; height: 12px; color: var(--muted); }
 .project-node[aria-expanded=true] .disclosure, details[open] > summary .disclosure { transform: rotate(90deg); }
 .branches { margin: 3px 0 6px 15px; padding-left: 7px; border-left: 1px solid #d5d4df; }
@@ -272,5 +279,5 @@ summary::-webkit-details-marker { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto !important; }
-    .reply-dots i { animation: none; }
+    .reply-dots i, .project-tree .run-indicator { animation: none; }
 }

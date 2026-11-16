@@ -1,9 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import Icon from '../components/NavigationIcon.vue'
 import BrandSymbol from '../components/BrandSymbol.vue'
-import type { Conversation, Foreground, Project, RuntimeSettings } from './api'
-defineProps<{ projects: Project[]; conversations: Conversation[]; projectId: string; conversationId: string;
+import { stateText, type Conversation, type Foreground, type Project, type RuntimeSettings } from './api'
+const props = defineProps<{ projects: Project[]; conversations: Conversation[]; projectId: string; conversationId: string;
     foregrounds?: Foreground[]; settings?: RuntimeSettings; mobile?: boolean }>()
+const projectRows = computed(() => {
+    const owners = new Map(props.foregrounds?.map(owner => [owner.projectId, owner]))
+    return props.projects.map(project => ({ project, owner: owners.get(project.id) }))
+})
 const emit = defineEmits<{ project: [id: string]; conversation: [id: string]; newProject: []; newConversation: []; model: []; collapse: [] }>()
 </script>
 <template>
@@ -14,16 +19,23 @@ const emit = defineEmits<{ project: [id: string]; conversation: [id: string]; ne
         <nav class="project-tree" aria-label="项目与对话">
             <h2>项目 <span>{{ projects.length }}</span></h2>
             <p v-if="!projects.length" class="nav-empty">尚无项目</p>
-            <div v-for="p in projects" :key="p.id" class="tree-group">
+            <div v-for="{ project: p, owner } in projectRows" :key="p.id" class="tree-group">
                 <button class="project-node" :class="{ selected: p.id === projectId }" :title="p.name"
                     :aria-expanded="p.id === projectId" @click="emit('project', p.id)">
                     <Icon name="folder" /><span>{{ p.name }}</span>
-                    <small v-if="foregrounds?.some(owner => owner.projectId === p.id)">{{ foregrounds.find(owner => owner.projectId === p.id)?.state === 'BLOCKED' ? '待核对' : '活动中' }}</small><Icon class="disclosure" name="chevron" />
+                    <span v-if="p.id !== projectId && owner?.state === 'RUNNING'" class="run-indicator"
+                        role="img" aria-label="任务正在执行" title="任务正在执行"></span>
+                    <small v-else-if="owner && owner.state !== 'RUNNING'">{{ stateText[owner.state] }}</small>
+                    <Icon class="disclosure" name="chevron" />
                 </button>
                 <div v-if="p.id === projectId" class="branches">
                     <button v-for="c in conversations" :key="c.id" class="conversation-node"
                         :title="c.title" :aria-current="c.id === conversationId ? 'page' : undefined"
-                        @click="emit('conversation', c.id)"><Icon name="discovery" /><span>{{ c.title }}</span></button>
+                        @click="emit('conversation', c.id)">
+                        <Icon name="discovery" /><span>{{ c.title }}</span>
+                        <span v-if="owner?.state === 'RUNNING' && owner.conversationId === c.id" class="run-indicator"
+                            role="img" aria-label="任务正在执行" title="任务正在执行"></span>
+                    </button>
                     <button v-if="p.state === 'READY'" class="add-conversation" @click="emit('newConversation')"><Icon name="plus" />新建对话</button>
                     <small v-if="p.state !== 'READY'">{{ p.detail || p.state }}</small>
                 </div>
