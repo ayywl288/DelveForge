@@ -1,7 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [string]$DataDirectory = (Join-Path $PSScriptRoot '..\..\data\workbench'),
-    [ValidateSet('Ensure','Restart','Rebuild','Recover')][string]$Action = 'Ensure',
+    [ValidateSet('Ensure','Restart','Rebuild','Rollback','Recover')][string]$Action = 'Ensure',
     [string]$MaintenanceTicket,
     [string]$ProjectId,
     [ValidateRange(1,64)][int]$CpuLimit = 2,
@@ -137,12 +137,27 @@ if ($names -contains "$rootOwner-dev" -and
     throw '旧共享开发容器仍在运行。请先在旧工作台核对前台执行、保存服务，再停用旧环境。'
 }
 if ($previous -and ($previous.project -ne $ProjectId -or $previous.parent -ne $projectPath -or $previous.installation -ne $rootOwner)) { throw '原项目环境登记不匹配' }
-if ($previous -and $Action -ne 'Rebuild') {
+$targetImages = $catalog.images
+$toolFile = Join-Path $dataPath 'tool-images.json'
+if ([IO.File]::Exists($toolFile)) {
+    $latest = @((Get-Content -Raw -LiteralPath $toolFile | ConvertFrom-Json).releases | Where-Object base -eq $catalog.images.development) | Select-Object -Last 1
+    if ($latest) {
+        if ($latest.image -cnotmatch '^sha256:[a-f0-9]{64}$') { throw '全局开发镜像登记无效' }
+        $targetImages.development = $latest.image
+    }
+}
+if ($Action -eq 'Rollback') {
+    if (-not $previous.previousOwner -or $previous.previousOwner -cnotmatch ('^'+[regex]::Escape($namespace)+'-g[0-9a-f]{12}$')) { throw '没有可回退的上一代环境' }
+    $generation = Get-Content -Raw -LiteralPath (Join-Path $controlDir ('retired-' + $previous.previousOwner + '.json')) | ConvertFrom-Json
+    $members = Get-GenerationMembers $generation
+    if (-not $members['dev'] -or $members['dev'].id -ne $generation.containerId) { throw '原代次的开发容器已缺失，已保留当前环境' }
+    Save-Registration $pendingFile $generation
+} elseif ($previous -and $Action -ne 'Rebuild') {
     $generation = $previous
 } elseif (Test-Path -LiteralPath $pendingFile) {
     $generation = Get-Content -Raw -LiteralPath $pendingFile | ConvertFrom-Json
 } else {
-    $generation = [ordered]@{owner=($namespace+'-g'+[Guid]::NewGuid().ToString('N').Substring(0,12));images=$catalog.images}
+    $generation = [ordered]@{owner=($namespace+'-g'+[Guid]::NewGuid().ToString('N').Substring(0,12));images=$targetImages}
     Save-Registration $pendingFile $generation
 }
 $owner = $generation.owner
@@ -319,6 +334,8 @@ $identity = (Invoke-Engine @('inspect','--format','{{.Id}} {{.Image}} {{.State.S
 $info = [ordered]@{owner=$owner; installation=$rootOwner; project=$ProjectId; endpoint=$endpoint;
     container=$dev; parent=$projectPath; containerId=$identity[0]; image=$identity[1]; startedAt=$identity[2];
     stateVolume=$stateVolume; images=$images; previewPort=(Get-Port 8140); controlPort=(Get-Port 8141)}
+if ($previous -and $previous.owner -ne $owner) { $info.previousOwner = $previous.owner }
+elseif ($previous.previousOwner) { $info.previousOwner = $previous.previousOwner }
 $ready = $false
 for ($attempt = 0; $attempt -lt 12; $attempt++) {
     $probe = & curl.exe --noproxy '*' --silent --max-time 2 --output NUL --write-out '%{http_code}' "http://127.0.0.1:$($info.previewPort)/"
@@ -347,6 +364,6 @@ Save-Registration $configFile $info
 [IO.File]::Delete($handover)
 Write-Host "项目工作副本 $projectPath"
 } catch {
-    if ($Action -eq 'Rebuild' -and $previous) { Restore-Environment }
+    if ($Action -in @('Rebuild','Rollback') -and $previous) { Restore-Environment }
     throw
 } finally { $guard.Dispose() }

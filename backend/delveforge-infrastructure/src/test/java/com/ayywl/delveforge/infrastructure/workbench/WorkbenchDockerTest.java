@@ -261,9 +261,14 @@ class WorkbenchDockerTest {
 
     static ConversationAgent agent(Workbench store, ExecutionEnvironment env, AgentModelPort model)
             throws Exception {
+        return agent(root(), store, env, model);
+    }
+
+    static ConversationAgent agent(Path data, Workbench store, ExecutionEnvironment env, AgentModelPort model)
+            throws Exception {
         return new ConversationAgent(
                 store,
-                new ProjectWorkcopies(root().resolve("projects")),
+                new ProjectWorkcopies(data.resolve("projects")),
                 env,
                 model,
                 new ConversationContext(

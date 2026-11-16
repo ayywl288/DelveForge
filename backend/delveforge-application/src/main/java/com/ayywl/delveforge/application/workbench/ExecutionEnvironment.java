@@ -14,7 +14,7 @@ public interface ExecutionEnvironment {
         }
     }
 
-    default void maintain(String project, boolean replace) {
+    default void maintain(String project, String action) {
         throw new UnsupportedOperationException("此环境不支持维护");
     }
 

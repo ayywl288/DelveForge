@@ -21,7 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class SourceFolderSelectionTest {
     private final ConversationAgent agent = mock(ConversationAgent.class);
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(
-            new WorkbenchController(null, agent, null, null, 300)).build();
+            new WorkbenchController(null, agent, null, null, null, 300)).build();
 
     @Test
     void returnsSelectedPathWithoutImporting() throws Exception {

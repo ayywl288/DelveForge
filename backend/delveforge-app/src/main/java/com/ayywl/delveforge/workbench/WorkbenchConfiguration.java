@@ -7,12 +7,14 @@ import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
 import com.ayywl.delveforge.application.workbench.ConversationAgent;
 import com.ayywl.delveforge.application.workbench.ConversationContext;
 import com.ayywl.delveforge.application.workbench.ProjectFiles;
+import com.ayywl.delveforge.application.workbench.ProjectTools;
 import com.ayywl.delveforge.application.workbench.Workbench;
 import com.ayywl.delveforge.infrastructure.agent.AgentInstanceLock;
 import com.ayywl.delveforge.infrastructure.agent.DeepSeekTokenCounterAdapter;
 import com.ayywl.delveforge.infrastructure.agent.SpringAiAgentModel;
 import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
 import com.ayywl.delveforge.infrastructure.workbench.DockerDevelopmentEnvironment;
+import com.ayywl.delveforge.infrastructure.workbench.DockerProjectTools;
 import com.ayywl.delveforge.infrastructure.workbench.GatewayConnection;
 import com.ayywl.delveforge.infrastructure.workbench.ProjectWorkcopies;
 import com.ayywl.delveforge.infrastructure.workbench.SqliteWorkbench;
@@ -59,6 +61,11 @@ public class WorkbenchConfiguration {
         source.setUrl("jdbc:sqlite:" + root.resolve("control.db"));
         Flyway.configure().dataSource(source).locations("classpath:db/workbench").load().migrate();
         return source;
+    }
+
+    @Bean
+    ProjectTools projectTools(Path root, ObjectMapper json) {
+        return new DockerProjectTools(root, json);
     }
 
     @Bean

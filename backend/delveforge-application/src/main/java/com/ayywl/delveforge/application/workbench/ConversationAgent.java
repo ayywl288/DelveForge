@@ -171,12 +171,12 @@ public final class ConversationAgent implements AutoCloseable {
                 throw new WorkbenchRejection(WorkbenchRejection.Kind.BUSY, "尚不能确认项目维护已经结束");
             }
         } else {
-            if (!action.equals("Restart") && !action.equals("Rebuild")) {
+            if (!List.of("Restart", "Rebuild", "Rollback").contains(action)) {
                 throw new WorkbenchRejection(WorkbenchRejection.Kind.INVALID, "请选择重启或重建项目环境");
             }
             store.lockEnvironment(project, action);
             try {
-                environment.maintain(project, action.equals("Rebuild"));
+                environment.maintain(project, action);
             } catch (RuntimeException failure) {
                 if (environment.maintenanceEnded(project)) {
                     store.unlockEnvironment(project);

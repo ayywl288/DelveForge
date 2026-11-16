@@ -4,6 +4,7 @@ import com.ayywl.delveforge.application.agent.AgentContextBudget;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.workbench.ConversationAgent;
 import com.ayywl.delveforge.application.workbench.ProjectFiles.FolderPickerUnavailable;
+import com.ayywl.delveforge.application.workbench.ProjectTools;
 import com.ayywl.delveforge.application.workbench.Workbench;
 import com.ayywl.delveforge.application.workbench.WorkbenchRejection;
 
@@ -36,14 +37,16 @@ public final class WorkbenchController {
 
     private final Workbench store;
     private final ConversationAgent agent;
+    private final ProjectTools tools;
 
     private final AgentModelPort model;
     private final AgentContextBudget context;
     private final int commandSeconds;
 
-    public WorkbenchController(Workbench store, ConversationAgent agent, AgentModelPort model,
+    public WorkbenchController(Workbench store, ConversationAgent agent, ProjectTools tools, AgentModelPort model,
             AgentContextBudget context, @Value("${delveforge.workbench.command-seconds:300}") int commandSeconds) {
         this.store = store;
+        this.tools = tools;
         this.agent = agent;
         this.model = model;
         this.context = context;
@@ -82,6 +85,23 @@ public final class WorkbenchController {
     @ExceptionHandler(FolderPickerUnavailable.class)
     public ResponseEntity<Map<String, String>> pickerUnavailable(FolderPickerUnavailable failure) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of("message", failure.getMessage()));
+    }
+
+    public record PackageSelection(String name, String plan) {}
+
+    @GetMapping("/projects/{id}/tools")
+    public Map<String, Object> tools(@PathVariable String id) {
+        return tools.inventory(id);
+    }
+
+    @PostMapping("/projects/{id}/tools/preview")
+    public Map<String, Object> previewTool(@PathVariable String id, @RequestBody PackageSelection selection) {
+        return tools.preview(id, selection.name());
+    }
+
+    @PostMapping("/projects/{id}/tools/publish")
+    public Map<String, Object> publishTool(@PathVariable String id, @RequestBody PackageSelection selection) {
+        return tools.publish(id, selection.name(), selection.plan());
     }
 
     public record EnvironmentAction(String action) {}

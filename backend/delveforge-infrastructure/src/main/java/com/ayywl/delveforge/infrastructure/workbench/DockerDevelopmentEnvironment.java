@@ -38,7 +38,7 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
             String parent,
             int previewPort,
             int controlPort, String installation, String project, String containerId, String image,
-            String startedAt, String stateVolume, Map<String, String> images) {}
+            String startedAt, String stateVolume, Map<String, String> images, String previousOwner) {}
 
     private final ObjectMapper json;
     private final ProjectRuntime runtime;
@@ -107,9 +107,9 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
     }
 
     @Override
-    public void maintain(String project, boolean replace) {
+    public void maintain(String project, String action) {
         synchronized (projectLocks.computeIfAbsent(project, ignored -> new Object())) {
-            runtime.provision(project, replace ? "Rebuild" : "Restart");
+            runtime.provision(project, action);
             development(registered(project));
             onReady.accept(project);
         }
