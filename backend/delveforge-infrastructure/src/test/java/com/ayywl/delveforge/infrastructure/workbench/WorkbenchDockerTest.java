@@ -539,6 +539,65 @@ class WorkbenchDockerTest {
         }
     }
 
+    @Test
+    void viteReloadsConfigurationOnTheOriginalUrlButANewGenerationGetsANewOrigin() throws Exception {
+        var store = store(temp.resolve("vite.db"));
+        String project = store.beginProject("Vite 预览", null);
+        var copy = Path.of(new ProjectWorkcopies(root().resolve("projects")).prepare(project, null));
+        store.projectResult(project, copy.toString(), null);
+        String conversation = store.conversation(project, "配置热重启");
+        var config = copy.resolve("vite.config.mjs");
+        Files.writeString(copy.resolve("index.html"), "<title>preview fixture</title>");
+        Files.writeString(config, "export default {}");
+        String command = """
+                set -eu
+                test -x node_modules/.bin/vite || npm install --no-audit --no-fund --no-save vite@8.3.8 >install.log 2>&1
+                setsid -f node_modules/.bin/vite --host 0.0.0.0 --port 5173 --strictPort </dev/null >vite.log 2>&1
+                for i in {1..100}; do curl -sf http://127.0.0.1:5173 >/dev/null && break; sleep .1; done
+                df-workbench preview 5173
+                """;
+        String arguments = JSON.writeValueAsString(Map.of("command", command));
+        AgentModelPort model = (messages, tools) -> messages.getLast().role().equals("tool")
+                ? WorkbenchIntegrationTest.finalText("已取得真实回执")
+                : new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall(id(), "Bash", arguments)), 1L, null, "r");
+        try (var env = new DockerDevelopmentEnvironment(root(), JSON, 120);
+                var relay = new GatewayConnection(root(), env, store, JSON);
+                var agent = agent(store, env, model)) {
+            relay.start();
+            var first = agent.receive(conversation, id(), "启动预览");
+            awaitRuntime(() -> store.run(first.runId()).state() == RunState.COMPLETED);
+            var oldUrl = previewReceipt(store, conversation);
+            assertEquals("200", previewStatus(oldUrl));
+            String inode = env.previewListener(project, 5173);
+            assertFalse(inode.isEmpty());
+            // Docker Desktop 的 Windows 挂载不保证宿主写入产生 inotify 事件。
+            var change = execute(env, store.run(first.runId()), "Bash",
+                    Map.of("command", "echo 'export default { clearScreen: false }' > vite.config.mjs"));
+            assertEquals(0, change.exit(), change.err());
+            awaitRuntime(() -> {
+                String rebound = env.previewListener(project, 5173);
+                return !rebound.isEmpty() && !inode.equals(rebound);
+            });
+            assertEquals("200", previewStatus(oldUrl));
+            String firstGeneration = env.registered(project).containerId();
+            env.maintain(project, "Rebuild");
+            assertFalse(firstGeneration.equals(env.registered(project).containerId()));
+            var next = agent.receive(conversation, id(), "在新代次启动预览");
+            awaitRuntime(() -> store.run(next.runId()).state() == RunState.COMPLETED);
+            var newUrl = previewReceipt(store, conversation);
+            assertFalse(oldUrl.getHost().equals(newUrl.getHost()));
+            assertEquals("200", previewStatus(newUrl));
+            var oldHostAtNewGateway = new java.net.URI("http", null, oldUrl.getHost(), newUrl.getPort(), "/", null, null);
+            assertEquals("404", previewStatus(oldHostAtNewGateway));
+        }
+    }
+
+    private static java.net.URI previewReceipt(Workbench store, String conversation) throws Exception {
+        var receipt = lastTool(store, conversation);
+        assertEquals(0, receipt.path("exit").asInt(-1), receipt.toString());
+        return java.net.URI.create(JSON.readTree(receipt.path("stdout").asText()).path("url").asText());
+    }
+
     private static com.fasterxml.jackson.databind.JsonNode lastTool(
             Workbench store, String conversation) throws Exception {
         var tools =

@@ -49,9 +49,10 @@ public final class GatewayConnection implements AutoCloseable {
 
     public void start() {
         environment.onReady(this::startRelay);
-        for (var run : store.owners()) {
-            if (Files.isRegularFile(root.resolve("environments").resolve(run.projectId()).resolve("environment.json"))) {
-                startRelay(run.projectId());
+        for (var project : store.projects()) {
+            String id = project.get("id").toString();
+            if (Files.isRegularFile(root.resolve("environments").resolve(id).resolve("environment.json"))) {
+                startRelay(id);
             }
         }
     }

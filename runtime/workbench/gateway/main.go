@@ -62,14 +62,14 @@ func find(port int) (listener, bool) {
 
 type route struct {
 	Host, Project, Owner string
-	refresh sync.Mutex
-	nextCheck time.Time
-	lastStatus int
-	Port          int
-	Bind          listener
-	Proxy         *httputil.ReverseProxy
-	Transport     *http.Transport
-	stale         bool
+	refresh              sync.Mutex
+	nextCheck            time.Time
+	lastStatus           int
+	Port                 int
+	Bind                 listener
+	Proxy                *httputil.ReverseProxy
+	Transport            *http.Transport
+	stale                bool
 }
 type registry struct {
 	sync.RWMutex
@@ -124,7 +124,7 @@ func (r *registry) register(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "unavailable", 503)
 		return
 	}
-	p := r.newRoute("p-" + hex.EncodeToString(bits[:]) + ".localhost", cmd.Project, cmd.Port, cmd.Owner, id)
+	p := r.newRoute("p-"+hex.EncodeToString(bits[:])+".localhost", cmd.Project, cmd.Port, cmd.Owner, id)
 	if err := probe(req.Context(), p); err != nil {
 		http.Error(w, "HTTP preview unavailable", 409)
 		return
@@ -174,7 +174,7 @@ func (r *registry) newRoute(host, project string, port int, owner string, id lis
 func probe(ctx context.Context, p *route) error {
 	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	check, err := http.NewRequestWithContext(checkCtx, http.MethodHead, "http://" + p.Bind.Address, nil)
+	check, err := http.NewRequestWithContext(checkCtx, http.MethodHead, "http://"+p.Bind.Address, nil)
 	if err != nil {
 		return err
 	}
