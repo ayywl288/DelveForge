@@ -60,6 +60,46 @@ class ProviderProtocolTest {
     private HttpServer server;
     private int status = 200;
 
+    @ParameterizedTest
+    @EnumSource(ProviderFamily.class)
+    void connectionTestUsesAuthenticatedReadOnlyRequest(ProviderFamily family) {
+        String path = switch (family) {
+            case GOOGLE -> "/v1beta/models";
+            case ANTHROPIC -> "/v1/models";
+            case DEEPSEEK -> "/user/balance";
+            case KIMI -> "/users/me/balance";
+            case OPENROUTER -> "/key";
+            default -> "/models";
+        };
+        responses.add(switch (family) {
+            case GOOGLE -> "{\"models\":[]}";
+            case KIMI, OPENROUTER -> "{\"data\":{}}";
+            case DEEPSEEK -> "{\"is_available\":true}";
+            default -> "{\"data\":[]}";
+        });
+        var result = ProviderConnection.test(ModelTransport.client(Duration.ofSeconds(3)), family,
+                "http://127.0.0.1:" + server.getAddress().getPort(), "unit-test-key");
+        assertTrue(result.latencyMs() >= 0);
+        assertEquals(List.of(path), paths);
+        assertEquals(List.of(switch (family) {
+            case GOOGLE -> "null/null/unit-test-key";
+            case ANTHROPIC -> "null/unit-test-key/null";
+            default -> "Bearer unit-test-key/null/null";
+        }), auth);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"401,invalid,认证", "403,forbidden,权限", "429,rate_limit,限流",
+            "429,insufficient_quota,额度", "402,billing,余额", "503,unavailable,503"})
+    void connectionFailuresRemainDistinct(int httpStatus, String code, String expected) {
+        status = httpStatus;
+        responses.add("{\"error\":{\"code\":\"" + code + "\"}}");
+        var failure = assertThrows(WorkbenchRejection.class, () -> ProviderConnection.test(
+                ModelTransport.client(Duration.ofSeconds(3)), ProviderFamily.OPENAI,
+                "http://127.0.0.1:" + server.getAddress().getPort(), "unit-test-key"));
+        assertTrue(failure.getMessage().contains(expected));
+    }
+
     @BeforeEach
     void listen() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

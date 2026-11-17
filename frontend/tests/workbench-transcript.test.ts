@@ -79,13 +79,14 @@ describe('对话中的工作过程', () => {
         try {
             const group = root.querySelector<HTMLButtonElement>('.work-history > .activity-heading button')!
             expect(group.textContent).toContain('3 次工具调用')
-            expect(group.textContent).toContain('1 次失败')
+            expect(group.textContent).not.toContain('1 次失败')
             expect(group.getAttribute('aria-expanded')).toBe('false')
             expect(root.querySelectorAll('.transcript > .message')).toHaveLength(2)
             expect(root.textContent).toContain('测试完成。')
             expect(root.querySelector('.tool-event')).toBeNull()
             group.click()
             await nextTick()
+            expect(group.textContent).toContain('1 次失败')
             const batch = root.querySelector<HTMLButtonElement>('.tool-batch .activity-toggle')!
             expect(batch.getAttribute('aria-expanded')).toBe('false')
             batch.click()

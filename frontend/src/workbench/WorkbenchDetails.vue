@@ -42,16 +42,16 @@ async function copy() {
         </section>
     </template>
     <template v-else-if="mode === 'model' && settings">
-        <section class="detail-section"><h3>{{ settings.model.requestedModel }}</h3>
+        <details class="detail-section"><summary>运行配置 · {{ settings.model.requestedModel }}</summary>
             <dl class="facts"><dt>适配器</dt><dd>{{ settings.model.adapter }}</dd><dt>端点来源</dt><dd>{{ settings.model.endpoint }}</dd>
                 <dt>请求模型 ID</dt><dd>{{ settings.model.requestedModel }}</dd><dt>思考模式</dt><dd>{{ settings.model.thinking }}</dd>
                 <dt>单次上下文</dt><dd>{{ settings.contextWindowTokens.toLocaleString() }} tokens</dd><dt>单次输出预留</dt><dd>{{ settings.responseTokens.toLocaleString() }} tokens</dd>
                 <dt>命令超时</dt><dd>{{ settings.commandSeconds }} 秒</dd><dt>默认任务上限</dt><dd>{{ settings.defaultRequestLimit }} 次请求</dd>
                 <dt>同时运行的任务</dt><dd>每个项目 1 个，工作台最多 {{ settings.maxConcurrentRuns ?? 2 }} 个</dd>
             </dl><p class="helper">模型 ID 来自本次请求配置，实际部署的权重由提供方管理。</p>
-        </section>
+        </details>
         <section class="detail-section" v-if="run"><h3>本次任务用量</h3><dl class="facts">
             <dt>模型请求</dt><dd>{{ run.requests }} / {{ run.allowance }}</dd>
-            <dt>已报告用量</dt><dd>{{ run.tokens.toLocaleString() }} tokens</dd><dt>实际费用</dt><dd>以提供方账单为准</dd></dl></section>
+            <dt>已报告用量</dt><dd>{{ run.tokens == null || (run.requests > 0 && run.tokens === 0) ? '暂无报告' : run.tokens.toLocaleString() + ' tokens' }}</dd><dt>实际费用</dt><dd>以提供方账单为准</dd></dl></section>
     </template>
 </template>

@@ -37,7 +37,6 @@ defineExpose({ focus })
             <textarea id="task" ref="area" v-model="draft" rows="2" maxlength="64000" @keydown="shortcut"
                 :placeholder="steering ? '补充要求，或纠正正在执行的任务…' : active ? '补充内容会先保存在此对话…' : '描述任务，或询问项目中的代码…'" />
             <div class="composer-tools">
-                <slot name="models" />
                 <details v-if="!active && !queued && run?.state !== 'PAUSED'" class="budget-menu">
                     <summary><Icon name="sliders" />任务额度</summary>
                     <label>任务请求总上限<input v-model.number="limit" type="number" min="1" max="10000" :placeholder="String(defaultLimit ?? '')"><small>1 至 10,000 次请求</small></label>
@@ -45,6 +44,7 @@ defineExpose({ focus })
                 <span v-else class="composer-context"><Icon name="conversation" />{{ steering ? '任务中可随时补充' : active ? '等待执行状态确认' : '继续当前任务' }}</span>
                 <span class="shortcut">Ctrl / ⌘ + Enter</span>
                 <button v-if="active && run?.state !== 'STOPPING'" class="stop-btn" type="button" title="停止任务" aria-label="停止任务" :disabled="pending" @click="emit('control','stop')"><Icon name="stop" /></button>
+                <slot name="models" />
                 <button class="send-btn" type="submit" :disabled="!canSend" :aria-label="active ? '发送补充' : '发送消息'" :title="active ? '发送补充' : '发送消息'"><Icon name="send" /></button>
             </div>
         </form>

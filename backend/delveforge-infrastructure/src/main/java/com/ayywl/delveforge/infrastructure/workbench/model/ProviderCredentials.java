@@ -81,9 +81,16 @@ final class ProviderCredentials {
                 || !current.preset().equals(frozen.preset()) || !current.workspace().equals(frozen.workspace())) {
             throw new AgentException("MODEL_CREDENTIAL_CHANGED", "任务绑定的凭据已移除或更换");
         }
+        return resolve(family, current);
+    }
+
+    String resolve(ProviderFamily family, Reference current) {
+        if (current.id().isEmpty()) {
+            throw ProviderFamily.invalid("请先配置提供方凭据");
+        }
         if (!current.saved()) {
             String key = environment.apply(family.environment);
-            if (!environmentReference(family, key).id().equals(frozen.credentialRef())) {
+            if (!environmentReference(family, key).id().equals(current.id())) {
                 throw new AgentException("MODEL_CREDENTIAL_CHANGED", "任务绑定的凭据已更换");
             }
             return key;
@@ -101,11 +108,15 @@ final class ProviderCredentials {
         }
     }
 
-    void save(ProviderFamily family, String preset, String workspace, String key) {
-        family.endpoint(preset, workspace);
+    static void checkKey(String key) {
         if (key == null || !key.matches("[!-~]{1,4096}")) {
             throw ProviderFamily.invalid("请输入完整的 API Key");
         }
+    }
+
+    void save(ProviderFamily family, String preset, String workspace, String key) {
+        family.endpoint(preset, workspace);
+        checkKey(key);
         var ref = new Reference(preset, workspace, UUID.randomUUID().toString(), true);
         byte[] encrypted = protect(key.getBytes(StandardCharsets.UTF_8), family, ref, true);
         transactions.executeWithoutResult(status -> {

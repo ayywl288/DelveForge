@@ -162,6 +162,26 @@ public final class SpringWorkbenchModels implements WorkbenchModels {
     }
 
     @Override
+    public Connection testConnection(String provider, String preset, String workspace, String key) {
+        var family = ProviderFamily.named(provider);
+        if (key != null && !key.isEmpty()) {
+            ProviderCredentials.checkKey(key);
+            String endpoint = family.endpoint(preset, workspace);
+            return ProviderConnection.test(http, family, endpoint, key);
+        }
+        var ref = credentials.reference(family);
+        if (preset != null && (!ref.preset().equals(preset) || !ref.workspace().equals(workspace))) {
+            throw ProviderFamily.invalid("请输入此端点的 API Key");
+        }
+        var endpoint = family.endpoint(ref.preset(), ref.workspace());
+        var result = ProviderConnection.test(http, family, endpoint, credentials.resolve(family, ref));
+        if (!credentials.reference(family).equals(ref)) {
+            throw ProviderFamily.invalid("凭据已变更，请重新测试");
+        }
+        return result;
+    }
+
+    @Override
     public Validation validate(Choice choice) {
         var config = resolve(choice);
         int output = Math.min(2048, config.budget().responseTokens());

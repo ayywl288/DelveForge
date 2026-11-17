@@ -294,29 +294,63 @@ summary::-webkit-details-marker { display: none; }
     .reply-dots i, .project-tree .run-indicator { animation: none; }
 }
 
-.model-picker { display: flex; gap: 2px; position: relative; min-width: 0; align-items: center; }
-.model-picker > button { border-color: transparent; background: transparent; color: var(--muted); gap: 4px; padding: 4px 6px; font-size: 12px; }
-.model-picker > button:first-child { max-width: min(25vw, 190px); }
-.model-picker > button span, .model-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.model-picker > button .navigation-icon { width: 12px; height: 12px; flex: none; }
-.model-pop { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 6; width: min(330px, 79vw);
-    padding: 9px; background: var(--canvas); border: 1px solid var(--strong-line); border-radius: 12px;
+/* 模型与强度共用一个弹层，右边缘随发送按钮定位。 */
+.model-picker { position: relative; min-width: 0; max-width: 260px; margin-left: auto; }
+.shortcut + .model-picker, .stop-btn + .model-picker { margin-left: 0; }
+.provider-logo, .provider-initial { display: inline-block; width: 1em; height: 1em; flex: none; }
+.provider-logo svg { display: block; width: 100%; height: 100%; }
+.model-capsule { max-width: 100%; min-height: 34px; border-radius: 20px; gap: 6px;
+    padding: 4px 10px; color: var(--ink); font-size: 12px; }
+.model-capsule .provider-logo, .current-model .provider-logo, .model-row .provider-logo { font-size: 17px; }
+.model-capsule > span:not(.provider-logo), .current-model span, .model-row button span {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-capsule small { flex: none; color: var(--muted); font-size: inherit; }
+.model-capsule .navigation-icon { transform: rotate(90deg); width: 12px; height: 12px; flex: none; }
+.model-pop { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 6;
+    width: min(290px, calc(100vw - 72px)); max-height: 64dvh; overflow: auto; padding: 12px;
+    background: var(--canvas); border: 1px solid var(--strong-line); border-radius: 12px;
     box-shadow: 0 6px 28px var(--shadow-popup); }
-.model-pop input { width: 100%; color: var(--ink); background: var(--surface); }
-.model-list { max-height: min(42dvh, 330px); overflow: auto; overscroll-behavior: contain; }
-.model-list h3 { display: flex; justify-content: space-between; margin: 12px 6px 3px; font-size: 12px; color: var(--muted); }
-.model-list button, .efforts button, .model-settings-link { width: 100%; justify-content: space-between; border-color: transparent;
-    padding: 5px 7px; font-size: 13px; background: transparent; }
-.model-list small { color: var(--muted); font-size: 11px; flex: none; font-weight: 400; }
-.model-pop [aria-pressed=true] { color: var(--accent); background: var(--tint); }
-.model-settings-link { margin-top: 5px; border-top: 1px solid var(--line); border-radius: 0; }
-.model-pop.efforts { width: 140px; }
-.provider-settings select { width: 100%; min-height: 36px; background: var(--canvas); color: var(--ink); border: 1px solid var(--field-line); border-radius: 7px; padding: 4px 8px; }
-.provider-validation { margin-top: 20px; }
+.model-pop header, .current-model, .model-row { display: flex; align-items: center; }
+.model-pop header { justify-content: space-between; min-height: 32px; }
+.model-pop strong { font-size: 16px; }
+.model-pop button { border-color: transparent; background: transparent; font-size: 13px; }
+.model-pop .reset-effort { color: var(--muted); font-size: 12px; }
+.model-pop .current-model, .model-row > button:first-child { gap: 8px; justify-content: flex-start; min-width: 0; }
+.current-model { width: 100%; }
+.current-model .navigation-icon { width: 13px; margin-left: auto; }
+.model-pop input[type=search] { width: 100%; color: var(--ink); background: var(--surface); }
+.model-list { max-height: min(38dvh, 310px); overflow: auto; overscroll-behavior: contain; margin-block: 6px; }
+.model-row > button:first-child { flex: 1; }
+.model-pop [aria-pressed=true] { color: var(--accent); }
+.model-row > [aria-pressed=true]:first-child, .binary-effort [aria-pressed=true] { background: var(--tint); }
+.favorite[aria-pressed=true] svg { fill: currentColor; }
+.model-pop button:active:enabled { background: var(--tint); }
+.model-settings-link { width: 100%; justify-content: flex-start; }
+.level-control { padding-top: 10px; border-top: 1px solid var(--line); margin-top: 8px; }
+.level-control input { width: 100%; accent-color: var(--accent); margin: 0; padding: 0; cursor: pointer; }
+.default-effort::-webkit-slider-thumb { opacity: 0; }
+.default-effort::-moz-range-thumb { opacity: 0; }
+.model-search, .binary-effort { display: flex; gap: 4px; }
+.model-search input { min-width: 0; }
+.model-search .navigation-icon { transform: rotate(180deg); }
+.level-labels { position: relative; height: 27px; margin-inline: 8px; }
+.level-labels button { white-space: nowrap; position: absolute; transform: translateX(-50%); padding: 2px; min-height: 25px; font-size: 12px; color: var(--muted); }
+.binary-effort button { flex: 1; }
+.provider-settings select { width: 100%; min-height: 36px; background: var(--canvas); color: var(--ink);
+    border: 1px solid var(--field-line); border-radius: 7px; padding: 4px 8px; }
+.provider-settings h3 { display: flex; gap: 8px; align-items: center; }
+.provider-advanced { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 10px; }
+.provider-advanced summary { color: var(--muted); cursor: pointer; }
+.provider-validation { margin-top: 10px; }
 @media (max-width: 570px) {
-    .composer-tools { flex-wrap: wrap; gap: 4px; }
-    .model-picker > button:first-child { max-width: 33vw; }
-    .composer-tools .composer-context { display: none; }
+    .composer-tools { gap: 4px; }
+    .composer-tools .composer-context, .composer-tools .shortcut { display: none; }
+    .composer-tools .model-picker { margin-left: auto; }
+}
+@media (pointer: coarse) {
+    .model-capsule, .model-pop button, .provider-settings button { min-height: 44px; }
+    .level-labels { height: 44px; }
+    .model-pop .favorite { min-width: 44px; }
 }
 
 :root[data-appearance=light] { color-scheme: light; }

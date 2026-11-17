@@ -27,7 +27,7 @@ function keepOpen(event: MouseEvent) {
             <button type="button" class="activity-toggle" :aria-controls="id" :aria-expanded="expanded"
                 @click="choice = !expanded">
                 <Icon :name="icon" /><span class="activity-title">{{ title }}</span>
-                <span v-if="summary.warnings" class="activity-warning" :data-tone="summary.tone">{{ summary.warnings }}</span>
+                <span v-if="expanded && summary.warnings" class="activity-warning" :data-tone="summary.tone">{{ summary.warnings }}</span>
                 <Icon class="disclosure" name="chevron" />
             </button>
             <span v-if="!expanded && summary.current" class="activity-current" :title="summary.current">{{ summary.current }}</span>

@@ -43,6 +43,10 @@ public interface WorkbenchModels {
 
     void delete(String provider);
 
+    record Connection(long latencyMs) {}
+
+    Connection testConnection(String provider, String preset, String workspace, String key);
+
     record Validation(Long totalTokens) {}
 
     Validation validate(Choice choice);

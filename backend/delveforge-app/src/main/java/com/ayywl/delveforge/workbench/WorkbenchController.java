@@ -82,6 +82,13 @@ public final class WorkbenchController {
         model.delete(provider);
     }
 
+    @PostMapping("/providers/{provider}/connection")
+    public WorkbenchModels.Connection testConnection(@PathVariable String provider,
+            @RequestBody(required = false) ProviderInput input) {
+        return model.testConnection(provider, input == null ? null : input.preset(),
+                input == null ? null : input.workspace(), input == null ? null : input.key());
+    }
+
     @PostMapping("/models/validate")
     public WorkbenchModels.Validation validate(@RequestBody WorkbenchModels.Choice choice) {
         return model.validate(choice);

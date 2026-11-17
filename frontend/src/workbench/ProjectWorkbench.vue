@@ -6,6 +6,7 @@ import AppearanceSwitcher from './AppearanceSwitcher.vue'
 import ConversationComposer from './ConversationComposer.vue'
 import ProjectForm from './ProjectForm.vue'
 import ModelPicker from './ModelPicker.vue'
+import { rememberModel } from './modelPreferences'
 import ProviderSettings from './ProviderSettings.vue'
 import Transcript from './Transcript.vue'
 import WorkbenchDetails from './WorkbenchDetails.vue'
@@ -27,9 +28,11 @@ function loadCatalog() { void refreshCatalog().catch(e => { error.value = e.mess
 onMounted(loadCatalog)
 function providerSettings(provider: string) { settingsProvider.value = provider; panel.value = 'model'; loadCatalog() }
 async function chooseModel(choice: ModelChoice) {
-    const id = conversationId.value
+    const id = conversationId.value, previous = feed.value.model
     await action(async () => {
         await request('/conversations/' + id + '/model', choice)
+        if (previous) rememberModel(previous)
+        rememberModel(choice)
         if (id === conversationId.value) feed.value = { ...feed.value, model: choice }
     })
 }
