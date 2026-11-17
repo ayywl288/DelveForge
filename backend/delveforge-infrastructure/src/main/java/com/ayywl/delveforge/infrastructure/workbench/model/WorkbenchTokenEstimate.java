@@ -9,28 +9,38 @@ import java.util.List;
 
 /** 近似值包含协议封装、工具定义、私有回放和安全余量；账单仍从提供方 Usage 读取。 */
 final class WorkbenchTokenEstimate implements AgentTokenCounter {
-    private final JTokkitTokenCountEstimator tokenizer = new JTokkitTokenCountEstimator();
+    private static final JTokkitTokenCountEstimator TOKENIZER = new JTokkitTokenCountEstimator();
+    private final int toolEnvelope;
+
+    WorkbenchTokenEstimate(ProviderFamily family) {
+        // 实测服务端工具包装占用固定输入空间，小提示上的百分比余量不足。
+        toolEnvelope = switch (family) {
+            case DEEPSEEK -> 192;
+            case ZAI -> 64;
+            default -> 0;
+        };
+    }
 
     @Override
     public long countPromptTokens(List<AgentProtocol.Message> messages, List<AgentProtocol.ToolSpec> tools) {
         long tokens = 16;
         for (var message : messages) {
-            tokens += 12 + tokenizer.estimate(message.role()) + tokenizer.estimate(message.callId())
-                    + tokenizer.estimate(message.toolName());
+            tokens += 12 + TOKENIZER.estimate(message.role()) + TOKENIZER.estimate(message.callId())
+                    + TOKENIZER.estimate(message.toolName());
             if (message.stored() != null) {
-                tokens += tokenizer.estimate(message.stored().partsJson());
+                tokens += TOKENIZER.estimate(message.stored().partsJson());
             } else {
-                tokens += tokenizer.estimate(message.text()) + tokenizer.estimate(message.reasoningContent());
+                tokens += TOKENIZER.estimate(message.text()) + TOKENIZER.estimate(message.reasoningContent());
                 for (var call : message.calls()) {
-                    tokens += 8 + tokenizer.estimate(call.id()) + tokenizer.estimate(call.name())
-                            + tokenizer.estimate(call.arguments());
+                    tokens += 8 + TOKENIZER.estimate(call.id()) + TOKENIZER.estimate(call.name())
+                            + TOKENIZER.estimate(call.arguments());
                 }
             }
         }
         for (var tool : tools) {
-            tokens += 16 + tokenizer.estimate(tool.name()) + tokenizer.estimate(tool.description())
-                    + tokenizer.estimate(tool.schema());
+            tokens += 16 + TOKENIZER.estimate(tool.name()) + TOKENIZER.estimate(tool.description())
+                    + TOKENIZER.estimate(tool.schema());
         }
-        return (tokens * 5 + 3) / 4;
+        return (tokens * 5 + 3) / 4 + (tools.isEmpty() ? 0 : toolEnvelope);
     }
 }

@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 
 /** 宿主的模型配置、能力与凭据解析。共享目录和连接池，模型选择由 Run 快照传入。 */
@@ -28,7 +29,6 @@ public final class SpringWorkbenchModels implements WorkbenchModels {
     private final AgentContextBudget ceiling;
     private final ProviderChatModels models;
     private final OkHttpClient http;
-    private final WorkbenchTokenEstimate counter = new WorkbenchTokenEstimate();
     private final int requestBytes;
     private final int responseBytes;
 
@@ -37,6 +37,7 @@ public final class SpringWorkbenchModels implements WorkbenchModels {
             Function<String, String> environment) {
         jdbc = new JdbcTemplate(source);
         credentials = new ProviderCredentials(jdbc, environment);
+        credentials.removeInactiveEnvironmentChecks();
         metadata = new WorkbenchCatalog(root, json);
         this.initial = initial;
         this.ceiling = ceiling;
@@ -86,7 +87,7 @@ public final class SpringWorkbenchModels implements WorkbenchModels {
         if (jdbc.queryForObject("SELECT count(*) FROM model_validation WHERE credential_ref=? AND model=?"
                         + " AND effort=? AND compatible=0", Integer.class, frozen.credentialRef(),
                 choice.model(), choice.effort()) > 0) {
-            throw ProviderFamily.invalid("此组合未通过协议验证，请在提供方设置中重新验证");
+            throw ProviderFamily.invalid("提供方明确拒绝此组合的工具或思考设置，可在提供方设置中重新验证");
         }
         return frozen;
     }
@@ -145,8 +146,9 @@ public final class SpringWorkbenchModels implements WorkbenchModels {
         if (!family.protocol.equals(frozen.protocol())) {
             throw ProviderFamily.invalid("历史任务的模型协议不可用");
         }
-        return new Binding(new WorkbenchChatModel(frozen, family.endpoint(frozen.preset(), frozen.workspace()),
-                () -> credentials.resolve(frozen), models, http, requestBytes, responseBytes), counter);
+        var model = new WorkbenchChatModel(frozen, family.endpoint(frozen.preset(), frozen.workspace()),
+                () -> credentials.resolve(frozen), models, http, requestBytes, responseBytes);
+        return new Binding(model, new WorkbenchTokenEstimate(family));
     }
 
     @Override
@@ -168,49 +170,46 @@ public final class SpringWorkbenchModels implements WorkbenchModels {
                         config.budget().compactionThreshold()), config.capabilityVersion());
         var model = bind(test).model();
         var messages = new ArrayList<AgentProtocol.Message>();
-        messages.add(AgentProtocol.Message.text("user", "请调用一次 Ping，无需参数。收到回执后仅回复 OK。"));
+        messages.add(AgentProtocol.Message.text("user", "请调用一次 Ping，无需参数。收到回执后仅回复 receipt 字段的值。"));
         var probe = List.of(new AgentProtocol.ToolSpec("Ping", "测试工具协议",
                 "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}"));
         try {
             var first = model.call(messages, probe);
             if (first.calls().size() != 1 || !"Ping".equals(first.calls().getFirst().name())
                     || !first.calls().getFirst().arguments().matches("\\s*\\{\\s*}\\s*")) {
-                validation(config, false);
-                throw ProviderFamily.invalid("已连接，但模型未返回要求的测试工具调用");
+                throw ProviderFamily.invalid("本次未能确认兼容性：模型没有按要求调用 Ping，可重试");
             }
             messages.add(first.assistantMessage(first.text()));
-            messages.add(new AgentProtocol.Message("tool", "{\"ok\":true}", List.of(), first.calls().getFirst().id(), "Ping"));
+            String receipt = UUID.randomUUID().toString().substring(0, 8);
+            messages.add(new AgentProtocol.Message("tool", "{\"receipt\":\"" + receipt + "\"}", List.of(),
+                    first.calls().getFirst().id(), "Ping"));
             var last = model.call(messages, probe);
-            if (!last.calls().isEmpty() || last.text().isBlank()) {
-                validation(config, false);
-                throw ProviderFamily.invalid("模型未完成测试工具回执的重放");
+            if (!last.calls().isEmpty() || !receipt.equals(last.text().strip())) {
+                throw ProviderFamily.invalid("本次未能确认兼容性：模型没有读回 Ping 回执，可重试");
             }
-            validation(config, true);
+            credentials.recordValidation(config, true);
             return new Validation(first.tokens() == null || last.tokens() == null ? null : first.tokens() + last.tokens());
         } catch (AgentException e) {
             if (e instanceof AgentModelFailure f && f.reason() == AgentModelFailure.Reason.RESPONSE_TRUNCATED) {
                 throw ProviderFamily.invalid("测试输出达到上限，未能验证完整回合");
             }
-            if ("MODEL_NOT_AVAILABLE".equals(e.code()) || "MODEL_OPTIONS_REJECTED".equals(e.code())) {
-                validation(config, false);
+            if ("MODEL_CAPABILITY_UNSUPPORTED".equals(e.code())) {
+                credentials.recordValidation(config, false);
+                throw ProviderFamily.invalid("提供方明确拒绝此组合的工具或思考设置");
             }
-            throw ProviderFamily.invalid(switch (e.code()) {
-                case "MODEL_AUTHORIZATION" -> "请检查 API Key 及模型权限";
+            throw ProviderFamily.invalid("本次未能确认兼容性：" + switch (e.code()) {
+                case "MODEL_AUTHORIZATION" -> "API Key 未通过认证";
+                case "MODEL_ACCESS_DENIED" -> "当前账户没有访问权限";
                 case "MODEL_NOT_AVAILABLE" -> "当前账户或端点没有该模型";
                 case "MODEL_BILLING" -> "请检查提供方账户余额与付款权限";
                 case "MODEL_RATE_LIMIT" -> "已限流，请检查额度后重试";
                 case "MODEL_OPTIONS_REJECTED" -> "提供方拒绝该模型或思考设置";
                 case "MODEL_CREDENTIAL_CHANGED" -> "凭据已变更，请重新验证";
-                default -> "模型未通过完整工具回合验证（" + e.code() + "）";
+                default -> "未完成工具回合（" + e.code() + "），可重试";
             });
         } finally {
             model.drainDiagnostics();
         }
     }
 
-    private void validation(Frozen config, boolean compatible) {
-        jdbc.update("INSERT INTO model_validation(credential_ref,model,effort,compatible) VALUES(?,?,?,?)"
-                        + " ON CONFLICT(credential_ref,model,effort) DO UPDATE SET compatible=excluded.compatible",
-                config.credentialRef(), config.choice().model(), config.choice().effort(), compatible);
-    }
 }

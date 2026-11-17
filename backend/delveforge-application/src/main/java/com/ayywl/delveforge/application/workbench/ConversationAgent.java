@@ -275,6 +275,8 @@ public final class ConversationAgent implements AutoCloseable {
         if (e instanceof com.ayywl.delveforge.application.agent.AgentException a) {
             return switch (a.code()) {
                 case "MODEL_AUTHORIZATION" -> "提供方未接受当前凭据。请检查密钥及模型权限。";
+                case "MODEL_ACCESS_DENIED" -> "当前账户没有访问模型的权限。请检查提供方账户。";
+                case "MODEL_CAPABILITY_UNSUPPORTED" -> "提供方不支持所选工具或思考设置。可结束任务后更换配置。";
                 case "MODEL_NOT_AVAILABLE" -> "当前端点或账户无法使用此模型。可以结束任务并选择其他模型。";
                 case "MODEL_CREDENTIAL_CHANGED" -> "本次任务绑定的凭据已更换或删除。请结束此任务后重新发送。";
                 case "MODEL_BILLING" -> "提供方账户余额或付款权限不足。请检查账户后继续。";

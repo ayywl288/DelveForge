@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import BrandSymbol from '../components/BrandSymbol.vue'
 import Icon from '../components/NavigationIcon.vue'
+import AppearanceSwitcher from './AppearanceSwitcher.vue'
 import ConversationComposer from './ConversationComposer.vue'
 import ProjectForm from './ProjectForm.vue'
 import ModelPicker from './ModelPicker.vue'
@@ -108,6 +109,7 @@ const navEvents = { project: (id: string) => navigate(id, true), conversation: (
             <div class="top-actions">
                 <span v-if="run" class="state-chip" :data-state="run.state" role="status"><i aria-hidden="true" />{{ stateText[run.state] || run.state }}</span>
                 <button v-if="project?.workcopy" class="workspace-btn" aria-label="查看工作副本" title="查看工作副本" @click="panel = 'workspace'"><Icon name="layers" /><span>工作副本</span></button>
+                <AppearanceSwitcher />
             </div></header>
             <div v-if="error && !panel" class="error-banner" role="alert">{{ error }}<button class="icon-btn" aria-label="关闭提示" @click="error = ''"><Icon name="close" /></button></div>
             <section v-if="!conversation" class="welcome-page">

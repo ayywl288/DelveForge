@@ -126,7 +126,7 @@ enum ProviderFamily {
             };
             case DEEPSEEK -> List.of("deepseek-flash", "deepseek-v4-pro", "deepseek-v4-flash").contains(model)
                     ? List.of("default", "off", "low", "high", "max") : List.of("default");
-            case ZAI -> List.of("glm-4.7", "glm-5", "glm-5.1", "glm-5.2", "glm-5-turbo").contains(model)
+            case ZAI -> List.of("glm-4.7", "glm-4.7-flash", "glm-5", "glm-5.1", "glm-5.2", "glm-5-turbo").contains(model)
                     ? List.of("default", "off", "on") : List.of("default");
             case QWEN -> model.matches("qwen3\\.[5-8]-(plus|flash)(-[0-9-]+)?")
                     ? List.of("default", "off", "on") : List.of("default");

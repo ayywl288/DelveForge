@@ -7,11 +7,14 @@ const modelId = ref(''), effort = ref('default'), working = ref(false), status =
 const current = computed(() => props.catalog.providers.find(p => p.id === provider.value))
 const models = computed(() => props.catalog.models.filter(m => m.provider === provider.value))
 const selected = computed(() => models.value.find(m => m.id === modelId.value))
-watch([provider, () => current.value?.id], () => {
+const compatibility = computed(() => selected.value?.rejectedEfforts.includes(effort.value) ? '提供方确认不支持'
+    : selected.value?.verifiedEfforts.includes(effort.value) ? '工具回合已验证' : '尚未验证')
+watch([provider, () => current.value?.id, () => current.value?.preset, () => current.value?.workspace], () => {
     preset.value = current.value?.preset ?? ''; workspace.value = current.value?.workspace ?? ''
     key.value = ''; status.value = ''
-    modelId.value = props.choice?.provider === provider.value ? props.choice.model : models.value[0]?.id ?? ''
-    effort.value = props.choice?.provider === provider.value ? props.choice.effort : 'default'
+    const preferred = props.choice?.provider === provider.value ? props.choice : undefined
+    modelId.value = models.value.find(m => m.id === preferred?.model)?.id ?? models.value[0]?.id ?? ''
+    effort.value = preferred && selected.value?.efforts.includes(preferred.effort) ? preferred.effort : 'default'
 }, { immediate: true })
 watch(modelId, () => { if (!selected.value?.efforts.includes(effort.value)) effort.value = 'default' })
 async function submit(op: 'save' | 'delete' | 'validate') {
@@ -62,7 +65,7 @@ async function submit(op: 'save' | 'delete' | 'validate') {
                 <option v-for="m in models" :key="m.id" :value="m.id">{{ m.name }}</option></select></label>
             <label v-if="(selected?.efforts.length ?? 0) > 1">验证思考强度<select v-model="effort" :disabled="working">
                 <option v-for="v in selected?.efforts" :key="v" :value="v">{{ effortLabel[v] ?? v }}</option></select></label>
-            <p class="helper">使用当前账户发送测试工具调用和回执，按提供方价格计费。</p>
+            <p class="helper">此组合{{ compatibility }}。验证会发送工具调用和回执，按提供方价格计费。</p>
             <button :disabled="working || !modelId">验证连接与工具调用</button>
         </form>
         <p v-if="working || status" :role="failed ? 'alert' : 'status'" :class="failed ? 'error-banner' : 'helper'">{{ working ? '正在处理…' : status }}</p>

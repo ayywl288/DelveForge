@@ -16,6 +16,8 @@ Infrastructure 通过 Spring AI BOM 2.1.0-RC2 和 Spring Boot 4.2.0-RC2 集成�
 
 上下文沿用现有的完整工具批次边界、用户原文保留和检查点规则。Run 的窗口与输出预算取模型容量和宿主上限，Spring AI 的通用分词估计包含工具描述和有序部件并增加 25% 余量。提供方拒绝上下文时暂停，原始历史仍可读取。
 
+2026-11-17 的校准发现短工具请求有固定低估，DeepSeek 和智谱的请求估算据此补计一次工具开销。[校准记录](../WORKBENCH_STABILIZATION.md#c-输入-token-校准)
+
 私有记录保存 Spring AI 的 MessagePart 序列，包括属性、UnknownPart 和 OpaquePayload。真实回执的顺序与 ID 由现有记录保管。Gemini 没有提供 ID 时只为本地回执分配关联号。切换模型时，不能重放的工具批次交给现有的可重放后缀与带出处的上下文视图。旧 DeepSeek reasoning 字段可兼容读取。浏览器、历史查询工具与模型错误诊断只取得公开投影。
 
 ## 凭据

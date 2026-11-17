@@ -55,7 +55,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside))
                     <button v-for="m in s.models" :key="m.id" type="button" :disabled="!s.provider.configured"
                         :aria-pressed="choice.provider === m.provider && choice.model === m.id"
                         @click="select({ provider: m.provider, model: m.id, effort: m.efforts.find(v => !m.rejectedEfforts.includes(v))! })">
-                        <span>{{ m.name }}</span><small>{{ m.compatibility === 'live' ? '已验证' : '待实测' }}</small></button>
+                        <span>{{ m.name }}</span><small>{{ m.verifiedEfforts.length === m.efforts.length ? '已验证'
+                            : m.verifiedEfforts.length ? '部分强度已验证' : '待实测' }}</small></button>
                 </section>
                 <p v-if="!sections.length" class="helper">没有匹配的工具调用模型</p>
             </div>
@@ -63,7 +64,8 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', outside))
         </div>
         <div v-if="menu === 'effort'" class="model-pop efforts" role="group" aria-label="思考强度">
             <button v-for="v in chosen?.efforts" :key="v" type="button" :disabled="chosen?.rejectedEfforts.includes(v)" :aria-pressed="choice.effort === v"
-                @click="select({ ...choice, effort: v })">{{ effortLabel[v] ?? v }}</button>
+                @click="select({ ...choice, effort: v })">{{ effortLabel[v] ?? v }}
+                <small>{{ chosen?.rejectedEfforts.includes(v) ? '不支持' : chosen?.verifiedEfforts.includes(v) ? '已验证' : '待实测' }}</small></button>
         </div>
     </div>
 </template>

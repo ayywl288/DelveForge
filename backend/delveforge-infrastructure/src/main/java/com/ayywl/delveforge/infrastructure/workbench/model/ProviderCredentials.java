@@ -6,6 +6,8 @@ import com.ayywl.delveforge.application.workbench.WorkbenchModels.Frozen;
 import com.sun.jna.Platform;
 import com.sun.jna.platform.win32.Crypt32Util;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
@@ -16,7 +18,9 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HexFormat;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -25,11 +29,14 @@ final class ProviderCredentials {
     record Reference(String preset, String workspace, String id, boolean saved) {}
 
     private final JdbcTemplate jdbc;
+    private final TransactionTemplate transactions;
     private final Function<String, String> environment;
     private final SecureRandom random = new SecureRandom();
 
     ProviderCredentials(JdbcTemplate jdbc, Function<String, String> environment) {
         this.jdbc = jdbc;
+        this.transactions = new TransactionTemplate(new DataSourceTransactionManager(
+                Objects.requireNonNull(jdbc.getDataSource())));
         this.environment = environment;
     }
 
@@ -42,6 +49,14 @@ final class ProviderCredentials {
     Reference environmentReference(ProviderFamily family) {
         String key = environment.apply(family.environment);
         return environmentReference(family, key);
+    }
+
+    void removeInactiveEnvironmentChecks() {
+        // 环境变量可在两次宿主启动之间更换，已冻结的 Run 仍保留原引用。
+        var active = Arrays.stream(ProviderFamily.values()).map(this::reference).map(Reference::id).toList();
+        String parameters = String.join(",", Collections.nCopies(active.size(), "?"));
+        jdbc.update("DELETE FROM model_validation WHERE credential_ref LIKE 'env-%' AND credential_ref NOT IN ("
+                + parameters + ")", active.toArray());
     }
 
     private Reference environmentReference(ProviderFamily family, String key) {
@@ -93,15 +108,43 @@ final class ProviderCredentials {
         }
         var ref = new Reference(preset, workspace, UUID.randomUUID().toString(), true);
         byte[] encrypted = protect(key.getBytes(StandardCharsets.UTF_8), family, ref, true);
-        jdbc.update("""
-                INSERT INTO workbench_provider(provider,preset,workspace,credential_ref,ciphertext) VALUES(?,?,?,?,?)
-                ON CONFLICT(provider) DO UPDATE SET preset=excluded.preset,workspace=excluded.workspace,
-                    credential_ref=excluded.credential_ref,ciphertext=excluded.ciphertext
-                """, family.id(), preset, workspace, ref.id(), encrypted);
+        transactions.executeWithoutResult(status -> {
+            removeValidation(family, environmentReference(family).id());
+            jdbc.update("""
+                    INSERT INTO workbench_provider(provider,preset,workspace,credential_ref,ciphertext) VALUES(?,?,?,?,?)
+                    ON CONFLICT(provider) DO UPDATE SET preset=excluded.preset,workspace=excluded.workspace,
+                        credential_ref=excluded.credential_ref,ciphertext=excluded.ciphertext
+                    """, family.id(), preset, workspace, ref.id(), encrypted);
+        });
     }
 
     void delete(ProviderFamily family) {
-        jdbc.update("DELETE FROM workbench_provider WHERE provider=?", family.id());
+        transactions.executeWithoutResult(status -> {
+            removeValidation(family, "");
+            jdbc.update("DELETE FROM workbench_provider WHERE provider=?", family.id());
+        });
+    }
+
+    private void removeValidation(ProviderFamily family, String shadowedEnvironmentRef) {
+        jdbc.update("""
+                DELETE FROM model_validation WHERE credential_ref=?
+                    OR credential_ref=(SELECT credential_ref FROM workbench_provider WHERE provider=?)
+                """, shadowedEnvironmentRef, family.id());
+    }
+
+    void recordValidation(Frozen config, boolean compatible) {
+        var family = ProviderFamily.named(config.choice().provider());
+        // 与替换凭据的写事务串行，旧网络请求返回时不能重新插入已清理的验证记录。
+        int written = jdbc.update("""
+                INSERT INTO model_validation(credential_ref,model,effort,compatible)
+                SELECT ?,?,?,? WHERE ?=COALESCE(
+                    (SELECT credential_ref FROM workbench_provider WHERE provider=?), ?)
+                ON CONFLICT(credential_ref,model,effort) DO UPDATE SET compatible=excluded.compatible
+                """, config.credentialRef(), config.choice().model(), config.choice().effort(), compatible,
+                config.credentialRef(), family.id(), environmentReference(family).id());
+        if (written == 0) {
+            throw ProviderFamily.invalid("凭据已变更，请重新验证");
+        }
     }
 
     private byte[] protect(byte[] value, ProviderFamily family, Reference ref, boolean encrypt) {

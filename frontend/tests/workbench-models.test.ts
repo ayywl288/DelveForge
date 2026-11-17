@@ -42,6 +42,7 @@ it('搜索模型、键盘返回焦点、禁用未配置模型和锁定任务', a
     root.querySelector<HTMLButtonElement>('[aria-label="选择思考强度"]')!.click(); await nextTick()
     const levels = [...root.querySelectorAll<HTMLButtonElement>('.efforts button')]
     expect(levels.at(-1)?.disabled).toBe(true)
+    expect(levels.map(item => item.querySelector('small')?.textContent)).toEqual(['待实测', '已验证', '不支持'])
     levels[0]!.click()
     expect(choose).toHaveBeenCalledWith({ ...choice, effort: 'default' })
     state.locked = true; await nextTick()
@@ -64,4 +65,21 @@ it('保存凭据后清空密码输入且不写入浏览器存储', async () => {
     for (const storage of [localStorage, sessionStorage]) {
         expect(JSON.stringify(storage)).not.toContain('test-only-key-value')
     }
+})
+
+it('凭据删除后切换到当前端点的模型和验证状态', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 204 })))
+    const state = reactive(structuredClone(catalog))
+    Object.assign(state.providers[0]!, { saved: true, preset: 'saved', presets: ['saved', 'global'] })
+    const root = document.createElement('div')
+    const refresh = async () => {
+        Object.assign(state.providers[0]!, { saved: false, preset: 'global' })
+        Object.assign(state.models[0]!, { id: 'replacement', compatibility: 'catalog', verifiedEfforts: [], rejectedEfforts: [] })
+    }
+    const app = createApp(() => h(ProviderSettings, { catalog: state, initial: 'deepseek', choice, refresh }))
+    app.mount(root); cleanups.push(() => app.unmount())
+    expect(root.querySelector('.provider-validation .helper')?.textContent).toContain('已验证')
+    root.querySelector<HTMLButtonElement>('button[type=button]')!.click()
+    await vi.waitFor(() => expect(root.querySelector<HTMLSelectElement>('.provider-validation select')?.value).toBe('replacement'))
+    expect(root.querySelector('.provider-validation .helper')?.textContent).toContain('尚未验证')
 })

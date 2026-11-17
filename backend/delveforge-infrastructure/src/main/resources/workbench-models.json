@@ -1,6 +1,11 @@
 {
   "openai": {
     "models": {
+      "gpt-5.4-nano": {
+        "id": "gpt-5.4-nano", "name": "GPT-5.4 nano", "reasoning": true, "tool_call": true,
+        "last_updated": "2026-03-17", "modalities": {"input": ["text", "image"], "output": ["text"]},
+        "limit": {"context": 400000, "input": 272000, "output": 128000}
+      },
       "gpt-5.4": {
         "id": "gpt-5.4",
         "name": "GPT-5.4",
@@ -328,6 +333,11 @@
   },
   "zhipuai": {
     "models": {
+      "glm-4.7-flash": {
+        "id": "glm-4.7-flash", "name": "GLM-4.7-Flash", "reasoning": true, "tool_call": true,
+        "last_updated": "2026-01-19", "modalities": {"input": ["text"], "output": ["text"]},
+        "limit": {"context": 200000, "output": 131072}
+      },
       "glm-5": {
         "id": "glm-5",
         "name": "GLM-5",

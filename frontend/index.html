@@ -3,7 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f6f6f8" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        const appearance = localStorage.getItem('delveforge.appearance')
+        if (appearance === 'light' || appearance === 'dark') {
+          document.documentElement.dataset.appearance = appearance
+        }
+      } catch { /* 浏览器禁用存储时跟随系统。 */ }
+    </script>
     <meta name="description" content="在本机项目工作副本中与 DelveForge 一起开发、检查和预览软件。" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>DelveForge · 项目工作台</title>

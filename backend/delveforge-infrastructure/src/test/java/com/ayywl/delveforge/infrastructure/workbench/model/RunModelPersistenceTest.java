@@ -107,6 +107,59 @@ class RunModelPersistenceTest {
     }
 
     @Test
+    void rotationClearsOnlySupersededChecksAndLateRepliesCannotRestoreThem() {
+        migrate("9");
+        var models = models();
+        var jdbc = new JdbcTemplate(database());
+        var credentials = new ProviderCredentials(jdbc, env::get);
+        var other = models.freeze(claude);
+        var original = models.freeze(deepseek);
+        credentials.recordValidation(other, true);
+        credentials.recordValidation(original, true);
+        models.save("deepseek", "global", "", "first-fixture");
+        var first = models.freeze(deepseek);
+        credentials.recordValidation(first, true);
+        models.save("deepseek", "global", "", "second-fixture");
+        var second = models.freeze(deepseek);
+        credentials.recordValidation(second, false);
+        assertThrows(WorkbenchRejection.class, () -> credentials.recordValidation(first, true));
+        assertThrows(WorkbenchRejection.class, () -> credentials.recordValidation(original, false));
+        models.delete("deepseek");
+        assertThrows(WorkbenchRejection.class, () -> credentials.recordValidation(second, true));
+        assertEquals(original, models.freeze(deepseek));
+        assertEquals(List.of(other.credentialRef()), jdbc.queryForList(
+                "SELECT credential_ref FROM model_validation", String.class));
+        assertThrows(AgentException.class, () -> credentials.resolve(first));
+        assertThrows(AgentException.class, () -> credentials.resolve(second));
+        credentials.recordValidation(original, true);
+        env.put("DEEPSEEK_API_KEY", "changed-on-restart");
+        models();
+        assertEquals(List.of(other.credentialRef()), jdbc.queryForList(
+                "SELECT credential_ref FROM model_validation", String.class));
+    }
+
+    @Test
+    void upgradeKeepsPositiveEvidenceAndHistoricalRunsButReleasesAmbiguousV8Failures() {
+        migrate("8");
+        var models = models();
+        models.save("deepseek", "global", "", "fixture");
+        var store = open(2);
+        String run = store.receive(conversation(store), "1", "test", 3).runId();
+        var frozen = store.runModel(run);
+        var jdbc = new JdbcTemplate(database());
+        for (String ref : List.of(frozen.credentialRef(), models.freeze(claude).credentialRef(), "orphan")) {
+            jdbc.update("INSERT INTO model_validation VALUES(?,?,?,1)", ref, deepseek.model(), "off");
+            jdbc.update("INSERT INTO model_validation VALUES(?,?,?,0)", ref, deepseek.model(), deepseek.effort());
+        }
+        assertThrows(WorkbenchRejection.class, () -> models.freeze(deepseek));
+        migrate("9");
+        assertEquals(frozen, open(2).runModel(run));
+        assertEquals(frozen, models.freeze(deepseek));
+        assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM model_validation", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT count(*) FROM model_validation WHERE compatible=0", Integer.class));
+    }
+
+    @Test
     void savedKeysAreEncryptedAndCannotSubstituteForBoundCredentials() {
         migrate("8");
         var models = models();
@@ -173,6 +226,20 @@ class RunModelPersistenceTest {
         assertTrue(safe.getFirst().text().contains("[#"));
         assertTrue(safe.stream().allMatch(m -> m.stored() == null && m.calls().isEmpty()));
         assertTrue(restarted.timeline(conversation).toString().contains("real receipt"));
+    }
+
+    @Test
+    void inputReserveCoversMeasuredToolOverheadWithoutPenalizingPlainText() {
+        var user = List.of(AgentProtocol.Message.text("user", "请调用一次无参数 Ping。收到工具结果后仅回复 receipt 字段的值。"));
+        var ping = List.of(new AgentProtocol.ToolSpec("Ping", "返回测试回执",
+                "{\"type\":\"object\",\"properties\":{},\"additionalProperties\":false}"));
+        var deep = new WorkbenchTokenEstimate(ProviderFamily.DEEPSEEK);
+        var glm = new WorkbenchTokenEstimate(ProviderFamily.ZAI);
+        var openai = new WorkbenchTokenEstimate(ProviderFamily.OPENAI);
+        assertTrue(deep.countPromptTokens(user, ping) >= 294);
+        assertTrue(glm.countPromptTokens(user, ping) >= 158);
+        assertEquals(openai.countPromptTokens(user, List.of()), deep.countPromptTokens(user, List.of()));
+        assertEquals(openai.countPromptTokens(user, List.of()), glm.countPromptTokens(user, List.of()));
     }
 
     @Test

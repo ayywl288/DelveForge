@@ -25,7 +25,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.sqlite.SQLiteDataSource;
 
 import java.net.InetSocketAddress;
@@ -62,11 +64,18 @@ class ProviderProtocolTest {
     void listen() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
-            requests.add(JSON.readTree(exchange.getRequestBody()));
+            JsonNode request = JSON.readTree(exchange.getRequestBody());
+            requests.add(request);
             paths.add(exchange.getRequestURI().getPath());
             auth.add(String.join("/", List.of("Authorization", "x-api-key", "x-goog-api-key").stream()
                     .map(h -> String.valueOf(exchange.getRequestHeaders().getFirst(h))).toList()));
             String body = responses.get(Math.min(requests.size() - 1, responses.size() - 1));
+            if (body.contains("RECEIPT_FROM_REQUEST")) {
+                JsonNode messages = request.has("input") ? request.path("input") : request.path("messages");
+                JsonNode result = messages.get(messages.size() - 1);
+                String output = result.path(request.has("input") ? "output" : "content").asText();
+                body = body.replace("RECEIPT_FROM_REQUEST", JSON.readTree(output).path("receipt").asText());
+            }
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(status, bytes.length);
@@ -185,7 +194,7 @@ class ProviderProtocolTest {
         };
         var binding = mock(WorkbenchModels.class);
         when(binding.bind(models.freeze(selected))).thenReturn(new WorkbenchModels.Binding(
-                adapter(family), new WorkbenchTokenEstimate()));
+                adapter(family), new WorkbenchTokenEstimate(family)));
         try (var agent = new ConversationAgent(store, files, guest, binding, JSON, 6)) {
             String project = agent.project("test", null);
             String conversation = store.conversation(project, "Read a file");
@@ -227,7 +236,7 @@ class ProviderProtocolTest {
             together.countDown();
             assertTrue(together.await(8, TimeUnit.SECONDS), "两个运行应同时持有执行位");
             return new WorkbenchModels.Binding(adapter(ProviderFamily.named(frozen.choice().provider()),
-                    frozen.choice()), new WorkbenchTokenEstimate());
+                    frozen.choice()), new WorkbenchTokenEstimate(ProviderFamily.named(frozen.choice().provider())));
         });
         try (var agent = new ConversationAgent(store, files, mock(ExecutionEnvironment.class), bindings, JSON, 3)) {
             String a = store.conversation(agent.project("First", null), "A");
@@ -254,25 +263,78 @@ class ProviderProtocolTest {
     }
 
     @Test
-    void failedToolProbeDisablesOnlyThatCredentialModelAndEffort(@TempDir Path root) {
+    void oneMissedInstructionDoesNotDisableTheChoiceAndASecondProbeCanVerifyIt(@TempDir Path root) {
         var selected = choice(ProviderFamily.QWEN);
         var db = new SQLiteDataSource();
         db.setUrl("jdbc:sqlite:" + root.resolve("control.db"));
         Flyway.configure().dataSource(db).locations("classpath:db/workbench").load().migrate();
         var models = spy(new SpringWorkbenchModels(db, JSON, root, selected, new AgentContextBudget(32000, 2048, .9),
                 Duration.ofSeconds(5), 500000, 500000, name -> "test-account"));
-        doReturn(new WorkbenchModels.Binding(adapter(ProviderFamily.QWEN), new WorkbenchTokenEstimate()))
+        doReturn(new WorkbenchModels.Binding(adapter(ProviderFamily.QWEN), new WorkbenchTokenEstimate(ProviderFamily.QWEN)))
                 .when(models).bind(any());
         responses.add(reply(ProviderFamily.QWEN, false));
         assertThrows(WorkbenchRejection.class, () -> models.validate(selected));
-        assertThrows(WorkbenchRejection.class, () -> models.freeze(selected));
+        assertEquals(selected, models.freeze(selected).choice());
         assertEquals("on", models.freeze(new Choice("qwen", selected.model(), "on")).choice().effort());
         String ping = reply(ProviderFamily.QWEN, true).replace("Read", "Ping")
                 .replace("{\\\"path\\\":\\\"README.md\\\"}", "{}");
         responses.add(ping);
-        responses.add(reply(ProviderFamily.QWEN, false));
+        responses.add(reply(ProviderFamily.QWEN, false).replace("\"OK\"", "\"RECEIPT_FROM_REQUEST\""));
         models.validate(selected);
         assertEquals(selected, models.freeze(selected).choice());
+        responses.add(reply(ProviderFamily.QWEN, false));
+        assertThrows(WorkbenchRejection.class, () -> models.validate(selected));
+        assertEquals(1, new JdbcTemplate(db).queryForObject(
+                "SELECT compatible FROM model_validation", Integer.class));
+        responses.add(ping);
+        responses.add(reply(ProviderFamily.QWEN, false));
+        assertThrows(WorkbenchRejection.class, () -> models.validate(selected));
+        assertEquals(selected, models.freeze(selected).choice());
+        responses.add(ping.replace("\"id\":\"call_1\"", "\"id\":\"\""));
+        assertThrows(WorkbenchRejection.class, () -> models.validate(selected));
+        assertEquals(selected, models.freeze(selected).choice());
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "400,unsupported_parameter,tools,true",
+            "422,unsupported_value,reasoning.effort,true",
+            "400,unsupported_parameter,tools[0].function.parameters,false",
+            "400,invalid_request_error,reasoning.effort,false",
+            "401,invalid_api_key,tools,false", "403,permission_denied,tools,false",
+            "404,model_not_found,model,false", "402,billing,model,false",
+            "429,insufficient_quota,tools,false", "429,rate_limit,tools,false", "503,unavailable,tools,false"
+    })
+    void onlyExplicitCapabilityEvidenceBlocksTheExactCombination(int httpStatus, String code, String parameter,
+            boolean rejected, @TempDir Path root) {
+        var selected = choice(ProviderFamily.OPENAI);
+        var db = new SQLiteDataSource();
+        db.setUrl("jdbc:sqlite:" + root.resolve("control.db"));
+        Flyway.configure().dataSource(db).locations("classpath:db/workbench").load().migrate();
+        var models = spy(new SpringWorkbenchModels(db, JSON, root, selected, new AgentContextBudget(32000, 2048, .9),
+                Duration.ofSeconds(5), 500000, 500000, name -> "fixture-key"));
+        doReturn(new WorkbenchModels.Binding(adapter(ProviderFamily.OPENAI), new WorkbenchTokenEstimate(ProviderFamily.OPENAI)))
+                .when(models).bind(any());
+        status = httpStatus;
+        responses.add("{\"error\":{\"code\":\"" + code + "\",\"param\":\"" + parameter + "\",\"message\":\"private\"}}");
+        var failure = assertThrows(WorkbenchRejection.class, () -> models.validate(selected));
+        assertFalse(failure.getMessage().contains("private"));
+        if (rejected) {
+            assertThrows(WorkbenchRejection.class, () -> models.freeze(selected));
+        } else {
+            assertEquals(selected, models.freeze(selected).choice());
+        }
+        assertEquals("low", models.freeze(new Choice("openai", selected.model(), "low")).choice().effort());
+        assertEquals(rejected ? 1 : 0, new JdbcTemplate(db).queryForObject(
+                "SELECT count(*) FROM model_validation", Integer.class));
+        if (rejected) {
+            status = 200;
+            responses.add(reply(ProviderFamily.OPENAI, true).replace("Read", "Ping")
+                    .replace("{\\\"path\\\":\\\"README.md\\\"}", "{}"));
+            responses.add(reply(ProviderFamily.OPENAI, false).replace("\"OK\"", "\"RECEIPT_FROM_REQUEST\""));
+            models.validate(selected);
+            assertEquals(selected, models.freeze(selected).choice());
+        }
     }
 
     @ParameterizedTest
@@ -348,6 +410,20 @@ class ProviderProtocolTest {
     }
 
     @Test
+    void finalDeepSeekTextWithoutNewReasoningCompletesButIsNotReplayedAsToolHistory() {
+        var model = adapter(ProviderFamily.DEEPSEEK);
+        String privateField = ",\"reasoning_content\":\"private-thought\"";
+        responses.add(reply(ProviderFamily.DEEPSEEK, false).replace(privateField, ""));
+        var messages = List.of(AgentProtocol.Message.text("user", "ok"));
+        var last = model.call(messages, ConversationContext.TOOLS);
+        assertEquals("OK", last.text());
+        assertFalse(model.canReplayWithTools(last.assistantMessage(last.text())));
+        responses.add(reply(ProviderFamily.DEEPSEEK, true).replace(privateField, ""));
+        assertEquals(AgentModelFailure.Reason.REASONING_MISSING,
+                assertThrows(AgentModelFailure.class, () -> model.call(messages, ConversationContext.TOOLS)).reason());
+    }
+
+    @Test
     void missingGeminiIdsRemainAbsentOnTheWire() {
         responses.add(reply(ProviderFamily.GOOGLE, true).replace("\"id\":\"call_1\",", ""));
         responses.add(reply(ProviderFamily.GOOGLE, false));
@@ -380,6 +456,16 @@ class ProviderProtocolTest {
         assertFalse(adapter.drainDiagnostics().toString().contains("private"));
         status = 402;
         assertEquals("MODEL_BILLING", assertThrows(AgentException.class,
+                () -> adapter.call(messages, ConversationContext.TOOLS)).code());
+        responses.clear();
+        responses.add("{\"error\":{\"code\":\"1113\"}}");
+        status = 429;
+        assertEquals("MODEL_BILLING", assertThrows(AgentException.class,
+                () -> adapter.call(messages, ConversationContext.TOOLS)).code());
+        responses.clear();
+        responses.add("{\"error\":{\"code\":\"1211\"}}");
+        status = 400;
+        assertEquals("MODEL_NOT_AVAILABLE", assertThrows(AgentException.class,
                 () -> adapter.call(messages, ConversationContext.TOOLS)).code());
         status = 200;
         responses.clear();

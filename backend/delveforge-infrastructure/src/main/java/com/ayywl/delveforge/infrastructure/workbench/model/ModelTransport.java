@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** SDK 负责组装协议。宿主限制大小、重定向与物理重试，并补足两个 SDK 未映射的字段。 */
 final class ModelTransport {
@@ -224,15 +225,30 @@ final class ModelTransport {
         };
     }
 
-    private static RuntimeException failure(int status, String delay, byte[] body) {
+    private RuntimeException failure(int status, String delay, byte[] body) {
         if (status == 413) {
             return new AgentException("MODEL_CONTEXT_LENGTH", "提供方上下文容量不足");
         }
-        if (status == 400 && body.length > 0) {
+        if ((status == 400 || status == 422 || status == 429) && body.length > 0) {
             try {
                 JsonNode decoded = JSON.readTree(body);
                 JsonNode error = decoded == null ? JSON.getNodeFactory().missingNode() : decoded.path("error");
                 String code = error.path("code").asText();
+                String parameter = error.path("param").asText();
+                if (status == 429 && ("insufficient_quota".equals(code)
+                        || "zai".equals(choice.provider()) && "1113".equals(code))) {
+                    return new AgentException("MODEL_BILLING", "提供方账户额度不足");
+                }
+                if (status == 400 && "zai".equals(choice.provider()) && "1211".equals(code)) {
+                    return new AgentException("MODEL_NOT_AVAILABLE", "当前端点没有此模型");
+                }
+                // 仅接受能力字段的明确拒绝。工具 schema、历史消息和通用 400 均不足以禁用模型。
+                if (status != 429 && (Set.of("tools_not_supported", "unsupported_reasoning_effort").contains(code)
+                        || Set.of("unsupported_parameter", "unsupported_value").contains(code)
+                        && Set.of("tools", "reasoning", "reasoning.effort", "reasoning_effort", "thinking",
+                                "thinking.type", "enable_thinking").contains(parameter))) {
+                    return new AgentException("MODEL_CAPABILITY_UNSUPPORTED", "提供方明确拒绝所选能力");
+                }
                 if ("context_length_exceeded".equals(code)
                         || "context_length_exceeded".equals(error.path("type").asText())) {
                     return new AgentException("MODEL_CONTEXT_LENGTH", "提供方上下文容量不足");

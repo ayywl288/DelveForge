@@ -103,7 +103,8 @@ final class WorkbenchChatModel implements AgentModelPort {
                     continue;
                 }
                 throw switch (code) {
-                    case 401, 403 -> new AgentException("MODEL_AUTHORIZATION", "凭据无效或账户没有模型权限");
+                    case 401 -> new AgentException("MODEL_AUTHORIZATION", "提供方未接受凭据");
+                    case 403 -> new AgentException("MODEL_ACCESS_DENIED", "账户没有访问权限");
                     case 402 -> new AgentException("MODEL_BILLING", "提供方账户余额或付款权限不足");
                     case 404 -> new AgentException("MODEL_NOT_AVAILABLE", "当前端点没有此模型");
                     case 429 -> new AgentException("MODEL_RATE_LIMIT", "提供方限流或余额不足");
@@ -160,7 +161,8 @@ final class WorkbenchChatModel implements AgentModelPort {
         var reported = total == null ? null : new AgentProtocol.Usage(
                 number(usage.getPromptTokens()), number(usage.getCompletionTokens()), total, cachedInput(usage), null);
         var reply = new AgentProtocol.Reply(text, calls, total, reported, null, stored);
-        if (tools && !canReplayWithTools(reply.assistantMessage(text))) {
+        // 最终答复可以没有新的推理文本。以后重建上下文时仍由原重放规则选择安全后缀。
+        if (tools && !calls.isEmpty() && !canReplayWithTools(reply.assistantMessage(text))) {
             throw new AgentModelFailure(AgentModelFailure.Reason.REASONING_MISSING);
         }
         return reply;
