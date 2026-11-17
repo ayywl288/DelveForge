@@ -8,7 +8,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.16</version>
+        <version>4.2.0-RC2</version>
         <relativePath/>
     </parent>
 
@@ -18,7 +18,7 @@
     <packaging>pom</packaging>
 
     <name>DelveForge</name>
-    <description>Delve into the user and existing assets, forge them into products.</description>
+    <description>Local project-based Coding Agent Workbench.</description>
 
     <!--
         Monorepo aggregator.
@@ -50,17 +50,19 @@
 
         <maven-enforcer-plugin.version>3.5.0</maven-enforcer-plugin.version>
 
-        <!--
-            Persistence 技术栈（ARCHITECTURE.md 2.2）。
-
-            sqlite-jdbc 与 flyway-core 的版本由 Spring Boot BOM 托管，此处不覆盖。
-            MyBatis-Plus 不在 Spring Boot BOM 内，因此显式固定版本。
-
-            注意：Flyway 11.x 的 SQLite 支持内置于 flyway-core，
-            不存在独立的 flyway-database-sqlite 构件，无需额外引入。
-        -->
-        <mybatis-plus.version>3.5.17</mybatis-plus.version>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>2.1.0-RC2</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <pluginManagement>

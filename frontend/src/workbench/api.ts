@@ -7,7 +7,15 @@ export interface ActiveTool {
     frames: { channel: string; text: string }[]
 }
 export interface Foreground { projectId: string; conversationId: string; state: string }
-export interface Feed { messages: Message[]; runs: Run[]; activeTools?: ActiveTool[]; foregrounds?: Foreground[] }
+export interface ModelChoice { provider: string; model: string; effort: string }
+export interface CatalogModel { provider: string; id: string; name: string; efforts: string[]; window: number;
+    input: number; output: number; reasoning: boolean; compatibility: string; verifiedEfforts: string[]; rejectedEfforts: string[] }
+export interface Provider { id: string; name: string; presets: string[]; preset: string; workspace: string;
+    configured: boolean; saved: boolean }
+export interface ModelCatalog { providers: Provider[]; models: CatalogModel[] }
+export const effortLabel: Record<string, string> = { default: '默认', off: '关闭', on: '开启', minimal: '最低',
+    low: '低', medium: '中', high: '高', xhigh: '极高', max: '最高' }
+export interface Feed { model?: ModelChoice; modelInfo?: Pick<RuntimeSettings, 'model' | 'contextWindowTokens' | 'responseTokens'>; messages: Message[]; runs: Run[]; activeTools?: ActiveTool[]; foregrounds?: Foreground[] }
 export interface Ack { sequence: number; runId: string | null; newlyStarted: boolean }
 export interface RuntimeSettings {
     model: { adapter: string; endpoint: string; requestedModel: string; thinking: string }

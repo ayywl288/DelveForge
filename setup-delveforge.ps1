@@ -90,31 +90,6 @@ function Get-DfDependencies {
     return @{ Java = $java; JavaHome = $javaHome; Pnpm = $pnpm }
 }
 
-function ConvertFrom-DfSecret {
-    param([Security.SecureString] $Secret)
-
-    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secret)
-    try {
-        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
-    } finally {
-        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
-    }
-}
-
-function Read-DfKey {
-    $secret = Read-Host 'DeepSeek API Key' -AsSecureString
-    $plain = ConvertFrom-DfSecret $secret
-    try {
-        if ([string]::IsNullOrWhiteSpace($plain)) {
-            $secret.Dispose()
-            Stop-DfSetup 'DeepSeek API Key is required. The backend and frontend were not started.'
-        }
-    } finally {
-        $plain = $null
-    }
-    return $secret
-}
-
 function Assert-DfPortsFree {
     param([int] $BackendPort, [int] $FrontendPort = 5173)
 
@@ -251,29 +226,32 @@ function Invoke-DfSetup {
     param([string] $Root, [string] $DataDirectory, [int] $BackendPort, [string] $EnvironmentAction)
     $ErrorActionPreference = 'Stop'
     $dataPath = [IO.Path]::GetFullPath($DataDirectory)
-    $previousKey = [Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY','Process')
+    $providerEnvironment = @{}
+    foreach ($name in @('OPENAI_API_KEY','ANTHROPIC_API_KEY','GEMINI_API_KEY','GOOGLE_API_KEY',
+            'DEEPSEEK_API_KEY','ZAI_API_KEY','DASHSCOPE_API_KEY','MOONSHOT_API_KEY','OPENROUTER_API_KEY',
+            'DELVEFORGE_CREDENTIAL_MASTER_KEY')) {
+        $providerEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+    }
     $previousJava = [Environment]::GetEnvironmentVariable('JAVA_HOME','Process')
-    $secret = $null
     Push-Location -LiteralPath $Root
     try {
         $dependencies = Get-DfDependencies $Root
         Assert-DfPortsFree $BackendPort
-        Set-DfEnvironment 'DEEPSEEK_API_KEY' $null
+        foreach ($name in $providerEnvironment.Keys) { Set-DfEnvironment $name $null }
         Set-DfEnvironment 'JAVA_HOME' $dependencies.JavaHome
         $initializer = Join-Path $Root 'runtime/workbench/Initialize-Environment.ps1'
         & $initializer -DataDirectory $dataPath -Action $EnvironmentAction
-        if ([string]::IsNullOrWhiteSpace($previousKey)) { $secret = Read-DfKey }
-        else { $secret = ConvertTo-SecureString $previousKey -AsPlainText -Force }
         Invoke-DfBuild $Root $dependencies.Pnpm
         Assert-DfPortsFree $BackendPort
         $pom = [xml](Get-Content -Raw -LiteralPath (Join-Path $Root 'pom.xml'))
         $jar = Join-Path $Root "backend/delveforge-app/target/delveforge-app-$($pom.project.version).jar"
         $backendCommand = 'Set-Location -LiteralPath {0}; & {1} -jar {2}' -f (ConvertTo-DfLiteral $Root),
             (ConvertTo-DfLiteral $dependencies.Java), (ConvertTo-DfLiteral $jar)
-        $configuration = @{ SERVER_PORT = $BackendPort.ToString(); DELVEFORGE_WORKBENCH_DIRECTORY = $dataPath;
-            DEEPSEEK_API_KEY = ConvertFrom-DfSecret $secret }
-        try { $backend = Start-DfTerminal $Root $backendCommand $configuration }
-        finally { $configuration.Remove('DEEPSEEK_API_KEY') }
+        $configuration = @{ SERVER_PORT = $BackendPort.ToString(); DELVEFORGE_WORKBENCH_DIRECTORY = $dataPath }
+        foreach ($name in $providerEnvironment.Keys) {
+            if ($providerEnvironment[$name]) { $configuration[$name] = $providerEnvironment[$name] }
+        }
+        $backend = Start-DfTerminal $Root $backendCommand $configuration
         Wait-DfConnectivity $BackendPort $backend
         $frontendCommand = "Set-Location -LiteralPath {0}; & {1} dev --host 127.0.0.1 --port 5173 --strictPort" -f (
             ConvertTo-DfLiteral (Join-Path $Root 'frontend')), (ConvertTo-DfLiteral $dependencies.Pnpm)
@@ -282,8 +260,7 @@ function Invoke-DfSetup {
         Write-Host 'DelveForge: http://127.0.0.1:5173'
         Write-Host "Windows workcopies: $(Join-Path $dataPath 'projects')"
     } finally {
-        if ($secret) { $secret.Dispose() }
-        Set-DfEnvironment 'DEEPSEEK_API_KEY' $previousKey
+        foreach ($name in $providerEnvironment.Keys) { Set-DfEnvironment $name $providerEnvironment[$name] }
         Set-DfEnvironment 'JAVA_HOME' $previousJava
         Pop-Location
     }

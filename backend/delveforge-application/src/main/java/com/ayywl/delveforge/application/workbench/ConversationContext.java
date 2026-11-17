@@ -131,7 +131,7 @@ public final class ConversationContext {
         if (before > budget.usableInputTokens() && !mandatory.isEmpty()
                 && retention.count(ConversationRetention.view(
                         Message.text("system", instructions(run)), List.of(), mandatory)) > budget.usableInputTokens()) {
-            return pause(run, "最新尚未回应的用户输入连同系统指令和工具超过上下文容量。请缩短输入另开对话，或调大窗口后继续。");
+            return pause(run, "最新尚未回应的用户输入连同系统指令和工具超过上下文容量。请另开对话并缩短输入，或选择上下文容量更大的模型。");
         }
 
         int lastCut = cuts.indexOf(unanswered);
@@ -150,7 +150,7 @@ public final class ConversationContext {
         if (!fallback.isEmpty()) {
             return fallback;
         }
-        return pause(run, outcome.detail + "；完整用户要求、已有任务检查点与历史依据无法同时放入上下文。可调大窗口后继续。");
+        return pause(run, outcome.detail + "；完整用户要求、已有任务检查点与历史依据无法同时放入上下文。请结束暂停的任务，再选择上下文容量更大的模型。");
     }
 
     private int firstReplayableSuffix(List<Entry> records, List<Integer> cuts) {

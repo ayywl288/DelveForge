@@ -2,7 +2,6 @@ package com.ayywl.delveforge.infrastructure.workbench;
 
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
-import com.ayywl.delveforge.application.workbench.ConversationAgent;
 import com.ayywl.delveforge.application.workbench.ProjectFiles;
 import com.ayywl.delveforge.application.workbench.Workbench;
 import com.ayywl.delveforge.domain.workbench.RunState;
@@ -17,7 +16,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;

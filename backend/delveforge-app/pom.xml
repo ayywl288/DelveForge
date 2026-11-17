@@ -17,7 +17,6 @@
     <description>Spring Boot Bootstrap、REST API、Configuration、Dependency Wiring 与 Interface Adapter</description>
 
     <dependencies>
-        <!-- Composition Root：组装 Application 与 Infrastructure（RULE-ARCH-005） -->
         <dependency>
             <groupId>com.ayywl.delveforge</groupId>
             <artifactId>delveforge-application</artifactId>
@@ -28,16 +27,13 @@
             <artifactId>delveforge-infrastructure</artifactId>
             <version>${project.version}</version>
         </dependency>
-
-        <!-- Interface Adapter 层：提供 REST / API 入口 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
-
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
+            <artifactId>spring-boot-starter-webmvc-test</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

@@ -14,7 +14,7 @@
 
     <artifactId>delveforge-domain</artifactId>
     <name>delveforge-domain</name>
-    <description>Aggregate、Entity、Value Object、Domain Service、Domain Policy、Domain Event 与核心 Invariant</description>
+    <description>项目工作台的 Run 状态与调度不变量</description>
 
     <!--
         该 Module 不依赖其他 DelveForge Maven Module。

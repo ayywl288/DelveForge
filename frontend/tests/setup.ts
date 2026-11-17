@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, vi } from "vitest";
-import { installWebLocks } from "./webLocks";
 
 beforeEach(() => {
   localStorage.clear();
@@ -12,7 +11,6 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () {
     this.removeAttribute("open");
   };
-  installWebLocks();
 });
 afterEach(() => {
   vi.useRealTimers();

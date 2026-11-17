@@ -26,8 +26,10 @@ public final class ConversationAgent implements AutoCloseable {
     private final Workbench store;
     private final ProjectFiles files;
     private final ExecutionEnvironment environment;
-    private final AgentModelPort model;
-    private final ConversationContext context;
+    private record RunModel(AgentModelPort model, ConversationContext context) {}
+
+    private final java.util.function.Function<String, RunModel> resolveModel;
+    private final ConcurrentHashMap<String, RunModel> runModels = new ConcurrentHashMap<>();
     private final ObjectMapper json;
     private final int allowance;
     private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
@@ -41,11 +43,25 @@ public final class ConversationAgent implements AutoCloseable {
             ConversationContext context,
             ObjectMapper json,
             int allowance) {
+        this(store, files, environment, id -> new RunModel(model, context), json, allowance);
+    }
+
+    public ConversationAgent(Workbench store, ProjectFiles files, ExecutionEnvironment environment,
+            WorkbenchModels models, ObjectMapper json, int allowance) {
+        this(store, files, environment, id -> {
+            var config = store.runModel(id);
+            var binding = models.bind(config);
+            return new RunModel(binding.model(), new ConversationContext(store, binding.model(),
+                    binding.counter(), config.budget()));
+        }, json, allowance);
+    }
+
+    private ConversationAgent(Workbench store, ProjectFiles files, ExecutionEnvironment environment,
+            java.util.function.Function<String, RunModel> resolveModel, ObjectMapper json, int allowance) {
         this.store = store;
         this.files = files;
         this.environment = environment;
-        this.model = model;
-        this.context = context;
+        this.resolveModel = resolveModel;
         this.json = json;
         this.allowance = requestLimit(allowance);
     }
@@ -112,6 +128,9 @@ public final class ConversationAgent implements AutoCloseable {
         store.stop(id);
         var state = store.run(id).state();
         if (!state.ownsForeground()) {
+            if (state == RunState.STOPPED) {
+                forgetModel(id);
+            }
             return;
         }
         if (state == RunState.BLOCKED) {
@@ -232,12 +251,19 @@ public final class ConversationAgent implements AutoCloseable {
                                 if (state == RunState.RUNNING || state == RunState.RECONCILING) {
                                     schedule(id, state == RunState.RECONCILING);
                                 } else if (state != RunState.PAUSED && state != RunState.BLOCKED) {
-                                    context.forget(id);
+                                    forgetModel(id);
                                 }
                                 dispatch();
                             }
                         }
                     });
+        }
+    }
+
+    private void forgetModel(String id) {
+        var runtime = runModels.remove(id);
+        if (runtime != null) {
+            runtime.context().forget(id);
         }
     }
 
@@ -247,7 +273,16 @@ public final class ConversationAgent implements AutoCloseable {
             return ModelRequests.describe(failure);
         }
         if (e instanceof com.ayywl.delveforge.application.agent.AgentException a) {
-            return a.code();
+            return switch (a.code()) {
+                case "MODEL_AUTHORIZATION" -> "提供方未接受当前凭据。请检查密钥及模型权限。";
+                case "MODEL_NOT_AVAILABLE" -> "当前端点或账户无法使用此模型。可以结束任务并选择其他模型。";
+                case "MODEL_CREDENTIAL_CHANGED" -> "本次任务绑定的凭据已更换或删除。请结束此任务后重新发送。";
+                case "MODEL_BILLING" -> "提供方账户余额或付款权限不足。请检查账户后继续。";
+                case "MODEL_RATE_LIMIT" -> "模型账户已限流或额度不足。请检查额度后继续。";
+                case "MODEL_CONTEXT_LENGTH" -> "提供方拒绝本次上下文长度。可结束任务，改用更大窗口的模型。";
+                case "MODEL_OPTIONS_REJECTED" -> "提供方拒绝当前模型或参数。请检查区域、模型权限与思考设置。";
+                default -> a.code();
+            };
         }
         return "控制操作失败（" + e.getClass().getSimpleName() + "）";
     }
@@ -270,12 +305,13 @@ public final class ConversationAgent implements AutoCloseable {
                 continue;
             }
             var snapshot = store.next(id);
-            var messages = context.build(snapshot);
+            var runtime = runModels.computeIfAbsent(id, resolveModel);
+            var messages = runtime.context().build(snapshot);
             if (messages.isEmpty()) {
                 continue;
             }
             var admitted =
-                    ModelRequests.call(store, model, id, messages, ConversationContext.TOOLS);
+                    ModelRequests.call(store, runtime.model(), id, messages, ConversationContext.TOOLS);
             if (admitted.isEmpty()) {
                 continue;
             }

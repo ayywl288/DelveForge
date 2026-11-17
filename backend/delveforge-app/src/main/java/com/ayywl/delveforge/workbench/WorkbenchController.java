@@ -1,7 +1,7 @@
 package com.ayywl.delveforge.workbench;
 
 import com.ayywl.delveforge.application.agent.AgentContextBudget;
-import com.ayywl.delveforge.application.agent.AgentModelPort;
+import com.ayywl.delveforge.application.workbench.WorkbenchModels;
 import com.ayywl.delveforge.application.workbench.ConversationAgent;
 import com.ayywl.delveforge.application.workbench.ProjectFiles.FolderPickerUnavailable;
 import com.ayywl.delveforge.application.workbench.ProjectTools;
@@ -39,11 +39,11 @@ public final class WorkbenchController {
     private final ConversationAgent agent;
     private final ProjectTools tools;
 
-    private final AgentModelPort model;
+    private final WorkbenchModels model;
     private final AgentContextBudget context;
     private final int commandSeconds;
 
-    public WorkbenchController(Workbench store, ConversationAgent agent, ProjectTools tools, AgentModelPort model,
+    public WorkbenchController(Workbench store, ConversationAgent agent, ProjectTools tools, WorkbenchModels model,
             AgentContextBudget context, @Value("${delveforge.workbench.command-seconds:300}") int commandSeconds) {
         this.store = store;
         this.tools = tools;
@@ -55,9 +55,41 @@ public final class WorkbenchController {
 
     @GetMapping("/settings")
     public Map<String, Object> settings() {
-        return Map.of("model", model.identity(), "defaultRequestLimit", agent.defaultRequestLimit(),
+        return Map.of("model", model.describe(model.legacyConfiguration()).model(), "defaultRequestLimit", agent.defaultRequestLimit(),
                 "contextWindowTokens", context.contextWindowTokens(), "responseTokens", context.responseTokens(),
                 "commandSeconds", commandSeconds, "maxConcurrentRuns", store.capacity());
+    }
+
+    @GetMapping("/models")
+    public WorkbenchModels.Catalog models() {
+        return model.catalog();
+    }
+
+    public record ProviderInput(String preset, String workspace, String key) {
+        @Override
+        public String toString() {
+            return "Provider configuration";
+        }
+    }
+
+    @PostMapping("/providers/{provider}")
+    public void saveProvider(@PathVariable String provider, @RequestBody ProviderInput input) {
+        model.save(provider, input.preset(), input.workspace(), input.key());
+    }
+
+    @PostMapping("/providers/{provider}/delete")
+    public void deleteProvider(@PathVariable String provider) {
+        model.delete(provider);
+    }
+
+    @PostMapping("/models/validate")
+    public WorkbenchModels.Validation validate(@RequestBody WorkbenchModels.Choice choice) {
+        return model.validate(choice);
+    }
+
+    @PostMapping("/conversations/{id}/model")
+    public void selectModel(@PathVariable String id, @RequestBody WorkbenchModels.Choice choice) {
+        store.selectModel(id, choice);
     }
 
     @GetMapping("/health")
@@ -136,14 +168,26 @@ public final class WorkbenchController {
     public record Foreground(String projectId, String conversationId, String state) {}
 
     public record ConversationView(List<Map<String, Object>> messages, List<Map<String, Object>> runs,
-            List<Map<String, Object>> activeTools, List<Foreground> foregrounds) {}
+            List<Map<String, Object>> activeTools, List<Foreground> foregrounds, WorkbenchModels.Choice model, WorkbenchModels.View modelInfo) {}
 
     @GetMapping("/conversations/{id}")
     public ConversationView conversation(@PathVariable String id) {
         var foreground = store.owners().stream()
                 .map(run -> new Foreground(run.projectId(), run.conversationId(), run.state().name()))
                 .toList();
-        return new ConversationView(store.timeline(id), store.runs(id), store.activeTools(id), foreground);
+        var frozen = store.activeModel(id);
+        var choice = frozen == null ? store.modelChoice(id) : frozen.choice();
+        WorkbenchModels.View info = null;
+        if (frozen != null) {
+            info = model.describe(frozen);
+        } else {
+            try {
+                info = model.preview(choice);
+            } catch (WorkbenchRejection unknownModel) {
+                // 已退役的选择仍可展示历史；用户可以选择其他可用模型。
+            }
+        }
+        return new ConversationView(store.timeline(id), store.runs(id), store.activeTools(id), foreground, choice, info);
     }
 
     @PostMapping("/conversations/{id}/messages")

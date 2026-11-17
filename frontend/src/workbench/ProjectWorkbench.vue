@@ -4,17 +4,34 @@ import BrandSymbol from '../components/BrandSymbol.vue'
 import Icon from '../components/NavigationIcon.vue'
 import ConversationComposer from './ConversationComposer.vue'
 import ProjectForm from './ProjectForm.vue'
+import ModelPicker from './ModelPicker.vue'
+import ProviderSettings from './ProviderSettings.vue'
 import Transcript from './Transcript.vue'
 import WorkbenchDetails from './WorkbenchDetails.vue'
 import WorkbenchDialog from './WorkbenchDialog.vue'
 import WorkbenchNavigation from './WorkbenchNavigation.vue'
 import { previewLinks, recordedChanges, timeline } from './activity'
-import { request, stateText } from './api'
+import { request, stateText, type ModelCatalog, type ModelChoice } from './api'
 import { useWorkbench } from './useWorkbench'
 
 const { projects, conversations, projectId, conversationId, project, conversation, feed, run, settings, active, elsewhere,
     loading, pending, error, notice, draft, limit, exhausted, minLimit, validLimit, selectProject, selectConversation,
     createProject, createConversation, send, control, action } = useWorkbench()
+const catalog = ref<ModelCatalog>({ providers: [], models: [] })
+const conversationSettings = computed(() => settings.value && ({ ...settings.value, ...feed.value.modelInfo }))
+const settingsProvider = ref('deepseek')
+const locked = computed(() => !!run.value && !['COMPLETED', 'STOPPED', 'FAILED'].includes(run.value.state))
+async function refreshCatalog() { catalog.value = await request<ModelCatalog>('/models') }
+function loadCatalog() { void refreshCatalog().catch(e => { error.value = e.message }) }
+onMounted(loadCatalog)
+function providerSettings(provider: string) { settingsProvider.value = provider; panel.value = 'model'; loadCatalog() }
+async function chooseModel(choice: ModelChoice) {
+    const id = conversationId.value
+    await action(async () => {
+        await request('/conversations/' + id + '/model', choice)
+        if (id === conversationId.value) feed.value = { ...feed.value, model: choice }
+    })
+}
 const entries = computed(() => timeline(feed.value))
 const changes = computed(() => recordedChanges(entries.value))
 const links = computed(() => previewLinks(feed.value.messages))
@@ -75,7 +92,7 @@ const navProps = computed(() => ({ projects: projects.value, conversations: conv
     conversationId: conversationId.value, foregrounds: feed.value.foregrounds ?? [], settings: settings.value }))
 const navEvents = { project: (id: string) => navigate(id, true), conversation: (id: string) => navigate(id, false),
     newProject: () => form('project'), newConversation: () => form('conversation'),
-    model: () => { mobileNav.value = false; panel.value = 'model' }, collapse: () => { expanded.value = false; nextTick(() => navToggle.value?.focus()) } }
+    model: () => { mobileNav.value = false; providerSettings(feed.value.model?.provider ?? 'deepseek') }, collapse: () => { expanded.value = false; nextTick(() => navToggle.value?.focus()) } }
 </script>
 <template>
     <div class="workbench" :class="{ 'with-rail': expanded && !narrow }">
@@ -118,7 +135,13 @@ const navEvents = { project: (id: string) => navigate(id, true), conversation: (
                         <ConversationComposer ref="composer" v-model="draft" v-model:limit="limit" :run="run" :active="active"
                             :pending="pending" :loading="loading" :exhausted="exhausted" :min-limit="minLimit" :valid-limit="validLimit"
                             :queued="queued" :away="!!elsewhere" :default-limit="settings?.defaultRequestLimit" :notice="notice"
-                            @send="deliver" @control="control" @return-to-run="backToRun" />
+                            @send="deliver" @control="control" @return-to-run="backToRun">
+                            <template #models>
+                                <ModelPicker v-if="feed.model" :key="conversationId" :choice="feed.model" :catalog="catalog"
+                                    :locked="locked" :busy="pending || loading" @choose="chooseModel"
+                                    @settings="providerSettings" @refresh="loadCatalog" />
+                            </template>
+                        </ConversationComposer>
                         <div v-if="starting && !draft" class="starters"><button @click="seed('请介绍这个项目的目录结构和启动方式。')"><Icon name="folder" />了解项目结构</button>
                             <button @click="seed('请检查工作副本中的近期改动，并告诉我需要验证哪些行为。')"><Icon name="git" />检查近期改动</button></div>
                     </div>
@@ -138,7 +161,9 @@ const navEvents = { project: (id: string) => navigate(id, true), conversation: (
                 <div class="form-actions"><button type="button" @click="panel = ''">取消</button>
                     <button class="primary" :disabled="pending || !formName.trim()">{{ pending ? '正在创建…' : '创建对话' }}</button></div>
             </form>
-            <WorkbenchDetails v-else :mode="panel" :project="project" :changes="changes" :previews="links" :settings="settings" :run="run" :pending="pending" @open="action(() => request<void>('/projects/' + projectId + '/open', {}))" />
+            <ProviderSettings v-if="panel === 'model'" :catalog="catalog" :initial="settingsProvider"
+                :choice="feed.model" :refresh="refreshCatalog" />
+            <WorkbenchDetails v-if="panel === 'model' || panel === 'workspace'" :mode="panel" :project="project" :changes="changes" :previews="links" :settings="conversationSettings" :run="run" :pending="pending" @open="action(() => request<void>('/projects/' + projectId + '/open', {}))" />
         </WorkbenchDialog>
     </div>
 </template>

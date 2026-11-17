@@ -3,6 +3,7 @@ package com.ayywl.delveforge.infrastructure.workbench;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.workbench.ExecutionEnvironment;
 import com.ayywl.delveforge.application.workbench.Workbench;
+import com.ayywl.delveforge.application.workbench.WorkbenchModels;
 import com.ayywl.delveforge.application.workbench.WorkbenchRejection;
 import com.ayywl.delveforge.application.workbench.WorkbenchRejection.Kind;
 import com.ayywl.delveforge.domain.workbench.RunState;
@@ -32,6 +33,7 @@ public final class SqliteWorkbench implements Workbench {
     private static final String OWNS = "state IN ('RUNNING','STOPPING','RECONCILING','BLOCKED')";
     private static final TypeReference<List<AgentProtocol.ToolCall>> CALLS =
             new TypeReference<>() {};
+    private final WorkbenchModels models;
     private final JdbcTemplate jdbc;
     private final TransactionTemplate transactions;
     private final ObjectMapper json;
@@ -42,6 +44,11 @@ public final class SqliteWorkbench implements Workbench {
     }
 
     public SqliteWorkbench(DataSource source, ObjectMapper json, int capacity) {
+        this(source, json, capacity, null);
+    }
+
+    public SqliteWorkbench(DataSource source, ObjectMapper json, int capacity, WorkbenchModels models) {
+        this.models = models;
         if (capacity < 1 || capacity > 64) {
             throw new IllegalArgumentException("并发 Run 上限须在 1 到 64 之间");
         }
@@ -49,6 +56,11 @@ public final class SqliteWorkbench implements Workbench {
         transactions = new TransactionTemplate(new DataSourceTransactionManager(source));
         this.json = json;
         jdbc.update("UPDATE workbench_capacity SET slots=? WHERE id=1", capacity);
+        if (models != null && count("SELECT count(*) FROM run WHERE model_config IS NULL AND ("
+                + OWNS + " OR state IN ('QUEUED','PAUSED'))") > 0) {
+            jdbc.update("UPDATE run SET model_config=? WHERE model_config IS NULL AND ("
+                    + OWNS + " OR state IN ('QUEUED','PAUSED'))", encode(models.legacyConfiguration()));
+        }
     }
 
     @Override
@@ -81,6 +93,50 @@ public final class SqliteWorkbench implements Workbench {
         } catch (java.io.IOException e) {
             throw new IllegalStateException("协议序列化失败", e);
         }
+    }
+
+    private <T> T read(String value, Class<T> type) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return json.readValue(value, type);
+        } catch (java.io.IOException invalid) {
+            throw new IllegalStateException("持久化模型配置或历史无法读取");
+        }
+    }
+
+    @Override
+    public WorkbenchModels.Choice modelChoice(String conversation) {
+        projectOf(conversation);
+        String saved = jdbc.queryForObject("SELECT model_choice FROM conversation WHERE id=?", String.class, conversation);
+        return saved == null ? models.initialChoice() : read(saved, WorkbenchModels.Choice.class);
+    }
+
+    @Override
+    public void selectModel(String conversation, WorkbenchModels.Choice choice) {
+        tx(() -> {
+            projectOf(conversation);
+            if (count("SELECT count(*) FROM run WHERE conversation_id=? AND (" + OWNS
+                    + " OR state IN ('QUEUED','PAUSED'))", conversation) != 0) {
+                throw new WorkbenchRejection(Kind.BUSY, "当前任务已锁定模型。请先完成或结束任务。");
+            }
+            models.freeze(choice);
+            return jdbc.update("UPDATE conversation SET model_choice=? WHERE id=?", encode(choice), conversation);
+        });
+    }
+
+    @Override
+    public WorkbenchModels.Frozen runModel(String run) {
+        return read(jdbc.queryForObject("SELECT model_config FROM run WHERE id=?", String.class, run),
+                WorkbenchModels.Frozen.class);
+    }
+
+    @Override
+    public WorkbenchModels.Frozen activeModel(String conversation) {
+        var configs = jdbc.queryForList("SELECT model_config FROM run WHERE conversation_id=? AND ("
+                + OWNS + " OR state IN ('PAUSED','QUEUED')) ORDER BY rowid DESC LIMIT 1", String.class, conversation);
+        return configs.isEmpty() ? null : read(configs.getFirst(), WorkbenchModels.Frozen.class);
     }
 
     private List<AgentProtocol.ToolCall> decode(String calls) {
@@ -224,15 +280,16 @@ public final class SqliteWorkbench implements Workbench {
 
     private String enqueue(String conversation, String project, int allowance) {
         String run = id();
+        String config = models == null ? null : encode(models.freeze(modelChoice(conversation)));
         jdbc.update(
-                "INSERT INTO run(id,conversation_id,project_id,state,started_at,allowance,queue_order)"
-                        + " VALUES(?,?,?,'QUEUED',?,?,?)",
+                "INSERT INTO run(id,conversation_id,project_id,state,started_at,allowance,queue_order,model_config)"
+                        + " VALUES(?,?,?,'QUEUED',?,?,?,?)",
                 run,
                 conversation,
                 project,
                 now(),
                 allowance,
-                nextOrder());
+                nextOrder(), config);
         return run;
     }
 
@@ -373,14 +430,18 @@ public final class SqliteWorkbench implements Workbench {
                 throw new WorkbenchRejection(Kind.BUSY, "任务已离开队列，请刷新状态");
             }
             Run run = run(id);
-            for (var input : jdbc.queryForList("SELECT seq,text FROM input WHERE conversation_id=? AND consumed=0 ORDER BY seq",
-                    run.conversationId())) {
-                record(run, "user", (String) input.get("text"), "[]", null, null, null);
-                jdbc.update("UPDATE input SET consumed=1 WHERE seq=?", input.get("seq"));
-            }
+            archivePendingInputs(run);
             record(run, "assistant", "用户已取消排队，本轮任务未执行。", "[]", null, null, null);
             return null;
         });
+    }
+
+    private void archivePendingInputs(Run run) {
+        for (var input : jdbc.queryForList("SELECT seq,text FROM input WHERE conversation_id=? AND consumed=0 ORDER BY seq",
+                run.conversationId())) {
+            record(run, "user", (String) input.get("text"), "[]", null, null, null);
+            jdbc.update("UPDATE input SET consumed=1 WHERE seq=?", input.get("seq"));
+        }
     }
 
     private int pendingLimit(String conversation, int defaultLimit) {
@@ -470,7 +531,8 @@ public final class SqliteWorkbench implements Workbench {
                                                             decode(rs.getString("calls")),
                                                             rs.getString("provider_id"),
                                                             rs.getString("tool_name"),
-                                                            rs.getString("reasoning"))),
+                                                            rs.getString("reasoning"),
+                                                            read(rs.getString("model_message"), AgentProtocol.StoredMessage.class))),
                                     run.conversationId(),
                                     through);
                     return new Snapshot(
@@ -509,14 +571,15 @@ public final class SqliteWorkbench implements Workbench {
                     Run run = run(id);
                     String calls = encode(reply.calls());
                     boolean fresh = currentDecision(run);
+                    String stored = reply.stored() == null ? null : encode(reply.stored());
                     jdbc.update(
-                            "INSERT INTO model_turn(run_id,text,calls,reasoning,accepted)"
-                                    + " VALUES(?,?,?,?,?)",
+                            "INSERT INTO model_turn(run_id,text,calls,reasoning,accepted,model_message)"
+                                    + " VALUES(?,?,?,?,?,?)",
                             id,
                             reply.text(),
                             calls,
                             reply.reasoningContent(),
-                            fresh);
+                            fresh, stored);
                     if (reply.calls().isEmpty() && !fresh) {
                         return false;
                     }
@@ -529,6 +592,9 @@ public final class SqliteWorkbench implements Workbench {
                                     null,
                                     null,
                                     reply.reasoningContent());
+                    if (stored != null) {
+                        jdbc.update("UPDATE record SET model_message=? WHERE seq=?", stored, seq);
+                    }
                     int ordinal = 0;
                     for (var call : reply.calls()) {
                         jdbc.update(
@@ -673,7 +739,14 @@ public final class SqliteWorkbench implements Workbench {
     public void stop(String run) {
         tx(
                 () -> {
-                    run(run);
+                    Run current = run(run);
+                    if (current.state() == RunState.PAUSED) {
+                        if (!pending(run).isEmpty()) {
+                            throw new WorkbenchRejection(Kind.BUSY, "工具回执尚未配对，请先继续并核对任务。");
+                        }
+                        archivePendingInputs(current);
+                        record(current, "assistant", "用户已结束暂停的任务。", "[]", null, null, null);
+                    }
                     return jdbc.update(
                             "UPDATE run SET stop=1,ended_at=CASE WHEN state='PAUSED' THEN ? ELSE"
                                 + " ended_at END,state=CASE WHEN state='PAUSED' THEN 'STOPPED' WHEN"

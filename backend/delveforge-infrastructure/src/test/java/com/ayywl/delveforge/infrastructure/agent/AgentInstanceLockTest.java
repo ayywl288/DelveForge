@@ -6,9 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
-import java.time.Duration;
-import java.util.List;
-import java.util.Map;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -33,12 +32,18 @@ class AgentInstanceLockTest {
         }
     }
 
-    private void probe(Path database, boolean shouldAcquire) {
-        var result = new AgentProcess().run(List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+    private void probe(Path database, boolean shouldAcquire) throws Exception {
+        var process = new ProcessBuilder(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
                 "-cp", System.getProperty("java.class.path"), OwnershipProbe.class.getName(), database.toString(),
-                Boolean.toString(shouldAcquire)), null, null, Duration.ofSeconds(20), 8192, () -> false, Map.of());
-        assertEquals(0, result.exitCode(), result.diagnostic());
-        assertTrue(result.text().contains("INSTANCE_OWNERSHIP_PASS"));
+                Boolean.toString(shouldAcquire)).redirectErrorStream(true).start();
+        try {
+            assertTrue(process.waitFor(20, TimeUnit.SECONDS));
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            assertEquals(0, process.exitValue(), output);
+            assertTrue(output.contains("INSTANCE_OWNERSHIP_PASS"));
+        } finally {
+            process.destroyForcibly();
+        }
     }
 
     public static final class OwnershipProbe {

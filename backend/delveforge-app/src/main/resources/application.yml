@@ -1,206 +1,34 @@
 server:
   address: 127.0.0.1
 
-delveforge:
-  agent:
-    enabled: ${DELVEFORGE_AGENT_ENABLED:true}
-    thinking: high
-    response-tokens: 65536
-    context-window-tokens: 1000000
-    compaction-threshold: 0.90
-    sandbox:
-      root: ${DELVEFORGE_AGENT_ROOT:${user.dir}/data/agent-runs}
-      docker: ${DELVEFORGE_DOCKER:docker}
-      default-jdk: 21
-      images:
-        21: ${DELVEFORGE_AGENT_IMAGE_21:delveforge-agent:protocol-v11-jdk21}
-        17: ${DELVEFORGE_AGENT_IMAGE_17:delveforge-agent:protocol-v11-jdk17}
-      owner: ${DELVEFORGE_AGENT_OWNER:delveforge-local-agent}
-      cache-volume: ${DELVEFORGE_MAVEN_CACHE:delveforge-maven-central-cache}
-      memory: 2g
-      cpus: '2'
-      pids: 256
-  workspace:
-    # 默认随启动工作目录放入 data；启动脚本固定从项目根目录运行。
-    root: ${DELVEFORGE_WORKSPACE_ROOT:${user.dir}/data/workspaces}
-    # 切换 root 后仍需使用的旧副本根目录；只接纳已有副本，不在这些目录中新建。
-    existing-roots: ${DELVEFORGE_WORKSPACE_EXISTING_ROOTS:}
-  # Repository Analysis 的运行时上限。
-  #
-  # 这些是**操作调参值**，不是领域规则：它们决定一次分析能读到多少内容，改变它们
-  # 不需要改领域模型，但会改变分析结果的质量（AGENTS.md §8.9）。
-  #
-  # 当前取值用于 Repository Understanding 的第二轮真实验证（Round 2 smoke）。
-  # 那一次验证之后再按真实证据调整——包括「Scout 目录上限是否够」「两条通道读多少才够」。
-  #
-  # 覆盖方式与其它配置一致：
-  #   命令行：--delveforge.repository-analysis.foundation.max-files=20
-  #   环境变量：DELVEFORGE_REPOSITORY_ANALYSIS_FOUNDATION_MAX_FILES=20
-  repository-analysis:
-    scout:
-      # 一次 flat File Catalog 载荷的 UTF-8 字节上限，也是「是否需要分层 Scout」的判据。
-      #
-      # 在预算内：照常一次交给 File Scout（小仓库完全旁路分层）。
-      # 超出预算：改走分层 Scout（ADR-0005），在目录层缩小范围后逐分支 File Scout；
-      #           分层自己的守卫耗尽时失败关闭，不截断、不采样、不退回过大的 flat 目录。
-      max-catalog-bytes: 65536
-
-    # 整次分析的 Scout 调用总数上限（Region Scout + File Scout）。
-    #
-    # 两条通道合并计数：分层下降多问几次 Region Scout，留给终态分支的 File Scout 额度
-    # 就少几次。由「Region Scout ≤ 12」的最坏包络推算（12 + 6 终态分支）= 18；
-    # 这是技术守卫，不是已验证的最优值。
-    # 超出即失败关闭：不截断终态组、不假装分析成功了。
-    scout-calls:
-      max-total: 18
-
-    # Region 分层导航的守卫上限（ADR-0005 的导航预算）。
-    #
-    # 与 scout.max-catalog-bytes 是同一类守卫，但约束的是**目录层**而不是文件层：
-    # flat File Catalog 超出 scout 上限时，先在目录层缩小范围。
-    # 这些值约束探索本身能走多远，与下面两条通道的材料预算互不占用。
-    #
-    # 注意：分层下降时「一个分支的 File Catalog 放不放得下」用的就是
-    # scout.max-catalog-bytes，不是 region.max-catalog-bytes——后者量的是目录描述符载荷。
-    # 两个门槛必须同源，否则分层可能交出一个超过 scout 上限的分支目录。
-    region:
-      # Region Catalog 载荷的 UTF-8 字节上限。超过即失败关闭，不截断、不采样。
-      max-catalog-bytes: 65536
-      # 一次 Region Scout 最多可选多少个区域。
-      # 侦察显示有用的选择是窄的（多为 1 个分支）；6 是防止单轮选择无界膨胀的守卫上限。
-      max-selected-regions: 6
-      # 沿单条分支最多几次 Region Scout 调用。侦察显示达标下降需要 1–5 轮，8 留出余量。
-      # 超过即失败关闭，不返回已经走出来的那一部分结果。
-      max-rounds-per-branch: 8
-      # 一次仓库分析最多几次 **Region** Scout 调用。
-      # 每轮可能选中多个分支、每个分支各递归一次，因此调用数会沿分支数增长。
-      # 与上面 scout-calls.max-total 是两个不同层的守卫：这里只管 Region Scout。
-      max-scout-calls: 12
-
-    # 基础材料通道：工程元数据 / 配置 / 文档 / 脚本 / 部署 / 数据模型。
-    # 这一类规模小、可稳定取全，因此上限给得比源码通道紧。
-    foundation:
-      max-files: 12
-      max-file-bytes: 32768
-      max-total-bytes: 98304
-
-    # 定向源码通道：Scout 指出的业务实现。
-    # 单个文件可以更大（实现类通常比配置文件长），总量也相应放宽。
-    #
-    # 取值来自 V3 多仓 Smoke 之后的历史 A/B 标定：
-    #
-    #   18 / 163840   三个仓库取到 18，memos 只取到 16 —— 先撞上总量上限，
-    #                 也就是说那一档的**文件数有一部分只是理论值**
-    #   24 / 229376   四个仓库都取满 24，执行期也没有再因总量丢文件
-    #
-    # 多出的那一档在轮转顺序上正好多跑一轮：mall 的六个模块各 +1，
-    # hm-dianping 首次读到 entity/ 领域模型，memos 首次覆盖 internal/ 与 proto/。
-    # 代价是 Final Analyzer 请求体从约 113–214 KB 增至约 153–257 KB，延迟无回归。
-    targeted-source:
-      max-files: 24
-      max-file-bytes: 65536
-      max-total-bytes: 229376
-
-  persistence:
-    # SQLite 数据库文件位置。
-    #
-    # 环境相关值必须可配置，不得硬编码进业务逻辑（AGENTS.md §8.9）。
-    # 可通过以下任一方式覆盖：
-    #   命令行：--delveforge.persistence.database-file=/abs/path/delveforge.db
-    #   环境变量：DELVEFORGE_PERSISTENCE_DATABASE_FILE
-    #
-    # 相对路径相对于进程工作目录，缺失的父目录会在启动时创建。
-    database-file: ${DELVEFORGE_PERSISTENCE_DATABASE_FILE:./data/delveforge.db}
-
-  ai:
-    deepseek:
-      # DeepSeek 的 OpenAI 兼容 API。Endpoint 与 Model 属于环境相关值，
-      # 必须可配置，不得硬编码进业务代码（RULE-ARCH-008、AGENTS.md §8.9）。
-      base-url: https://api.deepseek.com
-      model: deepseek-flash
-
-      # API Key 只从外部配置 / 环境变量读取，不进入源码仓库。
-      #
-      # 这里刻意使用「缺失时解析为空字符串」的形式，使不含凭据的环境（例如测试）
-      # 也能完成上下文装配；真正调用时才会因缺少 Key 而失败。
-      api-key: ${DEEPSEEK_API_KEY:}
-
-      # 连接期限；非流式为总读取期限，流式为无字节进展的空闲期限。
-      timeout: 90s
-      # SSE 仅是 Adapter 内部传输；Application 仍接收完整文本并执行原有严格校验。
-      streaming: true
-      # 流式绝对期限与 timeout 的连接 / 空闲期限独立；任何增量均不能延长它。
-      stream-timeout: 300s
-      # 显式限制总生成量（含思考），不接受因 length 截断的结果。
-      # 未单独声明工作负载预算的生成请求使用此上限。
-      max-tokens: 98304
-      discovery-context-tokens: 1000000
-      extraction-output-tokens: 8192
-      dialogue-output-tokens: 16384
-      max-response-bytes: 33554432
-      max-event-bytes: 65536
-      max-request-bytes: 8388608
-
 spring:
   application:
     name: delveforge
 
-  jackson:
-    deserialization:
-      # 枚举只能按取值名称反序列化。
-      #
-      # Jackson 默认允许用数字表示枚举（按序号），因此 "usageAuthorization": 0 会被
-      # 静默当成第一个取值 ALLOWED——数字并不是本项目的 API 契约，把它解释成一个授权
-      # 事实等于凭空制造领域状态（RULE-DOM-004）。数字字符串（"0"）本来就会因为不是
-      # 合法取值名称而失败，这条设置覆盖数字形式。
-      fail-on-numbers-for-enums: true
-
-  flyway:
-    # Flyway migration 位于 Infrastructure 模块的 classpath 下。
-    locations: classpath:db/migration
+delveforge:
+  workbench:
+    model:
+      context-window-tokens: ${delveforge.agent.context-window-tokens:1000000}
+      response-tokens: ${delveforge.agent.response-tokens:65536}
+      compaction-threshold: ${delveforge.agent.compaction-threshold:0.90}
+      timeout: ${delveforge.ai.deepseek.timeout:90s}
+      max-request-bytes: ${delveforge.ai.deepseek.max-request-bytes:8388608}
+      max-response-bytes: ${delveforge.ai.deepseek.max-response-bytes:33554432}
 
 logging:
   file:
     name: ${DELVEFORGE_LOG_DIR:./logs}/delveforge.log
   level:
     root: INFO
-
-    # DelveForge 自身默认 INFO。
-    #
-    # 排查问题时可以按包临时打开，例如：
-    #   --logging.level.com.ayywl.delveforge.userdiscovery=DEBUG
-    #
-    # 注意：不要整体打开 com.ayywl.delveforge=DEBUG。
-    # Mapper 接口位于 com.ayywl.delveforge.infrastructure.persistence，
-    # 该包打开 DEBUG 会让 MyBatis 打印 SQL 与绑定参数值，
-    # 其中可能包含 User Profile 等用户数据。排查结束后必须恢复。
-    com.ayywl.delveforge: INFO
-    org.springframework.ai: INFO
-    # Spring AI 1.1.8 在响应缺失时以 WARN 打印完整 Prompt；该路径由固定模型诊断事件替代。
-    org.springframework.ai.deepseek.DeepSeekChatModel: ERROR
-
-    # 以下框架包在 DEBUG 下会打印未经筛选的原始文本，其中可能包含凭据，
-    # 因此固定为 INFO，不随 root 级别变化：
-    #
-    #   org.springframework.web
-    #     ExceptionHandlerExceptionResolver 在 DEBUG 下输出
-    #     "Resolved [<异常.toString()>]"，异常 message 会被完整打印。
-    #     该日志发生在 @RestControllerAdvice 之外，应用代码无法拦截。
-    #   org.apache.tomcat / org.apache.coyote
-    #     在 DEBUG 下会输出请求头，其中可能包含 Authorization。
-    #
-    # 这里是最低保障，不是完整清单。新增技术组件时应确认其 DEBUG 输出内容。
-    # 确需排查时可在命令行针对性覆盖：
-    #   --logging.level.org.springframework.web=DEBUG
+    # 保留脱敏后的控制端诊断，防止 SDK 输出协议正文、私有推理或凭据。
+    org.springframework.ai.deepseek: "OFF"
+    org.springframework.ai.openai: "OFF"
+    org.springframework.ai.anthropic: "OFF"
+    org.springframework.ai.google.genai: "OFF"
+    com.openai: "OFF"
+    com.anthropic: "OFF"
+    com.google.genai: "OFF"
+    okhttp3: WARN
     org.springframework.web: INFO
     org.apache.tomcat: INFO
     org.apache.coyote: INFO
-
-  # 不配置请求体 / 响应体输出，也不引入任何 Payload 级日志。
-  #
-  # 日志中禁止出现（不区分级别）：
-  #   API Key / Token / Credential
-  #   完整源码文件
-  #   完整 Prompt 或完整模型响应
-  #   成批用户数据
-  # 需要在日志中标识配置值时，只记录是否存在或已脱敏后的形式。

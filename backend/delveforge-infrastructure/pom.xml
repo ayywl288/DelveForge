@@ -14,9 +14,35 @@
 
     <artifactId>delveforge-infrastructure</artifactId>
     <name>delveforge-infrastructure</name>
-    <description>DeepSeek、Persistence、Git、Filesystem、Shell、Build / Test 等外部能力 Adapter</description>
+    <description>Spring AI 模型、SQLite、工作副本与项目容器适配器</description>
 
     <dependencies>
+        <dependency>
+            <groupId>com.ayywl.delveforge</groupId>
+            <artifactId>delveforge-application</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.ayywl.delveforge</groupId>
+            <artifactId>delveforge-domain</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-openai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-anthropic</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-google-genai</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-deepseek</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.github.docker-java</groupId>
             <artifactId>docker-java-core</artifactId>
@@ -28,74 +54,22 @@
             <version>3.7.1</version>
         </dependency>
         <dependency>
-            <groupId>ai.djl.huggingface</groupId>
-            <artifactId>tokenizers</artifactId>
-            <version>0.40.0</version>
-        </dependency>
-        <!-- 正式 Delivery 的 no-replace / 目录句柄能力；选择与替代方案见 ADR-0013。 -->
-        <dependency>
             <groupId>net.java.dev.jna</groupId>
-            <artifactId>jna</artifactId>
+            <artifactId>jna-platform</artifactId>
             <version>5.17.0</version>
         </dependency>
-        <!-- Task 1 原生工具调用；仅 Infrastructure 接触 Spring AI，旧文本 Gateway 保留。 -->
-        <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-deepseek</artifactId>
-            <version>1.1.8</version>
-        </dependency>
-        <!--
-            Infrastructure 实现 Application 定义的 Outbound Port（RULE-ARCH-004）。
-            domain 由 application 传递引入，此处仍显式声明，
-            以保持与 ARCHITECTURE.md 记录的依赖关系一致。
-        -->
-        <dependency>
-            <groupId>com.ayywl.delveforge</groupId>
-            <artifactId>delveforge-application</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.ayywl.delveforge</groupId>
-            <artifactId>delveforge-domain</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
-        <!--
-            Persistence 技术栈只允许出现在 Infrastructure 边界内，
-            不得泄漏到 Domain / Application（RULE-ARCH-002、RULE-ARCH-003）。
-            版本见根 pom 的 mybatis-plus.version 与 Spring Boot BOM。
-        -->
-
-        <!-- SQLite JDBC 驱动 -->
         <dependency>
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>
         </dependency>
-
-        <!-- MyBatis-Plus Spring Boot 集成，提供 SqlSessionFactory 等自动装配 -->
-        <dependency>
-            <groupId>com.baomidou</groupId>
-            <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
-            <version>${mybatis-plus.version}</version>
-        </dependency>
-
-        <!-- Flyway schema migration，SQLite 支持内置于 flyway-core -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
         </dependency>
-
-        <!--
-            DeepSeek Adapter 需要的能力（ADR-0003）：一个 HTTP 客户端 + 一个 JSON 解析器。
-            两个库都已经通过 delveforge-app 的 spring-boot-starter-web 存在于本项目，
-            这里只是把依赖显式声明到真正使用它的模块。
-
-            M1–M3 文本 Gateway 仍直接使用 RestClient / Jackson。
-            Task 1 的 Spring AI 原生工具调用由独立 Agent Adapter 实现，不重构这些文本用例。
-
-            注意只引入 spring-web，不引入 spring-boot-starter-web，
-            避免把 Servlet 容器带进 Infrastructure。
-        -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
             <artifactId>spring-web</artifactId>
@@ -104,8 +78,6 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
-
-        <!-- Infrastructure 测试需要真实启动 Spring 上下文以验证自动装配链路 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

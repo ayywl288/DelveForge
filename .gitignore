@@ -31,7 +31,7 @@ dist-ssr/
 .vite/
 
 ### Local runtime data ###
-# 本地 SQLite、WorkingCopy（data/workspaces）及独立验收数据，不进入版本库。
+# 本地 SQLite、项目工作副本及独立验收数据保存在 data/。
 data/
 
 ### Logs ###

@@ -1,18 +1,13 @@
 package com.ayywl.delveforge.workbench;
 
 import com.ayywl.delveforge.application.agent.AgentContextBudget;
-import com.ayywl.delveforge.application.agent.AgentModelPort;
-import com.ayywl.delveforge.application.agent.AgentTokenCounter;
-import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
 import com.ayywl.delveforge.application.workbench.ConversationAgent;
-import com.ayywl.delveforge.application.workbench.ConversationContext;
 import com.ayywl.delveforge.application.workbench.ProjectFiles;
 import com.ayywl.delveforge.application.workbench.ProjectTools;
 import com.ayywl.delveforge.application.workbench.Workbench;
+import com.ayywl.delveforge.application.workbench.WorkbenchModels;
+import com.ayywl.delveforge.infrastructure.workbench.model.SpringWorkbenchModels;
 import com.ayywl.delveforge.infrastructure.agent.AgentInstanceLock;
-import com.ayywl.delveforge.infrastructure.agent.DeepSeekTokenCounterAdapter;
-import com.ayywl.delveforge.infrastructure.agent.SpringAiAgentModel;
-import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
 import com.ayywl.delveforge.infrastructure.workbench.DockerDevelopmentEnvironment;
 import com.ayywl.delveforge.infrastructure.workbench.DockerProjectTools;
 import com.ayywl.delveforge.infrastructure.workbench.GatewayConnection;
@@ -23,9 +18,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.sqlite.SQLiteConfig;
 import org.sqlite.SQLiteDataSource;
 
@@ -33,9 +28,11 @@ import javax.sql.DataSource;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
+import java.util.Locale;
+import java.util.Set;
 
 @Configuration
-@EnableConfigurationProperties(DeepSeekProperties.class)
 public class WorkbenchConfiguration {
     @Bean
     Path workbenchRoot(
@@ -69,9 +66,9 @@ public class WorkbenchConfiguration {
     }
 
     @Bean
-    Workbench workbench(DataSource database, ObjectMapper json,
+    Workbench workbench(DataSource database, ObjectMapper json, WorkbenchModels models,
             @Value("${delveforge.workbench.max-concurrent-runs:2}") int capacity) {
-        return new SqliteWorkbench(database, json, capacity);
+        return new SqliteWorkbench(database, json, capacity, models);
     }
 
     @Bean
@@ -92,46 +89,45 @@ public class WorkbenchConfiguration {
 
     @Bean
     AgentContextBudget contextBudget(
-            @Value("${delveforge.agent.context-window-tokens}") int window,
-            @Value("${delveforge.agent.response-tokens}") int output,
-            @Value("${delveforge.agent.compaction-threshold}") double threshold) {
+            @Value("${delveforge.workbench.model.context-window-tokens}") int window,
+            @Value("${delveforge.workbench.model.response-tokens}") int output,
+            @Value("${delveforge.workbench.model.compaction-threshold}") double threshold) {
         return new AgentContextBudget(window, output, threshold);
     }
 
     @Bean
-    AgentTokenCounter tokenCounter(
-            DeepSeekProperties properties,
-            @Value("${delveforge.agent.thinking}") Thinking thinking) {
-        return new DeepSeekTokenCounterAdapter(properties.model(), thinking);
+    ObjectMapper workbenchJson() {
+        return new ObjectMapper();
     }
 
     @Bean
-    AgentModelPort model(
-            DeepSeekProperties properties,
-            AgentContextBudget budget,
-            @Value("${delveforge.agent.thinking}") Thinking thinking) {
-        return new SpringAiAgentModel(properties, budget.responseTokens(), thinking);
+    WorkbenchModels models(DataSource database, ObjectMapper json, Path root, Environment environment,
+            AgentContextBudget ceiling, @Value("${delveforge.workbench.model.timeout}") Duration timeout,
+            @Value("${delveforge.workbench.model.max-request-bytes}") int requestBytes,
+            @Value("${delveforge.workbench.model.max-response-bytes}") int responseBytes) {
+        String model = environment.getProperty("delveforge.ai.deepseek.model", "deepseek-flash");
+        String effort = environment.getProperty("delveforge.agent.thinking", "high").toLowerCase(Locale.ROOT);
+        var choice = new WorkbenchModels.Choice("deepseek", model, "disabled".equals(effort) ? "off" : effort);
+        return new SpringWorkbenchModels(database, json, root, choice, ceiling, timeout, requestBytes, responseBytes,
+                name -> {
+                    if ("DEEPSEEK_API_KEY".equals(name)) {
+                        // V7 的自定义网关凭据不得转发至官方端点。
+                        String base = environment.getProperty("delveforge.ai.deepseek.base-url", "https://api.deepseek.com");
+                        return Set.of("https://api.deepseek.com", "https://api.deepseek.com/v1")
+                                .contains(base.replaceAll("/+$", ""))
+                                ? environment.getProperty("delveforge.ai.deepseek.api-key", System.getenv(name)) : null;
+                    }
+                    String value = System.getenv(name);
+                    return value == null && "GEMINI_API_KEY".equals(name) ? System.getenv("GOOGLE_API_KEY") : value;
+                });
     }
 
     @Bean
-    ConversationAgent conversationAgent(
-            Workbench store,
-            ProjectFiles files,
-            DockerDevelopmentEnvironment environment,
-            AgentModelPort model,
-            AgentTokenCounter counter,
-            AgentContextBudget budget,
-            ObjectMapper json,
+    ConversationAgent conversationAgent(Workbench store, ProjectFiles files, DockerDevelopmentEnvironment environment,
+            WorkbenchModels models, ObjectMapper json,
             @Value("${delveforge.workbench.requests-per-run:${delveforge.workbench.requests-per-continuation:96}}")
             int allowance) {
-        return new ConversationAgent(
-                store,
-                files,
-                environment,
-                model,
-                new ConversationContext(store, model, counter, budget),
-                json,
-                allowance);
+        return new ConversationAgent(store, files, environment, models, json, allowance);
     }
 
     @Bean

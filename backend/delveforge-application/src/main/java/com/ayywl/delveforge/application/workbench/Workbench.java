@@ -76,6 +76,14 @@ public interface Workbench {
 
     boolean unstarted(String run);
 
+    WorkbenchModels.Choice modelChoice(String conversation);
+
+    void selectModel(String conversation, WorkbenchModels.Choice choice);
+
+    WorkbenchModels.Frozen runModel(String run);
+
+    WorkbenchModels.Frozen activeModel(String conversation);
+
     int capacity();
 
     void lockEnvironment(String project, String operation);

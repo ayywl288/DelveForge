@@ -32,7 +32,7 @@ const emit = defineEmits<{ project: [id: string]; conversation: [id: string]; ne
                     <button v-for="c in conversations" :key="c.id" class="conversation-node"
                         :title="c.title" :aria-current="c.id === conversationId ? 'page' : undefined"
                         @click="emit('conversation', c.id)">
-                        <Icon name="discovery" /><span>{{ c.title }}</span>
+                        <Icon name="conversation" /><span>{{ c.title }}</span>
                         <span v-if="owner?.state === 'RUNNING' && owner.conversationId === c.id" class="run-indicator"
                             role="img" aria-label="任务正在执行" title="任务正在执行"></span>
                     </button>

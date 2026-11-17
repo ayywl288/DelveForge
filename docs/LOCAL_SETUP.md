@@ -10,7 +10,7 @@
 .\setup-delveforge.ps1
 ```
 
-脚本检查端口、运行环境和依赖，准备受信镜像目录，启动后端与前端，并等到实际服务可访问。模型密钥可在脚本的隐藏输入提示中提供，也可通过当前进程的 `DEEPSEEK_API_KEY` 提供。只有后端服务需要该值。前端使用 5173，后端默认使用 8080。
+脚本检查端口、运行环境和依赖，准备受信镜像目录，启动后端与前端，并等到实际服务可访问。工作台可以在尚未配置模型时启动。在对话输入框下方打开模型菜单，选择「管理模型提供方」，保存密钥并验证模型。启动器也支持提供方环境变量，只将这些值传给后端服务。前端使用 5173，后端默认使用 8080。
 
 ## 数据位置
 
@@ -31,7 +31,7 @@
 ### 从共享环境升级
 
 1. 在原版本结束所有前台任务（包括「需要核对」），保存后台服务的状态，关闭控制端，再停止原环境的四个容器。将整个工作台数据目录复制到独立备份位置，包含 `control.db`、现有的 `-wal` 和 `-shm` 文件、环境登记、证书及 Windows 工作副本。保留旧容器、镜像和原卷。可在备份的另一份副本上运行 SQLite 的 `PRAGMA integrity_check` 并核对项目、对话、Run 和调用数量。
-2. 用新版启动器打开原数据目录。默认安装直接运行 `.\setup-delveforge.ps1`。首次启动会将数据库升至 V7，旧 Run 的执行身份记为 `LEGACY`。项目第一次使用工具时，离线复制器从旧卷的 `/state/projects/<项目 ID>` 读取该项目的持久目录。旧共享 Maven 仓库和无法归属到项目的系统安装留在旧环境。
+2. 用新版启动器打开原数据目录。默认安装直接运行 `.\setup-delveforge.ps1`。首次启动会将数据库升至 V8。V6 及以前的 Run 的执行环境身份记为 `LEGACY`，未结束的旧 Run 继续使用升级时的 DeepSeek 配置。项目第一次使用工具时，离线复制器从旧卷的 `/state/projects/<项目 ID>` 读取该项目的持久目录。旧共享 Maven 仓库和无法归属到项目的系统安装留在旧环境。
 3. 迁移中断时，保留现场，在项目面板中用「核对维护」恢复已登记环境。要回退到旧版，关闭新控制端并停止新项目环境，将迁移后的整份工作台数据另行保存，再把升级前的完整备份恢复到原数据目录的绝对路径。用旧版本及原容器、卷启动；若从另一个检出启动旧版，通过 `-DataDirectory` 指定这个原路径。旧版读取恢复的 V6 数据库，升级后新增的对话和文件仍在另存的数据中。
 
 <a id="4-自定义配置"></a>
@@ -45,6 +45,12 @@
 `tool-images.json` 保存成功发布的不可变镜像 ID、基础镜像、归档版本及哈希。每个项目最多保留一份当前推广预览，下一次预览会回收旧预览的归档。基础镜像系列变化后，从新的受信基础镜像重新推广。恢复旧项目容器前不得删除其镜像、容器或私有卷。
 
 ## 模型和执行设置
+
+从对话输入框的模型菜单打开「管理模型提供方」。选择供应商和对应账户区域，保存 API Key。百炼工作空间端点还需填写工作空间 ID。选择「验证连接与工具调用」会向该模型发送一次测试工具请求及其回执，两轮用量按提供方规则计费。验证后回到对话选择模型和思考强度。凭据无效或模型不支持该设置时，界面会显示原因。
+
+Windows 保存的凭据由当前系统账户的 DPAPI 加密。仅使用环境变量时，支持 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GEMINI_API_KEY`（亦支持 `GOOGLE_API_KEY`）、`DEEPSEEK_API_KEY`、`ZAI_API_KEY`、`DASHSCOPE_API_KEY`、`MOONSHOT_API_KEY`、`OPENROUTER_API_KEY`。非 Windows 的控制端如需保存密钥，单独提供由 32 个随机字节 Base64 编码的 `DELVEFORGE_CREDENTIAL_MASTER_KEY`。目录标为「待实测」的模型还需以实际账户验证。
+
+`delveforge.workbench.model.context-window-tokens`、`response-tokens`、`compaction-threshold` 分别控制宿主窗口上限、输出预留和压缩阈值。实际 Run 取所选模型的容量与宿主上限，入队后冻结。暂停后继续同一 Run 会使用原配置。更换模型需先结束该 Run。如有未核对的工具调用，请先核对回执。
 
 启动器参数控制 Windows 数据目录、后端端口和环境的停启方式。`delveforge.workbench.requests-per-run` 指定整项任务的默认请求总上限，默认 96。若只设置旧键 `requests-per-continuation`，其值作为总上限。每个前台命令的超时由 `delveforge.workbench.command-seconds` 配置，默认 300 秒。可在侧栏的「模型与用量」查看已解析的模型配置。
 
@@ -72,7 +78,3 @@ npm 缓存、pnpm 内容存储和 Maven Wrapper 发行包均保存在项目自�
 后端在仓库根目录执行 `.\mvnw.cmd verify`。前端在 `frontend` 目录执行 `pnpm test`、`pnpm typecheck`、`pnpm build`。真实 Docker 用例使用独立数据目录，准备命令和预期结果见[项目隔离运行时的验证](WORKBENCH_RUNTIME_VALIDATION.md)。
 
 [项目、工具和恢复说明](WORKBENCH.md) · [项目环境的架构决定](decisions/0029-project-isolated-runtime.md)
-
-<a id="agent-build-preflight"></a>
-
-已发布版本使用的 Agent Build Preflight 及镜像配置保存在对应版本的这份文档中。可在本地执行 `git show 2de40c0:docs/LOCAL_SETUP.md` 查看重构前的说明。

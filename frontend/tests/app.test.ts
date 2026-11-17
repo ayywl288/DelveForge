@@ -17,7 +17,7 @@ function mount(post?: (url: string, body: Record<string, string>) => unknown, na
     HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event('close')) }
     const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
         if (options?.method === 'POST') return new Response(JSON.stringify(post?.(url, JSON.parse(String(options.body))) || {}))
-        return new Response(JSON.stringify(url.endsWith('/settings') ? settings : url.endsWith('/projects') ? projects : url.endsWith('/conversations') ? conversations : currentFeed))
+        return new Response(JSON.stringify(url.endsWith('/models') ? { providers: [], models: [] } : url.endsWith('/settings') ? settings : url.endsWith('/projects') ? projects : url.endsWith('/conversations') ? conversations : currentFeed))
     })
     vi.stubGlobal('fetch', fetcher)
     const root = document.createElement('div'); document.body.append(root)

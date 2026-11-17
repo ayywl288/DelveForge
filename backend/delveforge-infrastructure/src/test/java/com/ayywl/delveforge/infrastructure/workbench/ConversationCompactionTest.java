@@ -6,15 +6,13 @@ import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
 import com.ayywl.delveforge.application.agent.AgentProtocol.Message;
 import com.ayywl.delveforge.application.agent.AgentTokenCounter;
-import com.ayywl.delveforge.application.port.ai.AiRequest.Thinking;
 import com.ayywl.delveforge.application.workbench.ConversationAgent;
 import com.ayywl.delveforge.application.workbench.ConversationContext;
 import com.ayywl.delveforge.application.workbench.ExecutionEnvironment.Prepared;
 import com.ayywl.delveforge.application.workbench.Workbench;
+import com.ayywl.delveforge.application.workbench.WorkbenchModels;
 import com.ayywl.delveforge.domain.workbench.RunState;
-import com.ayywl.delveforge.infrastructure.agent.DeepSeekTokenCounterAdapter;
-import com.ayywl.delveforge.infrastructure.agent.SpringAiAgentModel;
-import com.ayywl.delveforge.infrastructure.ai.DeepSeekProperties;
+import com.ayywl.delveforge.infrastructure.workbench.model.SpringWorkbenchModels;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.flywaydb.core.Flyway;
@@ -52,17 +50,24 @@ class ConversationCompactionTest {
 
     @TempDir Path temp;
     private Workbench store;
+    private final SQLiteDataSource source = new SQLiteDataSource();
     private String conversation;
 
     @BeforeEach
     void createHistory() {
-        var source = new SQLiteDataSource();
         source.setUrl("jdbc:sqlite:" + temp.resolve("history.db"));
         Flyway.configure().dataSource(source).locations("classpath:db/workbench").load().migrate();
         store = new SqliteWorkbench(source, new ObjectMapper());
         String project = store.beginProject("借阅台账", null);
         store.projectResult(project, temp.toString(), null);
         conversation = store.conversation(project, "台账验收");
+    }
+
+    private WorkbenchModels.Binding binding(String effort) {
+        var choice = new WorkbenchModels.Choice("deepseek", "deepseek-flash", effort);
+        var models = new SpringWorkbenchModels(source, new ObjectMapper(), temp, choice, SMALL, Duration.ofSeconds(1),
+                900000, 1048576, name -> "DEEPSEEK_API_KEY".equals(name) ? "synthetic-for-context" : null);
+        return models.bind(models.freeze(choice));
     }
 
     private void batch(String run, int ordinal, int repetitions) {
@@ -305,11 +310,8 @@ class ConversationCompactionTest {
         store.result(store.pending(id).getFirst(), "旧模式的完整回执", 0, false);
         batch(id, 60, 1);
         var frozen = store.next(id);
-        var timeout = Duration.ofSeconds(1);
-        var properties = new DeepSeekProperties("http://127.0.0.1", "", "deepseek-flash", timeout, false, timeout,
-                65536, 1048576, 65536, 900000);
-        var enabled = new SpringAiAgentModel(properties, 1200, Thinking.HIGH);
-        var disabled = new SpringAiAgentModel(properties, 1200, Thinking.DISABLED);
+        var enabled = binding("high").model();
+        var disabled = binding("off").model();
         var original = new ConversationContext(store, disabled, CHARACTERS, SMALL).build(frozen);
         assertEquals(frozen.context().records().stream().map(Workbench.Entry::message).toList(),
                 original.subList(1, original.size()));
@@ -379,7 +381,7 @@ class ConversationCompactionTest {
         String id = store.receive(conversation, "start", "早期已归档的要求。", 10).runId();
         original.add("早期已归档的要求。");
         for (int i = 0; i < 110; i++) {
-            String text = "历史更正 " + i + " alpha".repeat(82);
+            String text = "历史更正 " + i + " alpha".repeat(62);
             store.receive(conversation, "r" + i, text, 10);
             original.add(text);
         }
@@ -387,26 +389,25 @@ class ConversationCompactionTest {
         var end = frozen.context().records().getLast().seq();
         assertTrue(store.summarize(conversation, 0, end, "旧格式检查点：保留已确认的台账操作要求。"));
         store.receive(conversation, "new", "当前输入", 10);
-        try (var real = new DeepSeekTokenCounterAdapter("deepseek-flash", Thinking.HIGH)) {
-            var context = new ConversationContext(store, (m, t) -> { throw new AssertionError("不应压缩"); }, real,
-                    new AgentContextBudget(1_000_000, 65536, .90));
-            var view = context.build(store.next(id));
-            var recent = users(view);
-            assertEquals("当前输入", recent.getLast());
-            int n = recent.size() - 1;
-            assertTrue(n > 32 && n < original.size());
-            assertEquals(original.subList(original.size() - n, original.size()), recent.subList(0, n));
-            long raw = real.countPromptTokens(view.subList(0, n + 1), ConversationContext.TOOLS)
-                    - real.countPromptTokens(view.subList(0, 1), ConversationContext.TOOLS);
-            assertTrue(raw > 3900 && raw <= 4096);
-            System.out.printf("CONTEXT_DEFAULT rawTokens=%d rawCount=%d covered=%d%n", raw, n, original.size());
-        }
+        var real = binding("high").counter();
+        var context = new ConversationContext(store, (m, t) -> { throw new AssertionError("不应压缩"); }, real,
+                new AgentContextBudget(1_000_000, 65536, .90));
+        var view = context.build(store.next(id));
+        var recent = users(view);
+        assertEquals("当前输入", recent.getLast());
+        int n = recent.size() - 1;
+        assertTrue(n > 32 && n < original.size());
+        assertEquals(original.subList(original.size() - n, original.size()), recent.subList(0, n));
+        long raw = real.countPromptTokens(view.subList(0, n + 1), ConversationContext.TOOLS)
+                - real.countPromptTokens(view.subList(0, 1), ConversationContext.TOOLS);
+        assertTrue(raw > 3900 && raw <= 4096);
+        System.out.printf("CONTEXT_DEFAULT rawTokens=%d rawCount=%d covered=%d%n", raw, n, original.size());
     }
 
     @Test
     void actualDecisionPromptKeepsC2ContractAndBoundedOriginalsAcrossIncrementalCheckpoints() throws Exception {
         String large = "原始需求：用 loans.py 实现归还并增加自动测试。另须保留档案格式 LGR-7Z。\n"
-                + "样本数据 id reader due\n".repeat(330);
+                + "样本数据 id reader due\n".repeat(165);
         String run = store.receive(conversation, "initial", large, 96).runId();
         long first = store.next(run).context().records().getFirst().seq();
         batch(run, 0, 8);
@@ -421,92 +422,93 @@ class ConversationCompactionTest {
             // 有意省略 JSON 契约，只延续台账目标、证据和历史依据。
             return checkpoint(messages, "保留 loans.py 的归还与自动测试 [#" + first + "]。第 " + requests.size() + " 次合并。");
         };
-        try (var real = new DeepSeekTokenCounterAdapter("deepseek-flash", Thinking.HIGH)) {
-            var initialViews = new ArrayList<List<Message>>();
-            AgentTokenCounter measured = (messages, tools) -> {
-                if (!tools.isEmpty() && !messages.isEmpty() && messages.getFirst().text().startsWith("你是用户个人项目")) {
-                    initialViews.add(List.copyOf(messages));
-                }
-                return real.countPromptTokens(messages, tools);
-            };
-            var context = new ConversationContext(store, model, measured, SMALL);
-            long previousThrough = 0;
-            String previousSummary = "";
-            for (int round = 0; round < 3; round++) {
-                if (round == 1) {
-                    store.assistant(run, finalText("第一项交付已记录"));
-                    run = store.receive(conversation, "second-run", "同一项目继续按验收要求核对台账。", 96).runId();
-                    expectedUsers.add("同一项目继续按验收要求核对台账。");
-                    store.next(run);
-                }
-                for (int i = 0; i < 16; i++) {
-                    String key = round + "-" + i;
-                    String requirement = "修正 " + key + "：" + "以当前 CSV 文件为准，保留原始台账。".repeat(5);
-                    store.receive(conversation, key, requirement, 96);
-                    expectedUsers.add(requirement);
-                    store.next(run);
-                    batch(run, round * 100 + i + 1, 3);
-                }
-                String latest = round == 0 ? JSON_RULE : "补充 " + round + "：" + JSON_RULE;
-                store.receive(conversation, "json-" + round, latest, 96);
-                expectedUsers.add(latest);
-                store.next(run);
-                // 把契约放入冻结前缀，避免仅靠尚未压缩的最后一条消息通过。
-                for (int i = 0; i < 4; i++) {
-                    batch(run, round * 100 + 70 + i, 27);
-                }
-
-                var frozen = store.next(run);
-                initialViews.clear();
-                var built = context.build(frozen);
-                long before = real.countPromptTokens(initialViews.getFirst(), ConversationContext.TOOLS);
-                assertTrue(built.isEmpty(), "round=" + round + " before=" + before + " requests=" + requests.size());
-                var next = store.next(run);
-                assertEquals(round + 1, next.context().version());
-                assertTrue(next.context().through() > previousThrough);
-                String material = requests.getLast();
-                assertTrue(material.contains(previousSummary));
-                if (round > 0) {
-                    assertFalse(material.substring(material.indexOf("本次冻结记录\n")).contains(large));
-                }
-                assertFalse(next.context().summary().contains("--format json"));
-                assertEquals(round + 1, requests.size());
-                var view = context.build(next);
-                assertFalse(view.isEmpty());
-                paired(view);
-                assertEquals(next.context().records().stream().map(Workbench.Entry::message).toList(),
-                        view.subList(view.size() - next.context().records().size(), view.size()));
-                assertTrue(view.stream().anyMatch(message -> message.calls().size() == 2));
-                assertTrue(next.context().records().stream().noneMatch(e -> latest.equals(e.message().text())));
-                var raw = users(view);
-                assertTrue(raw.contains(latest));
-                assertFalse(raw.contains(large));
-                assertTrue(view.stream().noneMatch(message -> message.text().contains("LGR-7Z")));
-                assertTrue(raw.size() < expectedUsers.size());
-                assertEquals(expectedUsers.stream().filter(raw::contains).toList(), raw);
-
-                long after = real.countPromptTokens(view, ConversationContext.TOOLS);
-                int split = view.size() - next.context().records().size();
-                long fixed = real.countPromptTokens(view.subList(0, 1), ConversationContext.TOOLS);
-                long fixedAndRaw = real.countPromptTokens(view.subList(0, split), ConversationContext.TOOLS);
-                long rawTokens = fixedAndRaw - fixed;
-                assertTrue(rawTokens <= 1333, "已覆盖用户原文超出小窗口预算");
-                assertTrue(after <= 5333, "目标检查点容量");
-                assertTrue(before >= SMALL.triggerTokens());
-                long summaryTokens = real.countPromptTokens(summaryRequests.getLast(), List.of());
-                assertTrue(summaryTokens <= SMALL.usableInputTokens());
-                System.out.printf("CONTEXT_ROUND %d before=%d after=%d rawTokens=%d rawCount=%d users=%d suffixTokens=%d "
-                                + "summaryTokens=%d summaryCalls=%d through=%d%n", round + 1, before, after, rawTokens,
-                        split - 1, expectedUsers.size(), after - fixedAndRaw, summaryTokens, requests.size(), next.context().through());
-                previousThrough = next.context().through();
-                previousSummary = next.context().summary();
+        var real = binding("high").counter();
+        var initialViews = new ArrayList<List<Message>>();
+        AgentTokenCounter measured = (messages, tools) -> {
+            if (!tools.isEmpty() && !messages.isEmpty() && messages.getFirst().text().startsWith("你是用户个人项目")) {
+                initialViews.add(List.copyOf(messages));
             }
-            // 已被摘要的超长原文可用真正的授权历史分页逐字取回。
-            store.assistant(run, new AgentProtocol.Reply("", List.of(tool("lookup")), 1L, null, "读取依据"));
-            var call = store.pending(run).getFirst();
-            assertTrue(store.prepare(call, new Prepared("fixture", "generation", "exec"), "scope"));
-            assertTrue(store.admit(call));
-            assertEquals(large, history(store, "scope", first));
+            return real.countPromptTokens(messages, tools);
+        };
+        var context = new ConversationContext(store, model, measured, SMALL);
+        long previousThrough = 0;
+        String previousSummary = "";
+        for (int round = 0; round < 3; round++) {
+            if (round == 1) {
+                store.assistant(run, finalText("第一项交付已记录"));
+                run = store.receive(conversation, "second-run", "同一项目继续按验收要求核对台账。", 96).runId();
+                expectedUsers.add("同一项目继续按验收要求核对台账。");
+                store.next(run);
+            }
+            for (int i = 0; i < 16; i++) {
+                String key = round + "-" + i;
+                String requirement = "修正 " + key + "：" + "以当前 CSV 文件为准，保留原始台账。".repeat(5);
+                store.receive(conversation, key, requirement, 96);
+                expectedUsers.add(requirement);
+                store.next(run);
+                batch(run, round * 100 + i + 1, 1);
+            }
+            String latest = round == 0 ? JSON_RULE : "补充 " + round + "：" + JSON_RULE;
+            store.receive(conversation, "json-" + round, latest, 96);
+            expectedUsers.add(latest);
+            store.next(run);
+            // 把契约放入冻结前缀，避免仅靠尚未压缩的最后一条消息通过。
+            for (int i = 0; i < 4; i++) {
+                batch(run, round * 100 + 70 + i, 20);
+            }
+
+            var frozen = store.next(run);
+            initialViews.clear();
+            var built = context.build(frozen);
+            long before = real.countPromptTokens(initialViews.getFirst(), ConversationContext.TOOLS);
+            assertTrue(built.isEmpty(), "round=" + round + " before=" + before + " requests=" + requests.size());
+            var next = store.next(run);
+            assertEquals(round + 1, next.context().version());
+            assertTrue(next.context().through() > previousThrough);
+            String material = requests.getLast();
+            assertTrue(material.contains(previousSummary));
+            if (round > 0) {
+                assertFalse(material.substring(material.indexOf("本次冻结记录\n")).contains(large));
+            }
+            assertFalse(next.context().summary().contains("--format json"));
+            assertEquals(round + 1, requests.size());
+            var view = context.build(next);
+            assertFalse(view.isEmpty());
+            paired(view);
+            assertEquals(next.context().records().stream().map(Workbench.Entry::message).toList(),
+                    view.subList(view.size() - next.context().records().size(), view.size()));
+            assertTrue(view.stream().anyMatch(message -> message.calls().size() == 2));
+            assertTrue(next.context().records().stream().noneMatch(e -> latest.equals(e.message().text())),
+                    "round=" + round + " through=" + next.context().through() + " before=" + before);
+            var raw = users(view);
+            assertTrue(raw.contains(latest));
+            assertFalse(raw.contains(large));
+            assertTrue(view.stream().noneMatch(message -> message.text().contains("LGR-7Z")));
+            assertTrue(raw.size() < expectedUsers.size());
+            assertEquals(expectedUsers.stream().filter(raw::contains).toList(), raw);
+
+            long after = real.countPromptTokens(view, ConversationContext.TOOLS);
+            int split = view.size() - next.context().records().size();
+            long fixed = real.countPromptTokens(view.subList(0, 1), ConversationContext.TOOLS);
+            long fixedAndRaw = real.countPromptTokens(view.subList(0, split), ConversationContext.TOOLS);
+            long rawTokens = fixedAndRaw - fixed;
+            assertTrue(rawTokens <= 1333, "已覆盖用户原文超出小窗口预算");
+            assertTrue(after <= 5333, "目标检查点容量 round=" + round + " after=" + after + " before=" + before
+                    + " fixed=" + fixed + " raw=" + rawTokens + " tail=" + (after - fixedAndRaw));
+            assertTrue(before >= SMALL.triggerTokens());
+            long summaryTokens = real.countPromptTokens(summaryRequests.getLast(), List.of());
+            assertTrue(summaryTokens <= SMALL.usableInputTokens());
+            System.out.printf("CONTEXT_ROUND %d before=%d after=%d rawTokens=%d rawCount=%d users=%d suffixTokens=%d "
+                            + "summaryTokens=%d summaryCalls=%d through=%d%n", round + 1, before, after, rawTokens,
+                    split - 1, expectedUsers.size(), after - fixedAndRaw, summaryTokens, requests.size(), next.context().through());
+            previousThrough = next.context().through();
+            previousSummary = next.context().summary();
         }
+        // 已被摘要的超长原文可用真正的授权历史分页逐字取回。
+        store.assistant(run, new AgentProtocol.Reply("", List.of(tool("lookup")), 1L, null, "读取依据"));
+        var call = store.pending(run).getFirst();
+        assertTrue(store.prepare(call, new Prepared("fixture", "generation", "exec"), "scope"));
+        assertTrue(store.admit(call));
+        assertEquals(large, history(store, "scope", first));
     }
 }

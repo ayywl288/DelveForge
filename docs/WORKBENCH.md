@@ -1,5 +1,13 @@
 # 项目对话工作台
 
+## 模型与凭据
+
+在输入框下方选择模型和思考强度。「管理模型提供方」可保存、替换或删除 API Key，并选择区域或服务计划。百炼工作空间端点需要工作空间 ID。验证连接会向所选模型发送一次测试调用和一次工具回执，使用你的账户额度。模型目录中的「待实测」表示该账户尚未完成协议验证。可在两次任务之间更换设置；已暂停的任务可以继续，或点「结束此任务」后重新选择。
+
+Windows 在本机使用当前登录用户的 DPAPI。其他系统保存密钥前须设置 `DELVEFORGE_CREDENTIAL_MASTER_KEY` 为独立保管的 32 字节随机密钥的 Base64 编码。也可仅设置提供方环境变量。支持 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`GEMINI_API_KEY`（也可使用 `GOOGLE_API_KEY`）、`DEEPSEEK_API_KEY`、`ZAI_API_KEY`、`DASHSCOPE_API_KEY`、`MOONSHOT_API_KEY` 和 `OPENROUTER_API_KEY`。环境凭据使用默认官方端点。国内账户、Coding Plan 和区域工作空间可在设置中选择对应预设并保存该端点的凭据。已保存的凭据优先；删除后，新任务可使用环境变量。替换密钥前已入队的任务不会取得替换后的凭据。
+
+运行库与存储选择见 [ADR-0030](decisions/0030-workbench-model-configuration-and-replay.md)。提供方参数说明见 [DeepSeek](https://api-docs.deepseek.com/guides/thinking_mode/)、[Claude](https://platform.claude.com/docs/en/build-with-claude/effort)、[Gemini](https://ai.google.dev/gemini-api/docs/thinking)、[OpenAI](https://developers.openai.com/api/docs/models)、[智谱 Coding Plan](https://zcode.z.ai/en/docs/configuration)、[百炼区域](https://docs.modelstudio.console.alibabacloud.com/en/model-studio/beijing-access-information)、[Kimi](https://platform.kimi.ai/docs/models) 和 [OpenRouter](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens)。
+
 ## 项目文件
 
 空项目和不含 Git 仓库的普通目录都在副本中建立独立的 Git 根目录，初始分支为 `main`。
