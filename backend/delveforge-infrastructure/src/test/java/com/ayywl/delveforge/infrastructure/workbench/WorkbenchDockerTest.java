@@ -448,11 +448,17 @@ class WorkbenchDockerTest {
                         self.send_response(200)
                         self.end_headers()
                         self.wfile.write(b'project-specific')
-                with HTTPServer(('127.0.0.1', int(sys.argv[1])), App) as http:
-                    http.timeout = 0.1
-                    Path('port').write_text(str(http.server_port))
-                    while not Path('end-service').exists():
-                        http.handle_request()
+                import time
+                port = int(sys.argv[1])
+                while not Path('end-service').exists():
+                    with HTTPServer(('127.0.0.1', port), App) as http:
+                        http.timeout = 0.1
+                        port = http.server_port
+                        Path('port').write_text(str(port))
+                        while not Path('end-service').exists() and not Path('restart').exists():
+                            http.handle_request()
+                    while Path('restart').exists():
+                        time.sleep(0.1)
                 """);
         String service =
                 "setsid -f python3 fixture.py 0 </dev/null >service.log 2>&1; for i in {1..40}; do"
@@ -501,6 +507,14 @@ class WorkbenchDockerTest {
             var refused = lastTool(store, foreign);
             assertEquals(1, refused.path("exit").asInt(-1), refused.toString());
             assertTrue(refused.path("stderr").asText().contains("409"));
+            Files.writeString(path.resolve("restart"), "pause");
+            awaitRuntime(() -> env.previewListener(project, Integer.parseInt(port)).isEmpty());
+            assertEquals("503", previewStatus(url));
+            Files.delete(path.resolve("restart"));
+            for (int attempt = 0; attempt < 30 && !"200".equals(previewStatus(url)); attempt++) {
+                Thread.sleep(250);
+            }
+            assertEquals("200", previewStatus(url));
             Files.writeString(path.resolve("end-service"), "stop");
             awaitRuntime(
                     () -> env.previewListener(project, Integer.parseInt(port)).isEmpty());

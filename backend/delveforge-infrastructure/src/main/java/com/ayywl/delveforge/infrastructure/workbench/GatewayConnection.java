@@ -176,40 +176,48 @@ public final class GatewayConnection implements AutoCloseable {
         Object body;
         try {
             String ref = query.path("Ref").asText();
-            var scope =
-                    store.lookup(
-                            settings.project(), ConversationAgent.hash(query.path("Token").asText()),
-                            kind,
-                            ref,
-                            query.path("Offset").asInt(),
-                            query.path("Limit").asInt());
-            if (kind.equals("preview")) {
-                int port = Integer.parseInt(ref);
-                String project = scope.get("project").toString();
-                String inode = environment.previewListener(project, port);
-                if (inode.isEmpty()) {
-                    throw new WorkbenchRejection(WorkbenchRejection.Kind.BUSY, "端口未监听或监听者未归属当前项目");
-                }
-                var response =
-                        post(
-                                client,
-                                base.resolve("/routes"),
-                                Map.of(
-                                        "Project",
-                                        project,
-                                        "Port",
-                                        port,
-                                        "Inode",
-                                        inode,
-                                        "WindowsPort",
-                                        settings.previewPort()));
-                status = response.statusCode();
-                body =
-                        status == 200
-                                ? json.readTree(response.body())
-                                : Map.of("detail", "当前监听不可预览或已被其他项目登记");
+            if (kind.equals("revalidate")) {
+                // 仅网关能发起复核；开发容器的查询入口不接受此操作。
+                var identity = environment.previewIdentity(settings, Integer.parseInt(ref));
+                body = Map.of("Inode", identity.inode(), "Owner", identity.owner());
             } else {
-                body = scope;
+                var scope =
+                        store.lookup(
+                                settings.project(), ConversationAgent.hash(query.path("Token").asText()),
+                                kind,
+                                ref,
+                                query.path("Offset").asInt(),
+                                query.path("Limit").asInt());
+                if (kind.equals("preview")) {
+                    int port = Integer.parseInt(ref);
+                    String project = scope.get("project").toString();
+                    var identity = environment.previewIdentity(settings, port);
+                    if (identity.inode().isEmpty()) {
+                        throw new WorkbenchRejection(WorkbenchRejection.Kind.BUSY, "端口未监听或监听者未归属当前项目");
+                    }
+                    var response =
+                            post(
+                                    client,
+                                    base.resolve("/routes"),
+                                    Map.of(
+                                            "Project",
+                                            project,
+                                            "Port",
+                                            port,
+                                            "Inode",
+                                            identity.inode(),
+                                            "Owner",
+                                            identity.owner(),
+                                            "WindowsPort",
+                                            settings.previewPort()));
+                    status = response.statusCode();
+                    body =
+                            status == 200
+                                    ? json.readTree(response.body())
+                                    : Map.of("detail", "当前监听不可预览或已被其他项目登记");
+                } else {
+                    body = scope;
+                }
             }
         } catch (WorkbenchRejection e) {
             status =

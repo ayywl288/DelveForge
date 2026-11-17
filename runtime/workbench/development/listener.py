@@ -1,4 +1,4 @@
-"""登记 HTTP 预览时核对监听 socket 的项目归属。只输出已确认的 inode。"""
+"""登记 HTTP 预览时核对 socket 的项目归属及唯一持有进程。"""
 import os
 import sys
 import uuid
@@ -41,7 +41,7 @@ def owned_inode(project, port):
         return None
     inode = found.pop()
     socket = "socket:[" + inode + "]"
-    owned = False
+    owners = set()
     for pid in PROC.iterdir():
         if not pid.name.isdecimal():
             continue
@@ -54,11 +54,15 @@ def owned_inode(project, port):
                     continue
                 if not belongs(pid, project):
                     return None
-                owned = True
+                # /proc/stat 的 comm 允许包含空格与括号。启动时钟用于区分被复用的 PID。
+                started = (pid / "stat").read_text().rsplit(")", 1)[1].split()[19]
+                owners.add(pid.name + ":" + started)
                 break
         except (FileNotFoundError, ProcessLookupError, PermissionError):
             continue
-    return inode if owned and listeners(port) == {inode} else None
+    if owners and listeners(port) == {inode}:
+        return inode, owners.pop() if len(owners) == 1 else ""
+    return None
 
 
 if __name__ == "__main__":
@@ -67,4 +71,4 @@ if __name__ == "__main__":
     if 0 < port <= 65535 and port not in (8400, 8401, 8402):
         result = owned_inode(project, port)
         if result:
-            print(result)
+            print(" ".join(result).strip() if "--identity" in sys.argv[3:] else result[0])

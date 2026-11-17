@@ -272,13 +272,18 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
         attach(client(), prepared.execId(), timeout, capture);
     }
 
-    /** 仅登记预览时查询监听者的项目归属；网关随后按 socket 身份路由。 */
+    /** 检查已登记容器中的监听者；只有唯一的原进程可自动恢复预览。 */
     public String previewListener(String project, int port) {
-        if (port < 1 || port > 65535) {
-            return "";
+        return previewIdentity(registered(project), port).inode();
+    }
+
+    record PreviewIdentity(String inode, String owner) {}
+
+    PreviewIdentity previewIdentity(Settings settings, int port) {
+        if (port < 1 || port > 65535 || !settings.equals(registered(settings.project()))) {
+            return new PreviewIdentity("", "");
         }
-        Settings s = registered(project);
-        var dev = development(s);
+        var dev = development(settings);
         var c = client();
         String exec =
                 c.execCreateCmd(dev.getId())
@@ -287,8 +292,9 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
                         .withCmd(
                                 "python3",
                                 "/opt/delveforge/listener.py",
-                                project,
-                                String.valueOf(port))
+                                settings.project(),
+                                String.valueOf(port),
+                                "--identity")
                         .exec()
                         .getId();
         var out = new ByteArrayOutputStream();
@@ -301,8 +307,14 @@ public final class DockerDevelopmentEnvironment implements ExecutionEnvironment,
                         out.writeBytes(bytes);
                     }
                 });
-        String inode = out.toString(StandardCharsets.US_ASCII).strip();
-        return inode.matches("[1-9][0-9]*") ? inode : "";
+        String[] identity = out.toString(StandardCharsets.US_ASCII).strip().split(" ");
+        if (!identity[0].matches("[1-9][0-9]*")) {
+            return new PreviewIdentity("", "");
+        }
+        // 旧镜像或共享监听仍可登记，但无法证明替换监听与原进程相同。
+        String owner = identity.length == 2 && identity[1].matches("[1-9][0-9]*:[0-9]+")
+                ? dev.getId() + "/" + dev.getState().getStartedAt() + "/" + identity[1] : "";
+        return new PreviewIdentity(identity[0], owner);
     }
 
     private static void attach(

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -75,10 +76,16 @@ func (r *relay) guest(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "invalid range", 400)
 		return
 	}
+	result := r.ask(req.Context(), q)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(result.Status)
+	w.Write(result.Body)
+}
+
+func (r *relay) ask(ctx context.Context, q *query) reply {
 	var nonce [16]byte
 	if _, e := rand.Read(nonce[:]); e != nil {
-		w.WriteHeader(503)
-		return
+		return reply{Status: 503}
 	}
 	q.ID = hex.EncodeToString(nonce[:])
 	r.Lock()
@@ -88,17 +95,15 @@ func (r *relay) guest(w http.ResponseWriter, req *http.Request) {
 	select {
 	case r.requests <- q:
 	default:
-		w.WriteHeader(503)
-		return
+		return reply{Status: 503}
 	}
 	select {
 	case result := <-q.done:
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(result.Status)
-		w.Write(result.Body)
+		return result
 	case <-time.After(8 * time.Second):
-		http.Error(w, "controller unavailable", 503)
-	case <-req.Context().Done():
+		return reply{Status: 503}
+	case <-ctx.Done():
+		return reply{Status: 503}
 	}
 }
 func (r *relay) control(w http.ResponseWriter, req *http.Request) {
