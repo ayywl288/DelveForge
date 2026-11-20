@@ -4,6 +4,8 @@ import com.ayywl.delveforge.application.agent.AgentException;
 import com.ayywl.delveforge.application.agent.AgentModelFailure;
 import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol;
+import com.ayywl.delveforge.application.workbench.ConversationContext;
+import com.ayywl.delveforge.application.workbench.Workbench.Entry;
 import com.ayywl.delveforge.application.workbench.WorkbenchModels.Frozen;
 
 import okhttp3.OkHttpClient;
@@ -57,8 +59,8 @@ final class WorkbenchChatModel implements AgentModelPort {
     }
 
     @Override
-    public boolean canReplayWithTools(AgentProtocol.Message message) {
-        return SpringMessages.replayable(config.choice(), message);
+    public List<AgentProtocol.Message> projectHistory(List<AgentProtocol.Message> prefix, List<Entry> entries) {
+        return HistoryProjection.project(config.choice(), prefix, entries, ConversationContext.TOOLS);
     }
 
     @Override
@@ -80,7 +82,9 @@ final class WorkbenchChatModel implements AgentModelPort {
             long start = System.nanoTime();
             try {
                 var response = models.call(config, endpoint, credential, wire, prompt, tools);
-                var reply = decode(response, wire, !tools.isEmpty());
+                var prefix = new HistoryProjection.Prefix(tools);
+                history.forEach(prefix::append);
+                var reply = decode(response, wire, !tools.isEmpty(), prefix.hash());
                 return i == 1 ? reply : new AgentProtocol.Reply(reply.text(), reply.calls(), null,
                         reply.usage(), null, reply.stored());
             } catch (RuntimeException failure) {
@@ -129,7 +133,7 @@ final class WorkbenchChatModel implements AgentModelPort {
         attempts.get().add(facts);
     }
 
-    private AgentProtocol.Reply decode(ChatResponse response, ModelTransport wire, boolean tools) {
+    private AgentProtocol.Reply decode(ChatResponse response, ModelTransport wire, boolean tools, String prefixHash) {
         var generation = response == null ? null : response.getResult();
         if (generation == null || generation.getOutput() == null) {
             throw new AgentModelFailure(AgentModelFailure.Reason.OUTPUT_MISSING);
@@ -156,13 +160,13 @@ final class WorkbenchChatModel implements AgentModelPort {
         if (wire.routerPart() != null) {
             parts.add(wire.routerPart());
         }
-        var stored = SpringMessages.store(config.choice(), parts);
+        var stored = SpringMessages.store(config.choice(), parts, prefixHash);
         String text = output.getText() == null ? "" : output.getText();
         var reported = total == null ? null : new AgentProtocol.Usage(
                 number(usage.getPromptTokens()), number(usage.getCompletionTokens()), total, cachedInput(usage), null);
         var reply = new AgentProtocol.Reply(text, calls, total, reported, null, stored);
-        // 最终答复可以没有新的推理文本。以后重建上下文时仍由原重放规则选择安全后缀。
-        if (tools && !calls.isEmpty() && !canReplayWithTools(reply.assistantMessage(text))) {
+        // 最终答复可以没有新的推理文本。后续请求可将它投影为公开历史资料。
+        if (tools && !calls.isEmpty() && !SpringMessages.replayable(config.choice(), reply.assistantMessage(text))) {
             throw new AgentModelFailure(AgentModelFailure.Reason.REASONING_MISSING);
         }
         return reply;

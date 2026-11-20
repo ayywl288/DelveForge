@@ -27,6 +27,7 @@ final class WorkbenchTokenEstimate implements AgentTokenCounter {
         for (var message : messages) {
             tokens += 12 + TOKENIZER.estimate(message.role()) + TOKENIZER.estimate(message.callId())
                     + TOKENIZER.estimate(message.toolName());
+            // 输入是最终请求视图。结构化转换后的 partsJson 只包含目标保留的部件。
             if (message.stored() != null) {
                 tokens += TOKENIZER.estimate(message.stored().partsJson());
             } else {

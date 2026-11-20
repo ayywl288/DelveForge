@@ -1,6 +1,7 @@
 package com.ayywl.delveforge.application.workbench;
 
 import com.ayywl.delveforge.application.agent.AgentContextBudget;
+import com.ayywl.delveforge.application.agent.AgentModelPort;
 import com.ayywl.delveforge.application.agent.AgentProtocol.Message;
 import com.ayywl.delveforge.application.agent.AgentTokenCounter;
 import com.ayywl.delveforge.application.workbench.Workbench.Entry;
@@ -20,12 +21,14 @@ final class ConversationRetention {
 
     private final Workbench store;
     private final AgentTokenCounter counter;
+    private final AgentModelPort model;
     private final long base;
     final long target;
     final long originalBudget;
     final long suffixBudget;
 
-    ConversationRetention(Workbench store, AgentTokenCounter counter, AgentContextBudget budget) {
+    ConversationRetention(Workbench store, AgentModelPort model, AgentTokenCounter counter, AgentContextBudget budget) {
+        this.model = model;
         this.store = store;
         this.counter = counter;
         this.base = count(List.of(EMPTY_SYSTEM));
@@ -74,12 +77,11 @@ final class ConversationRetention {
         return count(view(EMPTY_SYSTEM, List.of(), suffix)) - base;
     }
 
-    static List<Message> view(Message system, List<Message> originals, List<Entry> suffix) {
-        var messages = new ArrayList<Message>(1 + originals.size() + suffix.size());
+    List<Message> view(Message system, List<Message> originals, List<Entry> suffix) {
+        var messages = new ArrayList<Message>(1 + originals.size());
         messages.add(system);
         messages.addAll(originals);
-        suffix.forEach(entry -> messages.add(entry.message()));
-        return List.copyOf(messages);
+        return model.projectHistory(messages, suffix);
     }
 
     /** 返回可切分的位置（含零和末尾）。缺少回执、孤立回执或批次 ID 不匹配时拒绝重放。 */

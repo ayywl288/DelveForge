@@ -69,7 +69,7 @@ public final class ConversationContext {
         this.model = model;
         this.counter = counter;
         this.budget = budget;
-        this.retention = new ConversationRetention(store, counter, budget);
+        this.retention = new ConversationRetention(store, model, counter, budget);
     }
 
     private static String schema(String properties, String required) {
@@ -119,17 +119,16 @@ public final class ConversationContext {
         }
         Originals originals = retention.originals(run.conversationId(), ctx.through());
         Message system = system(run, ctx.summary(), ctx.through(), originals);
-        var current = ConversationRetention.view(system, originals.messages(), records);
+        var current = retention.view(system, originals.messages(), records);
         long before = retention.count(current);
-        int minimum = firstReplayableSuffix(records, cuts);
-        if (before < budget.triggerTokens() && minimum == 0) {
+        if (before < budget.triggerTokens()) {
             return current;
         }
 
         int unanswered = ConversationRetention.firstUnanswered(records);
         var mandatory = records.subList(unanswered, records.size());
         if (before > budget.usableInputTokens() && !mandatory.isEmpty()
-                && retention.count(ConversationRetention.view(
+                && retention.count(retention.view(
                         Message.text("system", instructions(run)), List.of(), mandatory)) > budget.usableInputTokens()) {
             return pause(run, "最新尚未回应的用户输入连同系统指令和工具超过上下文容量。请另开对话并缩短输入，或选择上下文容量更大的模型。");
         }
@@ -138,29 +137,18 @@ public final class ConversationContext {
         long fixed = retention.count(current.subList(0, 1 + originals.messages().size()));
         long tailBudget = Math.min(retention.suffixBudget,
                 Math.max(0, retention.target - fixed - retention.originalBudget));
-        Outcome outcome = before < budget.triggerTokens() ? Outcome.REPLAY
-                : compact(run, ctx, cuts, minimum, lastCut, before, tailBudget);
+        Outcome outcome = compact(run, ctx, cuts, lastCut, before, tailBudget);
         if (outcome.reload || !store.currentDecision(run.id())) {
             return List.of();
         }
-        if (before <= budget.usableInputTokens() && minimum == 0) {
+        if (before <= budget.usableInputTokens()) {
             return current;
         }
-        var fallback = fallback(system, originals, records, cuts, minimum, lastCut);
+        var fallback = fallback(system, originals, records, cuts, lastCut);
         if (!fallback.isEmpty()) {
             return fallback;
         }
         return pause(run, outcome.detail + "；完整用户要求、已有任务检查点与历史依据无法同时放入上下文。请结束暂停的任务，再选择上下文容量更大的模型。");
-    }
-
-    private int firstReplayableSuffix(List<Entry> records, List<Integer> cuts) {
-        for (int i = records.size() - 1; i >= 0; i--) {
-            if (!model.canReplayWithTools(records.get(i).message())) {
-                int incompatible = i;
-                return ConversationRetention.first(1, cuts.size() - 1, n -> cuts.get(n) > incompatible);
-            }
-        }
-        return 0;
     }
 
     private enum Outcome {
@@ -168,7 +156,7 @@ public final class ConversationContext {
         NO_PREFIX(false, "没有可压缩的完整历史前缀"), SUMMARY_LIMIT(false, "摘要请求超过容量"),
         NO_HEADROOM(false, "摘要未腾出足够空间"), DEFERRED(false, "此前压缩未成功，尚无足够的新材料"),
         INVALID(false, "摘要的结构或来源引用无效"), TRUNCATED(false, "摘要响应被截断"),
-        FAILED(false, "摘要服务请求失败"), REPLAY(false, "原始消息与当前模型的重放协议不兼容");
+        FAILED(false, "摘要服务请求失败");
 
         final boolean reload;
         final String detail;
@@ -179,13 +167,13 @@ public final class ConversationContext {
         }
     }
 
-    private Outcome compact(Run run, Context ctx, List<Integer> cuts, int minimum, int lastCut,
+    private Outcome compact(Run run, Context ctx, List<Integer> cuts, int lastCut,
             long before, long tailBudget) {
-        if (lastCut == 0 || minimum > lastCut) {
+        if (lastCut == 0) {
             return Outcome.NO_PREFIX;
         }
         var records = ctx.records();
-        int chosen = ConversationRetention.first(Math.max(1, minimum), lastCut, i ->
+        int chosen = ConversationRetention.first(1, lastCut, i ->
                 retention.suffixCost(records.subList(cuts.get(i), records.size())) <= tailBudget);
         // 缩短摘要输入只会加长决策尾部。分别预检无工具摘要请求与含工具的决策请求。
         var request = ConversationCheckpoint.request(ctx, records.subList(0, cuts.get(chosen)));
@@ -193,7 +181,7 @@ public final class ConversationContext {
             chosen = ConversationRetention.first(1, chosen, i -> counter.countPromptTokens(
                     ConversationCheckpoint.request(ctx, records.subList(0, cuts.get(i))), List.of())
                     > budget.usableInputTokens()) - 1;
-            if (chosen == 0 || chosen < minimum) {
+            if (chosen == 0) {
                 return Outcome.SUMMARY_LIMIT;
             }
             request = ConversationCheckpoint.request(ctx, records.subList(0, cuts.get(chosen)));
@@ -208,7 +196,7 @@ public final class ConversationContext {
         }
         var originals = retention.originals(run.conversationId(), through);
         var suffix = records.subList(cut, records.size());
-        long floor = retention.count(ConversationRetention.view(system(run, "", through, originals),
+        long floor = retention.count(retention.view(system(run, "", through, originals),
                 originals.messages(), suffix));
         if (!enough(before, floor)) {
             return Outcome.NO_HEADROOM;
@@ -237,7 +225,7 @@ public final class ConversationContext {
             return Outcome.INVALID;
         }
         String summary = reply.text().strip();
-        long after = retention.count(ConversationRetention.view(system(run, summary, through, originals),
+        long after = retention.count(retention.view(system(run, summary, through, originals),
                 originals.messages(), suffix));
         if (!enough(before, after)) {
             deferred.put(run.id(), new Deferred(ctx.version(), through, before));
@@ -271,11 +259,11 @@ public final class ConversationContext {
 
     /** 临时视图不推进覆盖位置。没有成功摘要的用户原文全部保留，只有完整执行组可暂由原记录引用代替。 */
     private List<Message> fallback(Message system, Originals originals, List<Entry> records, List<Integer> cuts,
-            int minimum, int lastCut) {
-        if (lastCut == 0 || minimum > lastCut) {
+            int lastCut) {
+        if (lastCut == 0) {
             return List.of();
         }
-        int index = ConversationRetention.first(Math.max(1, minimum), lastCut, i ->
+        int index = ConversationRetention.first(1, lastCut, i ->
                 retention.count(fallbackView(system, originals, records, cuts.get(i))) <= budget.usableInputTokens());
         var view = fallbackView(system, originals, records, cuts.get(index));
         return retention.count(view) <= budget.usableInputTokens() ? view : List.of();
@@ -299,7 +287,7 @@ public final class ConversationContext {
         Message source = first == 0 ? system : Message.text("system", system.text()
                 + "\n执行记录暂以历史引用代替（首条 [#" + first + "]，末条 [#" + last
                 + "]）。先查看对应回执核实结果、缺口及当前状态，避免重复执行。");
-        return ConversationRetention.view(source, users, records.subList(cut, records.size()));
+        return retention.view(source, users, records.subList(cut, records.size()));
     }
 
     private List<Message> pause(Run run, String detail) {

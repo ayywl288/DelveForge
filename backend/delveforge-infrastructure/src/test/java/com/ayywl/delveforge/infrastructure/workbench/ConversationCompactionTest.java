@@ -303,25 +303,64 @@ class ConversationCompactionTest {
     }
 
     @Test
-    void switchingToThinkingKeepsTheNextCompleteBatchWithoutInventingHistoricalReasoning() {
+    void legacyBatchesWithoutReliableProvenanceKeepAllPublicEvidenceInBothThinkingModes() {
         String id = store.receive(conversation, "goal", "核对旧项目的测试结果", 10).runId();
         store.next(id);
         store.assistant(id, new AgentProtocol.Reply("", List.of(tool("old-mode")), 1L, null, null));
         store.result(store.pending(id).getFirst(), "旧模式的完整回执", 0, false);
         batch(id, 60, 1);
         var frozen = store.next(id);
-        var enabled = binding("high").model();
-        var disabled = binding("off").model();
-        var original = new ConversationContext(store, disabled, CHARACTERS, SMALL).build(frozen);
-        assertEquals(frozen.context().records().stream().map(Workbench.Entry::message).toList(),
-                original.subList(1, original.size()));
-        var view = new ConversationContext(store, enabled, CHARACTERS, SMALL).build(frozen);
-        paired(view);
-        assertTrue(view.getFirst().text().contains("[#" + frozen.context().records().get(2).seq() + "]"));
-        assertTrue(view.stream().noneMatch(m -> "old-mode".equals(m.callId())));
-        assertEquals(List.of("核对旧项目的测试结果"), users(view));
-        assertEquals(original.subList(original.size() - 3, original.size()), view.subList(view.size() - 3, view.size()));
+        for (String effort : List.of("off", "high")) {
+            var view = new ConversationContext(store, binding(effort).model(), CHARACTERS, SMALL).build(frozen);
+            assertEquals("核对旧项目的测试结果", view.get(1).text());
+            assertEquals(4, view.size());
+            assertTrue(view.get(2).text().contains("旧模式的完整回执"));
+            assertTrue(view.get(3).text().contains("read-60 文件已读取"));
+            assertTrue(view.get(3).text().contains("test-60 文件已读取"));
+            assertFalse(view.get(3).text().contains("推理 60"));
+            assertTrue(view.subList(2, 4).stream().allMatch(m -> "user".equals(m.role()) && m.calls().isEmpty()));
+        }
         assertEquals(0, ((Number) store.runs(conversation).getFirst().get("requests")).intValue());
+    }
+
+    @Test
+    void overBudgetProjectedBatchesPublishACheckpointUsingTheOriginalSequences() {
+        String run = store.receive(conversation, "goal", "保留文件名 Ledger.java", 30).runId();
+        store.next(run);
+        for (int i = 0; i < 12; i++) {
+            batch(run, i, 12);
+        }
+        store.receive(conversation, "latest", "继续上次的验证", 30);
+        var snapshot = store.next(run);
+        var real = binding("high");
+        var summaries = new AtomicInteger();
+        AgentModelPort model = new AgentModelPort() {
+            @Override
+            public List<Message> projectHistory(List<Message> prefix, List<Workbench.Entry> entries) {
+                return real.model().projectHistory(prefix, entries);
+            }
+
+            @Override
+            public AgentProtocol.Reply call(List<Message> messages, List<AgentProtocol.ToolSpec> tools) {
+                assertTrue(tools.isEmpty());
+                String source = messages.getLast().text();
+                assertTrue(source.contains("文件已读取") && source.contains("echo value"));
+                assertFalse(source.contains("推理 0"));
+                summaries.incrementAndGet();
+                return checkpoint(messages, "保留文件名 Ledger.java");
+            }
+        };
+        var context = new ConversationContext(store, model, real.counter(), SMALL);
+        assertTrue(context.build(snapshot).isEmpty());
+        var next = store.next(run);
+        assertEquals(1, summaries.get());
+        assertTrue(next.context().through() > 0);
+        assertEquals(1, next.context().version());
+        var view = context.build(next);
+        assertEquals("继续上次的验证", view.getLast().text());
+        assertTrue(users(view).contains("保留文件名 Ledger.java"));
+        assertTrue(view.getFirst().text().contains("[#" + next.context().through() + "]"));
+        assertEquals(1, summaries.get());
     }
 
     @Test

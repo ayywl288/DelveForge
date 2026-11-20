@@ -13,7 +13,11 @@ public final class AgentProtocol {
     }
 
     /** 仅供宿主重放；序列化格式属于模型适配器，不可进入公开历史。 */
-    public record StoredMessage(String provider, String model, String partsJson) {
+    public record StoredMessage(String provider, String model, String partsJson, String prefixHash) {
+        public StoredMessage(String provider, String model, String partsJson) {
+            this(provider, model, partsJson, null);
+        }
+
         @Override
         public String toString() {
             return "Stored model message[" + provider + "]";

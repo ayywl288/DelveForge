@@ -27,6 +27,11 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.part.TextPart;
+import org.springframework.ai.chat.messages.part.ToolCallPart;
+import org.springframework.ai.chat.messages.part.UnknownPart;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.sqlite.SQLiteDataSource;
 
@@ -36,6 +41,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -436,6 +442,166 @@ class ProviderProtocolTest {
         }
     }
 
+    @ParameterizedTest
+    @EnumSource(value = ProviderFamily.class, names = {"GOOGLE", "OPENROUTER"})
+    void textualBatchHasNoTransportIdsOrPrivateSlotsBeforeANativeContinuation(ProviderFamily family) {
+        var target = adapter(family);
+        var prefix = List.of(AgentProtocol.Message.text("user", "核对两个回执"));
+        var legacy = new AgentProtocol.Message("assistant", "旧调用", List.of(
+                new AgentProtocol.ToolCall("old", "Bash", "invalid")), null, null, "private-legacy");
+        var records = new ArrayList<>(List.of(new Workbench.Entry(1, legacy),
+                new Workbench.Entry(2, new AgentProtocol.Message("tool", "exit 17", List.of(), "old", "Bash"))));
+        var first = target.projectHistory(prefix, records);
+        responses.add(reply(family, true));
+        responses.add(reply(family, false));
+        var next = target.call(first, ConversationContext.TOOLS);
+        records.add(new Workbench.Entry(3, next.assistantMessage(next.text()), true, null));
+        records.add(new Workbench.Entry(4,
+                new AgentProtocol.Message("tool", "{\"value\":\"current receipt\"}", List.of(), "call_1", "Read")));
+        target.call(target.projectHistory(prefix, records), ConversationContext.TOOLS);
+        String wire = requests.getLast().toString();
+        assertTrue(wire.contains("exit 17") && wire.contains("current receipt"));
+        assertFalse(wire.contains("private-legacy"));
+        if (family == ProviderFamily.OPENROUTER) {
+            assertTrue(requests.getLast().at("/messages/2/reasoning_details/0/data").asText().contains("private-router"));
+        } else {
+            assertEquals("call_1", requests.getLast().findValue("functionResponse").path("id").asText());
+            assertTrue(wire.contains("c2lnbmVk"));
+        }
+    }
+
+    @Test
+    void orderedMultiCallPartsAndReversedReceiptsSurviveAnAnthropicHandoff() {
+        responses.add(reply(ProviderFamily.ANTHROPIC, false));
+        var source = choice(ProviderFamily.OPENAI);
+        var first = new AssistantMessage.ToolCall("first", "function", "Read", "{\"path\":\"one.md\"}");
+        var second = new AssistantMessage.ToolCall("second", "function", "Read", "{\"path\":\"two.md\"}");
+        var stored = SpringMessages.store(source, List.of(TextPart.of("before-call"), ToolCallPart.of(first),
+                new UnknownPart("openai", "future", "{\"private-unknown\":1}", null, Map.of()),
+                TextPart.of("between-calls"), ToolCallPart.of(second)));
+        var calls = List.of(new AgentProtocol.ToolCall("first", "Read", first.arguments()),
+                new AgentProtocol.ToolCall("second", "Read", second.arguments()));
+        var assistant = new AgentProtocol.Message("assistant", "before-call\nbetween-calls", calls, null, null, null, stored);
+        var rows = List.of(new Workbench.Entry(3, assistant), new Workbench.Entry(4,
+                        new AgentProtocol.Message("tool", "failed with exit 17", List.of(), "second", "Read")),
+                new Workbench.Entry(5, new AgentProtocol.Message("tool", "first result", List.of(), "first", "Read")));
+        var model = adapter(ProviderFamily.ANTHROPIC);
+        var projected = model.projectHistory(List.of(AgentProtocol.Message.text("user", "inspect")), rows);
+        var parts = SpringMessages.parts(projected.get(1).stored());
+        assertEquals(List.of(TextPart.of("before-call"), ToolCallPart.of(first),
+                TextPart.of("between-calls"), ToolCallPart.of(second)), parts);
+        model.call(projected, ConversationContext.TOOLS);
+        var sent = requests.getLast().path("messages");
+        assertFalse(sent.toString().contains("private-unknown"));
+        var blocks = sent.get(1).path("content");
+        assertEquals("before-call", blocks.get(0).path("text").asText());
+        assertEquals("first", blocks.get(1).path("id").asText());
+        assertEquals("between-calls", blocks.get(2).path("text").asText());
+        assertEquals("second", blocks.get(3).path("id").asText());
+        var results = sent.get(2).path("content");
+        assertEquals("second", results.get(0).path("tool_use_id").asText());
+        assertTrue(results.get(0).toString().contains("failed with exit 17"));
+        assertEquals("first", results.get(1).path("tool_use_id").asText());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"OPENAI,ANTHROPIC", "ANTHROPIC,OPENAI", "OPENAI,GOOGLE", "ANTHROPIC,OPENROUTER"})
+    void handoffSendsOnlyPairedPublicPartsOnTheTargetWire(ProviderFamily source, ProviderFamily target) {
+        responses.add(reply(source, true).replace("call_1", "foreign:1"));
+        responses.add(reply(target, false));
+        var start = List.of(AgentProtocol.Message.text("user", "inspect README"));
+        var turn = adapter(source).call(start, ConversationContext.TOOLS);
+        var receipt = new AgentProtocol.Message("tool", "{\"result\":\"receipt-evidence\"}", List.of(), "foreign:1", "Read");
+        var rows = List.of(new Workbench.Entry(21, turn.assistantMessage(turn.text())),
+                new Workbench.Entry(22, receipt), new Workbench.Entry(23, AgentProtocol.Message.text("user", "continue")));
+        var destination = adapter(target);
+        var projected = destination.projectHistory(start, rows);
+        assertEquals("df_hist_21_0", projected.get(1).calls().getFirst().id());
+        assertEquals(projected.get(1).calls().getFirst().id(), projected.get(2).callId());
+        assertEquals("foreign:1", receipt.callId());
+        assertEquals(projected, destination.projectHistory(start, rows));
+        destination.call(projected, ConversationContext.TOOLS);
+        var sent = requests.getLast();
+        String wire = sent.toString();
+        assertFalse(wire.contains("private-"));
+        assertFalse(wire.contains("foreign:1"));
+        assertTrue(wire.contains("README.md") && wire.contains("receipt-evidence"));
+        assertTrue(wire.indexOf("README.md") < wire.indexOf("receipt-evidence"));
+        assertTrue(wire.indexOf("receipt-evidence") < wire.indexOf("continue"));
+        assertEquals(2, wire.split("df_hist_21_0", -1).length - 1);
+        switch (target) {
+            case OPENAI -> {
+                assertTrue(wire.contains("\"function_call\""));
+                assertTrue(wire.contains("\"function_call_output\""));
+            }
+            case ANTHROPIC -> {
+                assertTrue(wire.contains("\"tool_use\""));
+                assertTrue(wire.contains("\"tool_result\""));
+            }
+            case GOOGLE -> assertTrue(wire.contains("\"functionCall\"") && wire.contains("\"functionResponse\""));
+            case OPENROUTER -> assertEquals("tool", sent.at("/messages/2/role").asText());
+            default -> throw new AssertionError(target);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"off", "default", "high"})
+    void foreignDeepSeekHistoryPreservesExecutionFactsWithoutInjectingToolMessages(String effort) {
+        var source = ProviderFamily.ANTHROPIC;
+        responses.add(reply(source, true));
+        responses.add(reply(ProviderFamily.DEEPSEEK, false));
+        var prefix = List.of(AgentProtocol.Message.text("user", "inspect README"));
+        var turn = adapter(source).call(prefix, ConversationContext.TOOLS);
+        var receipt = new AgentProtocol.Message("tool",
+                "{\"timedOut\":true,\"displayTruncated\":true,\"stderr\":\"last observed chunk\"}",
+                List.of(), "call_1", "Read");
+        var rows = List.of(new Workbench.Entry(21, turn.assistantMessage(turn.text())),
+                new Workbench.Entry(22, receipt, false, new Workbench.Receipt("inv-1", "FINISHED", null, true)),
+                new Workbench.Entry(23, AgentProtocol.Message.text("user", "continue")));
+        var target = adapter(ProviderFamily.DEEPSEEK, new Choice("deepseek", "deepseek-flash", effort));
+        target.call(target.projectHistory(prefix, rows), ConversationContext.TOOLS);
+        var sent = requests.getLast();
+        var messages = sent.path("messages");
+        assertEquals(3, messages.size());
+        assertEquals("continue", messages.get(2).path("content").asText());
+        assertEquals("user", messages.get(1).path("role").asText());
+        String evidence = messages.get(1).path("content").asText();
+        for (String fact : List.of("[#21]", "[#22]", "README.md", "call_1 Read", "inv-1", "退出码 未知",
+                "输出缺口 true", "timedOut", "displayTruncated", "last observed chunk", "df-workbench output inv-1")) {
+            assertTrue(evidence.contains(fact), fact);
+        }
+        assertFalse(messages.toString().contains("private-") || messages.toString().contains("reasoning_content")
+                || messages.toString().contains("tool_calls"));
+        if ("default".equals(effort)) {
+            assertFalse(sent.has("thinking"));
+        } else {
+            assertEquals("off".equals(effort) ? "disabled" : "enabled", sent.at("/thinking/type").asText());
+        }
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = ProviderFamily.class, names = {"ANTHROPIC", "DEEPSEEK", "OPENAI", "OPENROUTER", "GOOGLE"})
+    void nativeProjectionRequiresTheOriginalPrefixAndFrozenConfig(ProviderFamily family) {
+        responses.add(reply(family, true));
+        responses.add(reply(family, false));
+        var target = adapter(family);
+        var prefix = List.of(AgentProtocol.Message.text("user", "read"));
+        var turn = target.call(prefix, ConversationContext.TOOLS);
+        var assistant = turn.assistantMessage(turn.text());
+        var result = new Workbench.Entry(9, new AgentProtocol.Message("tool", "{}", List.of(), "call_1", "Read"));
+        var batch = List.of(new Workbench.Entry(8, assistant, true, null), result);
+        var nativeView = target.projectHistory(prefix, batch);
+        assertEquals(assistant, nativeView.get(1));
+        target.call(nativeView, ConversationContext.TOOLS);
+        String marker = family == ProviderFamily.GOOGLE ? "c2lnbmVk" : "private-";
+        assertTrue(requests.getLast().toString().contains(marker));
+        var changedPrefix = target.projectHistory(List.of(AgentProtocol.Message.text("system", "checkpoint")), batch);
+        var changedConfig = target.projectHistory(prefix, List.of(new Workbench.Entry(8, assistant, false, null), result));
+        for (var view : List.of(changedPrefix, changedConfig)) {
+            assertFalse(view.stream().anyMatch(m -> m.stored() != null && m.stored().partsJson().contains(marker)));
+        }
+    }
+
     @Test
     void newerDeepSeekAndKimiEffortsUseTheLiteralWireValue() {
         for (ProviderFamily family : List.of(ProviderFamily.DEEPSEEK, ProviderFamily.KIMI)) {
@@ -457,7 +623,10 @@ class ProviderProtocolTest {
         var messages = List.of(AgentProtocol.Message.text("user", "ok"));
         var last = model.call(messages, ConversationContext.TOOLS);
         assertEquals("OK", last.text());
-        assertFalse(model.canReplayWithTools(last.assistantMessage(last.text())));
+        var view = model.projectHistory(messages,
+                List.of(new Workbench.Entry(3, last.assistantMessage(last.text()), true, null)));
+        assertEquals("user", view.getLast().role());
+        assertTrue(view.getLast().text().contains("OK"));
         responses.add(reply(ProviderFamily.DEEPSEEK, true).replace(privateField, ""));
         assertEquals(AgentModelFailure.Reason.REASONING_MISSING,
                 assertThrows(AgentModelFailure.class, () -> model.call(messages, ConversationContext.TOOLS)).reason());

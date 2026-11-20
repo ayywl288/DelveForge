@@ -520,8 +520,18 @@ public final class SqliteWorkbench implements Workbench {
                     long through = ((Number) header.get("through_seq")).longValue();
                     var entries =
                             jdbc.query(
-                                    "SELECT * FROM record WHERE conversation_id=? AND seq>? ORDER"
-                                            + " BY seq",
+                                    """
+                                    SELECT r.*, source.model_config = target.model_config AS same_config,
+                                           i.id AS invocation, i.state AS execution_state, i.exit_code, i.gap
+                                    FROM record r
+                                    JOIN run source ON source.id=r.run_id
+                                    JOIN run target ON target.id=?
+                                    LEFT JOIN invocation i ON r.role='tool' AND i.provider_id=r.provider_id
+                                        AND i.assistant_seq=(SELECT MAX(a.seq) FROM record a
+                                            WHERE a.conversation_id=r.conversation_id AND a.seq<r.seq
+                                                AND a.role='assistant' AND a.run_id=r.run_id)
+                                    WHERE r.conversation_id=? AND r.seq>? ORDER BY r.seq
+                                    """,
                                     (rs, n) ->
                                             new Entry(
                                                     rs.getLong("seq"),
@@ -532,8 +542,12 @@ public final class SqliteWorkbench implements Workbench {
                                                             rs.getString("provider_id"),
                                                             rs.getString("tool_name"),
                                                             rs.getString("reasoning"),
-                                                            read(rs.getString("model_message"), AgentProtocol.StoredMessage.class))),
-                                    run.conversationId(),
+                                                            read(rs.getString("model_message"), AgentProtocol.StoredMessage.class)),
+                                                    rs.getBoolean("same_config"),
+                                                    rs.getString("invocation") == null ? null : new Receipt(
+                                                            rs.getString("invocation"), rs.getString("execution_state"),
+                                                            (Integer) rs.getObject("exit_code"), rs.getBoolean("gap"))),
+                                    runId, run.conversationId(),
                                     through);
                     return new Snapshot(
                             run(runId),

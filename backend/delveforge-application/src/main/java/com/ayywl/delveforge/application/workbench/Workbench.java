@@ -35,7 +35,14 @@ public interface Workbench {
         }
     }
 
-    record Entry(long seq, AgentProtocol.Message message) {}
+    record Receipt(String invocation, String state, Integer exit, boolean gap) {}
+
+    /** 来源配置与当前 Run 的比较只用于本次请求；回执归属于同一助手批次。 */
+    record Entry(long seq, AgentProtocol.Message message, boolean sameConfig, Receipt receipt) {
+        public Entry(long seq, AgentProtocol.Message message) {
+            this(seq, message, false, null);
+        }
+    }
 
     record Context(String summary, long through, long version, List<Entry> records) {}
 

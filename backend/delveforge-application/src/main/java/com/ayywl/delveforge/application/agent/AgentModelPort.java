@@ -1,5 +1,8 @@
 package com.ayywl.delveforge.application.agent;
 
+import com.ayywl.delveforge.application.workbench.Workbench.Entry;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BooleanSupplier;
 
@@ -11,9 +14,11 @@ public interface AgentModelPort {
         return new Identity("未提供", "未提供", "未提供", "未提供");
     }
 
-    /** 当前工具决策协议能否原样重放这条消息，例如切换思考模式前保存的助手回复。 */
-    default boolean canReplayWithTools(AgentProtocol.Message message) {
-        return true;
+    /** 输入已按原始调用及其回执配对。返回包含前缀的请求视图，保持原始记录只读。 */
+    default List<AgentProtocol.Message> projectHistory(List<AgentProtocol.Message> prefix, List<Entry> entries) {
+        var messages = new ArrayList<>(prefix);
+        entries.forEach(entry -> messages.add(entry.message()));
+        return List.copyOf(messages);
     }
 
     AgentProtocol.Reply call(List<AgentProtocol.Message> history, List<AgentProtocol.ToolSpec> tools);

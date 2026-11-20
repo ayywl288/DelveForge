@@ -201,7 +201,7 @@ class RunModelPersistenceTest {
         store.next(first);
         var tool = new AssistantMessage.ToolCall("call-1", "function", "Read", "{\"path\":\"README\"}");
         var stored = SpringMessages.store(producer, List.of(
-                new ReasoningPart("hidden", null, fromClaude ? new OpaquePayload("anthropic", "signature",
+                new ReasoningPart("hidden".repeat(12000), null, fromClaude ? new OpaquePayload("anthropic", "signature",
                         "private-signature") : null, Map.of("origin", "contract")),
                 ToolCallPart.of(tool), new UnknownPart(producer.provider(), "future", "{\"private\":1}", null, Map.of())));
         store.assistant(first, new AgentProtocol.Reply("", List.of(new AgentProtocol.ToolCall(tool.id(), tool.name(),
@@ -220,11 +220,27 @@ class RunModelPersistenceTest {
         String next = restarted.receive(conversation, "2", "Continue with the receipt", 8).runId();
         var frozen = restarted.runModel(next);
         var binding = models().bind(frozen);
-        var safe = new ConversationContext(restarted, binding.model(), binding.counter(), frozen.budget()).build(restarted.next(next));
+        var narrow = new AgentContextBudget(6000, 1024, .8);
+        var original = restarted.next(next);
+        assertTrue(binding.counter().countPromptTokens(original.context().records().stream()
+                .map(Workbench.Entry::message).toList(), ConversationContext.TOOLS) > narrow.triggerTokens());
+        var safe = new ConversationContext(restarted, binding.model(), binding.counter(), narrow).build(original);
+        assertTrue(binding.counter().countPromptTokens(safe, ConversationContext.TOOLS) < narrow.triggerTokens());
+        assertEquals(0, new JdbcTemplate(database()).queryForObject("SELECT requests FROM run WHERE id=?",
+                Integer.class, next));
         assertTrue(safe.stream().anyMatch(m -> m.text().contains("Keep the original requirement")));
         assertTrue(safe.stream().anyMatch(m -> m.text().contains("Continue with the receipt")));
-        assertTrue(safe.getFirst().text().contains("[#"));
-        assertTrue(safe.stream().allMatch(m -> m.stored() == null && m.calls().isEmpty()));
+        assertTrue(safe.stream().anyMatch(m -> m.text().contains("real receipt")));
+        assertEquals("Continue with the receipt", safe.getLast().text());
+        assertEquals(0, restarted.next(next).context().through());
+        if (fromClaude) {
+            assertTrue(safe.stream().anyMatch(m -> m.text().contains("README") && m.text().contains("[#")));
+            assertTrue(safe.stream().noneMatch(m -> "tool".equals(m.role())));
+        } else {
+            assertTrue(safe.stream().anyMatch(m -> m.calls().stream().anyMatch(c -> c.name().equals("Read"))));
+        }
+        assertEquals(stored, restarted.next(next).context().records().stream().map(Workbench.Entry::message)
+                .filter(m -> m.stored() != null).findFirst().orElseThrow().stored());
         assertTrue(restarted.timeline(conversation).toString().contains("real receipt"));
     }
 
@@ -305,7 +321,10 @@ class RunModelPersistenceTest {
         assertEquals("pre-V8", frozen.capabilityVersion());
         assertEquals("legacy", upgraded.start(c, 8));
         var legacy = upgraded.next("legacy").context().records().getFirst().message();
-        assertTrue(models().bind(frozen).model().canReplayWithTools(legacy));
+        var view = models().bind(frozen).model().projectHistory(List.of(), upgraded.next("legacy").context().records());
+        assertTrue(view.getFirst().text().contains("visible"));
+        assertFalse(view.getFirst().text().contains("old-private"));
+        assertEquals(null, view.getFirst().reasoningContent());
         assertEquals("old-private", legacy.reasoningContent());
         assertFalse(upgraded.timeline(c).toString().contains("old-private"));
     }

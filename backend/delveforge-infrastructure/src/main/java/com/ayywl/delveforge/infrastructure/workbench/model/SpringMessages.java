@@ -25,8 +25,12 @@ final class SpringMessages {
     private static final TypeReference<List<MessagePart>> PARTS = new TypeReference<>() {};
 
     static AgentProtocol.StoredMessage store(Choice choice, List<MessagePart> parts) {
+        return store(choice, parts, null);
+    }
+
+    static AgentProtocol.StoredMessage store(Choice choice, List<MessagePart> parts, String prefixHash) {
         String json = JacksonUtils.getDefaultJsonMapper().writerFor(PARTS).writeValueAsString(parts);
-        return new AgentProtocol.StoredMessage(choice.provider(), choice.model(), json);
+        return new AgentProtocol.StoredMessage(choice.provider(), choice.model(), json, prefixHash);
     }
 
     static List<MessagePart> parts(AgentProtocol.StoredMessage stored) {
