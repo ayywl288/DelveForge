@@ -2,7 +2,13 @@
 
 首次基线有 6 个有效完成的 Run，6 份补丁均取得官方评分，4 份 Resolved、2 份 Unresolved。每题计一次有效试验，内部解决率为 4/6。逐题评分、历史中断、Gin 的产物恢复和证据摘要见[六题基线记录](RESULTS.md)。
 
-在 Windows 本机按固定预算运行 SWE-bench Multilingual 子集。一次试验使用一个新 Project、一段 Conversation 和一个 Run。宿主 Python 只编排 Workbench HTTP、读取公开回执并交付补丁。评分使用上游的 `load_task`、`make_test_spec` 和 `run_instance`。官方测试容器和 Agent 容器分别创建。所有基准源码、Docker 镜像以外的生成物及日志均位于 Git 已忽略的 `target/eval-assets/`。
+评测已结束。后续八题各执行一次，7 份补丁获评 Resolved。两个批次合计 14 次有效试验，11 份 Resolved、3 份 Unresolved，手工选取子集的内部解决率为 78.6%。Run 状态记录 Agent 是否自主完成；补丁是否解决任务以独立官方评分为准。[八题逐项结果](expansion/EXPANSION-RESULTS.md) · [十四题汇总与适用范围](expansion/COMBINED-RESULTS.md)
+
+选题历史见[第一轮准入](expansion/ADMISSION.md)、[最后六题的准入审查](expansion/batch-2-admission.md)和 [Pro V2 可行性记录](expansion/PRO-V2.md)。正式执行的八题及其配置见[冻结清单](expansion/final-eight.json)。
+
+**本地证据。** 各报告中指向 `target/` 的链接仅供持有本机归档的读者使用，GitHub 上只收录报告和清单。Pilot 原件位置及哈希见六题基线记录，两轮准入证据在 `target/xad/` 和 `target/xad2/`。八题的执行 Trace、工具输出、冻结补丁和官方日志保存在 `target/expansion-eight/eight-trial-evidence.zip`，SHA-256 为 `f0b982ffc02a29176d2144419e73a99381a22b64edc5bfc3636b411564a80445`。清单摘要按原文件字节计算，跨平台核对时应读取 Git blob，以避免检出时转换换行。
+
+在 Windows 本机按固定预算运行 SWE-bench Multilingual 子集。一次试验使用一个新 Project、一段 Conversation 和一个 Run。宿主 Python 只编排 Workbench HTTP、读取公开回执并交付补丁。评分使用上游的 `load_task`、`make_test_spec` 和 `run_instance`。官方测试容器和 Agent 容器分别创建。
 
 ## 复现免费检查
 

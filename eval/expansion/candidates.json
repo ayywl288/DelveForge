@@ -1,0 +1,851 @@
+{
+  "pilot": "../RESULTS.md",
+  "taskRevision": "6e08cbcd763c869abd7aae4bcb9e1b3991180777",
+  "graderRevision": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+  "graderImage": "sha256:2dbe31865ca6083e9823992bbf2e2f37b57baaf207abf18991e4ec09947fe7b0",
+  "proRevision": "66f92766bba642462d4bbe5479e83f91f9211862",
+  "multilingual": {
+    "prometheus__prometheus-10720": {
+      "repo": "prometheus/prometheus",
+      "base": "89de30a0b754f4eb54fb543037683f3db6cda109",
+      "image": "swebench/sweb.eval.x86_64.prometheus_1776_prometheus-10720@sha256:259694c5e65d0747192b4f171dc709f2fe56ccb1dcabee289dc7f0b268c2b9e7",
+      "platform": "linux/amd64",
+      "compressedBytes": 407486812,
+      "assetSha256": {
+        "task.yaml": "8df38dec521262e3f76a49874f82223e2b6b47fb133240506047f369766bd3b5",
+        "tests.json": "4535f775ac3302ceaa2584cd470e2a232b58ea6b370d73697153640fc99bcb70",
+        "problem_statement.md": "77e8033c5a10370fe88cb103c96ec2532df5802839c0077e6764cc6b6f356d91",
+        "gold.patch": "9fb33541f4ff6c6e59ad94c3f70e43d0c08a1700c0a3e1aea93138996b3fea38",
+        "test.patch": "33f0d3aba8de2d8d6d5e5390dddad9204d5f78bb353a975502b64cf2023aabf2",
+        "eval.sh": "f2ff4466fecba799c5a161161385e09aed1af675f041f6923b7792095485512c",
+        "Dockerfile": "b91b7c1cf61a751064097d9b567e9dcae07884c47919450eed2f6c28b233b5cd"
+      },
+      "reference": {
+        "plus": 37,
+        "minus": 2,
+        "files": [
+          "docs/querying/functions.md",
+          "promql/functions.go",
+          "promql/parser/functions.go",
+          "web/ui/module/codemirror-promql/src/complete/promql.terms.ts",
+          "web/ui/module/codemirror-promql/src/promql.ts",
+          "web/ui/module/codemirror-promql/src/types/function.ts",
+          "web/ui/module/lezer-promql/src/promql.grammar"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "TestEvaluations",
+          "TestEvaluations/testdata/functions.test"
+        ],
+        "PASS_TO_PASS": [
+          "TestEvaluations/testdata/aggregators.test",
+          "TestEvaluations/testdata/at_modifier.test",
+          "TestEvaluations/testdata/collision.test",
+          "TestEvaluations/testdata/histograms.test",
+          "TestEvaluations/testdata/literals.test",
+          "TestEvaluations/testdata/operators.test",
+          "TestEvaluations/testdata/selectors.test",
+          "TestEvaluations/testdata/staleness.test",
+          "TestEvaluations/testdata/subquery.test",
+          "TestEvaluations/testdata/trig_functions.test"
+        ]
+      },
+      "trackedBaselineFiles": 1021,
+      "decision": {
+        "admission": "准入",
+        "reason": "准入",
+        "noop": "U",
+        "oracle": "R"
+      },
+      "evidenceSha256": {
+        "baseline/prometheus__prometheus-10720.json": "8146274c5d27a89559445c04b5fd0e736dc8c7b82dd348564732f701bb16d113",
+        "imports/prometheus__prometheus-10720.json": "5907066cfe7411712fe1bf22da046e603d3458fd6cb3dba49cf72fbf9283965e",
+        "checks/prometheus__prometheus-10720/replay.json": "72e925897c0368301aa5f1be9e363d54ea48c0f0cd63b801f74835e6d918d169",
+        "checks/prometheus__prometheus-10720/controls.json": "67385c732fdcc8ad03c62bf5a20ea784ab2966eecc8b87956e7c75c3f1d7b2b5",
+        "checks/prometheus__prometheus-10720/noop/official.json": "1c05dd9e6210c5cc3bee96b1f167cce3b4d132cc82c62d82139726c9252641d4",
+        "checks/prometheus__prometheus-10720/oracle/official.json": "b7a93c587c6dc225077750154b1aae3fc14f8eb45c719c1536ecea26bc1c51b1",
+        "checks/prometheus__prometheus-10720/noop/logs/evaluation/df-72824f21a5fd4a1cbc2809e942bafe34/delveforge/prometheus__prometheus-10720/test_output.txt": "d01f47776b5654245db350f4931d13ed288bd3346b93f0182bd86c8fea1fc623",
+        "checks/prometheus__prometheus-10720/oracle/logs/evaluation/df-511f3b316d694d66b7134150f1e1b994/delveforge/prometheus__prometheus-10720/test_output.txt": "820acf5fcff7d11a945512cbafffa8d1e7261beee01fa66c9bd0f9d0671ccdc6"
+      }
+    },
+    "preactjs__preact-4436": {
+      "repo": "preactjs/preact",
+      "base": "db0f4f2e7a2338ea40050f623f05505a798fc1a4",
+      "image": "swebench/sweb.eval.x86_64.preactjs_1776_preact-4436@sha256:c1cf82e682faddcca76d8d3f0bae46d5301f3c7544eb4d7b9fe24b9ee0bd0926",
+      "platform": "linux/amd64",
+      "compressedBytes": 781152211,
+      "assetSha256": {
+        "task.yaml": "eca14148cf83d664e6c6042fa41ee1f49a07c4101a83887574fed73706c86b08",
+        "tests.json": "da5307b086e1ee73d94f251d6ecde2e476bd56cb4c7b7a5079f4c6560c0f9a3b",
+        "problem_statement.md": "b4a47285fb82f850b56ba8e903017a1c501300b2232d4f79180a2a423921fcfc",
+        "gold.patch": "9e9e952b7db4b14f6f71fdf2926ba39692b91e1e80d884b027edbe4263d6a101",
+        "test.patch": "129b27e420d58d5264be1eb92aa44a9bfc0419103876ae1b8e45527f9e05d503",
+        "eval.sh": "983aaae123eacb9e98ef958bf31ab83e4c55d9c2a9911237bfb904392b656461",
+        "Dockerfile": "18777f7adc8a425e7c1ac0b6bc561269104208cface88fd5e1bf55ac51152a34"
+      },
+      "reference": {
+        "plus": 19,
+        "minus": 4,
+        "files": [
+          "src/diff/index.js",
+          "src/internal.d.ts"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "refs > should call ref cleanup on unmount",
+          "refs > should call ref cleanup when ref changes"
+        ],
+        "PASS_TO_PASS": [
+          "refs > should invoke refs in render()",
+          "refs > should not call stale refs",
+          "refs > should support createRef",
+          "refs > should invoke refs in Component.render()",
+          "refs > should pass components to ref functions",
+          "refs > should have a consistent order",
+          "refs > should pass rendered DOM from functional components to ref functions",
+          "refs > should pass children to ref functions",
+          "refs > should pass high-order children to ref functions",
+          "refs > should not pass ref into component as a prop",
+          "refs > should only null refs after unmount",
+          "refs > should null and re-invoke refs when swapping component root element type",
+          "refs > should add refs to components representing DOM nodes with no attributes if they have been pre-rendered",
+          "refs > should call ref after children are rendered",
+          "refs > should correctly set nested child refs",
+          "refs > should correctly call child refs for un-keyed children on re-render",
+          "refs > should not remove refs for memoized components keyed",
+          "refs > should not remove refs for memoized components unkeyed",
+          "refs > should properly call null for memoized components keyed",
+          "refs > should properly call null for memoized components unkeyed",
+          "refs > should first clean-up refs and after apply them",
+          "refs > should bind refs before componentDidMount",
+          "refs > should call refs after element is added to document on initial mount",
+          "refs > should call refs after element is added to document on update"
+        ]
+      },
+      "decision": {
+        "admission": "暂缓",
+        "reason": "固定基线含 Git 子模块（160000）",
+        "noop": "未执行",
+        "oracle": "未执行"
+      },
+      "evidenceSha256": {
+        "baseline/preactjs__preact-4436.json": "a916841609589d359ef3b40bd8f9e842687f733c9244b39ba9240dfaa0f51713",
+        "checks/preactjs__preact-4436/controls.json": "0e47dd6b55cb0b114267885ccab1cdbab48ba24d21d6e06739064df8423a718d"
+      }
+    },
+    "projectlombok__lombok-3350": {
+      "repo": "projectlombok/lombok",
+      "base": "984cd1d5cf0af7263efaf167dc308ab59406cd68",
+      "image": "swebench/sweb.eval.x86_64.projectlombok_1776_lombok-3350@sha256:0ad2985cf18b048487b14bdd22cc77014aafa3eee6f78b22c19eae4681b77094",
+      "platform": "linux/amd64",
+      "compressedBytes": 654377443,
+      "assetSha256": {
+        "task.yaml": "65e9514d7c72b3dd608166f474d49284d0a7e3f9bab0689df8e6343c300a56e9",
+        "tests.json": "4541aa78295ad312b2e4f88e8a61ba7d5ce8f9da2882a4afccf58d396d70bad9",
+        "problem_statement.md": "4ddcd161fdf8eba5a355287951cbc4dcd614cee16a5242114fa9e8bf335fa792",
+        "gold.patch": "6b30c4ff0cd87f9a5eca9edf7dbde3b43b17181900f929adf9a417151fa6c4fb",
+        "test.patch": "d029cf4b28faa380cee35e592d8b48190d68fbfb335d465f498b17ed8dc35cc5",
+        "eval.sh": "c79a6fa8e0d9f3bc726f4eeb9975dcb13c5f9047a355c035c560c57bc43c0bbf",
+        "Dockerfile": "408af709661c627a185090d305e9ba0054bb7de93044ce287962b598e3e883f6"
+      },
+      "reference": {
+        "plus": 8,
+        "minus": 4,
+        "files": [
+          "src/core/lombok/ConfigurationKeys.java",
+          "src/core/lombok/core/configuration/NullAnnotationLibrary.java",
+          "src/core/lombok/core/handlers/HandlerUtil.java",
+          "website/templates/features/configuration.html"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "javac-NullLibrary3.java(lombok.transform.TestWithDelombok)"
+        ],
+        "PASS_TO_PASS": [
+          "javac-NullLibrary1.java(lombok.transform.TestWithDelombok)",
+          "javac-NullLibrary2.java(lombok.transform.TestWithDelombok)"
+        ]
+      },
+      "trackedBaselineFiles": 2158,
+      "decision": {
+        "admission": "暂缓",
+        "reason": "开发环境默认 Ant 引导下载被拒；Delombok 快照也未直接验证题面 Builder 用例",
+        "noop": "U",
+        "oracle": "R"
+      },
+      "evidenceSha256": {
+        "baseline/projectlombok__lombok-3350.json": "32bd39c605da4be4e629c88e4e0bef2cbea4d26741338bf88f87d462156ff8f9",
+        "imports/projectlombok__lombok-3350.json": "2082738472493c49c109447c07f60cb72952b795b93d451e93677d95ccffae97",
+        "checks/projectlombok__lombok-3350/replay.json": "4c02a2ee1985a25a36a831777c3b66fe3f6cc1d4872211053c4bcca2f82c676b",
+        "checks/projectlombok__lombok-3350/controls.json": "bd9b421e3ed731d1358e614b69bb952764f1718de27ab4b155ebbf7b1d56c2b7",
+        "checks/projectlombok__lombok-3350/noop/official.json": "f6570f98519ae8c13c353158c43cc5d183073a9e43ebc2acdff456322fba5c33",
+        "checks/projectlombok__lombok-3350/oracle/official.json": "962bc71447603f14130eba35b2075726fbea8cb350ac8b887fd2389aeb88ad07",
+        "checks/projectlombok__lombok-3350/noop/logs/evaluation/df-b1832bb2ef7d46b485f0468439ca7627/delveforge/projectlombok__lombok-3350/test_output.txt": "4c3b1d42b775f803e379222a7f72cbbce6888866d5a8d9c5e1a78b6ab13d2d4e",
+        "checks/projectlombok__lombok-3350/oracle/logs/evaluation/df-c6b8ea0d43b2400097dbd0f3cc07bb56/delveforge/projectlombok__lombok-3350/test_output.txt": "927184d50b38e013e5789a506d2566d1c14b374c21b350450652cb46e3de1ca3"
+      }
+    },
+    "vuejs__core-11739": {
+      "repo": "vuejs/core",
+      "base": "cb843e0be31f9e563ccfc30eca0c06f2a224b505",
+      "image": "swebench/sweb.eval.x86_64.vuejs_1776_core-11739@sha256:840b9db1c1e31f95d8d34afbce1ad3587b7e7a312b1a48cc6b91288ab6e43d3d",
+      "platform": "linux/amd64",
+      "compressedBytes": 1096927916,
+      "assetSha256": {
+        "task.yaml": "7d686e12f66c4f69eb8a6a480c8864a04b7d7616b2952cc9b9f9721c342e8e45",
+        "tests.json": "db89a3727569b8d037704d4894a27658e430fcf067e3e0d12d11d86ec0ee7e14",
+        "problem_statement.md": "ad169e608f43f78e93cf163c1dee01b8420a0de56fd4962f7829aa9d497f0686",
+        "gold.patch": "cb0ed6c29f8987b738ace2e240c09c880b9d0436b3bc4ba41f6a8fa3869c083c",
+        "test.patch": "6b98437a609390ed7d97420805c109736f59a7b58b9704ddfa3b8805723b7c86",
+        "eval.sh": "e05b99e017f45b2acfdf6eab71c260861e2469cecfd21ab1a682fc0455b558f1",
+        "Dockerfile": "6804904385debea8f1dc74089c9acee2087a37b731d7714625d1f3c53f270d71"
+      },
+      "reference": {
+        "plus": 18,
+        "minus": 14,
+        "files": [
+          "packages/compiler-sfc/src/script/utils.ts",
+          "packages/compiler-sfc/src/style/cssVars.ts",
+          "packages/runtime-core/src/hydration.ts",
+          "packages/shared/src/escapeHtml.ts"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > escape css var name"
+        ],
+        "PASS_TO_PASS": [
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > text node",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > element text content",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > not enough children",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > too many children",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > complete mismatch",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > fragment mismatch removal",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > fragment not enough children",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > fragment too many children",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > Teleport target has empty children",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > comment mismatch (element)",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > comment mismatch (text)",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > class mismatch",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > style mismatch",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > style mismatch when no style attribute is present",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > style mismatch w/ v-show",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > attr mismatch",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > attr special case: textarea value",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > boolean attr handling",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > client value is null or undefined",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > should not warn against object values",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > should not warn on falsy bindings of non-property keys",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > should not warn on non-renderable option values",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > should not warn css v-bind",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > css vars should only be added to expected on component root dom",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > css vars support fallthrough",
+          "packages/runtime-core/__tests__/hydration.spec.ts > SSR hydration > mismatch handling > should not warn for directives that mutate DOM in created"
+        ]
+      },
+      "trackedBaselineFiles": 697,
+      "decision": {
+        "admission": "准入",
+        "reason": "准入",
+        "noop": "U",
+        "oracle": "R"
+      },
+      "evidenceSha256": {
+        "baseline/vuejs__core-11739.json": "5c141451c375e48f8801bfdcc4bf8c6e712cdab81c9185a1b0242cf5f830d068",
+        "imports/vuejs__core-11739.json": "d3b8539964fb4aab2ab3e7585f5fdcbe1cb56e93ea4c7558f26d70c8035ffd8b",
+        "checks/vuejs__core-11739/replay.json": "40f6725575a809ca8142f3d0601516a9bcdf4bf6f934d3765a0605478b5c5181",
+        "checks/vuejs__core-11739/controls.json": "a1f11cbe27b676aa3068ea1035f721e8d96f1799fb54bf114f1500dae29612b0",
+        "checks/vuejs__core-11739/noop/official.json": "0ac7be565845bae77887e34358ab3efe90483c367ab5c4602217a3b20ee31527",
+        "checks/vuejs__core-11739/oracle/official.json": "82812dae0b0f3e069910246d852986764af7f593c6fde49c794b02baf750df06",
+        "checks/vuejs__core-11739/noop/logs/evaluation/df-f4287ddd1d64403cbcaf1746a9160785/delveforge/vuejs__core-11739/test_output.txt": "9c118fcd75935ee659c3c236997c427cfdd77c9f3b7484af14171de4a01431b3",
+        "checks/vuejs__core-11739/oracle/logs/evaluation/df-e3841acf73b541d487c0e04b0ab90ab3/delveforge/vuejs__core-11739/test_output.txt": "33c7faa82aed4503ed253893d60aabc423d882dace33be0086933e92491874a3"
+      }
+    },
+    "google__gson-2024": {
+      "repo": "google/gson",
+      "base": "16b42ff5805074126c2e5484450c182773e408a2",
+      "image": "swebench/sweb.eval.x86_64.google_1776_gson-2024@sha256:df1b872da86c0271b4b16463915117bba3a13e825c1f1dbe052750a834ece287",
+      "platform": "linux/amd64",
+      "compressedBytes": 490611812,
+      "assetSha256": {
+        "task.yaml": "a3efc653195e336672d0affceadbd52d81ccd3b81ac32d56312829fc3ec5c781",
+        "tests.json": "9adeff75a1eac056acf7631ea2bd974dee6cb82998676ac8ea9b61e8cd1b17bd",
+        "problem_statement.md": "7b3a51f7d20d0f976a698f108bb44ea498fc2b3587c6c30cf86c7f7dfbba8b50",
+        "gold.patch": "49c1cb078bfb3efc733bd9e9e90b2f6a6f9bf31039c47cde8de929230ec0e5bb",
+        "test.patch": "fd87a27ae75c93a951fc731884480b6b2abd162509843641a4d660fcae2f530c",
+        "eval.sh": "b45d4e582751d24557396b0a663dbebbdda9e831e000177ac09f9baea1a84de4",
+        "Dockerfile": "8e2715557f4dab9ab93230a309285b26ebdb0196fe8939460d60a80356b58072"
+      },
+      "reference": {
+        "plus": 23,
+        "minus": 5,
+        "files": [
+          "gson/src/main/java/com/google/gson/FieldNamingPolicy.java"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "com.google.gson.functional.FieldNamingTest#testUpperCaseWithUnderscores",
+          "com.google.gson.functional.NamingPolicyTest#testGsonWithUpperCaseUnderscorePolicySerialization",
+          "com.google.gson.functional.NamingPolicyTest#testGsonWithUpperCaseUnderscorePolicyDeserialiation"
+        ],
+        "PASS_TO_PASS": []
+      },
+      "trackedBaselineFiles": 260,
+      "decision": {
+        "admission": "准入",
+        "reason": "准入",
+        "noop": "U",
+        "oracle": "R"
+      },
+      "evidenceSha256": {
+        "baseline/google__gson-2024.json": "9fc7e58790ffe1318c3674bed5cbd6eac48c141cf6af53af3e6d9a44ed3fdeae",
+        "imports/google__gson-2024.json": "066935f82e7d1b2b87214c8ebc766aea0ff7f7f7d571bb5d444d47711267d24b",
+        "checks/google__gson-2024/replay.json": "2ea634a507fba50957da277dcae863628be012a7b8ff4265bd869eae4cec34a7",
+        "checks/google__gson-2024/controls.json": "7dcf9fe41106d3081b5180f03884f7f7536d744340b6db0283cac4214861c36e",
+        "checks/google__gson-2024/noop/official.json": "3583d4fa5c39819c9c8287750363384fab37898ef0cbcc550117353343edb0fd",
+        "checks/google__gson-2024/oracle/official.json": "81a37466bdcf5838e62fecc1d39bdd2550c351ae989b2c0343697267ad319058",
+        "checks/google__gson-2024/noop/logs/evaluation/df-7de3550a99bd43c3afec631297ca8b57/delveforge/google__gson-2024/test_output.txt": "71a17ce73ce1bd1fc7068804fb6deba1fe51a2c6b9d1cf8ec1ca811e40b7b3e5",
+        "checks/google__gson-2024/oracle/logs/evaluation/df-5c05b13fc6ae416bad03fa4a4c523481/delveforge/google__gson-2024/test_output.txt": "bc4fe4ca6b8966873e17d22ece29d534758adf2b8dfabe3db5eba1a7c4012690"
+      }
+    },
+    "caddyserver__caddy-4774": {
+      "repo": "caddyserver/caddy",
+      "base": "f7be0ee10131f25620a2f64af7e3ded43eae2049",
+      "image": "swebench/sweb.eval.x86_64.caddyserver_1776_caddy-4774@sha256:f1559c2f158f4f967531a1b57ed2a845c40a3d8ddb820b9e5bd56947c096d244",
+      "platform": "linux/amd64",
+      "compressedBytes": 535901205,
+      "assetSha256": {
+        "task.yaml": "0f44b278cce58c1b4beb891a32c03be680aab2af41f2688e62375500fcb08702",
+        "tests.json": "78d9810002a6328956e6230f613de7489bf92ccbadd7ceba9b8b29af7eb19343",
+        "problem_statement.md": "4c309791ee9d25d16f6afc517338f54ed3bedea3441a64306f528a51f3a32f72",
+        "gold.patch": "9691e9caf3c2a4ffd43700b194f19f93b6190103cc46c2eb8c9b627cf70ab603",
+        "test.patch": "dfd9ec0eada6dbf2152ecb37a95d8908d2e4f608f62c1ea2eb5f34ebee021153",
+        "eval.sh": "7732be0dd97e68b583fecb8abcd24f3f7a90d5900ec67c335b655173563a76ce",
+        "Dockerfile": "e7b8d56c8707c13827a0000541587fb7ba2e7d8ffe265ab0b37e002b93260d60"
+      },
+      "reference": {
+        "plus": 24,
+        "minus": 5,
+        "files": [
+          "caddyconfig/httpcaddyfile/addresses.go",
+          "caddyconfig/httpcaddyfile/options.go"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "TestCaddyfileAdaptToJSON"
+        ],
+        "PASS_TO_PASS": []
+      },
+      "trackedBaselineFiles": 345,
+      "decision": {
+        "admission": "准入",
+        "reason": "准入",
+        "noop": "U",
+        "oracle": "R"
+      },
+      "evidenceSha256": {
+        "baseline/caddyserver__caddy-4774.json": "49a5d37ed1b333b68c2ebc30cf082f8d92c32c31e76610d0a36c765aa19d918e",
+        "imports/caddyserver__caddy-4774.json": "5e1edb712f1f1e5070125aabce02ce513a86ed3db235c255c132a540b3e7bada",
+        "checks/caddyserver__caddy-4774/replay.json": "49da73fd3f08f06beda84de71a88231031fb325d2bd5bc7e4aa58f985fe65872",
+        "checks/caddyserver__caddy-4774/controls.json": "293a284eec70352f50a5c75d33f184b43792d0e46c89d0a90f23896734f1b8b6",
+        "checks/caddyserver__caddy-4774/noop/official.json": "bb976e7a005601aac55a3184c723299f4b736b793ada2a49c3be743c78792276",
+        "checks/caddyserver__caddy-4774/oracle/official.json": "f2a088c96f1716fa5519f189fb7b320eeb22ec260ef73173e55faf46b3a72b99",
+        "checks/caddyserver__caddy-4774/noop/logs/evaluation/df-ad9b5783b9594224978832a6dc16a1cb/delveforge/caddyserver__caddy-4774/test_output.txt": "173f0acc8e28daaeac121c5f7bdfd3c7876d538aada60d3347a6f56f90fc5803",
+        "checks/caddyserver__caddy-4774/oracle/logs/evaluation/df-cef15a5f10fe40e0b81b1e21f39ee190/delveforge/caddyserver__caddy-4774/test_output.txt": "74d9feb07d3ecc74dcb54e95c2c3fb7e878fb284fc7a6cb77f57736a466a0837"
+      }
+    },
+    "preactjs__preact-3689": {
+      "repo": "preactjs/preact",
+      "base": "9457b221fdacd1052ffdb385918e1bab4b10e833",
+      "image": "swebench/sweb.eval.x86_64.preactjs_1776_preact-3689@sha256:9c15851438f3b7121f034dae8bdb64d44d913bc30019a6f81def7cdef052a11d",
+      "platform": "linux/amd64",
+      "compressedBytes": 741014299,
+      "assetSha256": {
+        "task.yaml": "659e0eb6829870884228451d0e86441ea6e53f7d1c62c02ed21995b78efda6c9",
+        "tests.json": "48ec232a57c55de8b3e66a399d7fd76105f7696ba6f9d361da07af100abed960",
+        "problem_statement.md": "4e8adf20e93eaf44a409bb33ece5f6062e06a990a612d5a424cb457f1246db57",
+        "gold.patch": "ad4edcb16e99a876b21fbcb9cd4718ebdf2341b119ec1a5487b7551cbaa8a4fa",
+        "test.patch": "be5d436318843cf8b6a43dcf9b2e2241be555e2ad5ae95fe1cdae091f4f5c64f",
+        "eval.sh": "a78bdf96ba28b0e0338e5d9cc14cefa110162634a505823a26407b731c32f602",
+        "Dockerfile": "7aa525a470365d7bbd83ec172f3c1a648cc9b465f9edc96a273082c8dc7571b0"
+      },
+      "reference": {
+        "plus": 8,
+        "minus": 7,
+        "files": [
+          "hooks/src/index.d.ts",
+          "hooks/src/index.js",
+          "hooks/src/internal.d.ts"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "errorBoundary > calls the errorBoundary callback"
+        ],
+        "PASS_TO_PASS": [
+          "errorBoundary > catches errors",
+          "errorBoundary > returns error",
+          "errorBoundary > does not leave a stale closure"
+        ]
+      },
+      "trackedBaselineFiles": 316,
+      "decision": {
+        "admission": "准入",
+        "reason": "准入",
+        "noop": "U",
+        "oracle": "R"
+      },
+      "evidenceSha256": {
+        "baseline/preactjs__preact-3689.json": "8e6b29b144f89370fa86b686e402b6909a3912d813f084dc8e0717b1f32a8a7f",
+        "imports/preactjs__preact-3689.json": "947d41eaf02a05609703cc0b570f0541f64b717e3c7ed4aa4648d6be011dcc19",
+        "checks/preactjs__preact-3689/replay.json": "4b05222fc8bf0cf54d1a8f9d77deca3801ac920c9c488601ae2d4a2f74465fbd",
+        "checks/preactjs__preact-3689/controls.json": "904d57571b2267126f24946c9266a2d4d64e302326a9003fd19ac2c44107ab86",
+        "checks/preactjs__preact-3689/noop/official.json": "8fe8a8aa1f368f1d18338658f85f898549627a843fd989b9aa03adb1aebfab25",
+        "checks/preactjs__preact-3689/oracle/official.json": "029a95d606930d68a1666c69ac61ed2ee6c6c10631cd0a4e59d1b1f04182adfa",
+        "checks/preactjs__preact-3689/noop/logs/evaluation/df-5f4eed8b53044896a31f5dcbf3d7b824/delveforge/preactjs__preact-3689/test_output.txt": "83bccb7ded9b187a08ee7512cbf20370564624c4177becff0975de7f77242c44",
+        "checks/preactjs__preact-3689/oracle/logs/evaluation/df-5b614e7af43c4f418e6f07918e3bf2fb/delveforge/preactjs__preact-3689/test_output.txt": "0a1787e61452f934d414ca7679270a2b901809279d60055e13c72b0b2e5192b4"
+      }
+    },
+    "facebook__docusaurus-9183": {
+      "repo": "facebook/docusaurus",
+      "base": "b96004e77ebfb23e7349fa495d2177008186bd42",
+      "image": "swebench/sweb.eval.x86_64.facebook_1776_docusaurus-9183@sha256:ea9211f31b1f9d0e6808c8eaa98992b2d92d2aa4bcda930d7c34f83970fd91c5",
+      "platform": "linux/amd64",
+      "compressedBytes": 1928015659,
+      "assetSha256": {
+        "task.yaml": "b296c6d4c8954a0dc5a14112db0a73bf7fb9e67110b856fead4592728f7c9a9e",
+        "tests.json": "d863df76556a9bda7785e0bc1f556d393d2b4d55aec830d632880e84dd56d8b4",
+        "problem_statement.md": "513dc0ea120662123e5c0a6160c122d708a97b925d32c328f1127f8c152f2834",
+        "gold.patch": "3f4e1289d46607c4ef7a8a2eee2638af3c13ed84d3f68a3e0e3fe29928bd45bf",
+        "test.patch": "a459c4ae2d8b4691888538f71ccc1edd2571a6e47555bd5deac876fb09031615",
+        "eval.sh": "1a3bc7d93a1fbfcd98bde1c4d4a80dabbf1e795eba87c1f924854f191d30cd45",
+        "Dockerfile": "234115ba4b620c82e6decdb2dcf23456f7adf39ec75aebc347a1cb2a5f73bad8"
+      },
+      "reference": {
+        "plus": 18,
+        "minus": 5,
+        "files": [
+          "packages/docusaurus-theme-classic/src/options.ts",
+          "packages/docusaurus-theme-classic/src/theme/CodeBlock/Content/String.tsx",
+          "website/docusaurus.config.js"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "accepts valid theme config"
+        ],
+        "PASS_TO_PASS": [
+          "rejects outdated sidebar options",
+          "allows possible types of navbar items",
+          "accept \"custom-\" prefixed custom navbar item type",
+          "rejects unknown navbar item type",
+          "rejects nested dropdowns",
+          "rejects nested dropdowns 2",
+          "rejects position attribute within dropdown",
+          "gives friendly error when href and to coexist",
+          "allows empty alt tags for the logo image in the header",
+          "allows empty alt tags for the logo image in the footer",
+          "allows simple links in footer",
+          "allows footer column with no title",
+          "rejects mix of simple and multi-column links in footer",
+          "allows width and height specification for logo",
+          "accepts a range of magic comments",
+          "rejects incomplete magic comments",
+          "switch config",
+          "max config",
+          "undefined config",
+          "empty config",
+          "accepts undefined",
+          "accepts empty",
+          "accepts min",
+          "accepts max",
+          "rejects min 2.5",
+          "rejects max 2.5",
+          "rejects min 1",
+          "rejects min 7",
+          "rejects max 1",
+          "rejects max 7",
+          "rejects min 5 + max 3",
+          "accepts customCss undefined",
+          "accepts customCss string",
+          "accepts customCss string array",
+          "rejects customCss number"
+        ]
+      },
+      "decision": {
+        "admission": "暂缓",
+        "reason": "固定基线含模板符号链接（120000）",
+        "noop": "未执行",
+        "oracle": "未执行"
+      },
+      "evidenceSha256": {
+        "baseline/facebook__docusaurus-9183.json": "59a30ea7ee0b2f7757534ef1a647dc6d009ae0f121ce0a016cec42aaf8f4ecd1",
+        "checks/facebook__docusaurus-9183/controls.json": "b0d8e13e522e4ea0dd3a779a5fda15c3a59762b6b5ce9e10368c14b08c9f7021"
+      }
+    },
+    "nushell__nushell-13831": {
+      "repo": "nushell/nushell",
+      "base": "fb34a4fc6c9ca882cc6dc95d437902a45c402e9a",
+      "image": "swebench/sweb.eval.x86_64.nushell_1776_nushell-13831@sha256:3791867d38e03ddd5da7eb13e20a79e191ccde2790e058ec9b2b3dcc79305c31",
+      "platform": "linux/amd64",
+      "compressedBytes": 2506234369,
+      "assetSha256": {
+        "task.yaml": "9d17d559bb79858a24aad7b38662e5954727243780d46a6717e85bccc86d6571",
+        "tests.json": "e0f86837f5bfe578f4fd8c8db31032ee5319bd159016e95b76cbd36e5a002ddd",
+        "problem_statement.md": "10b16e6d642561981a86843f4e842cd8aac25238e497b7467eeefdadc0be0cfd",
+        "gold.patch": "adfd6fbf22e9629f44f07f088abdbca00b80039aa082f644b7ddaab4b724ec77",
+        "test.patch": "8ee878bba84d8d9f431bf3bb41f7a3e71a1dd0856f9b20ffed1371e6306a7f3f",
+        "eval.sh": "e0c266a54a573b39b5801e5ec0f117f9578d0d9183ea6501ddad98a079a4db79",
+        "Dockerfile": "c19463dfd2daa0ca376e8da5595c3c17efe239c719aeefd41a9fce08446d06c9"
+      },
+      "reference": {
+        "plus": 46,
+        "minus": 5,
+        "files": [
+          "crates/nu-command/src/strings/split/column.rs"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "commands::split_column::to_column"
+        ],
+        "PASS_TO_PASS": []
+      },
+      "trackedBaselineFiles": 1845,
+      "decision": {
+        "admission": "暂缓",
+        "reason": "crates 索引与包下载被实际开发代理拒绝；无仓库内 vendor",
+        "noop": "未执行",
+        "oracle": "未执行"
+      },
+      "evidenceSha256": {
+        "baseline/nushell__nushell-13831.json": "654babce360c6d2e181fe72289c15ac736f202b771949a4d7ab7d92740a47228",
+        "imports/nushell__nushell-13831.json": "f498669ad0374d23bf05fe40176a62d003c4a9609f61bd6f55b36010daa9540a",
+        "checks/nushell__nushell-13831/replay.json": "8c0f60404e62d3b48515cf3794d07b20ea07d509cba864ecb0052025d1c0f541",
+        "checks/nushell__nushell-13831/controls.json": "27a709c5244e84d925019101468f1e64ea59be41a903dea97aeb13a898bd17fa"
+      }
+    },
+    "tokio-rs__tokio-6724": {
+      "repo": "tokio-rs/tokio",
+      "base": "0cbf1a5adae81e8ff86ca6d040aeee67cf888262",
+      "image": "swebench/sweb.eval.x86_64.tokio-rs_1776_tokio-6724@sha256:ed237651a79622da338a0d13697ce9600494a2f35cc765a75c84e30155d7ac35",
+      "platform": "linux/amd64",
+      "compressedBytes": 743869318,
+      "assetSha256": {
+        "task.yaml": "e39eb592ef9d5f8b3d5ded3035a667fbbe2ab7ec6fad5ef2fc2b56c3ef138157",
+        "tests.json": "357b4cb7bdf0227edf306a7f2a08423015de69fc143a00630814134299ec162a",
+        "problem_statement.md": "a0c12a9324182163609289c3df72327a54d4fddde4ba080fec2620bacecd585d",
+        "gold.patch": "6e153c271e2bd2a4304920e93d8e944c5fb66cecfb4bad5b1aacf7bf4a3d4d24",
+        "test.patch": "4f8be72b209ef04de8ec17251adc4e20fcf6cd079aa42b728959247cbc6c2ea5",
+        "eval.sh": "8c97b49bd849994a8ed0bd59596f38a77c27dc9a0e28da1464284af52f98939c",
+        "Dockerfile": "d6f79fdaf88fa643090cca4525149c99edf6812371c7b327fb0995c060f3fb00"
+      },
+      "reference": {
+        "plus": 10,
+        "minus": 2,
+        "files": [
+          "tokio/src/io/util/write_all_buf.rs"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "write_all_buf_vectored"
+        ],
+        "PASS_TO_PASS": [
+          "write_all_buf",
+          "write_buf_err"
+        ]
+      },
+      "trackedBaselineFiles": 777,
+      "decision": {
+        "admission": "暂缓",
+        "reason": "crates 索引与包下载被实际开发代理拒绝；无仓库内 vendor",
+        "noop": "未执行",
+        "oracle": "未执行"
+      },
+      "evidenceSha256": {
+        "baseline/tokio-rs__tokio-6724.json": "737440e63416dbc3efd92de402e5a44e57d35399bf49827fba02f08906ad8b33",
+        "imports/tokio-rs__tokio-6724.json": "9583d2294915e8b6ee20f821137c5513e0a54b31c764cb6f352e9c836d3c913e",
+        "checks/tokio-rs__tokio-6724/replay.json": "ce0de9eed76c6406fca5591777c06792acf29598d29f297224303b6093c687a3",
+        "checks/tokio-rs__tokio-6724/controls.json": "3ee7da6f1d2bc28cf8159224dcb8a5a26d97288ca4c1519e2d4a12aaf368647e"
+      }
+    },
+    "javaparser__javaparser-4561": {
+      "repo": "javaparser/javaparser",
+      "base": "5be2e76b62e43b3c524b94463afe2294ac419fc8",
+      "image": "swebench/sweb.eval.x86_64.javaparser_1776_javaparser-4561@sha256:28c3f0d67c27b07cbc710221525ea8556462da5d68b8e1d22811bcb2b21d647f",
+      "platform": "linux/amd64",
+      "compressedBytes": 570965222,
+      "assetSha256": {
+        "task.yaml": "8cfbc6a3dea3471b6ef1f4df0550fe25f60064020f011b99dffa3ffa38300c45",
+        "tests.json": "3e1498a0cc166326734ce55f5f055bac3dccd774b12c832304c228d06671e854",
+        "problem_statement.md": "abf8316938d2a017e3c2f530988e92e2b99b94ef50ba3d6cbbb82f8fe749ba3f",
+        "gold.patch": "f433d84a841bfbde0ff5d4244f47629aa16a734556724b2fdfda7220a3ae58a8",
+        "test.patch": "3683668e761a1de33e84a234b66620048c67e2e75f3e11e098ff9375c99e00b9",
+        "eval.sh": "17de4a94cb8744cbdf3138962d00e5b144fec978bfe61ff8b53f9605f46c3e73",
+        "Dockerfile": "884a0b42791a6084884b5e26c6b7451881c58eff3a2422a4ae523125350b65e9"
+      },
+      "reference": {
+        "plus": 18,
+        "minus": 4,
+        "files": [
+          "javaparser-symbol-solver-core/src/main/java/com/github/javaparser/symbolsolver/javaparsermodel/TypeExtractor.java"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "Issue4560Test"
+        ],
+        "PASS_TO_PASS": [
+          "JavaSymbolSolverTest"
+        ]
+      },
+      "trackedBaselineFiles": 2581,
+      "decision": {
+        "admission": "准入",
+        "reason": "准入",
+        "noop": "U",
+        "oracle": "R"
+      },
+      "evidenceSha256": {
+        "baseline/javaparser__javaparser-4561.json": "189a3b3fe6ea312e85ab43d1bf1c01151eb7776ac2d4023fd47178a354b0cd2f",
+        "imports/javaparser__javaparser-4561.json": "f10014ad0a5d0bce1d8004ec06434ca6b96f06f1279e4ac0f73b36fc6fdf828c",
+        "checks/javaparser__javaparser-4561/replay.json": "c18ea1c5d1d7cb88810ff6476a53d06296eb10dcf1dcc479d288fa10936f38e0",
+        "checks/javaparser__javaparser-4561/controls.json": "cb7e7ebe557b2ddacc114e729db49a898555f8e65fa91e19d1f95343d5bf95ac",
+        "checks/javaparser__javaparser-4561/noop/official.json": "ef5c4ead967837caff41516ada6bbcdb9ff1311042f31b797604304f43c00028",
+        "checks/javaparser__javaparser-4561/oracle/official.json": "1104306f303feb02ca5c5ab97817712f751195c091553db40d3109ffc4ceb2d1",
+        "checks/javaparser__javaparser-4561/noop/logs/evaluation/df-e0a09f645d9b4a7482044f1ba713989a/delveforge/javaparser__javaparser-4561/test_output.txt": "ece0e99b279cf06d992a46bab50b86c085825628642dbe97ee8ac720946ea9a4",
+        "checks/javaparser__javaparser-4561/oracle/logs/evaluation/df-4c14e225f83248d785f5af6f2d9fe1a0/delveforge/javaparser__javaparser-4561/test_output.txt": "19c5e3e223bf61a317893d2543a4a09cafa5e6ffac0bdd858723be4b1482c509"
+      }
+    },
+    "prometheus__prometheus-11859": {
+      "repo": "prometheus/prometheus",
+      "base": "5ec1b4baaf01dae0b22567db53886c83b74e0e76",
+      "image": "swebench/sweb.eval.x86_64.prometheus_1776_prometheus-11859@sha256:d116a9fb3c312196c594e9c987574b8ad4172733389058c9391f1a1a41bb984b",
+      "platform": "linux/amd64",
+      "compressedBytes": 427953903,
+      "assetSha256": {
+        "task.yaml": "da8ad6341990d8e24ec556181bcc84dbaa8462900662baf46e3618d25a4997f0",
+        "tests.json": "b1b03d94e2227d82783c47724094a68ea6c83c783263641d2bc3234e564dc425",
+        "problem_statement.md": "2638fdc338ece1e8fb5b1fce46453a7b48d2ca7f81144de2224c660fcba0bc48",
+        "gold.patch": "09ad15a9dc977eb423f4c463536ed4ad8ea5079a6e931de5880ee1186021cf30",
+        "test.patch": "2806fd781dde60957d465eaf8ff2f42a05f16da1bb6ead723007c0d4564ea7c8",
+        "eval.sh": "6992bee3b4228106035dc2b2b626b4e8b6ddc46734abf8d3e5a5f16b22ba377a",
+        "Dockerfile": "3c14bd7ae0e21d05efe93cb7a5b543d43ca54ba32e3ecd240eb07fd42cc2362e"
+      },
+      "reference": {
+        "plus": 38,
+        "minus": 11,
+        "files": [
+          "tsdb/head.go"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "TestSnapshotAheadOfWALError"
+        ],
+        "PASS_TO_PASS": [
+          "TestSnapshotError"
+        ]
+      },
+      "trackedBaselineFiles": 1109,
+      "decision": {
+        "admission": "准入",
+        "reason": "准入",
+        "noop": "U",
+        "oracle": "R"
+      },
+      "evidenceSha256": {
+        "baseline/prometheus__prometheus-11859.json": "d08b5792729fcc4f199ba910524a6a276fc3860aa93121ed4577fc06dc4b7f69",
+        "imports/prometheus__prometheus-11859.json": "aac248b643c975d0bf66bdd826d6d09c9ae9cbaa1b1c755198e24a5761ca704b",
+        "checks/prometheus__prometheus-11859/replay.json": "44470af075ea04788bcc435ee772ae89266fbfe8f11229784c4aa5a94da8c1e2",
+        "checks/prometheus__prometheus-11859/controls.json": "4c63c6a59d33e7ea528b93dc40416bb1d8335d13bcc27ec1b3d24bf48d1c3611",
+        "checks/prometheus__prometheus-11859/noop/official.json": "ab21172a8462668c72be9228abdc631f05655a2e160110b98028507be82edda4",
+        "checks/prometheus__prometheus-11859/oracle/official.json": "7a53ace58c731f305e499636e081d23bf5066609a30b3307193f0d9c7d1a73af",
+        "checks/prometheus__prometheus-11859/noop/logs/evaluation/df-cdc73f59260e4791b84ce4ef6fab4479/delveforge/prometheus__prometheus-11859/test_output.txt": "5ff90adc16765e35415c0a4e225414f8b3c7bd748388ff22733176ad7d91e0a1",
+        "checks/prometheus__prometheus-11859/oracle/logs/evaluation/df-6fecc73535c24b488588e5edf318a3e0/delveforge/prometheus__prometheus-11859/test_output.txt": "5352a86d376083336becc87e5ac79e2363e10f6681bd9b854d456540a0f1a263"
+      }
+    },
+    "tokio-rs__tokio-4867": {
+      "repo": "tokio-rs/tokio",
+      "base": "53cf021b813c61cdeace26e863c89f65f6e92abd",
+      "image": "swebench/sweb.eval.x86_64.tokio-rs_1776_tokio-4867@sha256:56b605e0762af1f43ee3cbb8798415399c89e65cf2a8a71da3db79b617ef9e07",
+      "platform": "linux/amd64",
+      "compressedBytes": 741653444,
+      "assetSha256": {
+        "task.yaml": "501ac8fa265140f806848a18fcc9de8b3d14c7c63c305ea83b30bbcf524cf451",
+        "tests.json": "1fd5649c59688e4c818a824bb9607ff1088eeee786b5ec8a42c978eadd75160d",
+        "problem_statement.md": "1f455cbd4876f2dbd664ab9e3a49ba83aec127651c458017e65b5eacece5ac2d",
+        "gold.patch": "9effee889b4ae02f80100a97929287829c771af2663af085e5803a7f58dcd14d",
+        "test.patch": "9a936dfaeebce6c029da8a0d6f4224bff1fd7df6c836d5821d865a59b6073dab",
+        "eval.sh": "fb3f380000f6621d20a6f569f36437eb12e6213c5f757bf59a84f23c21cdb84e",
+        "Dockerfile": "f46334d69ee43df793f1515d0329c3be4fef7fe54352add23c51dd2c9df9baac"
+      },
+      "reference": {
+        "plus": 48,
+        "minus": 75,
+        "files": [
+          "tokio/src/sync/broadcast.rs"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "resubscribe_to_closed_channel"
+        ],
+        "PASS_TO_PASS": [
+          "drop_rx_while_values_remain",
+          "dropping_sender_does_not_overwrite",
+          "change_tasks",
+          "lagging_receiver_recovers_after_wrap_closed_1",
+          "lagging_receiver_recovers_after_wrap_closed_2",
+          "dropping_tx_notifies_rx",
+          "lagging_receiver_recovers_after_wrap_open",
+          "receiver_len_with_lagged",
+          "resubscribe_lagged",
+          "panic_in_clone",
+          "resubscribe_points_to_tail",
+          "lagging_rx",
+          "send_recv_bounded",
+          "send_slow_rx",
+          "send_two_recv",
+          "send_try_recv_bounded",
+          "single_capacity_recvs",
+          "send_two_recv_bounded",
+          "single_capacity_recvs_after_drop_1",
+          "single_capacity_recvs_after_drop_2",
+          "unconsumed_messages_are_dropped",
+          "send_no_rx"
+        ]
+      },
+      "trackedBaselineFiles": 646,
+      "decision": {
+        "admission": "暂缓",
+        "reason": "crates 索引与包下载被实际开发代理拒绝；无仓库内 vendor",
+        "noop": "未执行",
+        "oracle": "未执行"
+      },
+      "evidenceSha256": {
+        "baseline/tokio-rs__tokio-4867.json": "b7ee14f8c9be058ab8911ef826df1a192fa2269c3f03c89abe75266e52a3a554",
+        "imports/tokio-rs__tokio-4867.json": "35d029ada1eeba3ad8e1c40af94894872fbf8718b4d29f9644932ae51b707d2a",
+        "checks/tokio-rs__tokio-4867/replay.json": "1670980b30cb4ef30b9d0ba2b9049c9a04eb25b1d6d76faacbe3958c693a72c4",
+        "checks/tokio-rs__tokio-4867/controls.json": "2269eaebf272fc1b3dc192c46e9040b7a73e5b19129a4d9cb4d116be51228549"
+      }
+    },
+    "caddyserver__caddy-5870": {
+      "repo": "caddyserver/caddy",
+      "base": "fae195ac7eb9f4b0e9436384cd0529a11355e367",
+      "image": "swebench/sweb.eval.x86_64.caddyserver_1776_caddy-5870@sha256:c270cbe9eff9774cf125b8dc3a792bc1cfb65ed90d17858f2dfc799b4a8b1014",
+      "platform": "linux/amd64",
+      "compressedBytes": 304349358,
+      "assetSha256": {
+        "task.yaml": "ab9417f6441ee6f22b3bcc0e42c92dc4de9e78e4e64e20cf7279c19f28a32b22",
+        "tests.json": "409c57349d9001571c2986a540cd001696b769c144798fb27c0549b0bf32d8bd",
+        "problem_statement.md": "a1f01079b74452d9df63affe55468aa0269a61dfc716da637379f44365755114",
+        "gold.patch": "c130456419df1e119408380a6433381d62117d51197d7f1a166cfe33aaa1c0e8",
+        "test.patch": "b26b8b0bf1a968e75e592873233bde0f3e0f54f041fc51fb3042e6d52ef803e1",
+        "eval.sh": "e3b6e58479c4dcc61a0b33fdc1065c664851ec6e3f3a04caa15a479aac57d96f",
+        "Dockerfile": "9aed1f13a982d37504f088f21301db98634c3b4d07ea7cc9c49ed4ec68da7fa5"
+      },
+      "reference": {
+        "plus": 14,
+        "minus": 2,
+        "files": [
+          "admin.go"
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "TestUnsyncedConfigAccess"
+        ],
+        "PASS_TO_PASS": []
+      },
+      "trackedBaselineFiles": 410,
+      "decision": {
+        "admission": "准入",
+        "reason": "准入",
+        "noop": "U",
+        "oracle": "R"
+      },
+      "evidenceSha256": {
+        "baseline/caddyserver__caddy-5870.json": "186aded30c58dc480bae84dd6806a305a4414031c6fd9223edc14bd5f4fb8e66",
+        "imports/caddyserver__caddy-5870.json": "f9f7caf7fdaf6bd0e16703e0c721ee7b0047ed0b45ea77f8b068bde6147190e5",
+        "checks/caddyserver__caddy-5870/replay.json": "7248391a6d6205d60e0d6417bd2ad7f1ff3c071f063ed6770d2bef5eec529b58",
+        "checks/caddyserver__caddy-5870/controls.json": "c0d7dbab52acb7f2bc43689b6402d2f12713b53845cfbe641e2d0b3d02527263",
+        "checks/caddyserver__caddy-5870/noop/official.json": "a461ff3a558f2262d96848d6c1370133d1863faba6f70506b25a75a128df756e",
+        "checks/caddyserver__caddy-5870/oracle/official.json": "b38ef5006c0a14bdce860da0285ee2c4590384e956272d5020ea681bd5364dea",
+        "checks/caddyserver__caddy-5870/noop/logs/evaluation/df-ebd4ff18c72043adafd6a3bc8dc949d6/delveforge/caddyserver__caddy-5870/test_output.txt": "e22cd1297e57d2507df21edfd619a3873b691b598a6e9a358b4c15541dccb6a2",
+        "checks/caddyserver__caddy-5870/oracle/logs/evaluation/df-59f831be45b24b6fac01bf52aedb4700/delveforge/caddyserver__caddy-5870/test_output.txt": "61b6b93489db0cfb79209f08ba24e2c181b08550a9849e10bef8e0195a39f54c"
+      }
+    }
+  },
+  "pro": {
+    "instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e": {
+      "image": "ghcr.io/scaleapi/swe-bench_pro-v2:instance_NodeBB__NodeBB-0e07f3c9bace416cbab078a30eae972868c0a8a3-vf2cf3cbd463b7ad942381f1c6d077626485a1e9e@sha256:da6f714a9a8b21c6f3a0e7c8b452178eb9abdfdce789926581ec70d3bb6d87e3",
+      "platform": "linux/amd64",
+      "compressedBytes": 836494095,
+      "assetSha256": {
+        "instruction.md": "7561bba4c3ef1f25a6c2ba3f2d1bffdc3e0d18e30758a414950745274534876b",
+        "task.toml": "ed782f553ac9fe634ffa2d56a73f449d39cc3f0668beae07d4d7924fb903e562",
+        "environment/Dockerfile": "8bb70c34a85921d6ce99a9b72ff1b6e6e193768e417ed92f07f5e16ab037fa68",
+        "solution/gold_patch.diff": "6f1c9fabe26d4cab8abcbd7a7decd0ad3b0b6f71e3631eda3dd867658eeceb2a",
+        "tests/test.sh": "b6f26eecd87c1696a3702ee115d31f9d42f4704cf2116419cd879f66b60976d0",
+        "tests/config.json": "ebc3cc637351d5431365af4e84d75b2dfbbdadd65c2a91d5639c21f9627bb099",
+        "tests/run_script.sh": "f7ae8ff66fd6a77a26a909b2812c84cfb5bfc3b369effc1e8bb683e7dfc56a47",
+        "tests/parser.py": "55c2418512e1f11fac1893043e2a588d6c0809071c373b989a6c3d86906cbd97",
+        "tests/test_patch.patch": "a2276e11167912df23ec1a692ff954699ffa6bdd79a31b553093e9214a64559a"
+      }
+    },
+    "instance_flipt-io__flipt-15b76cada1ef29cfa56b0fba36754be36243dded": {
+      "image": "ghcr.io/scaleapi/swe-bench_pro-v2:instance_flipt-io__flipt-15b76cada1ef29cfa56b0fba36754be36243dded@sha256:566f157e478caf813df59bbbbce8fb2d919d8d52f2131065ada26a031eb67829",
+      "platform": "linux/amd64",
+      "compressedBytes": 1781813797,
+      "assetSha256": {
+        "instruction.md": "a2f8c3fcddef1cb4fce1650d9f07191d6f85a7846372ac57547dd921af4ed5ec",
+        "task.toml": "56cd134f8f1b93aa92cb82453a7a2e1db088cb2d6a789a8f4c1b5b7c8d516015",
+        "environment/Dockerfile": "b5e98477137950105c2dcce18968c36706124a200fccd6555c644be03cbd08e4",
+        "solution/gold_patch.diff": "190df0a4d0aa753e5703ada45fb610dcb77324b07e2ef3c267f655e3cdc05c83",
+        "tests/test.sh": "b6f26eecd87c1696a3702ee115d31f9d42f4704cf2116419cd879f66b60976d0",
+        "tests/config.json": "abb00b21b1b9c5af4a2735f064cdcb26e0b86b19a6b9ec34e29eb84216c48c17",
+        "tests/run_script.sh": "96ac7ee8aa89b85911d29f9724e48ca40e597361bb8ace497b37c18af5e17ab4",
+        "tests/parser.py": "fedec88f7bb3094f8c694a517fc4894d26cc508a5e932fd2099a0355dbcbd81a",
+        "tests/test_patch.patch": "2d179c29126b5bdc25416e23635c4f8a244081015e5c4621b6e978d08a7392e1"
+      }
+    },
+    "instance_navidrome__navidrome-28389fb05e1523564dfc61fa43ed8eb8a10f938c": {
+      "image": "ghcr.io/scaleapi/swe-bench_pro-v2:instance_navidrome__navidrome-28389fb05e1523564dfc61fa43ed8eb8a10f938c@sha256:a98f571e964885394cc22adf9202b1a66e1c3daf27d34c63098a79ef00e22300",
+      "platform": "linux/amd64",
+      "compressedBytes": 949796190,
+      "assetSha256": {
+        "instruction.md": "20d8f03289f318a80bdcf3e1c03b2badc05e93c9e3ca1d9f620cb25676657c3f",
+        "task.toml": "346e20a1fbe3f2e4aa6d5e1fd5f68cdcc6d396cbef80206f1510a75752da6dd6",
+        "environment/Dockerfile": "0547434a245615157fe2cf381a8659a42a248aa4d4e79dec89ba97f8c2d81cff",
+        "solution/gold_patch.diff": "57ba37ce4cff25872ebcc357a5d18bc46e0cddba420daf4d18c6b9673be78922",
+        "tests/test.sh": "b6f26eecd87c1696a3702ee115d31f9d42f4704cf2116419cd879f66b60976d0",
+        "tests/config.json": "37430192ec36637f8733b84d8aaab201036faf127d26ceac81040c600c98e38a",
+        "tests/run_script.sh": "3d16e2b4dd769b8bcd1c26aa1d230be33f79080facac6b7329a527f5a34cc8f8",
+        "tests/parser.py": "b1c0279417bc528109d5022e6ac4e0ba27899b09dfc7500e020be0754ee21039",
+        "tests/test_patch.patch": "d997c43f35f10039012d9ef251f07c6cdc04dca7267921d848ebd7bc7b4f4d2b"
+      }
+    },
+    "instance_internetarchive__openlibrary-111347e9583372e8ef91c82e0612ea437ae3a9c9-v2d9a6c849c60ed19fd0858ce9e40b7cc8e097e59": {
+      "image": "ghcr.io/scaleapi/swe-bench_pro-v2:instance_internetarchive__openlibrary-111347e9583372e8ef91c82e0612ea437ae3a9c9-v2d9a6c849c60ed19fd0858ce9e40b7cc8e097e59@sha256:9aff64d45c401ec5b497c25914dfb39de5c6fed96888ffaa6f21e76e285f612e",
+      "platform": "linux/amd64",
+      "compressedBytes": 889014569,
+      "assetSha256": {
+        "instruction.md": "0cada5046fad3c5e94c55546a6cdb998db409595e9c33f005504182269cae04a",
+        "task.toml": "ef5a754d282ada00d6e7fdbd8951baa833c2046e8cfde256c80c3a65aefbe08b",
+        "environment/Dockerfile": "04a22929e9e0a1e3a89315075c3fdbb27c204d397ed4c9ab1b1007899bf7311f",
+        "solution/gold_patch.diff": "6e6caf39b67f4f0b57940e2cdeaa83c244261ee283cf4a0ee6f98abb812387f7",
+        "tests/test.sh": "b6f26eecd87c1696a3702ee115d31f9d42f4704cf2116419cd879f66b60976d0",
+        "tests/config.json": "2eafd287e30fbee7365b1cdfdfd833dbb8fd0c0fbb8d2b581e43d773c493904b",
+        "tests/run_script.sh": "2b0d5c5faa75910185f2e082fd90567f6cde67eb252b446174a6421795c01b1c",
+        "tests/parser.py": "86c163ab2b1732bc41c95ffec34ea221086a1e0e8d64981aed4310daafbfc241",
+        "tests/test_patch.patch": "df13d792a2bf1f7b900829c2a210e65eccf09c9e9ec9071f6514e2ec30f2b007"
+      }
+    }
+  }
+}

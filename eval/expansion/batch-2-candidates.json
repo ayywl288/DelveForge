@@ -1,0 +1,1127 @@
+{
+  "taskRevision": "6e08cbcd763c869abd7aae4bcb9e1b3991180777",
+  "graderRevision": "02e7a74ffd0b707aab73d203fe87bdc7c76afc8e",
+  "graderImage": "sha256:2dbe31865ca6083e9823992bbf2e2f37b57baaf207abf18991e4ec09947fe7b0",
+  "evaluatedProduct": {
+    "commit": "f2c54db220f3673d20973bdf56978cc7925927f1",
+    "productDiffSha256": "e0a9f80c29cc58b78374d237c7baf176787b9660193382f2f73d8a8e73d570fa",
+    "jarSha256": "02806076c2d8cc443df2d6e45c10d41865d4a225e8f021cfe089c07f92806fcc"
+  },
+  "batch": 2,
+  "candidates": {
+    "micropython__micropython-12158": {
+      "repo": "micropython/micropython",
+      "language": "C",
+      "base": "c0d4c604e6a140c0f2967e1b43fd94d0b029c73f",
+      "graderTag": "swebench/sweb.eval.x86_64.micropython_1776_micropython-12158:latest",
+      "image": "swebench/sweb.eval.x86_64.micropython_1776_micropython-12158@sha256:a60fac34e98dec41c2382b07776ef7797cd78de5557cfa58a0c1efdbce404339",
+      "platform": "linux/amd64",
+      "compressedBytes": 501535773,
+      "assets": {
+        "task.yaml": "a3ce09498f8a22de6e76c2fdd66eb8ec3c4f75cb876a3d3698408370f14f0e27",
+        "tests.json": "0fb480eca9924a64654e54fe6af2a2b5929de2cd840dc8d466365eaf8233d30f",
+        "problem_statement.md": "82fd11f3faf558533f3ef8fb61a6527eb96d8e2fc66140bed8e5736864af54c1",
+        "gold.patch": "826bf0ae82f3a592e8026b5ef5357fd19b1af7e6d43935a302ad1af9812664d5",
+        "test.patch": "8cf1e967961055228fbc69fc722ee0ff97883b7906ba1546bd82abea84458bd1",
+        "eval.sh": "f184988f5959010cb3a870958143c9eeeaa96d4126f328ae251927bd6c485546",
+        "Dockerfile": "994b052d5d7ba515f0bde7307f3983f3da4cac9685d59cb0fe3036f6f3d2f5f3"
+      },
+      "referenceFileAddedDeletedLines": {
+        "ports/cc3200/mpthreadport.c": [
+          8,
+          1
+        ],
+        "ports/esp32/mpthreadport.c": [
+          9,
+          3
+        ],
+        "ports/renesas-ra/mpthreadport.c": [
+          7,
+          1
+        ],
+        "ports/rp2/mpthreadport.c": [
+          9,
+          1
+        ],
+        "ports/stm32/mpthreadport.c": [
+          7,
+          1
+        ],
+        "ports/unix/mpthreadport.c": [
+          7,
+          2
+        ],
+        "py/modthread.c": [
+          2,
+          4
+        ],
+        "py/mpthread.h": [
+          2,
+          1
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "thread/thread_ident1.py"
+        ],
+        "PASS_TO_PASS": [
+          "thread/thread_exc1.py",
+          "thread/stress_recurse.py",
+          "thread/stress_schedule.py",
+          "thread/thread_heap_lock.py",
+          "thread/thread_gc1.py",
+          "thread/thread_exc2.py",
+          "thread/stress_create.py",
+          "thread/thread_shared1.py",
+          "thread/thread_shared2.py",
+          "thread/thread_sleep1.py",
+          "thread/thread_stacksize1.py",
+          "thread/thread_exit1.py",
+          "thread/stress_heap.py",
+          "thread/thread_exit2.py",
+          "thread/stress_aes.py",
+          "thread/thread_qstr1.py",
+          "thread/thread_start1.py",
+          "thread/thread_start2.py"
+        ]
+      },
+      "baselineVerified": false,
+      "importVerified": false,
+      "zeroByteExport": null,
+      "referenceReplayTree": null,
+      "controls": {
+        "noop": {
+          "result": "未执行"
+        },
+        "oracle": {
+          "result": "未执行"
+        }
+      },
+      "evidenceSha256": {
+        "baseline/micropython__micropython-12158.json": "c3069b2265fd9d8c814206df0f6e7c93b2603f96f643402efdc6c60b7e0d79d5",
+        "images/micropython__micropython-12158.json": "705f714ef35a2fe1777ce7a4358a78877e3ee834bb2c9ea384b2ae1d6ae7f8da",
+        "baseline/micropython__micropython-12158-entry.json": "f742ec7dfc7ae0913677890cf59fb0e5a857cf337dd059dce5bdcd6fe7f02e02",
+        "checks/micropython__micropython-12158/import.json": "90db8fc2efc0912036422661510bd429bf34ba8e47dff979e7f33963aaa75843",
+        "checks/micropython__micropython-12158/controls.json": "28a152085ee217ffed563f00324e19c78fce82987fa85a7d0710604379b7e764"
+      },
+      "decision": "暂缓",
+      "reason": "固定提交含 Git 子模块 lib/asf4（模式 160000）。现有基线流程在创建可导入副本前停止。Unix 构建、运行时线程行为及嵌入式目标均未执行。",
+      "behavior": "让 _thread.start_new_thread 返回新线程的整数标识。参考实现修改线程接口、调用方以及 Unix 和多个嵌入式移植。",
+      "testCoverage": "官方脚本面向 Unix standard 构建。thread_ident1.py 比较返回值与线程内部 get_ident() 的类型和值，另列 18 个线程回归项。嵌入式移植没有对应的运行证据。",
+      "baselineBlocker": "unsupported link, submodule or unmerged path: lib/asf4",
+      "developmentEvidence": "dev.json",
+      "officialTaskDirectory": "official/tasks/micropython__micropython-12158"
+    },
+    "briannesbitt__carbon-2813": {
+      "repo": "briannesbitt/carbon",
+      "language": "PHP",
+      "base": "8c019924327fe0251294adb61543981e3d27652c",
+      "graderTag": "swebench/sweb.eval.x86_64.briannesbitt_1776_carbon-2813:latest",
+      "image": "swebench/sweb.eval.x86_64.briannesbitt_1776_carbon-2813@sha256:a8cdcf7350ecbd31d2a37e9680c5882e9ba969db75b67ab138648087564572dc",
+      "platform": "linux/amd64",
+      "compressedBytes": 288962444,
+      "assets": {
+        "task.yaml": "ed64f605eed3c0f4a47ec2e69d7e4e3f4cbb0cee6e8cd54ff3d0013826a57e44",
+        "tests.json": "4cedd87842e426aebf509ac58937895f7417c912258b94d7b96c852cedd1d612",
+        "problem_statement.md": "5a58330abe74783f8873955c955edc0275a78a86d3cb66a213decb805d214349",
+        "gold.patch": "2f8ea8a42f3ce1e9cac0fa758792816d1985b8bc9304eaab3a57b78e8b1dce79",
+        "test.patch": "6edd5d7f88584a79523b2b7072ce8982895439d7ea30773b7c44935c156e2c8c",
+        "eval.sh": "cda20f7c7b960bbd737bd4705e20bb8a18fed7693d553ad027d438f41bcc857a",
+        "Dockerfile": "6baac56f61bd9c9f6774b47582b18ee983630731f557bb3ecc0d1566bd05e8be"
+      },
+      "referenceFileAddedDeletedLines": {
+        "composer.json": [
+          4,
+          0
+        ],
+        "phpdoc.php": [
+          25,
+          15
+        ],
+        "src/Carbon/FactoryImmutable.php": [
+          18,
+          2
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "Factory > Psr clock"
+        ],
+        "PASS_TO_PASS": [
+          "Factory > Factory",
+          "Factory > Factory modification",
+          "Factory > Factory timezone"
+        ]
+      },
+      "baselineVerified": true,
+      "importVerified": true,
+      "zeroByteExport": 0,
+      "referenceReplayTree": "cb20a08ac6a78b89e7baf2ae201f9baaeb6eef3a",
+      "controls": {
+        "noop": {
+          "result": "Unresolved",
+          "runId": "df-45af919aaeec453fa44bced643a222e4",
+          "seconds": 33.56199999999808,
+          "testStatuses": {
+            "FAIL_TO_PASS": {
+              "success": [],
+              "failure": [
+                "Factory > Psr clock"
+              ]
+            },
+            "PASS_TO_PASS": {
+              "success": [
+                "Factory > Factory",
+                "Factory > Factory modification",
+                "Factory > Factory timezone"
+              ],
+              "failure": []
+            },
+            "FAIL_TO_FAIL": {
+              "success": [],
+              "failure": []
+            },
+            "PASS_TO_FAIL": {
+              "success": [],
+              "failure": []
+            }
+          },
+          "reportedReason": null,
+          "testExitCode": 2
+        },
+        "oracle": {
+          "result": "Resolved",
+          "runId": "df-00e55c78691549f9a26645870e19a9da",
+          "seconds": 32.45300000000134,
+          "testStatuses": {
+            "FAIL_TO_PASS": {
+              "success": [
+                "Factory > Psr clock"
+              ],
+              "failure": []
+            },
+            "PASS_TO_PASS": {
+              "success": [
+                "Factory > Factory",
+                "Factory > Factory modification",
+                "Factory > Factory timezone"
+              ],
+              "failure": []
+            },
+            "FAIL_TO_FAIL": {
+              "success": [],
+              "failure": []
+            },
+            "PASS_TO_FAIL": {
+              "success": [],
+              "failure": []
+            }
+          },
+          "reportedReason": null,
+          "testExitCode": 0
+        }
+      },
+      "evidenceSha256": {
+        "checks/briannesbitt__carbon-2813/noop/official.json": "234e7f66cf1eccaad07851eb4f914d0a32544e0aac90b77c9668df4a4a4e31dc",
+        "checks/briannesbitt__carbon-2813/noop/client.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/briannesbitt__carbon-2813/noop/invocation.json": "10f5d2421d0e0d70fe5ba76e4a24b58899778a5e91d9bef7afdb00a0be774d88",
+        "checks/briannesbitt__carbon-2813/noop/logs/evaluation/df-45af919aaeec453fa44bced643a222e4/delveforge/briannesbitt__carbon-2813/test_output.txt": "2d066baaee6ce132f7411364303bfa9ae3292317a5488145deaccd32d43bce23",
+        "checks/briannesbitt__carbon-2813/oracle/official.json": "df3ad539f5d90c78b43286e5006f9c5113091b0e9e40cfffc14d5c807b651d60",
+        "checks/briannesbitt__carbon-2813/oracle/client.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/briannesbitt__carbon-2813/oracle/invocation.json": "040cc9152f6f87f74bf247c6c5e06a35f6e08ff7abb17673a743afda320ee7c2",
+        "checks/briannesbitt__carbon-2813/oracle/logs/evaluation/df-00e55c78691549f9a26645870e19a9da/delveforge/briannesbitt__carbon-2813/test_output.txt": "1c8136be8cdf3ae6d1098c26aa19b9c903ee9da38d6e544f163f45d13d4538e5",
+        "baseline/briannesbitt__carbon-2813.json": "ce33938dbcf21fa2455056c5a35613aaf318e93433d80905f1ce3c50de20f3f1",
+        "images/briannesbitt__carbon-2813.json": "654f4c9d11865ff87d5fc7e5d45f91b6f4d6f39de75730337988193241dd619d",
+        "checks/briannesbitt__carbon-2813/import.json": "55f6b29565990a05cb89ac57299c09bbef55b518f4d4e6f88b3de895a02c9c91",
+        "checks/briannesbitt__carbon-2813/replay.json": "90e54698997c61243abf5a8304d4d72405105fddc94902157fe9f91e638e1ac8",
+        "checks/briannesbitt__carbon-2813/controls.json": "7d4bd1bd9cadc16316a0adc0594513798d6ccbf401d34c0d664755d237b3ebc5",
+        "checks/briannesbitt__carbon-2813/pull.log": "d629cd0455aa0056970c451cd6abcde24ebfa8991bf9c9343d23e136e631a1c0",
+        "checks/briannesbitt__carbon-2813/empty.patch": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/briannesbitt__carbon-2813/reference.patch": "ea3686d1ae3f9d397efbfd873376b66c6edf291b9f26b5203a149cedcd9cac11"
+      },
+      "decision": "暂缓",
+      "reason": "干净项目需要 Composer 解析测试依赖。工作台缺少项目 vendor 目录，既有网络策略阻断 Packagist 和 GitHub，无法验证开发侧的标准安装与测试。",
+      "behavior": "让 FactoryImmutable 实现 PSR ClockInterface，声明 psr/clock 依赖及其实现，并保持 now() 的不可变日期语义。",
+      "testCoverage": "新增 PHPUnit 用例检查工厂接口、DateTimeImmutable 和 CarbonImmutable 返回类型；保留三个 Factory 回归项。该用例没有单独验证 Composer 虚拟包解析或完整日期 API。",
+      "baselineBlocker": null,
+      "developmentEvidence": "dev.json",
+      "officialTaskDirectory": "official/tasks/briannesbitt__carbon-2813"
+    },
+    "rubocop__rubocop-13653": {
+      "repo": "rubocop/rubocop",
+      "language": "Ruby",
+      "base": "34beb4adc7d00bf828031783d860441c1aed659a",
+      "graderTag": "swebench/sweb.eval.x86_64.rubocop_1776_rubocop-13653:latest",
+      "image": "swebench/sweb.eval.x86_64.rubocop_1776_rubocop-13653@sha256:5444b3a1fcd0eda794d1535fa0b3a6e152916b34d0297133db891f1e7cdb47b0",
+      "platform": "linux/amd64",
+      "compressedBytes": 458002271,
+      "assets": {
+        "task.yaml": "8c8278d6f39ec33e5f487cba6385f5b9f0400e58268d470d8ab0fafdb50945f0",
+        "tests.json": "41e3c42cb14b11292a5d424d52b63758f051a5ec341283e65bc8ea898fec1a77",
+        "problem_statement.md": "08f3695568363febb3db6b2345642da72dace5aafdddc0b6eaeaac9b4f8ad719",
+        "gold.patch": "b0abe19de5ad6a480ad7b33cf8379d3c5de24000f864d18b24c382d65202850d",
+        "test.patch": "cb38a2aa75125caeeb839a35085bbae63d9b997b7d644d22893e3eb9cfb6d93c",
+        "eval.sh": "ca7b6349ab3e2b426a36c93c3232b3579fc86d241128e5353e8cd1ab77eeb2f5",
+        "Dockerfile": "40cc5166100e43f5412543ac8cf4ad5f975725b29834e4ac88dae7c36eda06ca"
+      },
+      "referenceFileAddedDeletedLines": {
+        "changelog/change_update_style_access_modifier_declarations_to_add.md": [
+          1,
+          0
+        ],
+        "config/default.yml": [
+          2,
+          1
+        ],
+        "lib/rubocop/cop/style/access_modifier_declarations.rb": [
+          32,
+          1
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "accepts when argument to module_function is an alias_method",
+          "accepts when argument to private is an alias_method",
+          "accepts when argument to protected is an alias_method",
+          "accepts when argument to public is an alias_method"
+        ],
+        "PASS_TO_PASS": [
+          "accepts multiple arguments on attrs",
+          "accepts when argument to module_function is a splat with a method call",
+          "accepts when argument to module_function is a symbol",
+          "accepts when argument to module_function is an attr_*",
+          "accepts when argument to module_function is multiple symbols",
+          "accepts when argument to module_function is splat with a `%i` array literal",
+          "accepts when argument to module_function is splat with a constant",
+          "accepts when argument to private is a splat with a method call",
+          "accepts when argument to private is a symbol",
+          "accepts when argument to private is an attr_*",
+          "accepts when argument to private is multiple symbols",
+          "accepts when argument to private is splat with a `%i` array literal",
+          "accepts when argument to private is splat with a constant",
+          "accepts when argument to protected is a splat with a method call",
+          "accepts when argument to protected is a symbol",
+          "accepts when argument to protected is an attr_*",
+          "accepts when argument to protected is multiple symbols",
+          "accepts when argument to protected is splat with a `%i` array literal",
+          "accepts when argument to protected is splat with a constant",
+          "accepts when argument to public is a splat with a method call",
+          "accepts when argument to public is a symbol",
+          "accepts when argument to public is an attr_*",
+          "accepts when argument to public is multiple symbols",
+          "accepts when argument to public is splat with a `%i` array literal",
+          "accepts when argument to public is splat with a constant",
+          "accepts when module_function is a hash literal value",
+          "accepts when private is a hash literal value",
+          "accepts when protected is a hash literal value",
+          "accepts when public is a hash literal value",
+          "accepts when using only module_function",
+          "accepts when using only private",
+          "accepts when using only protected",
+          "accepts when using only public",
+          "does not offend when module_function does not have right sibling node",
+          "does not offend when module_function is inlined with a method",
+          "does not offend when module_function is inlined with a symbol",
+          "does not offend when module_function is not inlined",
+          "does not offend when module_function is not inlined and has a comment",
+          "does not offend when private does not have right sibling node",
+          "does not offend when private is inlined with a method",
+          "does not offend when private is inlined with a symbol",
+          "does not offend when private is not inlined",
+          "does not offend when private is not inlined and has a comment",
+          "does not offend when protected does not have right sibling node",
+          "does not offend when protected is inlined with a method",
+          "does not offend when protected is inlined with a symbol",
+          "does not offend when protected is not inlined",
+          "does not offend when protected is not inlined and has a comment",
+          "does not offend when public does not have right sibling node",
+          "does not offend when public is inlined with a method",
+          "does not offend when public is inlined with a symbol",
+          "does not offend when public is not inlined",
+          "does not offend when public is not inlined and has a comment",
+          "does not register an offense when using module_function in a block",
+          "does not register an offense when using private in a block",
+          "does not register an offense when using protected in a block",
+          "does not register an offense when using public in a block",
+          "offends when module_function is inlined with a method",
+          "offends when module_function is inlined with a method on the top level",
+          "offends when module_function is not inlined",
+          "offends when module_function is not inlined and has a comment",
+          "offends when multiple groupable access modifiers are defined",
+          "offends when private is inlined with a method",
+          "offends when private is inlined with a method on the top level",
+          "offends when private is not inlined",
+          "offends when private is not inlined and has a comment",
+          "offends when protected is inlined with a method",
+          "offends when protected is inlined with a method on the top level",
+          "offends when protected is not inlined",
+          "offends when protected is not inlined and has a comment",
+          "offends when public is inlined with a method",
+          "offends when public is inlined with a method on the top level",
+          "offends when public is not inlined",
+          "offends when public is not inlined and has a comment",
+          "registers an offense and autocorrects when methods are all defined in class",
+          "registers an offense and autocorrects when methods are all defined in class and there is a comment",
+          "registers an offense and autocorrects when methods are all defined in class and there is already a bare access modifier",
+          "registers an offense and autocorrects when not all methods are defined in class",
+          "registers an offense and does not autocorrect when methods are not defined",
+          "registers an offense but does not autocorrect it",
+          "registers an offense for a single symbol",
+          "registers an offense for correct + multiple opposite styles of module_function usage",
+          "registers an offense for correct + multiple opposite styles of private usage",
+          "registers an offense for correct + multiple opposite styles of protected usage",
+          "registers an offense for correct + multiple opposite styles of public usage",
+          "registers an offense for multiple symbols",
+          "registers an offense when argument to module_function is a symbol",
+          "registers an offense when argument to module_function is an alias_method",
+          "registers an offense when argument to module_function is splat with a `%i` array literal",
+          "registers an offense when argument to module_function is splat with a constant",
+          "registers an offense when argument to private is a symbol",
+          "registers an offense when argument to private is an alias_method",
+          "registers an offense when argument to private is splat with a `%i` array literal",
+          "registers an offense when argument to private is splat with a constant",
+          "registers an offense when argument to protected is a symbol",
+          "registers an offense when argument to protected is an alias_method",
+          "registers an offense when argument to protected is splat with a `%i` array literal",
+          "registers an offense when argument to protected is splat with a constant",
+          "registers an offense when argument to public is a symbol",
+          "registers an offense when argument to public is an alias_method",
+          "registers an offense when argument to public is splat with a `%i` array literal",
+          "registers an offense when argument to public is splat with a constant",
+          "registers and autocorrects an offense",
+          "registers and autocorrects offense if conditional modifier is followed by a normal one",
+          "registers and autocorrects offense if conditional modifiers wrap a normal one"
+        ]
+      },
+      "baselineVerified": true,
+      "importVerified": true,
+      "zeroByteExport": 0,
+      "referenceReplayTree": "c51f34797a604ffd476e5306a1d7e19e5ccdc06d",
+      "controls": {
+        "noop": {
+          "result": "Unresolved",
+          "runId": "df-dc8efd1e1d4b4a3f9a890e24c2fa8ec6",
+          "seconds": 20.57800000000134,
+          "testStatuses": {
+            "FAIL_TO_PASS": {
+              "success": [],
+              "failure": [
+                "accepts when argument to module_function is an alias_method",
+                "accepts when argument to private is an alias_method",
+                "accepts when argument to protected is an alias_method",
+                "accepts when argument to public is an alias_method"
+              ]
+            },
+            "PASS_TO_PASS": {
+              "success": [
+                "accepts multiple arguments on attrs",
+                "accepts when argument to module_function is a splat with a method call",
+                "accepts when argument to module_function is a symbol",
+                "accepts when argument to module_function is an attr_*",
+                "accepts when argument to module_function is multiple symbols",
+                "accepts when argument to module_function is splat with a `%i` array literal",
+                "accepts when argument to module_function is splat with a constant",
+                "accepts when argument to private is a splat with a method call",
+                "accepts when argument to private is a symbol",
+                "accepts when argument to private is an attr_*",
+                "accepts when argument to private is multiple symbols",
+                "accepts when argument to private is splat with a `%i` array literal",
+                "accepts when argument to private is splat with a constant",
+                "accepts when argument to protected is a splat with a method call",
+                "accepts when argument to protected is a symbol",
+                "accepts when argument to protected is an attr_*",
+                "accepts when argument to protected is multiple symbols",
+                "accepts when argument to protected is splat with a `%i` array literal",
+                "accepts when argument to protected is splat with a constant",
+                "accepts when argument to public is a splat with a method call",
+                "accepts when argument to public is a symbol",
+                "accepts when argument to public is an attr_*",
+                "accepts when argument to public is multiple symbols",
+                "accepts when argument to public is splat with a `%i` array literal",
+                "accepts when argument to public is splat with a constant",
+                "accepts when module_function is a hash literal value",
+                "accepts when private is a hash literal value",
+                "accepts when protected is a hash literal value",
+                "accepts when public is a hash literal value",
+                "accepts when using only module_function",
+                "accepts when using only private",
+                "accepts when using only protected",
+                "accepts when using only public",
+                "does not offend when module_function does not have right sibling node",
+                "does not offend when module_function is inlined with a method",
+                "does not offend when module_function is inlined with a symbol",
+                "does not offend when module_function is not inlined",
+                "does not offend when module_function is not inlined and has a comment",
+                "does not offend when private does not have right sibling node",
+                "does not offend when private is inlined with a method",
+                "does not offend when private is inlined with a symbol",
+                "does not offend when private is not inlined",
+                "does not offend when private is not inlined and has a comment",
+                "does not offend when protected does not have right sibling node",
+                "does not offend when protected is inlined with a method",
+                "does not offend when protected is inlined with a symbol",
+                "does not offend when protected is not inlined",
+                "does not offend when protected is not inlined and has a comment",
+                "does not offend when public does not have right sibling node",
+                "does not offend when public is inlined with a method",
+                "does not offend when public is inlined with a symbol",
+                "does not offend when public is not inlined",
+                "does not offend when public is not inlined and has a comment",
+                "does not register an offense when using module_function in a block",
+                "does not register an offense when using private in a block",
+                "does not register an offense when using protected in a block",
+                "does not register an offense when using public in a block",
+                "offends when module_function is inlined with a method",
+                "offends when module_function is inlined with a method on the top level",
+                "offends when module_function is not inlined",
+                "offends when module_function is not inlined and has a comment",
+                "offends when multiple groupable access modifiers are defined",
+                "offends when private is inlined with a method",
+                "offends when private is inlined with a method on the top level",
+                "offends when private is not inlined",
+                "offends when private is not inlined and has a comment",
+                "offends when protected is inlined with a method",
+                "offends when protected is inlined with a method on the top level",
+                "offends when protected is not inlined",
+                "offends when protected is not inlined and has a comment",
+                "offends when public is inlined with a method",
+                "offends when public is inlined with a method on the top level",
+                "offends when public is not inlined",
+                "offends when public is not inlined and has a comment",
+                "registers an offense and autocorrects when methods are all defined in class",
+                "registers an offense and autocorrects when methods are all defined in class and there is a comment",
+                "registers an offense and autocorrects when methods are all defined in class and there is already a bare access modifier",
+                "registers an offense and autocorrects when not all methods are defined in class",
+                "registers an offense and does not autocorrect when methods are not defined",
+                "registers an offense but does not autocorrect it",
+                "registers an offense for a single symbol",
+                "registers an offense for correct + multiple opposite styles of module_function usage",
+                "registers an offense for correct + multiple opposite styles of private usage",
+                "registers an offense for correct + multiple opposite styles of protected usage",
+                "registers an offense for correct + multiple opposite styles of public usage",
+                "registers an offense for multiple symbols",
+                "registers an offense when argument to module_function is a symbol",
+                "registers an offense when argument to module_function is an alias_method",
+                "registers an offense when argument to module_function is splat with a `%i` array literal",
+                "registers an offense when argument to module_function is splat with a constant",
+                "registers an offense when argument to private is a symbol",
+                "registers an offense when argument to private is an alias_method",
+                "registers an offense when argument to private is splat with a `%i` array literal",
+                "registers an offense when argument to private is splat with a constant",
+                "registers an offense when argument to protected is a symbol",
+                "registers an offense when argument to protected is an alias_method",
+                "registers an offense when argument to protected is splat with a `%i` array literal",
+                "registers an offense when argument to protected is splat with a constant",
+                "registers an offense when argument to public is a symbol",
+                "registers an offense when argument to public is an alias_method",
+                "registers an offense when argument to public is splat with a `%i` array literal",
+                "registers an offense when argument to public is splat with a constant",
+                "registers and autocorrects an offense",
+                "registers and autocorrects offense if conditional modifier is followed by a normal one",
+                "registers and autocorrects offense if conditional modifiers wrap a normal one"
+              ],
+              "failure": []
+            },
+            "FAIL_TO_FAIL": {
+              "success": [],
+              "failure": []
+            },
+            "PASS_TO_FAIL": {
+              "success": [],
+              "failure": []
+            }
+          },
+          "reportedReason": null,
+          "testExitCode": 1
+        },
+        "oracle": {
+          "result": "Resolved",
+          "runId": "df-bab8ab30c34b400d810e823472f6143c",
+          "seconds": 20.110000000000582,
+          "testStatuses": {
+            "FAIL_TO_PASS": {
+              "success": [
+                "accepts when argument to module_function is an alias_method",
+                "accepts when argument to private is an alias_method",
+                "accepts when argument to protected is an alias_method",
+                "accepts when argument to public is an alias_method"
+              ],
+              "failure": []
+            },
+            "PASS_TO_PASS": {
+              "success": [
+                "accepts multiple arguments on attrs",
+                "accepts when argument to module_function is a splat with a method call",
+                "accepts when argument to module_function is a symbol",
+                "accepts when argument to module_function is an attr_*",
+                "accepts when argument to module_function is multiple symbols",
+                "accepts when argument to module_function is splat with a `%i` array literal",
+                "accepts when argument to module_function is splat with a constant",
+                "accepts when argument to private is a splat with a method call",
+                "accepts when argument to private is a symbol",
+                "accepts when argument to private is an attr_*",
+                "accepts when argument to private is multiple symbols",
+                "accepts when argument to private is splat with a `%i` array literal",
+                "accepts when argument to private is splat with a constant",
+                "accepts when argument to protected is a splat with a method call",
+                "accepts when argument to protected is a symbol",
+                "accepts when argument to protected is an attr_*",
+                "accepts when argument to protected is multiple symbols",
+                "accepts when argument to protected is splat with a `%i` array literal",
+                "accepts when argument to protected is splat with a constant",
+                "accepts when argument to public is a splat with a method call",
+                "accepts when argument to public is a symbol",
+                "accepts when argument to public is an attr_*",
+                "accepts when argument to public is multiple symbols",
+                "accepts when argument to public is splat with a `%i` array literal",
+                "accepts when argument to public is splat with a constant",
+                "accepts when module_function is a hash literal value",
+                "accepts when private is a hash literal value",
+                "accepts when protected is a hash literal value",
+                "accepts when public is a hash literal value",
+                "accepts when using only module_function",
+                "accepts when using only private",
+                "accepts when using only protected",
+                "accepts when using only public",
+                "does not offend when module_function does not have right sibling node",
+                "does not offend when module_function is inlined with a method",
+                "does not offend when module_function is inlined with a symbol",
+                "does not offend when module_function is not inlined",
+                "does not offend when module_function is not inlined and has a comment",
+                "does not offend when private does not have right sibling node",
+                "does not offend when private is inlined with a method",
+                "does not offend when private is inlined with a symbol",
+                "does not offend when private is not inlined",
+                "does not offend when private is not inlined and has a comment",
+                "does not offend when protected does not have right sibling node",
+                "does not offend when protected is inlined with a method",
+                "does not offend when protected is inlined with a symbol",
+                "does not offend when protected is not inlined",
+                "does not offend when protected is not inlined and has a comment",
+                "does not offend when public does not have right sibling node",
+                "does not offend when public is inlined with a method",
+                "does not offend when public is inlined with a symbol",
+                "does not offend when public is not inlined",
+                "does not offend when public is not inlined and has a comment",
+                "does not register an offense when using module_function in a block",
+                "does not register an offense when using private in a block",
+                "does not register an offense when using protected in a block",
+                "does not register an offense when using public in a block",
+                "offends when module_function is inlined with a method",
+                "offends when module_function is inlined with a method on the top level",
+                "offends when module_function is not inlined",
+                "offends when module_function is not inlined and has a comment",
+                "offends when multiple groupable access modifiers are defined",
+                "offends when private is inlined with a method",
+                "offends when private is inlined with a method on the top level",
+                "offends when private is not inlined",
+                "offends when private is not inlined and has a comment",
+                "offends when protected is inlined with a method",
+                "offends when protected is inlined with a method on the top level",
+                "offends when protected is not inlined",
+                "offends when protected is not inlined and has a comment",
+                "offends when public is inlined with a method",
+                "offends when public is inlined with a method on the top level",
+                "offends when public is not inlined",
+                "offends when public is not inlined and has a comment",
+                "registers an offense and autocorrects when methods are all defined in class",
+                "registers an offense and autocorrects when methods are all defined in class and there is a comment",
+                "registers an offense and autocorrects when methods are all defined in class and there is already a bare access modifier",
+                "registers an offense and autocorrects when not all methods are defined in class",
+                "registers an offense and does not autocorrect when methods are not defined",
+                "registers an offense but does not autocorrect it",
+                "registers an offense for a single symbol",
+                "registers an offense for correct + multiple opposite styles of module_function usage",
+                "registers an offense for correct + multiple opposite styles of private usage",
+                "registers an offense for correct + multiple opposite styles of protected usage",
+                "registers an offense for correct + multiple opposite styles of public usage",
+                "registers an offense for multiple symbols",
+                "registers an offense when argument to module_function is a symbol",
+                "registers an offense when argument to module_function is an alias_method",
+                "registers an offense when argument to module_function is splat with a `%i` array literal",
+                "registers an offense when argument to module_function is splat with a constant",
+                "registers an offense when argument to private is a symbol",
+                "registers an offense when argument to private is an alias_method",
+                "registers an offense when argument to private is splat with a `%i` array literal",
+                "registers an offense when argument to private is splat with a constant",
+                "registers an offense when argument to protected is a symbol",
+                "registers an offense when argument to protected is an alias_method",
+                "registers an offense when argument to protected is splat with a `%i` array literal",
+                "registers an offense when argument to protected is splat with a constant",
+                "registers an offense when argument to public is a symbol",
+                "registers an offense when argument to public is an alias_method",
+                "registers an offense when argument to public is splat with a `%i` array literal",
+                "registers an offense when argument to public is splat with a constant",
+                "registers and autocorrects an offense",
+                "registers and autocorrects offense if conditional modifier is followed by a normal one",
+                "registers and autocorrects offense if conditional modifiers wrap a normal one"
+              ],
+              "failure": []
+            },
+            "FAIL_TO_FAIL": {
+              "success": [],
+              "failure": []
+            },
+            "PASS_TO_FAIL": {
+              "success": [],
+              "failure": []
+            }
+          },
+          "reportedReason": null,
+          "testExitCode": 0
+        }
+      },
+      "evidenceSha256": {
+        "checks/rubocop__rubocop-13653/noop/official.json": "1dfdf9b019582db4dcdb4a1425df43492502694beee56d4e8448336c42891d66",
+        "checks/rubocop__rubocop-13653/noop/client.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/rubocop__rubocop-13653/noop/invocation.json": "ee2b3b7f621146486dfefebd042e96194780fc18e27b12c184ef396dd55e8473",
+        "checks/rubocop__rubocop-13653/noop/logs/evaluation/df-dc8efd1e1d4b4a3f9a890e24c2fa8ec6/delveforge/rubocop__rubocop-13653/test_output.txt": "c05b083ecd27b581012b648af2f753aac0003c0916e9359abbe97e5586f16c68",
+        "checks/rubocop__rubocop-13653/oracle/official.json": "3431a339a68076948a9babb866322526758b99665e142cbd1ca7e4ab99996fef",
+        "checks/rubocop__rubocop-13653/oracle/client.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/rubocop__rubocop-13653/oracle/invocation.json": "c202e66a06560216666e778b05fe122be15e021582afc98e97bbedd941708517",
+        "checks/rubocop__rubocop-13653/oracle/logs/evaluation/df-bab8ab30c34b400d810e823472f6143c/delveforge/rubocop__rubocop-13653/test_output.txt": "5848f8f1216ff65302f762b2bc8f4db436f68f5ede3c4a536021140d4e8a568d",
+        "baseline/rubocop__rubocop-13653.json": "e67e9fa9e8aec4564e7f05ed849be50a1cf94d19a927b8b9189346a1ad83a8f8",
+        "images/rubocop__rubocop-13653.json": "b020949b040e73de293ee8e441cec010eadb44f9d9ccc7e768a979376b5f1a5a",
+        "checks/rubocop__rubocop-13653/import.json": "09896aa203dcef9085841f3c15354ee06a9abf4366a82ac80c7cb896c9057be3",
+        "checks/rubocop__rubocop-13653/replay.json": "f28edabd350813e271261eaaeafd838868f6e25798e8cc07afcf3aa48a345e99",
+        "checks/rubocop__rubocop-13653/controls.json": "be075c73914b57fed3dfd8f973b9c135df913c52caed3dac56ed634a7b02bdf6",
+        "checks/rubocop__rubocop-13653/pull.log": "ecd82fc881c79b6cc6c9819b0eb17779b849bad3824db490a38084ca4324d234",
+        "checks/rubocop__rubocop-13653/empty.patch": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/rubocop__rubocop-13653/reference.patch": "c449f3597f610efa17c31da80997950ac4d0ad9c0ec2c9cb6ac9caabf133d9a1"
+      },
+      "decision": "暂缓",
+      "reason": "Gemfile 指向 RubyGems，并要求 prism ~> 1.2 等测试依赖。干净项目没有 vendored gems，工作台网络策略阻断软件源，无法验证标准 Bundler 安装和 RSpec。",
+      "behavior": "为 Style/AccessModifierDeclarations 增加 AllowModifiersOnAliasMethod。参考补丁包含规则、默认配置和更新说明。",
+      "testCoverage": "四个新增目标分别覆盖 module_function、private、protected、public，另列 105 个回归项。测试显式配置开关；题面建议默认 false，官方参考配置默认 true，不能从显式配置的示例推断用户接受了该默认值。",
+      "baselineBlocker": null,
+      "developmentEvidence": "dev.json",
+      "officialTaskDirectory": "official/tasks/rubocop__rubocop-13653"
+    },
+    "fluent__fluentd-3616": {
+      "repo": "fluent/fluentd",
+      "language": "Ruby",
+      "base": "26c62cddbf236361b797eac498301c7d4a77d010",
+      "graderTag": "swebench/sweb.eval.x86_64.fluent_1776_fluentd-3616:latest",
+      "image": "swebench/sweb.eval.x86_64.fluent_1776_fluentd-3616@sha256:6c68f9c237000946a3ccaf1b62588d7e0850ac9546b95fab2acfc64f2545a34e",
+      "platform": "linux/amd64",
+      "compressedBytes": 446534352,
+      "assets": {
+        "task.yaml": "324337c42726d6554eaf1f5e2e77d97af3f180b20760a4d1901e985687795bb8",
+        "tests.json": "2579eed7944378d1b2e862861f1da5dd8da2e2bfa00e461af0125218d5b5b198",
+        "problem_statement.md": "8a6db9cde9e1cfdf0abf8692a8f8bab2460e35d33f903b0cd952921c3ffbc828",
+        "gold.patch": "8d90a1d85d4db29bc2a39a20b10730a18e4365816cc2045ef6c5323d0ab8eb84",
+        "test.patch": "965564a95f799db3932a7eb5d9e6eb33d01b5831e1a6f542ee0487627e21c900",
+        "eval.sh": "eee965f242fa3855328cc99b71b59794c8489db48f70947780305c227240aaaf",
+        "Dockerfile": "1476edda6b84089a73046d51c61bc7490f8e56e755d8ba21564c67b3b691343f"
+      },
+      "referenceFileAddedDeletedLines": {
+        "lib/fluent/plugin/in_http.rb": [
+          11,
+          1
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "test_application_ndjson"
+        ],
+        "PASS_TO_PASS": [
+          "test_application_json",
+          "test_application_msgpack"
+        ]
+      },
+      "baselineVerified": true,
+      "importVerified": true,
+      "zeroByteExport": 0,
+      "referenceReplayTree": "2e3e3dbcd341cbb6e46dd02ce14d0ebffa39bf79",
+      "controls": {
+        "noop": {
+          "result": "Unresolved",
+          "runId": "df-951737d3dec54502bae5cf5f88b11d5a",
+          "seconds": 21.67199999999866,
+          "testStatuses": {
+            "FAIL_TO_PASS": {
+              "success": [],
+              "failure": [
+                "test_application_ndjson"
+              ]
+            },
+            "PASS_TO_PASS": {
+              "success": [
+                "test_application_json",
+                "test_application_msgpack"
+              ],
+              "failure": []
+            },
+            "FAIL_TO_FAIL": {
+              "success": [],
+              "failure": []
+            },
+            "PASS_TO_FAIL": {
+              "success": [],
+              "failure": []
+            }
+          },
+          "reportedReason": null,
+          "testExitCode": 1
+        },
+        "oracle": {
+          "result": "Resolved",
+          "runId": "df-2a93b052284a49d4975ef1a04aad688e",
+          "seconds": 20.937000000001717,
+          "testStatuses": {
+            "FAIL_TO_PASS": {
+              "success": [
+                "test_application_ndjson"
+              ],
+              "failure": []
+            },
+            "PASS_TO_PASS": {
+              "success": [
+                "test_application_json",
+                "test_application_msgpack"
+              ],
+              "failure": []
+            },
+            "FAIL_TO_FAIL": {
+              "success": [],
+              "failure": []
+            },
+            "PASS_TO_FAIL": {
+              "success": [],
+              "failure": []
+            }
+          },
+          "reportedReason": null,
+          "testExitCode": 0
+        }
+      },
+      "evidenceSha256": {
+        "checks/fluent__fluentd-3616/noop/official.json": "437d2f86e0eb4608939c3f2d73324feb76c24c29112d06861fe2776cc38f1279",
+        "checks/fluent__fluentd-3616/noop/client.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/fluent__fluentd-3616/noop/invocation.json": "297b276618ba02926f80d7813ab49ff111b148b09bc8b58d81e7285a771ff2d6",
+        "checks/fluent__fluentd-3616/noop/logs/evaluation/df-951737d3dec54502bae5cf5f88b11d5a/delveforge/fluent__fluentd-3616/test_output.txt": "7b5924395e00b363f9390c92b0bc3732800d059eac25a3156bfb14b3ee10f46e",
+        "checks/fluent__fluentd-3616/oracle/official.json": "afb87471c47d90948fb521e19587f280f0bdb7c0220e20da2528d6b5a3efe8b4",
+        "checks/fluent__fluentd-3616/oracle/client.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/fluent__fluentd-3616/oracle/invocation.json": "bae5451ab7c15101170cce761a6fae9c97f646a391dfd46ecbedfe3e14ed5444",
+        "checks/fluent__fluentd-3616/oracle/logs/evaluation/df-2a93b052284a49d4975ef1a04aad688e/delveforge/fluent__fluentd-3616/test_output.txt": "19a8d15a74f9fe629a0d1918fd48baf27fa790141184d380474336f2d5810f85",
+        "baseline/fluent__fluentd-3616.json": "658f58a8827afc41ed6444b69212e9bb3ad8386f2578b189b23c0e9bc04e75f7",
+        "images/fluent__fluentd-3616.json": "ce06e968261c761eb90225e5ed2b933d9da298bad05df972e1053e3edca1c537",
+        "checks/fluent__fluentd-3616/import.json": "30e881b361578a3ce3555fa4fa7d717d2ad93286c96639a8e5149e4555dee2fe",
+        "checks/fluent__fluentd-3616/replay.json": "c17bc2130dc4cc4a6ec6dfd0e2e311541cfbfa77897728ff311e5df7f28d3c8c",
+        "checks/fluent__fluentd-3616/controls.json": "11e5b3bc0b83060e69fe355882a194ebfd003c2812556c7d91ca4df63db7a5ae",
+        "checks/fluent__fluentd-3616/pull.log": "832b97c721c455762e048a598b224a643274318a7ff997abbb6f16a7175ea3fe",
+        "checks/fluent__fluentd-3616/empty.patch": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/fluent__fluentd-3616/reference.patch": "ce138fc05f9e672adad7b54f983495c50fec60ecec7e4bafbd359254311f6c6a"
+      },
+      "decision": "暂缓",
+      "reason": "标准 Bundler 安装依赖 RubyGems，项目未自带所需 gems，依赖包括 msgpack、yajl-ruby 等原生扩展。开发环境的软件源限制阻断了可复现的项目测试。",
+      "behavior": "HTTP input 插件接受 application/x-ndjson，并将每一行解析为单独事件。参考补丁仅改一个插件文件。",
+      "testCoverage": "一个目标用两次 HTTP POST 覆盖 LF 和 CRLF，检查两次 HTTP 200 及四条事件的 tag、时间和内容。两个回归项覆盖 JSON 和 MessagePack。没有畸形输入、负载或跨模块验证。",
+      "baselineBlocker": null,
+      "developmentEvidence": "dev.json",
+      "officialTaskDirectory": "official/tasks/fluent__fluentd-3616"
+    },
+    "prometheus__prometheus-9248": {
+      "repo": "prometheus/prometheus",
+      "language": "Go / TypeScript",
+      "base": "1fb3c1b5980d2ae3f844b6b9ae2ad38117710aa0",
+      "graderTag": "swebench/sweb.eval.x86_64.prometheus_1776_prometheus-9248:latest",
+      "image": "swebench/sweb.eval.x86_64.prometheus_1776_prometheus-9248@sha256:5fd4537e3b4c4a3d6d55e6735a26b68d271ff0253b1d1932025859018c62a2cc",
+      "platform": "linux/amd64",
+      "compressedBytes": 398714995,
+      "assets": {
+        "task.yaml": "fe5d69cafff10ec13e2dd6ddd785ba56db9cc4d230fec7378f3a19c083ac3881",
+        "tests.json": "2a10399dab56d2e61f050e7fe1d6ec1e6c9f8e32084c5ac89e7a76998737ccb2",
+        "problem_statement.md": "96dfa4b80bdfbe9998edf4010471ba6da14cd70c40d6ff068808d071c9c03f67",
+        "gold.patch": "13a2692eb89f2f089c009d7f67777dd1150300385ead4af0129fecc459135018",
+        "test.patch": "1f6bcd3140c1d5aa7be2cad48f79c31196d9e0b781b7905baa5bb32bb94e25b2",
+        "eval.sh": "35a4aaa7bcddde68ddd67623a003f46ffc842def6601d27a120155a429571c4c",
+        "Dockerfile": "c70adbc62028d8c3be7d69768ce1802e08fff8fd509ab180df457220e452e2e5"
+      },
+      "referenceFileAddedDeletedLines": {
+        "docs/querying/operators.md": [
+          11,
+          1
+        ],
+        "promql/engine.go": [
+          2,
+          0
+        ],
+        "promql/parser/generated_parser.y": [
+          4,
+          2
+        ],
+        "promql/parser/generated_parser.y.go": [
+          509,
+          499
+        ],
+        "promql/parser/lex.go": [
+          1,
+          0
+        ],
+        "web/ui/module/codemirror-promql/src/complete/promql.terms.ts": [
+          1,
+          0
+        ],
+        "web/ui/module/codemirror-promql/src/grammar/promql.grammar": [
+          3,
+          1
+        ],
+        "web/ui/module/codemirror-promql/src/grammar/tokens.js": [
+          2,
+          0
+        ],
+        "web/ui/module/codemirror-promql/src/promql.ts": [
+          1,
+          1
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "TestEvaluations",
+          "TestEvaluations/testdata/operators.test"
+        ],
+        "PASS_TO_PASS": [
+          "TestEvaluations/testdata/aggregators.test",
+          "TestEvaluations/testdata/at_modifier.test",
+          "TestEvaluations/testdata/collision.test",
+          "TestEvaluations/testdata/functions.test",
+          "TestEvaluations/testdata/histograms.test",
+          "TestEvaluations/testdata/literals.test",
+          "TestEvaluations/testdata/selectors.test",
+          "TestEvaluations/testdata/staleness.test",
+          "TestEvaluations/testdata/subquery.test",
+          "TestEvaluations/testdata/trig_functions.test"
+        ]
+      },
+      "baselineVerified": true,
+      "importVerified": true,
+      "zeroByteExport": 0,
+      "referenceReplayTree": "8881ac76dad183c45d8b5592950096a32d485056",
+      "controls": {
+        "noop": {
+          "result": "Unresolved",
+          "runId": "df-ae02c201c59649838eb6d8032526913d",
+          "seconds": 22.90599999999904,
+          "testStatuses": {
+            "FAIL_TO_PASS": {
+              "success": [],
+              "failure": [
+                "TestEvaluations",
+                "TestEvaluations/testdata/operators.test"
+              ]
+            },
+            "PASS_TO_PASS": {
+              "success": [
+                "TestEvaluations/testdata/aggregators.test",
+                "TestEvaluations/testdata/at_modifier.test",
+                "TestEvaluations/testdata/collision.test",
+                "TestEvaluations/testdata/functions.test",
+                "TestEvaluations/testdata/histograms.test",
+                "TestEvaluations/testdata/literals.test",
+                "TestEvaluations/testdata/selectors.test",
+                "TestEvaluations/testdata/staleness.test",
+                "TestEvaluations/testdata/subquery.test",
+                "TestEvaluations/testdata/trig_functions.test"
+              ],
+              "failure": []
+            },
+            "FAIL_TO_FAIL": {
+              "success": [],
+              "failure": []
+            },
+            "PASS_TO_FAIL": {
+              "success": [],
+              "failure": []
+            }
+          },
+          "reportedReason": null,
+          "testExitCode": 1
+        },
+        "oracle": {
+          "result": "Resolved",
+          "runId": "df-a1a321e34673489a84f25acd05465dd3",
+          "seconds": 20.85900000000038,
+          "testStatuses": {
+            "FAIL_TO_PASS": {
+              "success": [
+                "TestEvaluations",
+                "TestEvaluations/testdata/operators.test"
+              ],
+              "failure": []
+            },
+            "PASS_TO_PASS": {
+              "success": [
+                "TestEvaluations/testdata/aggregators.test",
+                "TestEvaluations/testdata/at_modifier.test",
+                "TestEvaluations/testdata/collision.test",
+                "TestEvaluations/testdata/functions.test",
+                "TestEvaluations/testdata/histograms.test",
+                "TestEvaluations/testdata/literals.test",
+                "TestEvaluations/testdata/selectors.test",
+                "TestEvaluations/testdata/staleness.test",
+                "TestEvaluations/testdata/subquery.test",
+                "TestEvaluations/testdata/trig_functions.test"
+              ],
+              "failure": []
+            },
+            "FAIL_TO_FAIL": {
+              "success": [],
+              "failure": []
+            },
+            "PASS_TO_FAIL": {
+              "success": [],
+              "failure": []
+            }
+          },
+          "reportedReason": null,
+          "testExitCode": 0
+        }
+      },
+      "evidenceSha256": {
+        "checks/prometheus__prometheus-9248/noop/official.json": "6897f17354bc2a904accac9a7274dae026be2d02d1d33b7d16dd144fc3cfd223",
+        "checks/prometheus__prometheus-9248/noop/client.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/prometheus__prometheus-9248/noop/invocation.json": "652e7e1077652379a78c309d5a0f242c19754ab194240ba8941fecff522b001f",
+        "checks/prometheus__prometheus-9248/noop/logs/evaluation/df-ae02c201c59649838eb6d8032526913d/delveforge/prometheus__prometheus-9248/test_output.txt": "51c4ddf0da4fc466abca303e9d81a5c590a4c0330aa760ac6942cbb41fe8dfe7",
+        "checks/prometheus__prometheus-9248/oracle/official.json": "bcbbe276d65133638941cb4fb4715bc23e331a80c943b9e344d1c0c443c03991",
+        "checks/prometheus__prometheus-9248/oracle/client.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/prometheus__prometheus-9248/oracle/invocation.json": "98f87d5587934712c0a3c3c58721f1276f775675cdd21e885b1018d5b41e1bde",
+        "checks/prometheus__prometheus-9248/oracle/logs/evaluation/df-a1a321e34673489a84f25acd05465dd3/delveforge/prometheus__prometheus-9248/test_output.txt": "69487c12b9e6de4828babbf6b135a0e22a32f962857949232bc75b516718f620",
+        "baseline/prometheus__prometheus-9248.json": "75a16642c31407f25b3f9c1a2804f17985539906369151fd003fa67f6d50d7bb",
+        "images/prometheus__prometheus-9248.json": "aac2a9268e35ab58accb40379ee746a1dd7a2528a27fd7dac17fda26189368f8",
+        "checks/prometheus__prometheus-9248/import.json": "1019cc0320dfb257f5812b63d0eb4608aee85b9a41117225b7384a6d1f4d5607",
+        "checks/prometheus__prometheus-9248/replay.json": "f58155e85d839225044c1c6bd37ef59b9366483de4ea607272c96cbe541b5ca0",
+        "checks/prometheus__prometheus-9248/controls.json": "7b9e7f5aa6f11460e61f57fe440c740c56519bf0f636391d27697abcb84da20c",
+        "checks/prometheus__prometheus-9248/pull.log": "51c1a4cd594475294b4bd6af92d4a10eee6b2ee00d295856f32de0cf095a7233",
+        "checks/prometheus__prometheus-9248/empty.patch": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "checks/prometheus__prometheus-9248/reference.patch": "344444ce9e4295bc82d9e78a022def6d9fe95242d0e68290f766e6674a408317"
+      },
+      "decision": "暂缓",
+      "reason": "官方 Oracle 为 Resolved。在同一固定镜像、相同基线和参考补丁下另行离线运行：1 + 2 得到 3；题面原例 1 atan2 2 报 operator \"atan2\" not allowed for Scalar operations。参考实现仅为 vectorElemBinop 加入计算分支。按官方分数评估该题会漏记题面中的核心行为。[独立标量验证原始记录](../../target/xad2/probes/scalar.log)",
+      "behavior": "题面要求两个标量之间使用 atan2。参考修改涉及查询运算、词法与语法、编辑器以及文档。9 个文件中，生成的 Go 解析器占参考补丁 1,038 行增删中的 1,008 行。",
+      "testCoverage": "官方 F2P 为 TestEvaluations 及其 operators.test 子项，不能当作两个独立功能。新增用例的输入为向量，含 NaN；十个 P2P 为其他已有测试文件。与 10720 都涉及 PromQL 和编辑器，新价值主要在二元运算优先级及向量语义。",
+      "baselineBlocker": null,
+      "developmentEvidence": "dev.json",
+      "officialTaskDirectory": "official/tasks/prometheus__prometheus-9248"
+    },
+    "apache__druid-13704": {
+      "repo": "apache/druid",
+      "language": "Java",
+      "base": "51dfde02840017092486fb75be2b16566aff6a19",
+      "graderTag": "swebench/sweb.eval.x86_64.apache_1776_druid-13704:latest",
+      "image": "swebench/sweb.eval.x86_64.apache_1776_druid-13704@sha256:eefba445fb52e9975889fce04ae88b6f14ae45053b68af3bdf816e3d4a0da785",
+      "platform": "linux/amd64",
+      "compressedBytes": 898300775,
+      "assets": {
+        "task.yaml": "f971a6897eb4c61321b2adb4cf46062fb9d6a1d14b649e97f5ffe7cc2d2bcafc",
+        "tests.json": "d2ad86ef54accb7688c82cfd1b440327ad2b4e4481882e454f30fca44dae483e",
+        "problem_statement.md": "355dc4b282aa454a80ce4996dffe2831fcb3216fabf6cbc4c24f967c5c6cc081",
+        "gold.patch": "22b0efc0dac65918c86424ffdb1e3b941b51bd5552983af1e39f2b0aefc36f4b",
+        "test.patch": "f6ecbd6e913c76d3d6fffddbac51077d785ede16afb7b47f4878c9da3fd1a504",
+        "eval.sh": "8164708f8107b1d3bff4090edcb56cf823f33c9f275e461b3f491afc007007f5",
+        "Dockerfile": "9a967795a0405033bdf62fa50f9ff25d8dfa7abe1d3ec79f8fb7cbc1bd2278af"
+      },
+      "referenceFileAddedDeletedLines": {
+        "docs/querying/post-aggregations.md": [
+          1,
+          1
+        ],
+        "processing/src/main/java/org/apache/druid/query/aggregation/post/ArithmeticPostAggregator.java": [
+          9,
+          0
+        ]
+      },
+      "tests": {
+        "FAIL_TO_PASS": [
+          "org.apache.druid.query.aggregation.post.ArithmeticPostAggregatorTest#testPow"
+        ],
+        "PASS_TO_PASS": [
+          "org.apache.druid.query.aggregation.post.ArithmeticPostAggregatorTest#testDiv",
+          "org.apache.druid.query.aggregation.post.ArithmeticPostAggregatorTest#testQuotient"
+        ]
+      },
+      "baselineVerified": false,
+      "importVerified": false,
+      "zeroByteExport": null,
+      "referenceReplayTree": null,
+      "controls": {
+        "noop": {
+          "result": "未执行"
+        },
+        "oracle": {
+          "result": "未执行"
+        }
+      },
+      "evidenceSha256": {
+        "baseline/apache__druid-13704.json": "33e1e0979b53421ffd4944a7501a8c89e4996c832e37fc30f819df95319f95e0",
+        "images/apache__druid-13704.json": "c76f406e3fd074da44a88ac34816e58c5bda629aa3276939049765c58acf092c",
+        "baseline/apache__druid-13704-entry.json": "fcf009a17363b91ad899418a0ad5b578befeb871ca29c8360fb3ef750fb65d7c",
+        "checks/apache__druid-13704/import.json": "db55a2082eb4c37a2994d2261546c0527b817811f7520860bb31b0028b8c846c",
+        "checks/apache__druid-13704/controls.json": "9ae471334b4ff440ac205bba661bcd862d1c42898b53e67a0daba0393f1f5f67"
+      },
+      "decision": "暂缓",
+      "reason": "固定提交含符号链接 publications/whitepaper/modii658-yang.bib（模式 120000）。基线流程先行阻断。现有 3072 MiB 环境未实测该仓库的 Maven 编译耗时或内存峰值，无法据此判定 OOM。",
+      "behavior": "在算术后聚合器中加入 pow，并更新文档。参考补丁两处文件合计 11 行增删，构建仓库的规模不代表这项功能复杂。",
+      "testCoverage": "目标 testPow 检查 4 的平方根，以及零、NaN 等底数的零次幂；两个回归项为除法和商。官方镜像用 JDK 11，预热 processing 及前置模块时把资源包的 SNAPSHOT 版本改为发行版。",
+      "baselineBlocker": "unsupported link, submodule or unmerged path: publications/whitepaper/modii658-yang.bib",
+      "developmentEvidence": "dev.json",
+      "officialTaskDirectory": "official/tasks/apache__druid-13704"
+    }
+  },
+  "futureTrialConfiguration": {
+    "protocol": "responses",
+    "choice": {
+      "provider": "openai",
+      "model": "gpt-6.2-sol",
+      "effort": "high"
+    },
+    "requestLimit": 96,
+    "agentSeconds": 2700,
+    "cpu": 2,
+    "memoryMiB": 3072,
+    "pids": 768,
+    "concurrency": 1,
+    "images": {
+      "edge": "sha256:a4a84443ad5ef2ce996d0d50888aca5a5bf6bcb448b926aefb0055092e2e6265",
+      "gateway": "sha256:7f8bea9289c8b4e28d13479a514f25c9785b1f4cfcc46d46866646c221c2a91c",
+      "development": "sha256:cd2449ad5dda6d37a53fa77e9b899299e2a5247b300d24a8808cfd4af2957c92",
+      "egress": "sha256:fe4b957db918ee69d5f9f05df3b121b345a70513ebe18a43c7309c0eb826891f"
+    }
+  },
+  "historicalEvidenceSha256": "8b337810e0bdb2e7310c75119302faa21a1a7382355a3d24d2da4b904754a7d6",
+  "recommendedNewTrials": [
+    "prometheus__prometheus-10720",
+    "vuejs__core-11739",
+    "google__gson-2024",
+    "caddyserver__caddy-4774",
+    "preactjs__preact-3689",
+    "javaparser__javaparser-4561",
+    "prometheus__prometheus-11859",
+    "caddyserver__caddy-5870"
+  ],
+  "storage": {
+    "before": {
+      "freeE": 26949619712,
+      "vhdBytes": 55906926592
+    },
+    "after": {
+      "freeE": 23024193536,
+      "vhdBytes": 59665022976
+    },
+    "newImages": 4,
+    "compressedLayerBytesConfirmedDownloaded": 967000509,
+    "downloadedLayerCount": 28,
+    "evidenceDirectoryLogicalBytes": 138249121
+  },
+  "developerProbeSha256": {
+    "dev.json": "d6a2972c2fe9fbfa0695d4405261da3cd8707de667b82cf46063fdaeea0bff5e",
+    "dev/apt-index.log": "91f9bcf4daf6f0fe63d271e5acd17cbdf3a49a0137f6107b6f3106f49f6d35c7",
+    "dev/apt-packages.log": "8df81ac71d2c3a7f7e6305fd2933ddf14296ae0c266d8e824a29292cdb66c563",
+    "dev/tools.log": "47fdd3802c8fe44f38ad4c83bb3e17277bf107f83dd59c6e3af5385ac3bec9b5"
+  },
+  "independentScalarProbe": {
+    "scalar.json": "486cb3a280ceda4db664f832f8a6c888cabddf873bdb8559a79a17677285c115",
+    "scalar.log": "cb919d71b79a6edfe274c27b61532a16b5990d12230fb9cd1e06906823aeaea9",
+    "scalar_test.go": "cd1292ccaeded6e1bf28c9e10990081f7703959df9d41447b9f9b4a212e297ec"
+  }
+}
