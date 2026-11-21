@@ -105,7 +105,8 @@ enum ProviderFamily {
         }
         return switch (this) {
             case OPENAI -> switch (model) {
-                case "gpt-6-astra", "gpt-6.1-sol" -> List.of("default", "low", "medium", "high", "xhigh", "max");
+                case "gpt-6-astra", "gpt-6.1-sol", "gpt-6.2-sol" ->
+                        List.of("default", "low", "medium", "high", "xhigh", "max");
                 case "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra" ->
                         List.of("default", "off", "low", "medium", "high", "xhigh", "max");
                 default -> model.matches("gpt-5\\.4(-mini|-nano)?(-[0-9-]+)?")

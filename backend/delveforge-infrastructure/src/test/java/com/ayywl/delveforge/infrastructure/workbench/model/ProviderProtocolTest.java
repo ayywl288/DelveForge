@@ -386,11 +386,21 @@ class ProviderProtocolTest {
     @ParameterizedTest
     @EnumSource(ProviderFamily.class)
     void roundTripsNativeProposalsAndReceiptsWithoutExecutingTools(ProviderFamily family) throws Exception {
+        verifyToolRoundTrip(family, choice(family));
+    }
+
+    @Test
+    void sol62HighRoundTripsThroughResponses() throws Exception {
+        verifyToolRoundTrip(ProviderFamily.OPENAI, new Choice("openai", "gpt-6.2-sol", "high"));
+        assertTrue(requests.stream().allMatch(request -> "gpt-6.2-sol".equals(request.path("model").asText())));
+    }
+
+    private void verifyToolRoundTrip(ProviderFamily family, Choice selected) throws Exception {
         responses.add(reply(family, true));
         responses.add(reply(family, false));
         var history = new ArrayList<AgentProtocol.Message>();
         history.add(AgentProtocol.Message.text("user", "read"));
-        var first = adapter(family).call(history, ConversationContext.TOOLS);
+        var first = adapter(family, selected).call(history, ConversationContext.TOOLS);
         assertEquals(1, requests.size());
         assertEquals(1, first.calls().size());
         var call = first.calls().getFirst();
@@ -401,7 +411,7 @@ class ProviderProtocolTest {
         var saved = JSON.readValue(JSON.writeValueAsBytes(first.stored()), AgentProtocol.StoredMessage.class);
         history.add(new AgentProtocol.Message("assistant", first.text(), first.calls(), null, null, null, saved));
         history.add(new AgentProtocol.Message("tool", "{\"result\":\"receipt-evidence\"}", List.of(), call.id(), call.name()));
-        assertEquals("OK", adapter(family).call(history, ConversationContext.TOOLS).text());
+        assertEquals("OK", adapter(family, selected).call(history, ConversationContext.TOOLS).text());
         var request = requests.getFirst();
         String back = requests.get(1).toString();
         assertTrue(auth.stream().allMatch(h -> h.contains("test-account")));
@@ -410,7 +420,7 @@ class ProviderProtocolTest {
         switch (family) {
             case OPENAI -> {
                 assertTrue(paths.getFirst().endsWith("/responses"));
-                assertEquals("xhigh", request.at("/reasoning/effort").asText());
+                assertEquals(selected.effort(), request.at("/reasoning/effort").asText());
                 assertFalse(request.path("store").asBoolean());
                 assertTrue(back.contains("private-encrypted"));
             }

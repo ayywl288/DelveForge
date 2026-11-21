@@ -1,6 +1,11 @@
 {
   "openai": {
     "models": {
+      "gpt-6.2-sol": {
+        "id": "gpt-6.2-sol", "name": "GPT-6.2 Sol", "reasoning": true, "tool_call": true,
+        "modalities": {"input": ["text", "image"], "output": ["text"]},
+        "limit": {"context": 1050000, "input": 922000, "output": 128000}
+      },
       "gpt-5.4-nano": {
         "id": "gpt-5.4-nano", "name": "GPT-5.4 nano", "reasoning": true, "tool_call": true,
         "last_updated": "2026-03-17", "modalities": {"input": ["text", "image"], "output": ["text"]},

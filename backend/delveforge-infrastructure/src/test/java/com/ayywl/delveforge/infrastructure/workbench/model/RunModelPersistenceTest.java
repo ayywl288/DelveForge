@@ -306,6 +306,12 @@ class RunModelPersistenceTest {
     }
 
     @Test
+    void sol62OffersDocumentedResponsesEfforts() {
+        assertEquals(List.of("default", "low", "medium", "high", "xhigh", "max"),
+                ProviderFamily.OPENAI.efforts("gpt-6.2-sol", true));
+    }
+
+    @Test
     void versionSevenRunAndReasoningContinueWithTheHistoricalDeepSeekBinding() {
         migrate("7");
         var old = new SqliteWorkbench(database(), json);
