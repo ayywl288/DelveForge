@@ -1,0 +1,9 @@
+# freeze_config 对文件原始字节取摘要，检出时须保留评测使用的换行。
+*.py text eol=lf
+*.acl text eol=lf
+*.ps1 text eol=lf
+*.Dockerfile text eol=lf
+artifacts.py -text !eol diff whitespace=trailing-space,space-before-tab,cr-at-eol
+tests/test_runner.py text eol=crlf
+suite.json -text diff whitespace=trailing-space,space-before-tab,cr-at-eol
+baseline/suite-config.json -text diff whitespace=trailing-space,space-before-tab,cr-at-eol

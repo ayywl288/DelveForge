@@ -1,0 +1,42 @@
+{
+  "google__gson-1014": {
+    "repo": "google/gson",
+    "base": "7719e73a108c450666613c279bedaed724cd9cc9",
+    "image": "swebench/sweb.eval.x86_64.google_1776_gson-1014@sha256:9b55799af8b572ea3ff853a5b4528e9a4b8564beeeb9bd99da5ec307ab8e2083"
+  },
+  "google__gson-2479": {
+    "repo": "google/gson",
+    "base": "4dfae77af3d543bea2782f85a154cc070290f086",
+    "image": "swebench/sweb.eval.x86_64.google_1776_gson-2479@sha256:fc905632c9e56c19301e040e75bb3dc7f3c59909db8cf7e84a20a6aa77f38026"
+  },
+  "javaparser__javaparser-4538": {
+    "repo": "javaparser/javaparser",
+    "base": "e0eb16b8870fc05c03ab794e502dd76f97422e26",
+    "image": "swebench/sweb.eval.x86_64.javaparser_1776_javaparser-4538@sha256:37d85cc76ce129dba03baf573d9f47088e6d46a493d959fb35a41897484d379e"
+  },
+  "gin-gonic__gin-2755": {
+    "repo": "gin-gonic/gin",
+    "base": "f2bbdfe9f26d84cb994f381050692a9e4553bf75",
+    "image": "swebench/sweb.eval.x86_64.gin-gonic_1776_gin-2755@sha256:c4da4a91c6336e5a7406222530615afe1268f6ff2417ed56bd0f5297a1e0f495"
+  },
+  "gin-gonic__gin-1957": {
+    "repo": "gin-gonic/gin",
+    "base": "09a3650c97ca7ef3a542d428a9fb2c8da8c18002",
+    "image": "swebench/sweb.eval.x86_64.gin-gonic_1776_gin-1957@sha256:671921304db07266fdfea9a5e402048549eb2cf0c8e51191c824e1749c5a287a"
+  },
+  "axios__axios-4738": {
+    "repo": "axios/axios",
+    "base": "9bb016f95e6de871a44f3276fd06562704a0abb0",
+    "image": "swebench/sweb.eval.x86_64.axios_1776_axios-4738@sha256:a2557e15af289209adf8c6840dd9dfc626be1a41d1ea2d159de1ad309834d3ae"
+  },
+  "axios__axios-5316": {
+    "repo": "axios/axios",
+    "base": "65e8d1e28ce829f47a837e45129730e541950d3c",
+    "image": "swebench/sweb.eval.x86_64.axios_1776_axios-5316@sha256:b686aa31f73b27c131cbd59532cde0b86294652db438b50f2b4691734bbdfd19"
+  },
+  "vuejs__core-11915": {
+    "repo": "vuejs/core",
+    "base": "d0b513eb463f580e29378e43d112ff6859aa366e",
+    "image": "swebench/sweb.eval.x86_64.vuejs_1776_core-11915@sha256:4d538cf2f8081b36052959797d9a90d2795879474c81b388d0b9898aa17b8cd8"
+  }
+}

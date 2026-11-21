@@ -1,0 +1,3 @@
+acl eval_download dstdomain archive.ubuntu.com security.ubuntu.com repo.maven.apache.org registry.npmjs.org proxy.golang.org sum.golang.org go.dev dl.google.com
+http_access allow eval_download
+http_access deny all

@@ -1,0 +1,38 @@
+{
+  "agent": {
+    "commit": "f2c54db220f3673d20973bdf56978cc7925927f1",
+    "productDiffSha256": "e0a9f80c29cc58b78374d237c7baf176787b9660193382f2f73d8a8e73d570fa",
+    "jarSha256": "02806076c2d8cc443df2d6e45c10d41865d4a225e8f021cfe089c07f92806fcc"
+  },
+  "choice": {
+    "provider": "openai",
+    "model": "gpt-6.2-sol",
+    "effort": "high"
+  },
+  "protocol": "responses",
+  "modelInfo": {
+    "model": {
+      "adapter": "OpenAI",
+      "endpoint": "https://api.openai.com",
+      "requestedModel": "gpt-6.2-sol",
+      "thinking": "high"
+    },
+    "contextWindowTokens": 987536,
+    "responseTokens": 65536
+  },
+  "harnessSha256": "bd826fdd0417c98eae7d27beec2213e8c1b367f26bb6a4268cc770da64c50e7b",
+  "graderImage": "sha256:2dbe31865ca6083e9823992bbf2e2f37b57baaf207abf18991e4ec09947fe7b0",
+  "contextThreshold": 0.9,
+  "requestLimit": 96,
+  "agentSeconds": 2700,
+  "cpu": 2,
+  "memoryMiB": 3072,
+  "pids": 768,
+  "concurrency": 1,
+  "images": {
+    "edge": "sha256:a4a84443ad5ef2ce996d0d50888aca5a5bf6bcb448b926aefb0055092e2e6265",
+    "gateway": "sha256:7f8bea9289c8b4e28d13479a514f25c9785b1f4cfcc46d46866646c221c2a91c",
+    "development": "sha256:cd2449ad5dda6d37a53fa77e9b899299e2a5247b300d24a8808cfd4af2957c92",
+    "egress": "sha256:fe4b957db918ee69d5f9f05df3b121b345a70513ebe18a43c7309c0eb826891f"
+  }
+}
