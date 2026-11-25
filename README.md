@@ -2,9 +2,9 @@
 
 DelveForge 是一款运行在 Windows 本机的 Coding Agent 工作台。导入已有项目或从空项目开始，Agent 可以在工作副本中修改代码、运行命令和测试，你也可以在本机打开实际运行的应用来验收。
 
-[![DelveForge 14 秒演示：Agent 修改代码、完成浏览器验证，随后在本机预览中录入一笔支出](https://delveforge-media.pages.dev/media/delveforge/readme-demo-v2.gif)](https://ayywl.ayywl2828.workers.dev/delveforge/)
+[![DelveForge 14 秒演示：Agent 修改代码、完成浏览器验证，随后在本机预览中录入一笔支出](https://ayywl.top/media/delveforge/readme-demo-v2.gif)](https://ayywl.top/delveforge/)
 
-[产品主页 · 看完整演示](https://ayywl.ayywl2828.workers.dev/delveforge/) · [快速开始](#在本机启动) · [架构设计](docs/ARCHITECTURE.md)
+[产品主页 · 看完整演示](https://ayywl.top/delveforge/) · [快速开始](#在本机启动) · [架构设计](docs/ARCHITECTURE.md)
 
 ## 在本机启动
 
